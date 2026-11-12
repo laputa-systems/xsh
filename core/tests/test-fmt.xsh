@@ -41,6 +41,7 @@ test test_fmt_avoids_false_sentence_breaks_and_sentence_widows { |ctx|
   assert balanced == "One short sentence.\nA slightly longer sentence\nfollows the first sentence.\n"
 }
 
+# origin: gnu fmt/long-line.log
 test test_fmt_split_only_handles_a_paragraph_longer_than_one_buffer { |ctx|
   # 1015 words is past GNU's 998-word buffer, so the paragraph is laid out in two flushes.
   var text = " y"

@@ -1,4 +1,5 @@
 use support.uu
+use lib.text_a2 as text
 
 const BUFFER = 262144
 const UTF8 = "fr_FR.UTF-8"
@@ -84,8 +85,10 @@ proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str]) 
   let r = uu.invoke(s, "fold", args + [name], vars: {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, timeout: 600s)?
   uu.succeeds(r)
   uu.no_stderr(r)
-  let line_count = r.stdout.utf8()?.split("\n").len() - 1
+  let output = r.stdout.utf8()?
+  let line_count = output.split("\n").len() - 1
   assert line_count == (if args.is_empty() { 0 } else { BUFFER * 2 / 80 })
+  assert bytes.from_text(output.replace("\n", with: "")) == data
 }
 
 # origin: gnu fold/fold-zero-width.log
@@ -101,12 +104,12 @@ test test_gnu_fold_zero_width_nul_characters_log { |ctx|
 
 test test_gnu_fold_zero_width_unicode_columns_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "inp", bytes.from_text(["​" for n in range(BUFFER * 2)].join("")), [])
+  zero_width_file(ctx, "inp", bytes.from_text(text.padding(BUFFER * 2, "​")), [])
 }
 
 test test_gnu_fold_zero_width_unicode_characters_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "inp", bytes.from_text(["​" for n in range(BUFFER * 2)].join("")), ["--characters"])
+  zero_width_file(ctx, "inp", bytes.from_text(text.padding(BUFFER * 2, "​")), ["--characters"])
 }
 
 proc fold_argv(s: uu.Scene, script: Path, args: List[Path], vars: Record) [fs, error] -> Result[List[Path], Error] {

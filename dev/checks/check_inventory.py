@@ -137,6 +137,8 @@ def native_tests(util: str, impl: str | None) -> str | None:
     invoked: tuple[int, str] | None = None
     for path in sorted((CORE / "tests").glob("test-*.xsh")):
         source = path.read_text(errors="replace")
+        if util not in source:
+            continue
         hits = len(word.findall(source))
         if invokes_native_command(util, source) and (
             invoked is None or hits > invoked[0]

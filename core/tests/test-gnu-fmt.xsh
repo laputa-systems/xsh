@@ -1,16 +1,5 @@
 use support.uu
 
-# origin: gnu fmt/long-line.log
-test test_gnu_fmt_long_line_log { |ctx|
-  let s = uu.scene(ctx)?
-  uu.write(s, "in", [" y" for _ in range(1015)].join("") + "\n")
-  let line = [" y" for _ in range(35)].join("") + "\n"
-  let expected = [line for _ in range(29)].join("")
-  let r = uu.invoke(s, "fmt", ["-s", "in"])?
-  uu.succeeds(r)
-  uu.stdout_is(r, expected)
-}
-
 # origin: gnu fmt/non-space.log
 test test_gnu_fmt_non_space_log { |ctx|
   let s = uu.scene(ctx)?
