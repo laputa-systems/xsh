@@ -109,6 +109,7 @@ out of scope.
 - **Fix with:** lifecycle-concurrency
 - **Effort:** M
 - **Design:** [XSH-89 design](docs/rfc/XSH-89-backup-quiescence-recovery.md)
+- **Findings (2026-11-13):** The owner accepted the timer-supervisor design. Implementation needs two mechanisms first: xinit must check control ownership atomically when it applies a request (it currently replaces a per-service inbox file and applies verbs unconditionally, so a read-then-start recovery races operator commands), and the timer supervisor must persist the snapshot writer's identity so a restarted supervisor can prove the writer stopped before releasing services. Two worker attempts stopped there without changes.
 
 ### XSH-90 · P2 · Make immutable repository publication atomic
 
