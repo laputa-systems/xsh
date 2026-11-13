@@ -41,6 +41,32 @@ theorem check_iff (world : World Declaration Identity Source) (decisions : Decis
   letI := decideHasType world decisions type candidate
   exact decide_eq_true_iff
 
+def allocate (world : World Declaration Identity Source) (decisions : Decisions world)
+    (store : State world) (cell : CellId) (mutability : Mutability)
+    (type : ValueType Declaration) (candidate : Value Declaration Identity Source) : Option (State world) :=
+  allocateCell (decideHasType world decisions) store cell mutability type candidate
+
+theorem allocate_accepted_iff (world : World Declaration Identity Source) (decisions : Decisions world)
+    (store : State world) (cell : CellId) (mutability : Mutability)
+    (type : ValueType Declaration) (candidate : Value Declaration Identity Source) :
+    (∃ next, allocate world decisions store cell mutability type candidate = some next) ↔
+      store cell = none ∧ candidate.ReferencesValid world.references ∧
+        Membership.value world.membership type candidate := by
+  simpa only [allocate, HasType, and_assoc] using
+    Xsh.Semantics.Environments.allocate_accepted_iff (decideHasType world decisions)
+      store cell mutability type candidate
+
+theorem allocate_rejects_unretained_reference
+    (world : World Declaration Identity Source) (decisions : Decisions world)
+    (store : State world) (cell : CellId) (mutability : Mutability)
+    (type : ValueType Declaration) (candidate : Value Declaration Identity Source)
+    (reference : AnyReference Identity) (presentReference : reference ∈ candidate.references)
+    (unretained : ¬ world.references reference) :
+    allocate world decisions store cell mutability type candidate = none := by
+  apply Xsh.Semantics.Environments.allocate_rejects_nonmember
+  intro valid
+  exact unretained (valid.1 reference presentReference)
+
 def write (world : World Declaration Identity Source) (decisions : Decisions world)
     (store : State world) (cell : CellId) (candidate : Value Declaration Identity Source) :
     StoreWriteResult (State world) :=

@@ -48,7 +48,7 @@ theorem bound_parameters_agree (activation : Nat) (binders : List BinderId)
         have fresh : store ⟨activation, binder⟩ = none := by
           cases occupied : store ⟨activation, binder⟩ with
           | none => rfl
-          | some entry => simp [allocate, occupied] at allocated
+          | some entry => simp [allocate, allocateCell, occupied] at allocated
         obtain ⟨constructed, current, built, present, mutable, cellType, cellValue⟩ :=
           allocate_fresh_typed_cell store ⟨activation, binder⟩ .immutable value ty fresh valueTyped
         rw [allocated] at built

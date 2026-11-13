@@ -186,6 +186,117 @@ private def StoreCell.replaceContents {TypeTag Value : Type}
 abbrev TypedStore (TypeTag Value : Type) (hasType : TypeTag → Value → Prop) :=
   CellId → Option (StoreCell TypeTag Value hasType)
 
+def allocateCell {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cell : CellId)
+    (mutability : Mutability) (typeTag : TypeTag) (value : Value) :
+    Option (TypedStore TypeTag Value hasType) :=
+  match store cell with
+  | some _ => none
+  | none =>
+    match decideHasType typeTag value with
+    | .isTrue typed =>
+      some (replaceAt store cell (some ⟨⟨typeTag, value, typed⟩, mutability⟩))
+    | .isFalse _ => none
+
+theorem allocate_fresh_typed_cell {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cell : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) (fresh : store cell = none) (typed : hasType typeTag value) :
+    ∃ next current, allocateCell decision store cell mutability typeTag value = some next ∧
+      next cell = some current ∧ current.mutability = mutability ∧
+      current.contents.typeTag = typeTag ∧ current.contents.value = value := by
+  cases h : decision typeTag value with
+  | isTrue member =>
+    refine ⟨replaceAt store cell (some ⟨⟨typeTag, value, member⟩, mutability⟩), ⟨⟨typeTag, value, member⟩, mutability⟩, ?_, ?_, rfl, rfl, rfl⟩
+    · simp [allocateCell, fresh, h]
+    · simp [replaceAt]
+  | isFalse rejected => exact False.elim (rejected typed)
+
+theorem allocate_accepted_iff {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cell : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) :
+    (∃ next, allocateCell decision store cell mutability typeTag value = some next) ↔
+      store cell = none ∧ hasType typeTag value := by
+  constructor
+  · rintro ⟨next, allocated⟩
+    cases occupied : store cell with
+    | some current => simp [allocateCell, occupied] at allocated
+    | none =>
+      refine ⟨rfl, ?_⟩
+      cases h : decision typeTag value with
+      | isTrue typed => exact typed
+      | isFalse rejected => simp [allocateCell, occupied, h] at allocated
+  · rintro ⟨fresh, typed⟩
+    obtain ⟨next, _, allocated, _⟩ := allocate_fresh_typed_cell decision store cell mutability typeTag value fresh typed
+    exact ⟨next, allocated⟩
+
+theorem allocate_rejects_occupied {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cell : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) (current : StoreCell TypeTag Value hasType)
+    (occupied : store cell = some current) : allocateCell decision store cell mutability typeTag value = none := by
+  simp [allocateCell, occupied]
+
+theorem allocate_rejects_nonmember {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store : TypedStore TypeTag Value hasType) (cell : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) (notMember : ¬ hasType typeTag value) :
+    allocateCell decision store cell mutability typeTag value = none := by
+  cases occupied : store cell with
+  | some current => simp [allocateCell, occupied]
+  | none =>
+    cases h : decision typeTag value with
+    | isTrue typed => exact False.elim (notMember typed)
+    | isFalse rejected => simp [allocateCell, occupied, h]
+
+theorem allocate_preserves_unrelated_cells {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store next : TypedStore TypeTag Value hasType) (cell other : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) (different : other ≠ cell)
+    (allocated : allocateCell decision store cell mutability typeTag value = some next) :
+    next other = store other := by
+  cases occupied : store cell with
+  | some current => simp [allocateCell, occupied] at allocated
+  | none =>
+    cases h : decision typeTag value with
+    | isTrue typed =>
+      simp [allocateCell, occupied, h] at allocated
+      subst next
+      simp [replaceAt, different]
+    | isFalse rejected => simp [allocateCell, occupied, h] at allocated
+
+theorem allocate_preserves_existing {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store next : TypedStore TypeTag Value hasType) (cell other : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value) (current : StoreCell TypeTag Value hasType)
+    (present : store other = some current)
+    (allocated : allocateCell decision store cell mutability typeTag value = some next) :
+    next other = some current := by
+  have fresh := ((allocate_accepted_iff decision store cell mutability typeTag value).mp ⟨next, allocated⟩).1
+  have different : other ≠ cell := by
+    intro same
+    subst other
+    rw [present] at fresh
+    cases fresh
+  rw [allocate_preserves_unrelated_cells decision store next cell other mutability typeTag value different allocated, present]
+
+theorem allocate_accepted_at_cell {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
+    (decision : (typeTag : TypeTag) → (candidate : Value) → Decidable (hasType typeTag candidate))
+    (store next : TypedStore TypeTag Value hasType) (cell : CellId) (mutability : Mutability)
+    (typeTag : TypeTag) (value : Value)
+    (allocated : allocateCell decision store cell mutability typeTag value = some next) :
+    ∃ current, next cell = some current ∧ current.mutability = mutability ∧
+      current.contents.typeTag = typeTag ∧ current.contents.value = value := by
+  obtain ⟨fresh, typed⟩ := (allocate_accepted_iff decision store cell mutability typeTag value).mp ⟨next, allocated⟩
+  obtain ⟨other, current, accepted, atCell, mutabilityEq, tag, val⟩ :=
+    allocate_fresh_typed_cell decision store cell mutability typeTag value fresh typed
+  have same : other = next := Option.some.inj (accepted.symm.trans allocated)
+  subst other
+  exact ⟨current, atCell, mutabilityEq, tag, val⟩
+
 def readCaptured {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
     (captures : CapturedEnvironment) (store : TypedStore TypeTag Value hasType)
     (binder : BinderId) : Option (StoreCell TypeTag Value hasType) :=

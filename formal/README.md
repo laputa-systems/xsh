@@ -85,6 +85,18 @@ This is not a proof of reference ownership, liveness, heap closure, contract
 authentication, type admissibility, machine integration or Rust conformance.
 Those obligations remain open. BASE-ENV and TYPE-MEMBER remain planned.
 
+Allocation now uses one generic typed-cell operation in
+[`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
+connected execution machine and shared-value store consume it. General laws
+characterize acceptance, reject occupied cells and nonmembers, preserve every
+existing cell, and retain the exact new value, type and mutability. Connected
+binding, parameter and callable-store preservation proofs reuse these laws.
+The shared adapter also rejects any unretained carried reference at allocation.
+The connected machine still has its restricted value and membership domains;
+this mechanism migration does not establish their correspondence with shared
+membership. Type admissibility, valid worlds and complete syntax and execution
+remain open, as do BASE-ENV and TYPE-MEMBER.
+
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from
