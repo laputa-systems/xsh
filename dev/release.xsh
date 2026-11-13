@@ -4,9 +4,9 @@ use stage as stages
 use targets
 use verify
 
-## Returns the exact SHA-256 sidecar content using the repository-relative artifact path.
-export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result[Str, Error] {
-  f"""{hash.sha256(artifact_path)?.hex()}  {artifact_path.relative_to(root)}
+## Returns the exact SHA-256 sidecar content using the sibling artifact name.
+export proc checksum_line(artifact_path: Path) [fs, error] -> Result[Str, Error] {
+  f"""{hash.sha256(artifact_path)?.hex()}  {artifact_path.name}
 """
 }
 
@@ -26,7 +26,7 @@ export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error
     let source = fp"{ctx.target_dir}/{ctx.target.triple}/dist/{product}"
     let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
     fs.install(source, artifact, 0o755, parents: true, overwrite: true)
-    fp"{artifact}.sha256".write(checksum_line(artifact, ctx.root)?)
+    fp"{artifact}.sha256".write(checksum_line(artifact)?)
   }
 }
 
@@ -211,7 +211,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     )
   }
 
-  fp"{ctx.artifact_dir}/core-{tag}.sha256".write(checksum_line(core_archive, ctx.root)?)
+  fp"{ctx.artifact_dir}/core-{tag}.sha256".write(checksum_line(core_archive)?)
 }
 
 ## Validates the full nine-product release artifact set and checksum sidecars.
@@ -254,7 +254,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           )
         }
 
-        if checksum.read_text()? != checksum_line(artifact, ctx.root)? {
+        if checksum.read_text()? != checksum_line(artifact)? {
           return Err(
             stages.StageError.Failed(
               stage: "release-validate",

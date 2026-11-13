@@ -298,7 +298,7 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   assert fp"{extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
 """
   assert ! fp"{extracted}/core/tests/ignored".exists()?
-  assert """  dist/core-fixture.tar.xz
+  assert """  core-fixture.tar.xz
 """ in fp"{root}/dist/core-fixture.sha256".read_text()?
 }
 
@@ -434,13 +434,13 @@ test test_core_archive_contains_current_system_report { |ctx|
   assert fp"{extracted}/core/lib/system_report.xsh".exists()?
 }
 
-test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
+test test_release_checksum_sidecars_keep_a_sibling_artifact_name { |ctx|
   let root = test.temp_dir(ctx, name: "release-checksum")?
   let artifact = fp"{root}/dist/xsh-release-x86_64-linux-musl"
   artifact.parent().mkdir()
   artifact.write("release artifact")
-  let checksum = releases.checksum_line(artifact, root)?
-  assert """  dist/xsh-release-x86_64-linux-musl
+  let checksum = releases.checksum_line(artifact)?
+  assert """  xsh-release-x86_64-linux-musl
 """ in checksum, checksum
 }
 
@@ -461,7 +461,7 @@ test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
     for product in target_policy.products {
       let artifact = fp"{artifact_dir}/{product}-{tag}-{suffix}"
       artifact.write("release artifact", mode: 0o755)
-      fp"{artifact}.sha256".write(releases.checksum_line(artifact, root)?)
+      fp"{artifact}.sha256".write(releases.checksum_line(artifact)?)
     }
   }
 
