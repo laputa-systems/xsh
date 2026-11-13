@@ -202,7 +202,7 @@ test test_version_unknown_commands_and_misplaced_arguments { |ctx|
   let module_env = {XSH_MODULE_PATH: ctx.core_dir}
   let version = test.expect(ctx, source, status: 0, args: ["--version"], env: module_env)?
   assert version.stdout == "iw version 6.17\n"
-  for argv in [["foo"], ["--bogus"], ["reg"], ["reg", "get", "extra"], ["list", "extra"], ["dev", "wlan0"], ["dev", "info"], ["wlan0", "info"]] {
+  for argv in [["foo"], ["--bogus"], ["reg"], ["reg", "get", "extra"], ["list", "extra"], ["dev", "wlan0"], ["dev", "info"]] {
     let usage = test.expect(ctx, source, status: 1, args: argv, env: module_env, stdout: ["Usage:\tiw [options] command\n"])?
     assert usage.stderr == ""
   }
@@ -359,6 +359,8 @@ test test_dev_info_resolves_the_name_and_unknown_names_fail_like_iw { |ctx|
   assert implicit.success and implicit.stdout == info.stdout, implicit.stderr
   let bad_word = run_iw(ctx, "dev-bad-word", lines, ["dev", "wlan0", "bogus"])?
   assert bad_word.status == 1 and bad_word.stdout.starts_with("Usage:\tiw [options] command\n")
+  let unresolved = run_iw(ctx, "implicit-unknown", lines, ["wlan9", "info"])?
+  assert unresolved.status == 1 and unresolved.stdout.starts_with("Usage:\tiw [options] command\n") and unresolved.stderr == "", unresolved.stderr
 }
 
 proc phy_messages() [error] -> Result[List[Record], Error] {

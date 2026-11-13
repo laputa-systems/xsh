@@ -291,6 +291,10 @@ test test_ping_rejects_bad_values_with_the_iputils_wording { |ctx|
     assert ran.stderr == case.stderr, f"{case.args.join(" ")}: {ran.stderr}"
     assert ran.stdout == "", f"{case.args.join(" ")}: {ran.stdout}"
   }
+}
+
+test test_ping_reports_a_rejected_unicast_ttl { |ctx|
+  need_icmp("inet")?
   let ttl = ping(ctx, ["-t", "0", "-c", "1", "127.0.0.1"])?
   assert ttl.status == 2
   assert ttl.stderr == "ping: cannot set unicast time-to-live: Invalid argument\n", ttl.stderr
