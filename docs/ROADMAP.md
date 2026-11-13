@@ -79,6 +79,11 @@ a blanket arithmetic or effect-system rewrite.
 
 ### Pilot 1A: structural membership
 
+The first finite Rust/Lean comparison covers structural membership; its domain
+and limits are recorded in [formal/README.md](../formal/README.md). This is
+implementation evidence, not universal refinement. TYPE-MEMBER and the 77
+whole-core obligations remain planned.
+
 Specify the admitted value views and closed, non-recovery type constructors
 before changing code. Start with structural families already represented in
 both implementations. State exact acceptance, rejection, and unsupported cases,
