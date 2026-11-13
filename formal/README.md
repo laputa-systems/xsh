@@ -78,6 +78,18 @@ This finite comparison is separate from the frozen conformance ledger. General
 source binding, inference integration and execution correspondence remain open.
 These component proofs close no universal obligation.
 
+[`Core/DeadlinePolicy.lean`](Xsh/Core/DeadlinePolicy.lean) specifies deadline
+policy over arbitrary finite lists, supplied natural monotonic ticks, and
+generic identities and metadata. Its combined contract proves eligible,
+earliest selection with outermost tie breaking; delivery marks only the chosen
+scope. It specifies append, closing every matching identity, finishing the first
+match, rearming, and cleanup shielding and restoration. Duplicate identities
+are admitted. The nine model controls and six rejected semantic mutations
+exercise these distinctions. The production clock, representation conversion,
+checked deadline addition, identity allocation, checkpoints, error construction
+and resource execution remain outside this model. Production extraction and
+Rust correspondence remain open; CTRL-DEADLINE stays planned.
+
 Shared type terms now carry an effect-parameter scope separately from type
 variables. Callable policies retain symbolic effect bounds and keep pure,
 procedure and producer kinds distinct. Type substitution preserves that scope;

@@ -128,7 +128,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 1032
+**State:** `formal/coverage.json` is the only inventory. It lists 1033
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. The source and IR links cover their admitted domains;
 Rust, OS and clock correspondence remain separate boundaries. All 77 universal

@@ -13035,6 +13035,15 @@
       "status": "fragment",
       "scope": "A redundant symbolic coefficient gives unresolved structural equality while the two known expressions agree under every assignment.",
       "boundary": "Counterexample to interpreting unresolved equality as semantic disagreement. It establishes no source extraction or Rust conformance and closes no whole-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.DeadlinePolicy.policy_contract",
+      "module": "Xsh.Core.DeadlinePolicy",
+      "declaration": "Xsh.Core.DeadlinePolicy.policy_contract",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Deadline selection and policy updates over arbitrary finite scope lists, generic identities and metadata, and supplied natural monotonic ticks, including duplicate identities. Selection is eligible, earliest by deadline and outermost on ties; delivery, close, first-match finish, rearming and cleanup shielding retain their stated data.",
+      "boundary": "A model policy contract, not source or runtime correspondence. Clock observations and conversion, Instant checked addition, scope-ID allocation, checkpoint coverage, resource execution, error construction and absent-ID fallback remain open. Production extraction is unchanged and CTRL-DEADLINE remains planned."
     }
   ],
   "artifact_certificates": [
