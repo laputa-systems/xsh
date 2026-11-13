@@ -527,6 +527,8 @@ selects `aarch64-unknown-linux-musl`, including on macOS. Their Cargo target
 root is `target/linux-test` by default. When `CARGO_TARGET_DIR` is set, they
 use its `linux-test` subdirectory, separate from host build products. The
 `xsh-cargo-registry` volume remains shared.
+Linux verification from a linked worktree mounts the shared Git directory
+read-only so repository checks can resolve the worktree's Git metadata.
 
 `date --set` and the ignored BTRFS reflink test change host-like kernel state.
 Run them only in a disposable QEMU TCG guest with no network or host devices.

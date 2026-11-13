@@ -295,14 +295,15 @@ proc internal_command(
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
   let available_link_tools = host_link_tools(ctx)?
   var common_git = null
-  if operation in ["gate-lane", "gate-full"] {
+  let git_entry = fp"{ctx.root}/.git"
+  if gate_operation(operation) or (linux_test_operation(operation) and git_entry.exists()? and git_entry.is_file()?) {
     cd (ctx.root) {
       let output = run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --common-dir
       common_git = fp"{output.trim()}"
     }
   }
   var shared_lease_dir = null
-  if common_git != null {
+  if gate_operation(operation) and common_git != null {
     let lease_dir = fp"{common_git.parent()}/.work/consolidation/infra"
     lease_dir.mkdir(parents: true)?
     shared_lease_dir = lease_dir
