@@ -69,8 +69,13 @@ a redundant coefficient witnesses unresolved equality despite all-assignment
 agreement. Unknown contracts retain their separate policy cases. Predicate
 exclusion uses inverse permission coverage, including explicit error masks;
 lexical-guard admissibility remains independent. Model controls exercise all
-decisions and outcomes, symbolic `io` masks and error capture. Source binding,
-Rust comparison, inference integration and execution correspondence remain open.
+decisions and outcomes, symbolic `io` masks and error capture. The manual
+production comparison covers all closed-mask pairs, all single-parameter mask
+pairs and selected multi-parameter cases in a seventeen-parameter scope. Its
+133,888 rows exercise all three outcomes of every predicate. The Rust consumer
+constructs production contracts and calls `EffectPredicate::satisfaction`.
+This finite comparison is separate from the frozen conformance ledger. General
+source binding, inference integration and execution correspondence remain open.
 These component proofs close no universal obligation.
 
 Shared type terms now carry an effect-parameter scope separately from type
@@ -220,6 +225,28 @@ inventory:
 python3 formal/scripts/check-inventory.py
 python3 formal/tests/inventory/test_check_inventory.py
 ```
+
+After building the model, generate the effect decision corpus from the
+repository root:
+
+```sh
+LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
+  lean --run formal/scripts/EffectPredicateCases.lean > "$TMPDIR/effect-predicate-cases.txt"
+```
+
+Run the manual production comparison in the pinned Linux test container, with
+the target and linker environment from [Testing](../docs/TESTING.md). Set the
+corpus path to its location inside that container:
+
+```sh
+XSH_EFFECT_PREDICATE_CASES="$TMPDIR/effect-predicate-cases.txt" \
+  cargo test --locked --profile verification --target x86_64-unknown-linux-musl \
+  -p xsh --lib sema::effects::effect_predicate_conformance::production_matches_lean_effect_predicates \
+  -- --ignored --exact
+```
+
+The test rejects incomplete closed-mask coverage, malformed rows and a changed
+expected result. Ordinary Rust tests do not require Lean or the corpus.
 
 From `formal/`, run the [project axiom audit](scripts/audit-axioms.sh), its
 self-test, and the [fresh paranoid check](scripts/check-fresh.py):

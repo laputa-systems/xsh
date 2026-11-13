@@ -505,3 +505,7 @@ mod tests {
         assert_eq!(CallableEffects::finite([]).concrete(), Ok(Some(Vec::new())));
     }
 }
+
+#[cfg(test)]
+#[path = "effect_predicate_conformance.rs"]
+mod effect_predicate_conformance;

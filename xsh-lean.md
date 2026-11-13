@@ -128,7 +128,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 1011
+**State:** `formal/coverage.json` is the only inventory. It lists 1032
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. The source and IR links cover their admitted domains;
 Rust, OS and clock correspondence remain separate boundaries. All 77 universal
@@ -185,9 +185,13 @@ inclusion and coverage agree with all-assignment judgments; rejected known
 comparisons have counterexamples. Exclusion separates universal acceptance,
 universal rejection and varying assignments. Equality acceptance is sound,
 while a redundant coefficient witnesses unresolved equality despite universal
-semantic agreement. Unknown-contract policy remains explicit. Source binding,
-Rust comparison, inference and execution integration remain open. These
-component proofs close no whole-core obligation.
+semantic agreement. Unknown-contract policy remains explicit. A separate manual
+comparison passes 133,888 finite cases against production Rust decisions,
+including every closed-mask pair and single-parameter mask pair. Selected
+multi-parameter cases use a seventeen-parameter scope. Six altered corpora are
+rejected. This current-source comparison does not change the frozen conformance
+ledger. General source binding, inference and execution integration remain open.
+These component proofs close no whole-core obligation.
 
 `Xsh.Core.Membership` now defines membership across the represented value-type
 families, including environment-path list views, module exports and nominal
