@@ -99,11 +99,7 @@ def withGlobals (locals globals : ActiveCells) : ActiveCells := fun binder =>
   (locals binder).orElse fun _ => globals binder
 
 def allocate (store : Store) (cell : CellId) (mutability : Mutability) (ty : RuntimeType) (value : Value) : Option Store :=
-  if (store cell).isSome then none else
-    if typed : HasType ty value then
-      let entry : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, typed⟩, mutability⟩
-      some (fun other => if other = cell then some entry else store other)
-    else none
+  allocateCell (fun _ _ => inferInstance) store cell mutability ty value
 
 def read (store : Store) (cells : ActiveCells) (binder : BinderId) : Option Value := do
   let cell ← cells binder
@@ -583,10 +579,7 @@ theorem allocate_fresh_typed_cell (store : Store) (cell : CellId) (mutability : 
     ∃ next current, allocate store cell mutability ty value = some next ∧
       next cell = some current ∧ current.mutability = mutability ∧
       current.contents.typeTag = ty ∧ current.contents.value = value := by
-  let current : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, typed⟩, mutability⟩
-  let next : Store := fun other => if other = cell then some current else store other
-  refine ⟨next, current, ?_, ?_, rfl, rfl, rfl⟩
-  · simp [allocate, fresh, typed, next, current]
-  · simp [next]
+  exact Xsh.Semantics.Environments.allocate_fresh_typed_cell (fun _ _ => inferInstance)
+    store cell mutability ty value fresh typed
 
 end Xsh.Semantics.Connected

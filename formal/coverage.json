@@ -12918,6 +12918,87 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_fresh_typed_cell",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_fresh_typed_cell",
+      "scope": "For arbitrary typed-cell domains, a fresh cell and an admitted candidate produce a store retaining the requested type, mutability and exact value.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_accepted_iff",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_accepted_iff",
+      "scope": "Allocation in any typed-cell domain succeeds exactly when the cell is absent and the candidate satisfies its declared membership judgment.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_rejects_occupied",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_rejects_occupied",
+      "scope": "Allocation rejects an occupied cell without producing a replacement store, for every typed-cell domain.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_rejects_nonmember",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_rejects_nonmember",
+      "scope": "Allocation rejects a candidate outside its declared membership judgment in every typed-cell domain.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_preserves_unrelated_cells",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_preserves_unrelated_cells",
+      "scope": "Every accepted typed-cell allocation preserves all cells other than its allocation target.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_preserves_existing",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_preserves_existing",
+      "scope": "Every accepted typed-cell allocation preserves every previously present cell with its complete contents and mutability.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.allocate_accepted_at_cell",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.allocate_accepted_at_cell",
+      "scope": "Every accepted typed-cell allocation places the requested type, value and mutability at its target cell.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.allocate_accepted_iff",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.allocate_accepted_iff",
+      "scope": "Allocation over the complete shared value domain succeeds exactly for an absent cell, retained carried references and structural membership in the declared type.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.allocate_rejects_unretained_reference",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.allocate_rejects_unretained_reference",
+      "scope": "Any unretained carried reference rejects shared-value allocation for every type, value, store and target cell.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
     }
   ],
   "artifact_certificates": [

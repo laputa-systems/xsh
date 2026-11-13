@@ -14,15 +14,8 @@ inductive ParameterValuesTyped : List BinderId → List Value → RuntimeType �
 theorem allocate_other_cell (store next : Store) (cell other : CellId) (kind : Mutability)
     (ty : RuntimeType) (value : Value) (different : other ≠ cell) (allocated : allocate store cell kind ty value = some next) :
     next other = store other := by
-  unfold allocate at allocated
-  cases occupied : store cell with
-  | some entry => simp [occupied] at allocated
-  | none =>
-    simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
-    split at allocated
-    · cases allocated
-      simp [different]
-    · cases allocated
+  exact allocate_preserves_unrelated_cells (fun _ _ => inferInstance)
+    store next cell other kind ty value different allocated
 
 theorem bound_parameter_cell_is_listed (activation : Nat) (binders : List BinderId)
     (values : List Value) (types : RuntimeType) (store next : Store) (cells : ActiveCells)

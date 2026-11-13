@@ -9,23 +9,17 @@ theorem allocate_preserves_store_callables (functions : FunctionTable) (store ne
     (cell : CellId) (mutability : Mutability) (ty : RuntimeType) (value : Value)
     (prior : StoreCallables functions store) (safe : ValueCallables functions value)
     (allocated : allocate store cell mutability ty value = some next) : StoreCallables functions next := by
-  unfold allocate at allocated
-  cases occupied : store cell with
-  | some entry => simp [occupied] at allocated
-  | none =>
-    simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
-    split at allocated
-    · rename_i typed
-      cases allocated
-      intro other entry present
-      by_cases same : other = cell
-      · subst other
-        simp at present
-        cases present
-        exact safe
-      · simp [same] at present
-        exact prior other entry present
-    · cases allocated
+  obtain ⟨current, atCell, _, _, valueEq⟩ :=
+    allocate_accepted_at_cell (fun _ _ => inferInstance) store next cell mutability ty value allocated
+  intro other entry present
+  by_cases same : other = cell
+  · subst other
+    rw [atCell] at present
+    cases present
+    simpa [valueEq] using safe
+  · rw [allocate_other_cell store next cell other mutability ty value same allocated] at present
+    exact prior other entry present
+
 
 theorem write_preserves_store_callables (functions : FunctionTable) (store next : Store)
     (cell : CellId) (value : Value) (prior : StoreCallables functions store)

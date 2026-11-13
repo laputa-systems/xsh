@@ -408,12 +408,8 @@ theorem compatible_typed_machine_binding_commit (globals : Scope) (storage : Bin
       | bind compatible closed valid ordinary scopeFresh binderFresh restTyped restFresh =>
         rename_i name raw
         have storageTyped : HasType storageType value := by
-          unfold allocate at allocated
-          split at allocated
-          · cases allocated
-          · split at allocated
-            · assumption
-            · cases allocated
+          exact ((Xsh.Semantics.Environments.allocate_accepted_iff (fun _ _ => inferInstance)
+            base.store ⟨base.activation, binder⟩ (if kind = .mutable then .mutable else .immutable) storageType value).mp ⟨next, allocated⟩).2
         have newPending := compatible_binding_commit_preserves_pending base binder kind value storageType rest next allocated pending
         have ordinaryValue := mono_typed_value_is_ordinary value _ storageType closed storageTyped
         obtain ⟨scopeAgrees, writable, schemasAgree, schemes, storageAgree⟩ := active

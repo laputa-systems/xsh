@@ -26,18 +26,9 @@ theorem allocate_preserves_layout (store next : Store) (cell : CellId)
     (mutability : Mutability) (ty : RuntimeType) (value : Value) (allocated : allocate store cell mutability ty value = some next) :
     StoreEvolves store next := by
   intro other old present
-  by_cases same : other = cell
-  · subst other
-    simp [allocate, present] at allocated
-  · unfold allocate at allocated
-    cases occupied : store cell with
-    | some entry => simp [occupied] at allocated
-    | none =>
-      simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
-      split at allocated
-      · cases allocated
-        exact ⟨old, by simp [same, present], rfl, rfl⟩
-      · cases allocated
+  have retained := Xsh.Semantics.Environments.allocate_preserves_existing
+    (fun _ _ => inferInstance) store next cell other mutability ty value old present allocated
+  exact ⟨old, retained, rfl, rfl⟩
 
 
 def StoreExtends (before after : Store) : Prop :=
@@ -47,18 +38,8 @@ theorem allocate_preserves_existing (store next : Store) (cell : CellId)
     (mutability : Mutability) (ty : RuntimeType) (value : Value) (allocated : allocate store cell mutability ty value = some next) :
     StoreExtends store next := by
   intro other old present
-  by_cases same : other = cell
-  · subst other
-    simp [allocate, present] at allocated
-  · unfold allocate at allocated
-    cases occupied : store cell with
-    | some entry => simp [occupied] at allocated
-    | none =>
-      simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
-      split at allocated
-      · cases allocated
-        simp [same, present]
-      · cases allocated
+  exact Xsh.Semantics.Environments.allocate_preserves_existing
+    (fun _ _ => inferInstance) store next cell other mutability ty value old present allocated
 
 theorem store_extends_trans {first middle last : Store}
     (left : StoreExtends first middle) (right : StoreExtends middle last) : StoreExtends first last := by
