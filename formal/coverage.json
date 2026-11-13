@@ -13043,7 +13043,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Deadline selection and policy updates over arbitrary finite scope lists, generic identities and metadata, and supplied natural monotonic ticks, including duplicate identities. Selection is eligible, earliest by deadline and outermost on ties; delivery, close, first-match finish, rearming and cleanup shielding retain their stated data.",
-      "boundary": "A model policy contract, not source or runtime correspondence. Clock observations and conversion, Instant checked addition, scope-ID allocation, checkpoint coverage, resource execution, error construction and absent-ID fallback remain open. Production extraction is unchanged and CTRL-DEADLINE remains planned."
+      "boundary": "The supplied-time production selector has a separate finite comparison against choose: all 2925 inputs with zero to three scopes, ticks zero through three, delivered flags, and observation ticks zero through four. This is not universal Rust refinement or a frozen-ledger conformance claim. Other policy updates remain model-only; clock observations and conversion, Instant checked addition, scope-ID allocation, checkpoint coverage, resource execution, error construction and absent-ID fallback remain open. CTRL-DEADLINE remains planned."
     }
   ],
   "artifact_certificates": [

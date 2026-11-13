@@ -85,10 +85,18 @@ earliest selection with outermost tie breaking; delivery marks only the chosen
 scope. It specifies append, closing every matching identity, finishing the first
 match, rearming, and cleanup shielding and restoration. Duplicate identities
 are admitted. The nine model controls and six rejected semantic mutations
-exercise these distinctions. The production clock, representation conversion,
-checked deadline addition, identity allocation, checkpoints, error construction
-and resource execution remain outside this model. Production extraction and
-Rust correspondence remain open; CTRL-DEADLINE stays planned.
+exercise these distinctions. The production selector now receives borrowed
+deadlines and an explicit `Instant`; its evaluator adapter obtains the clock
+observation. A separate finite comparison calls that exact Rust function and
+Lean's `choose` on all 2,925 inputs with zero to three scopes, ticks zero through
+three, both delivery flags, and observation ticks zero through four. The Rust
+inputs embed ticks as nanoseconds after one common epoch and retain duplicate
+identities. Strict decoding and unique-input accounting reject unsupported,
+missing or repeated cases. This is implementation evidence for that finite
+domain, separate from the frozen conformance ledger. Other policy updates,
+universal Rust refinement, clock conversion, checked deadline addition, identity
+allocation, checkpoints, error construction and resource execution remain open.
+CTRL-DEADLINE stays planned.
 
 Shared type terms now carry an effect-parameter scope separately from type
 variables. Callable policies retain symbolic effect bounds and keep pure,
@@ -259,6 +267,22 @@ XSH_EFFECT_PREDICATE_CASES="$TMPDIR/effect-predicate-cases.txt" \
 
 The test rejects incomplete closed-mask coverage, malformed rows and a changed
 expected result. Ordinary Rust tests do not require Lean or the corpus.
+
+Generate and compare the deadline-selection corpus in the same environment:
+
+```sh
+LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
+  lean --run formal/scripts/DeadlinePolicyCases.lean > "$TMPDIR/deadline-policy-cases.txt"
+XSH_DEADLINE_POLICY_CASES="$TMPDIR/deadline-policy-cases.txt" \
+  cargo test --locked --profile verification --target x86_64-unknown-linux-musl \
+  -p xsh --lib runtime::eval::deadline_policy_conformance::production_matches_lean_deadline_policy \
+  -- --ignored --exact
+```
+
+The deadline comparison requires every admitted input exactly once. Nine
+altered corpora reject with the expected diagnostics, including a wrong decision,
+a missing input, duplicates, and invalid or unsupported fields. Ordinary Rust
+tests require neither Lean nor these generated corpora.
 
 From `formal/`, run the [project axiom audit](scripts/audit-axioms.sh), its
 self-test, and the [fresh paranoid check](scripts/check-fresh.py):

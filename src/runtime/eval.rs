@@ -3127,6 +3127,18 @@ pub(super) struct WithinDeadline {
     delivered: bool,
 }
 
+fn choose_due_within_deadline(deadlines: &[WithinDeadline], now: Instant) -> Option<usize> {
+    deadlines
+        .iter()
+        .enumerate()
+        .filter(|(_, deadline)| !deadline.delivered && now >= deadline.at)
+        .min_by_key(|(index, deadline)| (deadline.at, *index))
+        .map(|(index, _)| index)
+}
+
+#[cfg(test)]
+mod deadline_policy_conformance;
+
 /// A suspended producer's evaluator context is reattached only while it runs.
 #[derive(Clone)]
 pub(crate) struct ScopedProducerContext {
@@ -4032,12 +4044,7 @@ impl Evaluator {
             return None;
         }
         let now = Instant::now();
-        self.within_deadlines
-            .iter()
-            .enumerate()
-            .filter(|(_, deadline)| !deadline.delivered && now >= deadline.at)
-            .min_by_key(|(index, deadline)| (deadline.at, *index))
-            .map(|(index, _)| index)
+        choose_due_within_deadline(&self.within_deadlines, now)
     }
 
     /// Called where code runs with no failure unwinding: an interruption that
