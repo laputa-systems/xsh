@@ -113,15 +113,16 @@ pub(crate) fn scan_filesystem(
         .map_err(|error| RuntimeError::host("fs-scan", &error).with_span(span))?;
     let mut seen = HashSet::new();
     seen.insert((root_metadata.dev(), root_metadata.ino()));
+    let (entries, error) = sorted_names(entries.map(|entry| entry.map(|entry| entry.file_name())));
     let root = PendingDirectory {
         path: root,
         relative: Vec::new(),
         index: 0,
         parent: -1,
-        entries: sorted_names(entries),
-        incomplete: false,
+        entries,
+        incomplete: error.is_some(),
         omitted: false,
-        error: None,
+        error,
     };
     Ok(StreamValue::from_live(
         "fs.scan",
@@ -138,13 +139,21 @@ pub(crate) fn scan_filesystem(
     ))
 }
 
-fn sorted_names(entries: std::fs::ReadDir) -> std::vec::IntoIter<OsString> {
-    let mut names = entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name())
-        .collect::<Vec<_>>();
+fn sorted_names(entries: impl IntoIterator<Item = std::io::Result<OsString>>) -> (std::vec::IntoIter<OsString>, Option<String>) {
+    let mut names = Vec::new();
+    let mut error = None;
+    for entry in entries {
+        match entry {
+            Ok(name) => names.push(name),
+            Err(cause) => {
+                if error.is_none() {
+                    error = Some(cause.to_string());
+                }
+            }
+        }
+    }
     names.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
-    names.into_iter()
+    (names.into_iter(), error)
 }
 
 fn state_record(
@@ -302,16 +311,19 @@ fn descend_into(
     parent: usize,
 ) -> PendingDirectory {
     match std::fs::read_dir(&path) {
-        Ok(entries) => PendingDirectory {
-            path,
-            relative,
-            index,
-            parent: i64::try_from(parent).unwrap_or(i64::MAX),
-            entries: sorted_names(entries),
-            incomplete: false,
-            omitted: false,
-            error: None,
-        },
+        Ok(entries) => {
+            let (entries, error) = sorted_names(entries.map(|entry| entry.map(|entry| entry.file_name())));
+            PendingDirectory {
+                path,
+                relative,
+                index,
+                parent: i64::try_from(parent).unwrap_or(i64::MAX),
+                entries,
+                incomplete: error.is_some(),
+                omitted: false,
+                error,
+            }
+        }
         Err(error) => PendingDirectory {
             path,
             relative,
@@ -362,6 +374,9 @@ impl LiveStream for ScanStream {
                 if directory.incomplete || directory.error.is_some() || directory.omitted {
                     if let Some(parent) = self.stack.last_mut() {
                         parent.incomplete = true;
+                        if parent.error.is_none() {
+                            parent.error = directory.error.clone();
+                        }
                     }
                 }
                 return done_record(&directory).map(Some);
@@ -413,6 +428,58 @@ impl LiveStream for ScanStream {
                 self.stack.push(directory);
             }
             return Ok(Some(record));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    #[test]
+    fn iteration_failure_preserves_children_and_closes_ancestors() {
+        for failed in [true, false] {
+            let temp = tempfile::tempdir().unwrap();
+            let nested = temp.path().join("a/b");
+            std::fs::create_dir_all(&nested).unwrap();
+            std::fs::write(nested.join("z"), b"z").unwrap();
+            std::fs::write(nested.join("a"), b"a").unwrap();
+            let mut input = vec![Ok(OsString::from("z"))];
+            if failed {
+                input.push(Err(std::io::Error::from_raw_os_error(libc::EIO)));
+            }
+            input.push(Ok(OsString::from("a")));
+            let (entries, error) = sorted_names(input);
+            let directory = |path: PathBuf, index, parent, entries, error: Option<String>| PendingDirectory {
+                path, relative: Vec::new(), index, parent, entries,
+                incomplete: error.is_some(), omitted: false, error,
+            };
+            let mut stream = ScanStream {
+                stack: vec![
+                    directory(temp.path().to_path_buf(), 0, -1, Vec::new().into_iter(), None),
+                    directory(temp.path().join("a"), 1, 0, Vec::new().into_iter(), None),
+                    directory(nested, 2, 1, entries, error),
+                ],
+                seen: HashSet::new(), exclusions: ExclusionSet::new(&[]).unwrap(),
+                root_device: 0, one_file_system: false, next_index: 3,
+                root_entry_emitted: true, finished: false,
+            };
+            let span = Span::new(SourceId::new(0), 0, 0);
+            let mut records = Vec::new();
+            while let Some(Value::Record(record)) = stream.next(span).unwrap() {
+                records.push(record);
+            }
+            assert_eq!(records.len(), 5);
+            assert_eq!(records[0].get("name"), Some(&Value::Bytes(b"a".to_vec())));
+            assert_eq!(records[1].get("name"), Some(&Value::Bytes(b"z".to_vec())));
+            let expected_error = std::io::Error::from_raw_os_error(libc::EIO).to_string();
+            for (record, index) in records[2..].iter().zip([2, 1, 0]) {
+                assert_eq!(record.get("index"), Some(&Value::Int(index)));
+                assert_eq!(record.get("done"), Some(&Value::Bool(true)));
+                assert_eq!(record.get("state"), Some(&Value::Str(Arc::from(if failed { "incomplete" } else { "complete" }))));
+                assert_eq!(record.get("error"), Some(&if failed { Value::Str(Arc::from(expected_error.as_str())) } else { Value::Null }));
+            }
         }
     }
 }
