@@ -6,6 +6,7 @@ use super::syntax::{
 
 fn literal_descriptor(descriptor: &str) -> ShellWord {
     ShellWord {
+        source_end: 0,
         parts: vec![ShellWordPart::Text {
             text: descriptor.to_string(),
             expand: false,
@@ -90,6 +91,13 @@ impl<'a> ShellParser<'a> {
                     self.index += 1;
                     words.push(word);
                 }
+                ShellToken::Redir(RedirectionKind::StdinClose) => {
+                    self.index += 1;
+                    redirections.push(Redirection {
+                        kind: RedirectionKind::StdinClose,
+                        target: literal_descriptor("-"),
+                    });
+                }
                 ShellToken::Redir(kind) if kind.is_dup() => {
                     self.index += 1;
                     let descriptor = if kind == RedirectionKind::StdoutToStderr {
@@ -126,6 +134,29 @@ impl<'a> ShellParser<'a> {
                 words,
                 redirections,
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_stdin_is_a_foreground_self_contained_redirection() {
+        for source in ["cat 0<&-", "cat <&-", "cat 0<&- <input", "cat <input 0<&-"] {
+            let parsed = ShellParser::new(source).parse_line().expect("parse stdin close");
+            assert!(!parsed.background);
+            assert_eq!(parsed.chains.len(), 1);
+            let command = &parsed.chains[0].pipeline.commands[0];
+            assert_eq!(command.words.len(), 1);
+            assert_eq!(command.words[0].text(), "cat");
+            assert_eq!(command.redirections.iter().filter(|item| item.kind == RedirectionKind::StdinClose).count(), 1);
+        }
+        let parsed = ShellParser::new("cat 0<input").parse_line().expect("parse explicit stdin");
+        assert_eq!(parsed.chains[0].pipeline.commands[0].redirections[0].kind, RedirectionKind::Stdin);
+        for source in ["cat 0<&", "cat 0<&-oops", "cat <&1"] {
+            assert!(ShellParser::new(source).parse_line().is_err(), "{source}");
         }
     }
 }

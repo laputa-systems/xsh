@@ -45,6 +45,7 @@ pub(crate) struct Redirection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RedirectionKind {
     Stdin,
+    StdinClose,
     StdoutWrite,
     StdoutAppend,
     StderrWrite,
@@ -78,6 +79,7 @@ pub(crate) enum ShellToken {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ShellWord {
+    pub(crate) source_end: usize,
     pub(crate) parts: Vec<ShellWordPart>,
 }
 

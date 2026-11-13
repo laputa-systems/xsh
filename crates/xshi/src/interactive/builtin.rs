@@ -301,7 +301,7 @@ pub(super) fn locate_command(
 
 /// POSIX names the reference shell's engine reserves but the interactive
 /// policy refuses, so PATH lookup never exposes them.
-fn is_refused_builtin(name: &str) -> bool {
+pub(super) fn is_refused_builtin(name: &str) -> bool {
     matches!(
         name,
         "return"

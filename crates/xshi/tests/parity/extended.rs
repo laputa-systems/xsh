@@ -553,6 +553,8 @@ parity!(
 parity!(
     completion_of_ssh_hosts_from_config_and_known_hosts,
     Fixture::new()
+        .executable(".tools/scp", "#!/bin/sh\nexit 0\n")
+        .env("PATH", "{HOME}/.tools:/usr/bin:/bin:/usr/sbin:/sbin")
         .file(".ssh/config", "Host alpha-box beta-box\n  HostName 10.0.0.1\nHost *.wild\nHost gamma\n")
         .file(".ssh/known_hosts", "alpha-known,192.0.2.1 ssh-ed25519 AAAA\ndelta.example.com ssh-rsa BBBB\n|1|hashed ssh-rsa CCCC\n"),
     |sh: &mut Live| {

@@ -44,10 +44,18 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
             }
             '<' => {
                 chars.next();
+                tokens.push(ShellToken::Redir(read_stdin_redirection(&mut chars)?));
+            }
+            '0' => {
+                let save = chars.clone();
+                chars.next();
                 if chars.peek().is_some_and(|(_, ch)| *ch == '<') {
-                    return Err("here-docs are not implemented in this build".to_string());
+                    chars.next();
+                    tokens.push(ShellToken::Redir(read_stdin_redirection(&mut chars)?));
+                } else {
+                    chars = save;
+                    tokens.push(ShellToken::Word(read_word(&mut chars, source.len())?));
                 }
-                tokens.push(ShellToken::Redir(RedirectionKind::Stdin));
             }
             '>' => {
                 chars.next();
@@ -108,7 +116,7 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                     }
                 } else {
                     chars = save;
-                    tokens.push(ShellToken::Word(read_word(&mut chars)?));
+                    tokens.push(ShellToken::Word(read_word(&mut chars, source.len())?));
                 }
             }
             '#' => {
@@ -119,14 +127,33 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                     }
                 }
             }
-            _ => tokens.push(ShellToken::Word(read_word(&mut chars)?)),
+            _ => tokens.push(ShellToken::Word(read_word(&mut chars, source.len())?)),
         }
     }
     Ok(tokens)
 }
 
+fn read_stdin_redirection(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> Result<RedirectionKind, String> {
+    if chars.peek().is_some_and(|(_, ch)| *ch == '<') {
+        return Err("here-docs are not implemented in this build".to_owned());
+    }
+    if chars.peek().is_some_and(|(_, ch)| *ch == '&') {
+        chars.next();
+        if chars.next().is_some_and(|(_, ch)| ch == '-')
+            && chars.peek().is_none_or(|(_, ch)| ch.is_whitespace() || matches!(ch, ';' | '|' | '<' | '>' | '&'))
+        {
+            return Ok(RedirectionKind::StdinClose);
+        }
+        return Err("only <&- is supported for stdin descriptor redirection".to_owned());
+    }
+    Ok(RedirectionKind::Stdin)
+}
+
 fn read_word(
     chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    source_len: usize,
 ) -> Result<ShellWord, String> {
     let mut parts = Vec::new();
     let mut unquoted = String::new();
@@ -256,7 +283,8 @@ fn read_word(
         }
     }
     push_shell_text(&mut parts, &mut unquoted, true, true);
-    Ok(ShellWord { parts })
+    let source_end = chars.peek().map_or(source_len, |(offset, _)| *offset);
+    Ok(ShellWord { parts, source_end })
 }
 
 fn push_shell_text(parts: &mut Vec<ShellWordPart>, text: &mut String, expand: bool, glob: bool) {

@@ -1,9 +1,56 @@
 # RFC: xshi ↔ ish catch-up inventory
 
-Status: planning draft. Base revision `ff5726f6c4f84c34c5e7eb5ccb0d79cc9234f73c`.
-Reference shell: `/home/josh/d/ish` at `6d73dd8aedf87119374ca70c1fcb36ab52cac8f5`
-(2026-11-09). Contract: [SPEC-INTERACTIVE](../SPEC-INTERACTIVE.md).
-No code is changed by this document.
+Status: historical inventory with a current implementation record below.
+The canonical reference is `/home/josh/d/ish` at `c30a151`.
+The original inventory used `6d73dd8aedf87119374ca70c1fcb36ab52cac8f5`
+against XSH base `ff5726f6c4f84c34c5e7eb5ccb0d79cc9234f73c` on 2026-11-09.
+Contract: [SPEC-INTERACTIVE](../SPEC-INTERACTIVE.md).
+
+## Resumption on 2026-11-12
+
+The implementation closes the handoff's remaining Linux differences:
+
+- `command` dispatches through wrappers and describes supported commands.
+  Reserved builtins remain unavailable through lookup or expanded targets.
+- Expanded reserved targets are refused before redirections. Nested substitutions
+  propagate policy refusals without interpreting diagnostic text.
+- `test` and `[` evaluate expressions in the session directory without PATH lookup.
+- PATH executables take precedence over implicit directory changes.
+- Directory history parses quoted targets and quotes absolute replay paths.
+- `printf` follows the reference builtin's escapes. In particular, `\200`
+  stays literal, while `\0200` emits an octal byte. The prompt scenario uses
+  the former. Raw byte shell words and substitutions remain deferred.
+- Closing stdin uses a child descriptor close without changing the parent.
+- fdu reads one byte at a time, leaving command typeahead in the terminal
+  after quit. Its burst scenario waits for the returned prompt as ish does.
+
+The parity driver normalizes shell branding before reflowing ASCII diagnostic
+rows. It preserves the diagnostic text, row count, cursor and styles.
+The goldens remain recorded from ish. The added
+`fdu_quit_preserves_command_typeahead` scenario checks a command queued after
+quit in the same write. Linux x86_64 verification passes all 305 unit tests
+and all 353 parity and harness tests, with four test threads. A live ish drift
+check passes all 13 affected scenarios in the same image. The fdu typeahead
+regression fails against the previous 256-byte read and passes with one-byte
+reads.
+
+The signal-disposition golden was refreshed from ish, because the pinned image's
+`grep` reports `SigIgn: 0000000200000000` standalone and through either shell.
+The full ignored and caught masks remain compared. Other existing goldens are
+unchanged. The SSH completion fixture supplies `scp` independently of the image.
+Completion dump comparison packs private arena offsets while retaining entry
+order, lengths, widths, flags and timestamps.
+
+Recording provenance:
+
+- Image: `xsh-test:latest`, ID
+  `sha256:2d6f716aada6a0161fbf11d9b1a53c16fbc7747ab95c1e339c6aefdc07a56911`.
+- ish source: `c30a151d6fd1a305a5ac362d21145e327bd639b3`.
+- ish executable SHA-256:
+  `5b495cc6bd1b421a36b880d58cdc1487696e4d6464ffeb69c7b032ecf9d6f5f0`.
+
+macOS goldens, raw path bytes and capture-PTY job cases remain owner-deferred.
+The inventories and slice plans below describe their original snapshot.
 
 ## 0. Provenance and method
 

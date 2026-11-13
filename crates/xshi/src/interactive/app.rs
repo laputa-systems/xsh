@@ -1,5 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
+#[path = "test_command.rs"]
+mod test_command;
+
 use super::alias::{self, AliasMap};
 use super::builtin;
 use super::config::{load_config, load_config_path, load_profile};
@@ -98,6 +101,7 @@ pub(super) struct CommandOutput {
     stderr: Vec<u8>,
     process_status: Option<ProcessStatus>,
     history_source: Option<String>,
+    policy_refused: bool,
 }
 
 impl CommandOutput {
@@ -116,6 +120,7 @@ impl CancellationPolicy for InteractiveNoCancellation {
 
 #[derive(Clone, Debug)]
 pub(super) struct ExpansionError {
+    policy_refused: bool,
     status: i32,
     message: String,
 }
@@ -129,13 +134,19 @@ impl ExpansionError {
         Self {
             status: 2,
             message: message.into(),
+            policy_refused: false,
         }
+    }
+
+    fn policy(message: impl Into<String>) -> Self {
+        Self { status: 2, message: message.into(), policy_refused: true }
     }
 
     pub(super) fn status(status: i32, message: impl Into<String>) -> Self {
         Self {
             status,
             message: message.into(),
+            policy_refused: false,
         }
     }
 }
@@ -271,6 +282,7 @@ fn is_whole_line_builtin(name: &str) -> bool {
     matches!(
         name,
         "alias"
+            | "fdu"
             | "copy-scrollback"
             | "denv"
             | "exit"
@@ -303,10 +315,6 @@ const BACKGROUND_JOBS_REFUSED: &str = "background jobs (`&`) are not supported";
 const PARAMETER_OPERATORS_REFUSED: &str =
     "`${...}` parameter operators are not supported; use `$NAME`";
 const MAX_REFUSAL_DEPTH: usize = 16;
-const UNSUPPORTED_BUILTINS: &[&str] = &[
-    "readonly", "shift", "eval", ".", "source", "read", "local", "exec", "wait", "trap", "umask",
-    "getopts", "return", "break", "continue",
-];
 const PARENT_PROCESS_COMMANDS: &[&str] = &["cp", "mv", "rsync", "l", "ll", "c", "history"];
 const PARENT_PROCESS_REFUSAL: &str =
     "requires the original shell process and cannot run in a forked context";
@@ -470,7 +478,7 @@ fn nested_command_refusal(words: &[ShellWord]) -> Option<String> {
         if matches!(name.as_str(), "-v" | "-V") {
             return None;
         }
-        if UNSUPPORTED_BUILTINS.contains(&name.as_str()) {
+        if builtin::is_refused_builtin(&name) {
             return Some(format!("`{name}` is not supported"));
         }
         if is_whole_line_builtin(name) {
@@ -503,7 +511,7 @@ fn command_rejection(command: &SimpleCommand, whole_line: bool, depth: usize) ->
         return Some("function definitions are not supported".to_string());
     }
     if let Some(name) = command.words.get(leading).and_then(static_word_text) {
-        if UNSUPPORTED_BUILTINS.contains(&name.as_str()) {
+        if builtin::is_refused_builtin(&name) {
             return Some(format!("`{name}` is not supported"));
         }
         if name == "set" {
@@ -619,7 +627,7 @@ fn handle_submitted_line(
     let line = if xsh_source {
         line.to_string()
     } else {
-        maybe_rewrite_cd(line, &session.aliases, &home)
+        maybe_rewrite_cd(line, &session.aliases, &home, session.env.get(b"PATH".as_slice()).map_or(&[][..], Vec::as_slice))
     };
 
     // Aliases are expanded before recording so `g status` is stored as the
@@ -643,7 +651,7 @@ fn handle_submitted_line(
 
     let plan_line = expand_line_aliases(session, &line);
     if let Some(rejection) = plan_rejection(&plan_line) {
-        let _ = stderr.write_all(wrapped_diagnostic(&format!("xshi: {rejection}")).as_bytes());
+        let _ = stderr.write_all(format!("xshi: {rejection}\n").as_bytes());
         let _ = stderr.flush();
         session.last_status = 2;
         session.dollar_status = 2;
@@ -740,34 +748,11 @@ fn handle_submitted_line(
 fn is_intercepted_line(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     match first {
-        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "cd" | "rmrf" => {
+        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "cd" | "rmrf" | "fdu" => {
             is_simple_word_line(line)
         }
         _ => false,
     }
-}
-
-/// Wraps a diagnostic at the terminal width on word boundaries, so the
-/// wrapped rows are the ones the reference shell's terminal produces without
-/// leaving a space at the start of a continuation row.
-fn wrapped_diagnostic(text: &str) -> String {
-    let cols = usize::from(super::term::term_size().1).max(1);
-    let mut out = String::with_capacity(text.len() + 1);
-    let mut column = 0_usize;
-    for word in text.split(' ') {
-        let width = word.chars().count();
-        if column > 0 && column + 1 + width > cols {
-            out.push('\n');
-            column = 0;
-        } else if column > 0 {
-            out.push(' ');
-            column += 1;
-        }
-        out.push_str(word);
-        column += width;
-    }
-    out.push('\n');
-    out
 }
 
 /// `cd [DIR]`, `cd -`: reports failures as `xshi: cd: ...` with status 1.
@@ -965,7 +950,7 @@ pub(super) fn change_directory(session: &mut Session, target: &str) -> i32 {
 /// Rewrites shorthand cd forms: `..` stays, `...` becomes `cd ../..`, and so
 /// on; a single word naming a directory (and not an alias, builtin, or
 /// executable) becomes `cd <word>`.
-fn maybe_rewrite_cd(line: &str, aliases: &AliasMap, home: &str) -> String {
+fn maybe_rewrite_cd(line: &str, aliases: &AliasMap, home: &str, path_env: &[u8]) -> String {
     let trimmed = line.trim();
     let Ok(tokens) = lex_shell(trimmed) else {
         return line.to_string();
@@ -1004,7 +989,7 @@ fn maybe_rewrite_cd(line: &str, aliases: &AliasMap, home: &str) -> String {
 
     // Implicit cd: a single word that is a directory and not a builtin,
     // alias, or executable.
-    if words.len() != 1 || builtin::is_builtin(&first_text) || aliases.get(&first_text).is_some() {
+    if words.len() != 1 || builtin::is_builtin(&first_text) || builtin::is_refused_builtin(&first_text) || aliases.get(&first_text).is_some() {
         return line.to_string();
     }
     let expanded = if let Some(rest) = first_text.strip_prefix('~') {
@@ -1013,7 +998,8 @@ fn maybe_rewrite_cd(line: &str, aliases: &AliasMap, home: &str) -> String {
         first_text
     };
     let path = Path::new(&expanded);
-    if path.is_dir() && !is_executable_file(path) {
+    if path.is_dir() && !is_executable_file(path)
+        && (expanded.contains('/') || super::path::scan_path(&expanded, path_env).is_none()) {
         return format!("cd {trimmed}");
     }
     line.to_string()
@@ -1022,37 +1008,22 @@ fn maybe_rewrite_cd(line: &str, aliases: &AliasMap, home: &str) -> String {
 /// Resolves relative `cd`/`z` paths to absolute ones for history so `z` can
 /// match them: `cd src` becomes `cd /abs/src`, while `cd ~/d` stays as is.
 fn resolve_cd_for_history(line: &str) -> String {
-    let trimmed = line.trim();
-    let (prefix, rest) = if let Some(rest) = trimmed.strip_prefix("cd ") {
-        ("cd ", rest.trim_start())
-    } else if let Some(rest) = trimmed.strip_prefix("z ") {
-        ("z ", rest.trim_start())
-    } else {
-        return line.to_string();
-    };
-
-    // Already absolute or tilde-prefixed: no resolution needed.
-    if rest.starts_with('/') || rest.starts_with('~') || rest == "-" || rest.is_empty() {
+    let Ok(tokens) = lex_shell(line.trim()) else { return line.to_string(); };
+    let mut tokens = tokens.iter();
+    let Some(ShellToken::Word(command)) = tokens.next() else { return line.to_string(); };
+    let Some(name) = static_word_text(command) else { return line.to_string(); };
+    if !matches!(name.as_str(), "cd" | "z") { return line.to_string(); }
+    let Some(ShellToken::Word(argument)) = tokens.next() else { return line.to_string(); };
+    let Some(target) = static_word_text(argument) else { return line.to_string(); };
+    if target.is_empty() || target.starts_with(['/', '~']) || target == "-" || target.contains(['*', '?', '[']) {
         return line.to_string();
     }
-
-    // Split at the first whitespace or operator to get just the path argument.
-    let (path_arg, suffix) =
-        match rest.find(|c: char| c.is_whitespace() || c == '&' || c == '|' || c == ';') {
-            Some(index) => (&rest[..index], &rest[index..]),
-            None => (rest, ""),
-        };
-
-    if let Ok(pwd) = std::env::current_dir() {
-        let resolved = pwd.join(path_arg);
-        if let Ok(canonical) = resolved.canonicalize() {
-            return format!("{prefix}{}{suffix}", canonical.display());
-        }
-        // canonicalize failed (the directory may not exist): use the joined path.
-        return format!("{prefix}{}{suffix}", resolved.display());
-    }
-
-    line.to_string()
+    let Ok(cwd) = std::env::current_dir() else { return line.to_string(); };
+    let resolved = cwd.join(target);
+    let resolved = resolved.canonicalize().unwrap_or(resolved);
+    let Some(path) = resolved.to_str() else { return line.to_string(); };
+    let suffix = &line.trim()[argument.source_end..];
+    format!("{name} {}{suffix}", shell_quote(path))
 }
 
 fn base64_encode(input: &[u8]) -> String {
@@ -1098,6 +1069,7 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
                 stderr: text_bytes(format!("xshi: {rejection}\n")),
                 process_status: Some(ProcessStatus::exited(2)),
                 history_source: Some(source.to_string()),
+                policy_refused: false,
             },
             negated,
             source,
@@ -1115,6 +1087,7 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
             stderr: text_bytes(format!("xshi: {message}\n")),
             process_status: Some(ProcessStatus::exited(2)),
             history_source: Some(source.to_string()),
+            policy_refused: false,
         },
     }
 }
@@ -1165,6 +1138,7 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
             stderr: text_bytes(DiagnosticRenderer::new().render(&parsed.diagnostics, &sources)),
             process_status: Some(ProcessStatus::exited(2)),
             history_source: Some(text.to_string()),
+            policy_refused: false,
         };
     }
 
@@ -1176,6 +1150,7 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
             stderr: text_bytes(DiagnosticRenderer::new().render(&checked.diagnostics, &sources)),
             process_status: Some(ProcessStatus::exited(2)),
             history_source: Some(text.to_string()),
+            policy_refused: false,
         };
     }
 
@@ -1201,6 +1176,7 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
         stderr,
         process_status: output.last_status,
         history_source: Some(text.to_string()),
+        policy_refused: false,
     }
 }
 
@@ -1220,6 +1196,7 @@ fn run_interactive_program(
             stderr: text_bytes(DiagnosticRenderer::new().render(&checked.diagnostics, &sources)),
             process_status: Some(ProcessStatus::exited(2)),
             history_source: Some(text.to_string()),
+            policy_refused: false,
         };
     }
 
@@ -1245,6 +1222,7 @@ fn run_interactive_program(
         stderr,
         process_status: output.last_status,
         history_source: Some(text.to_string()),
+        policy_refused: false,
     }
 }
 
@@ -1315,6 +1293,7 @@ fn run_chains(
     let negated = strip_chain_negation(&mut chains);
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
+    let mut policy_refused = false;
 
     for chain in chains {
         let should_run = match chain.op {
@@ -1327,6 +1306,7 @@ fn run_chains(
         }
         let job_before = session.job.as_ref().map(|job| job.process_group().id());
         let output = execute_pipeline(session, chain.pipeline, source);
+        policy_refused |= output.policy_refused;
         stdout.extend(output.stdout);
         stderr.extend(output.stderr);
         last_status = output.status;
@@ -1347,6 +1327,7 @@ fn run_chains(
         stderr,
         process_status: last_process_status,
         history_source: None,
+        policy_refused,
     };
     negate(output, negated, source)
 }
@@ -1390,6 +1371,7 @@ fn parent_process_refusal(name: &str) -> CommandOutput {
         stderr: text_bytes(format!("{name} {PARENT_PROCESS_REFUSAL}\n")),
         process_status: Some(ProcessStatus::exited(2)),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -1400,6 +1382,7 @@ fn refusal_output(message: &str) -> CommandOutput {
         stderr: text_bytes(format!("xshi: {message}\n")),
         process_status: Some(ProcessStatus::exited(2)),
         history_source: None,
+        policy_refused: true,
     }
 }
 
@@ -1441,6 +1424,25 @@ fn execute_pipeline_commands(
     pipeline: Pipeline,
     source: &str,
 ) -> CommandOutput {
+    for command in &pipeline.commands {
+        if let Some(index) = stage_command_index(session, command)
+            && let Some(word) = command.words.get(index)
+            && static_word_text(word).is_none()
+            && let Ok(name) = expand_word_to_string(session, word)
+            && (builtin::is_refused_builtin(&name) || is_whole_line_builtin(&name))
+        {
+            let head = command.words.iter().find(|word| parse_env_assignment(&word.text()).is_none()).unwrap_or(word);
+            let prefix = &source[..head.source_end];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+            let reason = if builtin::is_refused_builtin(&name) || name == "exit" {
+                format!("{name}: builtin is not available")
+            } else {
+                format!("{name} changes shell state or needs the ish process, so it requires a statically named whole-line command")
+            };
+            return refusal_output(&format!("{line}:{column}: {reason}"));
+        }
+    }
     if pipeline.commands.len() == 1 {
         return execute_simple_command(session, pipeline.commands.into_iter().next().unwrap());
     }
@@ -1461,6 +1463,7 @@ fn execute_pipeline_commands(
                 stderr: text_bytes(format!("xshi: {message}\n")),
                 process_status: Some(ProcessStatus::exited(2)),
                 history_source: None,
+                policy_refused: false,
             };
         }
     }
@@ -1530,6 +1533,7 @@ fn run_captured_pipeline(
                 stderr: text_bytes(format!("xshi: pipe: {error}\n")),
                 process_status: Some(ProcessStatus::exited(1)),
                 history_source: None,
+                policy_refused: false,
             };
         }
     };
@@ -1547,6 +1551,7 @@ fn run_captured_pipeline(
                 stderr,
                 process_status: Some(status),
                 history_source: None,
+                policy_refused: false,
             })
         }
         Err(error) => CommandOutput {
@@ -1555,6 +1560,7 @@ fn run_captured_pipeline(
             stderr: text_bytes(format!("xshi: {}\n", error.message)),
             process_status: Some(ProcessStatus::exited(1)),
             history_source: None,
+            policy_refused: false,
         },
     }
 }
@@ -1584,6 +1590,7 @@ fn run_foreground_pipeline(
                 stderr: text_bytes(format!("xshi: {}\n", error.message)),
                 process_status: Some(process_error_status(target, error)),
                 history_source: None,
+                policy_refused: false,
             };
         }
     };
@@ -1596,6 +1603,7 @@ fn run_foreground_pipeline(
             stderr: Vec::new(),
             process_status: Some(status),
             history_source: None,
+            policy_refused: false,
         });
     }
 
@@ -1620,6 +1628,7 @@ fn run_foreground_pipeline(
             stderr: Vec::new(),
             process_status: Some(status),
             history_source: None,
+            policy_refused: false,
         });
     }
 
@@ -1641,6 +1650,7 @@ fn run_foreground_pipeline(
         stderr,
         process_status: Some(ProcessStatus::exited(148)),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -1658,6 +1668,7 @@ fn pipeline_start_error(session: &Session, error: &mut RunError) -> CommandOutpu
             stderr: text_bytes(format!("xshi: {}\n", error.message)),
             process_status: Some(ProcessStatus::exited(1)),
             history_source: None,
+            policy_refused: false,
         };
     };
     status_from_process_output(CommandOutput {
@@ -1666,6 +1677,7 @@ fn pipeline_start_error(session: &Session, error: &mut RunError) -> CommandOutpu
         stderr: pipeline_exec_diagnostics(session, &status.segments),
         process_status: Some(*status),
         history_source: None,
+        policy_refused: false,
     })
 }
 
@@ -1745,37 +1757,22 @@ fn is_builtin_stage(session: &Session, command: &SimpleCommand) -> bool {
 /// The index of the program a stage runs, skipping assignment prefixes and
 /// `command` dispatch wrappers.
 fn stage_command_index(session: &Session, command: &SimpleCommand) -> Option<usize> {
-    let mut index = command
-        .words
-        .iter()
-        .take_while(|word| parse_env_assignment(&word.text()).is_some())
-        .count();
+    let mut index = command.words.iter().take_while(|word| parse_env_assignment(&word.text()).is_some()).count();
     loop {
         let word = command.words.get(index)?;
-        let name = expand_word_to_string(session, word).ok()?;
-        if name != "command" {
-            return Some(index);
-        }
-        let describes = command
-            .words
-            .get(index + 1)
-            .and_then(|word| expand_word_to_string(session, word).ok())
-            .is_some_and(|option| matches!(option.as_str(), "-v" | "-V"));
-        if describes {
-            return Some(index);
-        }
+        if expand_word_to_string(session, word).ok()? != "command" { return Some(index); }
+        let wrapper = index;
         index += 1;
-        loop {
-            let word = command.words.get(index)?;
-            let Ok(text) = expand_word_to_string(session, word) else {
-                return None;
-            };
-            if matches!(text.as_str(), "-p" | "--") {
-                index += 1;
-                continue;
+        let mut describes = false;
+        while let Some(word) = command.words.get(index) {
+            match expand_word_to_string(session, word).ok()?.as_str() {
+                "-v" | "-V" => { describes = true; index += 1; }
+                "-p" => index += 1,
+                "--" => { index += 1; break; }
+                _ => break,
             }
-            break;
         }
+        if describes || index == command.words.len() { return Some(wrapper); }
     }
 }
 
@@ -1791,11 +1788,7 @@ fn run_builtin_stage(session: &mut Session, command: &SimpleCommand) -> CommandO
     if let Some(name) = parent_process_stage(session, command) {
         return parent_process_refusal(&name);
     }
-    let leading = command
-        .words
-        .iter()
-        .take_while(|word| parse_env_assignment(&word.text()).is_some())
-        .count();
+    let leading = stage_command_index(session, command).unwrap_or(command.words.len());
     let words = &command.words[leading..];
     let name = words
         .first()
@@ -1880,6 +1873,7 @@ impl Drop for StdinFeed {
 
 fn literal_word(text: &str) -> ShellWord {
     ShellWord {
+        source_end: 0,
         parts: vec![ShellWordPart::Text {
             text: text.to_string(),
             expand: false,
@@ -1952,6 +1946,7 @@ fn execute_mixed_pipeline(
                             stderr: text_bytes(format!("xshi: pipe: {error}\n")),
                             process_status: Some(ProcessStatus::exited(1)),
                             history_source: None,
+                            policy_refused: false,
                         };
                     }
                 }
@@ -1970,6 +1965,7 @@ fn execute_mixed_pipeline(
                     stderr,
                     process_status: Some(ProcessStatus::exited(148)),
                     history_source: None,
+                    policy_refused: false,
                 };
             }
         }
@@ -1988,6 +1984,7 @@ fn execute_mixed_pipeline(
                     stderr: text_bytes(format!("xshi: pipe: {error}\n")),
                     process_status: Some(ProcessStatus::exited(1)),
                     history_source: None,
+                    policy_refused: false,
                 };
             }
         };
@@ -2018,6 +2015,7 @@ fn execute_mixed_pipeline(
         stderr,
         process_status: Some(ProcessStatus::exited(status)),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -2029,15 +2027,20 @@ fn run_command_builtin(
     stdout: &mut Vec<u8>,
     stderr: &mut Vec<u8>,
 ) -> i32 {
-    let Some(first) = args.first() else {
-        return 0;
-    };
-    if !matches!(first.as_str(), "-v" | "-V") {
-        return 0;
+    let mut index = 0;
+    let mut verbose = None;
+    while let Some(option) = args.get(index) {
+        match option.as_str() {
+            "-v" => { verbose = Some(false); index += 1; }
+            "-V" => { verbose = Some(true); index += 1; }
+            "-p" => index += 1,
+            "--" => { index += 1; break; }
+            _ => break,
+        }
     }
-    let verbose = first == "-V";
+    let Some(verbose) = verbose else { return 0; };
     let mut status = 0;
-    for name in &args[1..] {
+    for name in &args[index..] {
         if command_description(session, name, verbose, stdout, stderr) != 0 {
             status = 1;
         }
@@ -2053,6 +2056,7 @@ fn execute_simple_command(session: &mut Session, command: SimpleCommand) -> Comm
             stderr: Vec::new(),
             process_status: Some(ProcessStatus::exited(0)),
             history_source: None,
+            policy_refused: false,
         };
     }
 
@@ -2063,6 +2067,7 @@ fn execute_simple_command(session: &mut Session, command: SimpleCommand) -> Comm
             stderr: text_bytes(format!("xshi: {message}\n")),
             process_status: Some(ProcessStatus::exited(2)),
             history_source: None,
+            policy_refused: false,
         };
     }
 
@@ -2133,6 +2138,7 @@ fn execute_simple_command(session: &mut Session, command: SimpleCommand) -> Comm
             stderr: Vec::new(),
             process_status: Some(ProcessStatus::exited(0)),
             history_source: None,
+            policy_refused: false,
         };
     }
 
@@ -2292,6 +2298,7 @@ fn execute_session_builtin(
         stderr,
         process_status: Some(ProcessStatus::exited(status)),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -2303,6 +2310,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
             stderr: text_bytes("xshi: fg: no suspended job\n"),
             process_status: Some(ProcessStatus::exited(1)),
             history_source: None,
+            policy_refused: false,
         };
     };
     if let InteractiveJobProcess::Single(child) = &mut job.process {
@@ -2324,6 +2332,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                     stderr: text_bytes(format!("xshi: fg: {}\n", error.message)),
                     process_status: Some(ProcessStatus::exited(1)),
                     history_source: None,
+                    policy_refused: false,
                 };
             }
         }
@@ -2353,6 +2362,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 stderr,
                 process_status: Some(ProcessStatus::exited(148)),
                 history_source: None,
+                policy_refused: false,
             }
         }
         Ok(JobForegroundOutcome::Running) => {
@@ -2364,6 +2374,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 stderr: text_bytes("xshi: fg: wait ended before job completed\n"),
                 process_status: Some(ProcessStatus::exited(1)),
                 history_source: None,
+                policy_refused: false,
             }
         }
         Err(error) => {
@@ -2374,6 +2385,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 stderr: text_bytes(format!("xshi: fg: {}\n", error.message)),
                 process_status: Some(ProcessStatus::exited(1)),
                 history_source: None,
+                policy_refused: false,
             }
         }
     }
@@ -2425,6 +2437,7 @@ fn status_command_output(status: ProcessStatus, stderr: Vec<u8>) -> CommandOutpu
         stderr,
         process_status: Some(status),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -2464,6 +2477,7 @@ fn expansion_error_output(error: ExpansionError) -> CommandOutput {
         stderr: text_bytes(format!("xshi: {}\n", error.message)),
         process_status: Some(ProcessStatus::exited(error.status)),
         history_source: None,
+        policy_refused: error.policy_refused,
     }
 }
 
@@ -2532,6 +2546,7 @@ fn run_external_foreground(
                             stderr: Vec::new(),
                             process_status: Some(status),
                             history_source: Some(source),
+                            policy_refused: false,
                         });
                     }
                     let attrs = terminal_attrs();
@@ -2550,6 +2565,7 @@ fn run_external_foreground(
                         stderr,
                         process_status: Some(ProcessStatus::exited(148)),
                         history_source: Some(source),
+                        policy_refused: false,
                     };
                 }
                 Ok((ChildWaitOutcome::StillRunning, _)) => ProcessStatus::signaled(libc::SIGTERM),
@@ -2567,6 +2583,7 @@ fn run_external_foreground(
         stderr: spawn_error_message.map(text_bytes).unwrap_or_default(),
         process_status: Some(status),
         history_source: Some(source),
+        policy_refused: false,
     })
 }
 
@@ -2590,6 +2607,7 @@ fn run_external_captured(
                 stderr: Vec::new(),
                 process_status: Some(status),
                 history_source: Some(source),
+                policy_refused: false,
             })
         }
         Err(mut error) => {
@@ -2600,6 +2618,7 @@ fn run_external_captured(
                 stderr: message.map(text_bytes).unwrap_or_default(),
                 process_status: Some(process_error_status(&invocation.target, error)),
                 history_source: Some(source),
+                policy_refused: false,
             })
         }
     }
@@ -2769,6 +2788,9 @@ fn external_invocation(
         words.next();
     }
 
+    let leading = command.words.len() - words.len();
+    let target_index = stage_command_index(session, command).unwrap_or(leading);
+    words = command.words[target_index..].iter();
     let mut argv = Vec::new();
     for word in words {
         argv.extend(expand_word(session, word)?);
@@ -2822,6 +2844,7 @@ fn external_redirections(
         path_target(&redirection.target).map(|path| ProcessRedirection::File { stream, mode, path })
     };
     Ok(match redirection.kind {
+        ShellRedirectionKind::StdinClose => vec![ProcessRedirection::ChildClose { stream: RedirectionStream::Stdin }],
         ShellRedirectionKind::Stdin => {
             vec![file(
                 RedirectionStream::Stdin,
@@ -3291,6 +3314,9 @@ fn expand_command_substitution(session: &Session, source: &str) -> Result<String
     // Diagnostics reach the terminal as they would from any command; the
     // substitution's status does not stop the command that uses it.
     let _ = io::stderr().write_all(&output.stderr);
+    if output.policy_refused {
+        return Err(ExpansionError::policy("0:0: command refused by policy in child evaluator"));
+    }
     let mut text = String::from_utf8(output.stdout)
         .map_err(|_| ExpansionError::usage("command substitution produced non-UTF-8 output"))?;
     // Trailing newlines are not part of a substitution's value.
@@ -3556,6 +3582,9 @@ pub(super) fn valid_env_name(name: &str) -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum InternalCommand {
     Echo,
+    Printf,
+    Test,
+    Bracket,
     Pwd,
     True,
     False,
@@ -3564,6 +3593,9 @@ enum InternalCommand {
 fn internal_command_name(name: &str) -> Option<InternalCommand> {
     Some(match name {
         "echo" => InternalCommand::Echo,
+        "printf" => InternalCommand::Printf,
+        "test" => InternalCommand::Test,
+        "[" => InternalCommand::Bracket,
         "pwd" => InternalCommand::Pwd,
         "true" => InternalCommand::True,
         "false" => InternalCommand::False,
@@ -3574,6 +3606,9 @@ fn internal_command_name(name: &str) -> Option<InternalCommand> {
 /// Runs an internal command. `args` excludes the command name.
 fn run_internal(session: &Session, kind: InternalCommand, args: &[String]) -> BuiltinRun {
     match kind {
+        InternalCommand::Printf => run_printf(args),
+        InternalCommand::Test => test_command::run_test(args, &session.cwd),
+        InternalCommand::Bracket => test_command::run_bracket(args, &session.cwd),
         InternalCommand::True => BuiltinRun::status(0),
         InternalCommand::False => BuiltinRun::status(1),
         InternalCommand::Pwd => BuiltinRun {
@@ -3608,6 +3643,208 @@ fn run_internal(session: &Session, kind: InternalCommand, args: &[String]) -> Bu
             }
         }
     }
+}
+
+
+/*
+Adapted from ish c30a151, crates/epsh/src/builtins.rs.
+
+MIT License
+
+Copyright (c) 2026 joshuarli
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+fn run_printf(args: &[String]) -> BuiltinRun {
+    if args.is_empty() {
+        return BuiltinRun { status: 1, stdout: Vec::new(), stderr: b"printf: usage: printf format [arguments]\n".to_vec() };
+    }
+
+    let format = &args[0];
+    let mut arg_idx = 1;
+    let fmt_chars: Vec<char> = format.chars().collect();
+    let mut out = Vec::new();
+
+    use std::io::Write as _;
+    let push = |out: &mut Vec<u8>, ch: char| out.extend_from_slice(ch.encode_utf8(&mut [0; 4]).as_bytes());
+
+    loop {
+        let mut i = 0;
+        let arg_start = arg_idx;
+        while i < fmt_chars.len() {
+            if fmt_chars[i] == '\\' {
+                i += 1;
+                if i < fmt_chars.len() {
+                    match fmt_chars[i] {
+                        'n' => push(&mut out, '\n'),
+                        't' => push(&mut out, '\t'),
+                        'r' => push(&mut out, '\r'),
+                        '\\' => push(&mut out, '\\'),
+                        '"' => push(&mut out, '"'),
+                        'a' => push(&mut out, '\x07'),
+                        'b' => push(&mut out, '\x08'),
+                        'f' => push(&mut out, '\x0c'),
+                        'v' => push(&mut out, '\x0b'),
+                        '0' => {
+                            i += 1;
+                            let start = i;
+                            while i < fmt_chars.len()
+                                && i < start + 3
+                                && matches!(fmt_chars[i], '0'..='7')
+                            {
+                                i += 1;
+                            }
+                            let oct: String = fmt_chars[start..i].iter().collect();
+                            let n = u8::from_str_radix(&oct, 8).unwrap_or(0);
+                            out.push(n);
+                            continue;
+                        }
+                        c => {
+                            push(&mut out, '\\');
+                            push(&mut out, c);
+                        }
+                    }
+                    i += 1;
+                } else {
+                    push(&mut out, '\\');
+                }
+            } else if fmt_chars[i] == '%' {
+                i += 1;
+                if i >= fmt_chars.len() {
+                    push(&mut out, '%');
+                    break;
+                }
+                let mut flags = String::new();
+                while i < fmt_chars.len() && matches!(fmt_chars[i], '-' | '+' | ' ' | '0' | '#')
+                {
+                    flags.push(fmt_chars[i]);
+                    i += 1;
+                }
+                let mut width_s = String::new();
+                while i < fmt_chars.len() && fmt_chars[i].is_ascii_digit() {
+                    width_s.push(fmt_chars[i]);
+                    i += 1;
+                }
+                let width: usize = width_s.parse().unwrap_or(0);
+                let mut precision = None;
+                if i < fmt_chars.len() && fmt_chars[i] == '.' {
+                    i += 1;
+                    let mut prec = String::new();
+                    while i < fmt_chars.len() && fmt_chars[i].is_ascii_digit() {
+                        prec.push(fmt_chars[i]);
+                        i += 1;
+                    }
+                    precision = Some(prec.parse::<usize>().unwrap_or(0));
+                }
+                if i >= fmt_chars.len() {
+                    break;
+                }
+                let conv = fmt_chars[i];
+                i += 1;
+                let left_align = flags.contains('-');
+                let zero_pad = flags.contains('0') && !left_align;
+                match conv {
+                    's' => {
+                        let val = args.get(arg_idx).map(|s| s.as_str()).unwrap_or("");
+                        arg_idx += 1;
+                        let val = if let Some(precision) = precision {
+                            let bytes = val.as_bytes();
+                            &bytes[..bytes.len().min(precision)]
+                        } else {
+                            val.as_bytes()
+                        };
+                        let padding = width.saturating_sub(String::from_utf8_lossy(val).chars().count());
+                        if !left_align {
+                            out.extend(std::iter::repeat_n(b' ', padding));
+                        }
+                        out.extend_from_slice(val);
+                        if left_align {
+                            out.extend(std::iter::repeat_n(b' ', padding));
+                        }
+                    }
+                    'd' | 'i' => {
+                        let val = args
+                            .get(arg_idx)
+                            .and_then(|s| s.parse::<i64>().ok())
+                            .unwrap_or(0);
+                        arg_idx += 1;
+                        if zero_pad {
+                            let _ = write!(out, "{val:0>width$}");
+                        } else if left_align {
+                            let _ = write!(out, "{val:<width$}");
+                        } else {
+                            let _ = write!(out, "{val:>width$}");
+                        }
+                    }
+                    'o' => {
+                        let val = args
+                            .get(arg_idx)
+                            .and_then(|s| s.parse::<i64>().ok())
+                            .unwrap_or(0);
+                        arg_idx += 1;
+                        let _ = write!(out, "{val:o}");
+                    }
+                    'x' => {
+                        let val = args
+                            .get(arg_idx)
+                            .and_then(|s| s.parse::<i64>().ok())
+                            .unwrap_or(0);
+                        arg_idx += 1;
+                        let _ = write!(out, "{val:x}");
+                    }
+                    'X' => {
+                        let val = args
+                            .get(arg_idx)
+                            .and_then(|s| s.parse::<i64>().ok())
+                            .unwrap_or(0);
+                        arg_idx += 1;
+                        let _ = write!(out, "{val:X}");
+                    }
+                    'c' => {
+                        let val = args.get(arg_idx).and_then(|s| s.chars().next());
+                        arg_idx += 1;
+                        if let Some(val) = val.filter(|value| *value != '\0') {
+                            push(&mut out, val);
+                        }
+                    }
+                    '%' => push(&mut out, '%'),
+                    'b' => {
+                        let val = args.get(arg_idx).map(|s| s.as_str()).unwrap_or("");
+                        arg_idx += 1;
+                        out.extend_from_slice(unescape_echo(val).as_bytes());
+                    }
+                    c => {
+                        push(&mut out, '%');
+                        push(&mut out, c);
+                    }
+                }
+            } else {
+                push(&mut out, fmt_chars[i]);
+                i += 1;
+            }
+        }
+        if arg_idx == arg_start || arg_idx >= args.len() {
+            break;
+        }
+    }
+
+    BuiltinRun { status: 0, stdout: out, stderr: Vec::new() }
 }
 
 fn unescape_echo(text: &str) -> String {
@@ -3660,6 +3897,7 @@ impl BuiltinRun {
             stderr: self.stderr,
             process_status: Some(ProcessStatus::exited(self.status)),
             history_source: None,
+            policy_refused: false,
         }
     }
 }
@@ -3716,6 +3954,7 @@ impl RedirectionPlan {
             stderr,
             process_status: Some(ProcessStatus::exited(run.status)),
             history_source: None,
+            policy_refused: false,
         }
     }
 }
@@ -3759,6 +3998,7 @@ fn open_builtin_redirections(
             }
         };
         match redirection.kind {
+            ShellRedirectionKind::StdinClose => {}
             ShellRedirectionKind::Stdin => {
                 if let Err(error) = fs::File::open(&path) {
                     return Err(BuiltinRun {
@@ -3971,6 +4211,7 @@ fn run_native_file_command(
         stderr,
         process_status: Some(ProcessStatus::exited(status)),
         history_source: None,
+        policy_refused: false,
     }
 }
 
@@ -3982,16 +4223,11 @@ fn command_description(
     stderr: &mut Vec<u8>,
 ) -> i32 {
     use io::Write as _;
-    if let Some(expansion) = session.aliases.get(name) {
-        writeln!(stdout, "alias: {name} {}", expansion.join(" ")).ok();
-        let same_name = expansion
-            .first()
-            .is_some_and(|first| super::builtin::strip_quotes_for_lookup(first) == name);
-        if !same_name {
-            return 0;
-        }
+    if builtin::is_refused_builtin(name) {
+        if verbose { writeln!(stderr, "xshi: {name}: not found").ok(); }
+        return 1;
     }
-    let builtin = is_builtin_name(name) || internal_command_name(name).is_some();
+    let builtin = builtin::is_builtin(name) || is_builtin_name(name) || internal_command_name(name).is_some();
     if builtin {
         if verbose {
             writeln!(stdout, "{name} is a shell builtin").ok();
@@ -4004,11 +4240,12 @@ fn command_description(
         .env
         .get(b"PATH".as_slice())
         .map_or(&[][..], Vec::as_slice);
-    if name.contains('/') {
-        writeln!(stdout, "{name}").ok();
-        return 0;
-    }
-    if let Some(found) = super::path::scan_path(name, path_env) {
+    let found = if name.contains('/') {
+        is_executable_file(&session.cwd.join(name)).then(|| PathBuf::from(name))
+    } else {
+        super::path::scan_path(name, path_env)
+    };
+    if let Some(found) = found {
         if verbose {
             writeln!(stdout, "{name} is {}", found.display()).ok();
         } else {
@@ -4016,7 +4253,7 @@ fn command_description(
         }
         return 0;
     }
-    let _ = writeln!(stderr, "xshi: command: {name}: not found");
+    if verbose { writeln!(stderr, "xshi: {name}: not found").ok(); }
     1
 }
 
@@ -4037,6 +4274,7 @@ mod tests {
 
     fn shell_word(text: &str) -> ShellWord {
         ShellWord {
+            source_end: 0,
             parts: vec![ShellWordPart::Text {
                 text: text.to_string(),
                 expand: true,
@@ -4089,6 +4327,96 @@ mod tests {
             word.parts.as_slice(),
             [ShellWordPart::CommandSubstitution { source, glob: true }] if source == "printf ok"
         ));
+    }
+
+    #[test]
+    fn command_wrappers_dispatch_builtins_and_external_programs() {
+        let mut session = Session::for_test();
+        session.capturing = true;
+        for source in ["command echo okay", "command -p -- command echo okay", "command /bin/echo okay"] {
+            let output = execute_line(&mut session, source);
+            assert_eq!(output.status, 0, "{source}");
+            assert_eq!(output.stdout, b"okay\n", "{source}");
+            assert!(output.stderr.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn command_descriptions_follow_option_order_and_reserved_policy() {
+        let mut session = Session::for_test();
+        for source in ["command", "command -p", "command --"] {
+            assert_eq!(execute_line(&mut session, source).status, 0);
+        }
+        let output = execute_line(&mut session, "command -p -V -- exit");
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, b"exit is a shell builtin\n");
+        let output = execute_line(&mut session, "command -v eval");
+        assert_eq!(output.status, 1);
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
+
+    #[test]
+    fn dynamic_refusal_precedes_target_redirections() {
+        let mut session = Session::for_test();
+        let temp = tempfile::tempdir().unwrap();
+        session.cwd = temp.path().to_path_buf();
+        let output = execute_line(&mut session, "set TARGET eval; command $TARGET echo forbidden > marker");
+        assert_eq!(output.status, 2);
+        assert!(output.policy_refused);
+        assert_eq!(output.stderr, b"xshi: 1:25: eval: builtin is not available\n");
+        assert!(!temp.path().join("marker").exists());
+        let output = execute_line(&mut session, "set TARGET echo; $TARGET ordinary");
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, b"ordinary\n");
+    }
+
+    #[test]
+    fn dynamic_refusal_uses_the_quoted_command_span_after_repeated_unicode_text() {
+        let mut session = Session::for_test();
+        let source = "set TARGET eval; echo '更新 $TARGET'; \"$TARGET\" forbidden";
+        let output = execute_line(&mut session, source);
+        assert_eq!(output.status, 2);
+        let end = source.rfind("\"$TARGET\"").unwrap() + "\"$TARGET\"".len();
+        let column = source[..end].chars().count() + 1;
+        assert_eq!(output.stderr, format!("xshi: 1:{column}: eval: builtin is not available\n").as_bytes());
+    }
+
+    #[test]
+    fn native_handler_refusal_does_not_abort_the_substitution_caller() {
+        let mut session = Session::for_test();
+        for source in ["echo $(cp source target)", "echo $(command l)", "echo $(history reset)"] {
+            let output = execute_line(&mut session, source);
+            assert_eq!(output.status, 0, "{source}");
+            assert_eq!(output.stdout, b"\n", "{source}");
+            assert!(!output.policy_refused, "{source}");
+        }
+    }
+
+    #[test]
+    fn test_and_bracket_use_the_session_directory_without_path_lookup() {
+        let mut session = Session::for_test();
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("present"), "data").unwrap();
+        session.cwd = temp.path().to_path_buf();
+        session.env.insert(b"PATH".to_vec(), Vec::new());
+        for (source, status) in [("test -e present", 0), ("command test -e absent", 1), ("[ -f present ]", 0), ("[ present", 2), ("test", 1), ("test 1 -eq 1 -a ! -d absent", 0)] {
+            assert_eq!(execute_line(&mut session, source).status, status, "{source}");
+        }
+    }
+
+    #[test]
+    fn printf_keeps_unknown_escapes_and_decodes_zero_prefixed_octal() {
+        let mut session = Session::for_test();
+        let output = execute_line(&mut session, r"printf '\200\0377\n'");
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, b"\\200\xff\n");
+        assert!(output.stderr.is_empty());
+        let output = execute_line(&mut session, r"printf '[%5.2s][%04d][%b]' unicode 7 'a\nb'");
+        assert_eq!(output.stdout, b"[   un][0007][a\nb]");
+        let output = execute_line(&mut session, r"USER=$(printf '\200')");
+        assert_eq!(output.status, 0);
+        assert_eq!(session.var(b"USER"), Some(&b"\\200"[..]));
     }
 
     #[test]

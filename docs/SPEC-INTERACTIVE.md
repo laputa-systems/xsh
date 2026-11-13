@@ -55,9 +55,10 @@ is not a second script language.
 - Aliases, prompt state, denv trust, history, completion, and autosuggestions
   are unavailable to scripts.
 - Library changes outside `crates/xshi` must stay neutral for existing scripts
-  unless an interactive option is passed. The one such change so far is
-  `ProcessRedirection::ChildDup`, which applies descriptor copies such as
-  `2>&1` in the child in list order; scripts cannot express it.
+  unless an interactive option is passed. `ProcessRedirection::ChildDup`
+  applies descriptor copies such as `2>&1`, and `ChildClose` closes a child
+  descriptor. Both apply in list order without changing the parent's
+  descriptors. Scripts cannot express either operation.
 
 ## 3. Process And Command Line
 
@@ -160,9 +161,10 @@ Lines are tokenized as a POSIX-like interactive subset:
   start; an unterminated quote, trailing `\`, or trailing `|`, `&&`, `||`
   continues the line on a new prompt;
 - lists with `;`, `&&`, `||`; pipelines with `|` and `|&`;
-- redirections `<`, `>`, `>>`, `2>`, `2>>`, `>&2`, `2>&1`, `&>`, `&>>`,
+- redirections `<`, `0<`, `<&-`, `0<&-`, `>`, `>>`, `2>`, `2>>`, `>&2`, `2>&1`, `&>`, `&>>`,
   applied left to right (`> f 2>&1` and `2>&1 > f` differ, as in a POSIX
-  shell), relative to the session directory;
+  shell), relative to the session directory. `<&-` and `0<&-` close the child's
+  standard input;
 - a builtin in a pipeline runs against a copy of the session, so `cd d | cat`
   leaves the shell where it was.
 
@@ -392,11 +394,17 @@ output cap; any failure yields no candidates.
 Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `export`,
 `set`, `unset`, `alias`, `history`, `z`, `denv`,
 `l`, `ll`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, `cp`, `mv`,
-`rsync`, `rmrf`, and `:`.
-`echo` (`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work
-in pipelines. `w`, `which`, and `type` print `NAME: builtin` followed by the
-builtin's usage block; `command`, `test`, `printf`, and the other POSIX names
-are reported as builtins, and those that are not internal resolve on `PATH`.
+`rsync`, `rmrf`, `command`, and `:`.
+`echo` (`-n`, `-e`, `-E`), `printf`, `test`, `[`, `pwd`, `true`, and `false`
+are internal so they work in pipelines and without PATH entries.
+`w`, `which`, and `type` print `NAME: builtin` followed by the builtin's
+usage block. Other POSIX names that are not internal resolve on `PATH`.
+`command [-p] [--] COMMAND [ARG...]` dispatches without looking up an alias
+for the target. `command -v NAME...` prints each available builtin name or
+executable path. `command -V NAME...` describes each target. Empty queries
+succeed. Refused builtin names remain unavailable to these queries and to
+command completion. A reserved or process-bound target produced by expansion
+is refused before its redirections open.
 `source`, `.`, `eval`, `exec`, `trap`, `readonly`, `shift`, `local`, and the
 other reserved POSIX names are refused with `` `NAME` is not supported `` and
 status `2`; `bg` is not a builtin. Any `set` whose first operand is not a

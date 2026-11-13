@@ -51,8 +51,8 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `set_no_args_lists_env_vars` | `set_no_args_lists_env_vars` |
 | `set_option_and_positional_forms_are_refused_without_target_effects` | `set_refuses_option_and_positional_forms_without_redirection_effects` |
 | `exec_and_trap_refusals_preserve_the_shell_and_target_files` | `unsupported_builtins_are_refused_without_target_effects` |
-| `builtin_lookup_completion_and_explicit_paths_share_the_policy` | known-gap: epsh `command` builtin absent (interactive/app.rs) (`builtin_lookup_completion_and_explicit_paths_share_the_policy`) |
-| `approved_builtin_classes_remain_available` | known-gap: epsh `command` builtin absent (interactive/app.rs) (`approved_builtin_classes_remain_available`) |
+| `builtin_lookup_completion_and_explicit_paths_share_the_policy` | `builtin_lookup_completion_and_explicit_paths_share_the_policy` |
+| `approved_builtin_classes_remain_available` | `approved_builtin_classes_remain_available` |
 | `unset_removes_var_from_children` | `unset_removes_var_from_children` |
 | `unset_removes_os_env_var_set_by_set` | `unset_removes_os_env_var_set_by_set` |
 | `unset_in_same_line_not_inherited_by_children` | `unset_in_same_line_not_inherited_by_children` |
@@ -107,11 +107,11 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `nonexistent_command` | `nonexistent_command` |
 | `script_mode_refused` | `script_mode_refused` |
 | `source_is_refused` | `source_is_refused` |
-| `expanded_targets_obey_ish_execution_policy` | known-gap: dynamic target refusal absent (interactive/app.rs) (`expanded_targets_obey_ish_execution_policy`) |
+| `expanded_targets_obey_ish_execution_policy` | `expanded_targets_obey_ish_execution_policy` |
 | `ctrl_l_clears_screen` | `ctrl_l_clears_screen` |
 | `multiline_continuation` | `multiline_continuation` |
 | `multiline_preserves_unicode_quotes_and_backslash_newlines` | `multiline_preserves_unicode_quotes_and_backslash_newlines` |
-| `interactive_final_history_replay_restores_the_recorded_directory` | known-gap: absolute cd target is not quoted (interactive/app.rs); plain-directory case in `interactive_final_history_replay_in_a_plain_directory` (`interactive_final_history_replay_restores_the_recorded_directory`) |
+| `interactive_final_history_replay_restores_the_recorded_directory` | `interactive_final_history_replay_restores_the_recorded_directory` |
 | `multiline_completion_on_continuation_line` | `multiline_completion_on_continuation_line` |
 | `dir_picker_narrow_repaint_does_not_stack_rows` | `dir_picker_narrow_repaint_does_not_stack_rows` |
 | `config_file_loaded` | `config_file_loaded` |
@@ -119,7 +119,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `cd_minus_goes_back` | `cd_minus_goes_back` |
 | `cd_tilde_subdir` | `cd_tilde_subdir` |
 | `implicit_cd_quoted_path` | `implicit_cd_quoted_path` |
-| `path_binary_wins_over_implicit_cd` | known-gap: implicit cd precedes PATH lookup (interactive/app.rs) (`path_binary_wins_over_implicit_cd`) |
+| `path_binary_wins_over_implicit_cd` | `path_binary_wins_over_implicit_cd` |
 | `l_tilde_subdir` | `l_tilde_subdir` |
 | `unset_variable` | `unset_variable` |
 | `glob_expansion` | `glob_expansion` |
@@ -167,7 +167,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `confirmed_exit_with_stopped_job_keeps_the_requested_status` | `confirmed_exit_with_a_stopped_job_keeps_the_requested_status` |
 | `pipeline_suspend_and_resume_retains_every_stage` | `pipeline_suspend_and_resume_retains_every_stage` |
 | `native_handlers_refuse_child_execution_before_target_redirections` | `native_handlers_refuse_child_execution_before_target_redirections` |
-| `external_input_redirections_preserve_foreground_terminal_ownership` | `external_input_redirections_preserve_foreground_terminal_ownership` + known-gap `closed_input_redirection_keeps_terminal_ownership` (`0<&-` parses as background) |
+| `external_input_redirections_preserve_foreground_terminal_ownership` | `external_input_redirections_preserve_foreground_terminal_ownership` and `closed_input_redirection_keeps_terminal_ownership` |
 | `ordinary_exit_148_does_not_create_a_suspended_job` | `ordinary_exit_148_does_not_create_a_suspended_job` |
 | `occupied_job_slot_restores_new_job_terminal_modes_before_continuing` | `occupied_job_slot_restores_new_job_terminal_modes_before_continuing` |
 | `stopped_pipeline_discards_the_remaining_list` | `stopped_pipeline_discards_the_remaining_list` |
@@ -186,7 +186,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `interactive_final_typeahead_after_enter_survives_the_next_prompt` | `interactive_final_typeahead_after_enter_survives_the_next_prompt` |
 | `interactive_final_sigterm_interrupts_oversized_paste_drain` | `interactive_final_sigterm_interrupts_oversized_paste_drain` |
 | `interactive_final_failed_shell_builtins_update_question_status` | `failed_builtins_update_question_status` |
-| `interactive_final_z_matches_quoted_directory_history` | known-gap: z ignores quoted directory history (interactive/z.rs) (`interactive_final_z_matches_quoted_directory_history`) |
+| `interactive_final_z_matches_quoted_directory_history` | `interactive_final_z_matches_quoted_directory_history` |
 | `external_commands_run_in_the_directory_a_list_cd_selected` | `external_commands_run_in_the_directory_a_list_cd_selected` |
 | `sigterm_and_sighup_restore_the_terminal_and_exit_with_the_signal_status` | `sigterm_and_sighup_restore_the_terminal_and_exit_with_the_signal_status` |
 | `sigterm_and_sighup_end_a_blocked_foreground_child_and_exit_promptly` | `sigterm_and_sighup_end_a_blocked_foreground_child_and_exit_promptly` |
@@ -196,7 +196,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `state_builtin_in_a_list_and_undocumented_syntax_are_refused_without_running_anything` | `state_builtin_in_a_list_and_undocumented_syntax_are_refused_without_running_anything` |
 | `ctrl_p_dump_is_private_and_omits_typed_text` | `ctrl_p_dump_is_private_and_omits_typed_text` |
 | `native_listing_and_standalone_cd_preserve_private_use_and_raw_path_bytes` | Owner-deferred: raw non-UTF-8 path bytes |
-| `prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes` | known-gap: non-UTF-8 command substitution refused (interactive/app.rs); Unicode and control cases in `prompt_identity_displays_unicode_user` (`prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes`) |
+| `prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes` | `prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes` |
 | `native_copy_uses_current_store_and_prefix_tmpdir_values` | `native_copy_uses_current_store_and_prefix_tmpdir_values` |
 | `osc133_marks_prompt_input_execution_and_completion` | `osc133_marks_prompt_input_execution_and_completion` |
 | `osc133_reports_command_status` | `osc133_reports_command_status` |
