@@ -3139,6 +3139,9 @@ fn choose_due_within_deadline(deadlines: &[WithinDeadline], now: Instant) -> Opt
 #[cfg(test)]
 mod deadline_policy_conformance;
 
+#[cfg(test)]
+mod membership_conformance;
+
 /// A suspended producer's evaluator context is reattached only while it runs.
 #[derive(Clone)]
 pub(crate) struct ScopedProducerContext {
