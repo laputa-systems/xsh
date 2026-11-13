@@ -136,6 +136,19 @@ covers the source bytes. Rust is the only implementation compared so far. The
 plan states the contract a second implementation must meet; no such
 implementation or evidence about one exists.
 
+[`Core/ContractSubstitution.lean`](Xsh/Core/ContractSubstitution.lean) characterizes
+substitution of known and unknown effect contracts across arbitrary parameter
+scopes. Given an initial exact inclusion or permission-coverage judgment, a
+substitution preserves that judgment exactly when a resulting unknown contract
+on the left also makes the right unknown. For known source expressions,
+preservation under every substitution is equivalent to inclusion of their live
+parameter dependencies. A parameter hidden by direct effects can therefore
+break an otherwise valid inclusion when replaced by an unknown contract.
+Source typing must establish the condition before using a substitution law.
+Restricted-call permission keeps its separate known-bound rule.
+The proof covers the shared effect domain, not source admission or Rust
+conformance. EFF-LATTICE and all other universal obligations remain planned.
+
 [`check-inventory.py`](scripts/check-inventory.py) and its
 [tests](tests/inventory/test_check_inventory.py) validate inventory structure,
 owner coverage, root reachability, and evidence records. They do not test Lean

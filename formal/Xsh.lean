@@ -1,5 +1,5 @@
 import Xsh.Core.MembershipControls
-import Xsh.Core.SymbolicEffects
+import Xsh.Core.ContractSubstitution
 import Xsh.Foundation
 import Xsh.Syntax.Core
 import Xsh.Syntax.Foundation.ResolvedIdentity

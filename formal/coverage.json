@@ -12792,6 +12792,60 @@
       "status": "fragment",
       "scope": "Substitution of arbitrary known effect expressions agrees with interpretation for every bound, source and target scope arity, and assignment. Unrestricted and unknown bounds remain distinct.",
       "boundary": "Unknown replacement propagation has a separate live-dependency law; no unconditional substitution composition, source binding or execution correspondence is claimed."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.substitution_congr",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.substitution_congr",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For arbitrary effect scopes, agreement on every live parameter gives equal substituted contracts, including unknown replacements at unused parameters.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.substitution_included_iff",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.substitution_included_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Given exact inclusion of arbitrary symbolic contracts, a mixed known/unknown substitution preserves inclusion exactly when an unknown result on the left also makes the right unknown.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.substitution_covered_iff",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.substitution_covered_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Given permission coverage of arbitrary symbolic contracts, a mixed known/unknown substitution preserves coverage exactly when an unknown result on the left also makes the right unknown.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For initially included known expressions, inclusion survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For initially covered known expressions, coverage survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
+      "module": "Xsh.Core.ContractSubstitution",
+      "declaration": "Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
     }
   ],
   "artifact_certificates": [

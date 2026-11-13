@@ -128,7 +128,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 1005
+**State:** `formal/coverage.json` is the only inventory. It lists 1011
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. The source and IR links cover their admitted domains;
 Rust, OS and clock correspondence remain separate boundaries. All 77 universal
@@ -157,6 +157,15 @@ a general commutation law with transformed type replacements. Admissibility,
 full membership, complete syntax and
 steps, and migration of the existing fragment machines remain open. This closes
 no universal obligation and adds no Rust conformance claim.
+
+`Xsh.Core.ContractSubstitution` handles known and unknown substitutions in the
+shared effect domain. It proves the exact condition for retaining inclusion and
+permission coverage and characterizes preservation under every substitution by
+live-dependency inclusion. Direct effects can hide a parameter under ordinary
+set inclusion while an unknown replacement still propagates through that
+parameter. The counterexample rules out unconditional substitution preservation.
+Establishing the dependency condition from source typing remains open. This adds
+no Rust conformance claim and closes no universal obligation.
 
 `Xsh.Core.Membership` now defines membership across the represented value-type
 families, including environment-path list views, module exports and nominal
