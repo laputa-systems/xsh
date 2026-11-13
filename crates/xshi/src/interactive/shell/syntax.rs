@@ -45,6 +45,7 @@ pub(crate) struct Redirection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RedirectionKind {
     Stdin,
+    StdinClose,
     StdoutWrite,
     StdoutAppend,
     StderrWrite,

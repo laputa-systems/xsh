@@ -44,10 +44,18 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
             }
             '<' => {
                 chars.next();
+                tokens.push(ShellToken::Redir(read_stdin_redirection(&mut chars)?));
+            }
+            '0' => {
+                let save = chars.clone();
+                chars.next();
                 if chars.peek().is_some_and(|(_, ch)| *ch == '<') {
-                    return Err("here-docs are not implemented in this build".to_string());
+                    chars.next();
+                    tokens.push(ShellToken::Redir(read_stdin_redirection(&mut chars)?));
+                } else {
+                    chars = save;
+                    tokens.push(ShellToken::Word(read_word(&mut chars)?));
                 }
-                tokens.push(ShellToken::Redir(RedirectionKind::Stdin));
             }
             '>' => {
                 chars.next();
@@ -123,6 +131,24 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
         }
     }
     Ok(tokens)
+}
+
+fn read_stdin_redirection(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> Result<RedirectionKind, String> {
+    if chars.peek().is_some_and(|(_, ch)| *ch == '<') {
+        return Err("here-docs are not implemented in this build".to_owned());
+    }
+    if chars.peek().is_some_and(|(_, ch)| *ch == '&') {
+        chars.next();
+        if chars.next().is_some_and(|(_, ch)| ch == '-')
+            && chars.peek().is_none_or(|(_, ch)| ch.is_whitespace() || matches!(ch, ';' | '|' | '<' | '>' | '&'))
+        {
+            return Ok(RedirectionKind::StdinClose);
+        }
+        return Err("only <&- is supported for stdin descriptor redirection".to_owned());
+    }
+    Ok(RedirectionKind::Stdin)
 }
 
 fn read_word(
