@@ -158,6 +158,14 @@ full membership, complete syntax and
 steps, and migration of the existing fragment machines remain open. This closes
 no universal obligation and adds no Rust conformance claim.
 
+`Xsh.Core.ReferenceValidity` traverses references carried by every shared value
+family, including nested causes, exports and status segments. `Xsh.Core.Store`
+uses that reference policy and structural membership with the existing typed-cell
+implementation. General proofs characterize write acceptance and prove atomic
+rejection of any unretained carried reference. Retention policy authenticity,
+heap closure, ownership, liveness, type admissibility, source binding and machine
+migration remain open. These component proofs close no universal obligation.
+
 `Xsh.Core.ContractSubstitution` handles known and unknown substitutions in the
 shared effect domain. It proves the exact condition for retaining inclusion and
 permission coverage and characterizes preservation under every substitution by
