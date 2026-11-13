@@ -967,6 +967,23 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
             CHECKER.validate_coverage(ROOT, coverage)
 
+    def test_mutating_a_lookup_cannot_authenticate_a_forged_theorem(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        sources = CHECKER.lean_module_sources(ROOT / "formal")
+        reachable = CHECKER.reachable_lean_modules(sources)
+        certified = {row["module"] for row in coverage["artifact_certificates"]}
+        CHECKER.validate_fragment_roots(coverage["fragment_roots"], sources, reachable, certified)
+        row = coverage["fragment_roots"][0]
+        source = sources[row["module"]].read_text(encoding="utf-8")
+        forged = "Xsh.InventoryForged.root"
+        declarations = CHECKER.lean_theorem_declarations(source)
+        self.assertNotIn(forged, declarations)
+        declarations.add(forged)
+        row["id"] = f"fragment.{forged}"
+        row["declaration"] = forged
+        with self.assertRaisesRegex(CHECKER.InventoryError, "is not a public theorem"):
+            CHECKER.validate_fragment_roots(coverage["fragment_roots"], sources, reachable, certified)
+
     def test_comment_only_declaration_cannot_satisfy_a_fragment_root(self) -> None:
         fixture = ROOT / "formal/tests/inventory/fixtures/commented_theorem.lean.txt"
         self.assertEqual(

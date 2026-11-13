@@ -292,7 +292,7 @@ class InventoryError(Exception):
     pass
 
 
-@lru_cache(maxsize=12)
+@lru_cache(maxsize=64)
 def lex_rust(source: str) -> list[str]:
     """Tokenize delimiters and identifiers needed by the named owner layouts."""
     tokens: list[str] = []
@@ -490,6 +490,7 @@ def ensure_unique(items: list[str], label: str) -> list[str]:
     return items
 
 
+@lru_cache(maxsize=64)
 def macro_invocation(
     source: str, name: str, opener: str = "{"
 ) -> tuple[list[str], int, int]:
@@ -1636,6 +1637,11 @@ def lean_definition_declarations(source: str) -> set[str]:
 
 
 def lean_declarations(source: str, keyword: str) -> set[str]:
+    return set(cached_lean_declarations(source, keyword))
+
+
+@lru_cache(maxsize=512)
+def cached_lean_declarations(source: str, keyword: str) -> frozenset[str]:
     scopes: list[tuple[str, str | None]] = []
     declarations: set[str] = set()
     for line in strip_lean_comments(source).splitlines():
@@ -1686,7 +1692,7 @@ def lean_declarations(source: str, keyword: str) -> set[str]:
             name = theorem_match.group(1)
             namespaces = [value for kind, value in scopes if kind == "namespace" and value]
             declarations.add(f"{namespaces[-1]}.{name}" if namespaces else name)
-    return declarations
+    return frozenset(declarations)
 
 
 ARTIFACT_KINDS = {
