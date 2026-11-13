@@ -145,7 +145,7 @@ memory is kept.
 ## C toolchain
 
 `Dockerfile.test` installs the prebuilt musl LLVM 23.1.5 from
-`laputa-systems/llvm-prebuilt-musl` release `llvm-musl-23.1.5-2f0b039`. The
+`laputa-systems/llvm-prebuilt-musl` release `llvm-musl-23.1.5-dc0d9b9`. The
 Linux musl products are linked by its `clang-23` driving mold, so they take
 that bundle's static musl 1.2.6 `libc.a`, built by the bundle's clang, and
 LLVM's `libunwind.a`, rather than the GCC-built musl and unwinder in Rust's
