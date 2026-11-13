@@ -55,9 +55,23 @@ distinct from a known empty contract. An erased error-only dependency gives a
 counterexample to unconditional capture/substitution commutation with unknown
 replacements. These are laws of the model: a false comparison witnesses an
 assignment that fails, not an immediate Rust predicate rejection. Source
-extraction, the Rust three-valued predicate decision, source effect instantiation,
-inference integration and execution correspondence remain open. All universal
-effect obligations remain planned.
+extraction, agreement with the Rust predicate decision, source effect
+instantiation, inference integration and execution correspondence remain open.
+All universal effect obligations remain planned.
+
+[`Core/EffectPredicates.lean`](Xsh/Core/EffectPredicates.lean) models the
+three-result decision for equality, inclusion, permission coverage and exclusion
+over arbitrary parameter scopes. Known inclusion and coverage are accepted
+exactly when their judgments hold under every assignment. A known rejection
+has a semantic counterexample. Exclusion distinguishes universally safe,
+universally prohibited and varying assignments. Equality acceptance is sound;
+a redundant coefficient witnesses unresolved equality despite all-assignment
+agreement. Unknown contracts retain their separate policy cases. Predicate
+exclusion uses inverse permission coverage, including explicit error masks;
+lexical-guard admissibility remains independent. Model controls exercise all
+decisions and outcomes, symbolic `io` masks and error capture. Source binding,
+Rust comparison, inference integration and execution correspondence remain open.
+These component proofs close no universal obligation.
 
 Shared type terms now carry an effect-parameter scope separately from type
 variables. Callable policies retain symbolic effect bounds and keep pure,

@@ -12999,6 +12999,42 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "boundary": "One generic allocation operation is consumed by the connected machine and shared-value store. Connected values and membership remain a restricted domain; the shared world still supplies retention and contract decisions. No type admissibility, authenticated contracts, complete machine, source binding or Rust correspondence is established. BASE-ENV, TYPE-MEMBER and all other full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectPredicate.satisfaction_contract",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectPredicate.satisfaction_contract",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Three-result decisions for equality, inclusion, permission coverage and exclusion over every shared symbolic parameter scope. Known accepted inclusion/coverage agrees with all-assignment judgments; equality is sound, rejection has witnesses, and exclusion distinguishes universal acceptance, universal rejection and varying assignments.",
+      "boundary": "Independent Lean decision. No source authentication, Rust comparison, inference integration, latent-obligation or execution correspondence. All whole-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectPredicate.unknown_policy",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectPredicate.unknown_policy",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "All unknown-contract branches of the four predicate decisions for arbitrary known expressions, parameter scopes and exclusion masks, retaining the distinction from a known empty contract.",
+      "boundary": "A contract-policy truth table, not interpretation of unknown as a finite effect set or proof of source and execution agreement. All universal obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectSet.prohibited_iff",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectSet.prohibited_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Predicate exclusion is the inverse of permission closure for all seven effects and all finite masks, including explicit error exclusion.",
+      "boundary": "The predicate algebra is independent of lexical-guard admissibility and source-site charging. No Rust, inference or execution correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectPredicate.equal_unresolved_can_agree",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectPredicate.equal_unresolved_can_agree",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A redundant symbolic coefficient gives unresolved structural equality while the two known expressions agree under every assignment.",
+      "boundary": "Counterexample to interpreting unresolved equality as semantic disagreement. It establishes no source extraction or Rust conformance and closes no whole-core obligation."
     }
   ],
   "artifact_certificates": [

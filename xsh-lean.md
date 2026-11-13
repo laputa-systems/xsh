@@ -179,6 +179,16 @@ parameter. The counterexample rules out unconditional substitution preservation.
 Establishing the dependency condition from source typing remains open. This adds
 no Rust conformance claim and closes no universal obligation.
 
+`Xsh.Core.EffectPredicates` now models all four three-result predicate
+decisions over arbitrary shared symbolic parameter scopes. Known accepted
+inclusion and coverage agree with all-assignment judgments; rejected known
+comparisons have counterexamples. Exclusion separates universal acceptance,
+universal rejection and varying assignments. Equality acceptance is sound,
+while a redundant coefficient witnesses unresolved equality despite universal
+semantic agreement. Unknown-contract policy remains explicit. Source binding,
+Rust comparison, inference and execution integration remain open. These
+component proofs close no whole-core obligation.
+
 `Xsh.Core.Membership` now defines membership across the represented value-type
 families, including environment-path list views, module exports and nominal
 provenance. Its terminating decision uses explicit decisions for retained
