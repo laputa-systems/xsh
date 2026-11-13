@@ -792,7 +792,9 @@ test test_gate_docker_uses_linked_worktree_common_dir_despite_git_overrides { |c
     for operation in ["gate-lane", "test-linux"] {
       let status = docker_workflows.run_internal_status({...fixtures.linux_context(linked)?, host_arch: target_policy.Aarch64}, operation, false, [])?
       assert status.exited_with(0)
-      assert f"{source}/.git:{source}/.git:ro" in log.read_lines()?.collect()
+      let invocation = log.read_lines()?.collect()
+      assert f"{source}/.git:{source}/.git:ro" in invocation
+      assert f"{source}/.work/consolidation/infra:{source}/.work/consolidation/infra" in invocation
     }
   }
 }

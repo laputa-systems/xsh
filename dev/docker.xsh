@@ -305,7 +305,7 @@ proc internal_command(
     }
   }
   var shared_lease_dir = null
-  if gate_operation(operation) and common_git != null {
+  if common_git != null {
     let lease_dir = fp"{common_git.parent()}/.work/consolidation/infra"
     lease_dir.mkdir(parents: true)?
     shared_lease_dir = lease_dir
