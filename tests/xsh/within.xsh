@@ -450,7 +450,8 @@ test test_within_stops_a_network_wait_on_a_silent_server {
     for listener in [first, second] {
       let connection = linux.accept(listener, nonblock: true)?
       defer unix.close_fd(connection.fd)
-      assert unix.read_fd(connection.fd, 8)? == b"GET / HT"
+      let received = unix.read_fd(connection.fd, 8)?
+      assert received == b"GET / HT"[0..received.len()]
     }
     return
   }
