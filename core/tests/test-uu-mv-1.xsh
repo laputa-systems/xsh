@@ -25,6 +25,21 @@ proc is_symlink(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   }
 }
 
+# Upstream mv --exchange needs renameat2(RENAME_EXCHANGE); ext2 answers EINVAL.
+proc exchange_unsupported(s: uu.Scene) [fs, error] -> Result[Bool, Error] {
+  let left = uu.at(s, ".exchange-probe-left")
+  let right = uu.at(s, ".exchange-probe-right")
+  left.write(b"")
+  right.write(b"")
+  let swapped = fs.rename_exchange(left, right)
+  left.remove()
+  right.remove()
+  match swapped {
+    Ok(_) => Ok(false)
+    Err(failure) => if failure.errno == 22 { Ok(true) } else { Err(failure) }
+  }
+}
+
 # The scratch filesystem and /dev/shm must differ to exercise the copy path.
 proc other_fs(s: uu.Scene) [fs, error] -> Result[Path, Error] {
   let target = fp"/dev/shm/xsh-uu-mv-{s.root.parent().name()}-{s.root.name()}"
@@ -1171,6 +1186,7 @@ test test_uu_mv_mv_errors { |ctx|
 # origin: uutils test_mv::test_mv_exchange_file_and_dir
 test test_uu_mv_mv_exchange_file_and_dir { |ctx|
   let s = uu.scene(ctx)?
+  if exchange_unsupported(s)? { test.skip("the scratch filesystem rejects RENAME_EXCHANGE with EINVAL"); return }
   uu.write(s, "leaf", "payload")
   uu.mkdir(s, "branch")
   {
@@ -1200,6 +1216,7 @@ test test_uu_mv_mv_exchange_missing_target { |ctx|
 # origin: uutils test_mv::test_mv_exchange_multiple_operands_into_directory
 test test_uu_mv_mv_exchange_multiple_operands_into_directory { |ctx|
   let s = uu.scene(ctx)?
+  if exchange_unsupported(s)? { test.skip("the scratch filesystem rejects RENAME_EXCHANGE with EINVAL"); return }
   uu.write(s, "a", "src-a")
   uu.write(s, "b", "src-b")
   uu.write(s, "c", "src-c")
@@ -1238,6 +1255,7 @@ test test_uu_mv_mv_exchange_same_file { |ctx|
 # origin: uutils test_mv::test_mv_exchange_verbose
 test test_uu_mv_mv_exchange_verbose { |ctx|
   let s = uu.scene(ctx)?
+  if exchange_unsupported(s)? { test.skip("the scratch filesystem rejects RENAME_EXCHANGE with EINVAL"); return }
   uu.write(s, "first", "1")
   uu.write(s, "second", "2")
   {

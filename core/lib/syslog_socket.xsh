@@ -6,8 +6,12 @@
 ##! binds under a private temporary name, makes the socket world writable and
 ##! credential-passing, and only then renames it into place with no-replace
 ##! semantics, so a client either finds a bound socket or nothing. A stale socket
-##! left by a dead receiver is exchanged out; a live receiver, a symlink, a
-##! directory or any other file stops the call untouched.
+##! left by a dead receiver is exchanged out. On a filesystem that rejects
+##! exchange (ext2 answers EINVAL), the stale socket is instead renamed with
+##! no-replace semantics to a private name, checked to be the socket that was
+##! probed dead, and unlinked after the new socket is published; a changed entry
+##! is moved back and the call refuses. A live receiver, a symlink, a directory
+##! or any other file stops the call untouched.
 
 ## A socket this process created and published. `dir` is the validated parent
 ## directory's descriptor, kept for `unpublish`.
@@ -20,6 +24,7 @@ const GROUP_OR_WORLD_WRITABLE = 18
 const ADDRESS_LIMIT = 107
 const EEXIST = 17
 const ENOENT = 2
+const EINVAL = 22
 const ECONNREFUSED = 111
 
 pure refuse(message: Str) -> Error {
@@ -81,15 +86,42 @@ proc is_live(target: Path) [process, net, error] -> Result[Bool, Error] {
   }
 }
 
+proc same_entry(entry: Path, dev: Int, ino: Int) [fs, error] -> Result[Bool, Error] {
+  let now = fs.stat(entry)?
+  Ok(now.dev == dev and now.ino == ino)
+}
+
+proc quarantine_stale(temporary: Path, target: Path, dev: Int, ino: Int, shown: Path) [fs, error] -> Result[Unit, Error] {
+  let quarantine = fp"{temporary.display()}.stale"
+  fs.rename_noreplace(target, quarantine)?
+  if ! same_entry(quarantine, dev, ino)? {
+    fs.rename_noreplace(quarantine, target)?
+    return Err(refuse(f"{shown} changed while it was being replaced"))
+  }
+  match fs.rename_noreplace(temporary, target) {
+    Ok(_) => {}
+    Err(failure) => {
+      fs.rename_noreplace(quarantine, target)?
+      return Err(failure)
+    }
+  }
+  quarantine.unlink()?
+}
+
 proc replace_stale(temporary: Path, target: Path, shown: Path) [fs, process, net, io, error] -> Result[Unit, Error] {
   let seen = fs.stat(target)?
   if seen.kind != "socket" {
     return Err(refuse(f"{shown} exists and is a {seen.kind}, not a socket"))
   }
   if is_live(target)? { return Err(refuse(f"another receiver is listening on {shown}")) }
-  fs.rename_exchange(temporary, target)?
-  let displaced = fs.stat(temporary)?
-  if displaced.dev != seen.dev or displaced.ino != seen.ino {
+  match fs.rename_exchange(temporary, target) {
+    Ok(_) => {}
+    Err(failure) => {
+      if failure.errno != EINVAL { return Err(failure) }
+      return quarantine_stale(temporary, target, seen.dev, seen.ino, shown)
+    }
+  }
+  if ! same_entry(temporary, seen.dev, seen.ino)? {
     fs.rename_exchange(temporary, target)?
     return Err(refuse(f"{shown} changed while it was being replaced"))
   }
