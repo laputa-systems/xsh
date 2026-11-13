@@ -1,6 +1,6 @@
 use super::SYSLOG_ACTION_SIZE_BUFFER;
 use super::common::io_error;
-use super::{DEV_KMSG, PROC_MEMINFO, SYSLOG_ACTION_READ_ALL};
+use super::{DEV_KMSG, KMSG_RECORD_MAX, PROC_MEMINFO, SYSLOG_ACTION_READ_ALL};
 use crate::modules::linux::str_value;
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -237,17 +237,31 @@ fn read_kmsg() -> io::Result<Vec<String>> {
         .read(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
         .open(DEV_KMSG)?;
-    let mut text = String::new();
-    match file.read_to_string(&mut text) {
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock && !text.is_empty() => {}
-        Err(error) => return Err(error),
+    read_kmsg_records(&mut file)
+}
+
+fn read_kmsg_records(file: &mut impl Read) -> io::Result<Vec<String>> {
+    // Each read returns one record, and Linux fails a read with EINVAL when the
+    // record does not fit the buffer; records are at most CONSOLE_EXT_LOG_MAX bytes.
+    let mut record = vec![0_u8; KMSG_RECORD_MAX];
+    let mut messages = Vec::new();
+    let mut read_any = false;
+    loop {
+        match file.read(&mut record) {
+            Ok(0) => break,
+            Ok(len) => {
+                read_any = true;
+                let text = std::str::from_utf8(&record[..len])
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                messages.extend(text.lines().filter_map(parse_kmsg_line).map(str::to_owned));
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock && read_any => break,
+            // EPIPE reports that older records were overwritten; the next read resumes.
+            Err(error) if error.raw_os_error() == Some(libc::EPIPE) => {}
+            Err(error) => return Err(error),
+        }
     }
-    Ok(text
-        .lines()
-        .filter_map(parse_kmsg_line)
-        .map(str::to_owned)
-        .collect())
+    Ok(messages)
 }
 
 fn parse_kmsg_line(line: &str) -> Option<&str> {
@@ -301,9 +315,42 @@ fn strip_syslog_prefix(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_meminfo, parse_meminfo_line, parse_module_line};
+    use super::{parse_meminfo, parse_meminfo_line, parse_module_line, read_kmsg_records};
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
+    use std::collections::VecDeque;
+    use std::io::{self, Read};
+
+    /// Reads like /dev/kmsg: one whole record per read, EINVAL when it does not fit.
+    struct KmsgRing(VecDeque<io::Result<Vec<u8>>>);
+
+    impl Read for KmsgRing {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            match self.0.front() {
+                None => Err(io::ErrorKind::WouldBlock.into()),
+                Some(Ok(record)) if record.len() > buffer.len() => Err(io::Error::from_raw_os_error(libc::EINVAL)),
+                Some(_) => match self.0.pop_front().unwrap() {
+                    Ok(record) => {
+                        buffer[..record.len()].copy_from_slice(&record);
+                        Ok(record.len())
+                    }
+                    Err(error) => Err(error),
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn kmsg_reads_whole_records_and_resumes_after_an_overrun() {
+        let long = format!("6,2,0,-;{}\n", "x".repeat(200));
+        let mut ring = KmsgRing(VecDeque::from([
+            Ok(b"6,1,0,-;first\n SUBSYSTEM=net\n".to_vec()),
+            Err(io::Error::from_raw_os_error(libc::EPIPE)),
+            Ok(long.into_bytes()),
+        ]));
+        let messages = read_kmsg_records(&mut ring).unwrap();
+        assert_eq!(messages, vec!["first".to_owned(), "x".repeat(200)]);
+    }
 
     fn span() -> Span {
         Span::new(SourceId::new(0), 0, 0)

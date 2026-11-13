@@ -7,6 +7,7 @@ use std::io;
 use std::os::fd::OwnedFd;
 
 const DEV_KMSG: &str = "/dev/kmsg";
+const KMSG_RECORD_MAX: usize = 8192;
 const PROC_MEMINFO: &str = "/proc/meminfo";
 const SYSLOG_ACTION_READ_ALL: libc::c_int = 3;
 const SYSLOG_ACTION_SIZE_BUFFER: libc::c_int = 10;
