@@ -5547,7 +5547,9 @@ Contracts worth knowing without consulting the reference:
   record carries the entry's allocated and apparent sizes, modification
   seconds, link count, kind, state, read error, and full path; a directory's
   `done` record reports whether an exact root-relative exclusion or a read
-  failure made it incomplete. Mount boundaries and repeated directory
+  failure made it incomplete. A directory iteration failure retains the entries
+  read successfully. That directory and its ancestors report their first
+  recorded read error. Mount boundaries and repeated directory
   identities are excluded rather than entered, and symbolic links are never
   followed. Record order is children before their directory's `done` record.
 - `fs.walk`, `fs.files`, and `fs.dirs` skip hidden entries and honor
