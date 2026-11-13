@@ -411,10 +411,50 @@ test test_within_passes_a_mocked_network_call_through { |ctx|
   assert status == Ok(200)
 }
 
-# A server that accepts the connection and never answers holds a real
-# request open. The deadline stops the wait, whether the body propagates the
-# interrupted request's error or handles it and tries to go on.
+proc check_silent_server_deadlines(first_port: Int, second_port: Int) [net, time, error] -> Result[Unit] {
+  let started = time.now()
+  let propagated = within 200ms {
+    net.request({method: "GET", url: f"http://127.0.0.1:{first_port}/"})?.status
+  }
+  assert timed_out(propagated)
+
+  var went_on = false
+  let handled = within 200ms {
+    let status = if let Ok(response) = net.request({method: "GET", url: f"http://127.0.0.1:{second_port}/"}) {
+      response.status
+    } else {
+      -1
+    }
+    went_on = true
+    status
+  }
+  assert timed_out(handled)
+  assert ! went_on
+  assert time.now() - started < 10000
+  return
+}
+
 test test_within_stops_a_network_wait_on_a_silent_server {
+  if system.uname()?.sysname == "Linux" {
+    let c = linux.net_constants()
+    let first = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
+    defer unix.close_fd(first)
+    linux.bind(first, {family: "inet", address: "127.0.0.1", port: 0})
+    linux.listen(first, 1)
+    let second = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
+    defer unix.close_fd(second)
+    linux.bind(second, {family: "inet", address: "127.0.0.1", port: 0})
+    linux.listen(second, 1)
+
+    check_silent_server_deadlines(linux.getsockname(first)?.port, linux.getsockname(second)?.port)?
+    for listener in [first, second] {
+      let connection = linux.accept(listener, nonblock: true)?
+      defer unix.close_fd(connection.fd)
+      assert unix.read_fd(connection.fd, 8)? == b"GET / HT"
+    }
+    return
+  }
+
   let probe = run.capture --text --accept=[0, 1, 2, 127] sh -c "nc --help 2>&1"
   if "BusyBox" not in probe.stdout + probe.stderr {
     test.skip("needs BusyBox nc to hold a connection open")
@@ -431,23 +471,5 @@ test test_within_stops_a_network_wait_on_a_silent_server {
   defer second.cancel()
   time.sleep(300ms)
 
-  let started = time.now()
-  let propagated = within 200ms {
-    net.request({method: "GET", url: f"http://127.0.0.1:{port}/"})?.status
-  }
-  assert timed_out(propagated)
-
-  var went_on = false
-  let handled = within 200ms {
-    let status = if let Ok(response) = net.request({method: "GET", url: f"http://127.0.0.1:{port + 1}/"}) {
-      response.status
-    } else {
-      -1
-    }
-    went_on = true
-    status
-  }
-  assert timed_out(handled)
-  assert ! went_on
-  assert time.now() - started < 10000
+  check_silent_server_deadlines(port, port + 1)?
 }
