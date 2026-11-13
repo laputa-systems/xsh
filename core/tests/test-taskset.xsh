@@ -29,6 +29,7 @@ For more details see taskset(1).
 
 # Each pair was printed by util-linux taskset for the same CPUs.
 const LIST_CASES: List[ListCase] = [
+  {input: "0,1", cpus: [0, 1], shown: "0,1"},
   {input: "0,2,4", cpus: [0, 2, 4], shown: "0-4:2"},
   {input: "0-3:2,5,8-9", cpus: [0, 2, 5, 8, 9], shown: "0,2-8:3,9"},
   {input: "0,1,3,5,7", cpus: [0, 1, 3, 5, 7], shown: "0,1-7:2"},
@@ -122,11 +123,17 @@ test test_taskset_reports_the_affinity_of_a_process_as_mask_and_list { |ctx|
   let list = taskset_run(ctx, ["-pc", f"{pid}"])?
   assert list.status == 0, list.stderr
 
-  # The allowed CPUs of a test host are usually one range; pin that spelling.
   let last = cpus[-1]
 
   if cpus == [id for id in range(last + 1)] {
-    assert list.stdout == f"pid {pid}'s current affinity list: {if last == 0 { "0" } else { f"0-{last}" }}\n"
+    let shown = if last == 0 {
+      "0"
+    } else if last == 1 {
+      "0,1"
+    } else {
+      f"0-{last}"
+    }
+    assert list.stdout == f"pid {pid}'s current affinity list: {shown}\n"
   } else {
     assert list.stdout.starts_with(f"pid {pid}'s current affinity list: "), list.stdout
   }
