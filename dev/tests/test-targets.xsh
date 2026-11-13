@@ -103,35 +103,38 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
 }
 
 test test_docker_argv_applies_split_resource_limits_before_the_image {
-  let ctx = fixtures.linux_aarch64_context(p"/repo", "dev")?
-  for operation in ["test-linux-split", "test-linux-ci-split"] {
-    let argv = docker_workflows.internal_argv(
-      ctx,
-      "xsh-test",
-      "linux/arm64",
-      operation,
-      true,
-      501,
-      20,
-      "",
-      [],
-    )?
-    var image_seen = false
-    let docker_options_before_image = collect {
-      for argument in argv {
-        if argument == "xsh-test" {
-          image_seen = true
-          break
+  for profile in ["verification", "release"] {
+    let ctx = fixtures.linux_aarch64_context(p"/repo", profile)?
+    for operation in ["test-linux-split", "test-linux-ci-split"] {
+      let argv = docker_workflows.internal_argv(
+        ctx,
+        "xsh-test",
+        "linux/arm64",
+        operation,
+        true,
+        501,
+        20,
+        "",
+        [],
+      )?
+      var image_seen = false
+      let docker_options_before_image = collect {
+        for argument in argv {
+          if argument == "xsh-test" {
+            image_seen = true
+            break
+          }
+          yield argument
         }
-        yield argument
       }
+      assert image_seen
+      assert "--cpus=0.01" in docker_options_before_image
+      assert "--memory=1g" in docker_options_before_image
+      assert "--memory-swap=1g" in docker_options_before_image
+      assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
+      assert argv[-5] == f"/work/target/{ctx.target.triple}/{profile}/xsh"
+      assert argv[-4..] == ["dev/main.xsh", "--", "internal", operation]
     }
-    assert image_seen
-    assert "--cpus=0.01" in docker_options_before_image
-    assert "--memory=1g" in docker_options_before_image
-    assert "--memory-swap=1g" in docker_options_before_image
-    assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
-    assert argv[-1] == operation
   }
 }
 

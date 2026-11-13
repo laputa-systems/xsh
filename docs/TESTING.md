@@ -538,9 +538,10 @@ Stage GNU parity tools inside that guest.
 
 The traceroute source-route cases require `CAP_NET_RAW` and loopback-only
 networking. The two infinite `/dev/zero` split cases run in a separate
-container with a 0.01 CPU quota and a 1 GiB memory limit. Their driver waits for
-the child to open the device, then kills and reaps it. The ordinary gate runs
-this bounded case separately.
+container with a 0.01 CPU quota and a 1 GiB memory limit. The preceding Linux
+stage builds the selected optimized XSH product. The limited container invokes
+that product directly. Its driver waits for the child to open the device, then
+kills and reaps it. The ordinary gate runs this bounded case separately.
 
 ### Block-device dd regression
 

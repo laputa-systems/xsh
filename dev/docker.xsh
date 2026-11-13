@@ -147,6 +147,8 @@ pure interpreter_command(ctx: context.Context, operation: Str, build_only: Bool)
   let build = ["cargo", "build", "--quiet", "--target", ctx.target.triple, "-p", "xsh", "--bin", "xsh"]
   if build_only {
     build
+  } else if operation in ["test-linux-split", "test-linux-ci-split"] {
+    [f"/work/target/{ctx.target.triple}/{ctx.profile}/xsh", "dev/main.xsh", "--", "internal", operation]
   } else if gate_operation(operation) {
     [f"/work/target/{ctx.target.triple}/debug/xsh", "dev/main.xsh", "--", "internal", operation]
   } else {
