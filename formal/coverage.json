@@ -12846,6 +12846,78 @@
       "status": "fragment",
       "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
       "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.Value.referencesValid_mono",
+      "module": "Xsh.Core.ReferenceValidity",
+      "declaration": "Xsh.Core.Value.referencesValid_mono",
+      "scope": "Reference validity for every shared value is preserved when the supplied reference policy retains every previously retained reference.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.Value.references_eraseNominal",
+      "module": "Xsh.Core.ReferenceValidity",
+      "declaration": "Xsh.Core.Value.references_eraseNominal",
+      "scope": "Erasing outer nominal wrappers preserves every reference carried by a shared value.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.check_iff",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.check_iff",
+      "scope": "The executable shared-store check agrees with the conjunction of supplied reference retention and structural membership for every shared type and value.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.write_accepted_iff",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.write_accepted_iff",
+      "scope": "A shared-value store write succeeds exactly for a present mutable cell and a candidate satisfying reference retention and membership in the cell's declared type.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.write_rejects_unretained_reference",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.write_rejects_unretained_reference",
+      "scope": "Any unretained reference carried by a candidate rejects its store write atomically, for every shared value, store and target cell.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.Store.write_preserves_unrelated_cells",
+      "module": "Xsh.Core.Store",
+      "declaration": "Xsh.Core.Store.write_preserves_unrelated_cells",
+      "scope": "The shared-value store adapter preserves every cell other than its assignment target.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.ReferenceControls.reference_controls",
+      "module": "Xsh.Core.ReferenceControls",
+      "declaration": "Xsh.Core.ReferenceControls.reference_controls",
+      "scope": "Finite model controls check all ten reference kinds, nested containers, recursive error causes, module exports and process-status references.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.ReferenceControls.store_controls",
+      "module": "Xsh.Core.ReferenceControls",
+      "declaration": "Xsh.Core.ReferenceControls.store_controls",
+      "scope": "Finite model controls execute the shared typed-store adapter on retained and unretained candidates.",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "boundary": "Covers the shared Lean value domain and supplied membership/reference decisions. It does not establish policy authenticity, ownership, liveness, heap closure, type admissibility, machine integration or Rust correspondence, and closes no full-core obligation."
     }
   ],
   "artifact_certificates": [

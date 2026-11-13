@@ -72,6 +72,19 @@ defaulted labels, error capture and unknown replacements. Type admissibility,
 source binding, retained-contract authentication and machine integration remain
 open. These data and substitution laws close no full-core obligation.
 
+[`Core/ReferenceValidity.lean`](Xsh/Core/ReferenceValidity.lean) enumerates the
+references carried by every shared value family, including nested error causes,
+module exports and process-status segments. A supplied policy decides which
+references are retained. [`Core/Store.lean`](Xsh/Core/Store.lean) instantiates the
+existing typed-cell API with that policy and the shared membership judgment.
+A write succeeds exactly for a mutable present cell whose candidate satisfies
+both checks. An unretained reference rejects the write without changing any cell.
+The proofs quantify over the shared value domain. Controls exercise every
+reference kind, nested payloads and real store acceptance and rejection.
+This is not a proof of reference ownership, liveness, heap closure, contract
+authentication, type admissibility, machine integration or Rust conformance.
+Those obligations remain open. BASE-ENV and TYPE-MEMBER remain planned.
+
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from
