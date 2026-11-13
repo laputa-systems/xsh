@@ -1,6 +1,6 @@
 # XSH-89: Backup quiescence recovery
 
-Status: draft
+Status: accepted
 
 ## Summary
 
@@ -116,9 +116,13 @@ the existing normal backup and restore drill.
 
 ## Decision
 
-Pending. Prefer recovery in existing timer supervision, durable ownership of
-each acquired stop, and reconciliation after both child loss and supervisor
-restart. Do not claim interruption safety until the guest acceptance cases pass.
+Accepted by the owner on 2026-11-13. The existing timer supervision path owns
+recovery for the shipped backup job, with a narrow xinit ownership revision so
+later operator commands win. Each acquired stop has a durable record, and
+reconciliation runs after child loss and supervisor restart. Manual quiescing
+runs use the same supervised path. The stop and release bounds are published
+with the backup configuration. Do not claim interruption safety until the guest
+acceptance cases pass.
 
 [runner]: https://github.com/laputa-systems/laputa/blob/bfe60a9ac40f55369c6e33bd0d80ae5e96a04f3a/system/backup.xsh#L538-L579
 [hook]: https://github.com/laputa-systems/laputa/blob/bfe60a9ac40f55369c6e33bd0d80ae5e96a04f3a/system/backup_quiesce.xsh#L131-L153

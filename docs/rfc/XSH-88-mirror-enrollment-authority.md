@@ -1,6 +1,6 @@
 # XSH-88: Mirror enrollment authority
 
-Status: draft
+Status: accepted
 
 ## Summary
 
@@ -109,9 +109,12 @@ snapshot signature and index-digest rejection checks.
 
 ## Decision
 
-Pending. The recommended design is operator-authorized first enrollment,
-same-user authentication for additional keys, and atomic consumption of the
-authority and challenge at credential persistence.
+Accepted by the owner on 2026-11-13. A local operator command issues a
+one-use, user-bound, expiring authorization for first enrollment. Browser
+registration consumes that authorization and the pending challenge atomically
+with credential persistence. Additional keys require recent same-user WebAuthn
+authentication. Existing credentials and tokens are not revoked automatically;
+the rollout lists them for operator review.
 
 [handlers]: https://github.com/laputa-systems/laputa/blob/bfe60a9ac40f55369c6e33bd0d80ae5e96a04f3a/mirror/src/webauthn_handlers.rs#L26-L158
 [tokens]: https://github.com/laputa-systems/laputa/blob/bfe60a9ac40f55369c6e33bd0d80ae5e96a04f3a/mirror/src/webauthn_handlers.rs#L480-L516
