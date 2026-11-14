@@ -164,16 +164,6 @@ out of scope.
 - **Effort:** M
 
 
-### XSH-80 · P3 · Make a btop frame for 1,000 processes interactive
-
-- **Area:** Performance
-- **Where:** `core/lib/btop_model.xsh`, the btop render and diff path, `dev/perf/btop-profile.xsh`
-- **Problem:** The release `btop-profile` run on `32aad8b7a` (2026-11-07) put the p95 time for one frame (model, render and diff) at 2.08 s with 1,000 processes. btop refreshes about once a second, so every frame at that size overruns its interval. The profile asserts only that the process join scales linearly (2.02 times from 1k to 2k processes) and sets no frame budget. No earlier figure exists to compare against.
-- **Recommendation:** Profile one 1k-process frame, find which of model, render or diff dominates, and fix that stage. Then add a frame-time budget to `btop-profile.xsh`. - **Progress:** `df06e7ce6`..`99912ff48` compute per-frame inputs once, derive both process rates in one call and sort and filter once per frame. Model wire JSON and every sorted screen stay byte-identical. Unqualified p95 for 1,000 processes fell from 4.3 to 10.6 s to 0.43 to 0.84 s on a loaded host; the remaining cost is evaluator records, field reads and calls (XSH-77). `btop-profile.xsh` now enforces p95 at most 1.25 s, to tighten to 250 ms after a qualified release run. - **Acceptance:** p95 frame time for 1,000 processes under 250 ms in a readiness-qualified release run, with the profile enforcing that budget; btop tests green.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
-
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Area:** Performance

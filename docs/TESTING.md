@@ -899,6 +899,16 @@ procedures.
 absolute release binary built from the revision under test. The profile checks
 host readiness before and after the run and requires `perf-gate-ready` to pass.
 
+On 2026-11-14, release `1598ef041` in pinned Linux image `3564b3d70fac`
+passed five runs of twenty preloaded 1,000-process frames at 120 by 40, seed
+424242. Per-run p95 ranged from 117.17 to 126.18 ms (median 123.75 ms);
+the profile now enforces 250 ms. Every pre- and post-readiness check passed.
+The measured region covers model, render and diff, with collection and fixture
+setup outside it. Whole-profile peak RSS was 182,596–183,788 KiB per process;
+the 1k-to-2k process-join median ratios were 1.97–2.01. Evidence is under
+`.work/tmp/resume-btop/`. These are absolute qualification results, not a
+comparison with the earlier unqualified measurements.
+
 ## Generated docs
 
 `make docs` regenerates `docs/SPEC.md`, `docs/user-tour.md`, and

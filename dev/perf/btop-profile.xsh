@@ -6,7 +6,7 @@ use core.lib.sys_proc as sysproc
 use core.tests.support.btop as fixture
 use core.tests.support.btop_process_fixture as process_fixture
 
-const FRAME_BUDGET_NS = 1250000000
+const FRAME_BUDGET_NS = 250000000
 
 proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
   let started_ns = time.monotonic()?

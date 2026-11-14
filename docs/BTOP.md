@@ -96,8 +96,10 @@ environments or perform process actions.
 ## Current limits
 
 Live collection supports Linux. Linux ARM64 is not qualified, and live battery
-behavior is tested only with fixtures. The 120-by-40 profile missed its latency
-target and has not been requalified. GPU collection, process actions and
+behavior is tested only with fixtures. The preloaded 120-by-40 profile is
+qualified on Linux x86_64 release and enforces a 250 ms p95 budget for modelling,
+rendering and diffing 1,000 processes; live collection is outside that timing.
+GPU collection, process actions and
 detail views, and non-Linux live collectors are outside this monitor.
 
 See [Testing](TESTING.md#profile-btop) to run the preloaded profile.
