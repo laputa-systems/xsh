@@ -1,241 +1,54 @@
 # XSH semantic soundness campaign
 
-**Status:** the owner restarted the Lean lane on 2026-11-03. The vertical has integer
-parameters, a direct call of an earlier let-free function and an integer
-conditional in the schedule, the raw-IR rows and their base-machine meaning
-(`Xsh.Semantics.BaseMachine` gained compare, conditional and call forms). The
-Lean lowerer is proved rather than validated per artifact:
-`lowering_means_the_source` shows, for every list of parsed functions it
-succeeds on, that the program each emitted function row denotes equals the
-program its source function denotes, so the certificate keeps only the
-reproduction check tying the exchanged bytes to the lowerer. The CERT-FACTS
-validator exists for the admitted productions: `validate_facts_iff` proves it
-accepts exactly the valid derivations of the declarative rules and takes
-nothing from the candidate, with a non-vacuity witness and rejected forgeries.
-The test-only Rust bridge exports checker facts for the failures and calls
-fixtures, and Lean certifies the corresponding fact documents. A third
-source/IR certificate covers one integer variable and one plain assignment. A
-fourth covers two Bool-returning comparison functions: the admitted grammar
-takes `-> Bool` only with a comparison of two atoms, the lowerer emits the same
-`ExprBinary` comparison rows, and the recorded observations are true and false.
-`lowering_means_the_source` stays universal over the widened parsed functions.
-A fifth source/IR certificate covers `Result[Int, Int]` construction: the
-admitted grammar takes a `Result[Int, Int]` return only with `Ok(value)` or
-`Err(value)`, the lowerer emits the `ExprOk` and `ExprErr` rows the Rust
-lowerer emits, the base machine completes with the constructor and integer
-payload, and the recorded observations are `Ok` 7, `Err` 5, `Ok` 5 and `Ok` 0.
-A sixth covers `?` propagation: the admitted grammar takes one
-`let target = callee(argument)?` binding in a one-parameter `Result[Int, Int]`
-function whose callee is an earlier callable function returning a constructor;
-the lowerer emits the argument block, `ExprDirectPureCall`, `ExprTry` and
-`StmtLet` rows the Rust lowerer emits (the target slot and the absent
-annotation word included), the base machine continues with the callee's `Ok`
-payload bound to the target and returns the same `Err`, and the recorded
-observations are `Ok` 8, `Err` 5, `Ok` 8, `Err` 5 and `Ok` -2. The outcome
-theorem is split: the plain form is stated for programs without a propagation
-and `propagated_program_outcome_is_a_completed_machine_run` covers the binding.
-A seventh covers a call of a function with a `let`: the admitted grammar takes
-one integer parameter and one integer literal let, with the parameter at slot 0
-and the let at slot 2, and a caller that calls it on its parameter; the lowerer
-emits the callee's `IntInt`, `StmtLetInt`, parameter, `ExprBinary` and
-`StmtReturn` rows and the caller's argument, `ExprDirectPureCall`,
-`StmtReturn` and body rows, and the base machine runs the call with the
-callee's literal binding in its callee form, recording 7, 7 and -7. The
-callee form of a function without an assignment or a propagation is its body
-with each literal binding substituted for its slot; `callee?` admits it, so
-the call row has a meaning. An eighth covers a computed let: the admitted
-grammar takes one integer parameter and one `let y = atom op atom` binding over
-that parameter and literals, the lowerer emits the value as the integer-family
-`IntSlot` and `IntInt`/`IntBinary` rows before `StmtLetInt`, and the callee
-form carries the binding so a call applies it, evaluating it once beside the
-parameter; the recorded calls are 14, 14 and -14. The substitution approach
-does not extend to computed values, so the base-machine binding is now an
-`BaseExpr` value and the callee's application supplies it. A ninth covers a
-sequence of computed lets: the admitted grammar takes one integer parameter and
-several `let name = atom op atom` lines, each reading the parameter, literals
-and the bindings before it, and the fixture binds `a = value + 4` and
-`b = a * 2` and returns `b - value`; the lowerer emits each integer-family value
-and its `StmtLetInt` binding in source order at slots 2 and 3, and the callee
-form carries both bindings so a call applies them in order; the recorded calls
-are 13, 13 and -1. Applying a later binding replaces an earlier binding's slot
-by that earlier binding's applied value, so the machine evaluates the earlier
-value again inside the later one; the admitted values are pure integer
-expressions, so that gives the same value and the same first failure as
-evaluating each binding once in order.
-Nullary callees may now assign their one validated literal binding. The callee carries the
-assigned expression as a binding evaluated before its return, after substituting the initial
-literal in that expression. `assigned_literal_function_is_callable` and
-`assigned_literal_call_begins_with_the_assignment` state this construction and its first machine
-step for arbitrary assigned and returned expressions; `lowering_means_the_source` remains
-universal over the admitted parsed functions. The assigned-call source fixture exercises a
-returned updated value and a failing assignment whose slot the return ignores. It adds no
-artifact certificate or frozen Rust-conformance ledger entry. The general operational
-correspondence is now proved: `source_assignment_normalization_is_correct` derives it from
-success of the existing source-program projection for every admitted nullary literal-local
-assignment. It derives the pure evaluation premises and five-step expression bounds, proves
-actual direct settlement has the same value or arithmetic failure as the normalized call, and
-allows any call fuel of at least twelve transitions. A generic theorem supports arbitrary pure
-integer arithmetic trees with explicit separate fuel bounds. An unused-assignment failure
-witness and an assignment-erasure counterexample preserve the observable-failure boundary.
-The next widening is an error producer or a record local; each needs a new row
-form rather than another certificate-only check.
-The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds eleven ARTIFACT_CERTIFIED records, including the
-scoped fact artifact whose final matching-freeze replay remains open. The original
-two source/IR certificates each cover their own pair of exchange
-documents: the six-function document, once decoded in one declaration,
-exhausted the independent kernels, so the certificate covers `divided` and
-`overflowed` in one document and `excess` with `surplus` in another. The
-source freeze is `1d27050bf`; see the log entry for the decision.
-Not reached: the connected milestone. The proofs cover the Lean
-lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
-Rust's execution of the IR rest on the artifacts and the recorded runs.
-The admitted ASCII productions now have independent lexical, grammar and scope-projection
-soundness proofs. The original-byte witness checker reconstructs candidate trees and slot
-tables, rejects module inputs, and proves accepted projections unique. This is successful
-parse soundness; general rejection, positions, diagnostics, imports and Rust parser agreement
-remain outside it. Accepted pure integer facts now correspond to actual IR function, binding,
-operand, operation, call and branch rows whenever the Lean lowerer reproduces the artifact.
-`FactsIR.admitted_facts_match_ir` composes both links over the same bytes, functions and artifact.
-The fact validator also rejects unsupported propagation bindings in both its executable and
-declarative rules. Wider Bool, Result, assigned and computed-let fact derivations remain open.
-The connected row comparison now reconstructs supported record and assignment expressions
-and derives local slots from exported declaration claims, checked initializer trees and
-mutability facts. The Rust claim table, positional parameter slots and single-assignment
-temporary convention remain assumptions. The next step is to authenticate transfer metadata
-and connect these checked rows to execution. The portable exchange still omits semantic
-tables needed by Rust's clone-based decoder. Export those tables before claiming a foreign-IR validator. The existing
-validation-error sentinel also omits structured Error identity, messages, paths and causes.
-Those observations need a representation and proof before an error-producer claim can include them.
-The integrator accepted `decide +kernel` for the
-byte-level certificate theorems: it adds no axiom. All six fresh kernels
-accepted the certificates at `e52dcf2b2` under the 8 GiB cap. The combined integration
-with derived declaration slots also passes all six kernels under that cap and
-the 1,620-second deadline after native execution ends. The preceding overlapping
-run times out during the final checker and remains incomplete evidence.
-The independent kernels hold the whole export in memory. Earlier checks at the
-8 GiB address-space cap found that a single declaration that
-decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
-and 3.9 KB still failed con-leche, so the original certified documents are
-2.4 KB and 3.9 KB; the boolean pair is smaller. A certificate that evaluates
-a string literal or repeats a document decode can pass the bundled kernel and
-still exceed the cap.
+**Status:** active since the owner restarted the Lean lane on 2026-11-03. The
+connected milestone is the current target; G0–G10 stay planned around it.
+`formal/coverage.json` is the only inventory: 1,033 `SPEC_PROVED` fragment
+roots, eleven `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
+at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and all 77
+universal obligations planned. `formal/README.md` describes each accepted
+fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
+validates the inventory against this plan. Completed slices are recorded in
+Git history, not here.
 
-**Resume:** complete one connected
-compiler proof milestone (see [the typing and formal successor
+Fragment proofs hold for their models only. The certified source/IR vertical
+covers the Lean lowerer on admitted integer, Bool-comparison, `Result`, `?` and
+let-binding productions; Rust's parser, its lowering of other programs and its
+execution of IR rest on the recorded artifacts and runs. The shared `Xsh.Core`
+foundation (types, values, reference validity, store, contract substitution,
+effect predicates and membership) closes no universal obligation.
+
+**Next:** connect the production membership operation through the first
+[functional-core pilot](docs/ROADMAP.md#internal-functional-cores), alongside
+the source, facts and IR work below. Complete one connected compiler proof
+milestone (see [the typing and formal successor
 requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
-while retaining the full-core obligations and the post-consolidation source
-freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
-resume leaves Lean paused.
-
-**State:** `formal/coverage.json` is the only inventory. It lists 1033
-fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
-selected model behavior. The source and IR links cover their admitted domains;
-Rust, OS and clock correspondence remain separate boundaries. All 77 universal
-obligations stay planned. G1's five base
-theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
-roots: they hold for the base expression machine, which is not the frozen
-core.
-`source_identity` records the frozen commit `1d27050bf` and its tree, and
-`finite_conformance.cases` holds four Float equality tests and fourteen
-arithmetic and facts bridge tests, run once each against a verification
-`xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds eleven ARTIFACT_CERTIFIED
-records, apart from the fragment roots; the scoped fact artifact still needs
-its final matching-freeze replay. Each
-fragment's exclusions are recorded beside its roots. `python3
-formal/scripts/check-inventory.py` validates the inventory against this plan.
-
-The shared `Xsh.Core` data foundation now separates kinded type terms from
-raw value candidates. It retains callable labels/defaults/rest/effects, exact
-and open module exports, validation bounds, raw Float bits, semantic references,
-recursive errors and causes, and the scalar map-key domains. Substitution laws,
-effect-set denotation, scalar-key injection and nominal-erasure idempotence are
-algebraic properties only. Callable types now carry an explicit effect scope,
-separate from type variables. Their substitutions share one traversal and obey
-a general commutation law with transformed type replacements. Admissibility,
-full membership, complete syntax and
-steps, and migration of the existing fragment machines remain open. This closes
-no universal obligation and adds no Rust conformance claim.
-
-`Xsh.Core.ReferenceValidity` traverses references carried by every shared value
-family, including nested causes, exports and status segments. `Xsh.Core.Store`
-uses that reference policy and structural membership with the existing typed-cell
-implementation. Allocation is shared with the connected execution machine;
-its binding, parameter and callable-store proofs reuse the general allocation
-laws. Those laws characterize fresh typed allocation and preservation of all
-existing cells. The shared adapter rejects unretained references at allocation
-and assignment. The connected machine retains its restricted values and
-membership judgment. Retention policy authenticity, heap closure, ownership,
-liveness, type admissibility, source binding and migration to shared machine
-values remain open. These component proofs close no universal obligation.
-
-`Xsh.Core.ContractSubstitution` handles known and unknown substitutions in the
-shared effect domain. It proves the exact condition for retaining inclusion and
-permission coverage and characterizes preservation under every substitution by
-live-dependency inclusion. Direct effects can hide a parameter under ordinary
-set inclusion while an unknown replacement still propagates through that
-parameter. The counterexample rules out unconditional substitution preservation.
-Establishing the dependency condition from source typing remains open. This adds
-no Rust conformance claim and closes no universal obligation.
-
-`Xsh.Core.EffectPredicates` now models all four three-result predicate
-decisions over arbitrary shared symbolic parameter scopes. Known accepted
-inclusion and coverage agree with all-assignment judgments; rejected known
-comparisons have counterexamples. Exclusion separates universal acceptance,
-universal rejection and varying assignments. Equality acceptance is sound,
-while a redundant coefficient witnesses unresolved equality despite universal
-semantic agreement. Unknown-contract policy remains explicit. A separate manual
-comparison passes 133,888 finite cases against production Rust decisions,
-including every closed-mask pair and single-parameter mask pair. Selected
-multi-parameter cases use a seventeen-parameter scope. Six altered corpora are
-rejected. This current-source comparison does not change the frozen conformance
-ledger. General source binding, inference and execution integration remain open.
-These component proofs close no whole-core obligation.
-
-`Xsh.Core.Membership` now defines membership across the represented value-type
-families, including environment-path list views, module exports and nominal
-provenance. Its terminating decision uses explicit decisions for retained
-callable and stream contracts. The general correctness theorem is relative to
-those contracts; constructing and preserving them from checked source remains
-open. The finite acceptance/rejection controls are model evidence. They add no
-Rust conformance claim and leave TYPE-MEMBER planned.
+while retaining the full-core obligations and the G0b source freeze. Typing
+acceptance does not wait for this campaign.
 
 **Open items:**
 
-- BASE-VERTICAL stays planned. Three fixtures
-  (`formal-bridge-integer-failures.xsh`: `divided` and `overflowed`, each with
-  one integer `let` and one binary return and each a specified failure;
-  `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
-  conditional on a comparison, and `surplus`, a `let` and a call of `excess`;
-  `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
-  one literal `let`, and `runs`, which calls it on its parameter;
-  `formal-bridge-integer-computed-let-calls.xsh`: `scales`, one integer
-  parameter and one computed `let`, and `runs`, which calls it on its
-  parameter; and `formal-bridge-integer-several-let-calls.xsh`: `scales`, one
-  integer parameter and two computed lets where the second reads the first,
-  and `runs`, which calls it on its parameter) go
-  through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
-  emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
-  `...CallsCertificate` kernel-check that each source's bytes parse in an
-  independent Lean grammar, lower to exactly the exchanged rows, and match the
-  recorded outcomes; that the IR means what the source means follows from
-  `lowering_means_the_source`. Left open: that grammar and lowerer are Lean's
-  own and agree with Rust only on these artifacts (a source admission proof
-  does not exist, and the lowerer theorem is about the Lean lowerer); span
-  words are read from the document; the lowered shape has no loops, strings,
-  records or a call of a Bool function, though a Bool-returning comparison of
-  two atoms, `Result[Int, Int]` construction, one `?` binding of a call to an
-  earlier callable `Result[Int, Int]` function, a call of a function with one
-  integer parameter and one integer literal let, a call of a function with one
-  integer parameter and one computed let, and a call of a function with one
-  integer parameter and a sequence of computed lets, and a nullary callee assigning its one
-  literal binding are covered; an assigned callee with parameters, a computed binding whose
-  value has effects, an error
-  producer and a record local are outside it. One plain integer assignment is modeled separately;
-  CERT-FACTS does not admit assignments or computed lets. No CERT-SOUND validator exists, and
-  execution of the IR by Rust is
-  evidence only through the recorded runs.
+- BASE-VERTICAL stays planned. The bridge fixtures
+  (`tests/fixtures/runtime/formal-bridge-*.xsh`) go through the test-only exporter
+  and decoder in `src/runtime/eval/indexed/full/formal_bridge/arithmetic.rs`, and
+  `Xsh.Conformance.Vertical.Certificate` and `...CallsCertificate` check their
+  bytes against an independent Lean grammar and lowerer. That grammar and
+  lowerer agree with Rust only on these artifacts; no source admission proof
+  connects them in general. Outside the admitted shape: loops, strings, records,
+  Bool-function calls, assigned callees with parameters, effectful computed
+  bindings, error producers and record locals. CERT-FACTS does not admit
+  assignments or computed lets, and no CERT-SOUND validator exists.
+- The next vertical widening is an error producer or a record local; each needs
+  a new row form, not another certificate-only check. The validation-error
+  sentinel omits structured Error identity, messages, paths and causes, so an
+  error-producer claim first needs their representation and proof.
+- The portable exchange omits semantic tables that Rust's clone-based decoder
+  needs. Export them before claiming a foreign-IR validator.
+- The scoped fact artifact still needs its final matching-freeze replay.
+- Wider Bool, Result, assigned and computed-let fact derivations remain open.
+- The independent kernels hold the whole export in memory under the 8 GiB cap.
+  A certificate that evaluates a string literal or repeats a document decode
+  can pass the bundled kernel and still exceed that cap, so keep certified
+  documents small (the accepted ones are at most 3.9 KB).
 - G1's base theorems cover the base machine only: integer expressions,
   comparisons, conditionals and calls of let-free integer functions, scalar
   literals, identifiers and one host request family (`time.now`). The
@@ -350,7 +163,7 @@ Float equality follows owner decision 1: the runtime, constant-folding, and fuzz
 
 Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured during parity work; optimization gates begin only after feature and test parity.
 
-G0 writes the only machine-readable evidence inventory, `formal/coverage.json`, consumed by the gates. It records actual commands/results, versions, fixed-case counts by outcome, theorem roots and axiom audits, statement-drift review, artifact identities only where required, and remaining assumptions/baselines. Do not add `STATUS.md`, duplicate receipts, or a second register. Keep the short log at the end of this document.
+G0 writes the only machine-readable evidence inventory, `formal/coverage.json`, consumed by the gates. It records actual commands/results, versions, fixed-case counts by outcome, theorem roots and axiom audits, statement-drift review, artifact identities only where required, and remaining assumptions/baselines. Do not add `STATUS.md`, duplicate receipts, a second register, or a dated log.
 
 ## Sequence and ownership
 
@@ -629,7 +442,21 @@ limits on the specified host.
 
 ### Connected milestone (successor Phase F)
 
-The in-progress connected path checks independently generated qualified schemes and supported function bodies for every well-sorted solution of their requirements. Acceptance also requires an explicit ground solution, so inconsistent residual field requirements cannot certify an uncalled body. A test-only Rust export supplies a generic projection scheme, its sparse expression facts, selected field operation, call instantiation, and source-scoped function identities; Lean checks its captured bytes and rejects mutations, including a concrete type substituted for a symbolic one. A second certificate checks captured scoped mutable-storage facts. A partial raw-assignment check connects a decoded StoreValue ordinal and statement location to these scoped facts; a further comparison reconstructs supported scalar, read, binary, record, projection, and conditional replacements, including the let-bound temporary blocks scheme lowering emits, from the raw rows and checked node. The binder-to-slot map is no longer supplied: parameters take their positional slots, and each source local takes the slot of the StmtLet row that a test-only Rust export claims for its declaration site, accepted only when that row lies in the function's statement blocks, its captured fact has the local's mutability, its initializer resolved through the function's single-assignment temporaries equals the source initializer, and binders and slots are injective. The claim table, the parameter slot convention, and the fact kinds come from the Rust export and the lowerer, not from Lean. Locals with structurally equal initializers are distinguished only by the uses a check covers. Unsupported initializer forms, annotated or destructuring declarations, global captures, the name map's equivalence with the Rust parser, unsupported RHS forms, transfer marks, and execution simulation remain open. The parser projection is limited to the supported source subset and is not yet proved equivalent to Rust parsing. Conditional connected-machine initialization, progress, step preservation and finite-execution preservation are proved from grounded body, store and function-table certificates; deriving those certificates from accepted source and the selected Rust call remains open in general. General effects, complete structural raw-IR validation, execution observations, and fault blame also remain open. This work has not received a new source freeze or the final fresh conformance and kernel checks.
+The connected path is in progress. Lean checks independently generated
+qualified schemes and supported function bodies, and captured Rust facts for
+generic projection, scoped mutable storage, polymorphic identity calls and raw
+assignments, with mutations rejected. Local slots derive from exported
+declaration claims, checked initializers and mutability facts. Open: the Rust
+claim table, positional parameter slots and single-assignment temporaries are
+assumptions; transfer metadata is unauthenticated; the parser projection covers
+only the supported subset and is not proved equivalent to Rust parsing;
+unsupported initializer and right-hand-side forms, annotated or destructuring
+declarations and global captures are outside it; deriving the connected
+machine's body, store and function-table certificates from accepted source and
+the selected Rust call is open in general; general effects, complete structural
+raw-IR validation, execution observations and fault blame are open. This work
+has no new source freeze and has not passed the final fresh conformance and
+kernel checks.
 
 The integrator owns this milestone and composes slices from G1, G1b, G2 and G3
 interfaces, G4, G7b, G8, and the fact validator; it opens no new formal domain.
@@ -640,8 +467,6 @@ local bindings, records and projection, Bool and Result control, and the
 relevant effect boundaries. Each stage states its exact domain; the domain is
 non-empty and contains the milestone's accepted and rejected programs, and
 reports give accepted and rejected counts.
-
-A source-bound fact check also validates a polymorphic identity body and its `Int` and `Bool` call arguments against the captured Rust document. The self-scoped decoder derives type-parameter identities from each declared body, and the call check authenticates its source target and operation bindings. Its admitted callers currently have no parameters and consist of a single outer call. A separate captured declaration-effect document for an unshadowed direct `time.now()` proc matches the independently classified source; forged contract, owner, inference and provenance facts are refused. General calls, lexical effect boundaries, symbolic effect parameters, and effect-to-runtime agreement remain open.
 
 The current local verification checker rejects an uncalled `Int` field access but accepts an uncalled mutable local whose assignment requires `value` to contain a field of its own type. The qualified Lean checker rejects both: the latter requirement has no finite solution. This observed acceptance difference is not Rust/Lean rejection agreement; it still needs reproduction at the eventual matching freeze.
 
@@ -785,621 +610,11 @@ This map was checked at `120f8b44e98b4fa3cb87ab2ee6fc75da2b3d07c4`; the campaign
 
 The existing runtime applies verified indexed execution, uses heap-backed frames and a verifier-bounded in-place path (currently height 128), and retains program ownership for suspended producers. Resource/effect/lowering facts are behavior-bearing; prove their preservation rather than expanding hot rows by default. Re-resolve callable provenance and temporary-writer verifier checks at campaign start.
 
-### Log
+### History
 
-- 2026-10-29: G1b added the first vertical stage. `formal_bridge/arithmetic.rs`
-  exports and decodes a closed raw-IR scope for two integer functions, runs
-  them through the verified Rust path, and rejects wire, program and
-  observation corruptions. `Xsh.Conformance.Transport.Json` and
-  `Xsh.Conformance.Vertical.{Artifact,Meaning,Certificate}` decode the
-  exchanged text, give the IR rows a base-machine meaning, and certify the
-  artifact (`base_vertical_artifact_certified`) with rejected corruptions. The
-  three byte-level theorems use `decide +kernel`: plain `decide` exceeds the
-  recursion limit on a 2.3 KB document. The Lean decoder reads ASCII code
-  points only and rejects other text. BASE-VERTICAL stays planned; see the
-  open items.
-- 2026-10-29: G1 proved base theorems for BASE-ENV
-  (`Xsh.Proofs.Base.Env.base_env`), BASE-NUM (`Xsh.Proofs.Base.Num.base_num`),
-  BASE-STEP (`Xsh.Proofs.Base.Step.base_step`), BASE-PROGRESS
-  (`Xsh.Proofs.Base.Progress.base_progress`) and BASE-RUNNER
-  (`Xsh.Proofs.Base.Runner.base_runner`). Each has an inhabited witness and
-  rejected mutants in its module. The integrator recorded them as fragment
-  roots, not closed obligations, because the base machine is not the frozen
-  core and the existing base-machine roots already disclaim whole-language
-  progress. The inventory schema gained a closed row
-  status naming a root theorem; the axiom audit rejects a closed root that is
-  absent, not a theorem, or outside the project modules.
-- 2026-10-29: The owner resumed Lean. G0b froze the source at `65fcb0f42`
-  (tree `6947bd3de`). The four `tests/xsh/float-equality.xsh` tests passed
-  through `xsht test --exact` with verification `xsh` and `xsht` built from that
-  commit in the pinned container, and are the first `RUST_CONFORMANCE` cases.
-  At that commit the inventory check, its 51 tests, the axiom audit over 12,948
-  declarations and its self-test, and the paranoid kernel recheck passed. The
-  host was loaded (around 20 on 32 cores), so the loop costs are diagnostic:
-  an incremental `lake build` took 19 s wall and the fresh recheck 478 s.
-- 2026-10-28: The owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE joined the plan as planned obligations, raising the count from 72 to 77. The pause and the source-freeze gate are unchanged.
-
-- 2026-10-30: The Lean lane resumed. The live tree had drifted from the
-  inventory (a registry `Enum` type, regrouped archive operations, a removed
-  `ExprArchiveTarCreate`), which failed the checker and 22 tests; only those
-  three owner lists were regenerated. Coverage schema 3 adds
-  `artifact_certificates` and moves the ten certificate theorems out of the
-  fragment roots; schema 2 is rejected.
-- 2026-10-30: The specified-failure outcome came before the new freeze, not
-  after it, because a freeze before it would have gone stale on the same test
-  when the exporter changed. Observations carry `value` or `failure` under
-  scope v2; `divided` and `overflowed` end in `division-by-zero` and
-  `integer-overflow`.
-- 2026-10-30: The freeze is `a08a0a133` (tree `c2d969f9f`). In the pinned
-  container (`xsh-test`, image `sha256:8ddba911cc1b`, nightly 2026-09-15,
-  two cargo jobs) the four Float tests ran under `xsht test --exact` and the
-  six bridge tests under `cargo test --profile verification ... --lib ID --
-  --exact`, each once, from a fresh target directory. The Cargo runs were not
-  wrapped in `flock` on `gate-host.lock`: they are single-package unit tests,
-  and waiting behind another lane's gate had no bound. The Float cases were
-  re-run because the previous binaries predate this commit.
-- 2026-10-30: The Lean on `PATH` was 4.34.1, not the pinned 4.35.0; the
-  checks here used `~/.local/lib/lean4/v4.35.0/bin`. All six kernels
-  accept the root (`check-fresh.py`, about 5.5 minutes), the axiom audit and
-  its self-test pass, and so do the inventory checker and its 70 tests.
-  `formal/tests/test_check_fresh.py` fails one sandbox case because the
-  sandbox hides the Python path; it fails the same without these changes.
-- 2026-10-30: The narrowest honest lowering step is a per-artifact
-  translation validation, not a lowering theorem: `certifyFromSource` accepts
-  a pair only when the Lean lowerer reproduces the document. Document-level
-  byte corruption of the raw-IR document was dropped from the certificate
-  because each decode cost the bundled `con-leche` kernel about 0.3 GiB; row,
-  source and outcome corruptions remain on decoded structures. Parameters,
-  calls and control flow are parked: they need new Rust rows, a schedule with
-  arguments, and base-machine forms for call and conditional. Next probe:
-  add one `ExprIf` function to the fixture and extend `BaseExpr` with a
-  conditional in `Xsh.Semantics.BaseMachine`.
-
-- 2026-11-03: Freeze decision. G0b says to build a fresh matching pair before
-  any observation and not to let an old verification binary certify changed
-  source, and a correspondence claim is evidence only for the bytes it ran. The
-  slice could not keep `a08a0a133`: the two new bridge tests, the new
-  fixture files and the Lean document bytes do not exist there, so the old
-  `exported_documents_are_the_lean_certified_bytes` case compared Rust's export
-  with documents Lean no longer certifies, and keeping it would have asserted a
-  correspondence its binary never witnessed. Master had also moved 300 commits,
-  including the syntax removals and verifier work that the exporter runs
-  through. The freeze is `7d73310d9` (tree `04205824d`), the commit that landed the
-  bridge, the fixtures and the Lean documents together. In the pinned
-  container (`xsh-test`, `sha256:8ddba911cc1b`, two cargo jobs, fresh target
-  directory) a verification `xsh`/`xsht` pair built from it ran the four Float
-  tests, and the `xsh` library test binary ran each of the eight
-  `formal_bridge/arithmetic.rs` tests once, all passing. All ten earlier cases
-  were re-run, not carried over, and the ledger holds twelve. The Cargo runs
-  were not wrapped in `flock` on `gate-host.lock`, as before. The earlier
-  freeze is not a claim any more.
-- 2026-11-03: The vertical gained parameters, a call and a conditional.
-  `BaseExpr` has `compare`, `conditional` and `call`; a call substitutes the
-  evaluated integer arguments into a callee body checked to mention only its
-  parameters, and frames record the type they consume and produce. The reader
-  of the exchanged rows (`Xsh.Conformance.Vertical.Reading`) proves what each
-  expression row reads as. `lowering_means_the_source` proves the Lean lowerer
-  correct for the admitted shape by an invariant over the lowering state
-  (monotone tables, numbered blocks, aligned callee table) and a read lemma per
-  row form; it uses only `propext`, `Classical.choice` and `Quot.sound`. A call
-  lowers only to a function without a let, because the IR meaning reads a
-  callee as a body over its parameters. The parked checkpoint left
-  `mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run` failing:
-  it expected 0 for the reversed comparison on `excess(3, 9)`, and the
-  correct value is -6, so the test was wrong and was corrected.
-- 2026-11-03: CERT-FACTS. `Xsh.Conformance.Vertical.Facts` states the declarative
-  rules for the admitted productions (scheme, effects, resolved declarations,
-  selected operations, evaluation order), a checker for each construct, and
-  `validate_facts_iff`. It computes the facts from the parsed source and takes
-  nothing from the candidate. Function facts are a set keyed by name and node
-  order is evaluation order, which is how alternative listings are accepted.
-  Guards, nominal identity and module identity have no content in the admitted
-  productions. The witnesses are Lean data; the Rust exporter of published
-  facts is the next step. The obligation stays planned.
-- 2026-11-03: Independent kernels. The six-function document (8.3 KB) decoded
-  in one declaration failed lean4lean (deterministic timeout), con-ron (fuel,
-  then allocation) and con-leche (the 8 GiB address-space cap). Splitting it
-  into 4.6 KB and 3.9 KB documents satisfied the first two and not con-leche,
-  because the cap covers the whole export. Documents of 2.4 KB and 3.9 KB
-  passed all six kernels (`check-fresh.py`, about 8 minutes), the axiom audit
-  and its self-test pass, and so do the inventory checker and its 70 tests.
-  The combined six-function program remains the Rust-only fixture for the
-  corruption and mutation tests. The two success functions (`shifted`, `scaled`)
-  are no longer in a certified artifact.
-- 2026-11-03: The source freeze moved to `1d27050bf739d72f9abefeba161b8768dad71c5c`
-  (tree `3b1253e27132f377ffab35e0232bd5835ed07e4a`). The test-only bridge
-  now exports the checker's facts for the failures and calls fixtures. Lean
-  certifies those documents, and rejects mutations to facts and source bytes.
-  The assignment artifact covers one integer variable and plain assignment.
-  The checker-fact projection rejects inconsistent published expression types.
-  In the pinned `xsh-test` image (`sha256:b123366ba3e8`), a matching
-  verification `xsh`/`xsht` pair and library test binary ran all eighteen
-  ledger cases individually: four Float cases and fourteen bridge cases. All
-  passed. The three bridge-source gate cases passed: 1,675 lowering tests,
-  one type-agreement test, and twelve native lowering-coverage tests.
-- 2026-11-03: The fresh check passed all six kernels under the 8 GiB cap.
-  con-leche's default worker count previously exhausted that cap. The sandbox
-  adapter now passes the existing Lake thread limit to con-leche's `--jobs`,
-  retaining verified mode and the full export. The axiom audit passed for
-  16,033 declarations and rejected all six self-test controls. The inventory
-  and its tests passed; all 77 universal obligations remain planned.
-- 2026-11-04: The fresh connected check at `09447fa09` passed its build and all
-  six kernels; the axiom audit passed for 27,044 declarations and rejected all
-  six controls. The local private branch `qualify/connected-machine` (never
-  merged) then gained the raw store replacement check (`318d2ac4e`): Lean
-  rebuilds an assignment's replacement from the raw rows and from the checked
-  node and requires agreement, substituting the let-bound temporaries scheme
-  lowering emits. `d751aadc4` derives the binder-to-slot map from the exported
-  declarations; the inventory checks 980 roots. Calls, Result forms and
-  execution correspondence remain open.
-- 2026-11-03: Work toward the connected milestone added a structured
-  `Syntax.Core` constraint generator for selected expressions and statements,
-  kinded type and row substitutions, executable constraint checking, and a
-  principal-solution composition theorem. A hand-built core block combining
-  generic calls, a record, mutable assignment and Result control has a
-  satisfying substitution. This is Lean-only evidence. Generator soundness,
-  principal solving, source admission, actual Rust facts and IR, effects,
-  candidate validation, and source-to-IR simulation remain open.
-
-
-- 2026-11-03: Independent expression and statement candidate validators now
-  have general typing-soundness proofs for their supported forms. An expression
-  certificate also checks the solution against constraints generated from the
-  same core expression; an identity call is accepted, while a forged binding,
-  wrong solution and exhausted generation are distinguished. These are
-  Lean-only results. Generator completeness and principal solving, function
-  completion, effects, exact source admission, real Rust facts and target IR,
-  execution and source-to-IR simulation remain open.
-
-
-- 2026-11-03: A checked unification derivation composes binding and structural
-  decomposition steps into a kind-preserving principal solution. An admitted
-  identity-call certificate uses the generated constraints and that derivation;
-  cyclic bindings and wrong steps are refused and exhaustion stays distinct.
-  Open-row solving and lacks constraints, solver completeness and scheme
-  generalization, source admission, Rust correspondence and simulation remain
-  open. This is a proof about Lean inputs, not Rust evidence.
-
-
-- 2026-11-03: A partial connected machine now uses typed cells, function-table
-  activations, structural records, Result propagation and labeled clock
-  requests. It proves a mutable assignment followed by a read returns the
-  assigned value, and that a clock request survives successful Result
-  propagation. The table accepts distinct Int and Bool instances of the same
-  identity scheme. These are Lean models, not Rust conformance or a simulation.
-  Invalid-state progress, guard and effect typing, general preservation,
-  admission, raw artifact correspondence and full connected execution stay open.
-
-
-- 2026-11-03: The block certificate combines independently generated
-  constraints, a checked principal derivation and statement typing. A constructed
-  mutable-integer program has such a certificate and a connected-machine
-  execution returning its assigned value. Wrong binder and type witnesses are
-  refused, with exhausted derivations distinct. The machine currently admits
-  decimal integer lexemes only. These are Lean inputs and a finite execution,
-  not the required general source-to-IR simulation or Rust correspondence.
-
-
-- 2026-11-03: Every modeled execution preserves saved cell types and existing
-  immutable contents. Named-record `require` retains module/declaration identity;
-  a matching runtime schema table gives the checked Result type on either guard
-  outcome. The certificates check globally unique candidate binders and explicit
-  propagation contexts. The machine instantiates stored schemes per read and
-  retains globals across calls. Review controls cover branch completion, literal
-  bounds, sibling binder reuse, nominal identity and incompatible propagation.
-  Statement tails outside the selected domain report unsupported. General
-  typing/progress, source modules, Rust facts and raw-IR simulation remain open.
-
-
-- 2026-11-03: Scheme-valued builtins now dispatch after read-time instantiation;
-  a connected Ok call exercises the actual read, argument evaluation and call
-  transitions. Independent source review found no further concrete defect in
-  the reviewed fixes; general progress, effects and Rust/IR links stay open.
-
-
-- 2026-11-03: Qualified-principal checking retains unresolved field constraints,
-  checks generalization and a candidate constraint ordering, and proves checked
-  call instances discharge original field requirements. For closed unique rows,
-  field projection is equivalent to field-plus-lacks decomposition modulo
-  permutation. These are Lean results; actual Rust row/lacks scheme and call
-  facts, source admission and target simulation remain to be connected. An
-  independently checked concrete call instance also validates its body against
-  the composed solution, including an executable finite substitution sort check;
-  generic-body typing for all qualified instances is open.
-  A pinned Rust probe of `project(value) { value.amount }` published a
-  body-span scheme with two type parameters and a Field operation requirement,
-  not a row parameter. Its call supplied a ground record and a selected Field
-  binding; the effect contract was unknown. Field-operation correspondence and
-  a separate actual row/lacks witness remain open.
-  A Lean checker now compares field operations, selected bindings and supplied
-  locations with the independently generated requirements and checks a concrete
-  body instance. Source-derived locations, Rust document exchange and generic
-  body typing remain open; the supplied locations are not source admission.
-  A test-only Rust projection now emits a closed field-facts document from the
-  published body scheme and call instance, including checker node IDs, source
-  sites, selected target, bindings and effect state. Mutating published field
-  sites, expression types or call roles changes the document; a forged target
-  is refused. It rejects unsupported scheme and invocation details. The emitted
-  bytes are now tied by a focused Rust test to a Lean byte list, whose JSON
-  parse is kernel-checked. Source-linked sparse-fact validation and the final
-  matching-freeze replay are still pending integration and qualification.
-  Lean has a closed decoder for that proposed shape; body sites scope type
-  parameter mappings, record names map through their source, and unknown
-  effects remain distinct from a known empty set. The mapping inputs are not
-  authenticated yet, and the Rust-emitted bytes have not been decoded in Lean.
-  Decoded scheme and call records can now be checked against generated
-  qualified constraints and a concrete body instance, including selected
-  target and Field bindings. This does not yet check the document's sparse
-  expression/read facts or effect obligations; expected source operations and
-  identity mappings are supplied inputs.
-
-- 2026-11-04: The connected model now carries declared storage types through
-  allocation and checks directional storage compatibility in qualified
-  constraints. A depth argument proves the cyclic Field-and-Store requirement
-  has no solution. A scoped artifact certificate checks the exact Rust-emitted
-  source and facts for a generic mutable local inside `without`, and rejects
-  ten altered decoded facts. The pinned focused bridge tests passed with the
-  source and fact bytes compared directly to the Lean inputs. These are
-  bounded artifacts and physical-cap Lean checks, not a fresh six-kernel
-  qualification or a source-to-IR simulation. Selected-call grounding, unique
-  nested rows, effects and the complete connected execution remain open.
-
-- 2026-11-04: The partial Lean raw-row reader decodes instruction and
-  function tables and proves that accepted tag names and ordinals agree with
-  its admitted table. The table is not yet connected to the source-to-IR
-  relation, and the foreign FullProgram decoder and execution simulation
-  remain open.
-
-- 2026-11-10: Bool comparison control. The admitted source grammar now parses
-  `-> Bool` only when the returned expression is a comparison of two atoms;
-  `-> Int` refuses a comparison and `-> Bool` refuses every other result shape.
-  The new `SourceExpression.comparison` lowers to the existing `ExprBinary`
-  comparison row (no new tag), and `lowering_means_the_source` was extended by
-  one case and remains universal over the parsed functions. `FunctionOutcome`
-  gained `truth`, recorded as the value bit `1` or `0`, and
-  `program_outcome_is_a_completed_machine_run` covers the boolean case. The
-  test-only bridge exports `formal-bridge-boolean-control.xsh` (two
-  parameterized comparison functions, `Gt` and `Lt`, four calls) and the Lean
-  `BooleanCertificate` certifies the pair, rejecting wrong operations, swapped
-  operands, wrong recorded truths or arguments, malformed IR, changed source
-  and a wrong lowering. `artifact_certificates` now holds six. This is a
-  bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's
-  parser reading and execution are evidence through the bridge run only, and
-  that run used this worktree's verification build rather than the frozen
-  commit, so it is not a `RUST_CONFORMANCE` case. Under the 8 GiB address-space
-  cap the bundled `leanchecker --fresh Xsh` accepted the root, and the
-  paranoid check accepted it with `lean4lean`, `nanoda`, `con-leche` at four
-  workers, the Lean default kernel and `con-ron` at two workers; `con-ron`'s
-  default worker count cannot fit the cap. The repository's `check-fresh.py`
-  stopped before any kernel because its fixed 180 s clean build exceeded the
-  wall limit on this host; the direct paranoid check used the existing build.
-  Result control stays open; its Result values, `Ok`/`Err` rows, `?`
-  propagation and an error producer are a larger widening.
-
-- 2026-11-11: Result construction control. The admitted grammar now parses a
-  `Result[Int, Int]` return and admits only `Ok(value)` or `Err(value)`; `Int`
-  and `Bool` returns refuse a constructor, a plain value or comparison under
-  `Result[Int, Int]` is refused, and other `Result` payload types are outside
-  the admitted domain. `SourceExpression.constructed` lowers to the existing
-  `ExprOk` and `ExprErr` rows (ordinals 104 and 105, one payload word and two),
-  `lowering_means_the_source` was extended by one case and remains universal
-  over the parsed functions, and `FunctionOutcome` gained `constructed`.
-  `BaseType` and `CompositeValue` gained `result`, `resultPayload?` reads the
-  constructor and integer payload, and `outcomeRecorded` records `ok` and `err`
-  with the payload's sixteen-digit pattern. The test-only bridge exports
-  `formal-bridge-result-control.xsh` (`keeps`, `stops`, `adds`; four calls) and
-  the Lean `ResultCertificate` certifies the pair, rejecting a wrong
-  constructor, wrong recorded constructor or payload, malformed IR, changed
-  source and a wrong lowering. `artifact_certificates` now holds seven. This is
-  a bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's
-  parser reading and execution are evidence through the bridge run only, and
-  that run used this worktree's verification build rather than the frozen
-  commit, so it is not a `RUST_CONFORMANCE` case. `cargo test --profile
-  verification --lib formal_bridge` passed 40 tests, including
-  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
-  exported bytes to equal the two Lean code lists. The clean `lake build`
-  completed 242 jobs; the axiom audit passed for 27,375 declarations and all
-  six self-test controls were rejected; `lake env leanchecker --fresh Xsh`
-  passed under the 8 GiB cap; and `lake check --paranoid`, run with the
-  repository's sandbox adapter plus `--tmpfs /run` and `con-ron --jobs=2`
-  (con-leche at four workers), accepted the 115,101-declaration export with
-  `lean4lean`, `nanoda`, `con-leche`, `con-ron` and the Lean default kernel,
-  using only `propext`, `Quot.sound` and `Classical.choice`. The audit script's
-  `#!/usr/bin/env bash` resolves a shell wrapper that restores a PATH with Lean
-  4.34.1 first, and Lake then reused 4.34.1 oleans that it could not distinguish
-  from 4.35.0 ones; invoking the same script through `/bin/bash` with the pinned
-  4.35.0 toolchain first forced the rebuild used above. A call of a function
-  with a `let`, an error producer, or a record local stays next: each needs a
-  new row form rather than another certificate-only check.
-
-- 2026-11-11: `?` propagation control. The admitted grammar now parses one
-  `let target = callee(argument)?` binding in a one-parameter `Result[Int, Int]`
-  function whose callee is an earlier callable function returning a constructor;
-  the target may not be a parameter, and the arguments must match the callee's
-  parameter count. `SourceFunction` gained `propagation`, and the lowerer emits
-  the argument block, `ExprDirectPureCall` (ordinal 109), `ExprTry` (107) and
-  `StmtLet` (115) rows with the target slot and the absent annotation word;
-  `Lower.pureCall` is shared with the existing call form, and the function slot
-  count and callable flags account for the binding. `lowering_means_the_source`
-  was extended and remains universal over the parsed functions. `Meaning`
-  gained `Propagation` and its `run?`: an `Ok` payload is bound to the target
-  slot, an `Err` is returned, and an arithmetic fault propagates.
-  `program_outcome_is_a_completed_machine_run` now requires
-  `program.propagation = none`; `continuation_outcome_is_a_completed_machine_run`
-  covers the returned expression, `propagation_run_cases` splits the binding's
-  run into `Ok`-continued, `Err`-returned and arithmetic-fault cases, and
-  `propagated_program_outcome_is_a_completed_machine_run` proves the whole
-  program with a propagation. The test-only bridge
-  exports `formal-bridge-result-propagation.xsh` (`keeps`, `stops`, `passes`,
-  `blocks`; five recorded calls) and the Lean `PropagationCertificate` certifies
-  the pair, rejecting a wrong propagation call, a wrong recorded outcome,
-  malformed IR, a substituted source and a wrong lowering.
-  `artifact_certificates` now holds eight. This is a bounded artifact and a
-  Lean-only theorem about the Lean lowerer: Rust's parser reading and execution
-  are evidence through the bridge run only, and that run used this worktree's
-  verification build rather than the frozen commit, so it is not a
-  `RUST_CONFORMANCE` case. The source parse theorem was restructured after
-  `lean4lean` reported a deterministic kernel timeout on its single
-  `decide +kernel` reduction: the document text's 326 character codes are
-  `propagationTextCodes`, `propagation_text_is_the_decoded_document_text` ties
-  the literal to `String.ofList` of them by `rfl`, and
-  `propagation_text_codes_round_trip` and `the_propagation_text_codes_parse` are
-  separate `decide +kernel` lemmas; the theorem rewrites through
-  `String.toList_ofList`, so no declaration decodes the whole string literal.
-  The theorem statement is unchanged. `cargo test --profile verification --lib
-  formal_bridge` passed 44 tests, including
-  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
-  exported bytes to equal the two Lean code lists. The clean `lake build`
-  completed 243 jobs; the axiom audit passed for 27,623 declarations and all six
-  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
-  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
-  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
-  `con-ron`, accepted the export with `lean4lean` (115,304 declarations),
-  `nanoda`, `con-leche` and `con-ron` (115,307 each) and the Lean default
-  kernel, using only `propext`, `Quot.sound` and `Classical.choice`. The audit
-  and the fresh check ran through `/bin/bash` with the pinned 4.35.0 toolchain
-  first, because `#!/usr/bin/env bash` resolves the PATH-restoring wrapper. A
-  call of a function with a `let`, an error producer, or a record local stays
-  next: each needs a new row form rather than another certificate-only check.
-
-- 2026-11-11: Let-call control. The admitted grammar now takes a function of one
-  integer parameter and one integer literal `let`, plus a caller that calls it on
-  its parameter. The exporter places the parameter at slot 0 and the let at slot
-  2; `SourceFunction.scope?` admits that pair, and `Lower.function` emits
-  `IntInt`, `StmtLetInt [2, valueRow]`, the parameter reads, `ExprBinary` and
-  `StmtReturn` for the callee, and the argument row, argument block,
-  `ExprDirectPureCall`, `StmtReturn` and body rows for the caller.
-  `SourceFunction.callable` replaces the let-free flag, and
-  `FunctionProgram.callee?` admits a function without an assignment or a
-  propagation and substitutes its literal bindings into its body, so a call of a
-  function with a let has a callee form; `functionProgram?` no longer requires
-  parameters or lets alone. `lowering_means_the_source` was extended by the new
-  branch and remains universal over the parsed functions; the plain outcome
-  theorem stays universal and covers the parameter-plus-let program. The
-  test-only bridge exports `formal-bridge-integer-let-calls.xsh` (`bumps`,
-  `runs`; three recorded calls) and the Lean `LetCallCertificate` certifies the
-  pair, rejecting a call naming a function the callee table does not hold, a
-  callee body whose let read is replaced by its parameter (well typed, returns
-  10 where 7 is recorded), wrong recorded outcomes, malformed rows, a changed
-  source and a wrong lowering. `artifact_certificates` now holds nine. This is a
-  bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's parser
-  reading and execution are evidence through the bridge run only, and that run
-  used this worktree's verification build rather than the frozen commit, so it
-  is not a `RUST_CONFORMANCE` case. Two reductions had to be made cheap enough
-  for the kernel: `lowersTo` re-reduced `spanWords` inside the function fold and
-  exhausted the 8 GiB cap, so `letCall_span_words` pins the span list and
-  `decide +kernel` runs with that literal; and a let binding whose slot was
-  looked up in the scope made the lowered-state reduction allocate without
-  bound, so `Lower.function` chooses literal slot values per parameter shape.
-  The raw-IR document is 2,287 bytes. `cargo test --profile verification --lib
-  formal_bridge` passed 48 tests, including
-  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
-  exported bytes to equal the two Lean code lists. The clean `lake build`
-  completed 244 jobs; the axiom audit passed for 27,675 declarations and all six
-  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
-  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
-  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
-  `con-ron`, accepted the export with `lean4lean` (115,361 declarations),
-  `nanoda`, `con-leche` and `con-ron` (115,364 each) and the Lean paranoid and
-  default kernels, using only `propext`, `Quot.sound` and `Classical.choice`.
-  The audit and the fresh check ran through `/bin/bash` with the pinned 4.35.0
-  toolchain first. A parameterless function with no let is outside the admitted
-  lowerer domain, and an error producer or a record local stays next.
-
-- 2026-11-11: Computed-let call control. The admitted grammar now takes a
-  function of one integer parameter and one computed `let step = atom op atom`
-  over that parameter and literals, plus a caller that calls it on its
-  parameter. `SourceExpression` gained `computedLet`; `parseComputedLet` reads
-  the line and `parseFunctionBody` admits it only when the function has exactly
-  one parameter, no literal let, no propagation, no assignment, an `Int` return
-  and a value whose atoms are that parameter or integer literals. The exporter
-  places the parameter at slot 0 and the let at slot 2; `SourceFunction.scope?`
-  admits that pair and `Program.scope?` is unchanged for every other shape.
-  `Lower.computedLetStatements` emits the let's value with the existing
-  `Lower.intValue` as `IntSlot`/`IntInt`/`IntBinary` rows and then
-  `StmtLetInt [2, valueRow]`; `Lower.functionTail` takes an `extraSlots` count
-  instead of deriving the slot count from the result shape.
-  `SourceFunction.computedBindings?` gives the source meaning its binding. The
-  meaning's substitution approach does not extend to computed values, so
-  `LetBinding.value` is now a `BaseExpr`: a literal binding holds an
-  `integerLiteral`, `machineOf` binds only literal bindings (via
-  `LetBinding.literalInt?`), and a function's body runs as one call whose
-  arguments are its integer arguments followed by each binding's value, with the
-  parameter reads inside a binding value replaced by the argument expressions
-  (`substituteExpressions`, structural so the kernel reduces it). `Callee`
-  gained `bindings`, `Callee.apply` is the applied form, and both
-  `expression?` and `propagationProgram?` use it. `lowering_means_the_source`
-  stays universal: `function_lowers_computed` is the new branch and
-  `function_lowers_plain` now receives the proof that the result is not a
-  computed let. The test-only bridge exports
-  `formal-bridge-integer-computed-let-calls.xsh` (`scales`, `runs`; three
-  recorded calls) and the Lean `ComputedLetCertificate` certifies the pair,
-  rejecting a call naming a function the callee table does not hold, a callee
-  body whose let read is replaced by its parameter, a well-typed binding whose
-  value is a literal instead of the computed expression (returns 10 where 14 is
-  recorded), wrong recorded outcomes, malformed rows, a changed source and a
-  wrong lowering. `artifact_certificates` now holds ten. This is a bounded
-  artifact and a Lean-only theorem about the Lean lowerer: Rust's parser reading
-  and execution are evidence through the bridge run only, and that run used this
-  worktree's verification build rather than the frozen commit, so it is not a
-  `RUST_CONFORMANCE` case. The raw-IR document is 2,512 bytes.
-  `cargo test --profile verification --lib formal_bridge` passed 52 tests,
-  including `exported_documents_are_the_lean_certified_bytes`, which requires
-  Rust's exported bytes to equal the two Lean code lists. The clean `lake build`
-  completed 245 jobs; the axiom audit passed for 27,823 declarations and all six
-  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
-  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
-  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
-  `con-ron`, accepted the export. The audit and the fresh check ran through
-  `/bin/bash` with the pinned 4.35.0 toolchain first. Several lets, an error
-  producer and a record local stay next.
-
-- 2026-11-12: Several computed lets. The admitted grammar now takes a function
-  of one integer parameter and a sequence of computed `let name = atom op atom`
-  lines, where each value may read the parameter, integer literals and the
-  bindings before it; `computed_let_sequences_outside_the_productions_are_refused`
-  shows that a forward read, a self read, a repeated binding name, a parameter
-  shadow and a literal let before a computed one are refused. One binding still
-  parses as `computedLet`, so the eighth certificate is unchanged. The
-  test-only bridge fixture `formal-bridge-integer-several-let-calls.xsh`
-  (`scales`, `let a = value + 4; let b = a * 2`, returning `b - value`; `runs`)
-  records the calls 13, 13 and -1. The exporter places the parameter at slot 0
-  and the bindings at slots 2 and 3; `Lower.computedBindings` emits each value
-  in the integer family and its `StmtLetInt` before the return, and
-  `computedBindingsFrom?` gives the source meaning the same bindings in source
-  order. `Callee.applyArguments` and `FunctionProgram.machineWith` now apply
-  the bindings through `applyLetBindings`, which replaces an earlier binding's
-  slot in a later value by that earlier binding's applied value. For one
-  binding, or literal bindings, this is the previous application, so every
-  earlier certificate holds unchanged. For a sequence the machine evaluates the
-  earlier value again inside the later one; the admitted values are pure
-  integer expressions, so that gives the value and the first failure of
-  evaluating each binding once in order. An effectful binding value is outside
-  the domain. `computed_bindings_lower` proves the emitted rows read as the
-  source bindings, `computed_bindings_from_some` proves every emitted sequence
-  has a source meaning, and `function_lowers_computedLets` composes them;
-  `lowering_means_the_source` remains universal over the parsed functions. The
-  new `SeveralLetCertificate` certifies the pair. Its parse theorem follows the
-  propagation restructuring: `severalLetTextCodes` holds the 147 text codes and
-  `the_several_let_text_codes_parse` decides on them, so no kernel decodes the
-  document's string literal. It rejects a retargeted call, a second binding
-  read replaced by the parameter (5 where 13 is recorded), reordered binding
-  statements (slot 2 is read before it is bound, so no call has an outcome), a
-  swapped first operator, wrong recorded outcomes, malformed rows, a changed
-  source, a wrong lowering and a source tree with the two bindings reordered.
-  `the_swapped_several_let_operator_is_well_formed` shows the swapped mutant
-  validates once its own outcomes 35, 35 and -63 are recorded, so its refusal
-  comes from meaning alone; the Rust test makes the same swap, passes
-  `FullVerifier`, runs to 35 and is refused by the recorded-run check.
-  `artifact_certificates` now holds eleven. This is a bounded artifact and a
-  Lean-only theorem about the Lean lowerer: Rust's parser reading and execution
-  are evidence through the bridge run only, and that run used this worktree's
-  verification build rather than the frozen commit, so it is not a
-  `RUST_CONFORMANCE` case. The source document is 208 bytes and the raw-IR
-  document is 3,043 bytes. `cargo test --profile verification --lib
-  formal_bridge` passed 56 tests, including the four new several-let tests and
-  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
-  exported bytes to equal the two Lean code lists. The clean `lake build`
-  completed 246 jobs; the axiom audit passed for 27,989 declarations and all six
-  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
-  under the 8 GiB cap; and `lake check --paranoid`, run under the same cap with
-  the repository's sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both
-  `con-leche` and `con-ron`, accepted the export with the Lean paranoid kernel,
-  `lean4lean` (115,636 declarations), `nanoda`, `con-leche` and `con-ron`
-  (115,639 each) and the Lean default kernel, using only `propext`,
-  `Quot.sound` and `Classical.choice`. The audit, the fresh check and the
-  paranoid check ran through `/bin/bash` with the pinned 4.35.0 toolchain
-  first; the sandbox wrapper names its Python interpreter by absolute path, as
-  `check-fresh.py` does, because a wrapper started through
-  `#!/usr/bin/env python3` saw an empty `sys.executable` under Lake.
-  `formal/tests/inventory/test_check_inventory.py` still fails one test, as it
-  did before this entry: its frozen certificate set names six records and the
-  inventory now holds eleven. A callee with an assigned binding, an error
-  producer and a record local stay next.
-
-- 2026-11-12: The assigned-local and call paths compose in the Lean lowerer. A nullary
-  callee with one validated literal binding may assign that binding before returning. Its
-  callee form substitutes the initial literal in the assignment's right-hand expression and
-  carries the resulting expression as a call argument, so the assignment still evaluates
-  when the return ignores its slot. The universal lowering theorem retains its statement;
-  the general callee-construction and first-step theorems quantify over the expressions.
-  The shared source fixture checks updated returns and unused-assignment division failures,
-  and refuses wrong arity and forward calls. This adds no artifact certificate: all eleven
-  existing records and all 77 planned universal obligations remain. The baseline inventory
-  suite already names eleven certificates and passes all 71 tests, superseding the stale
-  six-certificate failure recorded in the preceding log entry. Parameterized assigned
-  callees, error producers, records, source admission, fact-to-IR consistency and full Rust
-  correspondence remain open. Operational equivalence between the normalized assigned callee
-  and direct assignment settlement is not proved in general; the shared fixture checks both
-  outcomes for its named functions.
-  Verification on `campaign/resume-lean` from `a44591b34`: the pinned 4.35.0 root build
-  completed 246 jobs, the transitive axiom audit passed for 28,010 declarations, and all six
-  audit controls were rejected. The installed toolchain reports commit
-  `eb6cafb7290e8bd5f2937522d8d804f58f02bafc` (`Release`). The inventory validator retains 91 owners, 961 fragment
-  roots, eleven certificates and 77 planned obligations. The Linux verification command
-  `cargo test --offline --locked -j 4 --profile verification --target
-  x86_64-unknown-linux-musl -p xsh --lib formal_bridge::arithmetic::tests:: -- --nocapture`
-  passed all 33 tests using immutable image
-  `sha256:2d6f716aada6a0161fbf11d9b1a53c16fbc7747ab95c1e339c6aefdc07a56911`.
-  Its new mutant changes `Div` to `Add`, passes `FullVerifier`, returns 7 in place of the
-  division failure on both direct and called paths, and fails artifact reproduction. These
-  runs used the resumed branch with this patch, not the frozen source revision, and add no
-  frozen `RUST_CONFORMANCE` record.
-  All six fresh paranoid kernels accepted the same root export (SHA-256
-  `71ae122fc12138b8bca4b35e72765368f00ad8eb6c4a8baff9f1f7b78b12aa4c`): Lean paranoid,
-  lean4lean (115,658 declarations), nanoda, con-leche and con-ron (115,661 each), and Lean
-  default. The final axiom report is exactly `propext`, `Quot.sound`, `Classical.choice`.
-  The replay kept the 8 GiB address-space cap and sandbox, with jobs limited to 2 for
-  con-leche and con-ron and an absolute Python interpreter in the adapter. Its operational
-  watchdog was 3,600 seconds; the initial 1,080-second aggregate watchdog expired during
-  active lean4lean checking, and imposed no logical proof bound. The replay retained the
-  frozen proof input and did not relax a kernel or an axiom check.
-
-- 2026-11-12: The assigned-callee operational-equivalence hole is closed for the admitted pure
-  nullary assignment shape. `PureIntegerEvaluation` describes checked integer literals, typed
-  local reads and arithmetic. `pure_integer_evaluation_steps` constructs actual `MachineSteps`
-  paths under arbitrary continuation frames and preserves the first arithmetic failure.
-  Literal substitution preserves the independent evaluation derivation; the call evaluates the
-  normalized assignment before entering the returned body. The general normalization theorem
-  relates actual `Assignment.settle?` and `FunctionProgram.outcome?` to that call, with separate
-  fuel costs rather than equal administrative step counts. The source-level corollary takes
-  only success of the existing `SourceFunction.program?` projection: it derives both pure
-  evaluation and the five-step expression bounds, so direct stages fit their existing
-  128-step budgets and every call fuel at least twelve suffices. The failure witness covers
-  every such fuel; erasing its unused failing assignment instead returns 7. This adds three
-  `SPEC_PROVED` fragment roots, for 964 total, and leaves all eleven artifact certificates and
-  all 77 universal obligations in their existing evidence classes and planned states.
-  Parameterized assignments, error producers, records and full Rust soundness remain open.
-  The source and fact links described below cover their own admitted domains. No Rust source or fixture changed, so the
-  previous 33-test bridge evidence remains applicable. Focused pinned Lean builds pass;
-  the combined axiom and independent-kernel qualification below also covers this proof patch.
-
-- 2026-11-12: The source and checker-fact links now compose with universal Lean lowering.
-  `SourceAdmissionSound` derives an independent complete lexical and function-grammar witness
-  from each successful parse, including maximal word and decimal tokens and the `->` boundary.
-  Its original-byte checker reconstructs the submitted tree and slot tables, rejects additional
-  module inputs, proves accepted candidates unique, and proves the admitted bytes are ASCII.
-  Nine accepted witnesses and nine rejection controls exercise the declared domain. This does
-  not discharge full SRC-ADMIT: general parse-failure behavior, positions, diagnostics, module
-  resolution and Rust parser agreement remain open.
-  `FactsIRConsistency` relates accepted pure integer facts to actual rows and ordered operands,
-  call ordinals and arities, literal-local slots, branch blocks and function bodies. The combined
-  `admitted_facts_match_ir` theorem joins original-byte admission, scope projection, fact-to-IR
-  correspondence and source/IR function-meaning equality for the same candidate. Unsupported
-  propagation previously escaped both fact rules and validation; both now reject it, with a
-  retained counterexample. Bool-return, Result, assignment and computed-let facts remain outside
-  this validator. Independent reviews found no demonstrated defect in the source, facts or
-  operational proofs. Arbitrary continuation frames belong to the pure-expression trace
-  theorem; the complete assignment-normalization theorem observes a top-level run.
-  The combined inventory has 975 fragment roots, eleven artifact certificates and 77 planned
-  universal obligations. All 71 inventory tests, the transitive axiom audit and its six negative
-  controls pass. All six fresh kernels accept the same export (SHA-256
-  `b075f505fc4fdbafc2ea4f3a8d48e9b2fc561de5081548efb2852538240edcb7`): Lean paranoid,
-  lean4lean (116,327 declarations), nanoda, con-leche and con-ron (116,330 each), and Lean
-  default. The final axiom report contains exactly `propext`, `Quot.sound`, `Classical.choice`.
-  The replay retains the 8 GiB address-space cap, the sandbox, jobs limited to two for
-  con-leche and con-ron, and the 3,600-second operational watchdog. The project axiom audit
-  covers 28,966 declarations. No new Rust conformance claim is made.
+Completed slices, decisions and evidence are in Git history for this file and
+`formal/`; `formal/README.md` describes the accepted fragments. Do not add a
+dated log here.
 
 ## For the owner afterwards
 
