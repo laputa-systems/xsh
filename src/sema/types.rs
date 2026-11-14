@@ -1813,7 +1813,7 @@ impl fmt::Display for Type {
                 match identity.rsplit_once('.') {
                     Some((owner, family)) if owner.starts_with('/') => {
                         let file = owner.rsplit('/').next().unwrap_or(owner);
-                        let module = file.strip_suffix(".xsh").unwrap_or(file);
+                        let module = file.trim_suffix(".xsh");
                         write!(f, "{module}.{family}")
                     }
                     _ => write!(f, "{identity}"),

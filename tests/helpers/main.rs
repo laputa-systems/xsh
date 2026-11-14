@@ -318,7 +318,7 @@ fn required_duration_ms(
 }
 
 fn signal_number(signal: &str) -> Option<i32> {
-    match signal.strip_prefix("SIG").unwrap_or(signal) {
+    match signal.trim_prefix("SIG") {
         "HUP" => Some(libc::SIGHUP),
         "INT" => Some(libc::SIGINT),
         "QUIT" => Some(libc::SIGQUIT),

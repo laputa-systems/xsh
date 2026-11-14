@@ -27,7 +27,7 @@ enum Line {
 /// Classifies a line (including its line break).
 fn classify(line: &[u8]) -> Line {
     // byte order marks can precede every document
-    let line = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line);
+    let line = line.trim_prefix(b"\xef\xbb\xbf");
     let is_marker = |marker: &[u8]| {
         line.starts_with(marker) && matches!(line.get(3), None | Some(b' ' | b'\t' | b'\r' | b'\n'))
     };

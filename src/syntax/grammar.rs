@@ -903,7 +903,7 @@ impl Class {
                 TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword
             ),
             Self::QuotedKey => {
-                let text = token.text.strip_prefix('r').unwrap_or(token.text);
+                let text = token.text.trim_prefix('r');
                 let body = ["\"\"\"", "\""]
                     .into_iter()
                     .find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote));

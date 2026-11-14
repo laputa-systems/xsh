@@ -93,7 +93,7 @@ pub(crate) fn parse_check_line(line: &str, span: Span) -> Result<CheckLine, Runt
     let hex = &line[..separator];
     let marker = line.as_bytes().get(separator + 1).copied().unwrap_or(b' ');
     let path = &line[separator + 2..];
-    let path = path.strip_prefix('*').unwrap_or(path);
+    let path = path.trim_prefix('*');
     if hex.is_empty() || path.is_empty() {
         return Err(
             RuntimeError::new("checksum-line", "checksum line is incomplete").with_span(span),

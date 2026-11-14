@@ -283,7 +283,7 @@ fn may_assign(text: &str, name: &str) -> bool {
             return false;
         }
         let rest = after.trim_start_matches([' ', '\t']);
-        let operator = rest.strip_prefix(['+', '-', '*', '/', '%']).unwrap_or(rest);
+        let operator = rest.trim_prefix(['+', '-', '*', '/', '%']);
         rest.starts_with("++")
             || rest.starts_with("--")
             || (operator.starts_with('=') && !operator.starts_with("=="))

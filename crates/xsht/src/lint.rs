@@ -3669,7 +3669,7 @@ impl<'a> Linter<'a> {
             .map(|update| {
                 let call = self.source.get(update.parenthesized.range())?;
                 let inner = call.trim().strip_prefix('(')?.strip_suffix(')')?.trim();
-                Some(inner.strip_suffix(',').unwrap_or(inner).trim_end())
+                Some(inner.trim_suffix(',').trim_end())
             })
             .collect::<Option<Vec<_>>>()
         else {

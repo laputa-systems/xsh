@@ -382,7 +382,7 @@ impl<'a> EntryTree<'a> {
             common.display_name
         } else {
             let raw_name = self.raw_name();
-            raw_name.strip_prefix("r#").unwrap_or(raw_name)
+            raw_name.trim_prefix("r#")
         }
     }
 

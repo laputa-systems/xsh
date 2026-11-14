@@ -535,7 +535,7 @@ impl Scan<'_> {
             start: span.start(),
             end: {
                 let statement = self.text(span).trim_end();
-                span.start() + statement.strip_suffix(';').unwrap_or(statement).len()
+                span.start() + statement.trim_suffix(';').len()
             },
             replacement: format!("{prefix}{appended}"),
             top,

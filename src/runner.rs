@@ -672,7 +672,7 @@ pub fn script_command_name(script: &str) -> String {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(script);
-    let stem = name.strip_suffix(".xsh").unwrap_or(name);
+    let stem = name.trim_suffix(".xsh");
     if stem == "main" {
         return path
             .parent()

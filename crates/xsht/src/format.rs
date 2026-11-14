@@ -5193,7 +5193,7 @@ fn follows_line_continuation(before: &str) -> bool {
     let before = before.trim_end_matches([' ', '\t']);
     before
         .strip_suffix('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .map(|line| line.trim_suffix('\r'))
         .is_some_and(|line| line.ends_with('\\'))
 }
 

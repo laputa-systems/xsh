@@ -1739,12 +1739,12 @@ pub(super) fn start_completion(
     // quoted. Handles an open quote ('path), a balanced quote ('path'), and a
     // tilde outside the quote (~/'path').
     let (partial, in_quote): (String, bool) = if in_single {
-        (raw_word.strip_prefix('\'').unwrap_or(raw_word).into(), true)
+        (raw_word.trim_prefix('\'').into(), true)
     } else if let Some(rest) = raw_word.strip_prefix("~/'") {
-        let unquoted = rest.strip_suffix('\'').unwrap_or(rest);
+        let unquoted = rest.trim_suffix('\'');
         (format!("~/{unquoted}"), true)
     } else if let Some(inner) = raw_word.strip_prefix('\'') {
-        (inner.strip_suffix('\'').unwrap_or(inner).into(), true)
+        (inner.trim_suffix('\'').into(), true)
     } else {
         (raw_word.into(), false)
     };

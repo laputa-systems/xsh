@@ -449,7 +449,7 @@ fn assert_formatting_preserves_lints(
             .zip(stderr.lines().skip(1))
             .filter(|(header, _)| header.starts_with("err["))
             .filter_map(|(_, location)| location.trim().rsplitn(3, ':').nth(2))
-            .map(|path| path.strip_prefix(&prefix).unwrap_or(path).to_owned())
+            .map(|path| path.trim_prefix(&prefix).to_owned())
             .collect();
         (lint_tree(&formatted, historical), refused)
     });

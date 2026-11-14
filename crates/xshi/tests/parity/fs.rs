@@ -61,7 +61,7 @@ fn effect_cancel_notice(sh: &mut Live, name: &str) {
         .screen_text()
         .lines()
         .filter(|row| row.contains("cancelled"))
-        .map(|row| row.strip_prefix("^C").unwrap_or(row))
+        .map(|row| row.trim_prefix("^C"))
         .map(|row| {
             let Some(end) = row.find(" entries processed") else {
                 return row.to_owned();

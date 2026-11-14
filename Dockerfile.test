@@ -23,7 +23,7 @@ RUN case "$TARGETARCH" in \
     && /rustup-init -y --default-toolchain none \
     && rm /rustup-init /rustup-init-x86_64 /rustup-init-aarch64
 ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH"
-RUN rustup toolchain install nightly-2026-09-15 \
+RUN rustup toolchain install nightly-2026-11-09 \
     --target aarch64-unknown-linux-musl \
     --target x86_64-unknown-linux-musl \
     --component llvm-tools-preview \

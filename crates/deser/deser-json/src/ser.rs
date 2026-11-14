@@ -1526,7 +1526,7 @@ fn check_number(text: &str) -> Result<(), Error> {
 /// Checks the syntax of JSON integers (an optional minus and digits
 /// without leading zeros).
 fn is_json_int(text: &str) -> bool {
-    let digits = text.strip_prefix('-').unwrap_or(text).as_bytes();
+    let digits = text.trim_prefix('-').as_bytes();
     match digits {
         [b'0'] => true,
         [b'1'..=b'9', rest @ ..] => rest.iter().all(u8::is_ascii_digit),

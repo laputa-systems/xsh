@@ -229,7 +229,7 @@ pub(crate) fn parse_int_text(text: &str, span: Span) -> Result<i64, RuntimeError
     let (negative, digits) = trimmed
         .strip_prefix('-')
         .map_or((false, trimmed), |rest| (true, rest));
-    let digits = digits.strip_prefix('+').unwrap_or(digits);
+    let digits = digits.trim_prefix('+');
     let (base, digits) = if let Some(rest) = digits
         .strip_prefix("0x")
         .or_else(|| digits.strip_prefix("0X"))
