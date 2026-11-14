@@ -1,4 +1,4 @@
-use super::CommandSignature;
+use super::{CommandSignature, SignatureShape};
 use super::super::{LintOptions, Linter};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use xsh::frontend::check::Checker;
@@ -11,10 +11,12 @@ fn sha256sum(complete: bool, pinned: &str) -> CommandSignature {
         reviewed_version: "9.5".to_owned(),
         pinned_version: pinned.to_owned(),
         complete,
-        flags: ["-b", "-c", "-t", "-z", "--binary", "--check", "--tag", "--text", "--zero", "--quiet", "--status", "--strict", "--warn", "--ignore-missing"]
+        shape: SignatureShape::Flags {
+            flags: ["-b", "-c", "-t", "-z", "--binary", "--check", "--tag", "--text", "--zero", "--quiet", "--status", "--strict", "--warn", "--ignore-missing"]
             .map(str::to_owned)
             .to_vec(),
-        value_flags: Vec::new(),
+            value_flags: Vec::new(),
+        },
     }
 }
 
@@ -78,7 +80,8 @@ fn dynamic_heads_and_arguments_stop_checking() {
 #[test]
 fn value_flags_consume_their_value() {
     let mut signature = sha256sum(true, "9.5");
-    signature.value_flags = vec!["-o".to_owned(), "--output".to_owned()];
+    let SignatureShape::Flags { value_flags, .. } = &mut signature.shape else { unreachable!() };
+    *value_flags = vec!["-o".to_owned(), "--output".to_owned()];
     let source = "proc main() {\n  run sha256sum -o -weird --output=-weird --output -weird -bo -weird file\n}\n";
     assert!(findings(source, vec![signature]).is_empty());
 }
@@ -95,4 +98,67 @@ fn checking_a_command_that_does_not_exist_needs_no_host() {
 #[test]
 fn no_signatures_leaves_the_rule_off() {
     assert!(findings("proc main() {\n  run sha256sum --quite\n}\n", Vec::new()).is_empty());
+}
+
+fn dhcpc(complete: bool, pinned: &str) -> CommandSignature {
+    static CONTRACT: std::sync::OnceLock<std::sync::Arc<xsh::frontend::check::CheckedCliEntryContract>> = std::sync::OnceLock::new();
+    let contract = CONTRACT.get_or_init(|| {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        super::load_applet_contract(&root.join("core/dhcpc.xsh"), &[root.clone(), root.join("core")]).unwrap()
+    });
+    CommandSignature {
+        name: "dhcpc".to_owned(),
+        reviewed_version: "1".to_owned(),
+        pinned_version: pinned.to_owned(),
+        complete,
+        shape: SignatureShape::Applet(contract.clone()),
+    }
+}
+
+#[test]
+fn applet_contract_accepts_valid_invocations_and_help() {
+    let source = "proc main() {\n  run dhcpc eth0\n  run dhcpc --once --seconds 5 eth0\n  run dhcpc eth0 --metric=200 --lease-dir /tmp/leases\n  run dhcpc --help\n  run dhcpc -- eth0\n}\n";
+    assert!(findings(source, vec![dhcpc(true, "1")]).is_empty());
+}
+
+#[test]
+fn applet_contract_rejects_invalid_flags_and_argument_shapes() {
+    for (call, expected) in [
+        ("run dhcpc --onse eth0", "--onse"),
+        ("run dhcpc", "interface"),
+        ("run dhcpc eth0 eth1", "eth1"),
+        ("run dhcpc --seconds soon eth0", "soon"),
+        ("run dhcpc --metric", "metric"),
+    ] {
+        let found = findings(&format!("proc main() {{\n  {call}\n}}\n"), vec![dhcpc(true, "1")]);
+        assert_eq!(found.len(), 1, "{call}: {found:?}");
+        assert_eq!(found[0].severity, Severity::Error, "{call}");
+        assert_eq!(found[0].code, Some(DiagnosticCode::LintCommandSignature), "{call}");
+        assert!(found[0].message.contains(expected), "{call}: {}", found[0].message);
+    }
+}
+
+#[test]
+fn applet_contract_downgrades_when_partial_or_stale() {
+    let source = "proc main() {\n  run dhcpc --onse eth0\n}\n";
+    for signature in [dhcpc(false, "1"), dhcpc(true, "2")] {
+        let found = findings(source, vec![signature]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert_eq!(found[0].code, Some(DiagnosticCode::LintCommandSignatureAdvisory));
+    }
+}
+
+#[test]
+fn applet_contract_skips_calls_with_dynamic_arguments_or_heads() {
+    let source = "proc probe(tool: Str, interface: Str, extra: List[Str]) {\n  run dhcpc --onse (interface)\n  run dhcpc eth0 eth1 @extra\n  run (tool) --onse\n  run other --onse\n}\nproc main() {}\n";
+    assert!(findings(source, vec![dhcpc(true, "1")]).is_empty());
+}
+
+#[test]
+fn applet_contract_loading_reports_unusable_applets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let error = super::load_applet_contract(&root.join("core/cat.xsh"), &[root.clone(), root.join("core")]).unwrap_err();
+    assert!(error.contains("cli main"), "{error}");
+    assert!(super::load_applet_contract(&root.join("core/xsh-46-absent.xsh"), &[]).is_err());
 }

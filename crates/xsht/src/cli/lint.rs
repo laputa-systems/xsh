@@ -1751,6 +1751,40 @@ fn lint_workspace_node_with_fixes(
     }
 }
 
+fn resolve_command_signatures(
+    tool_config: &FileToolConfig,
+    config_cache: &ConfigCache,
+) -> Result<Vec<crate::xsht::lint::CommandSignature>, String> {
+    use crate::xsht::lint::{CommandSignature, SignatureShape};
+    tool_config
+        .config
+        .command_signatures
+        .iter()
+        .map(|configured| {
+            let shape = match &configured.applet {
+                Some(applet) => {
+                    let path = tool_config.config_dir.join(applet);
+                    let contract = config_cache
+                        .applet_contract(&path, &tool_config.module_roots())
+                        .map_err(|error| format!("[command-signature.{}] applet: {error}", configured.name))?;
+                    SignatureShape::Applet(contract)
+                }
+                None => SignatureShape::Flags {
+                    flags: configured.flags.clone(),
+                    value_flags: configured.value_flags.clone(),
+                },
+            };
+            Ok(CommandSignature {
+                name: configured.name.clone(),
+                reviewed_version: configured.reviewed_version.clone(),
+                pinned_version: configured.pinned_version.clone(),
+                complete: configured.complete,
+                shape,
+            })
+        })
+        .collect()
+}
+
 fn lint_config_for_file(
     file: &str,
     runless: bool,
@@ -1783,6 +1817,7 @@ fn lint_config_for_file(
                 .is_some_and(|root| file.starts_with(root))
         })
     });
+    let command_signatures = resolve_command_signatures(&tool_config, config_cache)?;
     let lint_options = LintOptions {
         native_test_file,
         prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns,
@@ -1802,7 +1837,7 @@ fn lint_config_for_file(
         }),
         runless,
         runless_except: tool_config.config.lint.runless_except,
-        command_signatures: tool_config.config.command_signatures,
+        command_signatures,
         interactive_command_replacement: None,
         checked_output: None,
         #[cfg(test)]

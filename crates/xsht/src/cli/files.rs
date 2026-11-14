@@ -94,7 +94,10 @@ type NearestConfig = Result<Option<(PathBuf, XshConfig)>, String>;
 #[derive(Default)]
 pub(crate) struct ConfigCache {
     nearest: Mutex<FxHashMap<PathBuf, NearestConfig>>,
+    applets: Mutex<FxHashMap<PathBuf, AppletContract>>,
 }
+
+type AppletContract = Result<std::sync::Arc<xsh::frontend::check::CheckedCliEntryContract>, String>;
 
 impl ConfigCache {
     /// The config that governs `file`: the nearest one in its directory or
@@ -122,6 +125,16 @@ impl ConfigCache {
             .expect("config cache mutex poisoned")
             .insert(key, resolved.clone());
         resolved
+    }
+
+    /// The checked `cli main` contract of the applet at `path`, loaded once.
+    pub(crate) fn applet_contract(&self, path: &Path, module_roots: &[PathBuf]) -> AppletContract {
+        if let Some(cached) = self.applets.lock().expect("config cache mutex poisoned").get(path).cloned() {
+            return cached;
+        }
+        let loaded = crate::xsht::lint::load_applet_contract(path, module_roots);
+        self.applets.lock().expect("config cache mutex poisoned").insert(path.to_path_buf(), loaded.clone());
+        loaded
     }
 
     /// Whether discovery under `root` skips `file`.
@@ -395,6 +408,19 @@ impl Default for FormatConfig {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CommandSignatureConfig {
+    pub name: String,
+    pub reviewed_version: String,
+    pub pinned_version: String,
+    pub complete: bool,
+    pub flags: Vec<String>,
+    pub value_flags: Vec<String>,
+    /// A script, relative to the config directory, whose `cli main` entry is
+    /// the signature instead of `flags` and `value-flags`.
+    pub applet: Option<String>,
+}
+
 /// Tooling defaults include the current working directory as the implicit
 /// project module root. A project may replace this list with `module_path` in
 /// `xsht-config.ini` when its modules live elsewhere.
@@ -412,7 +438,7 @@ pub struct XshConfig {
     /// as documentation examples, is named here instead of turning the rule
     /// off for the whole project.
     pub lint_rule_excludes: Vec<LintRuleExclude>,
-    pub command_signatures: Vec<crate::xsht::lint::CommandSignature>,
+    pub command_signatures: Vec<CommandSignatureConfig>,
     pub dead_code: DeadCodeConfig,
     pub coverage: CoverageConfig,
 }
@@ -552,7 +578,7 @@ fn parse_lint_rule_excludes_ini(
 
 fn parse_command_signatures_ini(
     fields: &xsh::execution::value::RecordMap,
-) -> Result<Vec<crate::xsht::lint::CommandSignature>, String> {
+) -> Result<Vec<CommandSignatureConfig>, String> {
     let mut signatures = Vec::new();
     for (section, value) in fields {
         let Some(name) = section.strip_prefix("command-signature.") else {
@@ -577,18 +603,23 @@ fn parse_command_signatures_ini(
             "false" => false,
             _ => return Err(format!("{CONFIG_FILE_NAME} [{section}] 'complete' must be true or false")),
         };
+        let applet = take_ini_string(&mut remaining, "applet");
         let flags = take_ini_string_list(&mut remaining, "flags").unwrap_or_default();
         let value_flags = take_ini_string_list(&mut remaining, "value-flags").unwrap_or_default();
         if let Some(key) = remaining.keys().next() {
             return Err(format!("invalid {CONFIG_FILE_NAME} [{section}] key '{key}'"));
         }
-        signatures.push(crate::xsht::lint::CommandSignature {
+        if applet.is_some() && (!flags.is_empty() || !value_flags.is_empty()) {
+            return Err(format!("{CONFIG_FILE_NAME} [{section}] 'applet' replaces 'flags' and 'value-flags'"));
+        }
+        signatures.push(CommandSignatureConfig {
             name: name.to_owned(),
             reviewed_version,
             pinned_version,
             complete,
             flags,
             value_flags,
+            applet,
         });
     }
     Ok(signatures)
@@ -902,6 +933,14 @@ mod tests {
         assert_eq!(signatures[0].name, "sha256sum");
         assert!(signatures[0].complete);
         assert_eq!(signatures[0].flags, vec!["-b", "--check"]);
+        fs::write(&path, "[command-signature.dhcpc]\nreviewed-version = 1\npinned-version = 1\ncomplete = true\napplet = core/dhcpc.xsh\n").unwrap();
+        let applet = load_config_from(&path).unwrap().command_signatures;
+        assert_eq!(applet[0].applet.as_deref(), Some("core/dhcpc.xsh"));
+        fs::write(&path, "[command-signature.dhcpc]\nreviewed-version = 1\npinned-version = 1\ncomplete = true\napplet = core/dhcpc.xsh\nflags = -b\n").unwrap();
+        assert_eq!(
+            load_config_from(&path).unwrap_err(),
+            "xsht-config.ini [command-signature.dhcpc] 'applet' replaces 'flags' and 'value-flags'"
+        );
         fs::write(&path, "[command-signature.sha256sum]\ncomplete = true\n").unwrap();
         assert_eq!(
             load_config_from(&path).unwrap_err(),

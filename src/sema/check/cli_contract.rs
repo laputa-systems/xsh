@@ -1,6 +1,6 @@
 use super::CheckedDeclarations;
 use crate::sema::cli_entry::{CliEntryDefault, CliEntryPlan};
-use crate::source::{SourceMap, Span};
+use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::arena::ArenaProgram;
 use crate::syntax::node::Effect;
@@ -33,6 +33,28 @@ impl CheckedCliEntryContract {
     }
 
     pub fn path(&self) -> &[String] { &self.plan.path }
+
+    /// Parses `argv` with the entry's own command-line parser and returns the
+    /// usage error it would raise, or `None` when the arguments bind or ask for
+    /// help. Nothing runs and no host state is read: a default that the command
+    /// line leaves out is neither evaluated nor validated.
+    pub fn argument_error(&self, argv: &[String]) -> Option<String> {
+        use crate::modules::cli::{PreparedSignatureCli, SignatureDefault, SignatureParameter};
+        self.symbol_owner.with_current(|| {
+            let span = Span::new(SourceId::new(0), 0, 0);
+            let parameters = self.plan.parameters.iter().map(|parameter| SignatureParameter {
+                name: parameter.name.to_string(),
+                type_name: parameter.parser_type.clone(),
+                default: parameter.default.as_ref().map(|_| SignatureDefault::Computed(String::new())),
+                rest: parameter.rest,
+                metadata: parameter.metadata.clone(),
+            }).collect();
+            let parser = PreparedSignatureCli::prepare(parameters, String::new(), &self.plan.metadata, span).ok()?;
+            let command = self.plan.metadata.name.as_deref().unwrap_or(&self.source_name);
+            let error = parser.parse(argv, command).err()?;
+            (error.kind != "cli-help").then(|| error.message.split("\n\n").next().unwrap_or_default().to_owned())
+        })
+    }
 
     /// Compares source identity, command path, ordered checked parameters,
     /// parser domains, declared effect bounds, and defaults, ignoring arena

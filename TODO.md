@@ -164,15 +164,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** M
 
-### XSH-46 · P3 · Pilot opt-in static signatures for external command flags
-
-- **Area:** Tooling
-- **Where:** `crates/xsht/`, `crates/xsh-registry/`, `docs/XSHT.md`, native CLI contracts and tooling tests
-- **Problem:** XSH checks native and XSH-defined CLI contracts but does not statically validate arbitrary `run` targets' flags. An optional trusted signature could catch misspellings without constraining ordinary Unix interoperability.
-- **Recommendation:** Start with one statically named XSH core applet whose CLI signature already comes from the canonical registry; optionally test one pinned external tool. Have `xsht` diagnose known incompatible flags/argument shapes, warn on incomplete or stale signatures, and skip dynamic command heads. Never execute tools during checking or add a mandatory external-signature database. A tool's CLI schema cannot prove its effects or authority. - **Acceptance:** Valid invocations and unchecked dynamic commands retain their behavior; reviewed complete contracts reject known-invalid flags, partial contracts never cause false hard failures, signatures stay version-associated, and no filesystem/network/process execution is triggered by checking. Benchmark checking overhead and drop the experiment if maintenance outweighs benefit. - **Coordination:** Laputa LAP-40 pilots a real recipe only if the opt-in tool contract proves useful. - **Status:** Parked. A pilot on branch `feat/xsh-46-command-signatures` (`5d1dd5e32`) lints literal `run NAME` flags against `[command-signature.NAME]` sections in `xsht-config.ini`, piloted on GNU `sha256sum`, at about 15 µs per checked call. No Laputa recipe runs a statically named external tool with literal flags, so it has no consumer; the tools LAP-40 would need (`git`, `tar`) also need subcommand and positional shapes the pilot does not model. Resume when LAP-40 names a real recipe.
-- **Fix with:** make-invalid-states-unrepresentable
-- **Effort:** M
-
 ### XSH-47 · P3 · Qualify one OS-enforced subprocess confinement boundary
 
 - **Area:** Host authority

@@ -74,7 +74,7 @@ mod lint_optional_binding;
 mod lint_run_argv;
 #[path = "lint_command_signature.rs"]
 mod lint_command_signature;
-pub use lint_command_signature::CommandSignature;
+pub use lint_command_signature::{CommandSignature, SignatureShape, load_applet_contract};
 
 #[path = "lint_redundant_propagation.rs"]
 mod lint_redundant_propagation;
