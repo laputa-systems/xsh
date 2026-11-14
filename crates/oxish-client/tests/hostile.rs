@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use support::*;
-use xsh_ssh::{
+use oxish_client::{
     Certainty, ClientConfig, Connection, Error, ExecOptions, ExecStatus, HostTrust, Identity,
     RekeyLimits, StreamOptions,
 };
@@ -286,7 +286,7 @@ fn channel_request_replies_are_not_queued_while_the_peer_does_not_read() {
 
 struct Endless;
 
-impl xsh_ssh::InputSource for Endless {
+impl oxish_client::InputSource for Endless {
     fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
         None
     }
@@ -327,7 +327,7 @@ fn drip_config(port: u16) -> ClientConfig {
         "tester",
         Identity::KeyFile("/nonexistent/key".into()),
         HostTrust::Pinned(
-            xsh_ssh::Fingerprint::parse("SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            oxish_client::Fingerprint::parse("SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
                 .expect("fingerprint"),
         ),
         Duration::from_millis(500),
@@ -626,7 +626,7 @@ fn stalling_agent(peer: &Peer, behavior: SignBehavior) -> (Identity, tempfile::T
         .decode(public.split_whitespace().nth(1).expect("key field").as_bytes())
         .expect("base64");
     let fingerprint =
-        xsh_ssh::host_key::fingerprint(&blob, xsh_ssh::DEFAULT_PROVIDER).expect("fingerprint");
+        oxish_client::host_key::fingerprint(&blob, oxish_client::DEFAULT_PROVIDER).expect("fingerprint");
     let directory = tempfile::tempdir().expect("tempdir");
     let socket = directory.path().join("agent.sock");
     let listener = UnixListener::bind(&socket).expect("bind");
@@ -674,7 +674,7 @@ fn stalling_agent(peer: &Peer, behavior: SignBehavior) -> (Identity, tempfile::T
     });
     let identity = Identity::Agent {
         socket,
-        fingerprint: xsh_ssh::Fingerprint::parse(&fingerprint).expect("fingerprint"),
+        fingerprint: oxish_client::Fingerprint::parse(&fingerprint).expect("fingerprint"),
     };
     (identity, directory)
 }

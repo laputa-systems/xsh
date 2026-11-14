@@ -1,12 +1,12 @@
 #!/bin/sh
-# Fail if xsh-ssh has a crypto provider other than the vendored Graviola, or if
+# Fail if oxish-client has a crypto provider other than the vendored Graviola, or if
 # Graviola does not resolve to the pinned patched copy.
 set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 manifest=$root_dir/Cargo.toml
 lock=$root_dir/Cargo.lock
-vendor=$root_dir/crates/xsh-ssh/vendor
+vendor=$root_dir/crates/oxish-client/vendor
 origin=$vendor/ORIGIN.md
 
 providers='aws-lc|aws-lc-rs|aws-lc-sys|aws-lc-fips-sys|openssl|openssl-sys|openssl-src|boring|boring-sys|boringssl|libressl|ring|rustls|rustls-.*|native-tls|mbedtls|mbedtls-sys|wolfssl|wolfssl-sys|nss|nss-sys|gnutls|security-framework|security-framework-sys|schannel'
@@ -23,19 +23,19 @@ for required in "$origin" "$vendor/LICENSE-APACHE" "$vendor/LICENSE-MIT" "$vendo
     [ -f "$required" ] || fail "missing vendored license or origin manifest: $required"
 done
 
-grep -q 'd16c683b803eafb6975d4469cc172eac270ec1ba' "$origin" ||
+grep -q '^Revision: `[0-9a-f]\{40\}`$' "$origin" ||
     fail "origin manifest does not pin the ssh-build revision"
 
 command -v cargo >/dev/null || fail "cargo not found"
 cd "$root_dir"
 
-graph=$(cargo tree --locked --manifest-path "$manifest" -p xsh-ssh --edges normal,build --target all --prefix none) ||
-    fail "cannot resolve the xsh-ssh dependency graph"
+graph=$(cargo tree --locked --manifest-path "$manifest" -p oxish-client --edges normal,build --target all --prefix none) ||
+    fail "cannot resolve the oxish-client dependency graph"
 
 hits=$(echo "$graph" | sed 's/ v[0-9].*$//' | scan_names "$providers|$primitives") || true
-[ -z "$hits" ] || fail "prohibited crates in the xsh-ssh release graph: $(echo $hits)"
+[ -z "$hits" ] || fail "prohibited crates in the oxish-client release graph: $(echo $hits)"
 
-echo "$graph" | grep -q '^graviola v[^ ]* (.*crates/xsh-ssh/vendor/graviola)' ||
+echo "$graph" | grep -q '^graviola v[^ ]* (.*crates/oxish-client/vendor/graviola)' ||
     fail "graviola does not resolve to the vendored patched copy"
 
 stanza=$(sed -n '/^name = "graviola"$/,/^$/p' "$lock")

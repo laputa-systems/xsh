@@ -1333,6 +1333,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "oxish-client"
+version = "0.1.0"
+dependencies = [
+ "data-encoding",
+ "graviola",
+ "oxish-graviola",
+ "oxish-proto",
+ "rustix",
+ "sha2",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
 name = "oxish-graviola"
 version = "0.2.0"
 dependencies = [
@@ -2329,6 +2343,7 @@ dependencies = [
  "md-5",
  "memchr",
  "mimalloc",
+ "oxish-client",
  "proc-macro2",
  "regex-lite",
  "rustc-hash",
@@ -2349,7 +2364,6 @@ dependencies = [
  "xsh-net",
  "xsh-registry",
  "xsh-root",
- "xsh-ssh",
 ]
 
 [[package]]
@@ -2372,12 +2386,12 @@ name = "xsh-fuzz"
 version = "0.0.1"
 dependencies = [
  "libc",
+ "oxish-client",
  "rustc-hash",
  "rustix",
  "tempfile",
  "xsh",
  "xsh-registry",
- "xsh-ssh",
  "xsht",
 ]
 
@@ -2416,20 +2430,6 @@ dependencies = [
  "libc",
  "rustix",
  "tempfile",
-]
-
-[[package]]
-name = "xsh-ssh"
-version = "0.0.1"
-dependencies = [
- "data-encoding",
- "graviola",
- "oxish-graviola",
- "oxish-proto",
- "rustix",
- "sha2",
- "tempfile",
- "zeroize",
 ]
 
 [[package]]

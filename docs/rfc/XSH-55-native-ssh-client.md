@@ -2,8 +2,9 @@
 
 Status: delivered on Linux x86-64 as an experimental client, with the open items
 listed under [Open](#open). Native macOS qualification is deferred by the owner
-because no macOS host is available. The Rust crate is `crates/xsh-ssh`; the
-interface is [Native SSH](../ssh.md).
+because no macOS host is available. The Rust crate is `crates/oxish-client`, vendored from ssh-build's `client/`
+(formerly the XSH-owned `crates/xsh-ssh`, which ssh-build absorbed and extended);
+the interface is [Native SSH](../ssh.md).
 
 ## Audit
 
@@ -45,9 +46,9 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Runnable examples: exec, transfer, reuse, errors, parallel hosts | P 1 of 5 | D | `examples/ssh/` |
 | Parser and state-machine tests plus targeted fuzz or property tests | M | D | `arbitrary_connection_messages_never_hang_or_panic_the_client`, `kex::tests`, `known_hosts::tests` |
 | Public API docs, compatibility matrix, threat model, residual limits | P | D | `docs/ssh.md` |
-| Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/xsh-ssh/fixture/ssh-fixture.sh` |
+| Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/oxish-client/fixture/ssh-fixture.sh` |
 | Before and after size, startup, memory and throughput | P macOS only | D build time deferred: host busy | [Measurements](#measurements) |
-| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P x86-64 musl executed: the `xsh-ssh` fixture suites and the native `tests/xsh/ssh-` suite; macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
+| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P x86-64 musl executed: the `oxish-client` fixture suites and the native `tests/xsh/ssh-` suite; macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
 | Stage 1: host identity, pinned verification, changed key fails closed, no agent forwarding or secrets in logs | D | D | as above |
 | Stage 1: structured argv, environment, working directory, byte-preserving paths | M | P Laputa `run` takes a UTF-8 argv and a timeout; no environment, working directory or non-UTF-8 path | `tests/system/remote_guest.xsh` in Laputa |
 | Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
@@ -63,7 +64,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 
 ## Protocol and security review
 
-2026-11-05, Linux. A source review of `crates/xsh-ssh` (the client, the packet
+2026-11-05, Linux. A source review of `crates/oxish-client` (the client, the packet
 and key-exchange layer it calls in the vendored `oxish-proto`, and the
 `oxish-graviola` provider glue) and `src/modules/ssh.rs`, read against RFC 4251
 to 4254, 4344, 5647, 8308, 8709, 8731, the OpenSSH `PROTOCOL` strict key
@@ -140,12 +141,12 @@ The vendored `OpenSshKeyV1::to_bytes` and `pem_encode` serialization paths also
 grow sensitive buffers. The client key-loading path calls neither method.
 Their reallocation behavior remains outside this loading-path qualification.
 
-The SHA-256 contexts remain unwiped as a dependency limit, not an `xsh-ssh`
+The SHA-256 contexts remain unwiped as a dependency limit, not an `oxish-client`
 defect it can fix without a fork: `oxish-graviola` wraps Graviola's
 `Sha256Context` (`vendor/oxish-graviola/src/lib.rs:569`), neither type wipes on
 drop (`vendor/graviola/src/high/hash.rs:167`,
 `vendor/graviola/src/mid/sha2.rs:13`), and `oxish-proto` creates and consumes
-the context inside `HandshakeHash` and `KeyDerivation`, so `xsh-ssh` holds no
+the context inside `HandshakeHash` and `KeyDerivation`, so `oxish-client` holds no
 copy it can wipe. The fix belongs in ssh-build's one authoritative copy of
 those crates.
 
@@ -188,7 +189,7 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 - Not zeroized: the SHA-256 contexts that hash the shared secret into the
   exchange hash and keys. This is a Graviola dependency limit: the context is
   Graviola's type with no wipe on drop, wrapped by `oxish-graviola` and consumed
-  inside `oxish-proto`, so `xsh-ssh` holds no copy it can wipe; changing it
+  inside `oxish-proto`, so `oxish-client` holds no copy it can wipe; changing it
   needs an ssh-build patch (see [Fourth round](#fourth-round-fixed)). Also not
   zeroized: the caller's own `ExecOptions::stdin` buffer and the XSH value it
   came from, the receive buffer while it grows, and whatever a caller's writer
@@ -220,9 +221,9 @@ enabled in them: the shipped products are SSH-enabled.
 | `xsht` | 42,899,856 | 43,080,080 | +0.42% |
 | `xsh` built without `ssh` | | 30,920,016 | `ssh` is 737,856 bytes, 2.4% |
 
-The 5% size gate passes. Beyond the vendored substrate, `ssh` adds `xsh-ssh`,
+The 5% size gate passes. Beyond the vendored substrate, `ssh` adds `oxish-client`,
 `oxish-proto`, `oxish-graviola`, `thiserror`, `tracing` and their proc-macro
-crates to `xsh`; Graviola is already in the graph. The `xsh-ssh` closure is 29
+crates to `xsh`; Graviola is already in the graph. The `oxish-client` closure is 29
 crates, none of them another cryptographic provider
 (`scripts/check-ssh-crypto.sh`).
 
@@ -238,14 +239,14 @@ OpenSSH 10.0, Dropbear 2026.94 served the Laputa KVM drill, and the pinned
 `xsh-test` musl container ran the `cargo dev gate` cases `test-ssh-unit`,
 `test-registry`, `test-signatures`, `test-api`, `test-registry-reference`,
 `test-modules-unit`, `check-api-snippets` and `check-docs` (all pass). On
-2026-11-05, after the review's fixes, all 113 `xsh-ssh` tests also passed on both
+2026-11-05, after the review's fixes, all 113 `oxish-client` tests also passed on both
 the glibc host and `x86_64-unknown-linux-musl` against the loopback fixture
-(`crates/xsh-ssh/fixture/ssh-fixture.sh exec cargo test -p xsh-ssh [--target
+(`crates/oxish-client/fixture/ssh-fixture.sh exec cargo test -p oxish-client [--target
 x86_64-unknown-linux-musl]`). On 2026-11-08, on an x86-64 musl host, the
-third round's tree passed the whole `xsh-ssh` suite for
+third round's tree passed the whole `oxish-client` suite for
 `x86_64-unknown-linux-musl` and all 34 native `tests/xsh/ssh-` tests with
 `verification` products, both against the loopback fixture. Cross-checked only, not executed:
-`aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p xsh-ssh`).
+`aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p oxish-client`).
 
 ## Open
 
@@ -278,7 +279,7 @@ third round's tree passed the whole `xsh-ssh` suite for
 XSH programs establish authenticated SSH connections, run remote commands,
 stream binary input and output, inspect remote outcomes, and reuse connections,
 through a native client built on OxiSH's sans-I/O protocol code and Graviola.
-A reusable Rust crate (`crates/xsh-ssh`) owns protocol, cryptography and I/O; a
+A reusable Rust crate (`crates/oxish-client`) owns protocol, cryptography and I/O; a
 thin adapter exposes a small typed XSH API; ordinary XSH helpers own shell
 conventions and convenience policy. The first consumers are Laputa's remote
 administration library ([Laputa R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#r6-separate-disposable-development-from-long-lived-vm-policy))
@@ -324,7 +325,7 @@ not become a client by flipping a flag.
 
 Follow the `xsh-net` pattern:
 
-- `crates/xsh-ssh` implements the client and its I/O driver with no dependency
+- `crates/oxish-client` implements the client and its I/O driver with no dependency
   on XSH values, source spans or evaluator state.
 - A thin XSH adapter registers signatures, converts values, owns handles,
   participates in effects and cancellation, and maps errors.
@@ -340,7 +341,10 @@ not.
 
 Import a reproducible, pinned subset of ssh-build's vendored source with an
 origin manifest and an update procedure. XSH builds without a sibling checkout.
-Client-specific code lives in `xsh-ssh`. Preserve upstream licenses and
+The client crate is itself ssh-build's `client/`, vendored at a pinned revision
+by `scripts/vendor-ssh-client.sh` with no local edits (the revision and excluded
+files are in `crates/oxish-client/vendor/ORIGIN.md`); XSH keeps only the adapter
+in `src/modules/ssh.rs`. Preserve upstream licenses and
 provenance, keep no independently diverging copy of cryptographic code, and
 resolve Graviola once in the enabled runtime dependency graph.
 

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use xsh_ssh::{ClientConfig, Connection, Error, Fingerprint, HostTrust, KnownHosts};
+use oxish_client::{ClientConfig, Connection, Error, Fingerprint, HostTrust, KnownHosts};
 
 struct Fixture {
     host: String,
@@ -12,7 +12,7 @@ struct Fixture {
 
 fn variable(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| {
-        panic!("{name} is not set; run this test through dev/fixtures.xsh exec")
+        panic!("{name} is not set; run this test through client/fixture/ssh-fixture.sh exec")
     })
 }
 

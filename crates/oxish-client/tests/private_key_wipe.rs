@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 use data_encoding::BASE64;
-use xsh_ssh::oxish_proto::OpenSshKeyV1;
+use oxish_client::oxish_proto::OpenSshKeyV1;
 
 thread_local! {
     static WATCHING: Cell<bool> = const { Cell::new(false) };
@@ -97,7 +97,7 @@ fn private_key_loading_wipes_freed_and_reallocated_buffers_on_success_and_errors
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("private mode");
         let mut loaded = false;
         let count = watched(|| {
-            let result = xsh_ssh::auth::load_key(&path, xsh_ssh::DEFAULT_PROVIDER);
+            let result = oxish_client::auth::load_key(&path, oxish_client::DEFAULT_PROVIDER);
             loaded = result.is_ok();
             drop(result);
         });

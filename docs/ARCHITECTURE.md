@@ -19,6 +19,11 @@ spans, values, diagnostics, or evaluator state. `xsh-net` is the example: its
 adapter converts XSH records to Rust requests and turns results back into XSH
 data.
 
+The native SSH client is the exception that is vendored whole: `crates/oxish-client`
+is ssh-build's `client/` crate at a pinned revision, checked by
+`scripts/vendor-ssh-client.sh verify`, and `src/modules/ssh.rs` is the only XSH
+adapter. Fix the client in ssh-build and re-vendor it; do not edit it here.
+
 ## Filesystem transfer substrate
 
 The internal transfer core for the shell's filesystem commands lives in

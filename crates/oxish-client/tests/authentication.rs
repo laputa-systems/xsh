@@ -3,7 +3,7 @@ mod support;
 use std::time::Duration;
 
 use support::*;
-use xsh_ssh::{Connection, Error};
+use oxish_client::{Connection, Error};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const DEBUG: u8 = 4;
@@ -32,9 +32,9 @@ fn authentication_with_a_full_agent_backlog(stop: AgentStop) -> Error {
     let cancelled = Arc::new(AtomicBool::new(false));
     let mut config = peer.config(Duration::from_secs(3));
     config.deadline = Duration::from_millis(100);
-    config.identity = xsh_ssh::Identity::Agent {
+    config.identity = oxish_client::Identity::Agent {
         socket: path,
-        fingerprint: xsh_ssh::Fingerprint::parse(&peer.pin).expect("fingerprint"),
+        fingerprint: oxish_client::Fingerprint::parse(&peer.pin).expect("fingerprint"),
     };
     let flag = cancelled.clone();
     config.interrupt = Some(Arc::new(move || flag.load(Ordering::SeqCst)));
@@ -59,14 +59,14 @@ fn authentication_with_a_full_agent_backlog(stop: AgentStop) -> Error {
 #[test]
 fn authentication_deadline_covers_agent_socket_establishment() {
     let error = authentication_with_a_full_agent_backlog(AgentStop::Deadline);
-    assert!(matches!(error, Error::Timeout { certainty: xsh_ssh::Certainty::NotSubmitted }));
+    assert!(matches!(error, Error::Timeout { certainty: oxish_client::Certainty::NotSubmitted }));
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn authentication_cancellation_covers_agent_socket_establishment() {
     let error = authentication_with_a_full_agent_backlog(AgentStop::Cancellation);
-    assert!(matches!(error, Error::Cancelled { certainty: xsh_ssh::Certainty::NotSubmitted }));
+    assert!(matches!(error, Error::Cancelled { certainty: oxish_client::Certainty::NotSubmitted }));
 }
 
 fn transport_noise() -> Vec<Vec<u8>> {

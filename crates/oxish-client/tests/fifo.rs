@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use xsh_ssh::exec::{create_output_file, open_stdin_file};
+use oxish_client::exec::{create_output_file, open_stdin_file};
 
 fn fifo(directory: &tempfile::TempDir) -> std::path::PathBuf {
     let path = directory.path().join("fifo");

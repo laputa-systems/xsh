@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use support::*;
-use xsh_ssh::{ExecOptions, ExecStatus};
+use oxish_client::{ExecOptions, ExecStatus};
 
 const SENTINEL: &[u8; 32] = b"xsh-stdin-sentinel-0123456789abc";
 
