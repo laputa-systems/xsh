@@ -6,7 +6,7 @@ host boundaries and ordinary XSH policy over command-specific runtime growth.
 Existing distribution follow-ups remain in
 [Laputa's queue](https://github.com/laputa-systems/laputa/blob/master/TODO.md);
 its [roadmap](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md)
-owns VM milestones. The joint review's XSH-88 through XSH-94 are tracked here,
+owns VM milestones. The joint review's open XSH-89 is tracked here,
 including Laputa work at `../laputa`. Implement each item in its owning repository.
 
 The joint review on 2026-11-13 inspected XSH `d9d1d7bcb78c` and Laputa
@@ -26,16 +26,6 @@ which items block a release; performance and resource items such as XSH-1 and
 XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-
-### XSH-88 · P1 · Require account authority before mirror passkey enrollment
-
-- **Area:** Laputa mirror authentication
-- **Where:** `../laputa/mirror/src/webauthn_handlers.rs:26-158,480-516`, `../laputa/mirror/src/packages.rs:182-208,268-305`, `../laputa/infra/mirror/cloudflare.sh:197-209`
-- **Problem:** Assumed P1. Registration checks only the username allowlist, reuses an existing user ID, accepts a new WebAuthn credential, and creates a browser session without proving control of that account. That session can mint a publisher token even when the user already has tokens. The documented public tunnel adds no identity gate. A reachable unauthenticated requester can therefore gain mirror write authority, alter the unsigned developer index, or disrupt signed snapshot delivery; this does not grant offline signing keys or defeat production snapshot verification. The source path is established; runtime exploitation and independently configured ingress controls are unproven.
-- **Recommendation:** Require explicit operator authorization for first enrollment and authenticated same-user authority for additional passkeys. Bind the authority to the user and pending challenge; consume one-use bootstrap authority and the challenge atomically with credential persistence. Reject missing, wrong-user, expired, replayed, and concurrently reused authority. Acceptance: local fixtures cover first enrollment, same-user additions, unauthenticated existing-account registration, cross-user attempts, expiry, replay, and concurrent verification; production signed-snapshot verification remains unchanged. Choose the bootstrap channel in the linked RFC before implementation.
-- **Fix with:** security
-- **Effort:** M
-- **Design:** [XSH-88 design](docs/rfc/XSH-88-mirror-enrollment-authority.md)
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -110,42 +100,6 @@ out of scope.
 - **Effort:** M
 - **Design:** [XSH-89 design](docs/rfc/XSH-89-backup-quiescence-recovery.md)
 - **Findings (2026-11-13):** The owner accepted the timer-supervisor design. Implementation needs two mechanisms first: xinit must check control ownership atomically when it applies a request (it currently replaces a per-service inbox file and applies verbs unconditionally, so a read-then-start recovery races operator commands), and the timer supervisor must persist the snapshot writer's identity so a restarted supervisor can prove the writer stopped before releasing services. Two worker attempts stopped there without changes.
-
-### XSH-90 · P2 · Make immutable repository publication atomic
-
-- **Area:** Laputa repository publication
-- **Where:** `../laputa/pm/remote.xsh:59-110`, `../laputa/pm/repo.xsh:230-275`, `../laputa/mirror/src/packages.rs:292-305`, `../laputa/mirror/src/s3.rs:309-337,386-399,427-438`, `src/modules/fs.rs:2340-2357`
-- **Problem:** Assumed P2; concurrent runtime reproduction unproven. File publication checks absence then uses a shared .<name>.tmp and a check-then-rename Path operation. Two publishers can delete or rename each other's staging and report success for the wrong bytes. HTTP If-None-Match:* similarly performs object_size then unconditional storage.put, so concurrent requests can both succeed and replace an immutable package object. Artifact keys identify build inputs, not necessarily identical payload bytes. Client digest checks fail closed, leaving packages unavailable rather than accepting mismatched content. LAP-33 covers Store-to-generation confinement, not this remote publication boundary.
-- **Recommendation:** Use owned staging and an atomic create-if-absent operation: reuse FsRoot no-replace publication for file remotes, carry the condition through the mirror storage API to the actual S3 PUT, and make filesystem/memory backends enforce the same result. A unique temporary alone does not fix check-then-rename. Keep mutable index/snapshot publication separate and retain same-byte retry acceptance. Acceptance: barrier-controlled distinct-byte publishers produce one winner whose bytes remain intact; losers cannot remove another stage. Same-byte retries succeed idempotently. Cover file and HTTP filesystem/memory paths plus conditional S3 request/response mapping.
-- **Fix with:** durable-state
-- **Effort:** M
-
-### XSH-91 · P2 · Preserve diagnostics history after a read failure
-
-- **Area:** Laputa persistent diagnostics
-- **Where:** `../laputa/system/diagnostics.xsh:417-422,486-489,535-547,816-817`, `src/runtime/eval/lowered_run.rs:1292-1310`, `../laputa/tests/system/diagnostics.xsh:178`
-- **Problem:** Assumed P2; current-source runtime reproduction unproven. When the existing events file cannot be read, diagnostics_collect records degradation but leaves existing_lines empty, adds a fresh boot event, and replaces the file. Invalid UTF-8 alone makes read_lines fail; if the parent is writable, the replacement discards recoverable history. The command can still report preserved=1. This affects the opt-in diagnostics collector, which no shipped profile currently selects; it is distinct from the existing write-failure preservation test.
-- **Recommendation:** Treat failure to read an existing events file as a failed read-modify-write transaction: preserve its exact bytes, report that collection could not append, and continue only independent outputs that remain safe. Distinguish an absent file from an unreadable file. Acceptance: seed valid history plus an invalid UTF-8 byte and verify byte-for-byte preservation with degraded status; add a controlled read-I/O failure and retain normal append, deduplication, retention, and write-failure behavior.
-- **Fix with:** error-model
-- **Effort:** S
-
-### XSH-92 · P2 · Bound mirror work before reading request bodies
-
-- **Area:** Laputa mirror resource ownership
-- **Where:** `../laputa/mirror/src/lib.rs:47-72`, `../laputa/mirror/src/packages.rs:268-305,749`, `../laputa/infra/mirror/cloudflare.sh:197-209`
-- **Problem:** Assumed P2; resource-exhaustion reproduction and live ingress limits unproven. The mirror spawns an OS thread for each request and reads its body into an unbounded Vec before routing or authentication, ignoring read errors. Unauthorized writes and irrelevant routes can therefore occupy threads and allocate bodies before refusal; later route limits do not bound this work. The documented deployment supplies no application admission or body/read-time bound. Independent proxy limits may reduce exposure, but are not established by the repository. Concurrent slow or large requests can exhaust mirror resources and interrupt readers and publishers.
-- **Recommendation:** Bound in-flight admission, apply route-specific byte and read-time budgets during ingestion, reject unauthorized protected requests before consuming uploads, and surface body-read failures. Handle unknown-length/chunked input within the same limits and preserve supported large/chunked publication through bounded streaming or staging. Acceptance: local slow-body, oversized-body, partial-read, and concurrent saturation fixtures demonstrate bounded workers/buffers and prompt refusal while ordinary reads and supported uploads still complete. Do not probe production.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M
-
-### XSH-93 · P2 · Report directory iteration errors from fs.scan
-
-- **Area:** Filesystem scan correctness
-- **Where:** `src/modules/fs/scan.rs:112-124,141-147,304-324,360-367`, `core/lib/fdu_scan.xsh:31-41`, `docs/templates/SPEC.md:5545-5553`
-- **Problem:** Assumed P2; a failing-directory runtime reproduction is unproven. sorted_names discards every Err yielded by ReadDir through entry.ok(). Root and child directory states then begin with incomplete=false and error=None, so an iteration failure after a successful open can produce a complete closing record with missing children. fdu trusts that record and can display an incomplete count or size as complete, contrary to the documented read-failure contract. Failure to open a directory is already handled; this finding concerns errors yielded during iteration.
-- **Recommendation:** Retain an iteration error while sorting successful entries, mark the directory incomplete, and propagate that state to ancestors through the existing closing-record path. Keep successfully read children and the current deterministic ordering. Acceptance: inject an iterator yielding a valid entry followed by EIO, or use a controlled erroring filesystem, and assert incomplete state plus error for the directory and ancestors, including fdu consumption; an all-success control stays complete.
-- **Fix with:** error-model
-- **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
@@ -257,16 +211,6 @@ out of scope.
 - **Recommendation:** Profile one 1k-process frame, find which of model, render or diff dominates, and fix that stage. Then add a frame-time budget to `btop-profile.xsh`. - **Progress:** `df06e7ce6`..`99912ff48` compute per-frame inputs once, derive both process rates in one call and sort and filter once per frame. Model wire JSON and every sorted screen stay byte-identical. Unqualified p95 for 1,000 processes fell from 4.3 to 10.6 s to 0.43 to 0.84 s on a loaded host; the remaining cost is evaluator records, field reads and calls (XSH-77). `btop-profile.xsh` now enforces p95 at most 1.25 s, to tighten to 250 ms after a qualified release run. - **Acceptance:** p95 frame time for 1,000 processes under 250 ms in a readiness-qualified release run, with the profile enforcing that budget; btop tests green.
 - **Fix with:** make-it-fast
 - **Effort:** M
-
-
-### XSH-94 · P3 · Make release checksum sidecars work beside downloaded assets
-
-- **Area:** Release delivery
-- **Where:** `dev/release.xsh:8-10,29,214`, `.github/workflows/release.yml:100,137`, `dev/tests/test-targets.xsh:301-302,437-445`
-- **Problem:** Assumed P3. checksum_line records dist/<asset> relative to the checkout, while the release uploads each asset and sidecar individually. A downloaded sibling pair therefore fails sha256sum -c unless the user reconstructs dist/. Reproduced on 2026-11-13 with the published x86_64-linux-musl binary and sidecar from release-d09c6c3305ab8c650043bd8d32e03f2db6509e97: the unchanged sidecar exits 1 with file-not-found; changing only the listed path to the basename exits 0. The current generator retains this logic, and its tests explicitly pin the dist/ path; a new current-source release was not built.
-- **Recommendation:** Write sibling basenames in distributable checksum sidecars, and update release validation and the existing assertions to match. Acceptance: place a binary and its sidecar, then the core archive and its sidecar, in a fresh download-shaped directory outside the checkout and verify each with sha256sum -c without a dist directory. Keep the artifact bytes and digest algorithm unchanged.
-- **Fix with:** correct
-- **Effort:** S
 
 
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
