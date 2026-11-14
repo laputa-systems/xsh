@@ -123,3 +123,13 @@ test test_btop_g2_input_bracketed_paste_keeps_hotkeys_and_enter_inert {
   assert ! decoded.state.in_paste
   assert decoded.state.paste_text.is_empty()
 }
+
+test test_btop_input_wait_follows_the_escape_deadline_and_saturates {
+  let pending = input.push(input.initial(), b"\x1b", 100).state
+  assert input.wait_ms(input.initial(), 100, 100) == 100
+  assert input.wait_ms(pending, 100, 100) == 35
+  assert input.wait_ms(pending, 400, 100) == 1
+  let late = input.push(input.initial(), b"\x1b", 9223372036854775807)
+  assert late.state.escape_deadline_ms == 9223372036854775807
+  assert input.timeout(late.state, 9223372036854775807).events == [input.Pressed(input.Escape)]
+}

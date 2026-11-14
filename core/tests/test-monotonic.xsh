@@ -95,3 +95,57 @@ let wall: Int = time.now() * 1000000
 let gap = monotonic.elapsed_ns(sent, wall)
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_a_stamp_rounds_down_to_a_reading_and_a_negative_stamp_is_zero {
+  assert monotonic.reading_of(monotonic.Stamp(ns: 0)).ms == 0
+  assert monotonic.reading_of(monotonic.Stamp(ns: 999999)).ms == 0
+  assert monotonic.reading_of(monotonic.Stamp(ns: 1000000)).ms == 1
+  assert monotonic.reading_of(monotonic.Stamp(ns: 5999999999)).ms == 5999
+  assert monotonic.reading_of(monotonic.Stamp(ns: 9223372036854775807)).ms == 9223372036854
+  assert monotonic.reading_of(monotonic.Stamp(ns: -1)).ms == 0
+}
+
+test test_a_stamp_moves_forward_and_saturates {
+  let start = monotonic.Stamp(ns: 1000)
+  assert monotonic.stamp_after(start, 250).ns == 1250
+  assert monotonic.stamp_after(start, 0).ns == 1000
+  assert monotonic.stamp_after(start, -250).ns == 1000
+  assert monotonic.stamp_after(start, 9223372036854775807).ns == 9223372036854775807
+  assert monotonic.stamp_after(monotonic.Stamp(ns: 9223372036854775807), 1).ns == 9223372036854775807
+}
+
+test test_a_wait_is_the_whole_milliseconds_left_between_one_and_the_cap {
+  let now = monotonic.Stamp(ns: 5000000000)
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 5042999999), now, 100) == 42
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 5000999999), now, 100) == 1
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 5000000001), now, 100) == 1
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 9000000000), now, 100) == 100
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 9223372036854775807), now, 100) == 100
+}
+
+test test_an_expired_or_zero_budget_waits_one_millisecond_and_never_less {
+  let now = monotonic.Stamp(ns: 5000000000)
+  assert monotonic.wait_ms(now, now, 100) == 1
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 4000000000), now, 100) == 1
+  assert monotonic.wait_ms(monotonic.Stamp(ns: 0), monotonic.Stamp(ns: 9223372036854775807), 100) == 1
+}
+
+test test_the_live_reading_matches_the_stamp_it_rounds {
+  let before = monotonic.stamp()?
+  let reading = monotonic.now()?
+  let after = monotonic.stamp()?
+  assert reading.ms >= monotonic.reading_of(before).ms
+  assert reading.ms <= monotonic.reading_of(after).ms
+}
+
+test test_a_wall_clock_value_is_not_a_stamp_to_move_or_wait_on { |ctx|
+  test.expect(ctx, r"""use core.lib.monotonic
+let wall: Int = time.now() * 1000000
+let later = monotonic.stamp_after(wall, 5)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+  test.expect(ctx, r"""use core.lib.monotonic
+let now = monotonic.stamp()?
+let wall: Int = time.now() * 1000000
+let slice = monotonic.wait_ms(now, wall, 100)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+}

@@ -8,6 +8,7 @@ use core.lib.fdu_delete as fdu_delete
 use core.lib.fdu_model as model
 use core.lib.fdu_scan as fdu_scan
 use core.lib.fdu_ui as ui
+use core.lib.monotonic
 use lib.gnu
 
 type Options = {
@@ -588,7 +589,7 @@ proc interactive(app: App) [env, fs, process, io, time, error] -> Result[Unit, E
   var quit = false
   defer tui_terminal.leave(session)
   while ! quit {
-    let now_ms = time.monotonic()? / 1000000
+    let now_ms = monotonic.now()?.ms
     let timed = input.timeout(decoder, now_ms)
     decoder = timed.state
     for event in timed.events {
@@ -623,22 +624,14 @@ proc interactive(app: App) [env, fs, process, io, time, error] -> Result[Unit, E
       previous = drawn.screen
       dirty = false
     }
-    var wait_ms = 50
-    if decoder.escape_deadline_ms != null {
-      let remaining = (decoder.escape_deadline_ms ?? now_ms) - now_ms
-      if remaining <= 0 {
-        wait_ms = 1
-      } else if remaining < wait_ms {
-        wait_ms = remaining
-      }
-    }
+    let wait_ms = input.wait_ms(decoder, now_ms, 50)
     let ready = unix.poll_fd(0, ["readable"], timeout_ms: wait_ms)?
     if "readable" in ready {
       let chunk = unix.read_fd(0, 1)?
       let decoded = if chunk.is_empty() {
         input.finish(decoder)
       } else {
-        input.push(decoder, chunk, time.monotonic()? / 1000000)
+        input.push(decoder, chunk, monotonic.now()?.ms)
       }
       decoder = decoded.state
       for event in decoded.events {

@@ -77,6 +77,11 @@ export pure timeout(state: State, now_ms: Int) -> Step {
   convert_step(generic.timeout(state, now_ms))
 }
 
+## Reports how long a poll may block: the limit, shortened to the pending Escape deadline and never below one millisecond.
+export pure wait_ms(state: State, now_ms: Int, limit_ms: Int) -> Int {
+  generic.wait_ms(state, now_ms, limit_ms)
+}
+
 ## Flush incomplete text safely, discard incomplete controls, then report EOF.
 export pure finish(state: State) -> Step {
   convert_step(generic.finish(state))

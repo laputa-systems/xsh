@@ -5,6 +5,7 @@
 ##! `ifdown` write to. One `unix.poll_fds` waits on all of them and on the
 ##! machine's next deadline, so an idle client makes no wakeups. The boot clock
 ##! keeps counting through suspend; the wall clock is read only for display.
+use boot_clock
 use dhcp_apply as apply
 use dhcp_arp as arp
 use dhcp_client as client
@@ -102,7 +103,7 @@ export proc close_sockets(settings: client.Settings, sockets: client.Sockets) [f
 
 proc live_now(ctx: client.Context) [fs, process, net, time, error] -> Result[Int, Error] {
   ctx f"reading the boot clock for {ctx.settings.interface}" {
-    Ok(time.boottime()? / 1000000)
+    Ok(boot_clock.millis(boot_clock.now()?))
   }
 }
 

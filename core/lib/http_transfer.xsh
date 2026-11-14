@@ -353,3 +353,9 @@ export pure redirect_request(request: Request, reply: Reply) -> Request? {
   }
   {...request, method: method, url: target, headers: headers, body: body}
 }
+
+## Computes a cookie's wall-clock expiry in epoch seconds from its Max-Age. A zero or negative age expires it at once
+## as second 1, because 0 means a session cookie; an age past the integer range saturates.
+export pure cookie_expiry(now_s: Int, max_age_s: Int) -> Int {
+  if max_age_s <= 0 { 1 } else if max_age_s > 9223372036854775807 - now_s { 9223372036854775807 } else { now_s + max_age_s }
+}

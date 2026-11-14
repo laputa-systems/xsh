@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.boot_clock
 use lib.syslog_kernel as kernel
 use lib.syslog_kmsg as kmsg
 use lib.syslog_limit as limit
@@ -113,7 +114,7 @@ proc write_line(line: Str, last_report: Int) [process, net, io, time, error] -> 
   if ! writable(1)? { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
   announce(line)
   if let Err(failure) = io.flush_stdout() {
-    let reported = time.boottime()? / 1000
+    let reported = boot_clock.micros(boot_clock.now()?)
     if reported - last_report >= REPORT_INTERVAL_US {
       complain(f"syslogd: output failed: {failure.message}")
       return Ok({delivered: false, blocked: false, reported_at: reported})
@@ -208,7 +209,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
     let watched = if kmsg_fd >= 0 { [{fd: published.fd, events: ["readable"]}, {fd: kmsg_fd, events: ["readable"]}] } else { [{fd: published.fd, events: ["readable"]}] }
     let ready = unix.poll_fds(watched)?
     if ready.is_empty() { continue }
-    let checked = time.boottime()? / 1000
+    let checked = boot_clock.micros(boot_clock.now()?)
     if sink != null and checked - last_sink_check >= REPORT_INTERVAL_US {
       last_sink_check = checked
       let verdict = check_sink(sink)?

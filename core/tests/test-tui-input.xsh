@@ -72,3 +72,40 @@ test test_tui_input_paste_is_inert_and_unconsumed_bytes_hand_back_pending {
   assert input.unconsumed(partial.state) == b"\x1b["
   assert input.unconsumed(input.initial()) == b""
 }
+
+test test_tui_input_escape_deadline_saturates_instead_of_overflowing {
+  let latest = 9223372036854775807
+  let lone = input.push(input.initial(), b"\x1b", latest)
+  assert lone.events.is_empty()
+  assert lone.state.escape_deadline_ms == latest
+  let expired = input.timeout(lone.state, latest)
+  assert expired.events == [input.Pressed(input.Escape)]
+  let near = input.push(input.initial(), b"\x1b", latest - 10)
+  assert near.state.escape_deadline_ms == latest
+  assert input.timeout(near.state, latest - 1).events.is_empty()
+}
+
+test test_tui_input_wait_honors_the_pending_escape_deadline {
+  assert input.wait_ms(input.initial(), 100, 50) == 50
+  let pending = input.push(input.initial(), b"\x1b", 100).state
+  assert pending.escape_deadline_ms == 135
+  assert input.wait_ms(pending, 100, 50) == 35
+  assert input.wait_ms(pending, 120, 50) == 15
+  assert input.wait_ms(pending, 120, 10) == 10
+  assert input.wait_ms(pending, 134, 50) == 1
+}
+
+test test_tui_input_wait_is_one_millisecond_once_the_deadline_has_passed {
+  let pending = input.push(input.initial(), b"\x1b", 100).state
+  assert input.wait_ms(pending, 135, 50) == 1
+  assert input.wait_ms(pending, 9000, 50) == 1
+  assert input.wait_ms(pending, 9223372036854775807, 50) == 1
+  assert input.wait_ms(input.initial(), 9223372036854775807, 50) == 50
+}
+
+test test_tui_input_a_clock_stepped_backward_keeps_the_escape_pending_for_at_most_the_limit {
+  let pending = input.push(input.initial(), b"\x1b", 100000).state
+  assert input.timeout(pending, 5).events.is_empty()
+  assert input.wait_ms(pending, 5, 50) == 50
+  assert input.timeout(pending, 100035).events == [input.Pressed(input.Escape)]
+}

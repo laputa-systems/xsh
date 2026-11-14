@@ -580,7 +580,7 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
       }
     }
   }
-  if let age = max_age { expires = time.now() / 1000 + age }
+  if let age = max_age { expires = http_transfer.cookie_expiry(time.now() / 1000, age) }
   {domain: domain, subdomains: subdomains, path: scope, secure: secure, expires: expires, name: pair[0].trim(), value: pair[1].trim()}
 }
 

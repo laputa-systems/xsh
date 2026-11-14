@@ -862,3 +862,28 @@ test test_curl_https_with_an_empty_trust_store_fails_unless_told_otherwise { |ct
   assert pinned.status == 0, pinned.stderr
   assert pinned.stdout == "200"
 }
+
+test test_curl_cookie_expiry_adds_a_positive_max_age_to_the_wall_second {
+  assert http_transfer.cookie_expiry(1700000000, 3600) == 1700003600
+  assert http_transfer.cookie_expiry(0, 60) == 60
+}
+
+test test_curl_cookie_expiry_never_collapses_into_a_session_cookie {
+  assert http_transfer.cookie_expiry(1700000000, 0) == 1
+  assert http_transfer.cookie_expiry(1700000000, -1) == 1
+  assert http_transfer.cookie_expiry(1700000000, -1700000000) == 1
+  assert http_transfer.cookie_expiry(1700000000, -9223372036854775807) == 1
+}
+
+test test_curl_cookie_expiry_saturates_a_huge_max_age {
+  let widest = 9223372036854775807
+  assert http_transfer.cookie_expiry(1700000000, widest) == widest
+  assert http_transfer.cookie_expiry(1700000000, widest - 1700000000) == widest
+  assert http_transfer.cookie_expiry(1700000000, widest - 1700000001) == widest - 1
+}
+
+test test_curl_cookie_expiry_follows_an_injected_wall_jump {
+  assert http_transfer.cookie_expiry(1700000000, 600) == 1700000600
+  assert http_transfer.cookie_expiry(1699996400, 600) == 1699997000
+  assert http_transfer.cookie_expiry(1700003600, 600) == 1700004200
+}

@@ -5,6 +5,7 @@
 ##! Deadline is a Reading plus a budget. The two are nominal types, so a wall
 ##! timestamp from `time.now()` cannot be compared with either.
 const MAX_MS = 9223372036854775807
+const MAX_NS = 9223372036854775807
 
 ## Holds milliseconds on the process monotonic clock.
 export nominal type Reading = {ms: Int}
@@ -21,7 +22,24 @@ export proc stamp() [time, error] -> Result[Stamp, Error] {
 
 ## Reads the monotonic clock in milliseconds.
 export proc now() [time, error] -> Result[Reading, Error] {
-  Ok(Reading(ms: time.monotonic()? / 1000000))
+  Ok(reading_of(stamp()?))
+}
+
+## Rounds a stamp down to whole milliseconds on the same clock; a negative stamp is zero.
+export pure reading_of(at: Stamp) -> Reading {
+  Reading(ms: if at.ns <= 0 { 0 } else { at.ns / 1000000 })
+}
+
+## Moves a stamp forward by nanoseconds; a negative offset is zero and a sum past the integer range saturates.
+export pure stamp_after(start: Stamp, offset_ns: Int) -> Stamp {
+  let offset = if offset_ns < 0 { 0 } else { offset_ns }
+  Stamp(ns: if offset > MAX_NS - start.ns { MAX_NS } else { start.ns + offset })
+}
+
+## Chooses how long to block until a stamp: the whole milliseconds left, at least one and at most the cap.
+export pure wait_ms(deadline: Stamp, now: Stamp, cap_ms: Int) -> Int {
+  let left = elapsed_ns(now, deadline) / 1000000
+  if left < 1 { 1 } else if left > cap_ms { cap_ms } else { left }
 }
 
 ## Converts whole seconds to milliseconds, saturating past the integer range.
