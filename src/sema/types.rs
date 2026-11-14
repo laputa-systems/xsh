@@ -1191,8 +1191,9 @@ impl Type {
     /// Transient variables must be substituted before publishing signatures,
     /// schema instances, or runtime checks.
     pub fn contains_inference(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
+        let mut pending = Vec::new();
+        let mut current = Some(self);
+        while let Some(ty) = current.take().or_else(|| pending.pop()) {
             match ty {
                 Self::Inference(_) => return true,
                 Self::List(inner)
