@@ -3022,6 +3022,35 @@ fn indexed_call_arguments<'e>(
     Ok(args)
 }
 
+struct ExprWrappers {
+    stream_contract: Option<Arc<crate::runtime::eval::PreparedStreamContract>>,
+    scheme_callable: bool,
+}
+
+impl ExprWrappers {
+    fn is_empty(&self) -> bool {
+        self.stream_contract.is_none() && !self.scheme_callable
+    }
+
+    fn wrap(self, instruction: u32, span: Span, next: FrameContinuation) -> FrameContinuation {
+        let next = match self.stream_contract {
+            Some(contract) => FrameContinuation::StreamContract { contract, span, next: Box::new(next) },
+            None => next,
+        };
+        if self.scheme_callable {
+            FrameContinuation::SchemeCallable { instruction, span, next: Box::new(next) }
+        } else {
+            next
+        }
+    }
+}
+
+enum InlineOperand {
+    Pending,
+    Value(LoweredValue),
+    Escaped,
+}
+
 fn call_argument_at(
     execution: &FullExecution<'_>,
     instruction: u32,
@@ -4582,6 +4611,73 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
+    fn expr_in_place(&self, index: usize, instruction: u32) -> bool {
+        !self.evaluator.force_frames && self.calls[index].execution.is_in_place(instruction)
+    }
+
+    fn expr_wrappers(
+        &self,
+        index: usize,
+        instruction: u32,
+        span: Span,
+    ) -> Result<ExprWrappers, RuntimeError> {
+        let call = &self.calls[index];
+        let stream_contract = call
+            .execution
+            .stream_factory_contract(
+                instruction,
+                &call.applications,
+                self.evaluator.indexed_program.as_ref(),
+            )
+            .map_err(|error| indexed_error(error, span))?;
+        let program = call.execution.program();
+        let scheme_callable = program.has_scheme_callable_values()
+            && program
+                .scheme_callable_expression(instruction)
+                .map_err(|error| indexed_error(error, span))?
+                .is_some();
+        Ok(ExprWrappers { stream_contract, scheme_callable })
+    }
+
+    /// Evaluates an operand that needs no frame work in place, under the
+    /// routing and continuation wrappers `eval_expr` applies to it.
+    fn eval_inline_operand(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        span: Span,
+    ) -> Result<InlineOperand, RuntimeError> {
+        if self.evaluator.route_witness_sink.is_some() {
+            return Ok(InlineOperand::Pending);
+        }
+        let in_place = self.expr_in_place(index, instruction);
+        let (tag, _) = indexed_value(self.calls[index].execution.instruction_id(instruction), span)?;
+        if !in_place && (!tag.is_eager_atom() || tag == FullTag::ExprParam) {
+            return Ok(InlineOperand::Pending);
+        }
+        if !self.expr_wrappers(index, instruction, span)?.is_empty() {
+            return Ok(InlineOperand::Pending);
+        }
+        let call = &mut self.calls[index];
+        if in_place {
+            return match self.evaluator.eval_indexed_expr(
+                &call.execution,
+                instruction,
+                &mut call.slots,
+                span,
+            )? {
+                ControlFlow::Continue(value) => Ok(InlineOperand::Value(value)),
+                ControlFlow::Break(value) => {
+                    self.complete_expression_escape(index, value)?;
+                    Ok(InlineOperand::Escaped)
+                }
+            };
+        }
+        let (_, payload) = indexed_value(call.execution.instruction_id(instruction), span)?;
+        super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)
+            .map(InlineOperand::Value)
+    }
+
     fn push_static_arguments(
         &mut self,
         index: usize,
@@ -4611,6 +4707,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     instruction: argument,
                     mode,
                 } => {
+                    match self.eval_inline_operand(index, argument, span)? {
+                        InlineOperand::Value(value) => {
+                            if self.evaluator.pending_value_block_flow.is_some() {
+                                self.push_value(
+                                    index,
+                                    FrameValue::Value(value),
+                                    FrameContinuation::CallArguments {
+                                        function,
+                                        kind,
+                                        external,
+                                        instruction,
+                                        position: next_position,
+                                        mode,
+                                        values,
+                                        span,
+                                        next: Box::new(next),
+                                    },
+                                );
+                                return Ok(());
+                            }
+                            append_call_argument(&mut values, mode.runtime_kind(), value, span)?;
+                            position = next_position;
+                            continue;
+                        }
+                        InlineOperand::Escaped => return Ok(()),
+                        InlineOperand::Pending => {}
+                    }
                     self.push_expr(
                         index,
                         argument,
@@ -6161,20 +6284,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        let next = match self.calls[index].execution.stream_factory_contract(
-            instruction, &self.calls[index].applications, self.evaluator.indexed_program.as_ref(),
-        ).map_err(|error| indexed_error(error, span))? {
-            Some(contract) => FrameContinuation::StreamContract { contract, span, next: Box::new(next) },
-            None => next,
-        };
-        let next = if self.calls[index].execution.program().has_scheme_callable_values()
-            && self.calls[index].execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))?.is_some()
-        {
-            FrameContinuation::SchemeCallable { instruction, span, next: Box::new(next) }
-        } else { next };
+        let next = self.expr_wrappers(index, instruction, span)?.wrap(instruction, span, next);
         let execution = self.calls[index].execution.thread_local();
-        let in_place = !self.evaluator.force_frames
-            && execution.is_in_place(instruction);
+        let in_place = self.expr_in_place(index, instruction);
         let (tag, payload) = indexed_value(
             execution.instruction_id(instruction),
             span,

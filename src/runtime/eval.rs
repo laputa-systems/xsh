@@ -6857,6 +6857,12 @@ impl Evaluator {
         if self.signal_state.shutdown_force {
             return Ok(());
         }
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0
+            && self.pending_stream_captures.is_empty()
+            && self.pending_stream_capture_error.is_none()
+        {
+            return Ok(());
+        }
         let cleanup = self.cleanup_scope_owned_activities(
             scope_id,
             Ok(Flow::Continue(Value::Unit)),
