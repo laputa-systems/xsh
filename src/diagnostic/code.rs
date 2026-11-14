@@ -529,6 +529,8 @@ diagnostic_codes! {
         LintBlockHeader = "lint.block-header", warning, "Move error-handler parameters inside the block of an `else` block";
         LintBooleanGuard = "lint.boolean-guard", warning, "Rewrite a leading failure branch on a Bool condition as `guard ... else`";
         LintBooleanPatternTest = "lint.boolean-pattern-test", warning, "Replace a match yielding `true`/`false` per arm with a pattern test";
+        LintCommandSignature = "lint.command-signature", error, "Reject a flag or argument shape that a complete `[command-signature.NAME]` for the pinned version does not allow, on a statically named `run` command (opt-in)";
+        LintCommandSignatureAdvisory = "lint.command-signature-advisory", warning, "Warn about a flag or argument shape that a partial or version-mismatched `[command-signature.NAME]` does not allow, on a statically named `run` command (opt-in)";
         LintCommandValue = "lint.command-value", warning, "Write a parenthesized name or field path command argument as `$name` or `$record.field`";
         LintCompatibilityVocabulary = "lint.compatibility-vocabulary", warning, "Replace removed vocabulary with its canonical name, such as dropping `run.builtin`";
         LintCoreAssert = "lint.core-assert", warning, "Use an `assert` statement instead of a core assertion call in statement position";

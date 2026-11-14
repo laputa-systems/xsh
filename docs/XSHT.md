@@ -36,6 +36,38 @@ remove files from its source denominator. `[check] annotate`, `[lint]`,
 in `crates/xsht/src/cli/files.rs` owns accepted keys and defaults.
 The `[lint]` section rejects unknown keys, including retired rule switches.
 
+### External command signatures
+
+`[command-signature.NAME]` opts one statically named external command into
+`xsht lint` flag checking; without such a section nothing changes. Keys, all
+required except the lists: `reviewed-version` (the tool version whose flags the
+signature lists), `pinned-version` (the version the project runs), `complete`
+(`true` or `false`), `flags` and `value-flags` (newline-separated spellings such
+as `-b` and `--check`; a value flag consumes the next word unless attached with
+`=`). Short flags may cluster; checking stops at `--`.
+
+`applet` names an XSH script relative to the configuration directory and takes
+the place of `flags` and `value-flags`: its `cli main` entry, checked as
+`xsht check` checks it, is the signature. `xsht lint` parses the call's
+arguments with that entry's own parser and reports the usage error the applet
+would raise, such as an unknown flag, a missing or surplus operand, or a value
+of the wrong type; `--help` is valid. A script that does not check, or that has
+no single `cli main` entry without a subcommand path, fails the lint run with
+the section named.
+
+Only `run NAME ...` with a literal head is checked. A flag list is checked up
+to the first argument that is not a literal word; an applet is judged only when
+every argument is literal, so computed heads and spliced or interpolated
+arguments are never judged. A finding is `lint.command-signature` (an error)
+when the signature is complete and the two versions are equal; otherwise it is
+`lint.command-signature-advisory` (a warning), so a partial or stale signature
+never causes a hard failure. Checking reads only the source and configuration,
+plus the applet script and the modules it imports: it does not execute the tool
+or the applet, look a tool up, or read the filesystem or network on behalf of
+the call. A signature describes flags and argument shapes, not the command's
+effects or authority. Flag lists do not model subcommands or flag arguments
+beyond `value-flags`.
+
 ## API inventory
 
 `xsht api summary --format jsonl` emits one JSON object with `schema_version: 1`.
