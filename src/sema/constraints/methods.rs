@@ -26,7 +26,37 @@ pub(super) struct SealedMethods {
     queued: BTreeSet<SealedMethodId>,
     abandoned: BTreeSet<SealedMethodId>,
     source_sites: BTreeMap<(super::CallableApplicationScope, Span), SealedMethodId>,
+    selections: SelectionMemo,
 }
+
+const SELECTION_MEMO_BUCKET: usize = 64;
+
+#[derive(Clone, Debug)]
+struct MemoizedSelection {
+    receiver: crate::sema::types::Type,
+    argument_slots: Vec<u32>,
+    arguments: Vec<crate::sema::types::Type>,
+    selection: crate::modules::signature::MethodFamilySelection,
+    returned: Option<Option<crate::sema::types::Type>>,
+}
+
+/// Method selection depends only on the registry and fully resolved types, so
+/// repeated instantiations of one erased callable reuse the answer. It never
+/// distinguishes two constraint states.
+#[derive(Debug, Default)]
+struct SelectionMemo(std::sync::Mutex<BTreeMap<crate::sema::schemes::MethodRequirementKind, Vec<MemoizedSelection>>>);
+
+impl Clone for SelectionMemo {
+    fn clone(&self) -> Self {
+        Self(std::sync::Mutex::new(self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()))
+    }
+}
+
+impl PartialEq for SelectionMemo {
+    fn eq(&self, _: &Self) -> bool { true }
+}
+
+impl Eq for SelectionMemo {}
 
 #[derive(Clone, Debug)]
 pub(super) enum MethodChange {
@@ -182,6 +212,35 @@ impl TypeConstraints {
         Ok(false)
     }
 
+    fn memoized_method_selection(
+        &self,
+        requirement: &MethodFamilyRequirement<crate::sema::types::Type>,
+        receiver: &crate::sema::types::Type,
+        arguments: &[crate::sema::types::Type],
+        with_return: bool,
+    ) -> (crate::modules::signature::MethodFamilySelection, Option<crate::sema::types::Type>) {
+        let api = crate::modules::api_spec();
+        let kind = requirement.kind;
+        let slots = &requirement.argument_slots;
+        let returned = |selection| match selection {
+            crate::modules::signature::MethodFamilySelection::Selected(selected) if with_return => api.method_requirement_return_type(kind, selected, receiver),
+            _ => None,
+        };
+        let mut memo = self.methods.selections.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let bucket = memo.entry(kind).or_default();
+        if let Some(entry) = bucket.iter_mut().find(|entry| entry.receiver == *receiver && entry.argument_slots == *slots && entry.arguments == arguments) {
+            if with_return && entry.returned.is_none() { entry.returned = Some(returned(entry.selection)); }
+            return (entry.selection, entry.returned.clone().flatten());
+        }
+        let selection = api.select_method_requirement(kind, receiver, slots, arguments);
+        let returned = with_return.then(|| returned(selection));
+        let result = (selection, returned.clone().flatten());
+        if bucket.len() < SELECTION_MEMO_BUCKET {
+            bucket.push(MemoizedSelection { receiver: receiver.clone(), argument_slots: slots.clone(), arguments: arguments.to_vec(), selection, returned });
+        }
+        result
+    }
+
     pub(super) fn solve_method_families(&mut self) -> Result<(), MethodConstraintError> {
         self.apply_journaled(|this, changes| {
             while let Some(id) = this.methods.pending.pop_front() {
@@ -193,17 +252,17 @@ impl TypeConstraints {
                 let receiver = this.resolve(&entry.requirement.receiver)?;
                 let arguments = entry.requirement.arguments.iter().map(|ty| this.resolve(ty)).collect::<Result<Vec<_>, _>>()?;
                 if receiver.contains_inference() || arguments.iter().any(crate::sema::types::Type::contains_inference) { continue; }
-                let api = crate::modules::api_spec();
                 if let crate::sema::schemes::MethodRequirementKind::Function(function) = entry.requirement.kind {
-                    let crate::modules::signature::FunctionSelection::Selected(_) = api.select_function_requirement(function, &entry.requirement.argument_slots, &arguments) else {
+                    let crate::modules::signature::FunctionSelection::Selected(_) = crate::modules::api_spec().select_function_requirement(function, &entry.requirement.argument_slots, &arguments) else {
                         return Err(MethodConstraintError::UnsupportedFunction { kind: entry.requirement.kind, arguments });
                     };
                     continue;
                 }
-                let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_requirement(entry.requirement.kind, &receiver, &entry.requirement.argument_slots, &arguments) else {
+                let (selection, selected_return) = this.memoized_method_selection(&entry.requirement, &receiver, &arguments, true);
+                let crate::modules::signature::MethodFamilySelection::Selected(_) = selection else {
                     return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 };
-                let selected_return = api.method_requirement_return_type(entry.requirement.kind, selected, &receiver)
+                let selected_return = selected_return
                     .ok_or_else(|| MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver: receiver.clone() })?;
                 this.constrain_inner(&entry.requirement.result, &selected_return, entry.span, false, 0, changes)
                     .map_err(|(expected, actual, resolution_error)| MethodConstraintError::Constraint(super::ConstraintConflict {
@@ -348,12 +407,7 @@ fn select_registered_method(
             crate::modules::signature::FunctionSelection::Ambiguous => MethodSelection::Ambiguous,
         });
     }
-    match crate::modules::api_spec().select_method_requirement(
-        requirement.kind,
-        &receiver,
-        &requirement.argument_slots,
-        &arguments,
-    ) {
+    match constraints.memoized_method_selection(requirement, &receiver, &arguments, false).0 {
         crate::modules::signature::MethodFamilySelection::Selected(method) => Ok(MethodSelection::Selected(method)),
         crate::modules::signature::MethodFamilySelection::Unsupported => Ok(MethodSelection::Unsupported),
         crate::modules::signature::MethodFamilySelection::Ambiguous => Ok(MethodSelection::Ambiguous),
