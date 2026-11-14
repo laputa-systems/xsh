@@ -11,8 +11,7 @@ owns VM milestones. Implement each item in its owning repository.
 The joint review on 2026-11-13 inspected XSH `d9d1d7bcb78c` and Laputa
 `bfe60a9ac40f`, with priorities assumed from impact and likelihood. It excluded
 work already owned by the queues, roadmaps, and
-[paused handoff](dev/campaign/HANDOFF-2026-11-12.md). Filing these findings does
-not resume that campaign. Runtime proof limits are recorded in each new item.
+[campaign handoff](dev/campaign/RESUME-2026-11-14.md). Runtime proof limits are recorded in each new item.
 
 The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
