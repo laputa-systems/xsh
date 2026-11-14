@@ -874,7 +874,7 @@ impl Checker {
                 let Ok(callable) = crate::sema::types::TypedCallable::from_type_expr(
                     &program.arena,
                     type_id,
-                    |ty| Ok::<_, std::convert::Infallible>(self.type_from_arena(program, ty)),
+                    |ty| Ok::<_, !>(self.type_from_arena(program, ty)),
                 );
                 if let Some(reason) =
                     crate::sema::types::TypedCallable::type_expr_error(&program.arena, type_id)

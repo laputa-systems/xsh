@@ -549,7 +549,7 @@ impl<T> SchemaExpectation<T> {
 
 impl<T: Clone> SchemaExpectation<T> {
     pub(crate) fn map<U>(&self, map: &mut impl FnMut(&T) -> U) -> SchemaExpectation<U> {
-        match self.try_map(&mut |ty| Ok::<_, std::convert::Infallible>(map(ty))) {
+        match self.try_map(&mut |ty| Ok::<_, !>(map(ty))) {
             Ok(schema) => schema,
             Err(never) => match never {},
         }

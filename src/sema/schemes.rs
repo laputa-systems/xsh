@@ -1066,7 +1066,7 @@ impl CallableRequirements {
             for argument in &mut method.arguments { argument.map_ground_types(map); }
         }
         mapped.wrappers = self.wrappers.iter().map(|wrapper| wrapper.try_map(map, |map, ty| {
-            let mut ty = ty.clone(); ty.map_ground_types(map); Ok::<_, std::convert::Infallible>(ty)
+            let mut ty = ty.clone(); ty.map_ground_types(map); Ok::<_, !>(ty)
         }, |_, contract| Ok(contract.clone())).unwrap()).collect();
         for iteration in mapped.iteration_parameters.values_mut() {
             iteration.item.map_ground_types(map);

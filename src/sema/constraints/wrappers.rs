@@ -1020,8 +1020,8 @@ impl TypeConstraints {
             };
             if let Some(id) = this.wrappers.sources.get(&(owner, requirement.span, role)).copied() {
                 let previous = this.wrappers.entries[&id].requirement.clone();
-                let previous_shape = previous.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
-                let mut next_shape = requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                let previous_shape = previous.try_map(&mut (), |_, _| Ok::<_, !>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                let mut next_shape = requirement.try_map(&mut (), |_, _| Ok::<_, !>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
                 if let (WrapperRequirementKind::Capture { contributions: left, .. }, WrapperRequirementKind::Capture { contributions: right, .. }) = (&previous_shape.kind, &mut next_shape.kind) {
                     use crate::sema::wrapper_operation::{WrapperErrorContribution, WrapperOperationRef, WrapperRequirementRef};
                     for (left, right) in left.iter().zip(std::sync::Arc::make_mut(right).iter_mut()) {
@@ -1038,8 +1038,8 @@ impl TypeConstraints {
                             let left_operation = left_entry.operation.clone();
                             let right_operation = right_entry.operation.clone();
                             if left_operation.span() != right_operation.span() || !left_operation.same_kind(&right_operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
-                            let left_boundary = left_requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
-                            let mut right_boundary = right_requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                            let left_boundary = left_requirement.try_map(&mut (), |_, _| Ok::<_, !>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                            let mut right_boundary = right_requirement.try_map(&mut (), |_, _| Ok::<_, !>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
                             if let (WrapperRequirementKind::KeyValidation { operation: left, .. }, WrapperRequirementKind::KeyValidation { operation: right, .. }) = (&left_boundary.kind, &mut right_boundary.kind) { *right = *left; }
                             if left_boundary != right_boundary { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                             this.apply_journaled(|this, changes| {

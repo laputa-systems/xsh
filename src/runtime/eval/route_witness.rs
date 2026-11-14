@@ -219,24 +219,16 @@ impl NativeTestRouteWitnessTransport {
 }
 
 #[cfg(feature = "native-tests")]
-struct ActiveTransportGuard;
-
-#[cfg(feature = "native-tests")]
-impl Drop for ActiveTransportGuard {
-    fn drop(&mut self) {
-        ACTIVE_TRANSPORTS.with(|transports| {
-            transports.borrow_mut().pop();
-        });
-    }
-}
-
-#[cfg(feature = "native-tests")]
 pub(crate) fn with_transport<T>(
     transport: Option<NativeTestRouteWitnessTransport>,
     callback: impl FnOnce() -> T,
 ) -> T {
     ACTIVE_TRANSPORTS.with(|transports| transports.borrow_mut().push(transport));
-    let _guard = ActiveTransportGuard;
+    let _guard = std::mem::DropGuard::new((), |()| {
+        ACTIVE_TRANSPORTS.with(|transports| {
+            transports.borrow_mut().pop();
+        });
+    });
     callback()
 }
 

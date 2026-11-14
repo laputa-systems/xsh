@@ -1029,7 +1029,7 @@ impl Type {
             ),
             ArenaTypeExprTag::Callable => {
                 let Ok(callable) = TypedCallable::from_type_expr(arena, id, |ty| {
-                    Ok::<_, std::convert::Infallible>(Self::from_arena(arena, ty))
+                    Ok::<_, !>(Self::from_arena(arena, ty))
                 });
                 Self::Callable(Arc::new(callable))
             }

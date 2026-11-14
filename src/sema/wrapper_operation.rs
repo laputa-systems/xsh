@@ -107,7 +107,7 @@ impl<T, V> WrapperRequirement<T, V> {
     }
 
     pub(crate) fn shape(&self) -> WrapperRequirementKind<(), ()> {
-        self.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::finite(super::effects::EffectSet::default()))).unwrap().kind
+        self.try_map(&mut (), |_, _| Ok::<_, !>(()), |_, _| Ok(EffectContract::finite(super::effects::EffectSet::default()))).unwrap().kind
     }
 
     pub(crate) fn types(&self) -> Vec<&T> {

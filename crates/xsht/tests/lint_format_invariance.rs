@@ -96,17 +96,6 @@ fn xsh_files(root: &Path, output: &mut Vec<PathBuf>) {
 }
 
 #[cfg(unix)]
-struct RestoreDirectoryPermissions(PathBuf);
-
-#[cfg(unix)]
-impl Drop for RestoreDirectoryPermissions {
-    fn drop(&mut self) {
-        fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700))
-            .expect("restore scratch directory permissions");
-    }
-}
-
-#[cfg(unix)]
 #[test]
 fn lint_corpus_copy_and_discovery_skip_work_tree() {
     let scratch = TempDir::new().expect("scratch directory");
@@ -119,7 +108,10 @@ fn lint_corpus_copy_and_discovery_skip_work_tree() {
     fs::create_dir_all(&blocked).expect("create unreadable scratch child");
     fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
         .expect("write scratch source");
-    let _restore = RestoreDirectoryPermissions(blocked.clone());
+    let _restore = std::mem::DropGuard::new(blocked.clone(), |path| {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .expect("restore scratch directory permissions");
+    });
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o0))
         .expect("make scratch child unreadable");
 
