@@ -10,6 +10,7 @@ use core.lib.btop_source as source
 use core.lib.btop_surface as surface
 use core.lib.btop_terminal as terminal
 use core.lib.btop_ui as ui
+use core.lib.monotonic
 use core.lib.sys_proc as sysproc
 use core.lib.sys_source as src
 use lib.gnu
@@ -70,7 +71,7 @@ pure apply_events(
 }
 
 proc wait_until(
-  deadline_ns: Int,
+  deadline: monotonic.Stamp,
   value: model.Model,
   rows: Int,
   cols: Int,
@@ -89,8 +90,8 @@ proc wait_until(
   var committed = initial_committed
   var current_histories = histories
   while true {
-    let now = time.monotonic()?
-    let now_ms = now / 1000000
+    let now = monotonic.stamp()?
+    let now_ms = monotonic.reading_of(now).ms
     let timed = input.timeout(decoder, now_ms)
     decoder = timed.state
     let timed_input = apply_events(value, view, timed.events, local_display)
@@ -105,23 +106,14 @@ proc wait_until(
       committed = draw(value, view, current_rows, current_cols, committed, current_histories, capabilities, local_display)?
       last_drawn_ui = view
     }
-    if now >= deadline_ns {
+    if now.ns >= deadline.ns {
       return Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: current_histories})
     }
-    let remaining_ms = (deadline_ns - now) / 1000000
-    var wait_ms = if remaining_ms <= 0 { 1 } else if remaining_ms > WAIT_SLICE_MS { WAIT_SLICE_MS } else { remaining_ms }
-    if decoder.escape_deadline_ms != null {
-      let until_escape = (decoder.escape_deadline_ms ?? now_ms) - now_ms
-      if until_escape <= 0 {
-        wait_ms = 1
-      } else if until_escape < wait_ms {
-        wait_ms = until_escape
-      }
-    }
+    let wait_ms = input.wait_ms(decoder, now_ms, monotonic.wait_ms(deadline, now, WAIT_SLICE_MS))
     let events = unix.poll_fd(0, ["readable"], timeout_ms: wait_ms)?
     if "readable" in events {
       let chunk = unix.read_fd(0, 256)?
-      let read_now_ms = time.monotonic()? / 1000000
+      let read_now_ms = monotonic.now()?.ms
       let decoded = if chunk.is_empty() { input.finish(decoder) } else { input.push(decoder, chunk, read_now_ms) }
       decoder = decoded.state
       let received = apply_events(value, view, decoded.events, local_display)
@@ -216,7 +208,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   defer { terminal.finish(session) }
   return when frames.is_empty()
 
-  let started_at = time.monotonic()?
+  let started_at = monotonic.stamp()?
   let first_at = selected_observations[0].at_ns
   var rows = session.capabilities.rows
   var cols = session.capabilities.cols
@@ -227,7 +219,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   var committed = surface.initial()
   committed = draw(frames[0], view, rows, cols, committed, histories, session.capabilities)?
   for index in range(1, frames.len()) {
-    let deadline = started_at + selected_observations[index].at_ns - first_at
+    let deadline = monotonic.stamp_after(started_at, selected_observations[index].at_ns - first_at)
     let waited = wait_until(
       deadline,
       frames[index - 1],
@@ -310,7 +302,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
     sampled += 1
     break when count != null and sampled >= count
     let waited = wait_until(
-      schedule.next_due_ns,
+      monotonic.Stamp(ns: schedule.next_due_ns),
       current,
       rows,
       cols,

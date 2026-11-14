@@ -11,6 +11,8 @@ export const MAX_PASTE_BYTES = 1024
 ## Delay after Escape before a lone Escape key is emitted.
 export const ESCAPE_TIMEOUT_MS = 35
 
+const MAX_MS = 9223372036854775807
+
 const PASTE_START = b"\x1b[200~"
 const PASTE_END = b"\x1b[201~"
 const REPLACEMENT = "\u{fffd}"
@@ -284,6 +286,10 @@ pure paste_text(data: Bytes) -> Str {
   text
 }
 
+pure escape_deadline(now_ms: Int) -> Int {
+  if now_ms > MAX_MS - ESCAPE_TIMEOUT_MS { MAX_MS } else { now_ms + ESCAPE_TIMEOUT_MS }
+}
+
 pure expire(state: State, now_ms: Int) -> Step {
   if state.escape_deadline_ms == null or now_ms < state.escape_deadline_ms {
     return {state: state, events: []}
@@ -317,13 +323,13 @@ export pure push(state: State, chunk: Bytes, now_ms: Int) -> Step {
       }
     } else {
       if current.pending.is_empty() and byte == 27 {
-        current = {...current, escape_deadline_ms: now_ms + ESCAPE_TIMEOUT_MS}
+        current = {...current, escape_deadline_ms: escape_deadline(now_ms)}
       }
       current = {...current, pending: bytes.concat([current.pending, one_byte(byte)])}
       let decoded = drain(current)
       current = decoded.state
       if current.pending == b"\x1b" and current.escape_deadline_ms == null {
-        current = {...current, escape_deadline_ms: now_ms + ESCAPE_TIMEOUT_MS}
+        current = {...current, escape_deadline_ms: escape_deadline(now_ms)}
       }
       events += decoded.events
     }
@@ -334,6 +340,19 @@ export pure push(state: State, chunk: Bytes, now_ms: Int) -> Step {
 ## Advance a replayable clock; equality with the deadline expires Escape.
 export pure timeout(state: State, now_ms: Int) -> Step {
   expire(state, now_ms)
+}
+
+## Reports how long a poll may block: the limit, shortened to the pending Escape deadline and never below one millisecond.
+export pure wait_ms(state: State, now_ms: Int, limit_ms: Int) -> Int {
+  return limit_ms when state.escape_deadline_ms == null
+  let deadline = state.escape_deadline_ms ?? now_ms
+  if deadline <= now_ms {
+    1
+  } else if deadline - now_ms < limit_ms {
+    deadline - now_ms
+  } else {
+    limit_ms
+  }
 }
 
 ## Flush incomplete text safely, discard incomplete controls, then report EOF.

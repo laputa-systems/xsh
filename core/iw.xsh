@@ -8,6 +8,7 @@
 # order of requests. Association, authentication, mesh, AP, and the other
 # `iw` commands are absent and are not listed in the help.
 use lib.gnu
+use lib.monotonic
 use lib.nl80211 as nl
 
 const VERSION = "6.17"
@@ -502,11 +503,11 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
   for entry in nl.interfaces(client)? {
     names = names.set(f"{entry.index}", entry.name)
   }
-  var previous = time.monotonic()?
+  var previous = monotonic.stamp()?
   while true {
     let event = nl.receive_event(client)?
     continue when event == null
-    let tick = time.monotonic()?
+    let tick = monotonic.stamp()?
     let wall_ns = time.now() * 1000000
     var prefix = ""
     if stamp == "-t" {
@@ -515,7 +516,7 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
       let calendar = time.format(wall_ns, "%Y-%m-%d %H:%M:%S")?
       prefix = f"[{calendar}.{wall_ns / 1000 % 1000000:06}]: "
     } else if stamp == "-r" {
-      let delta = if tick > previous { tick - previous } else { 0 }
+      let delta = monotonic.elapsed_ns(previous, tick)
       prefix = f"+{delta / 1000000000}.{delta / 1000 % 1000000:06}: "
     }
     previous = tick

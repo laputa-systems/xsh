@@ -4,14 +4,21 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 static MONOTONIC_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 pub(crate) fn now_epoch_ms() -> i64 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
+    epoch_ms_at(SystemTime::now())
+}
+
+fn epoch_ms_at(instant: SystemTime) -> i64 {
+    match instant.duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_millis().min(i64::MAX as u128) as i64,
         Err(error) => -(error.duration().as_millis().min(i64::MAX as u128) as i64),
     }
 }
 
 pub(crate) fn monotonic_ns() -> Result<i64, String> {
-    let elapsed = MONOTONIC_ORIGIN.get_or_init(Instant::now).elapsed().as_nanos();
+    monotonic_ns_from(MONOTONIC_ORIGIN.get_or_init(Instant::now).elapsed().as_nanos())
+}
+
+fn monotonic_ns_from(elapsed: u128) -> Result<i64, String> {
     i64::try_from(elapsed).map_err(|_| "monotonic clock exceeds the signed nanosecond range".into())
 }
 
@@ -23,8 +30,13 @@ const BOOT_CLOCK: rustix::time::ClockId = rustix::time::ClockId::Monotonic;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 pub(crate) fn boottime_ns() -> Result<i64, String> {
     let now = rustix::time::clock_gettime(BOOT_CLOCK);
-    now.tv_sec.checked_mul(NANOS_PER_SECOND)
-        .and_then(|seconds| seconds.checked_add(now.tv_nsec))
+    timespec_ns(now.tv_sec, now.tv_nsec)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+fn timespec_ns(seconds: i64, nanoseconds: i64) -> Result<i64, String> {
+    seconds.checked_mul(NANOS_PER_SECOND)
+        .and_then(|whole| whole.checked_add(nanoseconds))
         .ok_or_else(|| "boot clock exceeds the signed nanosecond range".into())
 }
 
@@ -272,8 +284,42 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
 
 #[cfg(test)]
 mod tests {
-    use super::{format_epoch_ms_utc, monotonic_ns, now_epoch_ms, MONOTONIC_ORIGIN};
-    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use super::{epoch_ms_at, format_epoch_ms_utc, monotonic_ns, monotonic_ns_from, now_epoch_ms, MONOTONIC_ORIGIN};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn monotonic_nanoseconds_past_the_signed_range_are_refused() {
+        assert_eq!(monotonic_ns_from(i64::MAX as u128), Ok(i64::MAX));
+        assert!(monotonic_ns_from(i64::MAX as u128 + 1).is_err());
+        assert!(monotonic_ns_from(u128::MAX).is_err());
+    }
+
+    #[test]
+    fn wall_milliseconds_truncate_follow_backward_and_forward_instants_and_saturate() {
+        assert_eq!(epoch_ms_at(UNIX_EPOCH), 0);
+        assert_eq!(epoch_ms_at(UNIX_EPOCH + Duration::from_micros(1_999)), 1);
+        assert_eq!(epoch_ms_at(UNIX_EPOCH + Duration::from_millis(1_700_000_000_000)), 1_700_000_000_000);
+        assert_eq!(epoch_ms_at(UNIX_EPOCH - Duration::from_millis(1_500)), -1_500);
+        assert_eq!(epoch_ms_at(UNIX_EPOCH - Duration::from_micros(999)), 0);
+        if let Some(far) = UNIX_EPOCH.checked_add(Duration::from_secs(i64::MAX as u64)) {
+            assert_eq!(epoch_ms_at(far), i64::MAX);
+        }
+        if let Some(far) = UNIX_EPOCH.checked_sub(Duration::from_secs(i64::MAX as u64)) {
+            assert_eq!(epoch_ms_at(far), -i64::MAX);
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[test]
+    fn boot_clock_timespecs_convert_to_nanoseconds_and_refuse_overflow() {
+        use super::timespec_ns;
+        assert_eq!(timespec_ns(0, 0), Ok(0));
+        assert_eq!(timespec_ns(7, 123_456_789), Ok(7_123_456_789));
+        assert_eq!(timespec_ns(9_223_372_036, 854_775_807), Ok(i64::MAX));
+        assert!(timespec_ns(9_223_372_036, 854_775_808).is_err());
+        assert!(timespec_ns(9_223_372_037, 0).is_err());
+        assert!(timespec_ns(i64::MAX, 0).is_err());
+    }
 
     #[test]
     fn monotonic_nanoseconds_measure_elapsed_time_from_the_process_origin() {
