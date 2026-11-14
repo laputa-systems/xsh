@@ -15,7 +15,7 @@ use crate::source::Span;
 use crate::symbol::Name;
 
 #[cfg(feature = "ssh")]
-use xsh_ssh::{
+use oxish_client::{
     Certainty, ClientConfig, Connection, Error as SshError, ExecOptions, Fingerprint, HostTrust,
     Identity, KnownHosts,
 };
@@ -95,7 +95,7 @@ fn optional_bytes(record: &RecordMap, name: &str, span: Span) -> Result<Option<V
 /// Reports that a signal arrived while ssh work was running. Work begun after the first signal,
 /// such as cleanup in a `defer`, is not cancelled by it; only a second signal cancels that.
 #[cfg(feature = "ssh")]
-fn interrupt() -> xsh_ssh::Interrupt {
+fn interrupt() -> oxish_client::Interrupt {
     let already_pending = crate::runtime::process::signal_snapshot().primary.is_some();
     Arc::new(move || {
         let snapshot = crate::runtime::process::signal_snapshot();
@@ -177,11 +177,11 @@ fn ssh_error(error: SshError, span: Span) -> RuntimeError {
 }
 
 #[cfg(feature = "ssh")]
-fn result_value(result: xsh_ssh::ExecResult) -> Value {
+fn result_value(result: oxish_client::ExecResult) -> Value {
     let (exit_code, signal, missing) = match &result.status {
-        xsh_ssh::ExecStatus::Exited(code) => (i64::from(*code), String::new(), false),
-        xsh_ssh::ExecStatus::Signaled(signal) => (-1, signal.clone(), false),
-        xsh_ssh::ExecStatus::Missing => (-1, String::new(), true),
+        oxish_client::ExecStatus::Exited(code) => (i64::from(*code), String::new(), false),
+        oxish_client::ExecStatus::Signaled(signal) => (-1, signal.clone(), false),
+        oxish_client::ExecStatus::Missing => (-1, String::new(), true),
     };
     Value::Record(RecordMap::from([
         (Arc::from("exit_code"), Value::Int(exit_code)),
@@ -458,12 +458,12 @@ pub(crate) fn exec(
     })?;
 
     let create = |path: &PathBuf| {
-        xsh_ssh::exec::create_output_file(path).map_err(|error| {
+        oxish_client::exec::create_output_file(path).map_err(|error| {
             failure("Local", format!("cannot create {}: {error}", path.display())).with_span(span)
         })
     };
     let stdin_file = match &stdin_path {
-        Some(path) => Some(xsh_ssh::exec::open_stdin_file(path).map_err(|error| {
+        Some(path) => Some(oxish_client::exec::open_stdin_file(path).map_err(|error| {
             failure("Local", format!("cannot open {}: {error}", path.display())).with_span(span)
         })?),
         None => None,
@@ -479,7 +479,7 @@ pub(crate) fn exec(
                 stdout_file,
                 stderr_file,
                 timeout,
-                max_output: max_output.unwrap_or(xsh_ssh::exec::DEFAULT_MAX_OUTPUT),
+                max_output: max_output.unwrap_or(oxish_client::exec::DEFAULT_MAX_OUTPUT),
                 interrupt: Some(interrupt()),
                 env,
             },

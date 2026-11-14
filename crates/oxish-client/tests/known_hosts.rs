@@ -1,6 +1,6 @@
 use std::process::Command;
-use xsh_ssh::KnownHosts;
-use xsh_ssh::known_hosts::Verdict;
+use oxish_client::KnownHosts;
+use oxish_client::known_hosts::Verdict;
 
 #[test]
 fn host_matching_agrees_with_openssh_keygen_for_every_pattern_and_endpoint() {

@@ -75,8 +75,8 @@ out of scope.
 ### XSH-55 · P2 · Qualify the native SSH client
 
 - **Area:** Remote execution
-- **Where:** `crates/xsh-ssh`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** The Linux x86-64 musl client remains experimental. Native macOS qualification is owner-deferred, and the build-time gate remains deferred. Known limits remain: the vendored Graviola SHA-256 contexts are unwiped, and a caller's writer that never returns still keeps `exec_stream` from returning.
+- **Where:** `crates/oxish-client` (vendored from ssh-build `client/`, `scripts/vendor-ssh-client.sh`), `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
+- **Problem:** The Linux x86-64 musl client remains experimental. Native macOS qualification is owner-deferred, and the build-time gate remains deferred. Known limits remain: the vendored Graviola SHA-256 contexts are unwiped, the client's single implementation is ssh-build's `client/` (XSH vendors it and carries no divergent copy), and a caller's writer that never returns still keeps `exec_stream` from returning.
 - **Recommendation:** Keep mandatory host verification, typed execution certainty, and the experimental label. Preserve the RFC's limits and qualify the remaining platform and build-time gates when resumed. - **Progress:** `7a3809eaa` bounds agent socket establishment and wipes growing private-key buffers. An independent review verified both fixes with 35 focused tests and the original backlog and allocator probes, with zero remaining findings in that scope. All 144 disposable OpenSSH fixtures and package clippy pass on Linux x86-64 musl. This closes the independent review of those fixes, not every protocol or cryptographic risk. - **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental. Native macOS qualification is deferred by the owner. - **Coordination:** Laputa R6 and XSH-56 consume the client.
 - **Fix with:** security
 - **Effort:** L

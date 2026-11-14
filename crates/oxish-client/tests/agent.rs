@@ -6,12 +6,12 @@ use std::thread;
 use std::time::Duration;
 
 use tempfile::TempDir;
-use xsh_ssh::agent::Agent;
-use xsh_ssh::{ClientConfig, Connection, Error, ExecOptions, ExecStatus, Fingerprint, Identity};
+use oxish_client::agent::Agent;
+use oxish_client::{ClientConfig, Connection, Error, ExecOptions, ExecStatus, Fingerprint, Identity};
 
 fn variable(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| {
-        panic!("{name} is not set; run this test through crates/xsh-ssh/fixture/ssh-fixture.sh exec")
+        panic!("{name} is not set; run this test through client/fixture/ssh-fixture.sh exec")
     })
 }
 

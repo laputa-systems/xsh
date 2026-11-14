@@ -1,6 +1,6 @@
 [package]
-name = "xsh-ssh"
-version = "0.0.1"
+name = "oxish-client"
+version = "0.1.0"
 edition = "2024"
 publish = false
 

@@ -9,14 +9,14 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use tempfile::TempDir;
-use xsh_ssh::oxish_proto::crypto::HandshakeBuffer;
-use xsh_ssh::oxish_proto::{HostKeys, SessionHostKey};
-use xsh_ssh::oxish_proto::key_exchange::{
+use oxish_client::oxish_proto::crypto::HandshakeBuffer;
+use oxish_client::oxish_proto::{HostKeys, SessionHostKey};
+use oxish_client::oxish_proto::key_exchange::{
     Established, Identities, InitialKeyExchangeState, KeyExchangeOutput, RekeyState,
 };
-use xsh_ssh::oxish_proto::named::PublicKeyAlgorithm;
-use xsh_ssh::oxish_proto::{Completion, Encode, ProtoError, ReadState, WriteState};
-use xsh_ssh::{ClientConfig, Connection, DEFAULT_PROVIDER, HostTrust, Identity, KnownHosts};
+use oxish_client::oxish_proto::named::PublicKeyAlgorithm;
+use oxish_client::oxish_proto::{Completion, Encode, ProtoError, ReadState, WriteState};
+use oxish_client::{ClientConfig, Connection, DEFAULT_PROVIDER, HostTrust, Identity, KnownHosts};
 use zeroize::Zeroizing;
 
 pub const DISCONNECT: u8 = 1;
@@ -112,7 +112,7 @@ pub fn spawn(behavior: Behavior, script: impl FnOnce(&mut Link) + Send + 'static
     let mut blob = Vec::new();
     PublicKeyAlgorithm::Ed25519.encode(&mut blob);
     signing.public_key().encode(&mut blob);
-    let pin = xsh_ssh::host_key::fingerprint(&blob, provider).expect("fingerprint");
+    let pin = oxish_client::host_key::fingerprint(&blob, provider).expect("fingerprint");
 
     let (other_signing, other_pkcs8) = provider
         .generate_signing_key(&PublicKeyAlgorithm::Ed25519)

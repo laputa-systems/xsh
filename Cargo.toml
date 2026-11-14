@@ -27,7 +27,7 @@ members = [
     "crates/xsh-fuzz",
     "crates/xsh-net",
     "crates/xsh-registry",
-    "crates/xsh-ssh",
+    "crates/oxish-client",
     "crates/xsh-root",
     "crates/xshi",
     "crates/xsht",
@@ -85,7 +85,7 @@ net = [
     "dep:xsh-net",
 ]
 ssh = [
-    "dep:xsh-ssh",
+    "dep:oxish-client",
 ]
 tools = []
 
@@ -123,7 +123,7 @@ smallvec = "1.15.2"
 tempfile = "3"
 unicode-width = "=0.2.2"
 xsh-net = { path = "crates/xsh-net", optional = true }
-xsh-ssh = { path = "crates/xsh-ssh", optional = true }
+oxish-client = { path = "crates/oxish-client", optional = true }
 getrandom = "0.3"
 xsh-archive = { path = "crates/xsh-archive" }
 xsh-registry = { path = "crates/xsh-registry" }
@@ -225,6 +225,6 @@ codegen-units = 1
 strip = true
 
 [patch.crates-io]
-graviola = { path = "crates/xsh-ssh/vendor/graviola" }
+graviola = { path = "crates/oxish-client/vendor/graviola" }
 rustybench = { path = "third_party/rustybench" }
 regex-lite = { path = "third_party/regex-lite" }

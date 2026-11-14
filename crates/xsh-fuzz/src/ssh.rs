@@ -12,9 +12,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use xsh_ssh::agent::Agent;
-use xsh_ssh::wire::{SshReader, Transport};
-use xsh_ssh::{DEFAULT_PROVIDER, Fingerprint, KnownHosts, kex};
+use oxish_client::agent::Agent;
+use oxish_client::wire::{SshReader, Transport};
+use oxish_client::{DEFAULT_PROVIDER, Fingerprint, KnownHosts, kex};
 
 use crate::rng::Rng;
 

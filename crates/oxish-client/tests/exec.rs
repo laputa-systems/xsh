@@ -4,7 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use xsh_ssh::{Certainty, ClientConfig, Connection, Error, ExecOptions, ExecResult, ExecStatus};
+use oxish_client::{Certainty, ClientConfig, Connection, Error, ExecOptions, ExecResult, ExecStatus};
 
 struct Fixture {
     host: String,
@@ -16,7 +16,7 @@ struct Fixture {
 
 fn variable(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| {
-        panic!("{name} is not set; run this test through dev/fixtures.xsh exec")
+        panic!("{name} is not set; run this test through client/fixture/ssh-fixture.sh exec")
     })
 }
 
@@ -65,7 +65,7 @@ fn generate_key(directory: &Path, name: &str, passphrase: &str) -> std::path::Pa
             "-N",
             passphrase,
             "-C",
-            "xsh-ssh-test",
+            "oxish-client-test",
             "-f",
         ])
         .arg(&path)

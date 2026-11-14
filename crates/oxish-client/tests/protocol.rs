@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use support::*;
-use xsh_ssh::{
+use oxish_client::{
     Certainty, ClientConfig, Connection, Error, ExecOptions, ExecStatus, RekeyLimits, StreamOptions,
 };
 
@@ -26,7 +26,7 @@ fn serve_exec(
     })
 }
 
-fn run(peer: &Peer) -> Result<xsh_ssh::ExecResult, Error> {
+fn run(peer: &Peer) -> Result<oxish_client::ExecResult, Error> {
     peer.connect(TIMEOUT).exec("command", &ExecOptions::default())
 }
 
@@ -408,7 +408,7 @@ fn a_silent_peer_hits_the_deadline_after_submission() {
 
 struct Endless;
 
-impl xsh_ssh::InputSource for Endless {
+impl oxish_client::InputSource for Endless {
     fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
         None
     }
@@ -815,7 +815,7 @@ fn the_elapsed_time_alone_starts_a_rekey() {
     assert!(rekeyed_under(limits, 1, Duration::from_millis(500)));
 }
 
-fn framed_ignore_outcome(body: usize, padding: usize) -> Result<xsh_ssh::ExecResult, Error> {
+fn framed_ignore_outcome(body: usize, padding: usize) -> Result<oxish_client::ExecResult, Error> {
     let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
         let mut ignore = vec![IGNORE];
         ignore.extend_from_slice(&text(&vec![0x2e; body]));

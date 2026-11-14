@@ -92,13 +92,13 @@ adapter needs libtest's JSON listing and a nonempty selection, so the
 none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
 stay with manual lanes: `core_compat_extra_privileged` and `linux_priv` need the
 privileged `cargo dev test linux` container, and `profile_parity` compares
-builds that exist only on aarch64 Linux and macOS. The `xsh-ssh` connect, exec,
+builds that exist only on aarch64 Linux and macOS. The `oxish-client` connect, exec,
 stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
-OpenSSH servers: run them through `crates/xsh-ssh/fixture/ssh-fixture.sh exec
+OpenSSH servers: run them through `crates/oxish-client/fixture/ssh-fixture.sh exec
 COMMAND` (Docker, loopback only). The `authentication`, `descriptors`, `hostile`,
 `known_hosts` and `protocol` harnesses use a scripted peer but need `ssh-keygen`;
 the `private_key_wipe` allocator probe also needs it. The gate image lacks
-`ssh-keygen`; run these harnesses with `cargo test -p xsh-ssh --test NAME` on
+`ssh-keygen`; run these harnesses with `cargo test -p oxish-client --test NAME` on
 a host with OpenSSH or through the fixture script. `xsh-archive`'s `interop`
 harness needs the GNU tar and bsdtar oracle image built by
 `dev/reference/oracle.sh`.

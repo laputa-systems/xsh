@@ -3,7 +3,7 @@ mod support;
 use std::time::Duration;
 
 use support::*;
-use xsh_ssh::{ExecOptions, StreamOptions};
+use oxish_client::{ExecOptions, StreamOptions};
 
 fn open_descriptors() -> usize {
     std::fs::read_dir("/proc/self/fd").expect("fd directory").count()

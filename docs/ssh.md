@@ -3,8 +3,8 @@
 `ssh` is XSH's native SSH client (experimental, see [Limits](#limits-and-threat-model)).
 It opens one TCP connection, verifies the server's host key before it sends any
 credential, authenticates one user with an Ed25519 identity, and runs command
-strings on that connection. It is built on the vendored OxiSH packet code and
-Graviola; the runtime never runs `ssh`, `scp` or `sftp`.
+strings on that connection. It is ssh-build's `oxish-client` library, vendored at a pinned revision
+(`crates/oxish-client`), on the vendored OxiSH packet code and Graviola; the runtime never runs `ssh`, `scp` or `sftp`.
 
 ```xsh
 let options = {
@@ -218,13 +218,23 @@ still be running; reconcile through a separate session.
 [errors](../examples/ssh/errors.xsh) and [parallel hosts](../examples/ssh/parallel.xsh).
 Run them through the fixture with `XSH_MODULE_PATH=examples/ssh`.
 
+## Provenance
+
+`crates/oxish-client` is ssh-build's `client/` crate, vendored byte for byte
+at the revision in `crates/oxish-client/vendor/ORIGIN.md`, minus the command-line
+programs, SFTP, terminal and copy modules XSH does not use. There is one
+implementation: change the client in ssh-build, then run
+`sh scripts/vendor-ssh-client.sh update` and `verify` here. The `ssh` module in
+`src/modules/ssh.rs` is the only XSH-specific code. The client announces itself
+to servers as `oxish-client_VERSION`.
+
 ## Qualification
 
 Reproduce the interoperability suites on Linux with Docker:
 
 ```sh
-crates/xsh-ssh/fixture/ssh-fixture.sh exec cargo test -p xsh-ssh
-crates/xsh-ssh/fixture/ssh-fixture.sh exec target/debug/xsht test tests/xsh/ssh-
+crates/oxish-client/fixture/ssh-fixture.sh exec cargo test -p oxish-client
+crates/oxish-client/fixture/ssh-fixture.sh exec target/debug/xsht test tests/xsh/ssh-
 ```
 
 The fixture starts two disposable Alpine OpenSSH servers on loopback with fresh
