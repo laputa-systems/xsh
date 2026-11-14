@@ -1,6 +1,8 @@
 # XSH-89: Backup quiescence recovery
 
-Status: accepted
+Status: implemented and qualified on Linux x86_64/KVM in Laputa `11ad68e9`.
+All twelve guest recovery scenarios and scheduled backup/restore pass; see
+[backup verification](https://github.com/laputa-systems/laputa/blob/11ad68e9/docs/BACKUP.md#verification).
 
 ## Summary
 
@@ -11,7 +13,7 @@ restarts, and restore only the prior desired states still owned by that attempt.
 
 Recommend extending the existing timer supervision path for the maintained
 backup job. Route manual backups that request quiescence through the same owner.
-Implementation belongs in `../laputa/`; [XSH-89](../../TODO.md) tracks it.
+Implementation belongs in `../laputa/`; XSH-89 is closed.
 
 ## Motivation
 

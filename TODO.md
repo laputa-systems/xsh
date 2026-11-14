@@ -6,8 +6,7 @@ host boundaries and ordinary XSH policy over command-specific runtime growth.
 Existing distribution follow-ups remain in
 [Laputa's queue](https://github.com/laputa-systems/laputa/blob/master/TODO.md);
 its [roadmap](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md)
-owns VM milestones. The joint review's open XSH-89 is tracked here,
-including Laputa work at `../laputa`. Implement each item in its owning repository.
+owns VM milestones. Implement each item in its owning repository.
 
 The joint review on 2026-11-13 inspected XSH `d9d1d7bcb78c` and Laputa
 `bfe60a9ac40f`, with priorities assumed from impact and likelihood. It excluded
@@ -89,18 +88,6 @@ out of scope.
 - **Recommendation:** Retain the recorded Alpine/OpenRC and Laputa/xinit proof identities and the explicit Laputa resource refusals. Native macOS qualification remains owner-deferred. - **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH. - **Coordination:** Remote execution uses the experimental XSH-55 client.
 - **Fix with:** isolate-effects
 - **Effort:** L
-
-### XSH-89 · P2 · Recover backup quiescence after job loss
-
-- **Area:** Laputa backup lifecycle
-- **Where:** `../laputa/system/backup.xsh:549-578`, `../laputa/system/backup_quiesce.xsh:131-153`, `../laputa/system/timers.xsh:1423-1425,1531-1533`, `../laputa/profiles/qemu-maintained/etc/laputa/backup.json`
-- **Problem:** Assumed P2; runtime interruption reproduction unproven. The maintained backup stops logger and dhcp-eth0 through xinit, then restores them only in the backup runner epilogue. Ordinary caught errors attempt release, but SIGKILL or job loss after successful quiescence can skip it while xinit retains desired=down. Timer timeout/cancellation can terminate the job; cancellation prevents retries. A later successful run, reboot, or operator action may restore service, but logging and DHCP renewal can remain stopped meanwhile. The hook also starts every configured service without retaining whether it was already stopped.
-- **Recommendation:** Give the existing supervision path ownership of a recoverable, bounded quiescence record outside the killed backup process group. Record prior desired states before stopping services, restore only stops owned by the attempt, and reconcile on job loss and supervisor restart. Preserve later operator intent. Acceptance: a disposable guest blocks backup after successful quiescence, then exercises timeout, cancellation, SIGKILL, and scheduler restart; acquired services resume within a stated bound, previously stopped services stay stopped, and recovery is idempotent. The linked RFC chooses recovery ownership; no new general daemon is needed.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M
-- **Design:** [XSH-89 design](docs/rfc/XSH-89-backup-quiescence-recovery.md)
-- **Progress (2026-11-14):** Laputa `6e4c90ec` adds xinit owned control (`stop --owner`, `start --if-owner`, applied atomically in the scanner; any operator command clears ownership) and persisted per-attempt writer identity in the timer supervisor. Laputa `b10e72d0` records each attempt's token, boot id and prior desired states before stopping only services that were up, releases them with bounded retries from the supervisor once the attempt's session is proven stopped (startup, finish, timeout, cancel), preserves later operator commands, and routes manual runs through `timers.xsh run-now`. Bounds are published in `backup.json` (60 s per release, 30 s between up to 5 supervisor attempts). Unit and stand-in xinit tests with mutation checks pass (`tests/system` 340, `xinit/tests` 63).
-- **Remaining:** the disposable-guest drill (timeout, cancellation, SIGKILL, scheduler restart after a successful quiesce; partial quiesce; release failure; a previously stopped service; an operator stop after acquisition; repeated recovery; interruption at each durable step) and `tests/integration/backup_schedule.py`, both unrun; an unqualified operator request landing between the scanner's read and removal of the inbox file can still be lost.
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
