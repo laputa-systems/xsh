@@ -290,6 +290,7 @@ proc internal_command(
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   if linux_test_operation(operation) {
     internal_target_dir(ctx, operation).mkdir(parents: true)?
+    stages.ensure_dir(fp"{ctx.root}/.work/tmp")
   }
   let image = pinned_image ?? (if gate_operation(operation) { resolve_image(ctx)? } else { ensure_image(ctx)? })
   let selected_platform = platform(ctx)?

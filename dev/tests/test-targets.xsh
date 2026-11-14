@@ -9,6 +9,27 @@ use test_workflows as workflows
 use targets as target_policy
 use unix
 
+test test_linux_docker_workflows_prepare_host_writable_scratch { |ctx|
+  let root = test.temp_dir(ctx, name: "linux-docker-scratch")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  for operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"] {
+    let checkout = fp"{root}/{operation}"
+    checkout.mkdir()
+    let probe = fp"{checkout}/.work/tmp/probe"
+    fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
+if args[0] == "run" {{
+  p"{probe}".write("writable")?
+}}
+""", mode: 0o755)
+    env ({PATH: tools, XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture"}) {
+      docker_workflows.run_internal({...fixtures.linux_context(checkout)?, host_arch: target_policy.Aarch64}, operation, false, [])?
+    }
+    assert probe.read_text()? == "writable"
+    assert fs.stat(probe.parent())?.uid == unix.id()?.euid
+  }
+}
+
 test test_supported_target_records_and_default {
   assert target_policy.default_triple == "x86_64-unknown-linux-musl"
   assert target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)? == "x86_64-unknown-linux-musl"
