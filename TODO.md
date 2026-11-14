@@ -129,15 +129,6 @@ out of scope.
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
 
-### XSH-38 · P3 · Establish one typed virtual-network library cohort
-
-- **Area:** Systems libraries
-- **Where:** `core/ip.xsh`, `core/ifup.xsh`, `core/lib/`, `src/modules/`, `crates/xsh-registry/`
-- **Problem:** Interface/route observations and low-level network operations exist, but a shared typed observe/change surface for stateful VM administration is not qualified. More command spellings alone would not close that boundary.
-- **Recommendation:** Start with links, IPv4/IPv6 addresses and routes on virtual Ethernet. Put policy and command rendering in shared XSH libraries; Rust owns narrow host operations and decoding. Make malformed/truncated replies, interrupted dumps and lost notifications visible so callers can re-observe. Add bridge/veth/namespace operations only when the next concrete fixture requires them; no Wi-Fi or replacement DHCP stack. - **Acceptance:** A command and Laputa's controller use the same records/operations without rendering and reparsing text. Fixtures exercise malformed input and event loss; disposable Linux guests exercise actual mutations and convergence. Report unsupported families/backends separately; do not invent empty successful observations. - **Coordination:** Laputa LAP-32 owns managed-resource identity, planning and reconciliation. - **Progress:** `core/lib/net_state.xsh` owns typed link, address, route, change and notification records shared by `ip` and Laputa's controller. Dump failures, truncation, interruption and loss remain explicit; malformed data never becomes an empty successful state. Existing namespace evidence covers the library's IPv4/IPv6 mutations and real ENOBUFS handling. Laputa now plans and applies directly over `State`/`Change`. Its retained live witness passes all five cases with no skips in a Linux 7.2.9/KVM guest using clean XSH `d7b4c9c85cbeefd20954156bd362805eabf4e35c` and Laputa `d3dddf0`. It proves convergence, no-op reapply, foreign-state preservation, and stale-plan refusal before effects after an acknowledged mutation by a distinct real process. A fresh observation converges again; zero-metric, customized-route and real-loss protections remain. See [the consumer proof](https://github.com/laputa-systems/laputa/blob/master/packages/laputa-net/README.md#live-ipv4-guest-qualification). - **Limits:** That controller cohort is IPv4. It does not establish packet delivery, per-operation atomicity or one shared generation across separate dumps. Controller IPv6, Asterinas and deferred platforms remain separately unqualified; add bridge or multipath changes only for a selected consumer.
-- **Fix with:** single-source-of-truth
-- **Effort:** L
-
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O
