@@ -62,9 +62,10 @@ struct ProcessTarget {
 pub(crate) fn spawn_process_group(
     invocation: &ProcessInvocation,
     notify: bool,
+    new_session: bool,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    match spawn_process_group_native(invocation, notify, span) {
+    match spawn_process_group_native(invocation, notify, new_session, span) {
         Ok(child) => Ok(spawn_record_from_native(child)),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
@@ -224,9 +225,11 @@ impl LiveStream for ChildEventStream {
 pub(crate) fn spawn_process_group_native(
     invocation: &ProcessInvocation,
     notify: bool,
+    new_session: bool,
     span: Span,
 ) -> Result<SpawnedChild, RuntimeError> {
-    spawn_child(invocation, None, notify, span)
+    let session = if new_session { ChildSession::Session } else { ChildSession::Group };
+    spawn_child(invocation, session, notify, span)
 }
 
 pub(crate) fn spawn_process_group_with_stdio_native(
@@ -250,7 +253,7 @@ pub(crate) fn spawn_process_group_with_stdio_native(
     let notify_pipe = begin_notify_pipe(&mut command, notify)
         .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
-    configure_init_child(&mut command, None, notify_write);
+    configure_init_child(&mut command, ChildSession::Group, notify_write);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -292,7 +295,7 @@ pub(crate) fn spawn_logged_process_group_native(
     command.stdin(Stdio::null());
     command.stdout(Stdio::from(stdout));
     command.stderr(Stdio::from(stderr));
-    configure_init_child(&mut command, None, None);
+    configure_init_child(&mut command, ChildSession::Group, None);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -337,7 +340,7 @@ pub(crate) fn spawn_with_tty_native(
 ) -> Result<SpawnedChild, RuntimeError> {
     let tty_path = tty_path(tty, invocation);
     let tty_c = cstring_path(&tty_path, "unix-spawn-tty", span)?;
-    spawn_child(invocation, Some(tty_c), false, span)
+    spawn_child(invocation, ChildSession::ControllingTty(tty_c), false, span)
 }
 
 pub(crate) fn kill_process_group_native(
@@ -1077,7 +1080,7 @@ fn child_event_record(event: ChildEvent) -> Value {
 
 fn spawn_child(
     invocation: &ProcessInvocation,
-    tty: Option<CString>,
+    session: ChildSession,
     notify: bool,
     span: Span,
 ) -> Result<SpawnedChild, RuntimeError> {
@@ -1088,8 +1091,8 @@ fn spawn_child(
     };
     let mut command = command_from_invocation(invocation, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
-    let new_session = tty.is_some();
-    if tty.is_none() {
+    let new_session = !matches!(session, ChildSession::Group);
+    if !matches!(session, ChildSession::ControllingTty(_)) {
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1098,7 +1101,7 @@ fn spawn_child(
     let notify_pipe = begin_notify_pipe(&mut command, notify)
         .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
-    configure_init_child(&mut command, tty, notify_write);
+    configure_init_child(&mut command, session, notify_write);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -1211,9 +1214,15 @@ fn cgroup_runtime_error(error: CgroupError, span: Span) -> RuntimeError {
     RuntimeError::new(error.kind, error.message).with_span(span)
 }
 
+enum ChildSession {
+    Group,
+    Session,
+    ControllingTty(CString),
+}
+
 fn configure_init_child(
     command: &mut Command,
-    tty: Option<CString>,
+    session: ChildSession,
     notify_write_fd: Option<RawFd>,
 ) {
     unsafe {
@@ -1226,9 +1235,10 @@ fn configure_init_child(
                 let fd = BorrowedFd::borrow_raw(fd);
                 let _ = rio::fcntl_setfd(fd, rio::FdFlags::empty());
             }
-            match &tty {
-                Some(tty) => configure_controlling_tty(tty),
-                None => create_process_group(),
+            match &session {
+                ChildSession::Group => create_process_group(),
+                ChildSession::Session => rprocess::setsid().map(drop).map_err(io::Error::from),
+                ChildSession::ControllingTty(tty) => configure_controlling_tty(tty),
             }
         });
     }

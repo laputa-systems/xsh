@@ -276,8 +276,14 @@ macro_rules! with_unix_call_rows {
                     "unix.spawn_process_group",
                     $span,
                 )?;
+                let new_session = lowered_bool_arg_or(
+                    $values.get(2).cloned(),
+                    false,
+                    "unix.spawn_process_group",
+                    $span,
+                )?;
                 let invocation = $this.invocation_from_command_plan(&plan, $span)?;
-                unix_module::spawn_process_group(&invocation, notify, $span)
+                unix_module::spawn_process_group(&invocation, notify, new_session, $span)
             }
             callable; RuntimeOp::UnixNotifyReady => {
                 let fd = lowered_int_arg($values.first().cloned(), "unix.notify_ready", $span)?;
@@ -759,7 +765,13 @@ impl Evaluator {
                     "unix.spawn_process_group",
                     span,
                 )?;
-                self.unix_fake_spawn(plan, None, notify, span)
+                let new_session = lowered_bool_arg_or(
+                    values.get(2).cloned(),
+                    false,
+                    "unix.spawn_process_group",
+                    span,
+                )?;
+                self.unix_fake_spawn(plan, None, notify, new_session, span)
             }
             RuntimeOp::UnixSpawnProcessGroupLog => {
                 let plan = lowered_command_arg(
@@ -813,7 +825,7 @@ impl Evaluator {
                 )?;
                 let tty =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "unix.spawn_with_tty", span)?;
-                self.unix_fake_spawn(plan, Some(tty), false, span)
+                self.unix_fake_spawn(plan, Some(tty), false, true, span)
             }
             RuntimeOp::UnixNotifyReady => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.notify_ready", span)?;
@@ -937,6 +949,7 @@ impl Evaluator {
         plan: CommandPlan,
         tty: Option<String>,
         notify: bool,
+        new_session: bool,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         let pid = self.unix_next_pid;
@@ -946,11 +959,10 @@ impl Evaluator {
             .chain(plan.argv.iter().map(Vec::as_slice))
             .map(|item| Value::Str(String::from_utf8_lossy(item).into_owned().into()))
             .collect::<Vec<_>>();
-        let new_session = tty.is_some();
         // No real pipe under the fake; report the fake pid as the notify fd so a
         // supervisor treats the unit as notify-capable and polls it.
         let notify_fd = if notify { pid } else { -1 };
-        let op = if new_session {
+        let op = if tty.is_some() {
             "spawn_with_tty"
         } else {
             "spawn_process_group"
