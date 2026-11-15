@@ -18,7 +18,13 @@ proc usage_error(r: uu.Ran, message: Str) {
 proc interrupt(s: uu.Scene, args: List[Str], signal: Str) [fs, process, env, time, error] -> Result[uu.Ran, Error] {
   let plan = uu.command(s, "timeout", args, timeout: 8s)?
   let child = spawn plan?
-  time.sleep(100ms)
+  let ready = uu.at(s, ".child-ready")
+  var waited = 0ms
+  while ! ready.exists()? {
+    assert waited < 8s, "the timed command never installed its trap"
+    time.sleep(10ms)
+    waited += 10ms
+  }
   let child_pid = child.pid
   process.kill(child_pid, signal)
   let status = wait child?
@@ -93,7 +99,7 @@ test test_uu_timeout_foreground_signal0_kill_after { |ctx|
 # origin: uutils test_timeout::test_forward_sigint_to_child
 test test_uu_timeout_forward_sigint_to_child { |ctx|
   let s = uu.scene(ctx)?
-  let r = interrupt(s, ["10", "sh", "-c", "trap 'echo got_int; exit 42' INT; sleep 5"], "INT")?
+  let r = interrupt(s, ["10", "sh", "-c", "trap 'echo got_int; exit 42' INT; : > .child-ready; sleep 5"], "INT")?
   uu.stdout_contains(r, "got_int")
 }
 
@@ -207,7 +213,7 @@ test test_uu_timeout_subcommand_return_code { |ctx|
 # origin: uutils test_timeout::test_terminate_child_on_receiving_terminate
 test test_uu_timeout_terminate_child_on_receiving_terminate { |ctx|
   let s = uu.scene(ctx)?
-  let r = interrupt(s, ["10", "sh", "-c", "trap 'echo child received TERM' TERM; sleep 5"], "TERM")?
+  let r = interrupt(s, ["10", "sh", "-c", "trap 'echo child received TERM' TERM; : > .child-ready; sleep 5"], "TERM")?
   uu.fails_with_code(r, 143)
   uu.stdout_contains(r, "child received TERM")
 }

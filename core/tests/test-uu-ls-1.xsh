@@ -1387,6 +1387,7 @@ test test_uu_ls_ls_allocation_size { |ctx|
   let indirect = size8k == 8200
   let size4k = size8k / 2
   let size1k = size8k / 8
+  let size8kib = (size8k + 15) / 16
   let size4m = if indirect { "4.1M" } else { "4.0M" }
   let plain = ls_run(s, ["-s1", "some-dir1"])?
   uu.succeeds(plain)
@@ -1406,10 +1407,10 @@ test test_uu_ls_ls_allocation_size { |ctx|
   assert lines[1].byte_len() - "empty-file".byte_len() == lines[2].byte_len() - "file-with-holes".byte_len()
   let r0 = ls_run(s, ["-s1", "some-dir1"], vars: {LS_BLOCK_SIZE: "8K", BLOCK_SIZE: "4K"})?
   uu.succeeds(r0)
-  uu.stdout_contains(r0, "total 512")
+  uu.stdout_contains(r0, f"total {size8kib}")
   uu.stdout_contains(r0, "0 empty-file")
   uu.stdout_contains(r0, "0 file-with-holes")
-  uu.stdout_contains(r0, "512 zero-file")
+  uu.stdout_contains(r0, f"{size8kib} zero-file")
   let r1 = ls_run(s, ["-s1", "some-dir1"], vars: {BLOCK_SIZE: "4K"})?
   uu.succeeds(r1)
   uu.stdout_contains(r1, f"total {size1k}")
