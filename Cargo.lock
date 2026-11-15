@@ -2331,6 +2331,7 @@ dependencies = [
  "deser-yaml",
  "diffy",
  "directories",
+ "fastrand",
  "futures-rustls",
  "getrandom 0.3.4",
  "graviola",

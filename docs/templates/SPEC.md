@@ -5436,6 +5436,8 @@ signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 
 Contracts worth knowing without consulting the reference:
 
+- `random.bytes(count)` requires the `env` effect and returns `count` non-cryptographic pseudorandom bytes. Not suitable for keys, tokens or other secrets. A negative count returns an error; zero returns empty bytes.
+
 - `archive.list`, `archive.extract` and `archive.create` take a `format:`
   (`.Tar`, `.Zip`, `.Cpio`) and a `compression:` (`.Auto`, `.Plain`, `.Gzip`,
   `.Bzip2`, `.Xz`, `.Lzma`, `.Zstd`), both built-in enums (4.8). `.Auto`

@@ -140,6 +140,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: system_module(),
             },
             ModuleEntry {
+                name: "random",
+                sig: random_module(),
+            },
+            ModuleEntry {
                 name: "regex",
                 sig: regex_module(),
             },
@@ -1305,6 +1309,10 @@ fn ssh_module() -> ModuleSig {
             ),
         ),
     ])
+}
+
+fn random_module() -> ModuleSig {
+    module_sig(vec![("bytes", sig(vec![param("count", Type::Int)], result(Type::Bytes), false, RuntimeOp::RandomBytes))])
 }
 
 fn env_module() -> ModuleSig {

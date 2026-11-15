@@ -227,6 +227,7 @@ pub enum RuntimeOp {
     SshCertainty,
     SshClose,
     SshCloseIfOpen,
+    RandomBytes,
     EnvGet,
     EnvGetOr,
     /// `e"NAME" = value`; a statement form, not a callable API.

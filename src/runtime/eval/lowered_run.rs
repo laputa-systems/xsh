@@ -5894,6 +5894,13 @@ impl Evaluator {
                 let seconds = lowered_int_arg(values.pop(), "time.duration_compact", span)?;
                 LoweredValue::Str(crate::modules::time::duration_compact(seconds).into())
             }
+            callable; RuntimeOp::RandomBytes if values.len() == 1 => {
+                let count = lowered_int_arg(values.pop(), "random.bytes", span)?;
+                match crate::modules::random::bytes(count, span) {
+                    Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             callable; RuntimeOp::BytesHuman if values.len() == 1 => {
                 let size = lowered_int_arg(values.pop(), "bytes.human", span)?;
                 LoweredValue::Str(bytes_module::human(size).into())

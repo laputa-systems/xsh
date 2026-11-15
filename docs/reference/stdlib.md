@@ -496,6 +496,12 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.wait_timeout(handles: List[ProcessHandle], timeout: Duration) -> Result[{index: Int, pid: Int, status: Status}?, ProcessError]` — Waits for one process from an owned handle set for at most a duration.
 - `process.which(name: Str) -> Result[Path, Error] (+1 overloads)` — Resolves an executable through the current PATH.
 
+### `random`
+
+Non-cryptographic pseudorandom bytes.
+
+- `random.bytes(count: Int) -> Result[Bytes, Error]` — Returns `count` non-cryptographic pseudorandom bytes. Not suitable for keys, tokens or other secrets.
+
 ### `regex`
 
 Regex compilation, matching, captures, and replacement.

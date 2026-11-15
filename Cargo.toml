@@ -95,6 +95,7 @@ crossbeam-channel = "0.5"
 libc = "0.2"
 data-encoding = "2"
 directories = "6.0.0"
+fastrand = "=2.4.1"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
 graviola = "=0.4.1"

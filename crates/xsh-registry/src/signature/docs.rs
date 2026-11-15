@@ -125,6 +125,7 @@ fn module_docs(module: &str) -> ApiDocs {
             "ELF file-format inspection and dynamic dependency metadata.",
             "",
         ),
+        "random" => ("Non-cryptographic pseudorandom bytes.", ""),
         "env" => (
             "Environment variable and PATH manipulation.",
             "Environment changes are explicit values or lexical overlays.",
@@ -661,6 +662,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Constructs an expected validation failure as an Error value.",
             "error.failure(message) is the error that error.fail(message) wraps; the `fail MESSAGE` statement returns it as `Err`. The call names this function even where `error` is a local binding.",
             &["error", "validation", "failure", "value"],
+        )),
+        ("random", "bytes") => Some((
+            "Returns `count` non-cryptographic pseudorandom bytes. Not suitable for keys, tokens or other secrets.",
+            "A negative count returns an error; zero returns empty bytes. Requires the env effect.",
+            &["random", "bytes"],
         )),
         ("env", "get") => Some((
             "Reads one environment variable as text.",

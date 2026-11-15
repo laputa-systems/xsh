@@ -20,6 +20,7 @@ pub(crate) mod numeric;
 pub(crate) mod locale;
 pub(crate) mod patch;
 pub(crate) mod process;
+pub(crate) mod random;
 pub(crate) mod regex;
 pub(crate) mod shlex;
 pub(crate) mod ssh;

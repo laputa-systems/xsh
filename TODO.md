@@ -98,16 +98,6 @@ out of scope.
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-81 · P3 · Add a random bytes API backed by fastrand
-
-- **Area:** Standard library
-- **Where:** `src/modules/`, `docs/reference/stdlib.md` (generated), `docs/SPEC.md`
-- **Problem:** XSH has no way to produce random bytes. Laputa's chunked publisher (LAP-59, `pm/remote.xsh`) needed a collision-resistant upload ID. It hashes the source together with the path of a throwaway `fs.tempdir()`, which is unique only on one host and costs a directory create and remove per upload.
-- **Recommendation:** Add a small non-cryptographic random module backed by `fastrand` 2.4.1. That crate is already in the lockfile through `tempfile`, `futures-lite`, `async-executor` and `piper`, so a direct dependency adds no new transitive weight. Provide bytes of a requested length and perhaps a bounded integer. State in the contract that the output is not suitable for keys, tokens or other secrets, and keep any cryptographic randomness a separate, explicitly named operation. Decide whether the module carries an effect and how deterministic tests seed or mock it.
-- **Acceptance:** A native test covers length, bounds and distinct successive draws. The generated stdlib reference documents the non-cryptographic contract. LAP-59's upload ID uses the new API instead of the tempdir path.
-- **Fix with:** api-surface-and-module-boundaries
-- **Effort:** S
-
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
 - **Area:** Performance

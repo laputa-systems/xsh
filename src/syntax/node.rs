@@ -62,7 +62,7 @@ impl Effect {
             },
             "net" if function == "validate_root_bundle" => &[],
             "net" | "dns" => &[Self::Net],
-            "env" => &[Self::Env],
+            "env" | "random" => &[Self::Env],
             "error" => &[Self::Error],
             "time" => match function {
                 // Pure Duration constructors: no clock access, usable anywhere.
