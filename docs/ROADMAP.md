@@ -149,7 +149,10 @@ object to ordinary synchronous operations.
 ### Follow-up boundaries
 
 Arithmetic and validation follow the duration pattern where two production
-routes currently decide the same meaning. Effect work should preserve unknown
+routes currently decide the same meaning. Checked Int `+ - * / %` now share
+one decision across constant folding and execution, with a finite Lean
+comparison in [formal/README.md](../formal/README.md#checked-int-arithmetic).
+Effect work should preserve unknown
 versus known-empty contracts, exact inclusion versus permission coverage,
 concrete versus unresolved symbolic contributions, and error capture that
 retains other contributions. The existing effect algebra may need no physical

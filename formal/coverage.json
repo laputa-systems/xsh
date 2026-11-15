@@ -13046,6 +13046,33 @@
       "boundary": "The finite production comparison is separate evidence. General implication soundness and universal Rust correspondence remain open. All 77 universal obligations remain planned."
     },
     {
+      "id": "fragment.Xsh.Core.Arith.checked_zero_divisor",
+      "module": "Xsh.Core.Arith",
+      "declaration": "Xsh.Core.Arith.checked_zero_divisor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A zero divisor of checked Int division or remainder is a division-by-zero error.",
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.Arith.checked_ok",
+      "module": "Xsh.Core.Arith",
+      "declaration": "Xsh.Core.Arith.checked_ok",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted checked Int operation returns the exact mathematical result, its witness fits signed 64 bits, and a division or remainder divisor is nonzero.",
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.Arith.checked_overflow",
+      "module": "Xsh.Core.Arith",
+      "declaration": "Xsh.Core.Arith.checked_overflow",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked Int operation overflows exactly when its divisor is not a rejected zero and its witness leaves signed 64 bits.",
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+    },
+    {
       "id": "fragment.Xsh.Core.DeadlinePolicy.policy_contract",
       "module": "Xsh.Core.DeadlinePolicy",
       "declaration": "Xsh.Core.DeadlinePolicy.policy_contract",

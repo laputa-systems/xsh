@@ -4099,11 +4099,9 @@ fn fold_constant_binary(
         (B::Le, C::Duration(a), C::Duration(b)) => C::Bool(a <= b),
         (B::Gt, C::Duration(a), C::Duration(b)) => C::Bool(a > b),
         (B::Ge, C::Duration(a), C::Duration(b)) => C::Bool(a >= b),
-        (B::Add, C::Int(a), C::Int(b)) => C::Int(a.checked_add(b)?),
-        (B::Sub, C::Int(a), C::Int(b)) => C::Int(a.checked_sub(b)?),
-        (B::Mul, C::Int(a), C::Int(b)) => C::Int(a.checked_mul(b)?),
-        (B::Div, C::Int(a), C::Int(b)) => C::Int(a.checked_div(b)?),
-        (B::Rem, C::Int(a), C::Int(b)) => C::Int(a.checked_rem(b)?),
+        (B::Add | B::Sub | B::Mul | B::Div | B::Rem, C::Int(a), C::Int(b)) => {
+            C::Int(crate::arith::checked_int_binary(op, a, b)?.ok()?)
+        }
         (B::Lt, C::Int(a), C::Int(b)) => C::Bool(a < b),
         (B::Le, C::Int(a), C::Int(b)) => C::Bool(a <= b),
         (B::Gt, C::Int(a), C::Int(b)) => C::Bool(a > b),

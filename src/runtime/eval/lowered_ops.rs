@@ -541,29 +541,12 @@ pub(super) fn checked_int_binary(
     right: i64,
     span: Span,
 ) -> Result<i64, RuntimeError> {
-    let result = match op {
-        BinaryOp::Add => left.checked_add(right),
-        BinaryOp::Sub => left.checked_sub(right),
-        BinaryOp::Mul => left.checked_mul(right),
-        BinaryOp::Div => {
-            if right == 0 {
-                return Err(
-                    RuntimeError::new("division-by-zero", "division by zero").with_span(span)
-                );
-            }
-            left.checked_div(right)
-        }
-        BinaryOp::Rem => {
-            if right == 0 {
-                return Err(
-                    RuntimeError::new("division-by-zero", "division by zero").with_span(span)
-                );
-            }
-            left.checked_rem(right)
-        }
-        _ => unreachable!("verified integer binary operation"),
-    };
-    result.ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span))
+    crate::arith::checked_int_binary(op, left, right)
+        .expect("verified integer binary operation")
+        .map_err(|error| {
+            let (kind, message) = error.diagnostic();
+            RuntimeError::new(kind, message).with_span(span)
+        })
 }
 
 pub(super) fn lowered_str_value(value: &LoweredValue) -> Option<&str> {

@@ -220,6 +220,37 @@ theorem behavior or Rust conformance. [`xsh-lean.md`](../xsh-lean.md) is the
 owner-managed plan and is parsed by the inventory checker; preserve its
 G0–G10 structure when updating it.
 
+## Checked Int arithmetic
+
+`src/arith.rs::checked_int_binary` is the one decision for Int `+`, `-`, `*`,
+`/` and `%`. Constant folding declines to fold on any error, and execution maps
+the error to its `division-by-zero` or `integer-overflow` diagnostic.
+`Core/Arith.lean` models it over mathematical integers. A zero divisor of `/`
+or `%` is a division-by-zero error. Otherwise the result is the exact sum,
+difference, product, truncating quotient (`Int.tdiv`) or truncating remainder
+(`Int.tmod`) when its witness fits signed 64 bits, and an overflow otherwise.
+The witness of `%` is its quotient, so `MIN % -1` overflows as in Rust.
+`checked_zero_divisor`, `checked_ok` and `checked_overflow` characterize the
+outcome.
+
+The corpus covers every operator over all pairs drawn from the i64 endpoints
+and their neighbours, -7, -2, -1, 0, 1, 2, 3 and 7: 720 rows, SHA-256
+`b29f28e51cad10be7c89517682a3a3eb57e15e8674077495e74c644ac180e6e6`. It assumes decimal values denote the same mathematical and Rust
+integers. It is finite evidence, not universal Rust refinement, and it closes
+none of the 77 universal obligations.
+
+```sh
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
+XSH_ARITH_CASES="$TMPDIR/arith-cases.txt" cargo test --locked --profile verification -p xsh --lib -- --ignored --exact runtime::eval::arith_conformance::production_matches_lean_int_arithmetic
+```
+
+Both exit 0. Five altered corpora, with a wrong remainder, a missing row, a
+duplicate row, an out-of-domain operand and a malformed row, exit 101 with
+`model/source disagreement`, `incomplete corpus`, `duplicate input`,
+`out-of-domain input` and `malformed row`. The native constants,
+typed-scalar route, operand-order, UInt, frame-span and Duration arithmetic
+tests pass through `cargo dev gate`.
+
 ## Build and check
 
 The [Lake config](lakefile.toml) keeps build and package output under the
