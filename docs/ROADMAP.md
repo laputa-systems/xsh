@@ -67,7 +67,7 @@ owner-deferred platform work keep their existing scope and gates.
 
 | Order | Work | Boundary and owner | Completion condition |
 |---|---|---|---|
-| 1A | Structural membership correspondence | `src/runtime/eval/type_view.rs`, its production adapters, and `formal/Xsh/Core/Membership*.lean` | A declared common domain, explicit retained-contract assumptions, and evidence connecting the production decision to the independent Lean judgment. |
+| 1A | Structural membership correspondence | `src/runtime/eval/type_view.rs`, its production adapters, and `formal/Xsh/Core/Membership*.lean` | A declared finite common domain, retained-contract assumptions, and production/Lean comparison are recorded in [formal/README.md](../formal/README.md); broader correspondence remains open. |
 | 1B | Deadline selection | Deadline handling in `src/runtime/eval.rs` and native `within` behavior | A production selection function takes supplied monotonic time; deterministic policy checks and real adapter checks preserve ordering and delivery behavior. |
 | 2 | Arithmetic/validation and effect algebra | Existing semantic owners, including `src/duration.rs` and `src/sema/effects.rs` | Share demonstrably duplicated decisions and formalize existing relations without moving already functional code merely for uniformity. |
 | 3 | Cleanup and unwinding | `CleanupGroup` in the explicit runner | After both pilots meet their acceptance criteria, isolate action selection and error precedence before considering wider scheduling or resource transitions. |

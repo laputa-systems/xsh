@@ -314,6 +314,72 @@ stream item contracts, inspecting already stored items when no contract exists;
 it recognizes environment-path snapshots. Correspondence, validity and
 preservation of those retained facts remain assumptions and are not tested.
 
+### Pilot 1A common domain and retained facts
+
+The admitted inputs are exactly the named Cartesian product above, interpreted
+as borrowed `ValueView::Runtime` values. A nested map or set key is borrowed
+as `ValueView::Key`; other view variants, including lowered and computed-field
+views, are not covered by this comparison. The closed types are exactly the 20
+listed above, with no type variables, `Unknown`, or `Invalid`. The fixture
+names and payloads in the Lean generator and Rust consumer define the finite
+domain; the names are an assumed correspondence, not a serialization proof.
+
+For these inputs Any accepts every fixture; each other scalar accepts its own
+representation only, except UInt accepts Int values at least zero. In
+particular Int accepts both negative and nonnegative integers and neither Int
+nor UInt accepts Float or Bool. List[Int] accepts lists whose every item is Int,
+including the empty list; NonEmpty[Int] additionally rejects the empty list.
+Map accepts maps only when every key and value matches, including empty maps;
+Map[Str, Int] also accepts records when every field value is Int, while
+Map[Int, Int] rejects records. Set[Int] accepts sets whose keys are all Int,
+including the empty set. In these fixtures the only key representations are
+Str and Int; a mismatched key rejects a populated map or set. The production
+key interface admits only Any, Bool, Int, UInt, Duration, Str, Bytes and Path
+as non-recovery key types; other key types reject each key. Optional[Int]
+accepts null or an Int. The record type requires an `x` field with an Int
+value, accepts extra fields, and rejects a missing or mismatched `x` and all
+non-record fixtures. Record and key names are unique. No nominal identity is
+admitted: Rust structural record membership does not authenticate it. All
+other values, constructors and representations are unsupported by this finite
+claim, rather than inferred from the table.
+
+The shared decision receives a callback for retained facts. Its production
+routes interpret those facts differently:
+
+| Route | Stream | Callable | Scheme / generic | Environment path |
+|---|---|---|---|---|
+| Static argument/result checks | stream presence | matching non-stream kind | false | snapshot presence |
+| Runtime type checks | stream presence | matching non-stream kind | false | false |
+| Prepared argument and scheme-value checks | retained item contract matches; absent contract checks already stored items, and a live source without one errors | retained target type matches expected kind and signature | scheme instance and owning program accept the scheme; generic target has the requested kind and a quantified contract with no instance | snapshot presence |
+
+Prepared checks can return an error while resolving a retained fact; that is
+not a Boolean rejection correspondence. Scheme-value validation only invokes
+the decision when the type contains a scheme callable. Omitted arguments and
+other adapter control flow remain outside membership. Module authentication and
+schema conversion are separate operations, not consequences of membership. Schema
+decoding passes its immutable `&Evaluator` to module-contract authentication;
+this shared reference alone does not establish which observations it needs.
+
+For a future comparison involving retained references, Lean's
+`ContractDecisions.stream`, `.callable`, `.scheme`, and `.generic` must decide
+respectively the same route-specific facts as the Rust callback for the mapped
+reference and requested type, signature, declaration, or kind. Callable and
+generic Lean judgments additionally require kind equality. Environment paths
+are a distinct Lean value constructor, not a `ContractDecisions` predicate;
+its primitive judgment recognizes that constructor. Thus runtime's deliberate
+false result has no such direct correspondence without restricting the domain
+or choosing another model. The existing finite corpus has no such values or
+contract types, so its false Lean predicates are never consulted.
+
+Validity assumptions are that fixture mappings preserve representations and
+identity, types and retained metadata are well formed, and each selected
+callback fact describes the corresponding semantic object. Preservation
+assumptions are that checking and execution preserve those mappings and facts,
+including stream item contracts and callable ownership. Neither validity nor
+preservation is proved by this comparison. Lean's `check_iff` proves only that
+its decision agrees with its own judgment for the supplied world and decisions;
+the finite test separately compares Rust outcomes for the stated fixtures.
+
 The comparison calls the same `value_matches_static_type` used by argument
 validation and its shared borrowed structural decision. Lean's `Membership.check`
 is proved equivalent to `Membership.value` by `check_iff`; agreement with Rust
