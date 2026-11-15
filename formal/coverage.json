@@ -13037,6 +13037,15 @@
       "boundary": "Counterexample to interpreting unresolved equality as semantic disagreement. It establishes no source extraction or Rust conformance and closes no whole-core obligation."
     },
     {
+      "id": "fragment.Xsh.Core.EffectPredicate.implies_self",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectPredicate.implies_self",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The implication decision accepts identical predicates for every parameter scope.",
+      "boundary": "The finite production comparison is separate evidence. General implication soundness and universal Rust correspondence remain open. All 77 universal obligations remain planned."
+    },
+    {
       "id": "fragment.Xsh.Core.DeadlinePolicy.policy_contract",
       "module": "Xsh.Core.DeadlinePolicy",
       "declaration": "Xsh.Core.DeadlinePolicy.policy_contract",

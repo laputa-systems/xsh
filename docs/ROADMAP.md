@@ -154,6 +154,7 @@ versus known-empty contracts, exact inclusion versus permission coverage,
 concrete versus unresolved symbolic contributions, and error capture that
 retains other contributions. The existing effect algebra may need no physical
 extraction; connect its exact relations instead.
+The finite effect algebra comparison and its proof limits are recorded in [formal/README.md](../formal/README.md#pilot-2-effect-algebra-domain).
 
 For cleanup, first make the next action and failure disposition explicit.
 Preserve reverse defer order, changing `errdefer` eligibility, managed-release

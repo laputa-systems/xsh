@@ -461,3 +461,39 @@ to create a thread under that limit on the qualification host. The same module
 compiles with bounded arenas and the unchanged address-space cap.
 If a build or checker exceeds its deadline, the command prints its captured
 progress and terminates the owned process group. A timeout does not qualify a check.
+
+## Pilot 2 effect algebra domain
+
+The corpus enumerates all 128 effect sets in the order fs, net, process, env,
+time, error, io. Each of the 16,384 ordered pairs checks union, exact inclusion,
+and permission coverage. Lean uses `union`, `included`, and inclusion in
+`permissionClosure`. Rust uses `EffectSet::union`, the finite `Included`
+predicate decision, and `effect_covers`. The relation maps each bit to its
+corresponding effect.
+
+The contract domain contains unknown, known empty, three finite sets, two
+variables, captured error, two symbolic unions, and a masked variable. The
+121 ordered pairs compare contract union. Sixteen predicates cover equality,
+inclusion, exclusion, and coverage with finite, unknown, and symbolic
+contracts. Their 256 ordered pairs compare `EffectPredicate.implies` with
+`effect_predicate_implies`. Both sides use the same variable identity mapping
+and canonical nonzero masks. Unknown remains distinct from known empty.
+
+Production implication is incomplete: it accepts identical predicates and
+certain coverage implications with closed permission sets. The Lean reflexivity
+theorem does not prove general implication soundness. The comparison is finite
+implementation evidence, not universal Rust refinement or a proof of the
+assignment-level implication. It closes none of the 77 universal obligations.
+
+Host verification used the build environment above:
+
+```sh
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/EffectCases.lean > "$TMPDIR/effect-cases.txt"
+XSH_EFFECT_CASES="$TMPDIR/effect-cases.txt" cargo test --locked --profile verification -p xsh --lib sema::effects_conformance -- --ignored
+```
+
+Both exited 0. The corpus has 16,761 rows (SHA-256 `c74bc152a80e735d165fdd58d04e7ddc1d317a1e2b3512ab25695b96b6a231b3`).
+Four altered corpora, with one flipped implication, the last row removed, a
+duplicated row and an effect set outside the domain, each exit 101 with,
+respectively, `model/source disagreement`, `incomplete corpus`,
+`duplicate input` and `out-of-domain input`.
