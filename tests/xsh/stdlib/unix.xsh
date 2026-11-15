@@ -100,29 +100,31 @@ print "prompt"
   assert output.stdout == "prompt\n"
 }
 
-proc session_and_group(pid: Int) [process, error] -> Result[List[Int], Error] {
+test test_unix_spawn_process_group_new_session_leads_its_own_session { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let script = r"""proc session_and_group(pid: Int) [process, error] -> Result[List[Int], Error] {
   for entry in process.list()? {
     if entry.pid == pid { return [entry.session ?? 0, entry.pgrp ?? 0] }
   }
   [0, 0]
 }
-
-test test_unix_spawn_process_group_new_session_leads_its_own_session {
-  guard process_groups_are_supported() else {
-    test.skip("unix process groups need Linux or macOS")
-    return
-  }
-  let sleeper = process.command_argv("sleep", ["sleep", "30"])
-  let leader = unix.spawn_process_group(sleeper, new_session: true)?
-  defer { let _ = unix.shutdown_process_groups([leader.pid], 0ms, 1s)? }
-  let member = unix.spawn_process_group(sleeper)?
-  defer { let _ = unix.shutdown_process_groups([member.pid], 0ms, 1s)? }
-  let own = process.current_pid()?
-  assert leader.new_session and ! member.new_session
-  assert session_and_group(leader.pid)? == [leader.pid, leader.pid]
-  let member_ids = session_and_group(member.pid)?
-  assert member_ids[1] == member.pid
-  assert member_ids[0] == session_and_group(own)?[0]
+let sleeper = process.command_argv("sleep", ["sleep", "30"])
+let leader = unix.spawn_process_group(sleeper, new_session: true)?
+defer { let _ = unix.shutdown_process_groups([leader.pid], 0ms, 1s)? }
+let member = unix.spawn_process_group(sleeper)?
+defer { let _ = unix.shutdown_process_groups([member.pid], 0ms, 1s)? }
+let own = process.current_pid()?
+assert leader.new_session and ! member.new_session
+assert session_and_group(leader.pid)? == [leader.pid, leader.pid]
+let member_ids = session_and_group(member.pid)?
+assert member_ids[1] == member.pid
+assert member_ids[0] == session_and_group(own)?[0]
+"""
+  let result = test.run_script(ctx, script)?
+  assert result.success, result.stderr
 }
 
 test test_unix_shutdown_process_groups_preserves_other_exits_and_escalates_stubborn_groups { |ctx|
