@@ -107,7 +107,7 @@ proc session_and_group(pid: Int) [process, error] -> Result[List[Int], Error] {
   [0, 0]
 }
 
-test test_unix_spawn_process_group_new_session_leads_its_own_session { |ctx|
+test test_unix_spawn_process_group_new_session_leads_its_own_session {
   guard process_groups_are_supported() else {
     test.skip("unix process groups need Linux or macOS")
     return

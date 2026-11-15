@@ -55,7 +55,7 @@ const USAGE = "Usage: fdu [--apparent] [-x PATH | --exclude PATH]... [--summary 
 proc parse_options(argv: List[Str]) [process, error] -> Result[Options, Error] {
   var read_only = false
   var apparent = false
-  var interactive = false
+  var interactive_mode = false
   var summary = false
   var excludes: List[Path] = []
   var target: Path? = null
@@ -87,7 +87,7 @@ proc parse_options(argv: List[Str]) [process, error] -> Result[Options, Error] {
         continue
       }
       if raw == "--interactive" {
-        interactive = true
+        interactive_mode = true
         continue
       }
       if raw == "-x" or raw == "--exclude" {
@@ -115,7 +115,7 @@ proc parse_options(argv: List[Str]) [process, error] -> Result[Options, Error] {
   {
     read_only: read_only,
     apparent: apparent,
-    interactive: interactive,
+    interactive: interactive_mode,
     summary: summary,
     excludes: excludes,
     target: target ?? p".",
@@ -292,7 +292,7 @@ pure go_parent(app: App, columns: Int, rows: Int) -> App {
   change_directory(app, parent, columns, rows)
 }
 
-pure begin_delete(app: App, columns: Int, rows: Int) -> App {
+pure begin_delete(app: App) -> App {
   if app.read_only {
     return {...app, message: "This session is read only; deletion is disabled."}
   }
@@ -457,7 +457,7 @@ proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error]
     Sort => next = cycle_sort(app, columns, rows)
     Size => next = toggle_size(app, columns, rows)
     Rescan => next = rescan(app, columns, rows)
-    DeleteStart => next = begin_delete(app, columns, rows)
+    DeleteStart => next = begin_delete(app)
     Enter => next = if app.browser.focus == browser.Marked {
       reveal_marked(app, columns, rows)
     } else {
