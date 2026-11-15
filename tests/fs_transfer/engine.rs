@@ -1140,13 +1140,16 @@ fn descriptor_budget_rejects_unaffordable_parallelism_before_mutation() {
         let work = fixture.path("work");
         fs::create_dir(work.join("source")).expect("create source");
         fs::write(work.join("source/file"), b"resource admission payload").expect("write source");
-        let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
-            .args(["--exact", "engine::descriptor_budget_rejects_unaffordable_parallelism_before_mutation", "--ignored", "--nocapture"])
+        let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", "engine::descriptor_budget_rejects_unaffordable_parallelism_before_mutation", "--nocapture"])
             .env(CHILD, "descriptors")
             .env(FIXTURE, &work)
-            .status()
+            .output()
             .expect("run descriptor child");
-        assert!(status.success(), "descriptor child failed: {status}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "descriptor child failed: {}\n{stdout}\n{stderr}", output.status);
+        assert!(stdout.contains("test result: ok. 1 passed;"), "descriptor child did not run the check:\n{stdout}\n{stderr}");
         assert_eq!(
             fs::read(work.join("source/file")).expect("read source"),
             b"resource admission payload"
