@@ -3749,6 +3749,78 @@
   ],
   "fragment_roots": [
     {
+      "id": "fragment.Xsh.Core.CleanupUnwind.outcome_conserves",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.outcome_conserves",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The primary and secondaries conserve recorded failures.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.outcome_selects",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.outcome_selects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The primary is the first forced recorded failure, or the first recorded failure.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.recorded_failure_sets_flag",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.recorded_failure_sets_flag",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A recorded executed failure sets the final error flag.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.primary_none_iff",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.primary_none_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The primary is absent exactly when no recorded failures execute.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.reports_count",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.reports_count",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reported failure indices have the same counts as executed failing indices.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.recorded_order",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.recorded_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Recorded failure indices strictly decrease in execution order.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.failure_accounted",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.failure_accounted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each executed failing index occurs exactly once across recorded and direct reports.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupUnwind.managed_unforced_not_primary",
+      "module": "Xsh.Core.CleanupUnwind",
+      "declaration": "Xsh.Core.CleanupUnwind.managed_unforced_not_primary",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A non-forced managed-release failure cannot be primary.",
+      "boundary": "The model covers pure finite action lists; Rust correspondence is the two existing finite corpora, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
       "id": "fragment.Xsh.Foundation.Word32.decode_value",
       "module": "Xsh.Foundation",
       "declaration": "Xsh.Foundation.Word32.decode_value",

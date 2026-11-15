@@ -604,3 +604,13 @@ lake --dir="$PWD/.work" --file="$PWD/formal/lakefile.toml" build
 python3 formal/scripts/check-inventory.py
 python3 -m unittest formal/tests/inventory/test_check_inventory.py
 ```
+
+### Cleanup order and precedence composition
+
+The composition accounts for every executed failure exactly once across the
+recorded and direct reports, selects the first forced recorded failure or the
+first recorded failure, and sets the final error flag when a recorded failure
+executes. A non-forced managed-release failure cannot become primary. The
+model covers finite action lists; the two existing Rust corpora provide finite
+conformance evidence, not universal refinement. CLEAN-ORDER, CLEAN-ONCE and
+CLEAN-ERROR remain planned.
