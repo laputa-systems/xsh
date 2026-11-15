@@ -475,6 +475,55 @@ mod tests {
         matches[0]
     }
 
+    struct FailingScopeStream(&'static str);
+
+    impl ScriptStream for FailingScopeStream {
+        fn finished(&self) -> bool { false }
+
+        fn poll(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> { Ok(()) }
+
+        fn visit_retained_values(&self, _visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>)) {}
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Err(RuntimeError::new(self.0, self.0))
+        }
+    }
+
+    #[test]
+    fn call_scope_cleanup_reports_later_host_scope_failure() {
+        crate::runtime::eval::run_eval(|| {
+            let (program, source_id) = full_program("proc parent() {}\n");
+            program.symbol_owner().with_current(|| {
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames.push_call(LoweredFunctionKey::Name(Name::intern("parent")), CallableKind::Proc, Vec::new(), span, None).unwrap();
+                let mut outer = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("outer")));
+                frames.evaluator.register_returned_stream(&mut outer, span).unwrap();
+                let block_scope = frames.evaluator.enter_owned_host_scope();
+                frames.calls[0].block_scopes.push(block_scope);
+                let mut inner = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("inner")));
+                frames.evaluator.register_returned_stream(&mut inner, span).unwrap();
+
+                let error = cleanup_call_scopes(frames.evaluator, &mut frames.calls[0]).unwrap_err();
+                assert_eq!(error.kind, "inner");
+                let stderr = String::from_utf8_lossy(&frames.evaluator.stderr);
+                assert!(stderr.contains("cleanup error [outer]"), "{stderr:?}");
+            });
+        });
+    }
+
     #[test]
     fn forced_cleanup_failure_overrides_earlier_failure() {
         crate::runtime::eval::run_eval(|| {
@@ -12955,21 +13004,21 @@ fn cleanup_call_scopes(
     evaluator: &mut Evaluator,
     call: &mut CallFrame<'_>,
 ) -> Result<(), RuntimeError> {
-    let mut first_error = None;
+    let mut failures = CleanupFailures::default();
     while let Some(scope_id) = call.block_scopes.pop() {
         if let Err(error) = evaluator.exit_owned_host_scope(scope_id)
-            && first_error.is_none()
+            && let Some(secondary) = failures.record(error, None)
         {
-            first_error = Some(error);
+            evaluator.report_cleanup_error(&secondary, call.call_span);
         }
     }
     if call.owns_scope()
         && let Err(error) = evaluator.exit_owned_host_scope(call.scope_id)
-        && first_error.is_none()
+        && let Some(secondary) = failures.record(error, None)
     {
-        first_error = Some(error);
+        evaluator.report_cleanup_error(&secondary, call.call_span);
     }
-    first_error.map_or(Ok(()), Err)
+    failures.take().map_or(Ok(()), |(error, _)| Err(error))
 }
 
 fn contextualize_propagation(
