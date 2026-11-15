@@ -1,4 +1,6 @@
-use super::cleanup_policy::{CleanupFailures, Disposition, cleanup_disposition, failure_is_recorded, forced};
+#[cfg(test)]
+use super::DeferKind;
+use super::cleanup_policy::{CleanupFailures, Disposition, cleanup_disposition, failure_is_recorded, forced, next_due_defer};
 use crate::modules::RuntimeOp;
 use crate::runtime::eval::indexed::full::{PreparedInvocationBindings, PreparedIndexKeyCheck};
 use super::serial_pipeline::{
@@ -9,7 +11,7 @@ use super::serial_pipeline::{
 use super::super::LoweredRetryDelays;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, BindingNamespaceLease, ControlFlow,
-    DeferKind, Evaluator,
+    Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
     IndexedFmt, LoweredFunctionKey, CallableKind,
@@ -10721,12 +10723,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(FrameWork::CleanupGroup(mut group)) = self.calls[index].work.pop() else {
             unreachable!("cleanup group is stepped in place");
         };
-        while group.next_defer > 0 {
-            group.next_defer -= 1;
-            let deferred = group.defers[group.next_defer];
-            if deferred.kind() == DeferKind::OnError && !group.leaves_with_error {
-                continue;
-            }
+        if let Some(next) = next_due_defer(|i| group.defers[i].kind(), group.next_defer, group.leaves_with_error) {
+            group.next_defer = next;
+            let deferred = group.defers[next];
             let guard = CleanupActionGuard {
                 shielded_deadlines: self.evaluator.shield_within_deadlines(),
                 previous_cleanup_contexts: std::mem::replace(
@@ -10750,6 +10749,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
             return Ok(());
         }
+        group.next_defer = 0;
         self.finish_cleanup_group(index, *group)
     }
 

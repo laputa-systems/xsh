@@ -13118,6 +13118,87 @@
       "boundary": "The model covers pure finite error sequences and supplied force and managed facts; Rust agreement is finite conformance evidence, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
     },
     {
+      "id": "fragment.Xsh.Core.CleanupOrder.nextDue_lt",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.nextDue_lt",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected index is below the input cursor.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwindFrom_bound",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwindFrom_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every executed index is below the input cursor.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwind_order",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwind_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Executed indices are strictly decreasing.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwind_once",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwind_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Executed indices have no duplicates.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwindFrom_skip",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwindFrom_skip",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An errdefer that is not due is skipped in place.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwindFrom_run",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwindFrom_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A due action executes at the cursor and updates the error flag.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwindFrom_membership",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwindFrom_membership",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Membership is characterized by action kind, initial flag, and recorded later failures.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwind_unconditional",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwind_unconditional",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every always or managed-release action executes.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupOrder.unwind_onError_due",
+      "module": "Xsh.Core.CleanupOrder",
+      "declaration": "Xsh.Core.CleanupOrder.unwind_onError_due",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An errdefer executes exactly when the initial flag is set or a later executed action has a recorded failure.",
+      "boundary": "Finite stacks are conformance evidence, not universal Rust refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
       "id": "fragment.Xsh.Core.DeadlinePolicy.policy_contract",
       "module": "Xsh.Core.DeadlinePolicy",
       "declaration": "Xsh.Core.DeadlinePolicy.policy_contract",

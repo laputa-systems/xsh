@@ -26,6 +26,10 @@ pub(in crate::runtime::eval) fn failure_is_recorded(kind: DeferKind, forced: boo
     kind != DeferKind::ManagedRelease || forced
 }
 
+pub(in crate::runtime::eval) fn next_due_defer(kind_at: impl Fn(usize) -> DeferKind, next: usize, leaves_with_error: bool) -> Option<usize> {
+    (0..next).rev().find(|&index| kind_at(index) != DeferKind::OnError || leaves_with_error)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::runtime::eval) enum Disposition { Raise, ReportSecondary, Surface }
 

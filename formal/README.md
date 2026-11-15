@@ -572,3 +572,35 @@ python3 formal/tests/inventory/test_check_inventory.py
 ```
 
 Each exits 0.
+
+## Pilot 4 cleanup order and errdefer dueness
+
+The model selects the next due action from a finite cleanup stack, then updates
+its error flag when an executed action has a recorded failure. Its theorems
+show that execution indices strictly decrease and occur once, that always and
+managed-release actions execute, and that an errdefer executes exactly when
+the initial flag is set or a later executed action has a recorded failure.
+Resource execution, scheduling, tracebacks and host signal delivery remain
+outside the model. The shared Rust selector has a finite comparison with the
+model; this is conformance evidence, not universal Rust refinement. CLEAN-ORDER,
+CLEAN-ONCE and CLEAN-ERROR remain planned.
+
+From the repository root, generate and compare all stacks of at most four
+actions over three kinds and three outcomes, with both initial flags:
+
+```sh
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupOrderCases.lean > "$TMPDIR/cleanup-order-cases.txt"
+XSH_CLEANUP_ORDER_CASES="$TMPDIR/cleanup-order-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_order_conformance::production_matches_lean_cleanup_order -- --ignored --exact
+```
+
+Both exit 0 over 14,762 rows. An altered expected trace exits 101 with
+`model/source disagreement`.
+
+The model and inventory checks run with:
+
+```sh
+lake --dir="$PWD/.work" --file="$PWD/formal/lakefile.toml" build
+(cd formal && bash scripts/audit-axioms.sh)
+python3 formal/scripts/check-inventory.py
+python3 -m unittest formal/tests/inventory/test_check_inventory.py
+```
