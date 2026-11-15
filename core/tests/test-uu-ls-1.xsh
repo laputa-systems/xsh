@@ -1380,15 +1380,14 @@ test test_uu_ls_ls_allocation_size { |ctx|
   let scaled = ls_run(s, ["-l", "--block-size=512", "irregular-file"])?
   uu.succeeds(scaled)
   assert rx"[^ ] 2 [^ ]".matches(scaled.stdout as Str)
-  let filesystem = uu.invoke(s, "df", ["-PT", s.root.display()])?
-  uu.succeeds(filesystem)
-  let captures = rx"Filesystem\s+Type\s+.+[\r\n]+([^\s]+)\s+([^\s]+)\s+".captures(filesystem.stdout as Str)
-  assert captures.len() >= 3
-  let f2fs = captures[2] == "f2fs"
-  let size4k = if f2fs { 4100 } else { 4096 }
-  let size1k = if f2fs { 1025 } else { 1024 }
-  let size8k = if f2fs { 8200 } else { 8192 }
-  let size4m = if f2fs { "4.1M" } else { "4.0M" }
+  let allocation = uu.invoke(s, "stat", ["-c", "%b", "some-dir1/zero-file"])?
+  uu.succeeds(allocation)
+  let size8k = (allocation.stdout as Str).trim().parse_int()?
+  assert size8k == 8192 or size8k == 8200, f"unexpected allocation of {size8k} 512-byte blocks"
+  let indirect = size8k == 8200
+  let size4k = size8k / 2
+  let size1k = size8k / 8
+  let size4m = if indirect { "4.1M" } else { "4.0M" }
   let plain = ls_run(s, ["-s1", "some-dir1"])?
   uu.succeeds(plain)
   uu.stdout_is(plain, f"total {size4k}\n   0 empty-file\n   0 file-with-holes\n{size4k} zero-file\n")
