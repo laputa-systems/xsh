@@ -2,7 +2,7 @@
 
 Source: `https://github.com/laputa-systems/ssh-build`.
 
-Revision: `ba4e5e269b1737b32cf7cdaa08e739ec06712cf5`
+Revision: `569d0bda0a49831f591fd2f97be1400aaf20c16d`
 
 `crates/oxish-client` is ssh-build's `client/` crate (`oxish-client`) at that
 revision, with the files the XSH library does not use left out: `src/bin`, the

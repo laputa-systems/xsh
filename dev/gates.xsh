@@ -580,6 +580,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
         rust_gate(ctx, profile, "test-core-compat-extra", ["-p", "xsh", "--test", "core_compat_extra", "--", @skipping(["split::", "date_clock::test_date_set_valid"])])?,
         rust_gate(ctx, profile, "test-ssh-unit", ["-p", "oxish-client", "--lib"], debug: true)?,
         rust_gate(ctx, profile, "test-ssh-fifo", ["-p", "oxish-client", "--test", "fifo"], debug: true)?,
+        rust_gate(ctx, profile, "test-ssh-hash-wipe", ["-p", "oxish-client", "--test", "hash_wipe"], debug: true)?,
       ]
       compile_gates += [
         rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?,

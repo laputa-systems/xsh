@@ -40,7 +40,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
 | Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
 | Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `tests/authentication.rs`, `agent::tests`, `encrypted_key_is_rejected_explicitly` |
-| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | D key file buffer, shared secret, decrypted payloads and stdin the client reads are wiped, and Graviola wipes its key and cipher state; its SHA-256 contexts and process dumps are not | `debug_does_not_expose_payloads`, `stdin_bytes_are_wiped_before_the_client_frees_them`, `docs/ssh.md` |
+| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | D key file buffer, shared secret, decrypted payloads and stdin the client reads are wiped, and Graviola wipes its key, cipher and SHA-256 context state; process dumps are outside the guarantee | `debug_does_not_expose_payloads`, `stdin_bytes_are_wiped_before_the_client_frees_them`, `sha_contexts_wipe_buffered_secrets_on_drop`, `docs/ssh.md` |
 | Required tests (pinned and `known_hosts`, auth, binary I/O, status and signal, absent status, premature disconnect, windows, stalled peers, reuse, both rekey directions, fragmented identification, malformed input, deadlines and cancellation, failure after submission) | P | D | `tests/connect.rs`, `exec.rs`, `stream.rs`, `protocol.rs`, `agent.rs`, `descriptors.rs` |
 | Feature-disabled and minimal builds | P they warned, which the distribution build denies | D | `cargo check -p xsh --no-default-features` and `--features net,tools`, warning-free |
 | Runnable examples: exec, transfer, reuse, errors, parallel hosts | P 1 of 5 | D | `examples/ssh/` |
@@ -107,7 +107,7 @@ its fix.
 Corrections to the earlier review: padding under 4 bytes was already refused by
 the vendored decoder (`padding_under_four_bytes_is_refused` now guards it), and
 Graviola already wipes its signing-key, key-agreement, AES, GHASH and ChaCha
-state on drop; the SHA-256 contexts are what it leaves.
+state on drop; its SHA-256 contexts are now wiped as well.
 
 Two untested thresholds now have tests: the packet-count and elapsed-time
 rekey limits (`the_packet_count_alone_starts_a_rekey`,
@@ -141,14 +141,11 @@ The vendored `OpenSshKeyV1::to_bytes` and `pem_encode` serialization paths also
 grow sensitive buffers. The client key-loading path calls neither method.
 Their reallocation behavior remains outside this loading-path qualification.
 
-The SHA-256 contexts remain unwiped as a dependency limit, not an `oxish-client`
-defect it can fix without a fork: `oxish-graviola` wraps Graviola's
-`Sha256Context` (`vendor/oxish-graviola/src/lib.rs:569`), neither type wipes on
-drop (`vendor/graviola/src/high/hash.rs:167`,
-`vendor/graviola/src/mid/sha2.rs:13`), and `oxish-proto` creates and consumes
-the context inside `HandshakeHash` and `KeyDerivation`, so `oxish-client` holds no
-copy it can wipe. The fix belongs in ssh-build's one authoritative copy of
-those crates.
+Graviola's mid-level SHA-256 and SHA-512 contexts now wipe their entire state
+on drop, including chaining state and buffered input; SHA-384 wraps SHA-512.
+ssh-build `569d0bd` makes the change in its one copy of Graviola; it covers the contexts `oxish-graviola` supplies
+to `oxish-proto` for exchange hashes and key derivation. The regression
+`sha_contexts_wipe_buffered_secrets_on_drop` inspects freed context allocations.
 
 Contract changes: `auth::authenticate` is crate-private and takes the
 connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
@@ -186,13 +183,8 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 
 ### Risks supported by the code but not demonstrated
 
-- Not zeroized: the SHA-256 contexts that hash the shared secret into the
-  exchange hash and keys. This is a Graviola dependency limit: the context is
-  Graviola's type with no wipe on drop, wrapped by `oxish-graviola` and consumed
-  inside `oxish-proto`, so `oxish-client` holds no copy it can wipe; changing it
-  needs an ssh-build patch (see [Fourth round](#fourth-round-fixed)). Also not
-  zeroized: the caller's own `ExecOptions::stdin` buffer and the XSH value it
-  came from, the receive buffer while it grows, and whatever a caller's writer
+- Not zeroized: the caller's own `ExecOptions::stdin` buffer and the XSH value
+  it came from, the receive buffer while it grows, and whatever a caller's writer
   keeps after the bounded pipe copies it. Swap and core dumps are outside any
   guarantee.
 - A writer passed to `Connection::exec_stream` that never returns still keeps
