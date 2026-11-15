@@ -511,10 +511,11 @@ contracts. Their 256 ordered pairs compare `EffectPredicate.implies` with
 and canonical nonzero masks. Unknown remains distinct from known empty.
 
 Production implication is incomplete: it accepts identical predicates and
-certain coverage implications with closed permission sets. The Lean reflexivity
-theorem does not prove general implication soundness. The comparison is finite
-implementation evidence, not universal Rust refinement or a proof of the
-assignment-level implication. It closes none of the 77 universal obligations.
+certain coverage implications with closed permission sets. The Lean soundness
+theorem proves assignment-level coverage implication when all four contracts
+are known; unknown contracts have no assigned denotation. Reflexivity holds for
+every predicate. The comparison is finite implementation evidence, not universal Rust
+refinement. It closes none of the 77 universal obligations.
 
 Host verification used the build environment above:
 

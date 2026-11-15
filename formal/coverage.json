@@ -13043,7 +13043,16 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The implication decision accepts identical predicates for every parameter scope.",
-      "boundary": "The finite production comparison is separate evidence. General implication soundness and universal Rust correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. All 77 universal obligations remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectPredicate.implies_sound",
+      "module": "Xsh.Core.EffectPredicates",
+      "declaration": "Xsh.Core.EffectPredicate.implies_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted coverage implication preserves coverage under every assignment when all four contracts are known.",
+      "boundary": "Unknown contracts have no assigned denotation and are excluded. Production correspondence is finite evidence, not universal Rust refinement; no whole-core obligation is closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_zero_divisor",

@@ -75,6 +75,79 @@ def implies (owned required : EffectPredicate n) : Bool :=
 theorem implies_self (predicate : EffectPredicate n) : predicate.implies predicate = true := by
   simp [implies]
 
+def CoveredHolds (left right : EffectExpression n)
+    (assignment : Fin n → FiniteEffectSet) : Prop :=
+  le (left.denote assignment) (closure (right.denote assignment))
+
+private theorem capture_denote (expression : EffectExpression n)
+    (assignment : Fin n → FiniteEffectSet) (effect : Effect) :
+    (expression.masked (EffectSet.full.without (EffectSet.ofList [.error]))).denote assignment effect ↔
+      expression.denote assignment effect ∧ effect ≠ .error := by
+  rw [EffectExpression.denote_masked]
+  cases effect <;> simp [EffectSet.denotation, EffectSet.ofList, EffectSet.contains, EffectSet.without,
+    EffectSet.full, allEffects, effectPosition, Vector.get, Fin.cast]
+
+private theorem closure_without_error (effects : EffectSet) (effect : Effect)
+    (member : closure effects.denotation effect) (notError : effect ≠ .error) :
+    closure (effects.without (EffectSet.ofList [.error])).denotation effect := by
+  have absent (e : Effect) (ne : e ≠ .error) :
+      (EffectSet.ofList [.error]).contains e = false := by
+    apply Bool.eq_false_iff.mpr
+    change ¬ (EffectSet.ofList [.error]).denotation e
+    rw [EffectSet.ofList_denotation]
+    simpa [Xsh.Semantics.Effects.ofList] using ne
+  simp only [closure, EffectSet.denotation, EffectSet.contains_without, Bool.and_eq_true] at *
+  cases effect <;> simp_all [ioComponent]
+
+theorem implies_sound (ownedLeft requiredLeft ownedRight requiredRight : EffectExpression n)
+    (accepted : (covered (.known ownedLeft) (.known ownedRight)).implies
+      (covered (.known requiredLeft) (.known requiredRight)) = true)
+    (assignment : Fin n → FiniteEffectSet) :
+    CoveredHolds ownedLeft ownedRight assignment →
+      CoveredHolds requiredLeft requiredRight assignment := by
+  by_cases same : (covered (.known ownedLeft) (.known ownedRight) : EffectPredicate n) =
+      covered (.known requiredLeft) (.known requiredRight)
+  · cases same
+    exact fun holds => holds
+  · simp only [implies, same, ↓reduceIte] at accepted
+    split at accepted
+    · rename_i closed
+      have both : ownedRight.closed = true ∧ requiredRight.closed = true := by
+        simpa only [Bool.and_eq_true] using closed
+      split at accepted
+      · rename_i leftEqual
+        have eqLeft : ownedLeft = requiredLeft := by simpa using leftEqual
+        subst requiredLeft
+        have inc := (EffectSet.included_iff _ _).mp accepted
+        rw [EffectSet.permissionClosure_denotation] at inc
+        intro holds effect member
+        have prior := holds effect member
+        have base : le (ownedRight.denote assignment) (closure (requiredRight.denote assignment)) := by
+          intro e present
+          exact (closure_mono (fun e h => (requiredRight.closed_denote both.2 assignment e).mpr h)) e
+            (inc e ((ownedRight.closed_denote both.1 assignment e).mp present))
+        have result := closure_mono base effect prior
+        simpa only [closure_idempotent] using result
+      · split at accepted
+        · rename_i captured
+          have eqLeft : requiredLeft = ownedLeft.masked (EffectSet.full.without (EffectSet.ofList [.error])) := by
+            simpa [SymbolicContract.captureError, SymbolicContract.masked] using captured
+          subst requiredLeft
+          have inc := (EffectSet.included_iff _ _).mp accepted
+          rw [EffectSet.permissionClosure_denotation] at inc
+          intro holds effect member
+          have capturedMember := (capture_denote ownedLeft assignment effect).mp member
+          have prior := holds effect capturedMember.1
+          have priorDirect : closure ownedRight.direct.denotation effect := by
+            apply closure_mono (fun e h => (ownedRight.closed_denote both.1 assignment e).mp h) effect prior
+          have filtered := closure_without_error ownedRight.direct effect priorDirect capturedMember.2
+          have result := closure_mono inc effect filtered
+          have reduced : closure requiredRight.direct.denotation effect := by
+            simpa only [closure_idempotent] using result
+          exact closure_mono (fun e h => (requiredRight.closed_denote both.2 assignment e).mpr h) effect reduced
+        · contradiction
+    · contradiction
+
 def satisfaction : EffectPredicate n → Option Bool
   | .equal left right =>
     if left = right then some true
