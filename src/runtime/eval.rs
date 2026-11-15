@@ -3137,6 +3137,9 @@ fn choose_due_within_deadline(deadlines: &[WithinDeadline], now: Instant) -> Opt
 }
 
 #[cfg(test)]
+mod arith_conformance;
+
+#[cfg(test)]
 mod deadline_policy_conformance;
 
 #[cfg(test)]

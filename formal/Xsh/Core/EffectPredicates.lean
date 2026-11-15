@@ -59,6 +59,22 @@ inductive EffectPredicate (n : Nat) where
 
 namespace EffectPredicate
 
+def implies (owned required : EffectPredicate n) : Bool :=
+  if owned = required then true
+  else match owned, required with
+    | .covered ownedLeft (.known ownedRight), .covered requiredLeft (.known requiredRight) =>
+      if ownedRight.closed && requiredRight.closed then
+        if ownedLeft = requiredLeft then
+          ownedRight.direct.included requiredRight.direct.permissionClosure
+        else if requiredLeft = ownedLeft.captureError then
+          (ownedRight.direct.without (EffectSet.ofList [.error])).included requiredRight.direct.permissionClosure
+        else false
+      else false
+    | _, _ => false
+
+theorem implies_self (predicate : EffectPredicate n) : predicate.implies predicate = true := by
+  simp [implies]
+
 def satisfaction : EffectPredicate n → Option Bool
   | .equal left right =>
     if left = right then some true

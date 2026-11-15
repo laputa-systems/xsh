@@ -4977,6 +4977,13 @@ until startup ownership transfers or its worker is waited for. A worker
 duplicates the readiness descriptor with `unix.duplicate_fd`, closes the inherited original before running commands,
 and acknowledges only after its initialization and session changes succeed.
 
+`unix.spawn_process_group` starts the child in a new process group of its own;
+with `new_session: true` it calls `setsid` instead, so the child leads a new
+session and group whose IDs are its PID, and the result's `new_session` is
+`true`. Descendants stay in that session unless they leave it, which lets a
+supervisor find every process a dead child left behind by session ID.
+`unix.spawn_with_tty` always starts a new session.
+
 `unix.spawn_process_group`, `unix.spawn_process_group_log`, and
 `unix.spawn_with_tty` reject ignored `SIGCHLD` or `SA_NOCLDWAIT` before launch
 when the command has a CPU limit. `unix.spawn_logged_process_group` requires

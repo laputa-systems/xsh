@@ -93,7 +93,6 @@ fn start_child(root: &Path) -> Child {
         .args([
             "--exact",
             "interruption::child_copy_for_sigkill",
-            "--ignored",
             "--nocapture",
         ])
         .env("XSH_FS_KILL_FIXTURE", root)
@@ -239,7 +238,6 @@ fn killing_publication_at_each_journal_step_leaves_a_complete_destination() {
             .args([
                 "--exact",
                 "interruption::child_replace_at_boundary",
-                "--ignored",
                 "--nocapture",
             ])
             .env("XSH_PUBLICATION_CRASH_ROOT", root)
@@ -301,7 +299,6 @@ fn wait_ready(child: &mut Child, boundary: Boundary) {
 }
 
 #[test]
-#[ignore = "subprocess fixture for process interruption"]
 fn child_replace_at_boundary() {
     let Some(root) = std::env::var_os("XSH_PUBLICATION_CRASH_ROOT") else {
         return;
@@ -344,7 +341,6 @@ fn child_replace_at_boundary() {
 }
 
 #[test]
-#[ignore = "subprocess fixture for process interruption"]
 fn child_copy_for_sigkill() {
     let Some(root) = std::env::var_os("XSH_FS_KILL_FIXTURE") else {
         return;

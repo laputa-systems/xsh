@@ -3164,6 +3164,7 @@ fn unix_module() -> ModuleSig {
                 vec![
                     param("command", Type::Command),
                     default_param("notify", Type::Bool),
+                    default_param("new_session", Type::Bool),
                 ],
                 result(unix_spawned_child_type()),
                 false,

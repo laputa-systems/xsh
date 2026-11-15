@@ -58,7 +58,6 @@ fn start_crash_child(root: &Path, boundary: Boundary, restrictive_umask: bool) -
         .args([
             "--exact",
             "recovery::crash_child",
-            "--ignored",
             "--nocapture",
         ])
         .env("XSH_JOURNAL_CRASH_ROOT", root)
@@ -94,7 +93,6 @@ fn recover(root: &Path) -> std::io::Result<()> {
 }
 
 #[test]
-#[ignore = "subprocess fixture for journal interruption"]
 fn crash_child() {
     let Some(root) = std::env::var_os("XSH_JOURNAL_CRASH_ROOT") else {
         return;
@@ -124,7 +122,6 @@ fn crash_child() {
 }
 
 #[test]
-#[ignore = "subprocess fixture for batch journal interruption"]
 fn crash_batch_child() {
     let Some(root) = std::env::var_os("XSH_JOURNAL_CRASH_ROOT") else {
         return;
@@ -170,7 +167,6 @@ fn killed_batch_restores_every_unlinked_capture() {
             .args([
                 "--exact",
                 "recovery::crash_batch_child",
-                "--ignored",
                 "--nocapture",
             ])
             .env("XSH_JOURNAL_CRASH_ROOT", &fixture.0)
@@ -617,7 +613,6 @@ fn inherited_pre_exec_descriptor_does_not_extend_a_finished_session_lock() {
             .args([
                 "--exact",
                 "recovery::crash_child",
-                "--ignored",
                 "--nocapture",
             ])
             .stdout(Stdio::null());

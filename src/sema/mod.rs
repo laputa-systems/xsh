@@ -20,3 +20,6 @@ pub mod validated;
 
 pub(crate) mod stage_arguments;
 pub mod wire_enums;
+
+#[cfg(test)]
+mod effects_conformance;
