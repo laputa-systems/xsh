@@ -2,12 +2,12 @@ test test_linux_fake_covers_module_surface { |ctx|
   let root = test.temp_dir(ctx, name: "linux")?
   let log = fp"{root}/linux.jsonl"
   let seed = fp"{root}/seed"
-  let random = fp"{root}/random"
+  let device = fp"{root}/random"
   seed.write("seed")
 
   test.linux_fake(ctx, {log: log})
   linux.write_device(p"/dev/urandom", seed)
-  linux.read_device(p"/dev/urandom", random, bytes: 4)
+  linux.read_device(p"/dev/urandom", device, bytes: 4)
   linux.mount(b"proc", p"/proc", fstype: "proc", options: ["nosuid"])
   linux.mount(b"proc\xff", p"/proc", fstype: "proc")
   linux.mount_all()
@@ -87,7 +87,7 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.poweroff()
   linux.reboot()
 
-  assert random.read_bytes()? == b"\0\0\0\0"
+  assert device.read_bytes()? == b"\0\0\0\0"
   let log_text = log.read_text()?
   assert "\"op\":\"mount\"" in log_text
   assert "\"source\":[112,114,111,99]" in log_text

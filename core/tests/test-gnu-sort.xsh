@@ -676,8 +676,8 @@ test test_gnu_sort_sort_merge_fdlimit_log { |ctx|
   let plain = shell_sort(s, ["-m", "--batch-size=16"].extend(files), r"""ulimit -n 19 || exit 77; exec "$@";""")?
   assert plain.status == 0 or ! ("open failed" in plain.stderr as Str)
   for extra in [[], ["--random-source=some-data"]] {
-    let random = shell_sort(s, ["-mR"].extend(extra).extend(["--batch-size=16"]).extend(files), r"""ulimit -n 20 || exit; exec "$@";""")?
-    assert random.status == 0 or ! ("open failed" in random.stderr as Str)
+    let shuffled = shell_sort(s, ["-mR"].extend(extra).extend(["--batch-size=16"]).extend(files), r"""ulimit -n 20 || exit; exec "$@";""")?
+    assert shuffled.status == 0 or ! ("open failed" in shuffled.stderr as Str)
   }
   uu.write(s, "out", "6\n")
   let occupied = shell_sort(s, ["-n", "-m", "--batch-size=7", "-o", "out", "out", "in/1", "in/2", "in/3", "in/4", "in/5", "out"], r"""exec 3<&- 4<&- 5<&- 6<&- 7</dev/null 8<&7 9<&7; ulimit -n 10 || exit; exec "$@";""")?
@@ -690,17 +690,17 @@ test test_gnu_sort_sort_rand_log { |ctx|
   let s = uu.scene(ctx)?
   let input = sequence(1, 100)
   uu.write(s, "in", input)
-  let random = uu.invoke(s, "sort", ["--random-sort", "in"])?
-  uu.succeeds(random)
-  assert random.stdout != bytes.from_text(input)
-  let restored = uu.invoke(s, "sort", ["-n"], stdin: random.stdout)?
+  let shuffled = uu.invoke(s, "sort", ["--random-sort", "in"])?
+  uu.succeeds(shuffled)
+  assert shuffled.stdout != bytes.from_text(input)
+  let restored = uu.invoke(s, "sort", ["-n"], stdin: shuffled.stdout)?
   uu.stdout_is(restored, input)
   let first = uu.invoke(s, "sort", ["--random-sort", "in"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   let second = uu.invoke(s, "sort", ["--random-sort", "in"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(first)
   uu.succeeds(second)
   assert first.stdout != second.stdout
-  let repeated_restore = uu.invoke(s, "sort", ["-n"], stdin: random.stdout)?
+  let repeated_restore = uu.invoke(s, "sort", ["-n"], stdin: shuffled.stdout)?
   uu.stdout_is(repeated_restore, input)
 }
 

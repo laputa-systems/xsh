@@ -138,18 +138,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prefix = bytes.concat([path_prefix, pattern[0..start]])
   let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   for _ in range(256) {
-    var random = ""
-    while random.byte_len() < end - start {
+    var letters = ""
+    while letters.byte_len() < end - start {
       let entropy = bytes.read_at(p"/dev/urandom", 0, end - start)
       if let Err(failure) = entropy { gnu.error(f"cannot get random bytes: {gnu.strerror(failure)}"); exit 1 }
       for index in range(end - start) {
         let byte = entropy?.byte_at(index) ?? 0
         continue when byte >= 248
-        random += alphabet.byte_slice(byte % 62, length: 1)
-        break when random.byte_len() == end - start
+        letters += alphabet.byte_slice(byte % 62, length: 1)
+        break when letters.byte_len() == end - start
       }
     }
-    let name = bytes.concat([prefix, bytes.from_text(random), suffix])
+    let name = bytes.concat([prefix, bytes.from_text(letters), suffix])
     let target = name as Path
     if opts.dry { gnu.write_bytes(bytes.concat([name, b"\n"])); return }
     let made = if opts.directory {
