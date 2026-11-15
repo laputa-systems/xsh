@@ -274,9 +274,9 @@ of 2026-11-05 is not that review and lists the risks it could not demonstrate.
   bytes, stdin bytes the client has read and output it holds for a full pipe
   are wiped when dropped or compacted, and an outgoing packet is sealed before
   its buffer can move. Graviola wipes its own signing-key, key-agreement and
-  cipher state on drop. The SHA-256 contexts that hash the shared secret into
-  the exchange hash and keys, the caller's own stdin buffer, process memory
-  dumps and swap are outside that guarantee.
+  cipher state on drop, as well as the SHA-256 contexts that hash the shared
+  secret into the exchange hash and keys. The caller's own stdin buffer,
+  process memory dumps and swap are outside that guarantee.
 - Text the server supplies (a disconnect description, a channel-open failure
   reason, an exit-signal name, offered authentication methods and algorithm
   names) loses its control and bidirectional-override characters and is cut to
