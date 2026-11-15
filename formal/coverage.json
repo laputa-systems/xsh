@@ -13073,6 +13073,42 @@
       "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
     },
     {
+      "id": "fragment.Xsh.Core.CleanupPolicy.disposition_contract",
+      "module": "Xsh.Core.CleanupPolicy",
+      "declaration": "Xsh.Core.CleanupPolicy.disposition_contract",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Forced errors raise; secondary reporting is exactly the non-forced primary-failure case.",
+      "boundary": "The model covers pure finite error sequences and supplied force and managed facts; Rust agreement is finite conformance evidence, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupPolicy.failure_recorded_contract",
+      "module": "Xsh.Core.CleanupPolicy",
+      "declaration": "Xsh.Core.CleanupPolicy.failure_recorded_contract",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Only non-forced managed failures are excluded from recording.",
+      "boundary": "The model covers pure finite error sequences and supplied force and managed facts; Rust agreement is finite conformance evidence, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupPolicy.fold_conserves",
+      "module": "Xsh.Core.CleanupPolicy",
+      "declaration": "Xsh.Core.CleanupPolicy.fold_conserves",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The emitted errors and final retained error preserve the multiset of all inputs.",
+      "boundary": "The model covers pure finite error sequences and supplied force and managed facts; Rust agreement is finite conformance evidence, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.CleanupPolicy.fold_selects",
+      "module": "Xsh.Core.CleanupPolicy",
+      "declaration": "Xsh.Core.CleanupPolicy.fold_selects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The first forced error is retained when present; otherwise the first error is retained.",
+      "boundary": "The model covers pure finite error sequences and supplied force and managed facts; Rust agreement is finite conformance evidence, not universal refinement. Resource operations, scheduling, tracebacks and host signal delivery remain outside the model. CLEAN-ORDER, CLEAN-ONCE and CLEAN-ERROR remain planned."
+    },
+    {
       "id": "fragment.Xsh.Core.DeadlinePolicy.policy_contract",
       "module": "Xsh.Core.DeadlinePolicy",
       "declaration": "Xsh.Core.DeadlinePolicy.policy_contract",

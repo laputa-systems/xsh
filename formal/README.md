@@ -528,3 +528,46 @@ Four altered corpora, with one flipped implication, the last row removed, a
 duplicated row and an effect set outside the domain, each exit 101 with,
 respectively, `model/source disagreement`, `incomplete corpus`,
 `duplicate input` and `out-of-domain input`.
+## Pilot 3 cleanup precedence
+
+The model folds finite lists of errors with an identity and a forced flag. It
+retains the first forced error, or the first error when none is forced, and
+emits each displaced or secondary error immediately. The conservation theorem
+relates the input multiset to the retained error and emitted sequence. The
+model also states the managed-release recording rule and the final disposition
+for supplied force and primary-failure facts. It assumes those facts and error
+identities are supplied correctly; resource execution, traceback handling,
+signal delivery, and frame scheduling remain outside the model. The Rust
+adapter uses the same decisions; the finite corpus is conformance evidence,
+not a universal proof of Rust refinement. This fixes a forced cleanup failure
+being demoted behind an earlier non-forced failure. CLEAN-ORDER, CLEAN-ONCE,
+and CLEAN-ERROR remain planned.
+
+From the repository root, generate and compare the exhaustive corpus of all
+four disposition inputs, four recording inputs, and sequences of at most four
+managed/unmanaged plain/forced failures:
+
+```sh
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupPolicyCases.lean > "$TMPDIR/cleanup-cases.txt"
+XSH_CLEANUP_CASES="$TMPDIR/cleanup-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_policy_conformance::production_matches_lean_cleanup_policy -- --ignored --exact
+```
+
+Both exit 0 over 349 rows. Four altered corpora, with a flipped report list,
+a missing row, a duplicated row and a malformed row, exit 101 with
+`model/source disagreement`, `incomplete corpus`, `duplicate input` and
+`malformed row`. The regression
+`explicit_run::tests::forced_cleanup_failure_overrides_earlier_failure` fails
+before the fix with `forced cleanup must surface` and passes after it. The
+defer, errdefer, within, resource, traceback, propagation and context-scope
+native tests pass through `cargo dev gate` with unchanged counts.
+
+The model and inventory checks run with:
+
+```sh
+(cd formal && lake build)
+python3 formal/scripts/check-inventory.py
+python3 formal/tests/inventory/test_check_inventory.py
+(cd formal && /bin/bash scripts/audit-axioms.sh)
+```
+
+Each exits 0.

@@ -164,7 +164,7 @@ Preserve reverse defer order, changing `errdefer` eligibility, managed-release
 behavior, primary versus secondary errors, original exits and tracebacks,
 forced cancellation, and deadline shielding. The runner still executes deferred
 expressions and owns actual resources. Expand into frame scheduling or resource
-transfer only when the initial boundary removes complexity.
+transfer only when the initial boundary removes complexity. Pilot 3 extracts force-aware cleanup precedence and checks it against a Lean model and finite conformance corpus.
 
 ### Acceptance and proof limits
 

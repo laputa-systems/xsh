@@ -1,3 +1,4 @@
+use super::cleanup_policy::{CleanupFailures, Disposition, cleanup_disposition, failure_is_recorded, forced};
 use crate::modules::RuntimeOp;
 use crate::runtime::eval::indexed::full::{PreparedInvocationBindings, PreparedIndexKeyCheck};
 use super::serial_pipeline::{
@@ -472,6 +473,44 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1, "expected one {tag:?} instruction");
         matches[0]
+    }
+
+    #[test]
+    fn forced_cleanup_failure_overrides_earlier_failure() {
+        crate::runtime::eval::run_eval(|| {
+            let (program, source_id) = full_program("proc parent() { defer { let _ = 1 } }\n");
+            program.symbol_owner().with_current(|| {
+                let parent = Name::intern("parent");
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames.push_call(LoweredFunctionKey::Name(parent), CallableKind::Proc, Vec::new(), span, None).unwrap();
+                let execution = program.function_view(LoweredFunctionKey::Name(parent), CallableKind::Proc).unwrap().unwrap().execution().unwrap();
+                let instruction = function_instruction(&program, &execution, FullTag::StmtDefer);
+                let (tag, payload) = execution.instruction_id(instruction).unwrap();
+                let StmtView::Defer { value, .. } = StmtView::decode(&execution, tag, payload).unwrap() else { unreachable!() };
+                let group = Box::new(CleanupGroup {
+                    defers: vec![RegisteredDefer::new(value.raw(), DeferKind::Always)],
+                    next_defer: 0,
+                    leaves_with_error: false,
+                    failures: CleanupFailures::default(),
+                    primary_error: None,
+                    primary_traceback: None,
+                    released: None,
+                    cleanup_contexts: Vec::new(),
+                    call_span: span,
+                    resume: CleanupGroupResume::Call(StmtFlow::None),
+                });
+                frames.record_cleanup_action_failure(group, RuntimeError::new("first", "first"), None);
+                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
+                frames.evaluator.deliver_test_cancel(crate::runtime::eval::TestCancelRequest::Force, span).unwrap();
+                frames.record_cleanup_action_failure(group, RuntimeError::abort(143, true).with_span(span), None);
+                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
+                let result = frames.finish_cleanup_group(0, *group);
+                assert!(matches!(result, Err(error) if error.abort.is_some_and(|signal| signal.force)), "forced cleanup must surface");
+            });
+        });
     }
 
     #[test]
@@ -2447,15 +2486,11 @@ enum CleanupGroupResume {
     },
 }
 
-/// Retains one lexical cleanup sequence on its owner frame until every action ends.
-/// The primary exit and the first cleanup failure stay separate so later `errdefer`
-/// actions and secondary-error reporting use the scope's current exit state.
 struct CleanupGroup {
     defers: Vec<RegisteredDefer>,
     next_defer: usize,
     leaves_with_error: bool,
-    first_error: Option<RuntimeError>,
-    first_traceback: Option<Traceback>,
+    failures: CleanupFailures,
     primary_error: Option<RuntimeError>,
     primary_traceback: Option<Traceback>,
     released: Option<RuntimeError>,
@@ -2496,8 +2531,7 @@ struct DiscardState {
     context_scopes: usize,
     primary_error: Option<RuntimeError>,
     primary_traceback: Option<Traceback>,
-    first_error: Option<RuntimeError>,
-    first_traceback: Option<Traceback>,
+    failures: CleanupFailures,
     previous_cleanup_contexts: Vec<crate::runtime::value::ErrorContext>,
     resume: DiscardResume,
 }
@@ -2520,7 +2554,7 @@ impl CleanupGroup {
         &self,
         visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
     ) {
-        if let Some(error) = &self.first_error {
+        if let Some((error, _)) = self.failures.peek() {
             visit_retained_runtime_error(error, visitor);
         }
         if let Some(error) = &self.primary_error {
@@ -2543,7 +2577,7 @@ impl DiscardState {
         if let Some(error) = &self.primary_error {
             visit_retained_runtime_error(error, visitor);
         }
-        if let Some(error) = &self.first_error {
+        if let Some((error, _)) = self.failures.peek() {
             visit_retained_runtime_error(error, visitor);
         }
         match &self.resume {
@@ -9870,27 +9904,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             None
         };
-        let mut failure: Option<(RuntimeError, Option<Traceback>)> = None;
+        let mut failure = CleanupFailures::default();
         for (result, traceback) in [
             (publication, publication_traceback),
             (cancellation, action_traceback),
             (refresh, refresh_traceback),
         ] {
-            if let Err(error) = result {
-                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
-                let replace = failure.as_ref().is_none_or(|(previous, _)| {
-                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
-                });
-                if replace {
-                    if let Some((previous, _)) = failure.replace((error, traceback)) {
-                        self.evaluator.report_cleanup_error(&previous, span);
-                    }
-                } else {
-                    self.evaluator.report_cleanup_error(&error, span);
-                }
+            if let Err(error) = result
+                && let Some(secondary) = failure.record(error, traceback)
+            {
+                self.evaluator.report_cleanup_error(&secondary, span);
             }
         }
-        if let Some((error, traceback)) = failure {
+        if let Some((error, traceback)) = failure.take() {
             self.evaluator.pending_traceback = traceback;
             Err(error)
         } else {
@@ -9912,35 +9938,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         streams: CompStreams,
     ) -> Result<(), RuntimeError> {
-        let mut first_error = None;
-        let mut first_traceback = None;
-        for stream in streams
-            .lock()
-            .expect("comprehension stream state poisoned")
-            .iter_mut()
-            .rev()
-        {
+        let mut failures = CleanupFailures::default();
+        for stream in streams.lock().expect("comprehension stream state poisoned").iter_mut().rev() {
             if let Some((mut stream, span)) = stream.take() {
-                let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) else {
-                    continue;
-                };
+                let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) else { continue; };
                 let traceback = self.evaluator.pending_traceback.take();
-                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
-                let replace = first_error.as_ref().is_none_or(|previous: &RuntimeError| {
-                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
-                });
-                if replace {
-                    if let Some(previous) = first_error.replace(error) {
-                        self.evaluator.report_cleanup_error(&previous, span);
-                    }
-                    first_traceback = traceback;
-                } else {
-                    self.evaluator.report_cleanup_error(&error, span);
+                if let Some(secondary) = failures.record(error, traceback) {
+                    self.evaluator.report_cleanup_error(&secondary, span);
                 }
             }
         }
-        if let Some(error) = first_error {
-            self.evaluator.pending_traceback = first_traceback;
+        if let Some((error, traceback)) = failures.take() {
+            self.evaluator.pending_traceback = traceback;
             Err(error)
         } else {
             Ok(())
@@ -10456,8 +10465,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             next_defer: defers.len(),
             defers,
             leaves_with_error,
-            first_error: None,
-            first_traceback: None,
+            failures: CleanupFailures::default(),
             primary_error: None,
             primary_traceback: self.evaluator.pending_traceback.take(),
             released: released.err(),
@@ -10510,8 +10518,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             next_defer: defers.len(),
             defers,
             leaves_with_error,
-            first_error: None,
-            first_traceback: None,
+            failures: CleanupFailures::default(),
             primary_error: Some(primary_error),
             primary_traceback,
             released: released.err(),
@@ -10645,17 +10652,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         error: RuntimeError,
         traceback: Option<Traceback>,
     ) {
-        let managed = group.defers[group.next_defer].kind() == DeferKind::ManagedRelease;
-        if managed && !error.abort.as_ref().is_some_and(|signal| signal.force) {
-            self.report_cleanup_error_with_contexts(&error, group.call_span, &group.cleanup_contexts);
-        } else {
+        if failure_is_recorded(group.defers[group.next_defer].kind(), forced(&error)) {
             group.leaves_with_error = true;
-            if group.first_error.is_none() {
-                group.first_error = Some(error);
-                group.first_traceback = traceback;
-            } else {
-                self.report_cleanup_error_with_contexts(&error, group.call_span, &group.cleanup_contexts);
+            if let Some(secondary) = group.failures.record(error, traceback) {
+                self.report_cleanup_error_with_contexts(&secondary, group.call_span, &group.cleanup_contexts);
             }
+        } else {
+            self.report_cleanup_error_with_contexts(&error, group.call_span, &group.cleanup_contexts);
         }
         self.evaluator.pending_traceback = None;
         self.calls
@@ -10706,39 +10709,34 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         mut group: CleanupGroup,
     ) -> Result<(), RuntimeError> {
-        if let Some(released) = group.released.take() {
-            if group.first_error.is_some() {
-                self.report_cleanup_error_with_contexts(
-                    &released,
-                    group.call_span,
-                    &group.cleanup_contexts,
-                );
-            } else {
-                group.first_error = Some(released);
-            }
+        if let Some(released) = group.released.take()
+            && let Some(secondary) = group.failures.record(released, None)
+        {
+            self.report_cleanup_error_with_contexts(&secondary, group.call_span, &group.cleanup_contexts);
         }
 
         match group.resume {
             CleanupGroupResume::Call(flow) => {
-                let cleanup_error = group.first_error.take();
+                let (cleanup_error, first_traceback) = group.failures.take().map_or((None, None), |(e, t)| (Some(e), t));
                 self.evaluator.pending_traceback =
-                    group.primary_traceback.take().or(group.first_traceback.take());
+                    group.primary_traceback.take().or(first_traceback);
                 if let Some(error) = cleanup_error {
-                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                        return Err(error);
-                    }
-                    if self.checked_flow_leaves_with_error(index, &flow)? {
-                        self.report_cleanup_error_with_contexts(
+                    let force = forced(&error);
+                    let primary_fails = !force && self.checked_flow_leaves_with_error(index, &flow)?;
+                    match cleanup_disposition(force, primary_fails) {
+                        Disposition::Raise => return Err(error),
+                        Disposition::ReportSecondary => self.report_cleanup_error_with_contexts(
                             &error,
                             group.call_span,
                             &group.cleanup_contexts,
-                        );
-                    } else {
-                        let mut error = error;
-                        if error.propagated {
-                            error.scope_cleanup = error.abort.is_none();
+                        ),
+                        Disposition::Surface => {
+                            let mut error = error;
+                            if error.propagated {
+                                error.scope_cleanup = error.abort.is_none();
+                            }
+                            return Err(error);
                         }
-                        return Err(error);
                     }
                 }
                 self.finish_call_with_cleanup_contexts(
@@ -10748,10 +10746,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )
             }
             CleanupGroupResume::ErrorCall => {
-                if let Some(error) = group.first_error.take() {
-                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                        return Err(error);
-                    }
+                let (cleanup_error, first_traceback) = group.failures.take().map_or((None, None), |(e, t)| (Some(e), t));
+                if let Some(error) = cleanup_error {
+                    if cleanup_disposition(forced(&error), true) == Disposition::Raise { return Err(error); }
                     self.report_cleanup_error_with_contexts(
                         &error,
                         group.call_span,
@@ -10765,7 +10762,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .expect("error cleanup retains its primary"),
                 );
                 self.evaluator.pending_traceback =
-                    group.primary_traceback.take().or(group.first_traceback.take());
+                    group.primary_traceback.take().or(first_traceback);
                 self.finish_error_call(index, &group.cleanup_contexts)
             }
             CleanupGroupResume::Block {
@@ -10774,7 +10771,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 during_discard,
                 include_work_contexts,
             } => {
-                let mut cleanup = group.first_error.take();
+                let (mut cleanup, first_traceback) = group.failures.take().map_or((None, None), |(e, t)| (Some(e), t));
                 if include_work_contexts
                     && disposition == CleanupFailureResources::Retain
                     && cleanup.is_some()
@@ -10828,7 +10825,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 self.evaluator.pending_traceback =
-                    group.primary_traceback.take().or(group.first_traceback.take());
+                    group.primary_traceback.take().or(first_traceback);
                 if during_discard {
                     let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
                         unreachable!("discarded block cleanup resumes its discard cursor");
@@ -12390,8 +12387,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             next_defer: defers.len(),
             defers,
             leaves_with_error,
-            first_error: None,
-            first_traceback: None,
+            failures: CleanupFailures::default(),
             primary_error: None,
             primary_traceback: self.evaluator.pending_traceback.take(),
             released: released.err(),
@@ -12461,8 +12457,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             context_scopes,
             primary_error,
             primary_traceback,
-            first_error: None,
-            first_traceback: None,
+            failures: CleanupFailures::default(),
             previous_cleanup_contexts,
             resume,
         })));
@@ -12474,11 +12469,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         error: RuntimeError,
         traceback: Option<Traceback>,
     ) {
-        if state.first_error.is_none() {
-            state.first_error = Some(error);
-            state.first_traceback = traceback;
-        } else {
-            self.evaluator.report_cleanup_error(&error, self.calls.last().map_or_else(
+        if let Some(secondary) = state.failures.record(error, traceback) {
+            self.evaluator.report_cleanup_error(&secondary, self.calls.last().map_or_else(
                 crate::runtime::eval::zero_span,
                 |call| call.call_span,
             ));
@@ -12498,19 +12490,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if !state.primary_failed
             && state.context_scopes > 0
             && state
-                .first_error
-                .as_ref()
+                .failures
+                .peek().map(|(error, _)| error)
                 .is_some_and(Evaluator::context_scope_runtime_error_escapes)
         {
             self.evaluator.pending_traceback = None;
-            state.first_error = Some(
+            state.failures.take();
+            state.failures.record(
                 RuntimeError::new(
                     "context-scope-escape",
                     "a live producer or host handle cannot escape a restored context",
                 )
-                .with_span(self.calls[index].call_span),
+                .with_span(self.calls[index].call_span), None,
             );
-            state.first_traceback = None;
         }
         let work = self.calls[index]
             .work
@@ -12533,16 +12525,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 if let Some(error) = state.primary_error.take() {
                     state.primary_error = Some(contextualize_runtime_error(error, context.clone()));
                 }
-                if let Some(error) = state.first_error.take() {
-                    state.first_error = Some(contextualize_runtime_error(error, context.clone()));
+                if let Some((error, traceback)) = state.failures.take() {
+                    state.failures.record(contextualize_runtime_error(error, context.clone()), traceback);
                 }
                 if let Some(error) = state.primary_error.as_ref()
                     && let Some(traceback) = &mut state.primary_traceback
                 {
                     traceback.error = crate::trace::TraceError::from_runtime_error(error);
                 }
-                if let Some(error) = state.first_error.as_ref()
-                    && let Some(traceback) = &mut state.first_traceback
+                if let Some((error, Some(traceback))) = state.failures.peek_mut()
                 {
                     traceback.error = crate::trace::TraceError::from_runtime_error(error);
                 }
@@ -12579,7 +12570,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return Ok(());
                 };
                 if !state.primary_failed
-                    && let Some(error) = &state.first_error
+                    && let Some((error, _)) = state.failures.peek()
                     && error.abort.is_none()
                     && error.propagated
                 {
@@ -12587,7 +12578,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.evaluator
                         .transfer_owned_host_resources_in_runtime_error(error, parent);
                 }
-                let disposition = if state.primary_failed || state.first_error.is_some() {
+                let disposition = if state.primary_failed || state.failures.peek().is_some() {
                     CleanupFailureResources::Release
                 } else if state.context_scopes > 0 {
                     CleanupFailureResources::RejectContextEscape
@@ -12604,7 +12595,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .rev()
                         .find_map(|work| match work {
                             FrameWork::Discard(state) => Some(
-                                state.primary_is_error || state.first_error.is_some(),
+                                state.primary_is_error || state.failures.peek().is_some(),
                             ),
                             _ => None,
                         })
@@ -12703,64 +12694,36 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_discard(&mut self, index: usize, mut state: DiscardState) -> Result<(), RuntimeError> {
         let report_contexts = self.evaluator.cleanup_error_contexts.clone();
         let report_span = self.calls[index].call_span;
-        if let Some(error) = state.first_error.take() {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
-                self.evaluator.pending_traceback = state.first_traceback.take();
-                return Err(error);
-            }
+        let (cleanup_error, mut first_traceback) = state.failures.take().map_or((None, None), |(e, t)| (Some(e), t));
+        if let Some(error) = cleanup_error {
+            let force = forced(&error);
             let complete_call_leaves_with_error = match &state.resume {
-                DiscardResume::CompleteCall { flow, .. } => {
-                    self.checked_flow_leaves_with_error(index, flow)?
-                }
+                DiscardResume::CompleteCall { flow, .. } if !force => self.checked_flow_leaves_with_error(index, flow)?,
                 _ => false,
             };
-            match &state.resume {
-                DiscardResume::CapturedPropagation { .. }
-                | DiscardResume::CleanupFlow { .. }
-                | DiscardResume::CompleteCall { .. }
-                    if state.primary_failed =>
-                {
-                    self.report_cleanup_error_with_contexts(
-                        &error,
-                        report_span,
-                        &report_contexts,
-                    );
-                }
-                DiscardResume::UnwindError { .. } => {
-                    self.report_cleanup_error_with_contexts(
-                        &error,
-                        report_span,
-                        &report_contexts,
-                    );
-                }
-                DiscardResume::CleanupFlow { .. } => {
-                    self.report_cleanup_error_with_contexts(
-                        &error,
-                        report_span,
-                        &report_contexts,
-                    );
-                }
-                DiscardResume::CompleteCall { .. } if complete_call_leaves_with_error => {
-                    self.report_cleanup_error_with_contexts(
-                        &error,
-                        report_span,
-                        &report_contexts,
-                    );
-                }
-                _ => {
-                    let traceback = state.first_traceback.take();
+            let primary_fails = !force && match &state.resume {
+                DiscardResume::CapturedPropagation { .. } => state.primary_failed,
+                DiscardResume::CleanupFlow { .. } | DiscardResume::UnwindError { .. } => true,
+                DiscardResume::CompleteCall { .. } => state.primary_failed || complete_call_leaves_with_error,
+                _ => false,
+            };
+            match cleanup_disposition(force, primary_fails) {
+                Disposition::Raise => {
                     self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
-                    self.evaluator.pending_traceback = traceback;
+                    self.evaluator.pending_traceback = first_traceback.take();
+                    return Err(error);
+                }
+                Disposition::ReportSecondary => self.report_cleanup_error_with_contexts(&error, report_span, &report_contexts),
+                Disposition::Surface => {
+                    self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
+                    self.evaluator.pending_traceback = first_traceback.take();
                     let mut error = error;
-                    if error.propagated {
-                        error.scope_cleanup = error.abort.is_none();
-                    }
+                    if error.propagated { error.scope_cleanup = error.abort.is_none(); }
                     return Err(error);
                 }
             }
         }
-        let first_traceback = state.first_traceback.take();
+        let first_traceback = first_traceback.take();
         self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
         match state.resume {
             DiscardResume::Continue => {

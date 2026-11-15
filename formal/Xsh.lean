@@ -1,3 +1,4 @@
+import Xsh.Core.CleanupPolicy
 import Xsh.Core.DeadlinePolicy
 import Xsh.Core.EffectPredicates
 import Xsh.Core.ReferenceControls

@@ -3141,6 +3141,8 @@ mod arith_conformance;
 
 #[cfg(test)]
 mod deadline_policy_conformance;
+#[cfg(test)]
+mod cleanup_policy_conformance;
 
 #[cfg(test)]
 mod membership_conformance;
