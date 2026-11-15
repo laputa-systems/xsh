@@ -40,6 +40,6 @@ jobs:
             -v "$PWD:/work" -w /work \
             -e CARGO_INCREMENTAL=0 \
             -e CARGO_BUILD_TARGET=aarch64-unknown-linux-musl \
-            -e TARGET=aarch64-unknown-linux-musl -e DIST_PROFILE=dev \
+            -e TARGET=aarch64-unknown-linux-musl -e DIST_PROFILE=verification \
             -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
             xsh-test cargo dev internal test-linux-ci
