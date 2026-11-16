@@ -27,7 +27,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 from native_image import IMAGE_ID
 
 
-CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+CONTROLLER_ROOT = pathlib.Path(__file__).resolve().parents[5]
 WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
 TOOL_DIR = pathlib.Path(__file__).resolve().parent
 OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"

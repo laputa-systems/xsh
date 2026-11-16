@@ -3,7 +3,7 @@ set -Eeuo pipefail
 lane=$(git rev-parse --show-toplevel)
 view=$1
 logs=$2
-products=/home/josh/d/laputa-systems/xsh/.work/wt/typing-host-obligations/.work/target-typing-host-obligations/x86_64-unknown-linux-musl/verification
+products=${XSH_TYPING_PRODUCTS:?set XSH_TYPING_PRODUCTS to the pinned verification products}
 image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
 case "$view:$logs" in "$lane/.work/"*:"$lane/.work/"*) ;; *) exit 2 ;; esac
 mkdir -p "$logs/tmp"

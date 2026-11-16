@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set +e
-TASK_ART=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/source-metrics-progress
-TASK_ROOT=/home/josh/d/laputa-systems/xsh
-TASK_INFRA=/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation
+TASK_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)
+TASK_ART=$TASK_ROOT/.work/final-review-evidence/source-metrics-progress
+TASK_INFRA=${XSH_METRICS_INFRA:?set XSH_METRICS_INFRA to the consolidation directory}
 TASK_BIN=$TASK_INFRA/restart/master-7fe-bin
 TASK_WRAPPER=$TASK_INFRA/infra/run-native.sh
 TASK_START=$(date +%s)

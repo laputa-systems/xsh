@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+ROOT = pathlib.Path(__file__).resolve().parents[5]
 SOURCE = HERE / "plan_source.py"
 GENERATOR = HERE / "generate_manifest.py"
 

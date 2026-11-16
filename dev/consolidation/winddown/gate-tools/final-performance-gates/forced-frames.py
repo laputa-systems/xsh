@@ -45,7 +45,7 @@ from owned_containers import (
 )
 
 
-ROOT = Path("/home/josh/d/laputa-systems/xsh")
+ROOT = Path(__file__).resolve().parents[5]
 PERFORMANCE_DIR = ROOT / ".work/final-review-evidence/final-performance-gates"
 INFRA = ROOT / ".work/consolidation/infra"
 PROFILE_OUTPUT_ROOT = ROOT / ".work/consolidation/final-performance-gates"

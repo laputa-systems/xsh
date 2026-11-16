@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 lane=$(git rev-parse --show-toplevel)
-products=/home/josh/d/laputa-systems/xsh/.work/wt/typing-host-obligations/.work/target-typing-host-obligations/x86_64-unknown-linux-musl/verification
+products=${XSH_TYPING_PRODUCTS:?set XSH_TYPING_PRODUCTS to the pinned verification products}
 scratch=$lane/.work/tmp/corpus
 selectors=$lane/dev/consolidation/typing-corpus/witnesses.tsv
 image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
@@ -50,7 +50,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-exec 9>/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock
+exec 9>"$lane/.work/consolidation/infra/native-suite.lock"
 flock -n -x 9
 for view in original reduced-final; do
   logs=$attempt/$view

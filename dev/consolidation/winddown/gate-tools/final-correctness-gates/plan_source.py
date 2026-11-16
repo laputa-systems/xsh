@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from native_image import IMAGE_ID
 
+ROOT = Path(__file__).resolve().parents[5]
 TARGET = "x86_64-unknown-linux-musl"
 IMAGE = IMAGE_ID
 
@@ -25,9 +26,9 @@ def plan_data() -> dict[str, Any]:
                 "required": True,
                 "must_be_clean_git_root": True,
             },
-            "native_runner_base_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/run-native.sh",
-            "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
-            "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+            "native_runner_base_path": str(ROOT / ".work/consolidation/infra/run-native.sh"),
+            "native_lock_path": str(ROOT / ".work/consolidation/infra/native-suite.lock"),
+            "native_cleanup_marker_path": str(ROOT / ".work/consolidation/infra/native-suite.cleanup-unresolved"),
             "cleanup_command_timeout_seconds": 10,
             "runner_term_timeout_seconds": 5,
             "runner_kill_timeout_seconds": 5,

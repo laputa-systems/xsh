@@ -25,10 +25,7 @@ import w9_publication_reference_derivation as reference_derivation
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-APPROVED_HELPER = pathlib.Path(
-    "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
-    ".work/consolidation/w9-repository-parity.rs"
-)
+APPROVED_HELPER = ROOT.parent / "xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-repository-parity.rs"
 SOURCE_APPROVED_HELPER = (
     pathlib.Path(__file__).resolve().parents[2]
     / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"

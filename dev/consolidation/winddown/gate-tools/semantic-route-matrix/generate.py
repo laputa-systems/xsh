@@ -163,6 +163,20 @@ TYPED_SCALAR_SEMANTICS = {
         "liveness": "no child instructions",
         "errors": ["typed Int view decode", "slot bounds or slot value is not LoweredValue::Int", "typed result stack final-value invariant"],
     },
+    "IntFieldSlot": {
+        "result": "Int field read from a record slot becomes TypedScalarValue::Int",
+        "children": [],
+        "evaluation": "slot field read only",
+        "liveness": "no child instructions",
+        "errors": ["typed Int view decode", "missing field or field value is not Int"],
+    },
+    "IntListIndexSlot": {
+        "result": "checked Int list index read from a slot becomes TypedScalarValue::Int",
+        "children": ["index"],
+        "evaluation": "index first, then checked slot read",
+        "liveness": "index is strict",
+        "errors": ["typed Int view decode", "index child decode/type error", "slot type or index bounds error"],
+    },
     "IntBinary": {
         "result": "checked_int_binary(op, left, right, span) becomes TypedScalarValue::Int",
         "children": ["left", "right"],

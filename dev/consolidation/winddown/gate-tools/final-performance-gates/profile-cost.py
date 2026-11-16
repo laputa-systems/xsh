@@ -39,7 +39,7 @@ from owned_containers import (
     wait_for_owned_process,
 )
 
-ROOT = Path("/home/josh/d/laputa-systems/xsh")
+ROOT = Path(__file__).resolve().parents[5]
 INFRA = ROOT / ".work/consolidation/infra"
 RUNNER = Path(__file__).resolve().parents[1] / "infra/run-native.sh"
 CONTAINER_BUILD_WRAPPER = Path(__file__).resolve().parents[1] / "infra/container-build.sh"

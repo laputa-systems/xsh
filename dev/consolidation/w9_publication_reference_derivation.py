@@ -9,7 +9,7 @@ import tempfile
 import w9_publication_reference_correction as retry_context
 
 
-CHECKOUT_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+CHECKOUT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE_ROOT = CHECKOUT_ROOT / ".work/wt/w9-derived-api-imports"
 SOURCE_PARENT = "1fd9e5f2f366833b786e57d1fc54bcd9a238731e"
 SOURCE_COMMIT = "74f1551ee9e3066b653ae190779e16d511c90293"

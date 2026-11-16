@@ -17,7 +17,7 @@ CONTROLLER_ROOT = pathlib.Path(
     ).stdout.strip()
 ).resolve().parent
 BUILDER = ROOT / "dev/consolidation/w9-source-build.sh"
-LINKER = pathlib.Path("/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh")
+LINKER = ROOT / "dev/musl-linker.sh"
 PROGRAM_ROOT = CONTROLLER_ROOT / ".work/wt/w9-program-e240"
 TASK_TMP = CONTROLLER_ROOT / ".work/tmp"
 LINKER_SHA256 = "583039d8ee08330c3eaab1970802181f1ed766f412bfe9d7493fb39135ebc727"

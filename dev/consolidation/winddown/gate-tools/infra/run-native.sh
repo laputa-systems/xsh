@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-TASK_ROOT=/home/josh/d/laputa-systems/xsh
+TASK_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)
 TASK_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 TASK_IMAGE_ID=$(python3 "$TASK_SCRIPT_DIR/../../../native_image.py")
 if [ "$#" -eq 1 ] && [ "$1" = "--image-id" ]; then
@@ -26,7 +26,7 @@ TASK_DOCKER=(docker run --rm --init --platform linux/amd64 --cpus=12 --memory=24
   -v "$TASK_TREE:$TASK_TREE"
   -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
   -v "$TASK_ROOT/dev/consolidation/winddown/gate-tools/infra/container-build.sh:/usr/local/bin/xsh-container-build.sh:ro"
-  -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro
+  -v "${XSH_LAPUTA_CORPUS:?set XSH_LAPUTA_CORPUS}:${XSH_LAPUTA_CORPUS}:ro"
   -v "$TASK_BASELINE:$TASK_BASELINE:ro"
   -w "$TASK_TREE"
   -e LC_ALL=C -e TZ=UTC -e TMPDIR=/tmp
@@ -38,7 +38,7 @@ TASK_DOCKER=(docker run --rm --init --platform linux/amd64 --cpus=12 --memory=24
   -e RUSTC_WRAPPER=/usr/local/bin/kache
   -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker
   -e CARGO_BUILD_JOBS=12
-  -e XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa
+  -e "XSH_LAPUTA_CORPUS=$XSH_LAPUTA_CORPUS"
   -e XSH_BIN="$TASK_BASELINE/xsh"
   -e "PATH=$TASK_BASELINE:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   -e 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol')

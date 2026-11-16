@@ -6,7 +6,7 @@ import re
 import subprocess
 
 
-CHECKOUT_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+CHECKOUT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE_ROOT = CHECKOUT_ROOT / ".work/wt/w9-derived-retry-context-bb"
 PATCH_PATH = SOURCE_ROOT / ".work/tmp/derived-reference-retry-full.patch"
 BASE_COMMIT = "e240efad273fe35d66d91f4037b6a8193527da2e"

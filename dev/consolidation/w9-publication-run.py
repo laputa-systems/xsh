@@ -51,13 +51,8 @@ PINNED_IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf3048
 PINNED_BUILD_TARGET = "x86_64-unknown-linux-musl"
 PINNED_BUILD_PROFILE = "verification"
 PINNED_BUILD_RUNNER_SHA256 = "3477001c6cbe8e9604cb712c10d73447b7e5ee08f0ae4f5bf606f7d8a319e46c"
-APPROVED_HELPER_SOURCE = pathlib.Path(
-    "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
-    ".work/consolidation/w9-repository-parity.rs"
-)
-APPROVED_BUILD_RUNNER = pathlib.Path(
-    "/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native.sh"
-)
+APPROVED_HELPER_SOURCE = CONTROLLER_ROOT.parent / "xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-repository-parity.rs"
+APPROVED_BUILD_RUNNER = CONTROLLER_ROOT.parent / "xsh-consolidation/.work/consolidation/infra/run-native.sh"
 HELPER_RELATIVE_PATH = pathlib.Path(".work/consolidation/w9-repository-parity.rs")
 BUILD_ARTIFACT_KIND = "repository-parity-integration-test"
 PARITY_TEST_NAME = "sema::w9_repository_parity_receipt"
@@ -140,10 +135,7 @@ SOURCE_RECEIPT_FIELDS = (
     "program_snapshot_helper",
     "program_snapshot_helper_sha256",
 )
-REFERENCE_INPUT_ROOT = pathlib.Path(
-    "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
-    ".work/consolidation/w9-corrected-pair/reference/.work/consolidation/w9-root-e240"
-)
+REFERENCE_INPUT_ROOT = CONTROLLER_ROOT.parent / "xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-corrected-pair/reference/.work/consolidation/w9-root-e240"
 PROFILES = ("default", "reveal", "execution", "check-cli")
 OPTION_HEADER = (
     'options=[("default", CheckOptions { interactive_commands: None, reveal_types: false, embedded_bodies: false }), '
@@ -812,7 +804,7 @@ def under(path: pathlib.Path, parent: pathlib.Path) -> bool:
 
 
 def wrapper_root_for(candidate_root: pathlib.Path) -> pathlib.Path:
-    checkout_root = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+    checkout_root = CONTROLLER_ROOT
     if under(candidate_root, checkout_root):
         return checkout_root
     return candidate_root
@@ -820,10 +812,10 @@ def wrapper_root_for(candidate_root: pathlib.Path) -> pathlib.Path:
 
 def validate_wrapper_root(wrapper_root: pathlib.Path, candidate_root: pathlib.Path) -> None:
     allowed = (
-        pathlib.Path("/home/josh/d/laputa-systems/xsh"),
-        pathlib.Path("/home/josh/d/laputa-systems/xsh-consolidation"),
-        pathlib.Path("/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/ratchets"),
-        pathlib.Path("/home/josh/d/laputa-systems/xsh-consolidation-lanes"),
+        CONTROLLER_ROOT,
+        CONTROLLER_ROOT.parent / "xsh-consolidation",
+        CONTROLLER_ROOT.parent / "xsh-consolidation/.work/consolidation/ratchets",
+        CONTROLLER_ROOT.parent / "xsh-consolidation-lanes",
     )
     permitted = wrapper_root in allowed or any(
         wrapper_root != parent and under(wrapper_root, parent) for parent in allowed[-1:]

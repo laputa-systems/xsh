@@ -9,7 +9,7 @@ fi
 TASK_TREE=$1
 TASK_MODE=$2
 shift 2
-TASK_ROOT=/home/josh/d/laputa-systems/xsh
+TASK_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)
 TASK_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 TASK_IMAGE_ID=$(python3 "$TASK_SCRIPT_DIR/../../../native_image.py")
 TASK_TOOL_DIR=${XSH_GATE_TOOL_DIR:?the reviewed gate tool directory is required}

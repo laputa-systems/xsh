@@ -36,7 +36,7 @@ from owned_containers import (
 )
 
 
-ROOT = Path("/home/josh/d/laputa-systems/xsh")
+ROOT = Path(__file__).resolve().parents[5]
 HERE = ROOT / ".work/final-review-evidence/final-performance-gates"
 INFRA = ROOT / ".work/consolidation/infra"
 TARGET = "x86_64-unknown-linux-musl"
