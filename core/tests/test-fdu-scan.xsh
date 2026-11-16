@@ -18,6 +18,16 @@ test test_fdu_indexed_scan_reports_tree_entries_and_root_listed { |ctx|
   assert tree.nodes[tree.root].descendants == 3
 }
 
+test test_fdu_scan_preserves_root_path_bytes_and_explicit_name { |ctx|
+  let temp = test.temp_dir(ctx, name: "fdu-root-bytes")?
+  let root = Path.parse_bytes(bytes.concat([temp.bytes(), b"/root-\xff"]))?
+  root.mkdir()
+  let tree = scan.tree(root)?
+  assert tree.nodes[tree.root].name == root.bytes()
+  let named = scan.tree(root, name: b"custom")?
+  assert named.nodes[named.root].name == b"custom"
+}
+
 test test_fdu_indexed_scan_with_exclusions_omits_excluded_paths { |ctx|
   let temp = test.temp_dir(ctx, name: "fdu-exclusions")?
   let root = fp"{temp}/root"

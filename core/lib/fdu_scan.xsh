@@ -72,7 +72,7 @@ export proc tree(root: Path, excludes: List[Path] = [], name: Bytes? = null) [fs
   }
   var nodes = built.nodes
   var root_node = nodes[0]
-  root_node.name = name ?? bytes.from_text(root.display())
+  root_node.name = name ?? root.bytes()
   nodes[0] = root_node
   built = {...built, nodes: nodes, root: 0}
   Ok(built)
