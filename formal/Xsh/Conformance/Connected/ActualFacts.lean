@@ -61,22 +61,6 @@ theorem admitted_projection_uses_names : decodedProjectionWire = decodedProjecti
       simp [sourceNameResolver, projectionNameResolver, sourceIdentity, names]
     rw [equal]
 
-set_option maxRecDepth 100000 in
-theorem projection_wire_decodes : decodedProjectionWithNames.isSome = true := by
-  simp [decodedProjectionWithNames, decodeFactsValue, decodeLocatedBody, decodeLocatedCall, decodeBody, decodeCall,
-    decodeType, decodeTypeField, decodeRead, decodeEffects, decodeOperation, decodeTypedSite,
-    decodeResolvedRead, decodeResolvedTail, decodeOperationSite, decodeParameter, decodeWord, decodeTarget,
-    decodeTypeArgument, decodeBinding, textField, wordField, listField, boolField, optionalText,
-    siteField, site, Xsh.Conformance.Transport.WireValue.closedObject?, Xsh.Conformance.Transport.WireValue.field?,
-    Xsh.Conformance.Transport.WireValue.items?, Xsh.Conformance.Transport.WireValue.text?,
-    connectedFactsWire, projectionNameResolver, projectionNames, sourceName, projectionVariables,
-    canonicalFields, insertField]
-  decide +kernel
-
-theorem rust_field_facts_decode_against_admitted_source : decodedProjectionFacts.isSome = true := by
-  rw [decoded_projection_uses_shared_wire, admitted_projection_uses_names]
-  exact projection_wire_decodes
-
 def projectionAmount : Xsh.Foundation.NameId := ⟨⟨7, by decide⟩⟩
 def projectionEnabled : Xsh.Foundation.NameId := ⟨⟨9, by decide⟩⟩
 def projectionRead : ReadBinding := ⟨"value", ⟨0, 13, 5⟩, none, false, false⟩
@@ -112,6 +96,14 @@ theorem projection_wire_decodes_exactly : decodedProjectionWithNames = some proj
 theorem rust_field_facts_decode_exactly : decodedProjectionFacts = some projectionFacts := by
   rw [decoded_projection_uses_shared_wire, admitted_projection_uses_names]
   exact projection_wire_decodes_exactly
+
+theorem projection_wire_decodes : decodedProjectionWithNames.isSome = true := by
+  rw [projection_wire_decodes_exactly]
+  rfl
+
+theorem rust_field_facts_decode_against_admitted_source : decodedProjectionFacts.isSome = true := by
+  rw [rust_field_facts_decode_exactly]
+  rfl
 
 def projectionScopes : List (SourceSite × List Nat) := [(⟨0, 20, 16⟩, [0, 1])]
 

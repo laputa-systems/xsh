@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tomllib
 import unittest
 from pathlib import Path
@@ -42,6 +44,34 @@ class ParanoidCheckTests(unittest.TestCase):
         self.assertEqual(status, 124)
         self.assertIn("checker progress", output.getvalue())
         self.assertIn("exceeded 1s", errors.getvalue())
+
+    def test_checker_output_is_written_while_the_checker_runs(self):
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as directory:
+            release = Path(directory) / "release"
+            child = (
+                "import pathlib, time\n"
+                "print('first kernel accepted', flush=True)\n"
+                f"release = pathlib.Path({str(release)!r})\n"
+                "while not release.exists():\n"
+                "    time.sleep(0.05)\n"
+            )
+
+            def release_after_output():
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if "first kernel accepted" in output.getvalue():
+                        release.touch()
+                        return
+                    time.sleep(0.05)
+
+            observer = threading.Thread(target=release_after_output)
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                observer.start()
+                status = CHECK.run_guarded(
+                    [sys.executable, "-c", child], ROOT, os.environ.copy(), "checker", wall_limit_seconds=5)
+            observer.join()
+        self.assertEqual(status, 0)
 
     def test_sandbox_forwards_the_project_worker_limit_to_con_leche(self):
         args = ["--ro-bind", "/", "/", "--", "/lean/bin/con-leche", "/work/export"]

@@ -150,20 +150,20 @@ end Xsh.Semantics.Connected
 namespace Xsh.Semantics.Connected
 open Xsh.Foundation Xsh.Typing.Connected Xsh.Conformance.Connected
 
-theorem scoped_fixture_candidate_grounded (solution : Substitution)
-    (selected : substitute solution (.variable scopedFixtureTypeVar) = .primitive .integer)
-    (typed : NodeBlockHasType solution scopedFixtureParameters (.primitive .integer) scopedFixtureCandidate) :
-    GroundBlock solution solution (fun _ => .ordinary) scopedFixtureParameters (.primitive .integer)
-      (some (.primitive .integer)) scopedFixtureCandidate := by
+theorem scoped_fixture_candidate_grounded (solution : Substitution) (tag : RuntimeType)
+    (storageClosed : monoRuntime (substitute solution (.variable scopedFixtureTypeVar)) = some tag)
+    (typed : NodeBlockHasType solution scopedFixtureParameters
+      (substitute solution (.variable scopedFixtureTypeVar)) scopedFixtureCandidate) :
+    GroundBlock solution solution (fun _ => .ordinary) scopedFixtureParameters
+      (substitute solution (.variable scopedFixtureTypeVar))
+      (some (substitute solution (.variable scopedFixtureTypeVar))) scopedFixtureCandidate := by
   have parametersUnique : (scopedFixtureParameters.map Binding.binder).Nodup := by decide
-  have storageClosed : monoRuntime (substitute solution (.variable scopedFixtureTypeVar)) = some .integer := by
-    simp [selected, monoRuntime]
   unfold scopedFixtureCandidate at typed ⊢
   cases typed with
   | binding initializerTyped compatible fresh tail =>
     rename_i name initializerType
     have initializerGround := ground_monomorphic_read scopedFixtureParameters solution solution (fun _ => .ordinary)
-      (.primitive .integer) scopedInput scopedFixtureInput .immutable (.variable scopedFixtureTypeVar) initializerType .integer
+      (substitute solution (.variable scopedFixtureTypeVar)) scopedInput scopedFixtureInput .immutable (.variable scopedFixtureTypeVar) initializerType tag
       initializerTyped parametersUnique (by simp [scopedFixtureParameters]) storageClosed rfl
     let localBinding : Binding := ⟨name, scopedFixtureLocal, .mutable, ⟨[], .variable scopedFixtureTypeVar, []⟩⟩
     have scopeUnique : ((localBinding :: scopedFixtureParameters).map Binding.binder).Nodup := by
@@ -189,14 +189,14 @@ theorem scoped_fixture_candidate_grounded (solution : Substitution)
           cases emptyTyped with
           | nil emptyAccepts =>
             have assignedGround := ground_monomorphic_read (localBinding :: scopedFixtureParameters) solution solution
-              (fun _ => .ordinary) (.primitive .integer) scopedInput scopedFixtureInput .immutable
-              (.variable scopedFixtureTypeVar) _ .integer assignedTyped scopeUnique
+              (fun _ => .ordinary) (substitute solution (.variable scopedFixtureTypeVar)) scopedInput scopedFixtureInput .immutable
+              (.variable scopedFixtureTypeVar) _ tag assignedTyped scopeUnique
               (by simp [scopedFixtureParameters]) storageClosed rfl
             cases resultTyped with
             | evaluatedTail resultRead resultAccepts =>
               have resultGround := ground_monomorphic_read (localBinding :: scopedFixtureParameters) solution solution
-                (fun _ => .ordinary) (.primitive .integer) name scopedFixtureLocal .mutable
-                (.variable scopedFixtureTypeVar) _ .integer resultRead scopeUnique (by simp [localBinding]) storageClosed rfl
+                (fun _ => .ordinary) (substitute solution (.variable scopedFixtureTypeVar)) name scopedFixtureLocal .mutable
+                (.variable scopedFixtureTypeVar) _ tag resultRead scopeUnique (by simp [localBinding]) storageClosed rfl
               exact .binding initializerGround compatible storageClosed storageClosed (Or.inr rfl) rfl fresh
                 (.evaluatedNext (.valueBlock (.assignment found mutable assignedGround assignmentCompatible (.nil emptyAccepts)) rfl)
                   (.evaluatedTail resultGround resultAccepts))
@@ -223,9 +223,9 @@ theorem actual_scoped_selected_grounded : ∃ principal call,
       (some (.primitive .integer)) scopedFixtureCandidate := by
   obtain ⟨principal, accepted, selected, storageClosed, candidateTyped⟩ := scoped_selected_storage_and_candidate
   obtain ⟨call, callAt, callArguments⟩ := scoped_fixture_selected_arguments
-  have grounded := scoped_fixture_candidate_grounded _ selected (by simpa [selected] using candidateTyped)
+  have grounded := scoped_fixture_candidate_grounded _ .integer storageClosed candidateTyped
   exact ⟨principal, call, actual_scoped_source_is_admitted, scoped_document_decodes, callAt, callArguments,
-    accepted, storageClosed, grounded⟩
+    accepted, storageClosed, by simpa [selected] using grounded⟩
 
 end Xsh.Semantics.Connected
 
@@ -270,5 +270,220 @@ theorem actual_scoped_call_grounded : ∃ principal call,
   refine ⟨principal, call, admitted, decoded, callAt, arguments, scoped_selected_instantiates, accepted, ?_, ?_⟩
   · simpa [identityCompose] using closed
   · simpa [identityCompose] using grounded
+
+end Xsh.Semantics.Connected
+
+namespace Xsh.Semantics.Connected
+open Xsh.Typing.Connected
+
+theorem instantiate_function_components (solution : Substitution) (scheme : Scheme)
+    (arguments : List (Variable × MonoType)) (parameters result : RuntimeType)
+    (normalized : List (Variable × MonoType))
+    (instantiated : instantiateFunction solution scheme arguments = some (parameters, result, normalized)) :
+    ∃ sourceParameters sourceResult,
+      substitute solution (substitute (schemeSubstitution scheme (witnessSubstitution arguments)) scheme.body) =
+        .function sourceParameters sourceResult ∧
+      monoRuntime sourceParameters = some parameters ∧ monoRuntime sourceResult = some result := by
+  unfold instantiateFunction at instantiated
+  split at instantiated <;> simp_all
+  split at instantiated <;> simp_all
+  all_goals simp [Option.bind_eq_some_iff] at instantiated
+  all_goals obtain ⟨_, actualParameters, parametersClosed, actualResult, resultClosed, same⟩ := instantiated
+  all_goals obtain ⟨rfl, rfl, _⟩ := same
+  all_goals exact ⟨_, _, ⟨rfl, rfl⟩, parametersClosed, resultClosed⟩
+
+theorem scoped_instantiation_runtime_storage_closed (captured : Substitution)
+    (arguments : List (Variable × MonoType)) (parameters result : RuntimeType)
+    (normalized : List (Variable × MonoType)) (principal : Substitution)
+    (fixed : principal scopedFixtureTypeVar = .variable scopedFixtureTypeVar)
+    (instantiated : instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized)) :
+    monoRuntime (substitute (compose captured (compose
+      (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) principal))
+      (.variable scopedFixtureTypeVar)) = some result := by
+  obtain ⟨sourceParameters, sourceResult, shape, parametersClosed, resultClosed⟩ :=
+    instantiate_function_components captured scopedFixtureScheme arguments parameters result normalized instantiated
+  simp [scopedFixtureScheme, substitute] at shape
+  have sameResult := shape.2
+  change monoRuntime (substitute captured (substitute
+    (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) (principal scopedFixtureTypeVar))) = some result
+  rw [fixed]
+  change monoRuntime (substitute captured
+    (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments) scopedFixtureTypeVar)) = some result
+  change substitute captured (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments) scopedFixtureTypeVar) = sourceResult at sameResult
+  rw [sameResult]
+  exact resultClosed
+
+end Xsh.Semantics.Connected
+
+namespace Xsh.Semantics.Connected
+open Xsh.Typing.Connected
+
+theorem scoped_instantiation_sorted (captured : Substitution)
+    (arguments : List (Variable × MonoType)) (parameters result : RuntimeType)
+    (normalized : List (Variable × MonoType))
+    (capturedSorted : WellSorted captured)
+    (instantiated : instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized)) :
+    WellSorted (compose captured (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments))) := by
+  have valid : instantiationKeysValid scopedFixtureScheme arguments = true ∧
+      instantiationSortsValid captured arguments = true := by
+    unfold instantiateFunction at instantiated
+    split at instantiated <;> simp_all
+  cases arguments with
+  | nil => simp [instantiationKeysValid, scopedFixtureScheme] at valid
+  | cons pair rest =>
+    rcases pair with ⟨key, ty⟩
+    cases rest with
+    | cons pair rest => simp [instantiationKeysValid, scopedFixtureScheme] at valid
+    | nil =>
+      have keyEq : key = scopedFixtureTypeVar := by
+        simpa [instantiationKeysValid, scopedFixtureScheme, eq_comm] using valid.1
+      subst key
+      have tySorted : WellFormed (substitute captured ty) ∧
+          typeSort (substitute captured ty) = scopedFixtureTypeVar.kind.sort := by
+        simpa [instantiationSortsValid, checks_well_formed_iff] using valid.2
+      intro id
+      by_cases same : id = scopedFixtureTypeVar
+      · subst id
+        simpa [compose, schemeSubstitution, scopedFixtureScheme, witnessSubstitution] using tySorted
+      · simpa [compose, schemeSubstitution, scopedFixtureScheme, same, substitute] using capturedSorted id
+
+end Xsh.Semantics.Connected
+
+namespace Xsh.Semantics.Connected
+open Xsh.Typing.Connected Xsh.Conformance.Connected
+
+theorem scoped_instantiation_solves (captured : Substitution)
+    (arguments : List (Variable × MonoType)) (parameters result : RuntimeType)
+    (normalized : List (Variable × MonoType))
+    (instantiated : instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized)) :
+    Solves scopedFixtureScheme.requirements
+      (compose captured (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments))) := by
+  have checked : checksConstraints captured (scopedFixtureScheme.requirements.map
+      (mapConstraint (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)))) = true := by
+    unfold instantiateFunction at instantiated
+    split at instantiated <;> simp_all
+  exact (solves_mapped _ _ _).mp ((checks_constraints_iff _ _).mp checked)
+
+theorem scoped_fixture_all_instances_typed : ∃ principal,
+    validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal ∧
+    principal scopedFixtureTypeVar = .variable scopedFixtureTypeVar ∧
+    ∀ captured arguments parameters result normalized,
+      WellSorted captured →
+      instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized) →
+      let runtime := compose captured (compose (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) principal)
+      monoRuntime (substitute runtime (.variable scopedFixtureTypeVar)) = some result ∧
+      NodeBlockHasType runtime scopedFixtureParameters
+        (substitute runtime (.variable scopedFixtureTypeVar)) scopedFixtureCandidate := by
+  obtain ⟨principal, source, document, scheme, accepted, sourceAt, bodyAt, schemeAt, typed⟩ := scoped_fixture_candidate_types
+  have bodySame : document = ⟨scopedBodyDocument, [.store scopedStore]⟩ := by
+    simpa [scopedDocument] using bodyAt.symm
+  subst document
+  rw [scoped_fixture_scheme_decodes] at schemeAt
+  cases schemeAt
+  have property := scoped_fixture_principal_preserves_parameter
+  change (match validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+    scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+    scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant with
+    | .ok principal => decide (principal scopedFixtureTypeVar = .variable scopedFixtureTypeVar)
+    | .error _ => false) = true at property
+  rw [accepted] at property
+  have fixed : principal scopedFixtureTypeVar = .variable scopedFixtureTypeVar := of_decide_eq_true property
+  refine ⟨principal, accepted, fixed, ?_⟩
+  intro captured arguments parameters result normalized capturedSorted instantiated
+  constructor
+  · exact scoped_instantiation_runtime_storage_closed captured arguments parameters result normalized principal fixed instantiated
+  · have sorted := scoped_instantiation_sorted captured arguments parameters result normalized capturedSorted instantiated
+    have solves := scoped_instantiation_solves captured arguments parameters result normalized instantiated
+    simpa [compose_associative] using typed _ sorted solves
+
+end Xsh.Semantics.Connected
+
+namespace Xsh.Semantics.Connected
+open Xsh.Typing.Connected Xsh.Conformance.Connected
+
+theorem scoped_fixture_principal_sorted (principal : Substitution)
+    (accepted : validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal) :
+    WellSorted principal := by
+  obtain ⟨source, document, sourceAt, bodyAt, bodyAccepted⟩ :=
+    validated_scoped_document_has_body 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant principal accepted
+  obtain ⟨scheme, schemeAt, certified⟩ := validated_scoped_body_has_function_certificate 128 scopedUnit source
+    (scopedVariableResolver scopedScopes) scopedFixtureNames scopedFixtureParameters [] (.variable scopedFixtureTypeVar)
+    scopedFixtureOrdered [.bindLeft, .reflexive] 2 scopedFixtureCandidate scopedFixtureBinders (fun _ => none)
+    scopedFixtureInhabitant document principal bodyAccepted
+  obtain ⟨sorted, solves⟩ := qualified_function_inhabitant_solves 128 scopedFixtureNames scopedFixtureParameters []
+    (.variable scopedFixtureTypeVar) source.body scopedFixtureOrdered [.bindLeft, .reflexive] 2 scheme
+    scopedFixtureCandidate scopedFixtureBinders (fun _ => none) principal scopedFixtureInhabitant certified
+  obtain ⟨generated, state, generatedBody, qualified, rest⟩ := qualified_function_types_every_solution 128
+    scopedFixtureNames scopedFixtureParameters [] (.variable scopedFixtureTypeVar) source.body scopedFixtureOrdered
+    [.bindLeft, .reflexive] 2 scheme scopedFixtureCandidate scopedFixtureBinders (fun _ => none) principal
+    (witnessSubstitution scopedFixtureInhabitant) scopedFixtureInhabitant certified sorted solves
+  exact qualified.1.1
+
+end Xsh.Semantics.Connected
+
+namespace Xsh.Semantics.Connected
+open Xsh.Typing.Connected Xsh.Conformance.Connected
+
+def scopedFixtureFunction (principal : Substitution) : Function :=
+  ⟨[scopedFixtureInput], scopedFixtureCandidate, scopedFixtureScheme, principal⟩
+
+theorem scoped_instantiation_parameters (captured : Substitution)
+    (arguments : List (Variable × MonoType)) (parameters result : RuntimeType)
+    (normalized : List (Variable × MonoType))
+    (instantiated : instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized)) :
+    parameters = .argument result .argumentsEmpty := by
+  obtain ⟨sourceParameters, sourceResult, shape, parametersClosed, resultClosed⟩ :=
+    instantiate_function_components captured scopedFixtureScheme arguments parameters result normalized instantiated
+  simp [scopedFixtureScheme, substitute] at shape
+  obtain ⟨rfl, rfl⟩ := shape
+  simp [monoRuntime, resultClosed] at parametersClosed
+  exact parametersClosed.symm
+
+theorem scoped_fixture_function_certified (state : Machine) (principal : Substitution)
+    (accepted : validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal) :
+    FunctionBodyCertified [] (fun _ => .ordinary) state (scopedFixtureFunction principal) := by
+  obtain ⟨chosen, chosenAccepted, fixed, typed⟩ := scoped_fixture_all_instances_typed
+  rw [accepted] at chosenAccepted
+  cases chosenAccepted
+  have principalSorted := scoped_fixture_principal_sorted principal accepted
+  intro captured arguments parameters result normalized capturedSorted instantiated
+  change instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized) at instantiated
+  let runtime := compose captured (compose (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) principal)
+  have runtimeSorted : WellSorted runtime := by
+    rw [show runtime = compose (compose captured (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments))) principal by
+      exact compose_associative _ _ _]
+    exact compose_well_sorted (scoped_instantiation_sorted captured arguments parameters result normalized capturedSorted instantiated) principalSorted
+  have identityRuntime : compose identity runtime = runtime := by
+    funext id
+    simp [compose, substitute_identity]
+  change compose identity (compose captured (compose (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) principal)) = _ at identityRuntime
+  obtain ⟨closed, candidateTyped⟩ := typed captured arguments parameters result normalized capturedSorted instantiated
+  have ground := scoped_fixture_candidate_grounded runtime result closed candidateTyped
+  have parameterShape := scoped_instantiation_parameters captured arguments parameters result normalized instantiated
+  refine ⟨identity, scopedFixtureParameters, substitute runtime (.variable scopedFixtureTypeVar), ?_⟩
+  simp only [scopedFixtureFunction, identityRuntime, List.append_nil]
+  refine ⟨identity_well_sorted, runtimeSorted, runtimeSorted, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, closed, ?_, ?_, ?_⟩
+  all_goals try simp [ScopeValuesAgree, ScopeWritableContract, MutableCellsAgree, SchemaMatches]
+  all_goals try simp [scopedFixtureParameters, scopedFixtureCandidate, declaredBinders, nodeDeclaredBinders, scopedFixtureInput, scopedFixtureLocal]
+  all_goals try simp [PropagationMatches, blockPropagationErrors, statementPropagationErrors, propagationErrors]
+  · rw [parameterShape]
+    exact .cons closed .nil
+  · exact ground
+
+theorem actual_scoped_function_certified (state : Machine) : ∃ principal,
+    validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal ∧
+    FunctionBodyCertified [] (fun _ => .ordinary) state (scopedFixtureFunction principal) := by
+  obtain ⟨principal, accepted⟩ := scoped_fixture_accepted
+  exact ⟨principal, accepted, scoped_fixture_function_certified state principal accepted⟩
 
 end Xsh.Semantics.Connected

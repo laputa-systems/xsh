@@ -941,3 +941,201 @@ fn raw_local_declarations_bind_source_sites_to_store_rows() {
     }
     assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
 }
+
+const RESULT_CONTROL_SOURCE: &str = concat!(
+    "pure through(r: Result[Int, Str]) -> Result[Int, Str] { return Ok(r?) }\n",
+    "pure refuse() -> Result[Int, Str] { return Err(\"no\") }\n",
+);
+
+const RESULT_CALL_SOURCE: &str = concat!(
+    "pure wrap(n: Int) -> Result[Int, Str] { return Ok(n) }\n",
+    "pure lift() -> Result[Int, Str] { return Ok(wrap(1)?) }\n",
+);
+
+const LEAN_RAW_RESULT_DOCUMENTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+    "/formal/Xsh/Conformance/Connected/RawResultDocuments.lean"));
+
+fn result_signature_type(ty: &crate::sema::types::Type) -> Result<WireValue, String> {
+    use crate::sema::types::Type;
+    match ty {
+        Type::Int => Ok(wire_object([("kind", wire_string("int"))])),
+        Type::Str => Ok(wire_object([("kind", wire_string("str"))])),
+        Type::Result(value, error) => Ok(wire_object([
+            ("kind", wire_string("result")),
+            ("value", result_signature_type(value)?),
+            ("error", result_signature_type(error)?),
+        ])),
+        other => Err(format!("type {other:?} is outside the Result signature export")),
+    }
+}
+
+fn result_site_wire(span: Span) -> WireValue {
+    wire_object([
+        ("source", wire_string(format!("{:08x}", span.source_id.raw()))),
+        ("start", wire_string(format!("{:08x}", span.start()))),
+        ("length", wire_string(format!("{:08x}", span.end() - span.start()))),
+    ])
+}
+
+fn result_expression_types(
+    arena: &crate::syntax::arena::ArenaProgram,
+    published: &super::facts::PublishedFacts,
+    expression: crate::syntax::arena::ExprId,
+    output: &mut Vec<WireValue>,
+    calls: &mut Vec<WireValue>,
+) -> Result<(), String> {
+    use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind};
+    let ast = &arena.arena;
+    let ty = published.declarations.bodies.expr_types.get(&expression)
+        .ok_or_else(|| "the checker published no type for an expression".to_string())?;
+    output.push(wire_object([
+        ("site", result_site_wire(ast.expr(expression).span)),
+        ("type", result_signature_type(ty)?),
+    ]));
+    match ast.expr(expression).kind {
+        ArenaExprKind::Call { callee, args } => {
+            if !matches!(ast.expr(callee).kind, ArenaExprKind::Ident(_)) {
+                return Err("only a named callee is in the expression-type export".to_string());
+            }
+            if let Some(target) = published.declarations.bodies.selected_function_calls.get(&expression) {
+                calls.push(wire_object([
+                    ("site", result_site_wire(ast.expr(callee).span)),
+                    ("function", wire_string(super::name_text(ast.function_def(target.definition).name))),
+                ]));
+            }
+            for argument in ast.call_args(args) {
+                let ArenaCallArgKind::Positional(value) = argument.kind else {
+                    return Err("only positional arguments are in the expression-type export".to_string());
+                };
+                result_expression_types(arena, published, value, output, calls)?;
+            }
+        }
+        ArenaExprKind::Try(inner) => result_expression_types(arena, published, inner, output, calls)?,
+        ArenaExprKind::Binary { left, right, .. } => {
+            result_expression_types(arena, published, left, output, calls)?;
+            result_expression_types(arena, published, right, output, calls)?;
+        }
+        ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Ident(_) => {}
+        other => return Err(format!("expression {other:?} is outside the expression-type export")),
+    }
+    Ok(())
+}
+
+fn export_result_signatures(
+    arena: &crate::syntax::arena::ArenaProgram,
+    published: &super::facts::PublishedFacts,
+) -> Result<String, String> {
+    let ast = &arena.arena;
+    let functions = (0..ast.function_defs.len()).map(|index| {
+        let definition = ast.function_def(crate::syntax::arena::FunctionDefId::from_index(index));
+        let signature = published.declarations.pures.get(&definition.name)
+            .ok_or_else(|| "the checker published no signature for a pure function".to_string())?;
+        let parameters = ast.params(definition.params);
+        if signature.params.len() != parameters.len() {
+            return Err("the published signature disagrees with the declared parameters".to_string());
+        }
+        let body = ast.span(ast.block(definition.body).span);
+        let mut expressions = Vec::new();
+        let mut calls = Vec::new();
+        for statement in ast.stmt_ids(ast.block(definition.body).statements) {
+            let crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(value))) =
+                ast.stmt(statement).kind else {
+                return Err("only a returned expression is in the expression-type export".to_string());
+            };
+            result_expression_types(arena, published, value, &mut expressions, &mut calls)?;
+        }
+        let parameters = parameters.iter().zip(&signature.params).map(|(parameter, published)| Ok(wire_object([
+            ("name", wire_string(super::name_text(parameter.name))),
+            ("type", result_signature_type(&published.ty)?),
+        ]))).collect::<Result<Vec<_>, String>>()?;
+        Ok(wire_object([
+            ("name", wire_string(super::name_text(definition.name))),
+            ("body", wire_object([
+                ("source", wire_string(format!("{:08x}", body.source_id.raw()))),
+                ("start", wire_string(format!("{:08x}", body.start()))),
+                ("length", wire_string(format!("{:08x}", body.end() - body.start()))),
+            ])),
+            ("parameters", WireValue::Array(parameters)),
+            ("result", result_signature_type(&signature.return_ty)?),
+            ("expressions", WireValue::Array(expressions)),
+            ("calls", WireValue::Array(calls)),
+        ]))
+    }).collect::<Result<Vec<_>, String>>()?;
+    let value = wire_object([
+        ("schema", wire_string("xsh-connected-result-signatures-v3")),
+        ("functions", WireValue::Array(functions)),
+    ]);
+    deser_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+#[test]
+fn result_control_rows_and_signatures_are_the_lean_documents() {
+    let (_, _, parsed, mut published) = check_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let (_, _, program) = build_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    for tag in [FullTag::ExprOk, FullTag::ExprErr, FullTag::ExprTry] {
+        assert!(raw.rows.tags.contains(&tag), "the fixture lowers a {tag:?} row");
+    }
+    let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
+    let mut stale = Vec::new();
+    for (name, exported) in [
+        ("resultRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultSignatureCodes", signatures.clone()),
+    ] {
+        if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {
+            stale.push(lean_definition(name, &exported));
+        }
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
+
+    let definition = parsed.arena.arena.function_def(crate::syntax::arena::FunctionDefId::from_index(0));
+    let published_signature = published.declarations.pures.get_mut(&definition.name).unwrap();
+    published_signature.return_ty = crate::sema::types::Type::Int;
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
+    let (_, _, parsed, mut published) = check_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let propagated = (0..parsed.arena.arena.expr_tags.len()).map(crate::syntax::arena::ExprId::from_index)
+        .find(|&id| matches!(parsed.arena.arena.expr(id).kind, crate::syntax::arena::ArenaExprKind::Try(_))).unwrap();
+    published.declarations.bodies.expr_types.insert(propagated, crate::sema::types::Type::Str);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
+}
+
+
+#[test]
+fn result_call_rows_and_signatures_are_the_lean_documents() {
+    let (_, _, parsed, published) = check_fixture(RESULT_CALL_SOURCE).unwrap();
+    let (_, _, program) = build_fixture(RESULT_CALL_SOURCE).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    assert!(raw.rows.tags.contains(&FullTag::ExprDirectPureCall), "the caller lowers a direct call row");
+    let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
+    let mut stale = Vec::new();
+    for (name, exported) in [
+        ("resultCallRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultCallRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultCallSignatureCodes", signatures.clone()),
+    ] {
+        if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {
+            stale.push(lean_definition(name, &exported));
+        }
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
+
+    let ast = &parsed.arena.arena;
+    let callee = ast.function_def(crate::syntax::arena::FunctionDefId::from_index(0));
+    let call = (0..ast.expr_tags.len()).map(crate::syntax::arena::ExprId::from_index)
+        .find(|id| published.declarations.bodies.selected_function_calls.contains_key(id)).unwrap();
+    let mut forged = published.clone();
+    forged.declarations.pures.get_mut(&callee.name).unwrap().return_ty =
+        crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Int));
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published.clone();
+    forged.declarations.bodies.expr_types.insert(call, crate::sema::types::Type::Int);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published.clone();
+    forged.declarations.bodies.selected_function_calls.get_mut(&call).unwrap().definition =
+        crate::syntax::arena::FunctionDefId::from_index(1);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published;
+    forged.declarations.bodies.selected_function_calls.remove(&call);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+}

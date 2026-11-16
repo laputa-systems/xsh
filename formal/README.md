@@ -163,7 +163,7 @@ store target is rejected for the exported scoped body, and swapped claims for th
 exported two-local body. The claim table, parameter order, fact kinds, and the
 invariant that slots are never reused remain assumptions of the Rust lowerer;
 locals with equal initializers are told apart only by the uses a check covers.
-Calls, Result forms, annotated or destructuring declarations, other value blocks,
+Calls, annotated or destructuring declarations, other value blocks,
 the older projected-row fixtures that still pass a map, and operational
 correspondence remain open.
 Assignment transfer exports retain the checker’s optional value-type override.
@@ -184,9 +184,72 @@ effect bounds, translation validation, and whole-machine correspondence remain o
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
-source and published Rust facts remains open in general. For the scoped
+source and published Rust facts remains open in general. The call side is
+derived: Lean computes the invoked declaration, type arguments, instantiated
+parameter and result types, and integer or Bool literal arguments from the
+admitted source and the decoded call and body facts, and proves the invocation
+machine typed with integer-only faults and safe progress for any function entry
+carrying the published scheme with a certified body. The scoped fixture's
+derived machine equals its earlier hand-written one, and forged arguments,
+instantiations, roles, sites, targets and indices are rejected. The body
+candidate, store certificate and function-table entry remain hand-written. For the scoped
 mutable-local fixture, its actual published Int call grounds the checked body
-and closes its storage tag; full machine initialization remains open.
+and closes its storage tag. Its source-selected literal argument initializes a
+typed invocation whose finite model executions preserve typing, exclude internal
+faults, and retain safe progress. Rust execution correspondence remains open.
+A Result slice carries `Ok` construction, `Err` construction and `?` propagation
+through the connected path for one test-only fixture of two single-return pure
+functions over `Int`, `Str` and `Result`: `Ok(r?)` for a `Result[Int, Str]`
+parameter and `Err("no")`. A test-only Rust export publishes the checker's
+parameter and result types and the exported instruction and function rows.
+Lean admits the source, validates hand-written candidate bodies against the
+source and those types with a checked constraint derivation, and compares each
+function's return row, read as a value tree with Ok, Err and propagation
+forms, with the candidate's returned node. The connected machine executes the
+validated nodes through construction, success propagation and propagation of
+an error to the caller frame; it also unwinds a propagation inside the left
+operand of an addition without evaluating the right operand, for a node the
+fixture does not include. Controls reject forged signatures, swapped Ok and
+Err in the candidate and in the rows, a dropped, misplaced or mistyped
+propagation, and forged rows and function tables. A bare `Ok` under `?`, in
+a binary operand, a field base, an unannotated declaration or a discarded
+statement defaults its error type to `Error` (SPEC 8.5), while an `Ok` at the
+function's return keeps the declared error type; witnesses reject the nested
+`Ok(Ok(1)? + 1)` at `Result[Int, Str]` and accept it at `Result[Int, Error]`.
+Call arguments and record fields are not yet expected positions in the model,
+so agreement is shown only for the
+fixture. The published facts also give the checker's type of every non-callee expression; Lean pairs them in pre-order with the validated nodes and requires the same types, and forged, shifted, dropped and extra entries are rejected.
+A second fixture adds a call of a user function whose Result the caller
+propagates: `wrap(n: Int)` returns `Ok(n)` and `lift()` returns `Ok(wrap(1)?)`.
+Every function is in scope at the type of its published signature, so the
+callee's signature feeds the caller's derivation. The direct call row reads as
+a call of the callee's function entry, whose name must be the published one.
+The checker publishes no type for a call-name site, so the export gives the
+function the checker selected for each call instead, and Lean requires it to
+be the function the validated node calls. Controls reject a forged callee
+signature, a forged call-site or argument type, a forged, dropped or shifted
+call target, a call of an unknown function, and call rows with another target,
+argument or tag. The connected machine runs the certified caller node: it
+enters the callee's frame with the parameter in a fresh cell, runs the
+certified callee body, returns `Ok(1)` to the caller frame, and the caller's
+`?` and `Ok` produce `Ok(1)`. With a callee body that returns an error instead,
+the caller's `?` unwinds the pending `Ok` call and returns the error to the
+caller's own caller frame. Those machine hypotheses follow from a certified
+program (every fixture function bound at its published scheme with its
+certified body, and `Ok` bound) together with the activation invariant at top
+level; a concrete loaded machine satisfies both, and a callee loaded at a forged
+scheme does not. Invoking the certified caller in that loaded machine runs its
+whole body under the caller frame `callFunction` pushes and returns `Ok(1)` to
+it. The typed-scope invariant (`ScopeStateAgrees`) holds over the certified
+scopes at the caller's entry, at the callee's entry, where the parameter holds
+the `Int` argument, and after the return; the certified scopes are shown equal
+to those scopes. Both certified bodies satisfy `FunctionBodyCertified` over the
+global scheme bindings (Ok, the callee and the caller), so the invoked machine
+is a `TypedMachine`: every execution from it preserves the invariant, faults
+only with an integer fault, and is terminal or can take a permitted step. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
+source-site binding of propagation and call rows remain open. The source is kept short
+because lean4lean exceeds its deterministic timeout when the kernel admits a
+source of a few hundred characters.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,

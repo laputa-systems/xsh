@@ -70,6 +70,8 @@ mutual
     | .field base _ => RawValueTree.mentions slot base
     | .record fields => RawValueFields.mentions slot fields
     | .conditional branches otherwise => RawValueBranches.mentions slot branches || RawValueTree.mentions slot otherwise
+    | .resultOk inner | .resultError inner | .propagate inner => RawValueTree.mentions slot inner
+    | .call _ arguments => RawValueArguments.mentions slot arguments
     | _ => false
   termination_by structural tree => tree
 
@@ -83,6 +85,11 @@ mutual
     | .cons condition tree rest =>
         RawValueTree.mentions slot condition || RawValueTree.mentions slot tree || RawValueBranches.mentions slot rest
   termination_by structural branches => branches
+
+  def RawValueArguments.mentions (slot : Nat) : RawValueArguments → Bool
+    | .nil => false
+    | .cons tree rest => RawValueTree.mentions slot tree || RawValueArguments.mentions slot rest
+  termination_by structural arguments => arguments
 end
 
 def substituteRawTemporaries (rows : RawInstructionRows) (functions : RawFunctionRows) (owner : Nat)

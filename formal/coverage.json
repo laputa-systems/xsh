@@ -1907,6 +1907,7 @@
         "SshCertainty",
         "SshClose",
         "SshCloseIfOpen",
+        "RandomBytes",
         "EnvGet",
         "EnvGetOr",
         "EnvSet",
@@ -13278,6 +13279,1518 @@
       "status": "fragment",
       "scope": "Deadline selection and policy updates over arbitrary finite scope lists, generic identities and metadata, and supplied natural monotonic ticks, including duplicate identities. Selection is eligible, earliest by deadline and outermost on ties; delivery, close, first-match finish, rearming and cleanup shielding retain their stated data.",
       "boundary": "The supplied-time production selector has a separate finite comparison against choose: all 2925 inputs with zero to three scopes, ticks zero through three, delivered flags, and observation ticks zero through four. This is not universal Rust refinement or a frozen-ledger conformance claim. Other policy updates remain model-only; clock observations and conversion, Instant checked addition, scope-ID allocation, checkpoint coverage, resource execution, error construction and absent-ID fallback remain open. CTRL-DEADLINE remains planned."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_function_certified connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_typed",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_invocation_typed connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.scoped_fixture_source_argument",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.scoped_fixture_source_argument",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scoped_fixture_source_argument connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_invocation_execution_safe connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.select_invocation_sound",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.select_invocation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted invocation selection takes its declaration and type arguments as given, reads its arguments from integer and Bool source literals, instantiates the scheme at the captured identity solution, and has arguments that fit the instantiated parameter types in number and type.",
+      "boundary": "Only integer and Bool literal arguments are selected; string, named, spread, and non-literal arguments make selection fail closed."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.invocation_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.invocation_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine that invokes an instantiated function over fitting literal arguments satisfies the connected typing invariant whenever the function body is certified for every sorted instantiation.",
+      "boundary": "The function body certificate, store and function-table premises are inputs here; the machine holds one function and no globals."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derive_selected_invocation_sound",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derive_selected_invocation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted derivation names a call fact and a body fact at the requested indices, a published scheme, a type-argument list from the call fact, a target whose source identity equals the body site, a top-level call expression at the call site that resolves to that target, a binder decoded from the target definition, and arguments read from that call's source literals.",
+      "boundary": "The call and body facts are Rust test-only export evidence; supported callers are the scoped fixture's top-level assertion calls only. Source parsing equivalence with Rust and the declaration-to-function-table correspondence remain open."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine invoking the derived call is typed whenever its function carries the Rust-published scheme of the selected body and its body is certified for that machine.",
+      "boundary": "The function-table entry and its body certificate are not derived from source here."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every finite execution of the derived invocation machine preserves typing, any fault is an integer fault, and every reachable state is terminal or steps to a permitted control.",
+      "boundary": "Lean-model execution only; no Rust execution correspondence or raw-IR simulation."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_is_derived",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_call_is_derived",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted scoped source and the decoded Rust call fact derive the invocation of declaration 0 with parameter type Int, result type Int, type argument Int, and the single argument 7.",
+      "boundary": "One exported fixture."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The machine built from the derived invocation equals the hand-written scoped invocation machine, so earlier scoped execution theorems apply to the derived one.",
+      "boundary": "One exported fixture."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the scoped fixture, the call is derived from admitted source and the decoded Rust call fact, the body candidate validates, and the derived invocation machine is typed with integer-only faults and safe progress.",
+      "boundary": "The candidate body, ordered constraints and function-table entry are still written by hand and validated; Rust execution correspondence and raw-IR simulation remain open."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Changing the source argument literal changes the derived argument value and nothing else.",
+      "boundary": "The mutated unit replaces one expression of the admitted unit and is not itself parsed from text."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Derivation is refused for a Bool, identifier, string, out-of-range, or named source argument, a Bool type argument against an Int literal, a missing type argument, a value role, a call site that is not a call, a shifted target body, a forged target name, an undecodable definition, an empty function list, a call target that differs from the listed target, and out-of-range call and body indices.",
+      "boundary": "Rejection shows these corruptions are caught, not that every corruption is."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A different consistent selected target changes only the derived declaration.",
+      "boundary": "One exported fixture with a synthetic target definition."
+    },
+{
+      "id": "fragment.Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Selection accepts one Int literal at an Int instantiation and one Bool literal at a Bool instantiation, and rejects an Int literal at a Bool instantiation, a Bool at Int, no argument, two arguments, and a missing instantiation.",
+      "boundary": "Finite cases over one scheme."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_value_correspondence_with_sound",
+      "module": "Xsh.Conformance.Connected.RawExpression",
+      "declaration": "Xsh.Conformance.Connected.raw_value_correspondence_with_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A raw-versus-checked value comparison that accepts, with the given callee binders, yields one value tree that the raw rows read as and the checked node translates to, including Ok and Err construction, propagation, and direct calls of user functions with their positional arguments.",
+      "boundary": "The comparison supports Ok, Err without a cause, propagation and direct pure calls over scalar, read, binary, record, projection and conditional trees; indirect calls, Err causes and annotated forms are rejected. The callee binder map is an input, and row locations are not tied to source sites."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.certified_result_function_components",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.certified_result_function_components",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A certified Result function splits into a validation against the Rust-published signatures, a raw-row comparison of its returned value, a check of the published per-expression types against the validated nodes, and a check of the published call targets against the functions the validated nodes call.",
+      "boundary": "Only single-return pure functions whose parameters and result use Int, Str and Result."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.validated_result_function_is_typed",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.validated_result_function_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validated Result function has a generated constraint set, a derivation that solves it, and a source block typed under the solution in a scope of its parameters, the Ok and Err constructors the source names, and every function at the type of its published signature.",
+      "boundary": "The Ok and Err constructor schemes and binders are fixed by the Lean model; a callee's type is its Rust-published signature, which certification checks against that callee's own annotations. The Rust checker is not shown to agree beyond the fixtures' published facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots, callees their function positions, and the function entry naming the published function.",
+      "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_is_certified",
+      "module": "Xsh.Conformance.Connected.RawResultFixture",
+      "declaration": "Xsh.Conformance.Connected.result_control_is_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result fixture source, the Rust-published signatures, the exported raw rows and two hand-written candidates are accepted together: each candidate validates against its source and signature, and each returned row reads as its candidate's returned node.",
+      "boundary": "Candidates and derivation steps are written by hand and validated; calls, local declarations and operations on a propagated value are outside this fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.ok_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Ok scheme instantiates at Int and Str to a one-argument function returning Result[Int, Str] under any captured solution.",
+      "boundary": "One instantiation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.error_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.error_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Err scheme instantiates at Int and Str to a one-argument function taking Str and returning Result[Int, Str] under any captured solution.",
+      "boundary": "One instantiation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_construction_executes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.ok_construction_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reading the Ok constructor, applying it to a parameter read and completing the call yields Ok of the parameter's value with the error type Str.",
+      "boundary": "Machine steps for the certified node; whole-function execution and Rust correspondence are open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.error_construction_executes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.error_construction_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Applying the Err constructor to the string literal yields Err of that string with success type Int.",
+      "boundary": "Machine steps for the certified node."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_success_continues",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_success_continues",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Ok value inside the Ok constructor's argument yields Ok of the inner value.",
+      "boundary": "Machine steps for the certified node."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_failure_leaves_the_caller_with_the_failure",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_failure_leaves_the_caller_with_the_failure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Err value unwinds the pending Ok call and returns the same error to the caller frame with the caller's success type.",
+      "boundary": "Machine steps for the certified node; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagation_discards_the_rest_of_the_expression",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagation_discards_the_rest_of_the_expression",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Err value inside the left operand of an addition unwinds the addition and the Ok call without evaluating the right operand.",
+      "boundary": "Machine steps for an addition node that is not part of the certified fixture; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_success_feeds_the_rest_of_the_expression",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_success_feeds_the_rest_of_the_expression",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating Ok(1) inside the left operand of an addition adds one and wraps the sum in Ok.",
+      "boundary": "Machine steps for an addition node that is not part of the certified fixture; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_control_returns_are_the_executed_nodes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.result_control_returns_are_the_executed_nodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The three Result documents decode to the fixture's literal rows, function table and signatures, the fixture is certified, and each candidate's single return is the node the execution theorems run.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_scheme_is_the_published_signature",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_scheme_is_the_published_signature",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scheme the machine reads for the callee is the binding the call certificate derives from the callee's published signature.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee scheme instantiates to one Int parameter and a Result[Int, Str] result under any captured solution.",
+      "boundary": "One monomorphic scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.call_one_is_an_integer",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.call_one_is_an_integer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The call argument value has the Int runtime type.",
+      "boundary": "One value."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_parameters_bind",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_parameters_bind",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering the callee binds its parameter in a fresh cell of the new activation.",
+      "boundary": "One parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_callee_parameter_of_another_type_does_not_bind",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.a_callee_parameter_of_another_type_does_not_bind",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering a callee whose parameter is Str with the Int argument faults with wrong arguments instead of binding.",
+      "boundary": "One mistyped parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_reads_its_parameter",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.callee_reads_its_parameter",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Inside the callee frame the parameter reads as the argument.",
+      "boundary": "One parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_reads_a_caller_global",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.callee_reads_a_caller_global",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Inside the callee frame a global binding the caller sees still reads the same value.",
+      "boundary": "Only bindings visible through the globals."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_call_frame_returns_ok",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_call_frame_returns_ok",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee frame runs its certified body, constructs Ok of its argument and returns it to the caller frame, restoring the caller's cells, activation and solution.",
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_enters_the_wrap_call_frame",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_enters_the_wrap_call_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified returned node evaluates the Ok callee, starts the propagation, evaluates the call target and argument, and enters the callee frame.",
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_runs_the_wrap_call_frame_and_propagates_its_success",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_runs_the_wrap_call_frame_and_propagates_its_success",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified returned node runs the callee's frame, propagates its Ok through `?` and wraps the value in Ok, in 22 internal steps.",
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_refusing_call_frame_returns_the_error",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.a_refusing_call_frame_returns_the_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee frame whose body returns Err(\"no\") returns that error to the caller frame.",
+      "boundary": "The refusing body is not the certified callee; it shows the failure path."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_propagates_a_failing_call_to_its_caller",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_propagates_a_failing_call_to_its_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "When the callee returns an error, the caller's node propagates it through `?`, discards the pending Ok call and returns the error to the caller's own caller frame.",
+      "boundary": "The refusing body is not the certified callee, and Err is an extra global hypothesis. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.call_binders_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.call_binders_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The witness world's builtin and callee binders and declarations are distinct.",
+      "boundary": "Witness data."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_call_world_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.the_call_world_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete machine world inhabits the call hypotheses and runs the certified caller through the certified callee to Ok(1).",
+      "boundary": "One witness world over any base machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_call_world_propagates_a_refusing_callee",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.the_call_world_propagates_a_refusing_callee",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete world with a refusing callee propagates its error to the caller's caller frame.",
+      "boundary": "One witness world; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_call_return_is_the_executed_node",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.result_call_return_is_the_executed_node",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The executed caller node and callee body are the certified candidates of the call fixture, whose documents decode to the checked literals.",
+      "boundary": "The candidates are hand-written and validated; the link to the Rust rows is the certificate's raw comparison."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_builtin_constructs",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.ok_builtin_constructs",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Ok of a read parameter executes with only the Ok builtin in scope.",
+      "boundary": "One parameter read; Err is not required."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_callee_scheme_is_the_published_signature",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_callee_scheme_is_the_published_signature",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scheme a certified program loads for the callee is the monomorphic type of its published signature.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_callee_takes_one_parameter",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_certified_callee_takes_one_parameter",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A certified program's callee binds exactly the first parameter binder.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.fresh_activation_cell_is_empty",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.fresh_activation_cell_is_empty",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under the activation invariant, no store cell exists at the next activation.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_call_program_gives_the_call_world",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.certified_call_program_gives_the_call_world",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine that holds the certified call fixture's functions at their published schemes and certified bodies, satisfies the activation invariant and runs at top level satisfies the call-world hypotheses.",
+      "boundary": "The machine runs the caller's returned node only; the program hypothesis is stated over the global cells and function table, not derived from a load of the Rust rows."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_certified_call_program_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.a_certified_call_program_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any such machine, the certified caller node runs through the certified callee to Ok(1), and the fixture is certified.",
+      "boundary": "The machine runs the caller's returned node only; the program hypothesis is stated over the global cells and function table, not derived from a load of the Rust rows."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_signatures_are_the_published_ones",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_signatures_are_the_published_ones",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The call fixture's published signatures are the two literal signatures the program witness loads.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_identities_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.program_identities_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The program witness's binders and declarations are distinct.",
+      "boundary": "Witness data."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_machine_loads_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_machine_loads_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete machine over any base holds the certified call program.",
+      "boundary": "One witness machine with an empty stack."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_machine_satisfies_the_activation_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_machine_satisfies_the_activation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete program machine satisfies the activation invariant.",
+      "boundary": "One witness machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_loaded_certified_program_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_loaded_certified_program_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete loaded program runs the certified caller through the certified callee to Ok(1).",
+      "boundary": "One witness machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_callee_loaded_at_a_forged_scheme_is_not_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.a_callee_loaded_at_a_forged_scheme_is_not_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine whose callee cell holds a scheme with a Str parameter does not satisfy the certified-program hypothesis.",
+      "boundary": "One forged scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_scopes_are_the_typed_scopes",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.the_certified_scopes_are_the_typed_scopes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scopes the certificate validates the caller and callee in are, binding for binding, the scopes the typed-scope invariant is stated over.",
+      "boundary": "One fixture; bindings are compared by name, binder, kind and scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_values_agree_of_members",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.scope_values_agree_of_members",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scope whose every binding reads as a value agreeing with it satisfies scope-value agreement.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.mutable_cells_agree_of_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.mutable_cells_agree_of_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scope of immutable bindings satisfies mutable-cell agreement.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_cell",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each global cell of the loaded program is at activation 0 and belongs to Ok, the callee or the caller.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.top_cells_are_the_globals",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.top_cells_are_the_globals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function entered with no parameters sees exactly the program globals.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The loaded program's global cells are distinct.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_are_present",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_are_present",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every global cell of the loaded program is present in its store.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_global_values",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_global_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every global binding of the caller's scope reads as the scheme function of its binding.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scope_is_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scope_is_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every binding of the callee's scope is immutable.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scope_binders_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scope_binders_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's scope binders are distinct.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_through_program_globals",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.read_through_program_globals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A store that agrees with the program store at activation 0 reads every global the same way.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_top_level_state_agrees_with_the_lift_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.a_top_level_state_agrees_with_the_lift_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A state at the program globals whose store agrees with the program store at activation 0 satisfies the caller's typed-scope invariant.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified scheme instantiates to no parameters and a Result[Int, Str] result.",
+      "boundary": "One monomorphic scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_enters_its_body",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_enters_its_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the caller enters its certified body under a caller frame in a new activation.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_is_below",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_store_is_below",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The program store holds only activation-0 cells.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returning_satisfies_the_activation_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returning_satisfies_the_activation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body state satisfies the activation invariant.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_program_of_the_same_tables",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.certified_program_of_the_same_tables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified-program hypothesis depends only on the store, globals and function table.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returning_holds_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returning_holds_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body state still holds the certified program.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_runs_its_body_to_the_caller",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_runs_its_body_to_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the certified caller runs its whole body, through the certified callee, and returns Ok(1) to the caller frame in 26 internal steps, restoring the top-level cells, activation and solution.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_starts_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_body_starts_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body starts in its certified scope's typed-scope invariant.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returns_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returns_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "After the return the top-level state still satisfies the caller's typed-scope invariant, although the callee's parameter cell remains in the store.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_cells_cell",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.callee_cells_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A cell active in the callee frame is its parameter cell or a program global.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_starts_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_starts_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's body starts in its certified scope's typed-scope invariant: its parameter holds the Int argument and the globals still read as their scheme functions.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_reaches_the_wrap_frame",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_reaches_the_wrap_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the caller reaches the callee's entered frame in 12 internal steps.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_lift_function_runs_in_its_typed_scopes",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.the_certified_lift_function_runs_in_its_typed_scopes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller, invoked in the loaded program, runs to its return with the typed-scope invariant at its entry, at the callee's entry and after the return, and the fixture and its scopes are certified.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_state_without_the_ok_cell_is_outside_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.a_state_without_the_ok_cell_is_outside_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A caller state whose store lacks the Ok cell does not satisfy the typed-scope invariant.",
+      "boundary": "One control."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_read_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_read_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A read of the Ok builtin at the fixture's instance has the Int-to-Result[Int, Str] function type under any solution.",
+      "boundary": "One instance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.monomorphic_read_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.monomorphic_read_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A read of a monomorphic binding at a closed well-formed value type has that type under any solution.",
+      "boundary": "Closed monomorphic types."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_read_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_read_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Ok read is grounded with its runtime instantiation contract in any scope that binds it uniquely.",
+      "boundary": "One instance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's certified body is grounded in its certified scope under any proof and runtime solutions.",
+      "boundary": "One body."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_body_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified body, with the call and its propagation, is grounded in its certified scope under any proof and runtime solutions.",
+      "boundary": "One body."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.monomorphic_runtime_sorted",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.monomorphic_runtime_sorted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering a function with a monomorphic scheme keeps the runtime solution well sorted.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_is_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_store_is_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every cell of the loaded program store is immutable.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_scope_contracts",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_scope_contracts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The global scope's value, writable, mutable-cell and schema contracts hold over the loaded program store.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_function_parameters",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_function_parameters",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified callee binds exactly the first parameter binder.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_function_parameters",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_function_parameters",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller has no parameters.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_declares_nothing",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_declares_nothing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's certified body declares no locals.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_declares_nothing",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_body_declares_nothing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified body declares no locals.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified callee satisfies FunctionBodyCertified over the global scheme bindings for every well-sorted captured solution and instantiation.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller satisfies FunctionBodyCertified over the global scheme bindings for every well-sorted captured solution and instantiation.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_global_scheme_reads",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_global_scheme_reads",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scheme-function read of the loaded globals comes from a present cell of Ok, the callee or the caller.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_scheme_cells_are_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_scheme_cells_are_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The loaded program's scheme-function cells are immutable.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_storage_agrees",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_storage_agrees",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The storage map marking Ok, the callee and the caller as scheme bindings agrees with the loaded globals.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_scheme_is_callable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_scheme_is_callable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every instantiation of the Ok scheme has one argument and a Result of that argument.",
+      "boundary": "General over captured solutions and type arguments."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_callables",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_store_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every value in the loaded program store is callable through the function table.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_functions_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_functions_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every user function in the loaded table is body-certified over the global scope.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_invocation_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_invocation_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the certified caller in the loaded program, with a well-sorted solution, is a TypedMachine over the global scheme bindings.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_lift_invocation_is_type_safe",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.the_certified_lift_invocation_is_type_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every execution of the invoked certified caller preserves TypedMachine, faults only with an integer fault, and is terminal or can take a permitted step.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_returned_lift_state_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.the_returned_lift_state_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The state after the caller returns Ok(1) to its caller frame is a TypedMachine.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.an_identity_solution_lift_invocation_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.an_identity_solution_lift_invocation_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The invocation with the identity solution is a TypedMachine, so the hypothesis is inhabited.",
+      "boundary": "One witness."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.storage_that_forgets_the_scheme_bindings_disagrees",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.storage_that_forgets_the_scheme_bindings_disagrees",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A storage map that marks the Ok binding ordinary disagrees with the loaded globals.",
+      "boundary": "One control."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported instruction-row document decodes to the literal rows the Result fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_functions_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_functions_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported function-row document decodes to the literal function and block tables the Result fixture checks use.",
+      "boundary": "One document from the test-only export."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported Result signature facts decode to the literal signatures the Result fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_source_names_are_the_fixture_names",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_source_names_are_the_fixture_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result fixture source has exactly the name table the row-mutation controls use, so those controls run the same name resolution as the certification.",
+      "boundary": "The row-mutation controls take the name table as a literal; they do not re-admit the source."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.source_validation_accepts_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.source_validation_accepts_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Source validation alone accepts both candidates against the published signatures.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.exported_rows_accept_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.exported_rows_accept_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The raw-row comparison alone accepts both candidates against the exported rows and function table.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_result_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_result_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Replacing through's published result type by a Result with an Int error makes validation reject the candidate.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_parameter_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_parameter_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Replacing through's published parameter type by Int makes validation reject the candidate.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_error_type_of_the_failure_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_error_type_of_the_failure_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Swapping the published value and error types of refuse's result makes validation reject the candidate.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_body_site_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_body_site_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Moving a published body site makes validation reject the candidate.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_swapped_function_name_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_swapped_function_name_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing another function's name makes validation reject the candidate.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.err_where_the_source_builds_ok_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.err_where_the_source_builds_ok_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that wraps the propagation in Err where the source builds Ok is rejected by validation.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.ok_where_the_source_builds_err_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.ok_where_the_source_builds_err_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that builds Ok of the string where the source builds Err is rejected by validation.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_dropped_propagation_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_dropped_propagation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that drops the propagation is rejected by validation.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_with_the_wrong_error_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_with_the_wrong_error_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that records Int as the propagated error type is rejected by validation.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_outside_the_constructor_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_outside_the_constructor_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that propagates the constructor's result instead of the parameter is rejected by validation.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_err_row_where_the_candidate_builds_ok_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_err_row_where_the_candidate_builds_ok_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A well-formed ExprErr row where the candidate builds Ok is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_ok_row_where_the_candidate_builds_err_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_ok_row_where_the_candidate_builds_err_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A well-formed ExprOk row where the candidate builds Err is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_changed_parameter_slot_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_changed_parameter_slot_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parameter read of another slot is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forward_reference_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forward_reference_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A constructor row that points at a later row is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_constructor_that_skips_the_propagation_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_constructor_that_skips_the_propagation_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An Ok row whose operand skips the propagation row is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_that_reads_another_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_that_reads_another_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A propagation row that reads a different row is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_tag_with_a_foreign_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_tag_with_a_foreign_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A propagation row whose tag name and ordinal disagree is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_ok_name_with_the_err_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_ok_name_with_the_err_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An Ok row whose tag name and ordinal disagree is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_function_entry_with_no_parameters_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_function_entry_with_no_parameters_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with no parameters is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_function_entry_with_another_body_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_function_entry_with_another_body_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with another body block is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A body block owned by another function is rejected by the raw-row comparison.",
+      "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for the nested construction Ok(Ok(1)? + 1) in a function declared to return Result[Int, Str] contain the default of the bare inner Ok to the error type Error, the propagated operand's Result type, and the declared Result type.",
+      "boundary": "One body with the Ok constructor in scope."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.the_error_conflict_has_no_solution",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.the_error_conflict_has_no_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The default error type of a bare Ok under ?, the propagated operand type and a declared string error type have no common solution.",
+      "boundary": "Three constraints of one shape."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.nested_ok_under_propagation_is_rejected_at_a_string_error",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.nested_ok_under_propagation_is_rejected_at_a_string_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for the nested Ok(Ok(1)? + 1) at Result[Int, Str] have no solution of any kind.",
+      "boundary": "The model defaults only bare Ok under ?, in binary operands, field bases, unannotated declarations and discarded statements; call arguments and record fields are not yet expected positions."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.nested_ok_under_propagation_is_accepted_at_the_broad_error",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.nested_ok_under_propagation_is_accepted_at_the_broad_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for Ok(Ok(1)? + 1) at Result[Int, Error] have a checked derivation.",
+      "boundary": "One body; generation and derivation only, not a candidate node."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.an_expected_ok_keeps_the_declared_error_type",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.an_expected_ok_keeps_the_declared_error_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A returned Ok(1) keeps the declared error type at both Result[Int, Str] and Result[Int, Error].",
+      "boundary": "One body; generation and derivation only."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_expression_types_are_validated",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.checked_expression_types_are_validated",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted per-expression check pairs the source's non-callee expression sites, in pre-order, with the Rust-published sites and the types the Lean validator gives the aligned candidate nodes under the derived solution with the published types.",
+      "boundary": "Only calls of named callees, propagation, binary operations, literals and reads are aligned; the checker publishes no type for a callee name, whose call target is checked separately."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.mapM_validation_types_each",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.mapM_validation_types_each",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every type the Lean validator returns for an aligned expression and node is a typing of that source expression under the solution.",
+      "boundary": "General over aligned pairs."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.published_expression_types_match_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.published_expression_types_match_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The checker's published type of every non-callee expression in both fixture functions equals the Lean type of the aligned candidate node.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_propagated_value_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_propagated_value_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing Str as the type of the propagated operand is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_constructor_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_constructor_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing an Int error type for the Err construction is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_shifted_expression_site_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_shifted_expression_site_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing a type at a shifted site is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_dropped_expression_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_dropped_expression_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropping one published expression type is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_extra_expression_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_extra_expression_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An extra published expression type is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_is_certified",
+      "module": "Xsh.Conformance.Connected.RawResultCall",
+      "declaration": "Xsh.Conformance.Connected.result_call_is_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result call fixture source, the Rust-published signatures, call targets and expression types, the exported raw rows and two hand-written candidates are accepted together: the caller's derivation uses the callee's published signature, its direct call row reads as a call of the callee's function entry, and the propagated call result keeps the caller's error type.",
+      "boundary": "Candidates and derivation steps are written by hand and validated; one zero-parameter caller and one single-parameter callee; recursion, indirect calls, local declarations and execution of the call are outside the fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_rows_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_rows_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture instruction-row document decodes to the literal rows the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_functions_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_functions_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture function-row document decodes to the literal function and block tables the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_signatures_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_signatures_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture Result signature facts decode to the literal signatures, expression types and call targets the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_source_names_are_the_fixture_names",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_source_names_are_the_fixture_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted call fixture source has exactly the name table the call row-mutation controls use.",
+      "boundary": "The row-mutation controls take the name table as a literal; they do not re-admit the source."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.each_call_fixture_component_accepts_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.each_call_fixture_component_accepts_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Validation, the raw-row comparison, the expression-type check and the call-target check each accept the caller alone.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_callee_result_type_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_callee_result_type_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee signature whose result has an Int error type makes the caller's validation fail.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_callee_parameter_type_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_callee_parameter_type_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee signature with a Str parameter makes the caller's validation fail.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_callee_published_under_another_name_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_callee_published_under_another_name_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "When no published signature carries the called name, the caller's validation fails.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_of_an_unknown_function_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_of_an_unknown_function_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that calls a binder bound to no function is rejected by validation, the raw-row comparison and the call-target check.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_site_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_site_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published type with an Int error for the call expression is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_argument_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_argument_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published Str type for the call argument is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call target naming the caller instead of the callee is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_dropped_call_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_dropped_call_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call list without the call is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_shifted_call_name_site_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_shifted_call_name_site_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call target at a site other than the callee name is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_row_with_another_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_row_with_another_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row that targets the caller's function entry is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_indirect_call_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.an_indirect_call_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row tagged as an indirect call is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_row_with_another_argument_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_row_with_another_argument_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row whose argument block reads another row is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_callee_function_entry_with_another_name_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_callee_function_entry_with_another_name_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee function entry that names the caller is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
     }
   ],
   "artifact_certificates": [
