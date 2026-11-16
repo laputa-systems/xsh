@@ -638,8 +638,6 @@ impl BoundEquivalence<'_> {
             && left.guard_calls.iter().zip(&right.guard_calls).all(|(left, right)| self.guard_call(left, right))
             && left.map_key_parameters.len() == right.map_key_parameters.len()
             && left.map_key_parameters.iter().all(|parameter| self.types.get(parameter).is_some_and(|mapped| right.map_key_parameters.contains(mapped)))
-            && left.conversion_parameters.len() == right.conversion_parameters.len()
-            && left.conversion_parameters.iter().all(|(parameter, conversions)| self.types.get(parameter).is_some_and(|mapped| right.conversion_parameters.get(mapped) == Some(conversions)))
             && left.applications.len() == right.applications.len()
             && left.effect_predicates.len() == right.effect_predicates.len()
             && left.wrappers.len() == right.wrappers.len()
@@ -699,6 +697,8 @@ impl BoundEquivalence<'_> {
             })
             && left.guards.len() == right.guards.len()
             && left.guards.iter().zip(&right.guards).all(|(left, right)| self.guard(left, right))
+            && left.conversion_parameters.len() == right.conversion_parameters.len()
+            && left.conversion_parameters.iter().all(|(parameter, conversions)| self.types.get(parameter).is_some_and(|mapped| right.conversion_parameters.get(mapped) == Some(conversions)))
     }
 
     fn guard(&mut self, left: &crate::sema::guarded_requirements::GuardRequirements, right: &crate::sema::guarded_requirements::GuardRequirements) -> bool {
@@ -1024,6 +1024,20 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| checked.checked_declarations.functions.values()
             .find(|declaration| declaration.name.as_str() == "describe").unwrap().callable_contract().unwrap())
+    }
+
+    #[test]
+    fn generic_record_formatting_contract_is_reflexive() {
+        let source = r#"pure describe(count) -> Str {
+  if count.high == 0 { f"{count.low}" } else {
+    let tail = f"{count.low}"
+    f"{count.high}" + "000000000".byte_slice(tail.byte_len()) + tail
+  }
+}
+"#;
+        let first = root_schema_contract(source);
+        let second = root_schema_contract(source);
+        assert!(first.equivalent_to(&second), "{first}\n{second}");
     }
 
     #[test]

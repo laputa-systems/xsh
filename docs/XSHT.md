@@ -138,7 +138,8 @@ candidate scheme instantiates its parameters and return, and an original
 structural schema boundary implied by that contract's own ground type may be
 absent from the candidate. Retained and nominal schema boundaries still count as
 drift. A checked-body diagnostic carries the expected classification only when
-its declaration does and the declaration body source is unchanged;
+its private declaration satisfies that generalization and the body source is
+unchanged, including when the interface comparison accepts the instance;
 `[checked-body-drift]` marks every other checked-body difference. Classification
 does not change the exit status: any reported mismatch still fails
 qualification. These checks do not establish runtime behavior equivalence.

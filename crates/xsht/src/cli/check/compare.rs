@@ -310,9 +310,11 @@ fn compare_contracts(
             }
             (DeclarationContract::Callable { contract: old, exported: old_exported }, DeclarationContract::Callable { contract: new, .. }) => {
                 let comparison = if old.equivalent_to(new) { Ok(true) } else if old.is_generic() { Ok(false) } else { old.is_instance_of(new) };
-                if matches!(comparison, Ok(true)) { continue; }
-                let expected = !*old_exported && old.generalized_by(new).unwrap_or(false);
+                let expected = !*old_exported
+                    && (!matches!(comparison, Ok(true)) || !old.is_generic() && new.is_generic())
+                    && old.generalized_by(new).unwrap_or(false);
                 if expected { expected_generalizations.insert((entry_path.to_path_buf(), path.clone(), name.clone())); }
+                if matches!(comparison, Ok(true)) { continue; }
                 let classification = if expected { "expected-private-generalization" } else { "interface-drift" };
                 match comparison {
                     Ok(false) => failures.push(format!("entry {}: {}::{name}: contract mismatch [{classification}]\n  original: {old}\n  candidate: {new}", entry.display(), path.display())),

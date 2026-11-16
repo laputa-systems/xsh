@@ -966,3 +966,17 @@ pure render(box) -> Str { box.label }
     assert "[expected-private-generalization]" not in keep_line, compared.stderr
   }
 }
+
+test test_check_compare_classifies_preserved_instance_body_generalization { |ctx|
+  let original = "pure render(line: Str) -> Str { line.replace(\"\\t\", with: \"/>\") }\n"
+  let candidate = "pure render(line) -> Str { line.replace(\"\\t\", with: \"/>\") }\n"
+  let root = project(ctx, {"original/main.xsh": original, "candidate/main.xsh": candidate})?
+  cd (root) {
+    let compared = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh
+    assert compared.status.exited_with(2), compared.stderr
+    assert "main.xsh::render: checked body contract mismatch [expected-private-generalization]" in compared.stderr, compared.stderr
+    p"candidate/main.xsh".write(candidate.replace("/>", with: "changed"))?
+    let changed = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh
+    assert "main.xsh::render: checked body contract mismatch [checked-body-drift]" in changed.stderr, changed.stderr
+  }
+}
