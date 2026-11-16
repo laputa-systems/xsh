@@ -29,13 +29,9 @@ from native_image import IMAGE_ID
 IMAGE = IMAGE_ID
 COHORT = ("lslocks", "lsipc", "lsmem", "mountpoint", "namei")
 PACKAGE_COMMIT = "087ea48145e24307010ba91f403c5ff8f402568c"
-PRODUCT_SOURCE = "57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1"
-PRODUCT_OUTPUT = Path(".work/wt/requalify-57a-ef7/.work/consolidation/final-performance-gates/profile-cost-57a-ef7")
-PRODUCT_HASHES = {
-    "xsh": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
-    "xsht": "daa6c47667f65e8a2fe06a04ff179ee99e6286496c6d441b193889b3b9fec7fa",
-    "xsh-test-helper": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
-}
+PRODUCT_SOURCE = ""
+_BASELINE = None
+
 
 RUNTIME_SOURCE = "2ea893a3b0d1777c008ac798f6c793e98c4a6079"
 RUNTIME_HASHES = {
@@ -201,88 +197,74 @@ def candidate_products():
     return active
 
 
-def profile_build_context(receipt, directory, target):
-    import acceptance
+def prepare_baseline(directory: Path) -> None:
+    import release
+    import resources
 
-    if not isinstance(receipt, dict):
-        raise ValueError("baseline profile receipt must be an object")
-    source_identity = receipt.get("source_identity")
-    expected_tree = subprocess.check_output(
-        ["git", "-C", str(ROOT), "rev-parse", f"{PRODUCT_SOURCE}^{{tree}}"], text=True
-    ).strip()
-    if (
-        type(receipt.get("schema")) is not int
-        or receipt.get("schema") != 1
-        or receipt.get("state") != "artifact-qualified"
-        or receipt.get("qualification_mode") != "artifacts-only"
-        or receipt.get("source_commit") != PRODUCT_SOURCE
-        or receipt.get("source_status") != "clean"
-        or source_identity != {
-            "commit": PRODUCT_SOURCE,
-            "git_tree": expected_tree,
-            "status": "clean",
+    directory = directory.resolve()
+    if directory.exists():
+        raise ValueError("baseline output already exists")
+    source = source_identity()
+
+    def save():
+        products, context = candidate_products()
+        signature = resources._product_signature(products)
+        directory.mkdir(parents=True)
+        for name, *_ in signature:
+            shutil.copy2(products / name, directory / name)
+        receipt = {
+            "commit": source.commit,
+            "tree": source.tree,
+            "image": context.image,
+            "products": {row[0]: row[-1].hex() for row in signature},
         }
-    ):
-        raise ValueError("baseline profile receipt does not identify the qualified clean source")
+        return receipt
 
-    profile = receipt.get("profile")
-    if profile != {"name": "release", "lto": "thin", "codegen_units": 16, "opt_levels": [3]}:
-        raise ValueError("baseline profile receipt does not identify the release opt3 profile")
-    if receipt.get("target") != target:
-        raise ValueError("baseline profile receipt does not identify the accepted target")
+    receipt = release.with_release_products(sys.modules[__name__], source, save)
+    (directory / "receipt.json").write_text(json.dumps(receipt, sort_keys=True) + "\n")
+    print(json.dumps(receipt, sort_keys=True))
 
-    image = receipt.get("native_image")
-    image_id = image.get("image_id") if isinstance(image, dict) else None
-    if not isinstance(image_id, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None or image.get("architecture") != "amd64":
-        raise ValueError("baseline profile receipt does not identify an immutable amd64 image")
 
-    results = receipt.get("results")
-    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict) or results[0].get("name") != "release-opt3":
-        raise ValueError("baseline profile receipt must contain exactly one release opt3 build")
-    result = results[0]
-    build = result.get("build")
-    cleanup = build.get("container_cleanup") if isinstance(build, dict) else None
-    if (
-        result.get("profile") != "release"
-        or result.get("opt_level") != 3
-        or result.get("lto") != "thin"
-        or result.get("codegen_units") != 16
-        or not isinstance(build, dict)
-        or type(build.get("status")) is not int
-        or build.get("status") != 0
-        or build.get("stage_validation_error") is not None
-        or not isinstance(cleanup, dict)
-        or cleanup.get("resolved") is not True
-    ):
-        raise ValueError("baseline profile receipt does not record a successful release opt3 build")
+@contextlib.contextmanager
+def baseline_scope(directory: Path):
+    import acceptance
+    import resources
 
-    stage_validation = build.get("stage_validation")
-    binary_records = stage_validation.get("binary_hashes") if isinstance(stage_validation, dict) else None
-    if not isinstance(binary_records, dict) or set(binary_records) != set(PRODUCT_HASHES):
-        raise ValueError("baseline profile receipt does not record the accepted product set")
-    for name, expected_hash in PRODUCT_HASHES.items():
-        record = binary_records[name]
-        if not isinstance(record, dict) or record.get("path") != str(directory / name) or record.get("sha256") != expected_hash:
-            raise ValueError(f"baseline profile receipt product differs from the accepted {name} hash")
-
-    return acceptance.BuildContext(
-        source=receipt["source_commit"],
-        profile=profile["name"],
-        target=receipt["target"],
-        image="xsh-test@" + image_id,
-        allocator="mimalloc",
-        allocation="1cpu/1GiB",
-    )
+    global _BASELINE, PRODUCT_SOURCE
+    if _BASELINE is not None:
+        raise ValueError("baseline scope already active")
+    if not directory.is_absolute() or directory.is_symlink() or not directory.is_dir():
+        raise ValueError("baseline products must be an absolute non-symlink directory")
+    directory = directory.resolve(strict=True)
+    receipt = json.loads((directory / "receipt.json").read_text(encoding="utf-8"))
+    commit = receipt.get("commit")
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ValueError("baseline receipt has invalid commit")
+    tree = subprocess.check_output(["git", "rev-parse", f"{commit}^{{tree}}"], cwd=ROOT, text=True).strip()
+    if receipt.get("tree") != tree or receipt.get("image") != IMAGE:
+        raise ValueError("baseline receipt source or image differs")
+    signature = resources._product_signature(directory)
+    hashes = {row[0]: row[-1].hex() for row in signature}
+    if receipt.get("products") != hashes:
+        raise ValueError("baseline product hashes differ from receipt")
+    context = acceptance.BuildContext(commit, "release", resources.TARGET, IMAGE, "mimalloc", "1cpu/1GiB")
+    PRODUCT_SOURCE = commit
+    _BASELINE = (directory, context, signature)
+    try:
+        yield
+    finally:
+        _BASELINE = None
+        PRODUCT_SOURCE = ""
 
 
 def baseline_products():
     import resources
-
-    output = original_root(ROOT) / PRODUCT_OUTPUT
-    directory = output / "opt3/target" / resources.TARGET / "release"
-    receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
-    context = profile_build_context(receipt, directory, resources.TARGET)
-    return verify_product_hashes(directory, PRODUCT_HASHES), context
+    if _BASELINE is None:
+        raise ValueError("resource products require an explicit baseline scope")
+    directory, context, signature = _BASELINE
+    if resources._product_signature(directory) != signature:
+        raise ValueError("baseline products changed during their scoped use")
+    return directory, context
 
 
 def measure_resources():
@@ -612,6 +594,10 @@ def main() -> int:
         mode_parser.add_argument("--check", action="store_true", required=True)
         if mode in {"resources", "close"}:
             mode_parser.add_argument("--laputa-corpus", type=Path, required=True)
+            mode_parser.add_argument("--baseline-products", type=Path, required=True)
+    prepare = modes.add_parser("prepare-baseline")
+    prepare.add_argument("--output", type=Path, required=True)
+    prepare.add_argument("--laputa-corpus", type=Path, required=True)
     source_parser = modes.add_parser("source")
     source_parser.add_argument("--check", action="store_true", required=True)
     source_parser.add_argument("paths", nargs="+")
@@ -624,13 +610,17 @@ def main() -> int:
     parity_parser.add_argument("--require-positive-boundaries", action="store_true")
     args = parser.parse_args()
     try:
-        with cancellation_scope(), campaign_leases(ROOT, native=True, cargo=args.mode in {"resources", "close"}):
+        with cancellation_scope(), campaign_leases(ROOT, native=True, cargo=args.mode in {"resources", "close", "prepare-baseline"}):
             if args.mode == "inventory":
                 inventory()
             elif args.mode == "harness":
                 harness()
             elif args.mode == "baseline":
                 baseline()
+            elif args.mode == "prepare-baseline":
+                import resources
+                with resources._laputa_corpus_scope(args.laputa_corpus):
+                    prepare_baseline(args.output)
             elif args.mode == "source":
                 native_source(args.paths)
             elif args.mode == "parity":
@@ -639,7 +629,7 @@ def main() -> int:
                 import acceptance
                 if args.mode in {"resources", "close"}:
                     import resources
-                    with resources._laputa_corpus_scope(args.laputa_corpus):
+                    with resources._laputa_corpus_scope(args.laputa_corpus), baseline_scope(args.baseline_products):
                         getattr(acceptance, args.mode)(sys.modules[__name__])
                 else:
                     getattr(acceptance, args.mode)(sys.modules[__name__])

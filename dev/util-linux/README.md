@@ -67,11 +67,17 @@ candidate peak RSS. Resource and close checks build an isolated release
 candidate from the clean source checkout. Verification products qualify
 functional checks but cannot qualify release measurements.
 
-Resource and close commands require an explicit clean Laputa checkout:
+Prepare a baseline from a clean XSH checkout before changing the candidate. The output directory must not exist. The adapter builds in the pinned image and records the source, image and product hashes.
 
 ```sh
-python3 dev/util-linux/check.py resources --check --laputa-corpus PATH
-python3 dev/util-linux/check.py close --check --laputa-corpus PATH
+python3 -B dev/util-linux/check.py prepare-baseline --output "$PWD/.work/tmp/util-baseline" --laputa-corpus PATH
+```
+
+Resource and close commands require that baseline and an explicit clean Laputa checkout:
+
+```sh
+python3 dev/util-linux/check.py resources --check --laputa-corpus PATH --baseline-products "$PWD/.work/tmp/util-baseline"
+python3 dev/util-linux/check.py close --check --laputa-corpus PATH --baseline-products "$PWD/.work/tmp/util-baseline"
 ```
 
 `PATH` must be an absolute canonical Git root with a non-symlink `pm/`
@@ -102,3 +108,5 @@ The private boundary proof also requires fresh procfs and two unprivileged
 identities with zero effective capabilities. The five cohort commands report
 failed stdout writes as `NAME: write error` and exit 1; default SIGPIPE still
 terminates by signal, while ignored SIGPIPE uses the write-error path.
+
+Owner decision, 2026-11-16: "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."

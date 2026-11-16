@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from pathlib import Path
+import json
 import signal
 import subprocess
 import sys
@@ -103,7 +104,7 @@ class LaputaCorpusCliTests(unittest.TestCase):
                         self.assertIs(runtime, check)
                         observed.append(resources._selected_laputa_corpus())
 
-                    with patch.object(sys, "argv", ["check.py", mode, "--check", "--laputa-corpus", str(root)]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(acceptance, mode, side_effect=dispatch):
+                    with patch.object(sys, "argv", ["check.py", mode, "--check", "--laputa-corpus", str(root), "--baseline-products", str(root)]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(check, "baseline_scope", return_value=nullcontext()), patch.object(acceptance, mode, side_effect=dispatch):
                         self.assertEqual(check.main(), 0)
                     self.assertEqual(observed, [root])
 
@@ -114,6 +115,35 @@ class LaputaCorpusCliTests(unittest.TestCase):
         with patch.object(sys, "argv", ["check.py", "parity", "--command", "lslocks"]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(check, "parity") as parity:
             self.assertEqual(check.main(), 0)
         self.assertEqual(parity.call_args.args[0].command, "lslocks")
+
+
+class BaselineScopeTests(unittest.TestCase):
+    def test_receipt_and_products_are_checked_for_the_scope(self):
+        import resources
+        with tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp") as temporary:
+            directory = Path(temporary)
+            for name in resources.PRODUCTS:
+                path = directory / name
+                path.write_bytes(name.encode())
+                path.chmod(0o755)
+            source = check.source_identity()
+            signature = resources._product_signature(directory)
+            receipt = {"commit": source.commit, "tree": source.tree, "image": check.IMAGE,
+                       "products": {row[0]: row[-1].hex() for row in signature}}
+            (directory / "receipt.json").write_text(json.dumps(receipt))
+            with check.baseline_scope(directory):
+                self.assertEqual(check.baseline_products()[0], directory)
+                (directory / "xsh").write_bytes(b"changed")
+                with self.assertRaisesRegex(ValueError, "changed"):
+                    check.baseline_products()
+            with self.assertRaisesRegex(ValueError, "hashes differ"):
+                with check.baseline_scope(directory):
+                    pass
+            receipt["tree"] = "wrong"
+            (directory / "receipt.json").write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError, "source or image"):
+                with check.baseline_scope(directory):
+                    pass
 
 
 class NativeCaseDispatchTests(unittest.TestCase):
