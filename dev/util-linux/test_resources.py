@@ -715,7 +715,7 @@ class FullNativeProducerTests(unittest.TestCase):
 
         return Runtime()
 
-    def test_full_native_uses_private_single_job_container_and_accounts_real_skips(self):
+    def test_full_native_uses_private_whole_host_container_and_accounts_real_skips(self):
         result = resources.run_full_native(self.runtime(skip_selector=self.selectors[-1]), SOURCE)
 
         self.assertEqual(result.executed, len(self.expected))
@@ -724,8 +724,12 @@ class FullNativeProducerTests(unittest.TestCase):
         self.assertEqual(result.accounted_skips, result.skipped)
         script, options = self.dispatch
         self.assertIn("private-namespace", script)
-        self.assertIn('"/products/xsht", "test", "--jobs", "1"', script)
-        self.assertEqual((options["cpus"], options["memory_gib"]), (1, 4))
+        self.assertIn('"/products/xsht", "test"]', script)
+        self.assertNotIn("--jobs", script)
+        self.assertEqual(
+            (options["cpus"], options["memory_gib"]),
+            (resources.FULL_SUITE_CPUS, resources.FULL_SUITE_MEMORY_GIB),
+        )
         self.assertEqual(options["timeout"], resources.FULL_NATIVE_TIMEOUT_SECONDS)
 
     def test_full_native_rejects_mandatory_skips_and_product_mutation(self):

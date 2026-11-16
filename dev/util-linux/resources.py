@@ -53,7 +53,10 @@ POSITIVE_SELECTORS = {
 }
 TARGET = "x86_64-unknown-linux-musl"
 HOST_NATIVE_BUDGET_SECONDS = 1200
-FULL_NATIVE_TIMEOUT_SECONDS = 18_300
+FULL_NATIVE_TIMEOUT_SECONDS = 3600
+FULL_SUITE_CPUS = os.cpu_count() or 1
+FULL_SUITE_MEMORY_GIB = 32
+FULL_SUITE_PIDS_LIMIT = 16384
 FULL_NATIVE_CHILD_TIMEOUT_SECONDS = FULL_NATIVE_TIMEOUT_SECONDS - 300
 RUST_GATE_TIMEOUT_SECONDS = 3600
 REPOSITORY_GATE_TIMEOUT_SECONDS = 900
@@ -1874,7 +1877,7 @@ def emit(label, content):
 
 for label, command in (
     ("list", ["/products/xsht", "test", "--list"]),
-    ("result", ["/products/xsht", "test", "--jobs", "1"]),
+    ("result", ["/products/xsht", "test"]),
 ):
     child = subprocess.run(command, cwd="/work", stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=@CHILD_TIMEOUT@)
@@ -1915,8 +1918,8 @@ def run_full_native(runtime: ResourceRuntime, source: SourceIdentity) -> GateRes
         mounts=_candidate_mounts(runtime, products[0]),
         capabilities=["SYS_ADMIN"],
         timeout=FULL_NATIVE_TIMEOUT_SECONDS,
-        cpus=1,
-        memory_gib=4,
+        cpus=FULL_SUITE_CPUS,
+        memory_gib=FULL_SUITE_MEMORY_GIB,
     )
     _require_current(runtime, source, "full native suite")
     _recheck_candidate(runtime, source, products, "full native suite")

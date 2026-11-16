@@ -62,13 +62,16 @@ def cancellation_scope():
 @cancellation_scope()
 def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30, cpus: int = 1, memory_gib: int = 1) -> bytes:
     require_native_lease()
-    if (cpus, memory_gib) not in {(1, 1), (1, 4), (2, 8)}:
+    from resources import FULL_SUITE_CPUS, FULL_SUITE_MEMORY_GIB, FULL_SUITE_PIDS_LIMIT
+    full_suite = (cpus, memory_gib) == (FULL_SUITE_CPUS, FULL_SUITE_MEMORY_GIB)
+    if (cpus, memory_gib) not in {(1, 1), (1, 4), (2, 8), (FULL_SUITE_CPUS, FULL_SUITE_MEMORY_GIB)}:
         raise ValueError("unsupported campaign container allocation")
-    if (cpus, memory_gib) == (2, 8):
+    if full_suite or (cpus, memory_gib) == (2, 8):
         require_cargo_lease()
+    pids_limit = FULL_SUITE_PIDS_LIMIT if full_suite else 128
     name = "xsh-util-linux-" + uuid.uuid4().hex
     argv = ["docker", "run", "--rm", "--name", name, "--network=none", f"--cpus={cpus}",
-            f"--memory={memory_gib}g", f"--memory-swap={memory_gib}g", "--pids-limit=128", "--user=0:0",
+            f"--memory={memory_gib}g", f"--memory-swap={memory_gib}g", f"--pids-limit={pids_limit}", "--user=0:0",
             "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/t"]
     for mount in mounts:
         argv.extend(["--mount", mount])
