@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+for arg do
+  if [ "$arg" = --no-run ]; then
+    exec /root/.cargo/bin/cargo "$@"
+  fi
+done
+: > /split-control/ready
+while [ ! -e /split-control/go ]; do sleep 0.1; done
+exec /root/.cargo/bin/cargo "$@"

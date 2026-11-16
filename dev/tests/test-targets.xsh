@@ -9,6 +9,11 @@ use test_workflows as workflows
 use targets as target_policy
 use unix
 
+proc install_split_wrapper(root: Path) [fs, error] -> Result[Unit, Error] {
+  fp"{root}/dev/tests".mkdir(parents: true)?
+  fp"{root}/dev/tests/split-docker.sh".write("#!/bin/sh\nshift 2\nexec \"$@\"\n", mode: 0o755)?
+}
+
 test test_linux_docker_workflows_prepare_host_writable_scratch { |ctx|
   let root = test.temp_dir(ctx, name: "linux-docker-scratch")?
   let tools = fp"{root}/tools"
@@ -16,6 +21,7 @@ test test_linux_docker_workflows_prepare_host_writable_scratch { |ctx|
   for operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"] {
     let checkout = fp"{root}/{operation}"
     checkout.mkdir()
+    install_split_wrapper(checkout)?
     let probe = fp"{checkout}/.work/tmp/probe"
     fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
 if args[0] == "run" {{
@@ -123,7 +129,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert "--memory-swap=1g" not in argv
 }
 
-test test_docker_argv_applies_split_resource_limits_before_the_image {
+test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
   for profile in ["verification", "release"] {
     let ctx = fixtures.linux_aarch64_context(p"/repo", profile)?
     for operation in ["test-linux-split", "test-linux-ci-split"] {
@@ -149,7 +155,8 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
         }
       }
       assert image_seen
-      assert "--cpus=0.01" in docker_options_before_image
+      assert "--cpus=0.01" not in docker_options_before_image
+      assert "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" in docker_options_before_image
       assert "--memory=1g" in docker_options_before_image
       assert "--memory-swap=1g" in docker_options_before_image
       assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
@@ -157,6 +164,20 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
       assert argv[-4..] == ["dev/main.xsh", "--", "internal", operation]
     }
   }
+  let root = test.temp_dir(ctx, name: "split-quota-handshake")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()?
+  let log = fp"{root}/docker-log"
+  fp"{tools}/docker".write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_LOG\"\n", mode: 0o755)?
+  let container = fp"{root}/container"
+  container.write("#!/bin/sh\nprintf '%s' fake-id > \"$1/id\"\n: > \"$1/ready\"\nwhile [ ! -e \"$1/go\" ]; do /bin/sleep 0.01; done\n", mode: 0o755)?
+  let wrapper = fp"{fs.cwd()?}/dev/tests/split-docker.sh"
+  let status = process.run(process.command_argv(wrapper.display(),
+    [wrapper.display(), fp"{root}/id".display(), root.display(), container.display(), root.display()],
+    env: {PATH: f"{tools}:/bin:/usr/bin", DOCKER_LOG: log.display()}))?
+  assert status.ok
+  assert log.read_lines()? == ["update", "--cpus=0.01", "fake-id"]
+  assert fp"{root}/go".exists()?
 }
 
 test test_linux_test_docker_argv_isolates_products_and_keeps_registry_cache {
@@ -191,6 +212,7 @@ test test_linux_test_docker_argv_isolates_products_and_keeps_registry_cache {
 
 test test_linux_ci_maps_requested_architecture_and_isolates_host_products { |ctx|
   let root = test.temp_dir(ctx, name: "linux-test-product-isolation")?
+  install_split_wrapper(root)?
   let tools = fp"{root}/tools"
   tools.mkdir()
   let log = fp"{root}/docker.log"

@@ -219,7 +219,8 @@ export pure internal_argv(
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
-    argv += ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"]
+    argv += ["--memory=1g", "--memory-swap=1g", "-e", "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"]
+    if let file = cidfile { argv += ["-v", f"{file.parent()}:/split-control"] }
   }
 
   # Temporary test fixtures need executable scripts and metadata-only device
@@ -340,6 +341,18 @@ proc internal_command(
 
 ## Runs one container-internal lifecycle operation through the stage diagnostics.
 export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
+  if operation in ["test-linux-split", "test-linux-ci-split"] {
+    let temp = fp"{ctx.root}/.work/tmp"
+    temp.mkdir(parents: true)?
+    let control = fs.tempdir_in(temp)?
+    defer control.close()
+    let directory = control.host_path()?
+    let cidfile = fp"{directory}/container.cid"
+    let spec = internal_command(ctx, operation, privileged, extra, cidfile: cidfile)?
+    let wrapper = fp"{ctx.root}/dev/tests/split-docker.sh".display()
+    return stages.execute({...spec, executable: wrapper,
+      argv: [wrapper, cidfile.display(), directory.display(), @spec.argv]})
+  }
   stages.execute(internal_command(ctx, operation, privileged, extra)?)
 }
 
@@ -486,9 +499,16 @@ export proc run_internal_status(ctx: context.Context, operation: Str, privileged
     let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile, build_only: build_only, pinned_image: image)?
     registry.mkdir(parents: true)?
     print f"[{spec.stage}{if build_only { "-build" } else { "" }} target={spec.target}] {spec.argv.join(" ")}"
-    let ran = try { process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))? }
+    let is_split = operation in ["test-linux-split", "test-linux-ci-split"]
+    let executable = if is_split { fp"{ctx.root}/dev/tests/split-docker.sh".display() } else { spec.executable }
+    let argv = if is_split { [executable, cidfile.display(), registry.display(), @spec.argv] } else { spec.argv }
+    let ran = try { process.run(process.command_argv(executable, argv, cwd: spec.cwd, env: spec.environment))? }
     remove_owned_container(ctx, cidfile)?
     cidfile.remove(missing_ok: true)?
+    if is_split {
+      fp"{registry}/ready".remove(missing_ok: true)?
+      fp"{registry}/go".remove(missing_ok: true)?
+    }
     registry.remove(missing_ok: true)? when (fs.children(registry)? |> count()) == 0
     outcome = ran
     break when ! build_only
