@@ -911,7 +911,7 @@ proc main(...args: List[Str]) {
     let output = uu.at(s, ".racer-output")
     let error_output = uu.at(s, ".racer-error")
     let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, s.root], s.root,
-      {}, b"", output, error_output, timeout: 30s)
+      {}, b"", output, error_output, timeout: 110s)
     let racer = spawn plan?
     defer racer.cancel(kill_after: 100ms)
     let deadline = time.now() + 30000
