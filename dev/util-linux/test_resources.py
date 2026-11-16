@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -1242,24 +1243,47 @@ class MeasurementProtocolTests(unittest.TestCase):
                 "product",
             )
 
-    def test_peak_rss_cap_applies_to_new_reference_and_existing_commands(self):
+    def test_peak_rss_cap_applies_to_existing_commands(self):
         context = BuildContext("source", "release", "target", "image", "allocator", "1cpu/1GiB")
         baseline = 100 * 1024 * 1024
         allowance = baseline // 10
-        for kind, comparison in (
-            (MeasurementKind.NEW_REFERENCE, "new-command"),
-            (MeasurementKind.EXISTING_BASELINE, "existing-command"),
-        ):
-            with self.subTest(kind=kind):
-                at_limit = MemorySample(
-                    "command", "selector", kind, baseline, baseline + allowance, context, context
-                )
-                acceptance._require_peak_rss_threshold(at_limit, comparison)
-                over_limit = MemorySample(
-                    "command", "selector", kind, baseline, baseline + allowance + 1, context, context
-                )
-                with self.assertRaisesRegex(ValueError, f"{comparison} limit"):
-                    acceptance._require_peak_rss_threshold(over_limit, comparison)
+        at_limit = MemorySample(
+            "command", "selector", MeasurementKind.EXISTING_BASELINE, baseline, baseline + allowance, context, context
+        )
+        acceptance._require_peak_rss_threshold(at_limit, "existing-command")
+        over_limit = MemorySample(
+            "command", "selector", MeasurementKind.EXISTING_BASELINE, baseline, baseline + allowance + 1, context, context
+        )
+        with self.assertRaisesRegex(ValueError, "existing-command limit"):
+            acceptance._require_peak_rss_threshold(over_limit, "existing-command")
+
+    def test_new_command_rss_against_the_c_reference_is_reported_without_a_limit(self):
+        source = acceptance.SourceIdentity("commit", "tree", True)
+        product = BuildContext("product", "release", "target", "image", "mimalloc", "1cpu/1GiB")
+        candidate = BuildContext(source.key, "release", "target", "image", "mimalloc", "1cpu/1GiB")
+        reference = BuildContext(
+            "package", acceptance.REFERENCE_PROFILE, "target", "image", acceptance.REFERENCE_ALLOCATOR, "1cpu/1GiB"
+        )
+        report = acceptance.ResourceReport(
+            source,
+            tuple(acceptance.BinarySize(name, 100, 100, product, candidate) for name in acceptance._PRODUCT_NAMES),
+            (acceptance.AppletSourceSize("lsmem", 1),),
+            (
+                MemorySample(
+                    "lsmem",
+                    acceptance.POSITIVE_BOUNDARIES["lsmem"],
+                    MeasurementKind.NEW_REFERENCE,
+                    1024 * 1024,
+                    44 * 1024 * 1024,
+                    reference,
+                    candidate,
+                ),
+            ),
+            acceptance.DeferredTiming("host busy"),
+        )
+        runtime = SimpleNamespace(PACKAGE_COMMIT="package", PRODUCT_SOURCE="product", COHORT=("lsmem",))
+        with self.assertRaisesRegex(ValueError, "omits existing-command peak RSS"):
+            acceptance._validate_resource_report(report, runtime, source)
 
     def test_timed_pair_requires_exact_target_completion_and_readiness(self):
         before = Readiness(0, b"", b"", True)

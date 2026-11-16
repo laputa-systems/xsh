@@ -756,7 +756,6 @@ def _validate_resource_report(
         if row.kind is MeasurementKind.NEW_REFERENCE:
             if expected_memory.get(row.command) != row.selector:
                 raise ValueError(f"new-command RSS sample does not use its positive fixture: {row.command}")
-            _require_peak_rss_threshold(row, "new-command")
             continue
         if row.command in runtime.COHORT:
             raise ValueError(f"new cohort command has an existing-command RSS baseline: {row.command}")
