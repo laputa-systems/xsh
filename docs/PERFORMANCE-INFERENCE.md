@@ -689,3 +689,20 @@ well as the shared effect-probe/check and lowering work; it is not a single
 self-time hotspot. The existing qualification work classifies the 67 callable
 and 90 body differences as expected generalizations, with no body drift; that
 classification does not establish runtime equivalence.
+
+## AWK startup scope snapshots
+
+On 2026-11-16, a pinned `xsh-test` image built base `86eb5be6c` and the
+candidate with release O2, thin LTO and `x86_64-unknown-linux-musl`. Five
+interleaved runs of `xsh core/awk.xsh -- 'BEGIN{print 1}'` each printed `1`.
+Median user-mode instructions fell from 9,250,487,864 to 8,790,692,380
+(4.97%; ranges 9,249,947,646–9,252,381,021 and
+8,790,564,451–8,791,764,871). Median wall time was 2.25 s to 2.00 s
+(ranges 2.22–2.44 s and 1.97–2.39 s); median peak RSS was 145,976 to
+90,224 KiB. Readiness checks exited 0 before and after each run, although
+another native suite was active on the host. Block exit snapshots now exist
+only for branch joins, and cloned checker scopes share bindings until written.
+The 40% instruction target remains unmet. The remaining profile is distributed
+across arena access, copies, allocation and checker work; a persistent checked
+module cache, with source and dependency invalidation, is a possible larger
+change rather than part of this optimization.

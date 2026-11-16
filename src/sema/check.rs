@@ -1795,7 +1795,7 @@ struct BoundaryContext {
 
 #[derive(Clone, Default)]
 struct CheckerScope {
-    bindings: FxHashMap<Name, Binding>,
+    bindings: Arc<FxHashMap<Name, Binding>>,
     guard: Option<super::constraints::WrapperOperationId>,
 }
 
@@ -1805,7 +1805,7 @@ impl std::ops::Deref for CheckerScope {
 }
 
 impl std::ops::DerefMut for CheckerScope {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.bindings }
+    fn deref_mut(&mut self) -> &mut Self::Target { Arc::make_mut(&mut self.bindings) }
 }
 
 impl<'a> IntoIterator for &'a CheckerScope {
@@ -1817,7 +1817,7 @@ impl<'a> IntoIterator for &'a CheckerScope {
 impl<'a> IntoIterator for &'a mut CheckerScope {
     type Item = (&'a Name, &'a mut Binding);
     type IntoIter = std::collections::hash_map::IterMut<'a, Name, Binding>;
-    fn into_iter(self) -> Self::IntoIter { self.bindings.iter_mut() }
+    fn into_iter(self) -> Self::IntoIter { Arc::make_mut(&mut self.bindings).iter_mut() }
 }
 
 #[derive(Clone)]

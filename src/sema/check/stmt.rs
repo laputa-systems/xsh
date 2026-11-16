@@ -4102,13 +4102,13 @@ impl Checker {
             let failure_scopes = self.scopes.clone();
             self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
-            self.check_block_arena(arena, source, branch.block);
+            self.check_block_with_exit_bindings_arena(arena, source, branch.block);
             if !self
                 .definitely_exiting_block_spans
                 .contains(&arena.arena.span(arena.arena.block(branch.block).span))
-                && let Some(bindings) = self.block_exit_bindings.get(&branch.block)
+                && let Some(bindings) = self.block_exit_bindings.remove(&branch.block)
             {
-                reaching.push(bindings.clone());
+                reaching.push(bindings);
                 reaching_guards.push(self.scopes.last().and_then(|scope| scope.guard));
             }
             previous_failure.extend(facts.when_false);
@@ -4119,14 +4119,14 @@ impl Checker {
         self.apply_narrowings(&previous_failure);
         let fallthrough_guard = self.scopes.last().and_then(|scope| scope.guard);
         if let Some(block) = else_block {
-            self.check_block_arena(arena, source, block);
+            self.check_block_with_exit_bindings_arena(arena, source, block);
             self.check_required_block_exit(arena, block);
             if !self
                 .definitely_exiting_block_spans
                 .contains(&arena.arena.span(arena.arena.block(block).span))
-                && let Some(bindings) = self.block_exit_bindings.get(&block)
+                && let Some(bindings) = self.block_exit_bindings.remove(&block)
             {
-                reaching.push(bindings.clone());
+                reaching.push(bindings);
                 reaching_guards.push(fallthrough_guard);
             }
         } else {
@@ -6434,6 +6434,14 @@ impl Checker {
         source: &str,
         block_id: BlockId,
     ) {
+        self.check_block_arena_inner(arena, source, block_id, false);
+    }
+
+    fn check_block_with_exit_bindings_arena(&mut self, arena: &ArenaProgram, source: &str, block_id: BlockId) {
+        self.check_block_arena_inner(arena, source, block_id, true);
+    }
+
+    fn check_block_arena_inner(&mut self, arena: &ArenaProgram, source: &str, block_id: BlockId, capture_exit: bool) {
         let block = arena.arena.block(block_id);
         if let Some(param) = arena.arena.block_params(block.params).first() {
             let param_span = arena.arena.span(param.span);
@@ -6444,7 +6452,7 @@ impl Checker {
             );
         }
         self.push_scope();
-        self.check_statement_block_contents_arena(arena, source, block_id);
+        self.check_statement_block_contents_arena_inner(arena, source, block_id, capture_exit);
         self.pop_scope();
     }
 
@@ -6454,8 +6462,12 @@ impl Checker {
         source: &str,
         block_id: BlockId,
     ) {
+        self.check_statement_block_contents_arena_inner(arena, source, block_id, false);
+    }
+
+    fn check_statement_block_contents_arena_inner(&mut self, arena: &ArenaProgram, source: &str, block_id: BlockId, capture_exit: bool) {
         let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
-        self.check_statement_block_statements_arena(arena, source, block_id);
+        self.check_statement_block_statements_arena(arena, source, block_id, capture_exit);
         self.leave_block_effect_bound(enclosing_bound);
     }
 
@@ -6464,9 +6476,10 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         block_id: BlockId,
+        capture_exit: bool,
     ) {
         let enclosing_flow = self.boundary.stream_flow;
-        self.check_statement_block_statements_arena_inner(arena, source, block_id);
+        self.check_statement_block_statements_arena_inner(arena, source, block_id, capture_exit);
         self.boundary.stream_flow = enclosing_flow;
     }
 
@@ -6475,6 +6488,7 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         block_id: BlockId,
+        capture_exit: bool,
     ) {
         let block = arena.arena.block(block_id);
         self.boundary.block_depth += 1;
@@ -6487,13 +6501,15 @@ impl Checker {
             }
         }
         self.inference_reachable = previous_reachable;
-        let bindings = self
-            .scopes
-            .iter()
-            .flat_map(|scope| scope.iter())
-            .map(|(name, binding)| (*name, binding.clone()))
-            .collect();
-        self.block_exit_bindings.insert(block_id, bindings);
+        if capture_exit {
+            let bindings = self
+                .scopes
+                .iter()
+                .flat_map(|scope| scope.iter())
+                .map(|(name, binding)| (*name, binding.clone()))
+                .collect();
+            self.block_exit_bindings.insert(block_id, bindings);
+        }
         if self.block_definitely_exits_arena(arena, block_id) {
             self.definitely_exiting_block_spans
                 .insert(arena.arena.span(block.span));
