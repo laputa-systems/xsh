@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run the sealed full native suite with forced frame scheduling."""
+"""Run the sealed full native suite with forced frame scheduling.
+
+A completely accounted run is accepted with its failed tests listed in the
+receipt; correctness is gated by the canonical replay, not by this suite.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from native_image import IMAGE_ID
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "native-scheduler-comparison"))
+from outcomes import validate_counted_log
 from owned_containers import (
     InterruptedRun,
     SignalReceived,
@@ -652,6 +658,33 @@ def run_container(
     }
 
 
+def suite_accounting(status: int | None, log_path: Path) -> dict[str, Any]:
+    try:
+        validation = validate_counted_log(log_path)
+    except ValueError as error:
+        return {"accepted": False, "issues": [str(error)], "test_failures": []}
+    issues = list(validation.issues)
+    if not validation.complete:
+        issues.append("forced-frame suite outcomes are incomplete or malformed")
+    if status != validation.expected_exit_code:
+        issues.append(f"suite exit code is {status}; its outcomes require {validation.expected_exit_code}")
+    return {
+        "accepted": not issues,
+        "issues": issues,
+        "counted_cases": validation.expected_count,
+        "counts": {
+            "passed": validation.counts[0],
+            "failed_or_timed_out": validation.counts[1],
+            "skipped": validation.counts[2],
+        },
+        "stray_line_count": validation.stray_line_count,
+        "test_failures": [
+            {"id": test_id, "status": validation.outcomes[test_id].status}
+            for test_id in validation.test_failures
+        ],
+    }
+
+
 def retain_unresolved_cleanup(run_id: str, stage: dict[str, Any]) -> dict[str, Any]:
     marker = {
         "run_id": run_id,
@@ -837,7 +870,7 @@ def run(args: argparse.Namespace) -> int:
             "memory_swap_limit": MEMORY_LIMIT,
         },
         "native_suite_lock": {"path": str(NATIVE_LOCK), "held_across_gate": False},
-        "timing_claim": "none; correctness-only forced-frame full-suite run",
+        "timing_claim": "none; forced-frame full-suite run with complete outcome accounting",
     }
     output_created = False
     with native_suite_lock(), ensure_repository_tmp(repository_tmp, tree) as repository_tmp:
@@ -894,9 +927,12 @@ def run(args: argparse.Namespace) -> int:
                 receipt["error"] = stage["error"]
                 write_json(receipt_path_out, receipt)
                 return 1
-            if stage["status"] != 0 or not inputs_unchanged:
+            accounting = suite_accounting(stage["status"], log_path)
+            receipt["outcome_accounting"] = accounting
+            receipt["test_failures"] = accounting["test_failures"]
+            if not accounting["accepted"] or not inputs_unchanged:
                 receipt["state"] = "failed"
-                receipt["error"] = "forced-frame suite failed or sealed inputs changed"
+                receipt["error"] = "forced-frame suite was not completely accounted or sealed inputs changed"
                 write_json(receipt_path_out, receipt)
                 return stage["status"] if isinstance(stage["status"], int) and stage["status"] > 0 else 1
             receipt["state"] = "complete"
