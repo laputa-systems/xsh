@@ -98,15 +98,6 @@ out of scope.
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-14 · P3 · Reuse import-graph checks across lint candidates
-
-- **Area:** Performance
-- **Where:** `crates/xsht/src/lint.rs`, `crates/xsht/src/cli`
-- **Problem:** Each lint candidate probe parses, loads, and checks the unchanged import graph again. Large fix runs repeat the same work for every candidate.
-- **Recommendation:** Measure shared checking, grouped candidates, and clean-corpus probe skipping. Keep the smallest design that preserves diagnostics and fix safety. - **Unmet:** The batched-probe candidate (`97e361171`, merge `6300eb05b`) was reverted on 2026-11-01: guarded CPU timing put lint at 0.98 to 1.00 of the baseline on three workloads, inside the spread, for about 700 lines and 86,080 bytes of release `xsht`. - **Progress:** 2026-11-09 attribution on the current tree (release `xsht lint core`, 933 files, thread CPU around every `LintProbeTransport` call): 829 probes cost 20.6 s of about 75 s user. 797 are `lint_try_capture`'s unconditional re-check of each unchanged file (16.2 s, 21 percent), run even when the file has no helper candidate; 32 are `lint_identical_match_arms` standalone candidate checks (4.7 s, 6 percent, about 150 ms each). `xsht lint --fix core` on a clean copy adds only 4 loaded probes (milliseconds), so import-graph reuse across candidates has no measured workload to pay for it: core is fix-clean, and the checker (module check rounds) dominates the remainder. The try-capture baseline check is now lazy (lint stage thread time 32.0 s to 17.1 s, user CPU 0.77 of baseline over three interleaved runs on a loaded host, diagnostics byte-identical). Remaining: only a corpus that actually triggers many loaded fix probes would justify shared import checking; none is known.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
@@ -124,15 +115,6 @@ out of scope.
 - **Recommendation:** Keep framing and QMP policy in the XSH consumer. - **Acceptance:** The same properties hold on the macOS host path, which remains owner-deferred. Real-monitor corroboration is bounded to the recorded acknowledged stop/resume cycle, not every host framing-fault case. No futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
 - **Effort:** S
-
-### XSH-40 · P3 · Reduce one system failure to a hermetic native replay
-
-- **Area:** Tests
-- **Where:** `crates/xsht/`, `src/trace/`, `tests/`
-- **Problem:** Laputa xinit has a native fake replay of a crashed leader with an owned descendant, corroborated by a disposable Linux x86-64 guest and a deliberately broken cleanup. `test.unix_fake` now takes a `replay` observation script (SPEC section 17): ordered lines, per-call required results with no defaults, field checks, a redacted `[A-Za-z0-9_.,-]` 32-byte value alphabet, rejection of a reordered, mismatched, missing-result, past-the-end or never-consumed call, and a `unix-fake-replay` error instead of the host for the uncovered `unix` entries. Native tests in `tests/xsh/stdlib/unix.xsh` reproduce the crashed-leader sequence offline and fail when the cleanup skips the leader group. Laputa `d5aa064` moved its xinit crashed-leader test onto the replay (`xinit/tests/fixtures/crash-replay.txt`), including the mutation that skips the leader group. The maintained Linux 7.2.9/KVM `lifecycle_replay_guest.xsh` proof now passes with clean XSH `d7b4c9c85cbeefd20954156bd362805eabf4e35c` tools over canonical A `90600946…`. It validates the full current PM receipt after the replacement runner executes, corroborates descendant cleanup before finish and respawn, rejects the surviving-descendant mutation, and reports `LAP34_VM_OK`. The base generation remains unchanged; the final tools are an explicit runtime overlay. Complete raw-console lines authenticate completion, and the original root hashes remain equal. The earlier `131ccc686` dirty-bootstrap result retains its own identity.
-- **Recommendation:** Retain the LAP-34 counterexample and its ordered, complete and redacted input contract. Rerun the maintained fixture when lifecycle cleanup or its declared bootstrap changes; no generic replay platform or campaign controller. - **Acceptance:** The reduced case reproduces offline, fails when the repaired invariant is deliberately broken, and rejects missing/mismatched observations rather than consulting the host. Test fixtures contain no secrets. Corroborate with the real guest; mock agreement does not establish OS conformance or power-loss durability.
-- **Fix with:** root-cause
-- **Effort:** M
 
 ### XSH-44 · P3 · Connect one Lean semantic scenario to actual XSH execution
 
@@ -172,23 +154,3 @@ out of scope.
 - **Recommendation:** After the post-inference performance baseline, profile the 512-unit generalization witness and script startup to rank `BTreeMap` time. Only if it is a meaningful share, swap `unsync::BBTreeMap` in behind one alias at the hottest owner and compare interleaved CPU time. Vet the single maintainer, its `unsafe` and allocation code, `InlinkeKey` on our key types, and the build-time, binary-size and startup gates before widening. - **Deferred:** The owner is not interested in this evaluation at present. Exclude it from the active backlog run until the owner reopens it, even after a baseline becomes available.
 - **Fix with:** make-it-fast
 - **Effort:** M
-
-
-### XSH-42 · P4 · Evaluate an optional SQLite boundary with one real consumer
-
-- **Area:** Optional stdlib
-- **Where:** `src/modules/`, `crates/xsh-registry/`, `examples/`, `Cargo.toml`
-- **Problem:** Transactional local state may simplify maintenance history or small catalogs, but the benefit and dependency cost are unproven. This is not a requirement for PID 1, PM receipts or the default system.
-- **Recommendation:** Select one concrete consumer and compare against ordinary files before implementation. If justified, prototype an optional established SQLite binding with parameterized statements, explicit transactions, owned connections/statements, bounded row iteration and existing value validation. No ORM, SQL type system, storage-engine rewrite or mandatory service. - **Acceptance:** The consumer demonstrably loses bespoke persistence machinery; tests cover injection-safe parameters, rollback, busy/error handling, cancellation and resource release. Measure dependency, build, startup, binary-size and memory cost against the no-feature build. Stop at the evaluation if no consumer earns that cost; keep early boot and immutable receipts independent.
-- **Fix with:** none
-- **Effort:** M
-
-
-### XSH-49 · P4 · Account for first-party complexity in one capability change
-
-- **Area:** Design economy
-- **Where:** `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, one selected codec or host-capability change
-- **Problem:** Binary-size/startup gates already exist, but they do not expose ownership proliferation, parallel representations, repeated semantics or Rust/native glue added for one XSH-facing capability. A raw line-count ceiling would punish reuse of trustworthy dependencies and tests.
-- **Recommendation:** On one real accepted change (the Deser cutover or a bounded host API), record before/after first-party source ownership, runtime variants and operations, representations/conversions, duplicated invariants, required crates, product size and startup, and one end-to-end XSH consumer. Identify machinery retired and any complexity moved outward; use a small review table in the owning existing document, not a separate metrics framework. - **Acceptance:** Independent reviewer can trace added, retained and deleted responsibilities to code and tests; no compatibility or verifier boundary is counted as removable merely because it duplicates a check. Record a concrete simplification or reject the abstraction on evidence, without blocking unrelated fixes on a new arbitrary LOC quota. - **Coordination:** Laputa LAP-39 applies the same method to one userspace consumer; existing performance gates remain authoritative.
-- **Fix with:** ultratriage
-- **Effort:** S

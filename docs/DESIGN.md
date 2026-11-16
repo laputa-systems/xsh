@@ -71,6 +71,27 @@ proved; retain necessary compatibility only as an explicit contract. Architectur
 subtraction is a review criterion for each delivery, not authority for an
 unbounded repository-wide rewrite.
 
+### XSH-38: Network observation subtraction
+
+Commit `23c31d12f` removed `linux.interfaces` and `linux.routes` after
+`net_state` already consumed `linux.network_dump`. The table compares the
+commit with its parent. Parent paths and line numbers refer to `23c31d12f^`;
+other references refer to `23c31d12f`.
+
+| Responsibility | Before and after |
+|---|---|
+| First-party ownership | Host projection and fake implementations retired: `src/modules/linux/real/netlink.rs:647` and `:659`, and `src/runtime/eval/lowered_run/module_linux.rs:1244` and `:1285` (parent). The existing dump remains (`src/modules/linux/real/netlink.rs:559`). `git show --stat 23c31d12f` reports 22 files, 67 insertions and 575 deletions, including tests and docs; this is change volume, not a complexity score. |
+| Runtime operations | Two `RuntimeOp` variants and registry signatures were deleted; `LinuxNetworkDump` remains (`crates/xsh-registry/src/runtime_op.rs`, `crates/xsh-registry/src/signature/modules.rs:2603`). `git diff --numstat 23c31d12f^ 23c31d12f` reports registry `runtime_op.rs` 0 added and 2 deleted, and `signature/modules.rs` 2 added and 35 deleted. |
+| Representations and conversions | Three registry record types and the Rust interface and route record projections disappeared (`crates/xsh-registry/src/records.rs:719`, `:727`, `:740` and `src/modules/linux/real/netlink.rs:676`, `:725`, parent). The dump and typed `net_state.State` remain (`core/lib/net_state.xsh:70`, `:321`); the existing userspace projection retains its own conversion. |
+| Invariants and tests | The old projections separately rejected relevant dump issues (`src/modules/linux/real/netlink.rs:494`, `:649`, `:661`, parent). `net_state` still checks relevant issues (`core/lib/net_state.xsh:287`, `:291`). Registry and verification boundaries remain; overlap alone does not make them removable. Projection-specific host tests were deleted (`src/modules/linux/real/netlink.rs:1584`, `:1628`, parent); dump and live observation tests remain (`tests/xsh/stdlib/linux_net.xsh:435`, `:459`, `:846`). |
+| Documentation and crates | Five generated reference lines and five registry documentation lines were removed (`git diff --numstat` for `docs/reference/stdlib.md` and `crates/xsh-registry/src/signature/docs.rs`). No Cargo manifest or lockfile changed in the commit; `rustix` and `rustc-hash` remain in `Cargo.toml`. No crate removal is claimed. |
+| Consumer | `core/ip.xsh:42`, `:62`, `:74` observes and renders routes through `net_state`; `core/ifdown.xsh:337` uses the same observation. `core/tests/test-ip.xsh:66` exercises observed links. |
+| Product cost | Release `xsh` binary size at the parent and commit: not measured. Startup, build time, memory and dependency transitive cost: not measured. Two clean release builds were not undertaken for this documentation evaluation. |
+
+The concrete subtraction is the two Rust projections, operations, record
+contracts and fakes. The existing dump, userspace conversion and their checks
+still own the observation boundary.
+
 ## Earn trust at the host boundary
 
 Conceptual coherence, expressive coverage, implementation economy and operational
