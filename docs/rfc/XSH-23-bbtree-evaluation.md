@@ -1,10 +1,26 @@
 # XSH-23: ordered-map profile
 
-Decision: stop the evaluation without replacing the standard library map. The
-512-unit independent generic-constructor witness already has a meaningful
-ordered-map share. This is a reason to investigate the owner, not evidence that
-another map would improve it. Startup profiles were not taken because the
-requested stop condition was reached. XSH-23 remains open.
+Decision: keep the standard library map and leave XSH-23 open. At base revision
+`db3316403daae381a7748ca08923a900752289fe`, two isolated changes to dynamic
+spelling lookup failed to improve the 512-unit witness and were discarded. An
+`#[inline]` on `DynamicSpellings::load` left its five-run mean at 12.426 billion
+instructions, essentially the baseline's 12.426 billion. Splitting its miss
+path into a cold function with an always-inlined fast path raised the witness
+mean to 12.730 billion (+2.45%), while reducing `core/sort.xsh` from 1.8433 to
+1.8377 billion (-0.30%). Five additional individual runs ranged from 12.4252 to
+12.4271 billion on the baseline and 12.7294 to 12.7299 billion on the split
+candidate; the corresponding sort ranges were 1.8415–1.8434 and 1.8377–1.8379
+billion. Both sides used the release profile and forced frame pointers. These
+are user-mode instruction counts, not wall-time comparisons. The record-map
+change was not attempted, and the required final correctness and gate checks
+were not run. The attempt limit was reached without an accepted candidate.
+
+The discarded split candidate's flat profile had 6,332 samples: `Name::cmp`
+6.12% self, `memcmp` 11.84%, and the inlined dynamic-spelling comparison closure
+6.76%; `DynamicSpellings::load` had no separately attributed symbol. Record-map
+bulk node construction was 4.92%, insert 2.04%, and tree drop 1.99% self.
+Inlining changes attribution, so these shares are not directly comparable to
+the earlier profile below.
 
 At revision `c334c791f77ae9e7f767fecdbf51e8256bde6d88`, the reduced
 `named-generic-constructors-independent-512` source from
