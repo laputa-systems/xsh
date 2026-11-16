@@ -128,8 +128,17 @@ class BaselineScopeTests(unittest.TestCase):
                 path.chmod(0o755)
             source = check.source_identity()
             signature = resources._product_signature(directory)
-            receipt = {"commit": source.commit, "tree": source.tree, "image": check.IMAGE,
+            receipt = {"schema": 1, "commit": source.commit, "tree": source.tree, "image": check.IMAGE,
+                       "profile": {"name": "release", "opt_level": 3, "lto": "thin", "codegen_units": 16},
+                       "target": resources.TARGET,
                        "products": {row[0]: row[-1].hex() for row in signature}}
+            (directory / "receipt.json").write_text(json.dumps(receipt))
+            receipt["profile"]["opt_level"] = 2
+            (directory / "receipt.json").write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError, "release opt3"):
+                with check.baseline_scope(directory):
+                    pass
+            receipt["profile"]["opt_level"] = 3
             (directory / "receipt.json").write_text(json.dumps(receipt))
             with check.baseline_scope(directory):
                 self.assertEqual(check.baseline_products()[0], directory)

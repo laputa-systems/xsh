@@ -67,7 +67,7 @@ candidate peak RSS. Resource and close checks build an isolated release
 candidate from the clean source checkout. Verification products qualify
 functional checks but cannot qualify release measurements.
 
-Prepare a baseline from a clean XSH checkout before changing the candidate. The output directory must not exist. The adapter builds in the pinned image and records the source, image and product hashes.
+Prepare a baseline from a clean XSH checkout before changing the candidate. The output directory must not exist. The adapter builds in the pinned image and records the source, image, target, release profile and product hashes.
 
 ```sh
 python3 -B dev/util-linux/check.py prepare-baseline --output "$PWD/.work/tmp/util-baseline" --laputa-corpus PATH

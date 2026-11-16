@@ -213,8 +213,11 @@ def prepare_baseline(directory: Path) -> None:
         for name, *_ in signature:
             shutil.copy2(products / name, directory / name)
         receipt = {
+            "schema": 1,
             "commit": source.commit,
             "tree": source.tree,
+            "profile": {"name": "release", "opt_level": 3, "lto": "thin", "codegen_units": 16},
+            "target": resources.TARGET,
             "image": context.image,
             "products": {row[0]: row[-1].hex() for row in signature},
         }
@@ -237,6 +240,12 @@ def baseline_scope(directory: Path):
         raise ValueError("baseline products must be an absolute non-symlink directory")
     directory = directory.resolve(strict=True)
     receipt = json.loads((directory / "receipt.json").read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict) or type(receipt.get("schema")) is not int or receipt["schema"] != 1:
+        raise ValueError("invalid baseline receipt schema")
+    if receipt.get("profile") != {"name": "release", "opt_level": 3, "lto": "thin", "codegen_units": 16}:
+        raise ValueError("baseline receipt does not identify the release opt3 profile")
+    if receipt.get("target") != resources.TARGET:
+        raise ValueError("baseline receipt does not identify the accepted target")
     commit = receipt.get("commit")
     if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         raise ValueError("baseline receipt has invalid commit")
