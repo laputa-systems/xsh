@@ -173,3 +173,29 @@ print f"{candidate}"
   )?
   assert values.stdout == "source\nfolder/file\n"
 }
+
+test test_operand_order_int_list_index_evaluates_index { |ctx|
+  let values = test.expect(
+    ctx,
+    r"""pure read(values: List[Int], index: Int) -> Int {
+  let result: Int = values[index + 1] + 0
+  return result
+}
+print ${read([7, 42], 0)}
+""",
+    status: 0,
+  )?
+  assert values.stdout == "42\n"
+
+  test.expect(
+    ctx,
+    r"""pure read(values: List[Int], index: Int) -> Int {
+  let result: Int = values[index + 1] + 0
+  return result
+}
+print ${read([7, 42], 9223372036854775807)}
+""",
+    status: 3,
+    stderr: ["integer-overflow"],
+  )?
+}

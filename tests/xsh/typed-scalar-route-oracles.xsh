@@ -21,6 +21,33 @@ assert identity(42) == 42
   )?
 }
 
+test test_int_field_slot { |ctx|
+  test.expect(
+    ctx,
+    r"""type RoutePosition = {end: Int}
+pure read(position: RoutePosition) -> Int {
+  let result: Int = position.end + 0
+  return result
+}
+assert read({end: 42}) == 42
+""",
+    status: 0,
+  )?
+}
+
+test test_int_list_index_slot { |ctx|
+  test.expect(
+    ctx,
+    r"""pure read(values: List[Int], index: Int) -> Int {
+  let result: Int = values[index] + 0
+  return result
+}
+assert read([7, 42], 1) == 42
+""",
+    status: 0,
+  )?
+}
+
 test test_int_binary { |ctx|
   test.expect(
     ctx,
