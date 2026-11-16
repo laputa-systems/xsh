@@ -21,17 +21,6 @@ proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error
   open_fixture_to_native_user(root)?
 }
 
-proc ensure_git_checkout(root: Path) [fs, process, error] -> Result[Unit, Error] {
-  return when fp"{root}/.git".exists()?
-  let initialized = run.capture --text git -C $root init --quiet
-  guard initialized.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {initialized.stderr}" }
-  fp"{root}/.git/info/exclude".write(".work/\n")
-  for step in [["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture"]] {
-    let recorded = run.capture --text git -C $root @step
-    guard recorded.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {recorded.stderr}" }
-  }
-}
-
 proc open_fixture_to_native_user(root: Path) [fs, process, error] -> Result[Unit, Error] {
   return when unix.id()?.euid != 0
   fp"{root}/.work/tmp".mkdir(parents: true)?
@@ -2003,6 +1992,10 @@ test test_gate_container_preserves_selected_failure_incomplete_and_cancel_status
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-container-status")?
+  let root = fp"{tools}/checkout"
+  root.mkdir()?
+  init_gate_repository(root, repository)?
+  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)?
   let cargo_home = fp"{tools}/cargo"
   cargo_home.mkdir()
   fp"{cargo_home}/bin".mkdir()
@@ -2033,7 +2026,7 @@ exit requested
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{repository}")?, ["--case", "showcase/tokei/correctness"])?
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
 }}
 main()?
 """, status: status, stdout: [f"raw_status={status}"], args: [], env: {{
@@ -2049,7 +2042,7 @@ main()?
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{repository}")?, ["--case", "showcase/tokei/correctness"])?
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
 }}
 main()?
 """, status: scenario.expected, args: [], env: {{
@@ -2063,7 +2056,7 @@ main()?
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{repository}")?, ["--case", "showcase/tokei/correctness"])?
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
 }}
 main()?
 """, status: 2, stdout: ["image unavailable"], args: [], env: {{
@@ -2076,7 +2069,7 @@ main()?
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{repository}")?, ["--case", "showcase/tokei/correctness"])?
+  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
 }}
 main()?
 """, status: 2, stdout: ["different image ID"], args: [], env: {{
@@ -2653,10 +2646,14 @@ test test_performance_python_owners_select_contract_tests {
 test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { |ctx|
   test.timeout(ctx, 60s)
   let repository = fs.cwd()?
-  ensure_git_checkout(repository)?
-  fp"{repository}/.work/tmp".mkdir(parents: true)?
-  let owned = fs.tempdir_in(fp"{repository}/.work/tmp")?
-  let tools = owned.host_path()?
+  let tools = test.temp_dir(ctx, name: "gate-focused-json")?
+  let root = fp"{tools}/checkout"
+  root.mkdir()?
+  fp"{root}/bench/consolidation".mkdir(parents: true)?
+  fp"{root}/bench/consolidation/fixtures.py".write(fp"{repository}/bench/consolidation/fixtures.py".read_bytes()?)?
+  init_gate_repository(root, repository)?
+  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)?
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)?
   let cargo_home = fp"{tools}/cargo"
   fp"{cargo_home}/bin".mkdir(parents: true)?
   fp"{cargo_home}/bin/kache".write("#!/bin/sh\nexit 0\n", mode: 0o755)?
@@ -2732,7 +2729,7 @@ os.execv(real, [real, *arguments])
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  let base = fixtures.linux_context(p"{repository}", "verification")?
+  let base = fixtures.linux_context(p"{root}", "verification")?
   gates.execute({{...base, target_dir: p"{target_dir}"}}, ["--case", "performance/json-n/correctness"])?
 }}
 main()?
@@ -2756,7 +2753,7 @@ main()?
   let config = json.decode(adapter_config.read_text()?)?.require(Record)?
   assert config.get("image_id")?.require(Str)? == image
   let binding = config.get("gate_binding")?.require(Record)?
-  let source_digest = cd (repository) {{ run.text python3 -B dev/gate_source.py }}?
+  let source_digest = cd (root) {{ run.text python3 -B dev/gate_source.py }}?
   assert binding.get("source_digest")?.require(Str)? == source_digest.trim()
   assert binding.get("product_digest")?.require(Str)? == hash.sha256(product)?.hex()
   assert binding.get("product_mode")?.require(Int)? == 0o755
