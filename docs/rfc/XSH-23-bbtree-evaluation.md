@@ -1,6 +1,31 @@
 # XSH-23: ordered-map profile
 
-Decision: keep the standard library map and leave XSH-23 open. At base revision
+## Decision
+
+Reuse the existing record field map during checked-type canonicalization when
+its fields contain no error family, variant, or facet. The recursive check uses
+the existing type-child traversal; error-bearing records still take the original
+rewrite path. The semantic pools are mutable during building and rewind, so a
+pool-index cache would require invalidation and must also preserve the decoder's
+materialization budget. Keep the standard library map.
+
+At base revision `98fe1210841f08c94037d745aebcd0b90ac5dccc`, release builds
+with forced frame pointers were measured with `perf stat -e instructions:u -r 5`.
+The witness mean fell from 12,424,642,955 to 9,825,889,255 instructions
+(20.92%); `core/sort.xsh` fell from 1,843,436,708 to 1,791,703,518 (2.81%).
+Five additional interleaved individual runs were:
+
+| Workload | Base instructions | Candidate instructions |
+|---|---|---|
+| 512-unit witness | 12,424,669,059; 12,424,631,725; 12,424,636,026; 12,424,656,487; 12,424,677,850 | 9,825,894,981; 9,825,880,414; 9,825,899,947; 9,825,884,435; 9,825,914,886 |
+| `core/sort.xsh` | 1,843,240,880; 1,843,673,184; 1,843,669,673; 1,843,728,219; 1,843,246,529 | 1,791,852,531; 1,791,910,823; 1,791,682,164; 1,791,888,615; 1,791,725,115 |
+
+All measured commands succeeded. The host was loaded by guest VMs; these are
+user-mode instruction counts, not elapsed-time claims. `xsht check core` and
+`xsht check tests/xsh` produced byte-identical diagnostics after removing only
+the `xsht check: ... files in ... (thread time by stage: ...)` summary line.
+
+Previously, at base revision
 `db3316403daae381a7748ca08923a900752289fe`, two isolated changes to dynamic
 spelling lookup failed to improve the 512-unit witness and were discarded. An
 `#[inline]` on `DynamicSpellings::load` left its five-run mean at 12.426 billion

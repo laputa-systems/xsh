@@ -9560,6 +9560,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ),
             Type::Stream(item) => Type::Stream(Box::new(self.canonicalize_checked_type(*item))),
             Type::Set(item) => Type::Set(Box::new(self.canonicalize_checked_type(*item))),
+            Type::Record(fields) if !fields.values().any(Self::type_needs_canonicalization) => Type::Record(fields),
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
@@ -9616,6 +9617,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             )),
             other => other,
         }
+    }
+
+    fn type_needs_canonicalization(ty: &Type) -> bool {
+        if matches!(ty, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_)) {
+            return true;
+        }
+        let mut needs = false;
+        ty.for_each_child(|child| {
+            if !needs {
+                needs = Self::type_needs_canonicalization(child);
+            }
+        });
+        needs
     }
 
     fn top_level_slots(
