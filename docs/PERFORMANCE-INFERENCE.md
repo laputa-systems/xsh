@@ -706,3 +706,21 @@ The 40% instruction target remains unmet. The remaining profile is distributed
 across arena access, copies, allocation and checker work; a persistent checked
 module cache, with source and dependency invalidation, is a possible larger
 change rather than part of this optimization.
+
+A follow-up profile used the same image and target with release line tables and
+frame pointers. `perf record --call-graph fp` captured 1,772 samples, with no
+lost samples. Inclusive frames overlap: module effect/origin convergence was
+83.94% of sampled cycles, function-body checking 66.22%, generalization
+preparation 10.47%, compact preparation 9.14%, runtime verification 5.48%,
+scheme verification 3.78%, and parse/load 1.75%. A debugger breakpoint at
+the convergence loop observed six passes for `xsht check core/lib/awk.xsh`;
+frontend counters recorded 1,146 body-check entries for 191 lowered functions.
+
+Five interleaved standalone checks gave these median user instructions per
+source line: sed 659,256 (2,032 lines), sort 595,173 (2,880), system report
+619,660 (3,757), and awk 1,792,654 (4,880). Each check includes its imports and
+lowering, and the programs differ, so this comparison does not prove a scaling
+law. Readiness checks passed, while a profiling build and other host work were
+active. Avoiding whole-module replay would require a dependency-driven
+convergence design that preserves checked facts and invalidates affected
+callers, recursive components, and loop headers when their summaries change.
