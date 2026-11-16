@@ -49,7 +49,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "11f8e3e11802a89043de6b3448c975cd87df35e3e33145f6cdd4eefd5c3fa861"
+APPROVED_MANIFEST_BODY_SHA256 = "b40174275ab1ae5cba257ecd2435d1f5c907e0f5b6d716d705938d7325d39e82"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -1558,7 +1558,7 @@ class Launch:
             "--tmpfs", "/tmp:rw,nodev,exec,nosuid,mode=1777",
             "-v", f"{self.source_root}:{self.source_root}:rw",
             *scratch_mount,
-            "-v", f"{CONTROLLER_ROOT}/.git:{CONTROLLER_ROOT}/.git:ro",
+            "-v", f"{self.git_common_dir}:{self.git_common_dir}:ro",
             "-v", f"{self.laputa_corpus}:{self.laputa_corpus}:ro",
             "-v", f"{target_dir}:{target_dir}:ro",
             *([] if target_dir == self.target_dir else ["-v", f"{self.target_dir}:{self.target_dir}:ro"]),

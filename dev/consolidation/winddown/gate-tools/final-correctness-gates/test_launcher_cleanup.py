@@ -58,6 +58,7 @@ TEST_SOURCE_ROOT = LAUNCHER.CONTROLLER_ROOT / ".work/wt/final-correctness-linked
 SCRATCH_ROOT = SOURCE_ROOT / ".work/tmp"
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 NATIVE_RUNNER = SOURCE_DIR / "run-native-final.sh"
+CONTROLLER_GIT_COMMON = LAUNCHER.resolve_source_root(SOURCE_ROOT)[1]
 CANONICAL_NATIVE_LOCK = LAUNCHER.CONTROLLER_ROOT / ".work/consolidation/infra/native-suite.lock"
 
 
@@ -117,12 +118,14 @@ class CoverageTests(unittest.TestCase):
         gates = (SOURCE_ROOT / "dev/gates.xsh").read_text()
         rust_plan = re.search(r'export pure rust_plan\(.*?\n}\n', workflow, re.S)
         self.assertIsNotNone(rust_plan)
-        target_loop = re.search(r'for target in \[(.*?)\]\s*\{', rust_plan.group(0), re.S)
+        target_loop = re.search(r'var test_targets = \[(.*?)\]', rust_plan.group(0), re.S)
         self.assertIsNotNone(target_loop)
         self.assertEqual(
             re.findall(r'"([^"]+)"', target_loop.group(1)),
             ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra"],
         )
+        self.assertIn('test_targets += ["fs_transfer"] when ctx.target.os == "linux"', rust_plan.group(0))
+        self.assertIn("for target in test_targets {", rust_plan.group(0))
         self.assertRegex(
             rust_plan.group(0),
             r'\["cargo", "test", @profile_args, "-p", "xsh", "--test", target, "--",\s*'
@@ -411,14 +414,14 @@ class SourceAdmissionTests(unittest.TestCase):
         after = LAUNCHER.git_snapshot(source_root)
 
         self.assertEqual(source_root, SOURCE_ROOT)
-        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+        self.assertEqual(git_common_dir, CONTROLLER_GIT_COMMON)
         self.assertEqual(after, before)
 
     def test_accepts_the_controller_checkout_as_an_explicit_source_root(self):
         source_root, git_common_dir = LAUNCHER.resolve_source_root(LAUNCHER.CONTROLLER_ROOT)
 
         self.assertEqual(source_root, LAUNCHER.CONTROLLER_ROOT)
-        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+        self.assertEqual(git_common_dir, CONTROLLER_GIT_COMMON)
 
     def test_accepts_the_detached_linked_worktree(self):
         before = LAUNCHER.git_snapshot(TEST_SOURCE_ROOT)
@@ -427,7 +430,7 @@ class SourceAdmissionTests(unittest.TestCase):
 
         self.assertEqual(source_root, TEST_SOURCE_ROOT)
         self.assertNotEqual(before["head"], LAUNCHER.git_snapshot(SOURCE_ROOT)["head"])
-        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+        self.assertEqual(git_common_dir, CONTROLLER_GIT_COMMON)
         self.assertEqual(after, before)
 
     def test_rejects_a_symlinked_source_root(self):
@@ -540,7 +543,7 @@ class SourceAdmissionTests(unittest.TestCase):
             "--expected-tree", "b" * 40, "--laputa-corpus", str(nested_laputa),
             "--out", str(output),
         ]
-        common_dir = (LAUNCHER.CONTROLLER_ROOT / ".git").resolve()
+        common_dir = CONTROLLER_GIT_COMMON
         with mock.patch.object(sys, "argv", arguments):
             with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
                 with mock.patch.object(
@@ -579,7 +582,7 @@ class SourceAdmissionTests(unittest.TestCase):
                 "--expected-tree", "b" * 40, "--laputa-corpus", str(laputa_root),
                 "--out", str(output),
             ]
-            common_dir = (LAUNCHER.CONTROLLER_ROOT / ".git").resolve()
+            common_dir = CONTROLLER_GIT_COMMON
             with mock.patch.object(sys, "argv", arguments):
                 with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
                     with mock.patch.object(
@@ -704,7 +707,7 @@ class LaputaAdmissionTests(unittest.TestCase):
             output = pathlib.Path(temporary) / "run"
             gate = LAUNCHER.Launch(
                 SOURCE_ROOT,
-                (LAUNCHER.CONTROLLER_ROOT / ".git").resolve(),
+                CONTROLLER_GIT_COMMON,
                 SOURCE_ROOT,
                 {"head": "a" * 40, "tree": "b" * 40},
                 "a" * 40,
@@ -1302,7 +1305,7 @@ class RunnerInvocationTests(unittest.TestCase):
         scratch = tree / ".work/tmp"
         ordinary_read_only_mounts = {
             f"{tree}:{tree}:ro",
-            f"{LAUNCHER.CONTROLLER_ROOT / '.git'}:{LAUNCHER.CONTROLLER_ROOT / '.git'}:ro",
+            f"{CONTROLLER_GIT_COMMON}:{CONTROLLER_GIT_COMMON}:ro",
             f"{self.laputa_root}:{self.laputa_root}:ro",
             "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
             "/usr/local/bin/mold:/usr/local/bin/mold:ro",

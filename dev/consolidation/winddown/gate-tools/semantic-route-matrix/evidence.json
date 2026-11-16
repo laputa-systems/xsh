@@ -1810,6 +1810,38 @@
       }
     },
     {
+      "tag": "IntFieldSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_field_slot",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "IntListIndexSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_list_index_slot",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
       "tag": "IntStrByteAtSlot",
       "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
@@ -3309,6 +3341,20 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_int_slot is associated with IntSlot; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "IntFieldSlot": {
+      "ids": [
+        "tests/xsh/typed-scalar-route-oracles.xsh::test_int_field_slot"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_int_field_slot is associated with IntFieldSlot; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "IntListIndexSlot": {
+      "ids": [
+        "tests/xsh/typed-scalar-route-oracles.xsh::test_int_list_index_slot"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_int_list_index_slot is associated with IntListIndexSlot; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
     "IntStrByteAtSlot": {
       "ids": [
         "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_byte_at_slot"
@@ -3868,6 +3914,15 @@
         "tests/xsh/operand-order-scalars.xsh::test_operand_order_int_binary_is_left_to_right"
       ],
       "scope": "Source review candidate for IntBinary: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-scalars.xsh::test_operand_order_int_binary_is_left_to_right asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
+    },
+    "IntListIndexSlot": {
+      "fields": [
+        "index"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-scalars.xsh::test_operand_order_int_list_index_evaluates_index"
+      ],
+      "scope": "Source review candidate for IntListIndexSlot: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-scalars.xsh::test_operand_order_int_list_index_evaluates_index asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
     },
     "IntStrByteAtSlot": {
       "fields": [

@@ -166,7 +166,7 @@ if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then
 fi
 TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform linux/amd64 --cpus=12 --memory=24g --memory-swap=24g --network=none --tmpfs /tmp:rw,exec,nosuid,mode=1777
   -v "$TASK_TREE:$TASK_TREE:ro"
-  -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
+  -v "$TASK_CONTROLLER_GIT_COMMON_DIR:$TASK_CONTROLLER_GIT_COMMON_DIR:ro"
   -v "$TASK_LAPUTA_CORPUS:$TASK_LAPUTA_CORPUS:ro"
   -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro
   -v /usr/local/bin/mold:/usr/local/bin/mold:ro
