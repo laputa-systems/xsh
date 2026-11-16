@@ -775,7 +775,7 @@ fn run_test_cases_parallel<F>(
     route_witness: Option<&RouteWitnessConfig>, jobs: usize, stopped: Arc<AtomicBool>, mut on_event: F,
 ) -> Result<(), String>
 where F: FnMut(TestRunEvent) -> bool {
-    let queue = Arc::new((Mutex::new(ParallelTestQueue::new(cases)), Condvar::new()));
+    let queue = Arc::new((Mutex::new(ParallelTestQueue::new(cases, jobs)), Condvar::new()));
     let (tx, rx) = mpsc::sync_channel(jobs * 2);
     let options = Arc::new(options.clone());
     let route_witness = Arc::new(route_witness.cloned());
@@ -844,10 +844,6 @@ fn test_panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
     else { "non-string panic payload".to_owned() }
 }
 
-/// Limit each file's admitted test cases so a large fixture file cannot starve
-/// other files or overwhelm short child-process deadlines.
-const MAX_ACTIVE_TESTS_PER_FILE: usize = 8;
-
 struct ActiveTestLease<'queue> {
     queue: &'queue Arc<(Mutex<ParallelTestQueue>, Condvar)>,
     file_index: usize,
@@ -868,6 +864,7 @@ struct TestFileQueue {
     cases: VecDeque<(usize, TestCase)>,
     active: usize,
     ready: bool,
+    priority: bool,
 }
 
 struct ParallelTestQueue {
@@ -875,10 +872,11 @@ struct ParallelTestQueue {
     ready_files: VecDeque<usize>,
     pending: usize,
     active: usize,
+    per_file_limit: usize,
 }
 
 impl ParallelTestQueue {
-    fn new(cases: Vec<TestCase>) -> Self {
+    fn new(cases: Vec<TestCase>, jobs: usize) -> Self {
         let mut files: Vec<TestFileQueue> = Vec::new();
         let mut current_file = None;
         for (index, case) in cases.into_iter().enumerate() {
@@ -891,6 +889,7 @@ impl ParallelTestQueue {
                     cases: VecDeque::new(),
                     active: 0,
                     ready: false,
+                    priority: false,
                 });
                 current_file = Some(file.to_string());
             }
@@ -901,6 +900,9 @@ impl ParallelTestQueue {
                 .push_back((index, case));
         }
 
+        for file in &mut files {
+            file.priority = file.cases.len() >= 256;
+        }
         let pending = files
             .iter()
             .map(|file| file.cases.len())
@@ -910,8 +912,11 @@ impl ParallelTestQueue {
             ready_files: VecDeque::new(),
             pending,
             active: 0,
+            per_file_limit: (jobs / 2).clamp(8, 16),
         };
-        for file_index in 0..queue.files.len() {
+        let mut order: Vec<_> = (0..queue.files.len()).collect();
+        order.sort_by_key(|&index| std::cmp::Reverse(queue.files[index].cases.len().max(255)));
+        for file_index in order {
             queue.enqueue_if_ready(file_index);
         }
         queue
@@ -942,9 +947,13 @@ impl ParallelTestQueue {
 
     fn enqueue_if_ready(&mut self, file_index: usize) {
         let file = &mut self.files[file_index];
-        if !file.cases.is_empty() && file.active < MAX_ACTIVE_TESTS_PER_FILE && !file.ready {
+        if !file.cases.is_empty() && file.active < self.per_file_limit && !file.ready {
             file.ready = true;
-            self.ready_files.push_back(file_index);
+            if file.priority {
+                self.ready_files.push_front(file_index);
+            } else {
+                self.ready_files.push_back(file_index);
+            }
         }
     }
 
@@ -2745,6 +2754,22 @@ mod tests {
     }
 
     #[test]
+    fn parallel_queue_prioritizes_large_files_and_scales_the_limit() {
+        let mut cases = vec![invalid_case("core/small.xsh::test_first")];
+        for index in 0..256 {
+            cases.push(invalid_case(&format!("core/large.xsh::test_{index}")));
+        }
+        let mut queue = ParallelTestQueue::new(cases, 32);
+        for index in 0..16 {
+            assert_eq!(queue.take_next().unwrap().2.id(), format!("core/large.xsh::test_{index}"));
+        }
+        assert_eq!(queue.take_next().unwrap().2.id(), "core/small.xsh::test_first");
+        assert!(queue.take_next().is_none());
+        queue.finish(1);
+        assert_eq!(queue.take_next().unwrap().2.id(), "core/large.xsh::test_16");
+    }
+
+    #[test]
     fn parallel_queue_fairly_admits_files_with_per_file_cap_and_stable_order() {
         let cases = vec![
             invalid_case("core/a.xsh::test_a1"),
@@ -2771,7 +2796,7 @@ mod tests {
             invalid_case("core/c.xsh::test_c2"),
         ];
 
-        let mut queue = ParallelTestQueue::new(cases);
+        let mut queue = ParallelTestQueue::new(cases, 16);
         let mut scheduled = Vec::new();
         while let Some((file_index, index, case)) = queue.take_next() {
             scheduled.push((file_index, index, case.id().to_string()));
