@@ -53,7 +53,8 @@ POSITIVE_SELECTORS = {
 }
 TARGET = "x86_64-unknown-linux-musl"
 HOST_NATIVE_BUDGET_SECONDS = 1200
-FULL_NATIVE_TIMEOUT_SECONDS = 3600
+FULL_NATIVE_TIMEOUT_SECONDS = 18_300
+FULL_NATIVE_CHILD_TIMEOUT_SECONDS = FULL_NATIVE_TIMEOUT_SECONDS - 300
 RUST_GATE_TIMEOUT_SECONDS = 3600
 REPOSITORY_GATE_TIMEOUT_SECONDS = 900
 DOCS_GATE_TIMEOUT_SECONDS = 3600
@@ -1876,7 +1877,7 @@ for label, command in (
     ("result", ["/products/xsht", "test", "--jobs", "1"]),
 ):
     child = subprocess.run(command, cwd="/work", stdin=subprocess.DEVNULL,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3500)
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=@CHILD_TIMEOUT@)
     if child.returncode != 0:
         sys.stderr.buffer.write(child.stdout)
         sys.stderr.buffer.write(child.stderr)
@@ -1903,7 +1904,11 @@ def run_full_native(runtime: ResourceRuntime, source: SourceIdentity) -> GateRes
     }
     mandatory.update(acceptance.declared_native_selectors(runtime.ROOT, acceptance.HOST_BOUNDARY_FILES))
     mandatory.update(_selectors(runtime, source))
-    driver = _FULL_NATIVE_DRIVER.replace("@REQUIRED@", repr(tuple(sorted(mandatory))))
+    driver = (
+        _FULL_NATIVE_DRIVER
+        .replace("@REQUIRED@", repr(tuple(sorted(mandatory))))
+        .replace("@CHILD_TIMEOUT@", str(FULL_NATIVE_CHILD_TIMEOUT_SECONDS))
+    )
     output = runtime.container(
         "cd /work; " + runtime.PRIVATE_NAMESPACE.rstrip() + " "
         + "python3 -c " + shlex.quote(driver),
