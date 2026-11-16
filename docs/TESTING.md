@@ -11,6 +11,92 @@ through the native mycrates registry, as configured in `.cargo/config.toml`.
 The archive contains pinned versions, so publish newly locked dependencies to
 the archive before relying on an updated `Cargo.lock`.
 
+## Performance baseline
+
+Owner decision, 2026-11-16: "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."
+
+The canonical replay at `9ed42ed4af9a9367ff5be65699cb05302dd39cc0` passed
+(exit 0). The owner supplied 15,502 passed, 0 failed and 174 skipped; the
+replay's `stdout.log` reports 15,503 passed, 0 failed and 174 skipped. The
+receipt and log are under `.work/wt/xsh3-chain/.work/tmp/canonical-xsh3-9ed42/`.
+The diff from that commit to the measured base `12827bb0be864a42747ec82f60560fda1b8578cd`
+changes tests and documentation, with no `src/` or `core/` changes. A separate
+util-linux close native suite at `ffb23c40a` timed out after 3,500 seconds;
+it did not complete and does not replace the replay.
+
+On the 32-core x86_64 host, the pinned Linux image built the base source with
+`release` O2, thin LTO and static musl. Each timing window passed
+`perf-gate-ready` before and `perf-gate-ready -1` afterward. `/usr/bin/time`
+measured user plus system CPU. The script interleaved startup batches and core
+checks. Ranges are the smallest and largest samples.
+
+| Workload | Samples | Median CPU | Range |
+|---|---:|---:|---:|
+| Trivial script `print 1`, per process | 15 batches of 50 | 1.0 ms | 0.8–1.0 ms |
+| `xsht check core` | 5 | 396.45 s | 361.77–427.43 s |
+
+The startup batch includes the shell loop. CPU values are rounded to 0.01 s per
+batch by `/usr/bin/time`. `xsh -c` is unavailable on this base (`unknown xsh
+option '-c'`), so the startup measurement runs `.work/tmp/trivial.xsh` as a
+file. The literal `-c` acceptance remains unverified. The build, measurement
+script and raw samples are `.work/tmp/build-performance.py`,
+`.work/tmp/measure-baseline.py` and `.work/tmp/measurement-results.tsv`.
+
+The comparative suite passed all 35 parity cases and collected 3,780 samples
+in the pinned overlay. It reports wall time, including child processes, on one
+allowed CPU with warm filesystem caches. Each cell is pooled median (median
+absolute deviation), in milliseconds. Startup has 180 samples per interpreter;
+other workloads have 90. This is a workload record, not a language ranking.
+
+| Interpreter | Startup | Spawn | Pipeline | Directory | JSON |
+|---|---:|---:|---:|---:|---:|
+| `xsh` | 1.215 (0.026) | 17.314 (0.162) | 329.968 (3.407) | 10.708 (0.148) | 8.847 (0.044) |
+| `bash` | 0.582 (0.015) | 20.195 (0.253) | 18.894 (0.381) | 18.295 (0.612) | 14.902 (0.226) |
+| `dash` | 0.250 (0.005) | 12.368 (0.177) | 18.405 (0.127) | 13.079 (0.277) | 14.361 (0.086) |
+| `python` | 6.122 (0.037) | 29.829 (0.170) | 53.534 (0.519) | 21.405 (0.127) | 14.488 (0.263) |
+| `ysh` | 0.677 (0.010) | 19.314 (0.200) | 1017.329 (4.557) | 12.038 (0.381) | 12.299 (0.109) |
+| `elvish` | 1.312 (0.028) | 15.155 (0.156) | 1676.025 (5.252) | 45.317 (0.476) | 54.631 (0.482) |
+| `nushell` | 4.891 (0.061) | 40.528 (0.231) | 622.554 (4.135) | 55.324 (0.211) | 16.472 (0.087) |
+
+The comparative report is `.work/consolidation/baseline.json`; the wrapper is
+`.work/tmp/run-comparative.sh`. See [comparative workloads](../bench/consolidation/README.md)
+for fixtures, image preparation and the runner. The outer readiness checks
+bracketed the entire parity and timing run.
+
+To repeat the CPU measurements, build release binaries with the same feature
+set and target, then run the following from the repository root. Save each
+accepted line; discard a window when either readiness command fails. The loop
+alternates startup batches with five core checks.
+
+```sh
+export XSH_RELEASE="$PWD/.work/tmp/performance-target/x86_64-unknown-linux-musl/release"
+printf 'print 1\n' > .work/tmp/trivial.xsh
+for n in $(seq 0 14); do
+  perf-gate-ready || continue
+  /usr/bin/time -f 'startup %U %S' sh -c 'i=0; while [ "$i" -lt 50 ]; do "$1" "$2" >/dev/null || exit; i=$((i+1)); done' sh "$XSH_RELEASE/xsh" "$PWD/.work/tmp/trivial.xsh"
+  status=$?; perf-gate-ready -1; ready=$?
+  if [ "$status" -ne 0 ] || [ "$ready" -ne 0 ]; then echo 'discard startup sample'; fi
+  if [ $((n % 3)) -eq 0 ]; then
+    perf-gate-ready || continue
+    /usr/bin/time -f 'check %U %S' "$XSH_RELEASE/xsht" check core
+    status=$?; perf-gate-ready -1; ready=$?
+    if [ "$status" -ne 0 ] || [ "$ready" -ne 0 ]; then echo 'discard check sample'; fi
+  fi
+done
+```
+
+For later comparisons, interleave the baseline and candidate, use the same
+profile, target and workloads, and compare medians. A later change fails only
+when its regression exceeds the recorded spread. Repeat rejected windows until
+there are at least 15 startup batches and five core checks. Binary sizes are in
+[Release engineering](RELENG.md#size-record).
+
+The explicit util-linux baseline was built from the base commit. On `ffb23c40a`,
+`resources --check` failed because `lsipc` candidate peak RSS exceeded the
+new-command limit. `close --check` failed when its single-CPU native suite timed
+out at 3,500 seconds. Neither check passed. See the commands in
+[util-linux acceptance](../dev/util-linux/README.md).
+
 ## Historical P0 loop measurements
 
 On `fcdae517e`, the scoped-verification P0 measured verification products in

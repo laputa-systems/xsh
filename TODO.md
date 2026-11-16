@@ -20,19 +20,20 @@ own pause/launch rules; this queue update resumes neither. The Deser
 codec cutover was functionally qualified on an earlier Linux source; current-source
 qualification is active. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
-which items block a release; performance and resource items such as XSH-1 and
-XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
+which items block a release; performance and resource items XSH-1 and
+XSH-3 have separate acceptance criteria. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
 
-### XSH-1 · P2 · Complete private and resource baseline acceptance
+### XSH-1 · P2 · Complete util-linux resource acceptance
 
 - **Area:** Performance
-- **Where:** `dev/util-linux/resources.py:1632`, `dev/util-linux/acceptance.py:926`
-- **Problem:** Final private/resource qualification remains open on current source. The historical scheduler comparison failed, so composed baseline close cannot proceed.
-- **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks. - **Deferred:** Runs with XSH-3 after the rest of the backlog; see XSH-3.
+- **Where:** `dev/util-linux/README.md`, `dev/util-linux/resources.py`
+- **Problem:** With a fresh release baseline from `12827bb0be864a42747ec82f60560fda1b8578cd`, `resources --check` on `ffb23c40a` failed because `lsipc` candidate peak RSS exceeded the new-command limit. `close --check` timed out in its one-CPU native suite after 3,500 seconds. Neither run passed.
+- **Recommendation:** Investigate the RSS result and complete the existing resource and close checks, including independent review. Do not weaken their checks to turn a failure into a pass.
+- **Acceptance:** Both documented commands pass on a clean source with a freshly built explicit release baseline and readiness-qualified timing.
 - **Fix with:** benchmark-checklist
-- **Effort:** S
+- **Effort:** M
 
 ### XSH-35 · P2 · Qualify clock domains and deadline conversions
 
@@ -88,20 +89,22 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
+### XSH-3 · P3 · Complete the ordinary performance baseline
 
 - **Area:** Tests
-- **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
-- **Problem:** On `e8c526960`, every stage then in the matrix passed: supplemental, bootstrap, canonical replay, route replay (422 of 422 steps), privileged and SSH skips, functional close, profile cost, observers, forced frames and the comparative profile. The three scheduler pairs, added afterwards, failed on every later commit, never for a timing regression: a fork stall from inherited ignored SIGQUIT (`a59cc658f`, product follow-up XSH-79), a read-only gate record directory (`45dc38d69`), a split memory probe with one page of headroom (`77cdb05a1`), a pr overflow check that walked every byte (`21fd840bc`), and a pr merge header that read the clock per page (`29995f89d`). Round 1 reference passed 15,268 of 15,268 on both `d956f9f8d` and `45dc38d69`. A chain takes about nine hours and runs the native suite about nine times, and any one failure voids it.
-- **Recommendation:** When resumed, gate correctness once, on the canonical replay, and treat the scheduler pairs, observers and forced frames as timing measurements that report and ticket test failures. Reuse a stage's receipt across commits whose diff touches none of its inputs. Branch `fix/gate-correctness-once` holds that change, unverified against a full chain. Before any timed run, sweep the native suite four times concurrently to surface load-sensitive failures at once. Bootstrap and plan as before: `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`, validating each tool's `--plan` first. - **Deferred:** The owner put product work first and defers timed performance gates. Exclude this ticket and XSH-1 from the active backlog run until the rest of the backlog is done. - **Unmet:** (1) The full matrix, including the three scheduler pairs, on one current commit. (2) util-linux `resources --check` and `close --check` (XSH-1). (3) Publishing the accepted baseline and retiring the infrastructure under XSH-19.
-- **Fix with:** orchestrate
-- **Effort:** M
+- **Where:** `docs/TESTING.md`, `docs/RELENG.md`
+- **Decision:** "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."
+- **Progress:** The canonical replay at `9ed42ed4a` passed. Release product sizes, startup and core-check CPU, and the comparative suite are recorded for `12827bb0b`. The replay log reports 15,503 passed, 0 failed and 174 skipped; the owner-supplied count was 15,502 passed. No `src/` or `core/` changes separate the replay and base.
+- **Unmet:** The requested `xsh -c` measurement cannot run because that option is unsupported; the recorded startup measurement uses a trivial script file. Resolve that acceptance wording with the owner. XSH-1 records the failed util-linux checks.
+- **Acceptance:** The owner accepts the measured script-file startup in place of `xsh -c`, or specifies another supported startup workload. Preserve the readiness-qualified comparison rule in the testing record.
+- **Fix with:** benchmark-checklist
+- **Effort:** S
 
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
 - **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`
-- **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The accepted baseline is still pending, so deletion must follow G1.
+- **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The ordinary baseline measurements are recorded; XSH-1 and the literal startup acceptance remain open.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
