@@ -271,6 +271,7 @@ fn parse_test_fake_run(args: &[String]) -> Result<Command, String> {
 fn parse_help(args: &[String]) -> Result<Command, String> {
     match args {
         [] => Ok(Command::Help(root_help())),
+        [flag] if flag == "-h" || flag == "--help" => Ok(Command::Help(command_help_text("help"))),
         [command] => help_for_command(command)
             .map(Command::Help)
             .ok_or_else(|| format!("unknown help topic '{command}'")),
@@ -779,6 +780,43 @@ mod tests {
         assert_eq!(output.status, 2);
         assert_eq!(output.stderr, b"xsht test requires a build with the native-tests feature\n");
         assert!(parse_tool(vec!["__test-fake-run".to_string()]).is_err());
+    }
+
+    #[test]
+    fn reference_examples_parse_and_cover_the_command_schema() {
+        let help = root_help();
+        let mut last = 0;
+        for command in commands::COMMANDS {
+            let heading = format!("{} — {}", command.name, command.summary);
+            let offset = help[last..].find(&heading).expect("command in reference") + last;
+            last = offset + heading.len();
+            for usage in command.usage_lines() {
+                assert!(help[offset..].contains(&usage), "missing {usage}");
+            }
+            for option in command.options {
+                assert!(help[offset..].contains(&option.syntax()), "missing {}", option.syntax());
+            }
+            assert!(!command.examples.is_empty(), "{} has no example", command.name);
+            for example in command.examples {
+                assert!(help.contains(example));
+                let mut words = Vec::new();
+                let mut word = String::new();
+                let mut quoted = false;
+                for c in example.chars() {
+                    match c {
+                        '\'' => quoted = !quoted,
+                        ' ' if !quoted => {
+                            if !word.is_empty() { words.push(std::mem::take(&mut word)); }
+                        }
+                        _ => word.push(c),
+                    }
+                }
+                assert!(!quoted, "unclosed quote: {example}");
+                if !word.is_empty() { words.push(word); }
+                assert_eq!(words.remove(0), "xsht");
+                assert!(parse_tool(words).is_ok(), "example does not parse: {example}");
+            }
+        }
     }
 
     #[test]

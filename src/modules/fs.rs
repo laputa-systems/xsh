@@ -2404,7 +2404,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
     std::fs::remove_dir(path)
 }
 
-fn file_identity(stat: &rfs::Stat) -> (u64, u64) {
+fn file_identity(stat: &rfs::Stat) -> (rfs::Dev, u64) {
     (stat.st_dev, stat.st_ino)
 }
 
@@ -2418,7 +2418,7 @@ fn file_identity(stat: &rfs::Stat) -> (u64, u64) {
 fn empty_directory_tree(root: std::fs::File) -> std::io::Result<()> {
     struct Level {
         name: OsString,
-        identity: (u64, u64),
+        identity: (rfs::Dev, u64),
         subdirectories: Vec<OsString>,
     }
 
@@ -2427,7 +2427,7 @@ fn empty_directory_tree(root: std::fs::File) -> std::io::Result<()> {
     fn open_level(
         parent: &std::fs::File,
         name: &std::ffi::OsStr,
-    ) -> std::io::Result<(std::fs::File, (u64, u64))> {
+    ) -> std::io::Result<(std::fs::File, (rfs::Dev, u64))> {
         let directory = std::fs::File::from(
             rfs::openat(parent, name, OPEN_DIRECTORY, rfs::Mode::empty())
                 .map_err(std::io::Error::from)?,

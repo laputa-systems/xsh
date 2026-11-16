@@ -12,6 +12,9 @@ Usage:
   xsht <COMMAND> -h | --help
   xsht help [COMMAND]
 
+Common options:
+  -h, --help  Show help
+
 Start here:
 "#,
     );
@@ -43,6 +46,8 @@ Common workflows:
   xsht test --cov
 "#,
     );
+    help.push('\n');
+    help.push_str(include_str!("../../../src/entrypoints/owned-help.txt"));
     help
 }
 
@@ -50,6 +55,7 @@ pub(crate) fn command_help(name: &str) -> Option<String> {
     let command = find(name)?;
     let mut help = String::new();
     render_command(&mut help, command, true);
+    help.push_str("\n  -h, --help  Show help\n\nSee `xsht --help` for the complete reference.\n");
     Some(help)
 }
 

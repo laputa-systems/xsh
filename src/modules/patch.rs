@@ -566,14 +566,10 @@ mod tests {
     #[test]
     fn a_fifo_target_is_refused_without_blocking() {
         let fixture = Fixture::new();
-        rustix::fs::mknodat(
-            rustix::fs::CWD,
-            fixture.tree.join("pipe"),
-            rustix::fs::FileType::Fifo,
-            rustix::fs::Mode::from_raw_mode(0o600),
-            0,
-        )
-        .unwrap();
+        let path = std::ffi::CString::new(fixture.tree.join("pipe").as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: path owns a nul-terminated byte string for the duration of the call.
+        let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+        assert_eq!(made, 0, "{}", std::io::Error::last_os_error());
         assert_eq!(kind(fixture.apply(&edit("pipe"), true)), "patch-path");
     }
 

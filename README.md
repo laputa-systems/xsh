@@ -30,7 +30,7 @@ xsht check hello.xsh          # type-check without running
 ```
 
 `xsh` runs scripts. `xsht` provides `check`, `test`, `fmt`, `lint`, `trace`,
-and `api`; run `xsht help` for the command list and `xsht help COMMAND` for
+and `api`; run `xsht --help` for the complete reference and `xsht help COMMAND` for
 command options.
 
 Tool configuration lives in `xsht-config.ini`; see

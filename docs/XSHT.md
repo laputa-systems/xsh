@@ -3,7 +3,8 @@
 `xsht` checks, formats, lints, tests, and inspects XSH source. `xsht test` runs
 native tests, `xsht trace` runs a traced script, and the private
 `xsht runtime-stats` command runs one script with allocation and phase reports.
-Use `xsht help` or `xsht help COMMAND` for the public commands and options; the
+Use `xsht --help` for the complete command reference and examples, or
+`xsht help COMMAND` for one command; the
 registry in `crates/xsht/src/commands.rs` owns that interface. The plain `xsh`
 runner rejects tracing flags. Script stdout and stderr stay undecorated;
 diagnostics go to stderr.
