@@ -34,6 +34,6 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
 | campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
-| performance qualification, inference evidence | [TODO](TODO.md) XSH-3, [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| performance baseline, inference evidence | [Testing](docs/TESTING.md#performance-baseline), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
 | open work and design drafts | [TODO](TODO.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |

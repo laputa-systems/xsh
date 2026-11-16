@@ -168,14 +168,10 @@ musl (`vfprintf`, the regex engine, the crypt functions); the `xshi` stub's
 | 2026-11-07 | `73ade365f` | `xsht` | 38,358,728 |
 | 2026-11-07 | `73ade365f` | `xshi` | 48,112 |
 
-Owner decision, 2026-11-16: "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."
-
 On 2026-11-16 the pinned x86_64 Linux image built source
 `12827bb0be864a42747ec82f60560fda1b8578cd` with the `release` profile,
 `xsh/net xsh/tools xsht/native-tests`, and static musl. GNU `strip --strip-all`
 produced these sizes. These are release-profile sizes, not `dist` sizes.
-The build and stripped copies are under `.work/tmp/performance-target` and
-`.work/tmp/stripped`; `.work/tmp/build-performance.py` records the build.
 
 | Product | Stripped `release` bytes |
 |---|---:|

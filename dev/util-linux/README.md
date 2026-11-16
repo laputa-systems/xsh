@@ -63,7 +63,10 @@ inode IDs, mapped by fixture identity. The exceptions are:
 ## Acceptance
 
 `baseline --check` compares reference and candidate version output and samples
-candidate peak RSS. Resource and close checks build an isolated release
+candidate peak RSS. Resource checks hold existing commands to the XSH
+baseline product's peak RSS plus max(10%, 8 MiB); new cohort commands report
+their RSS and CPU against the C reference without a limit, since the
+interpreter alone exceeds that allowance over C. Resource and close checks build an isolated release
 candidate from the clean source checkout. Verification products qualify
 functional checks but cannot qualify release measurements.
 
@@ -108,5 +111,3 @@ The private boundary proof also requires fresh procfs and two unprivileged
 identities with zero effective capabilities. The five cohort commands report
 failed stdout writes as `NAME: write error` and exit 1; default SIGPIPE still
 terminates by signal, while ignored SIGPIPE uses the write-error path.
-
-Owner decision, 2026-11-16: "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."

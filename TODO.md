@@ -20,8 +20,7 @@ own pause/launch rules; this queue update resumes neither. The Deser
 codec cutover was functionally qualified on an earlier Linux source; current-source
 qualification is active. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
-which items block a release; performance and resource items XSH-1 and
-XSH-3 have separate acceptance criteria. Do not make an unrelated full baseline an entry fee
+which items block a release; XSH-1 has its own acceptance criteria. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
 
@@ -29,9 +28,9 @@ out of scope.
 
 - **Area:** Performance
 - **Where:** `dev/util-linux/README.md`, `dev/util-linux/resources.py`
-- **Problem:** With a fresh release baseline from `12827bb0be864a42747ec82f60560fda1b8578cd`, `resources --check` on `ffb23c40a` failed because `lsipc` candidate peak RSS exceeded the new-command limit. `close --check` timed out in its one-CPU native suite after 3,500 seconds. Neither run passed.
-- **Recommendation:** Investigate the RSS result and complete the existing resource and close checks, including independent review. Do not weaken their checks to turn a failure into a pass.
-- **Acceptance:** Both documented commands pass on a clean source with a freshly built explicit release baseline and readiness-qualified timing.
+- **Problem:** `resources --check` passed on `a51ad81f3` against an explicit release baseline from `12827bb0b`, after new-command RSS against C became a reported measurement (the interpreter alone exceeded the old max(10%, 8 MiB) allowance over C) and the serial full-suite bound grew to fit 15,500 tests. `close --check` has not yet passed; it also needs an independent review result supplied in the same invocation.
+- **Recommendation:** Run `close` on a clean commit with a fresh read-only review of the five cohort commands. Do not weaken its other checks.
+- **Acceptance:** `close` passes on a clean source with an explicit release baseline and readiness-qualified timing.
 - **Fix with:** benchmark-checklist
 - **Effort:** M
 
@@ -89,22 +88,11 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-3 · P3 · Complete the ordinary performance baseline
-
-- **Area:** Tests
-- **Where:** `docs/TESTING.md`, `docs/RELENG.md`
-- **Decision:** "Count the passing canonical replay as the correctness gate and replace the timed consolidation stages (scheduler pairs, observers, forced frames, comparative profile, profile cost) with ordinary readiness-checked interleaved measurements; retire the pinned consolidation tools under XSH-19."
-- **Progress:** The canonical replay at `9ed42ed4a` passed. Release product sizes, startup and core-check CPU, and the comparative suite are recorded for `12827bb0b`. The replay log reports 15,503 passed, 0 failed and 174 skipped; the owner-supplied count was 15,502 passed. No `src/` or `core/` changes separate the replay and base.
-- **Unmet:** The requested `xsh -c` measurement cannot run because that option is unsupported; the recorded startup measurement uses a trivial script file. Resolve that acceptance wording with the owner. XSH-1 records the failed util-linux checks.
-- **Acceptance:** The owner accepts the measured script-file startup in place of `xsh -c`, or specifies another supported startup workload. Preserve the readiness-qualified comparison rule in the testing record.
-- **Fix with:** benchmark-checklist
-- **Effort:** S
-
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
 - **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`
-- **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The ordinary baseline measurements are recorded; XSH-1 and the literal startup acceptance remain open.
+- **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The ordinary baseline measurements are recorded in `docs/TESTING.md` and `docs/RELENG.md`.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
