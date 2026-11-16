@@ -175,8 +175,8 @@ does not close the corpus or mutation obligations.
 
 ## Campaign close
 
-The general-inference campaign closed on `73b59f11d`. The open residual is
-XSH-66; later repairs closed XSH-61, XSH-62, XSH-63, XSH-64, XSH-65 and XSH-67.
+The general-inference campaign closed on `73b59f11d`. Later repairs closed XSH-61, XSH-62, XSH-63, XSH-64, XSH-65 and XSH-67;
+XSH-66 is resolved by the qualified measurement and profile below.
 
 **Integrated acceptance.** Native suite 4,729 passed, 0 failed, 34 skipped
 (verification build, 32 jobs). Gates `test-sema-unit` 959, `test-sema` 55,
@@ -204,8 +204,9 @@ Rerun on 2026-11-09 with an unqualified, interleaved rough measurement: joint-er
 costs about 2.5 times the CPU because the checker solves the constraints of every generalized
 private callable on each launch (`xsht check core/sort.xsh` 0.65 s to 2.7 s); the sort loop
 itself is unchanged. `xsht check --compare-with` reports the generalized private callables
-as contract mismatches. XSH-66 tracks the checker cost and the host-consumer guest drill,
-which has no written procedure.
+as contract mismatches. Subsequent qualification distinguishes the expected
+generalizations, and the qualified checker measurement and profile are below.
+The host-consumer guest drill has no written procedure.
 
 **Retained source contracts.** Four sites keep their annotations because the
 source gives the type no other anchor:
@@ -582,3 +583,109 @@ and `test_check_views.py`, and the witness tests with
 `PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/test_frozen_witnesses.py`.
 `frozen_witnesses.py` writes one minimal source record per retained site of the
 frozen views and edits neither view.
+
+
+## Qualified sort and scalar-read measurements
+
+On 2026-11-16 at `ed32b9e7dfb97b62af1ac499ba3483f1dd538864`, a native
+`cargo build --release -p xsh -p xsht` built into `.work/tmp/perf-qual/target`.
+The host had 32 logical CPUs. Seven rotated rounds measured process user plus
+system CPU using `wait4`, including startup and checking. Each round ran
+`perf-gate-ready` before and `perf-gate-ready -1` immediately afterward; all
+retained checks exited 0 with empty output. An initial seventh round was
+discarded because its post-check reported another hot process tree even though
+it exited 0; the replacement had empty readiness output. Every process exited
+0, and the four accumulator kernels printed `7000000`, the empty loop `0`.
+
+Each kernel below was a separate file. The empty version omits the marked
+statement; the other four replace `EXPRESSION` with `m`, `K`, `info.m`, and
+`xs[i]` respectively. The loop runs one million iterations.
+
+```xsh
+const K: Int = 7
+
+pure kernel() -> Int {
+  let m: Int = 7
+  let info = {m: 7}
+  let xs: List[Int] = [7]
+  let i: Int = 0
+  var acc: Int = 0
+  var n: Int = 0
+  while n < 1000000 {
+    acc = acc + EXPRESSION
+    n = n + 1
+  }
+  acc
+}
+
+print kernel()
+```
+
+The release `xsh` ran each file once per round. CPU values are median and
+minimum–maximum over seven runs, in seconds. Statement cost subtracts the
+empty-loop median, divides by one million, and is in nanoseconds. Ratios use
+those median-subtracted costs; the paired per-round differences have the
+indicated range.
+
+| Kernel | CPU median (range), s | Statement cost, ns | Paired cost range, ns | Ratio to local |
+|---|---:|---:|---:|---:|
+| Empty | 0.920708 (0.904953–1.022900) | — | — | — |
+| Local | 1.291634 (1.276084–1.437828) | 370.926 | 303.727–471.864 | 1.00 |
+| Const | 1.281808 (1.227576–1.393697) | 361.100 | 322.623–382.316 | 0.97 |
+| Field | 1.321618 (1.306026–1.417718) | 400.910 | 332.965–460.452 | 1.08 |
+| Index | 1.345044 (1.299589–1.426065) | 424.336 | 383.224–442.751 | 1.14 |
+
+Const and field reads meet the 2x local-read criterion. This microkernel
+isolates read cost; it does not measure end-to-end application latency.
+
+The same rounds ran `xsht check core/sort.xsh` and `xsht check
+.work/tmp/perf-qual/sort-erased.xsh`. Annotated CPU median was 0.157849 s
+(range 0.153114–0.159846); erased median was 0.377275 s (range
+0.375306–0.385075), 2.39 times the annotated median. Both checks exited 0.
+The erased candidate was generated reproducibly with this script, which checks
+that exactly 298 private parameter annotations were removed and leaves the
+`main` CLI signature intact:
+
+```python
+from pathlib import Path
+import re
+source = Path('core/sort.xsh').read_text()
+count = 0
+def erase(match):
+    global count
+    prefix, params = match.groups()
+    if prefix.startswith('proc main('):
+        return match.group(0)
+    parts, start, depth = [], 0, 0
+    for i, ch in enumerate(params):
+        if ch == '[': depth += 1
+        if ch == ']': depth -= 1
+        if ch == ',' and depth == 0:
+            parts.append(params[start:i]); start = i + 1
+    parts.append(params[start:])
+    for i, part in enumerate(parts):
+        if ':' in part:
+            assert '=' not in part, part
+            parts[i] = part.split(':', 1)[0]
+            count += 1
+    return prefix + ','.join(parts) + ')'
+result = re.sub(r'(?m)^((?:pure|proc)\s+\w+\()([^\n)]*)\)', erase, source)
+assert count == 298, count
+Path('.work/tmp/perf-qual/sort-erased.xsh').write_text(result)
+```
+
+A separate `xsht` release build with `CARGO_PROFILE_RELEASE_DEBUG=1` and
+`RUSTFLAGS='-C force-frame-pointers=yes'` was sampled with `perf record -F 997
+-e cycles:u --call-graph fp`, over 12 erased and 24 annotated checks. Both
+profile windows passed the readiness checks with empty output; all checks and
+`perf record` exited 0. In the erased profile (about 4,000 samples), inclusive
+`generalize_pending_function` was 19.08% versus 12.45% annotated, and
+`verify_schemes::verify` was 16.72% versus 9.49%. The erased profile also
+shows `solve_callable_applications` (7.36%), `instantiate_requirement_pack`
+(5.45%), and `instantiate_callable` (5.03%). These inclusive stacks overlap
+and cannot be added. The remaining gap is distributed across generalizing and
+instantiating the erased private signatures and verifying their schemes, as
+well as the shared effect-probe/check and lowering work; it is not a single
+self-time hotspot. The existing qualification work classifies the 67 callable
+and 90 body differences as expected generalizations, with no body drift; that
+classification does not establish runtime equivalence.
