@@ -1075,6 +1075,20 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
       exit 1
     }
   }
+  if name == "filter" {
+    if let Err(failure) = parse_filter(value) {
+      if failure.reason is UnknownFilterColumn(_) { return }
+      ul_io.write_text(failure.echoed)
+      match failure.reason {
+        UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
+        UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
+        InvalidRegex(message) => gnu.error(f"failed to parse \"{value}\": {message}")
+        InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(value)}: invalid expression")
+        UnknownFilterColumn(_) => {}
+      }
+      exit 1
+    }
+  }
 }
 
 proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
