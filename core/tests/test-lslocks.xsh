@@ -480,6 +480,16 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
     let result = compared(s, args)?
     assert ! result.stdout.is_empty()
   }
+  for args in [
+    [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", p"-Q", b"PATH == \"\xff\"" as Path],
+    [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", b"-QPATH == \"\xff\"" as Path],
+    [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", b"--filter=PATH == \"\xff\"" as Path],
+    [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", b"ignored-\xff" as Path],
+  ] {
+    let reference = ul.reference_paths(s, "lslocks", args)?
+    let candidate = uu.invoke_paths(s, "lslocks", args, timeout: 5s)?
+    ul.compare(reference, candidate)
+  }
   ul.keeper_send(invalid_utf8_keeper, "DONE")
   ul.finish_keeper(invalid_utf8_keeper)
   Ok()

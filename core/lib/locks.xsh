@@ -1132,8 +1132,35 @@ proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
   }
 }
 
+pure filter_byte_text(value: Bytes) -> Str {
+  var result = ""
+  for index in range(value.len()) {
+    let byte = value.byte_at(index) ?? 0
+    if byte >= 128 {
+      result += "\0" + hex_byte(byte) + "\0"
+    } else {
+      result += value[index..index + 1].utf8() ?? ""
+    }
+  }
+  result
+}
+
 ## Runs the lslocks command over Linux procfs state.
-export proc main(...argv: List[Str]) [fs, process, env, error, io] {
+export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(arguments)
+  var argv = prepared.text
+  for index in range(argv.len()) {
+    let original = gnu.argument_bytes(argv[index], prepared.raw)
+    if original.utf8() is Err(_) {
+      if index > 0 and argv[index - 1] in ["-Q", "--filter"] {
+        argv[index] = filter_byte_text(original)
+      } else if original.starts_with(b"--filter=") {
+        argv[index] = "--filter=" + filter_byte_text(original[9..])
+      } else if original.starts_with(b"-Q") {
+        argv[index] = "-Q" + filter_byte_text(original[2..])
+      }
+    }
+  }
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   if let detail = first_option_diagnostic(argv, permute) {
     gnu.usage_error(detail)
