@@ -208,6 +208,8 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_help_matches_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_sparse_memory_attributes_and_output_modes",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_columns_environment_and_explicit_output_precedence",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_column_list_grammar",
+  "core/tests/test-lsmem.xsh::test_lsmem_rooted_all_columns_hidden",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_short_option_aliases",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_configured_memory_and_memmap_summary",
@@ -232,6 +234,15 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_column_list_errors_and_limits_match_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_empty_sysroot_matches_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_non_utf8_option_values_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_help_in_short_option_cluster",
+  "core/tests/test-lsmem.xsh::test_lsmem_noheadings_size_width",
+  "core/tests/test-lsmem.xsh::test_lsmem_ascii_column_case",
+  "core/tests/test-lsmem.xsh::test_lsmem_smartcols_json_environment",
+  "core/tests/test-lsmem.xsh::test_lsmem_human_size_rounding",
+  "core/tests/test-lsmem.xsh::test_lsmem_unreadable_optional_inventory_links",
+  "core/tests/test-lsmem.xsh::test_lsmem_multibyte_short_option",
+  "core/tests/test-lsmem.xsh::test_lsmem_option_order_and_musl_diagnostics",
+  "core/tests/test-lsmem.xsh::test_lsmem_zero_terminal_columns",
 ]
 
 const lsmem_heavy_test_ids = ["core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
