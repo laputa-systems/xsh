@@ -330,16 +330,18 @@ test test_gnu_mv_leak_fd_log { |ctx|
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
-  let letters = "a b c d e f g h i j k l m n o p q r s t u v w x y z".split(" ")
-  let alphabet = [@[f"{i}" for i in range(10)], @letters, @[f"_{letter.upper()}" for letter in letters]]
-  var names = []
-  for prefix in alphabet {
-    names = [@names, prefix, @[f"{prefix}{suffix}" for suffix in alphabet]]
-  }
+  let names = [f"d{i}" for i in range(100)]
   uu.write(s, ".dirs", f"{names.join("\n")}\n")
   for name in names { uu.mkdir(s, name); uu.touch(s, f"{name}/f") }
   assert uu.file_exists(s, f"{names[-1]}/f")?
-  uu.succeeds(uu.invoke(s, "mv", (names |> sort).extend([remote.display()]), timeout: 300s)?)
+  let words = uu.argv(s, "mv", [fp"{word}" for word in (names |> sort).extend([remote.display()])])?
+  let out = uu.at(s, ".out")
+  let err = uu.at(s, ".err")
+  let argv = [p"sh", p"-c", p"ulimit -n 32; exec \"$@\"", p"sh", @words]
+  let plan = process.command_argv(p"sh", argv, s.root, {}, b"", out, err, timeout: 300s)
+  assert process.run(plan)?.exit_code()? == 0, err.read_text()?
+  out.remove()
+  err.remove()
   assert ! uu.exists(s, f"{names[-1]}/f/f")?
   uu.remove(s, ".dirs")
   assert (fs.files(s.root, hidden: true) |> count()) == 0
