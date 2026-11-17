@@ -190,6 +190,7 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-lslocks.xsh::test_lslocks_defaults_and_lslocks_columns",
     "core/tests/test-lslocks.xsh::test_lslocks_deleted_path_and_owner_exit",
     "core/tests/test-lslocks.xsh::test_lslocks_filter_errors",
+    "core/tests/test-lslocks.xsh::test_lslocks_filter_empty_and_non_numeric",
     "core/tests/test-lslocks.xsh::test_lslocks_filter_values_and_hidden_columns",
     "core/tests/test-lslocks.xsh::test_lslocks_help_and_usage_errors",
     "core/tests/test-lslocks.xsh::test_lslocks_list_columns_modes",

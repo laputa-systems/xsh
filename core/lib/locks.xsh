@@ -64,7 +64,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
-enum FilterParseError { UnexpectedEnd, UnexpectedToken(Str), InvalidExpression, UnknownFilterColumn(Str) }
+enum FilterParseError { UnexpectedEnd, UnexpectedToken(Str), InvalidRegex(Str), InvalidExpression, UnknownFilterColumn(Str) }
 type FilterLexed = {tokens: List[FilterToken], echoed: Str}
 type FilterProgram = {tokens: List[FilterToken], echoed: Str}
 type FilterFailure = {reason: FilterParseError, echoed: Str}
@@ -408,7 +408,7 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
     "M" => {kind: "boolean", value: "", boolean: lock.mandatory}
     "START" => {kind: "number", value: f"{lock.start}", boolean: false}
     "END" => {kind: "number", value: f"{lock.end}", boolean: false}
-    "PATH" => {kind: "string", value: if let path_bytes = lock.path { path_bytes.utf8() ?? "" } else { "" }, boolean: false}
+    "PATH" => {kind: "string", value: if let path_bytes = lock.path { path_bytes.utf8() ?? filter_byte_text(path_bytes) } else { "" }, boolean: false}
     "BLOCKER" => {kind: "number", value: f"{lock.blocker ?? 0}", boolean: false}
     "HOLDERS" => {kind: "string", value: lock.holders.join("\n"), boolean: false}
     else => {kind: "string", value: lock.command, boolean: false}
@@ -530,7 +530,7 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
         if top.kind == "(" { found = true; break }
         output += [top]
       }
-      return Err(InvalidExpression) when ! found
+      return Err(UnexpectedToken(")")) when ! found
       expects_value = false
     } else {
       let operator = if token.value == "!" and expects_value { "NOT" } else { token.value }
@@ -576,11 +576,22 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
 }
 
 pure parse_filter(text: Str) -> Result[FilterProgram, FilterFailure] {
+  if text == "" { return Ok({tokens: [], echoed: ""}) }
   let lexed = filter_tokens(text)
   if let Err(failure) = lexed { return Err(failure) }
   let tokens = lexed ?? {tokens: [], echoed: ""}
   let parsed = filter_program(tokens.tokens)
   if let Ok(program) = parsed {
+    for index in range(program.len()) {
+      if program[index].value in ["=~", "!~"] and index > 0 and program[index - 1].kind == "literal" {
+        let pattern = program[index - 1].value
+        if let Err(failure) = regex.compile(pattern) {
+          let detail = failure.message
+          let reason = if "open group" in detail { "Missing ')'" } else if "unclosed character class" in detail { "Missing ']'" } else if "after dash" in detail { "Invalid character range" } else if "repetition operator" in detail { "Repetition not preceded by valid expression" } else { detail }
+          return Err({reason: InvalidRegex(reason), echoed: tokens.echoed})
+        }
+      }
+    }
     return Ok({tokens: program, echoed: tokens.echoed})
   }
   if let Err(reason) = parsed { return Err({reason: reason, echoed: tokens.echoed}) }
@@ -606,6 +617,7 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
     return if operator == "=~" { matched } else { ! matched }
   }
   if l.kind in ["number", "float"] or r.kind in ["number", "float"] {
+    if (l.kind == "string" and l.value.parse_float() is Err(_)) or (r.kind == "string" and r.value.parse_float() is Err(_)) { return operator == "!=" }
     if l.kind == "float" or r.kind == "float" {
       let left_number = if l.kind == "boolean" { if l.boolean { 1.0 } else { 0.0 } } else { l.value.parse_float() ?? 0.0 }
       let right_number = if r.kind == "boolean" { if r.boolean { 1.0 } else { 0.0 } } else { r.value.parse_float() ?? 0.0 }
@@ -1077,6 +1089,7 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
       match failure.reason {
         UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
         UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
+        InvalidRegex(message) => gnu.error(f"failed to parse \"{value}\": {message}")
         InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(value)}: invalid expression")
         UnknownFilterColumn(column) => { gnu.error(f"unknown column: {column}"); gnu.error("failed to initialize filter") }
       }
@@ -1137,7 +1150,7 @@ pure filter_byte_text(value: Bytes) -> Str {
   for index in range(value.len()) {
     let byte = value.byte_at(index) ?? 0
     if byte >= 128 {
-      result += "\0" + hex_byte(byte) + "\0"
+      result += "\0" + hex_byte(byte).byte_slice(2) + "\0"
     } else {
       result += value[index..index + 1].utf8() ?? ""
     }
@@ -1205,6 +1218,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
         match failure.reason {
           UnexpectedEnd => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected end of file")
           UnexpectedToken(token) => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected '{token}', expecting end of file")
+          InvalidRegex(message) => gnu.error(f"failed to parse \"{expression}\": {message}")
           InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(expression)}: invalid expression")
           UnknownFilterColumn(name) => { gnu.error(f"unknown column: {name}"); gnu.error("failed to initialize filter") }
         }
@@ -1265,7 +1279,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     rows = rows |> where .pid == selected_pid |> collect
   }
   if program != null {
-    rows = rows |> where filter_matches(program ?? [], .) |> collect
+    if ! (program ?? []).is_empty() { rows = rows |> where filter_matches(program ?? [], .) |> collect }
   }
   if rows.is_empty() and ! opts.json { return }
   let byte_locale = text.byte_columns()

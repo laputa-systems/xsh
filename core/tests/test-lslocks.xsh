@@ -490,6 +490,10 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
     let candidate = uu.invoke_paths(s, "lslocks", args, timeout: 5s)?
     ul.compare(reference, candidate)
   }
+  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH != \"\""])?
+  let raw_filter = bytes.concat([b"PATH == \"", invalid_utf8.bytes(), b"\""]) as Path
+  let filter_args = [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", p"-Q", raw_filter]
+  ul.compare(ul.reference_paths(s, "lslocks", filter_args)?, uu.invoke_paths(s, "lslocks", filter_args, timeout: 5s)?)
   ul.keeper_send(invalid_utf8_keeper, "DONE")
   ul.finish_keeper(invalid_utf8_keeper)
   Ok()
@@ -687,6 +691,9 @@ test test_lslocks_filter_errors { |ctx|
   for args in [["-J", "-r", "-h"], ["-p", "abc", "-h"], ["-Q", "bad(", "-h"], ["-Q", "PID ==", "-H"], ["-p", "abc", "-J", "-r"], ["-J", "-r", "-p", "abc"]] {
     parity(s, args)?
   }
+  for expression in ["PATH =~ \"(\"", "PATH =~ \"[\"", "PATH =~ \"*\"", "PATH =~ \"[a-\"", "PID > 0)"] {
+    parity(s, ["-Q", expression])?
+  }
   let missing_operand = compared(s, ["--filter", "TYPE =="])?
   assert missing_operand.status == 1 and missing_operand.stdout.is_empty()
   assert missing_operand.stderr == b"lslocks: failed to parse \"TYPE ==\": syntax error, unexpected end of file\n"
@@ -704,6 +711,21 @@ test test_lslocks_filter_errors { |ctx|
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let negative_pid = compared(s, ["--raw", "--noheadings", "--filter", "PID == -1", "--pid", f"{ready.pid}", "--output", "PID"])?
   assert negative_pid.status == 0 and negative_pid.stdout == b"-" and negative_pid.stderr.is_empty()
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
+test test_lslocks_filter_empty_and_non_numeric { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  let lock_path = uu.at(s, "filter-non-numeric")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  for expression in ["START == \"x\"", ""] {
+    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "PATH", "-Q", expression])?
+  }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
