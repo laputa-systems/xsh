@@ -272,7 +272,10 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
     }
     if let pid = segment.creator_pid {
       values = values.set("CPID", f"{pid}")
-      if "COMMAND" in selection.columns { raw_values = raw_values.set("COMMAND", command_line(pid)) }
+      if "COMMAND" in selection.columns {
+        let command = command_line(pid)
+        if !command.is_empty() { raw_values = raw_values.set("COMMAND", command) }
+      }
     }
     if let pid = segment.last_pid { values = values.set("LPID", f"{pid}") }
     }
@@ -386,6 +389,11 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
         }
         if let entry = make_sysv_entry(kind, record, selection) { entries += [entry] }
       }
+      if entries.is_empty() {
+        if let id = selection.id {
+          if id >= 0 { gnu.error(f"id {id} not found") }
+        }
+      }
     } else {
       entries = posix_entries(kind, selection, raw)
     }
@@ -415,7 +423,8 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   if usage {
     values = values.set("USED", if byte_unit and !selection.bytes { human_size(used) } else { f"{used}" })
     let percentage = used.float() / limit.parse_float()? * 100.0
-    values = values.set("USE%", f"{percentage.format(precision: 2)}%")
+    let formatted = if limit == "0" { if used == 0 { "-nan" } else { "inf" } } else { percentage.format(precision: 2) }
+    values = values.set("USE%", f"{formatted}%")
   } else {
     values = values.set("USED", "-")
     values = values.set("USE%", "-")
@@ -469,13 +478,27 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
   rows
 }
 
-pure prepare_arguments(argv: List[Bytes]) -> Result[gnu.PreparedArguments] {
+pure prepare_arguments(argv: List[Bytes], byte_locale: Bool) -> Result[gnu.PreparedArguments] {
   var text: List[Str] = []
   var raw: List[gnu.RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
     if let Ok(decoded) = argument.utf8() {
-      text += [decoded]
+      var short_non_ascii = -1
+      if byte_locale and argument.starts_with(b"-") and !argument.starts_with(b"--") {
+        for at in range(1, argument.len()) {
+          let byte = argument.byte_at(at) ?? 0
+          if byte >= 128 { short_non_ascii = at; break }
+          if byte in [105, 78, 111] { break }
+        }
+      }
+      if short_non_ascii >= 0 {
+        let prefix = argument[0..short_non_ascii].utf8()?
+        text += [prefix + "\0"]
+        raw += [{marker: "\0", value: argument[short_non_ascii..short_non_ascii + 1]}]
+      } else {
+        text += [decoded]
+      }
       continue
     }
     var prefix = ""
@@ -563,28 +586,20 @@ proc report_failure(failure: report.OptionError, raw: List[gnu.RawArgument]) [pr
   }
 }
 
-proc missing_resource(selection: report.Selection) [process, env] {
-  if selection.resources[0] in ["queues", "shmems", "semaphores"] {
-    if let id = selection.id {
-      if id >= 0 { gnu.error(f"id {id} not found") }
-    }
-  }
-}
-
 proc output_width() [env, process] -> Int {
   if !unix.isatty(1) { return 0 }
+  if let Ok(size) = unix.window_size(1) { if size.cols > 0 { return size.cols } }
   if let Ok(text) = env.get("COLUMNS") {
     if let Ok(width) = text.parse_int() {
       if width > 0 { return width }
     }
   }
-  if let Ok(size) = unix.window_size(1) { if size.cols > 0 { return size.cols } }
   80
 }
 
 proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
   if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default")? }
-  let prepared = prepare_arguments(arguments)?
+  let prepared = prepare_arguments(arguments, text.byte_columns())?
   let argv = prepared.text
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure, prepared.raw); return }
@@ -624,6 +639,6 @@ proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
     Err(failure) => { report_failure(failure, prepared.raw); return }
   }
   let rows = if selection.global { global_rows(selection, prepared.raw) } else { selected_rows(selection, prepared.raw) }
-  if rows.is_empty() { missing_resource(selection) }
-  ul_io.write_bytes(report.render(selection, rows, output_width(), text.byte_columns()))
+  let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
+  ul_io.write_bytes(report.render(selection, rows, output_width(), text.byte_columns(), json_mode))
 }

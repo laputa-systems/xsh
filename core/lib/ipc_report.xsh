@@ -144,11 +144,19 @@ pure pretty_label(column: Str) -> Str {
   column
 }
 
+pure display_width(value: Str) -> Int {
+  var measured = ""
+  for character in value {
+    if character not in ["\u{600}", "\u{200c}", "\u{200d}", "\u{200e}", "\u{200f}", "\u{202a}", "\u{202b}", "\u{202c}", "\u{202d}", "\u{202e}", "\u{2060}", "\u{2061}", "\u{2062}", "\u{2063}", "\u{2064}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}", "\u{206a}", "\u{206b}", "\u{206c}", "\u{206d}", "\u{206e}", "\u{206f}", "\u{feff}"] { measured += character }
+  }
+  tui.cell_width(measured)
+}
+
 pure truncate_cells(text: Str, width: Int) -> Str {
   var out = ""
   var used = 0
   for character in text {
-    let cells = tui.cell_width(character)
+    let cells = display_width(character)
     if used + cells > width { break }
     out += character
     used += cells
@@ -156,15 +164,24 @@ pure truncate_cells(text: Str, width: Int) -> Str {
   out
 }
 
+pure pad_left_cells(value: Str, width: Int) -> Str {
+  tui.left_pad("", width - display_width(value)) + value
+}
+
+pure pad_right_cells(value: Str, width: Int) -> Str {
+  value + tui.right_pad("", width - display_width(value))
+}
+
 pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte_locale: Bool) -> Bytes {
   return b"" when rows.is_empty()
-  var widths: List[Int] = [if selection.noheadings { 0 } else { tui.cell_width(column) } for column in selection.columns]
+  var widths: List[Int] = [if selection.noheadings { 0 } else { display_width(column) } for column in selection.columns]
   for row in rows {
     for index in range(selection.columns.len()) {
-      let shown = tui.cell_width(scols.safe_table_text(row.cells[index].text, false, byte_locale))
+      let shown = display_width(scols.safe_table_text(row.cells[index].text, false, byte_locale))
       if shown > widths[index] { widths[index] = shown }
     }
   }
+  var wrap_status = false
   if !selection.notruncate and output_width > 0 {
     var total_width = 0
     for index in range(widths.len()) {
@@ -172,12 +189,24 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
       if index + 1 < widths.len() { total_width += 1 }
     }
     if total_width > output_width {
-      let reduction = total_width - output_width
-      for index in range(selection.columns.len()) {
+      if selection.noheadings {
+        for index in range(selection.columns.len()) {
+          if selection.columns[index] == "STATUS" and widths[index] > 1 {
+            total_width -= widths[index] - 1
+            widths[index] = 1
+            wrap_status = true
+          }
+        }
+      }
+      var reduction = total_width - output_width
+      for reverse_index in range(selection.columns.len()) {
+        let index = selection.columns.len() - reverse_index - 1
         if selection.columns[index] == "COMMAND" {
-          let minimum = if selection.noheadings { 0 } else { tui.cell_width(heading(selection, selection.columns[index])) }
-          widths[index] = if widths[index] - minimum > reduction { widths[index] - reduction } else { minimum }
-          break
+          let minimum = if selection.noheadings { 1 } else { display_width(heading(selection, selection.columns[index])) }
+          let available = widths[index] - minimum
+          let change = if available < reduction { available } else { reduction }
+          if change > 0 { widths[index] -= change; reduction -= change }
+          if reduction <= 0 { break }
         }
       }
     }
@@ -189,11 +218,11 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
       for index in range(selection.columns.len()) {
         let label = heading(selection, selection.columns[index])
         if selection.columns[index] in RIGHT_COLUMNS {
-          yield tui.left_pad(label, widths[index])
+          yield pad_left_cells(label, widths[index])
         } else if index == selection.columns.len() - 1 {
           yield label
         } else {
-          yield tui.right_pad(label, widths[index])
+          yield pad_right_cells(label, widths[index])
         }
       }
     }
@@ -217,33 +246,47 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
         for element in row.elements {
           let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", scols.safe_table_text(element.command, false, byte_locale)]
           for index in range(names.len()) {
-            if values[index].count_chars() > element_widths[index] { element_widths[index] = values[index].count_chars() }
+            if display_width(values[index]) > element_widths[index] { element_widths[index] = display_width(values[index]) }
           }
         }
         out += [tui.left_pad(names[index], element_widths[index]) for index in range(names.len())].join(" ") + "\n"
         for element in row.elements {
           let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", scols.safe_table_text(element.command, false, byte_locale)]
-          out += [if index == names.len() - 1 { values[index] } else { tui.left_pad(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
+          out += [if index == names.len() - 1 { values[index] } else { pad_left_cells(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
         }
       }
-      continue
+      break
     }
     let values: List[Str] = collect {
       for index in range(selection.columns.len()) {
         let escaped = scols.safe_table_text(row.cells[index].text, false, byte_locale)
-        let shown = if !selection.notruncate and selection.columns[index] == "COMMAND" and tui.cell_width(escaped) > widths[index] { truncate_cells(escaped, widths[index]) } else { escaped }
+        let shown = if !selection.notruncate and selection.columns[index] == "COMMAND" and display_width(escaped) > widths[index] { truncate_cells(escaped, widths[index]) } else { escaped }
         if index + 1 == selection.columns.len() and shown.is_empty() {
           yield ""
         } else if selection.columns[index] in RIGHT_COLUMNS {
-          yield tui.left_pad(shown, widths[index])
+          yield pad_left_cells(shown, widths[index])
         } else if index == selection.columns.len() - 1 {
           yield shown
         } else {
-          yield tui.right_pad(shown, widths[index])
+          yield pad_right_cells(shown, widths[index])
         }
       }
     }
-    out += values.join(" ") + "\n"
+    if wrap_status {
+      var line = ""
+      var indent = 0
+      for index in range(values.len()) {
+        if index > 0 { line += " " }
+        line += values[index]
+        indent += widths[index] + 1
+        if selection.columns[index] == "STATUS" and !row.cells[index].text.is_empty() and index + 1 < values.len() {
+          line += "\n" + tui.right_pad("", indent - 1)
+        }
+      }
+      out += line + "\n"
+    } else {
+      out += values.join(" ") + "\n"
+    }
   }
   chunks += [bytes.from_text(out)]
   bytes.concat(chunks)
@@ -277,7 +320,7 @@ pure render_export(selection: Selection, rows: List[Row]) -> Str {
   out
 }
 
-pure render_json(selection: Selection, rows: List[Row]) -> Bytes {
+pure render_json(selection: Selection, rows: List[Row], mode: Str) -> Bytes {
   let resource = if "semaphores" in selection.resources and (rows.is_empty() or rows[-1].resource != "posix_semaphores") {
     "semaphores"
   } else if !rows.is_empty() {
@@ -286,6 +329,33 @@ pure render_json(selection: Selection, rows: List[Row]) -> Bytes {
     ""
   }
   let table = if selection.global { "ipclimits" } else if resource == "queues" { "messages" } else if resource == "posix_mqueues" { "posix-messages" } else if resource == "shmems" { "sharedmemory" } else if resource == "posix_shmems" { "posix-sharedmemory" } else if resource == "semaphores" { "semaphores" } else if resource == "posix_semaphores" { "posix-semaphores" } else { "" }
+  if mode in ["compact", "lines"] {
+    var compact_rows: List[Bytes] = []
+    for row in rows {
+      var fields: List[Bytes] = []
+      for index in range(selection.columns.len()) {
+        let cell = row.cells[index]
+        let value = if !cell.present { b"null" } else { bytes.concat([b"\"", escape_json_bytes(cell.text), b"\""]) }
+        fields += [bytes.concat([bytes.from_text(f"\"{heading(selection, selection.columns[index]).lower()}\":"), value])]
+      }
+      var parts: List[Bytes] = [b"{"]
+      for index in range(fields.len()) {
+        if index > 0 { parts += [b","] }
+        parts += [fields[index]]
+      }
+      parts += [b"}"]
+      compact_rows += [bytes.concat(parts)]
+    }
+    var parts: List[Bytes] = []
+    if mode == "compact" { parts += [bytes.from_text(f"{{\"{table}\":[\n")] }
+    for index in range(compact_rows.len()) {
+      if index > 0 { parts += [if mode == "compact" { b",\n" } else { b"\n" }] }
+      parts += [compact_rows[index]]
+    }
+    if !compact_rows.is_empty() { parts += [b"\n"] }
+    if mode == "compact" { parts += [b"]}\n"] }
+    return bytes.concat(parts)
+  }
   var out = f"{{\n   \"{table}\": [\n"
   var chunks: List[Bytes] = []
   for row_index in range(rows.len()) {
@@ -308,9 +378,9 @@ pure render_json(selection: Selection, rows: List[Row]) -> Bytes {
 }
 
 ## Renders rows in the selected lsipc output mode.
-export pure render(selection: Selection, rows: List[Row], output_width: Int, byte_locale: Bool) -> Bytes {
+export pure render(selection: Selection, rows: List[Row], output_width: Int, byte_locale: Bool, json_mode: Str) -> Bytes {
   match selection.output_mode {
-    "json" => render_json(selection, rows)
+    "json" => render_json(selection, rows, json_mode)
     "export" | "newline" => bytes.from_text(render_export(selection, rows))
     "raw" => bytes.from_text(render_raw(selection, rows))
     else => render_table(selection, rows, output_width, byte_locale)
@@ -559,6 +629,30 @@ pure option_names(argv: List[Str], permute: Bool) -> List[Str] {
   names
 }
 
+pure has_terminator(argv: List[Str], permute: Bool) -> Bool {
+  var index = 0
+  while index < argv.len() {
+    let argument = argv[index]
+    if argument == "--" { return true }
+    if let name = option_name(argument) {
+      if name in ARGUMENT_OPTIONS and argument.find("=") == null { index += 1 }
+    } else if argument.starts_with("-") and argument != "-" {
+      let shorts = argument.byte_slice(1)
+      for offset in range(shorts.byte_len()) {
+        let name = short_option_name(shorts.byte_slice(offset, length: 1))
+        if name in ARGUMENT_OPTIONS {
+          if offset + 1 == shorts.byte_len() { index += 1 }
+          break
+        }
+      }
+    } else if !permute {
+      break
+    }
+    index += 1
+  }
+  false
+}
+
 pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
   if let failure = options.time_format {
     if failure not in ["short", "full", "iso"] {
@@ -624,7 +718,7 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
     time_format: time_format,
   }
   selection = {...selection, columns: id_columns(selection, resource_order)}
-  let last_has_argument = !parsed_names.is_empty() and parsed_names[-1] in ARGUMENT_OPTIONS
+  let last_has_argument = !has_terminator(argv, permute) and !parsed_names.is_empty() and parsed_names[-1] in ARGUMENT_OPTIONS
   let output_resource: Str? = if resource_order.is_empty() { null } else { resource_order[-1] }
   let columns = if let output = options.output {
     output_columns(output, selection, output_resource)?
@@ -640,6 +734,7 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
 ## Validates option ordering, exclusivity, identifier values and time formats.
 export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit, OptionError] {
   var first: List[Str?] = [null, null, null, null]
+  var default_columns = 0
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
@@ -652,6 +747,12 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       return Err(OptionError.Usage(detail: f"unrecognized option: {body}"))
     }
     if let name = option_name(argument) {
+      for mode in RESOURCE_OPTIONS {
+        if mode.option == name.replace("-", with: "_") {
+          default_columns += mode.columns.len()
+          if default_columns > 74 { return Err(OptionError.Invalid(detail: "too many columns specified, the limit is 73 columns")) }
+        }
+      }
       let has_value = argument.find("=") != null
       let requires_value = name in ARGUMENT_OPTIONS
       if has_value and !requires_value { return Err(OptionError.Usage(detail: f"option does not take an argument: {name}")) }
@@ -688,12 +789,19 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       var offset = 0
       var stop_options = false
       while offset < shorts.byte_len() {
-        let code = shorts.byte_slice(offset, length: 1)
+        var code = ""
+        for character in shorts.byte_slice(offset) { code = character; break }
         if code in ["h", "V"] {
           stop_options = true
           break
         }
         let name = short_option_name(code)
+        for mode in RESOURCE_OPTIONS {
+          if mode.option == name.replace("-", with: "_") {
+            default_columns += mode.columns.len()
+            if default_columns > 74 { return Err(OptionError.Invalid(detail: "too many columns specified, the limit is 73 columns")) }
+          }
+        }
         if name.is_empty() { return Err(OptionError.Usage(detail: f"unrecognized option: {code}")) }
         if let mapped = option_code(name) {
           let group_index = conflict_group(mapped)
@@ -714,7 +822,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           }
           break
         }
-        offset += 1
+        offset += code.byte_len()
       }
       if stop_options { break }
       index += 1

@@ -66,8 +66,7 @@ export pure safe_table_text(raw: Bytes, allow_newline: Bool, byte_locale: Bool) 
         if allow_newline and codepoint == 10 {
           output += "\n"
         } else if codepoint <= 31 or codepoint in [127, 8232, 8233] or (codepoint >= 128 and codepoint < 160) or
-            (codepoint > 8203 and codepoint < 8208) or (codepoint >= 8234 and codepoint < 8239) or
-            (codepoint >= 8287 and codepoint < 8304) or codepoint == 65279 {
+            (codepoint >= 65529 and codepoint <= 65531) or codepoint in [65534, 65535, 1114111] {
           for byte_index in range(size) { output += hex_byte(raw.byte_at(at + byte_index) ?? 0) }
         } else {
           output += character

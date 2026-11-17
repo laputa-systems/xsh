@@ -1607,3 +1607,173 @@ test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
   ul.keeper_send(keeper, "release")
   ul.finish_keeper(keeper)
 }
+
+test test_lsipc_regression_unicode_short_options { |ctx|
+  let s = uu.scene(ctx)?
+  for locale in ["C", "C.UTF-8"] {
+    for option in ["-é", "-bé"] {
+      let pair = run_both_with_vars(s, [option], vars: {LC_ALL: locale, TZ: "UTC"})?
+      ul.compare(pair.reference, pair.candidate)
+    }
+  }
+}
+
+test test_lsipc_regression_json_environment { |ctx|
+  let s = uu.scene(ctx)?
+  for mode in ["compact", "lines", "other"] {
+    let pair = run_both_with_vars(s, ["-g", "-J"], vars: {LC_ALL: "C", TZ: "UTC", LIBSMARTCOLS_JSON: mode})?
+    ul.compare(pair.reference, pair.candidate)
+  }
+}
+
+test test_lsipc_regression_repeated_selector_limit { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-m", "-m", "-m", "-m", "-m", "-m", "-m"], ["-qqqqqqqqqqqq", "-c", "-t"]] {
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
+  }
+}
+
+test test_lsipc_regression_unicode_table { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let names = ["n一x", "nAx", "x\u{200c}", "x\u{200f}", "x\u{202a}", "x\u{202e}", "x\u{205f}", "x\u{206f}", "x\u{feff}", "x\u{fff9}", "x\u{fffa}", "x\u{fffb}", "x\u{fffe}", "x\u{ffff}", "x\u{10ffff}"]
+  for name in names { fp"/dev/shm/{name}".write(b"") }
+  defer { for name in names { fp"/dev/shm/{name}".remove() } }
+  let pair = run_both_with_vars(s, ["-M", "-o", "NAME,PERMS"], vars: {LC_ALL: "C.UTF-8", TZ: "UTC"})?
+  ul.compare(pair.reference, pair.candidate)
+}
+
+test test_lsipc_regression_detail_terminator { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/ipcmk.out"
+  let err = fp"{s.root}/ipcmk.err"
+  let create = process.command_argv(p"/usr/bin/ipcmk", [p"/usr/bin/ipcmk", p"-Q"], s.root, {}, b"", out, err, timeout: 5s)
+  assert process.run(create)?.exited_with(0)
+  let id = out.read_text()?.trim().fields()[-1]
+  let remove = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-q", fp"{id}"], s.root, {}, b"", out, err, timeout: 5s)
+  defer { let _ = process.run(remove) }
+  let pair = run_both(s, ["-q", "-i", id, "--"])?
+  ul.compare(pair.reference, pair.candidate)
+  let target = p"/dev/shm/--"
+  target.write(b"")
+  defer target.remove()
+  let name = run_both(s, ["-M", "-N", "--"])?
+  ul.compare(name.reference, name.candidate)
+}
+
+test test_lsipc_regression_mixed_detail_and_missing_id { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/ipcmk.out"
+  let err = fp"{s.root}/ipcmk.err"
+  let create = process.command_argv(p"/usr/bin/ipcmk", [p"/usr/bin/ipcmk", p"-Q"], s.root, {}, b"", out, err, timeout: 5s)
+  assert process.run(create)?.exited_with(0)
+  let id = out.read_text()?.trim().fields()[-1]
+  let remove = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-q", fp"{id}"], s.root, {}, b"", out, err, timeout: 5s)
+  defer { let _ = process.run(remove) }
+  let object = p"/dev/shm/xsh-lsipc-regression"
+  object.write(b"")
+  defer object.remove()
+  for args in [["-q", "-i", id, "-M"], ["-q", "-i", "2147483647", "-M"], ["-M", "-N", "xsh-lsipc-regression", "-q"]] {
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
+  }
+}
+
+test test_lsipc_regression_terminal_width { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "terminal-keeper.py")
+  uu.write(s, "terminal-keeper.py", "import ctypes,sys\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nlibc.shmat.restype=ctypes.c_void_p\nlibc.shmat(id,None,0)\nlibc.shmctl(id,0,None)\nprint(id,flush=True)\nsys.stdin.readline()\n")?
+  let fixture = ul.start_keeper(s, script, [])?
+  defer ul.stop_keeper(fixture)
+  for args in [[p"-m", p"--noheadings"], [p"-m", p"-o", p"COMMAND,COMMAND"]] {
+    for columns in [40, 80, 400] {
+      let vars = {LC_ALL: "C", TZ: "UTC", COLUMNS: "200"}
+      let reference = contexts.terminal_reference(s, "lsipc", args, columns: columns, vars: vars)?
+      let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
+      assert ul.observed_equal(reference, candidate), f"args={[a.display() for a in args].join(" ")} cols={columns} ref={reference.stdout.utf8() ?? ""} candidate={candidate.stdout.utf8() ?? ""}"
+    }
+  }
+}
+
+test test_lsipc_regression_display_cell_padding { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx"]
+  for target in paths { target.write(b"") }
+  defer { for target in paths { target.remove() } }
+  let pair = run_both_with_vars(s, ["-M", "-o", "NAME,PERMS"], vars: {LC_ALL: "C.UTF-8", TZ: "UTC"})?
+  ul.compare(pair.reference, pair.candidate)
+}
+
+test test_lsipc_regression_missing_id_with_other_resource { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let target = p"/dev/shm/xsh-lsipc-missing"
+  target.write(b"")
+  defer target.remove()
+  let pair = run_both(s, ["-q", "-i", "2147483647", "-M"])?
+  assert pair.reference.stderr == b"lsipc: id 2147483647 not found\n"
+  ul.compare(pair.reference, pair.candidate)
+}
+
+test test_lsipc_regression_negative_id_detail { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/ipcmk.out"
+  let err = fp"{s.root}/ipcmk.err"
+  let create = process.command_argv(p"/usr/bin/ipcmk", [p"/usr/bin/ipcmk", p"-M", p"4096"], s.root, {}, b"", out, err, timeout: 5s)
+  assert process.run(create)?.exited_with(0)
+  let first = out.read_text()?.trim().fields()[-1]
+  let remove_first = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-m", fp"{first}"], s.root, {}, b"", out, err, timeout: 5s)
+  defer { let _ = process.run(remove_first) }
+  assert process.run(create)?.exited_with(0)
+  let second = out.read_text()?.trim().fields()[-1]
+  let remove_second = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-m", fp"{second}"], s.root, {}, b"", out, err, timeout: 5s)
+  defer { let _ = process.run(remove_second) }
+  let pair = run_both(s, ["-m", "-i", "-7"])?
+  ul.compare(pair.reference, pair.candidate)
+}
+
+test test_lsipc_regression_zero_limit { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/zero.out"
+  let err = fp"{s.root}/zero.err"
+  let script = "set -eu\nexport LC_ALL=C TZ=UTC\n" +
+    "qid=$(/usr/bin/ipcmk -Q | awk '{print $NF}')\n" +
+    "trap '/usr/bin/ipcrm -q \"$qid\" 2>/dev/null || true' EXIT\n" +
+    "echo 0 > /proc/sys/kernel/msgmni\n" +
+    "env -u LIBSMARTCOLS_JSON /usr/bin/lsipc -g -J > \"$1/ref\"\n" +
+    "env -u LIBSMARTCOLS_JSON \"$2\" \"$3/lsipc.xsh\" -- -g -J > \"$1/cand\"\n" +
+    "cmp \"$1/ref\" \"$1/cand\"\n" +
+    "grep -q 'inf%' \"$1/ref\"\n" +
+    "/usr/bin/ipcrm -q \"$qid\"\n" +
+    "trap - EXIT\n" +
+    "env -u LIBSMARTCOLS_JSON /usr/bin/lsipc -g -J > \"$1/ref\"\n" +
+    "env -u LIBSMARTCOLS_JSON \"$2\" \"$3/lsipc.xsh\" -- -g -J > \"$1/cand\"\n" +
+    "cmp \"$1/ref\" \"$1/cand\"\n" +
+    "grep -q -- '-nan%' \"$1/ref\"\n"
+  let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-c", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
+  let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 10s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+}
+
+test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "columns-keeper.py")
+  uu.write(s, "columns-keeper.py", "import ctypes,sys\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nprint(id,flush=True)\nsys.stdin.readline()\nlibc.shmctl(id,0,None)\n")?
+  let fixture = ul.start_keeper(s, script, [])?
+  defer ul.stop_keeper(fixture)
+  let args = [p"-m", p"-o", p"ID,COMMAND"]
+  for columns in [40, 80] {
+    let vars = {LC_ALL: "C", TZ: "UTC", COLUMNS: "200"}
+    let reference = contexts.terminal_reference(s, "lsipc", args, columns: columns, vars: vars)?
+    let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
+    assert ul.observed_equal(reference, candidate)
+  }
+}
