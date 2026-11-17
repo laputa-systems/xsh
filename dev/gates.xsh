@@ -2300,7 +2300,7 @@ type LaneNote = {keep: Bool, unresolved: List[Str], scenarios: List[Str]}
 pure other_platform_tests() -> List[Str] {
   var ids: List[Str] = []
   for exclusion in gate_lane.lane_exclusions {
-    ids += exclusion.tests when exclusion.missing == "the test covers a platform other than Linux"
+    ids += exclusion.tests when exclusion.missing == gate_lane.other_platform
   }
   ids
 }

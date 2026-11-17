@@ -122,6 +122,9 @@ export const namespace_tests = [
   "tests/xsh/stdlib/linux_namespaces.xsh::test_linux_run_in_namespaces_unshares_each_kind",
 ]
 
+## Why an excluded test needs no Linux lane: it covers another platform and skips here.
+export const other_platform = "the test covers a platform other than Linux"
+
 ## Tests no gate lane can run: the lane lacks a service, resource, platform or the skip outcome is the subject.
 export const lane_exclusions: List[Exclusion] = [
   Exclusion(missing: "an unmasked /proc, which no confined gate container grants", tests: [
@@ -253,7 +256,7 @@ export const lane_exclusions: List[Exclusion] = [
     "tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts",
     "tests/xsh/stdlib/net.xsh::test_net_transport_tls_contracts",
   ]),
-  Exclusion(missing: "the test covers a platform other than Linux", tests: [
+  Exclusion(missing: other_platform, tests: [
     "core/tests/test-mdev.xsh::test_mdev_reports_linux_platform_requirement",
     "tests/xsh/stdlib/linux_storage.xsh::test_storage_primitives_report_unsupported_off_linux",
     "tests/xsh/tooling-trace.xsh::test_trace_rejects_syscalls_outside_linux",
