@@ -842,6 +842,32 @@ test test_sort_numeric_uses_decimal_values_and_prefixes { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_numeric_integer_prefix_ties_and_reverse { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-integer-prefix")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"2,z\n01,z\n1,a\n10,x\n1,b\n"
+  for args in [["-n"], ["-n", "-r"], ["-n", "-s"], ["-n", "-u"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root, {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    let expected = if args == ["-n"] { b"01,z\n1,a\n1,b\n2,z\n10,x\n" } else if args == ["-n", "-r"] {
+      b"10,x\n2,z\n1,b\n1,a\n01,z\n"
+    } else { b"01,z\n1,a\n1,b\n2,z\n10,x\n" }
+    if args == ["-n", "-u"] { assert stdout.read_bytes()? == b"01,z\n2,z\n10,x\n" } else {
+      assert stdout.read_bytes()? == expected
+    }
+    assert stderr.read_bytes()?.is_empty()
+  }
+  let keyed = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, "--", script, "-t,", "-k2,2n", "-r"], root,
+    {LC_ALL: "C"}, b"b,01\na,1\nc,2\nd,10\n", stdout, stderr))?
+  assert keyed.exit_code()? == 0
+  assert stdout.read_bytes()? == b"d,10\nc,2\nb,01\na,1\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_numeric_preserves_decimal_precision_and_uniqueness { |ctx|
   let root = test.temp_dir(ctx, name: "sort-numeric-precision")?
   let script = fp"{ctx.core_dir}/sort.xsh"
