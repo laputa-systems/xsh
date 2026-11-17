@@ -122,11 +122,11 @@ No complete serialized artifact was produced, so its size, decode and verify
 instruction count, and decoded execution are unmeasured. The existing raw-store
 fixture captures all pools in memory, but its wire decoder supports only a
 subset (`src/runtime/eval/indexed/full/formal_bridge/raw_full.rs:6`,
-`:325`, `:382`). A complete encoder must also handle prepared CLI plans;
+`:325`, `:382`). A general-purpose encoder must also handle prepared CLI plans;
 `FullStore` owns them (`src/runtime/eval/indexed/full.rs:836`), while
 `CliDescriptorPlan` keeps its fields private (`src/modules/cli.rs:471`).
-A scoped implementation needs a way to export and reconstruct those fields,
-which is outside the prototype's permitted edit paths.
+A general-purpose implementation needs a way to export and reconstruct those
+fields. The AWK scope probe below found no such plans in its closure.
 
 There is a separate correctness issue for the proposed trust model. The
 existing test at `src/runtime/eval/indexed/full/formal_bridge/raw_full.rs:150`
