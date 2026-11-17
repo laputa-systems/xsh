@@ -701,6 +701,7 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
   let l = if left.kind == "column" { column_value(lock, left.value) } else { left }
   let r = if right.kind == "column" { column_value(lock, right.value) } else { right }
   if l.kind == "empty" or r.kind == "empty" { return false }
+  if operator == "==" and ((left.value == "HOLDERS" and l.value == "") or (right.value == "HOLDERS" and r.value == "")) { return false }
   if operator in ["=~", "!~"] {
     let pattern = regex.compile(regex_byte_text(r.value))
     let matched = if let Ok(compiled) = pattern { compiled.matches(regex_byte_text(l.value)) } else { false }

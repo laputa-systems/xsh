@@ -144,6 +144,10 @@ proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, env, net, time, e
   assert waiter_ready.method == method and waiter_ready.pid > 0
   assert waiter_ready.owner_pid == owner_ready.pid and waiter_ready.inode == owner_ready.inode
   assert waiter_ready.device == owner_ready.device and waiter_ready.lock_id > 0
+  if method == "flock-ex" {
+    let empty_holders = compared(s, ["-n", "-p", f"{waiter_ready.pid}", "-o", "PID,MODE,HOLDERS", "-Q", "HOLDERS == \"\""])?
+    assert empty_holders.stdout.is_empty()
+  }
   let args = if method == "ofd--w" {
     ["--json", "--filter", "MODE == 'WRITE*'", "--output", "PID,TYPE,MODE,BLOCKER,PATH,INODE,MAJ:MIN"]
   } else {
