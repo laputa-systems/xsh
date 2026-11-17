@@ -95,7 +95,9 @@ recorded differences. A review reports them only if their behavior changes.
 - Display width follows XSH's terminal width rules, not musl `wcwidth`, for
   emoji sequences and the few codepoints where they differ, and the shared
   table escaping prints plane noncharacters such as U+1FFFE raw.
-- Without procfs, `lsipc` lists no System V objects or kernel limits.
+- Without procfs, `lsipc` lists no System V objects, and `lsipc -g` exits 1
+  naming the missing procfs instead of reading limits through `shmctl`,
+  `msgctl` and `semctl` as util-linux does.
 
 ### Review standard
 
