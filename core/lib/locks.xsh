@@ -1009,9 +1009,10 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
 
 proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
   if name == "pid" {
-    let number = decimal(value)
-    if ! rx"^[+-]?[0-9]+$".matches(value) or number == null or (number ?? 0) <= 0 or (number ?? 0) > 2147483647 {
-      let suffix = if rx"^[+-]?[0-9]+$".matches(value) { ": Result not representable" } else { "" }
+    let number = decimal(value.trim())
+    let valid = rx"^[ \t\r\n\x0b\x0c]*[+-]?[0-9]+$".matches(value)
+    if ! valid or number == null or (number ?? 0) <= 0 or (number ?? 0) > 2147483647 {
+      let suffix = if valid { ": Result not representable" } else { "" }
       gnu.error(f"invalid PID argument: {gnu.quote(value)}{suffix}")
       exit 1
     }
@@ -1158,9 +1159,10 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     exit 1
   }
   if opts.pid != null {
-    let value = decimal(opts.pid ?? "")
-    if ! rx"^[+-]?[0-9]+$".matches(opts.pid ?? "") or value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
-      let suffix = if rx"^[+-]?[0-9]+$".matches(opts.pid ?? "") { ": Result not representable" } else { "" }
+    let value = decimal((opts.pid ?? "").trim())
+    let valid = rx"^[ \t\r\n\x0b\x0c]*[+-]?[0-9]+$".matches(opts.pid ?? "")
+    if ! valid or value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
+      let suffix = if valid { ": Result not representable" } else { "" }
       gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}{suffix}")
       exit 1
     }
@@ -1231,7 +1233,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   return when all.is_empty()
   var rows = all
   if opts.pid != null {
-    let selected_pid = decimal(opts.pid ?? "") ?? 0
+    let selected_pid = decimal((opts.pid ?? "").trim()) ?? 0
     rows = rows |> where .pid == selected_pid |> collect
   }
   if program != null {

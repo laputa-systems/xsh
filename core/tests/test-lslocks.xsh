@@ -1003,3 +1003,8 @@ test test_lslocks_output_mode_conflict_order { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-r", "-J"], ["-J", "-r"]] { rejected(s, args)? }
 }
+
+test test_lslocks_pid_leading_whitespace { |ctx|
+  let s = uu.scene(ctx)?
+  let _ = compared(s, ["-p", " 1"])?
+}
