@@ -2,6 +2,7 @@
 use lib.gnu
 use lib.memory_report as report
 use lib.util_linux_io as ul_io
+use lib.text_a2 as text
 
 const HELP = "\nUsage:\n lsmem [options]\n\nList the ranges of available memory with their online status.\n\nOptions:\n -J, --json           use JSON output format\n -P, --pairs          use key=\"value\" output format\n -a, --all            list each individual memory block\n -b, --bytes          print SIZE in bytes rather than in human readable format\n -n, --noheadings     don't print headings\n -o, --output <list>  output columns\n     --output-all     output all columns\n -r, --raw            use raw output format\n -S, --split <list>   split ranges by specified columns\n -s, --sysroot <dir>  use the specified directory as system root\n     --summary[=when] print summary information (never,always or only)\n\n -h, --help           display this help\n -V, --version        display version\n\nAvailable output columns:\n      RANGE  start and end address of the memory range\n       SIZE  size of the memory range\n      STATE  online status of the memory range\n  REMOVABLE  memory is removable\n      BLOCK  memory block number or blocks range\n       NODE  numa node of memory\n      ZONES  valid zones for the memory range\n CONFIGURED  configuration status of the memory range\n MEMMAP-ON-MEMORY  memmap-on-memory status of the memory range\n\nFor more details see lsmem(1)."
 
@@ -128,16 +129,22 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if word == "--" { break }
     let raw_word = gnu.argument_bytes(word, prepared.raw)
     if raw_word.starts_with(b"-") and ! raw_word.starts_with(b"--") {
+      var stop_options = false
       for position in range(1, raw_word.len()) {
         let flag = raw_word.byte_at(position) ?? 0
         if flag >= 128 {
           if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
-          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(position, length: 1), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+          let length = if text.byte_columns() { 1 } else if flag >= 194 and flag < 224 { 2 } else if flag >= 224 and flag < 240 { 3 } else if flag >= 240 and flag < 245 { 4 } else { 1 }
+          let available = raw_word.len() - position
+          let character = if length <= available and raw_word.slice(position, length: length).utf8() is Ok(_) { raw_word.slice(position, length: length) } else { raw_word.slice(position, length: 1) }
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), character, bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
           exit 1
         }
-        if flag in [111, 83, 115, 104, 86] { break }
+        if flag in [104, 86] { stop_options = true; break }
+        if flag in [111, 83, 115] { break }
         if flag not in [97, 98, 74, 80, 110, 114] { break }
       }
+      if stop_options { break }
     }
     if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
       if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }

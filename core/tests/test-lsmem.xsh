@@ -547,4 +547,6 @@ test test_lsmem_unreadable_optional_inventory_links { |ctx|
 test test_lsmem_multibyte_short_option { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-é"], ["-bé"]] { compare_lsmem(s, args)? }
+  compare_lsmem(s, ["-é"], {LC_ALL: "C.UTF-8"})?
+  compare_lsmem(s, ["-h", "-é"])?
 }
