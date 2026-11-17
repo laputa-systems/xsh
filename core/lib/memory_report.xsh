@@ -541,7 +541,7 @@ export proc check_exclusive(argv: List[Str]) [process, env] {
 }
 
 ## Resolves table and summary emission from the original argument order.
-export proc modes(argv: List[Str]) [process, env] -> Modes {
+export proc modes(argv: List[Str]) [process, env, error] -> Modes {
   var table = true
   var summary = true
   var index = 0
@@ -551,6 +551,8 @@ export proc modes(argv: List[Str]) [process, env] -> Modes {
     index += 1
     if end_options { continue }
     if word == "--" { end_options = true; continue }
+    if word in ["--help", "--version", "-h", "-V"] { break }
+    check_exclusive(argv[..index])?
     if word.starts_with("--") {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
       let name = parts[0]

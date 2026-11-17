@@ -141,12 +141,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   })?
   let sysroot: Path? = if parsed.sysroot == null { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
   let opts: report.Options = {...parsed, sysroot: sysroot}
+  let canonical = canonical_arguments(arguments)
+  let modes = report.modes(canonical)
   if opts.help { ul_io.help(HELP); return }
   if opts.version { ul_io.version("lsmem"); return }
-  let canonical = canonical_arguments(arguments)
-  report.check_exclusive(canonical)
   if ! opts.operands.is_empty() { gnu.usage_error("bad usage") }
-  let modes = report.modes(canonical)
   if !modes.table and !modes.summary {
     gnu.error("options --{raw,json,pairs} and --summary=only are mutually exclusive")
     exit 1

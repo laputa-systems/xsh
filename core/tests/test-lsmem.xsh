@@ -433,3 +433,8 @@ test test_lsmem_long_option_diagnostics_match_reference { |ctx|
   let s = uu.scene(ctx)?
   for args in [["--s"], ["--output"], ["--json=1"], ["--bogus=x"]] { compare_lsmem(s, args)? }
 }
+
+test test_lsmem_validation_precedes_help_in_argument_order { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-J", "-r", "--help"], ["--summary=bad", "--help"], ["--summary=bad", "-J", "-r"], ["-J", "-r", "--summary=bad"]] { compare_lsmem(s, args)? }
+}
