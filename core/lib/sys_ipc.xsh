@@ -98,6 +98,11 @@ pure posix_directory(kind: PosixKind, root: Path) -> Path {
   if kind == PosixQueues { source_path(root, p"dev/mqueue") } else { source_path(root, p"dev/shm") }
 }
 
+## Tests whether procfs exposes System V IPC tables beneath root.
+export proc system_v_available(root: Path = p"/") [fs] -> Bool {
+  source_path(root, p"proc/sysvipc").exists()
+}
+
 ## Tests mount-directory availability without changing listing or error policy.
 export proc posix_directory_available(kind: PosixKind, root: Path = p"/") [fs] -> Bool {
   fs.stat(posix_directory(kind, root)) is Ok(_)

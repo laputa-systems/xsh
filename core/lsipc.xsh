@@ -380,7 +380,7 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
     continue when selection.global
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
-      let records = if p"/proc/sysvipc".exists() { ipc.collect_system_v(system_v_kind(kind)) } else { [] }
+      let records = if ipc.system_v_available() { ipc.collect_system_v(system_v_kind(kind)) } else { [] }
       for record in records {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
