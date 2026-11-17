@@ -215,6 +215,7 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_separate_values_after_clusters_and_prefixes",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_sysroot_with_absolute_sys_symlink",
+  "core/tests/test-lsmem.xsh::test_lsmem_sysroot_memory_symlink_escaping_the_root",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_configured_memory_and_memmap_summary",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_malformed_block_attributes",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_numeric_and_state_parsing_matches_reference",
@@ -254,6 +255,7 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_human_size_rounding",
   "core/tests/test-lsmem.xsh::test_lsmem_unreadable_optional_inventory_links",
   "core/tests/test-lsmem.xsh::test_lsmem_multibyte_short_option",
+  "core/tests/test-lsmem.xsh::test_lsmem_unset_locale_is_utf8",
   "core/tests/test-lsmem.xsh::test_lsmem_option_order_and_musl_diagnostics",
   "core/tests/test-lsmem.xsh::test_lsmem_zero_terminal_columns",
 ]

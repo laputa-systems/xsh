@@ -78,9 +78,10 @@ constants in the same change.
 The cohort follows util-linux 2.42.4 as built against musl, except for these
 recorded differences. A review reports them only if their behavior changes.
 
-- XSH's shared option parser honours `POSIXLY_CORRECT` and stops permuting at
-  the first operand, as glibc `getopt` does; musl ignores the variable. The
-  parser is shared by every core command, so the cohort keeps its behavior.
+- `lslocks`, `lsipc` and `lsmem` use XSH's shared option parser, which
+  honours `POSIXLY_CORRECT` and stops permuting at the first operand, as glibc
+  `getopt` does; musl ignores the variable. `mountpoint` and `namei` parse their
+  own options and ignore it, as musl does.
 - `mountpoint` needs procfs: without `/proc/self/mountinfo` it reports an
   error where util-linux 2.42.4 can fall back to `statmount`.
 - `lslocks -Q` evaluates regular expressions in XSH's regex dialect, not POSIX

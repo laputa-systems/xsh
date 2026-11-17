@@ -257,6 +257,16 @@ test test_lsmem_sysroot_with_absolute_sys_symlink { |ctx|
   compare_lsmem(s, ["-s", uu.at(s, "linked-root").display(), "--summary=only"])?
 }
 
+test test_lsmem_sysroot_memory_symlink_escaping_the_root { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  uu.mkdir(s, "escaping-root/sys/devices/system")?
+  uu.at(s, "escaping-root/sys/devices/system/memory").symlink(to: uu.at(s, "sys/devices/system/memory"))?
+  for args in [[], ["--summary=only"]] {
+    compare_lsmem(s, ["-s", uu.at(s, "escaping-root").display()].extend(args))?
+  }
+}
+
 test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "configured")?

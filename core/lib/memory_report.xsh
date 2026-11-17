@@ -506,7 +506,7 @@ export proc require_memory_root(root_path: Path) [fs, process, env, error] {
   }
   let rooted_directory = root.metadata(MEMORY_PATH)
   let directory = if let Err(failure) = rooted_directory {
-    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/{MEMORY_PATH}".metadata() } else { rooted_directory }
+    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{MEMORY_PATH}".resolve() { Ok(target) => target.metadata(), Err(failure) => Err(failure) } } else { rooted_directory }
   } else { rooted_directory }
   root.close()
   match directory {
@@ -529,7 +529,7 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   let memory_path = MEMORY_PATH
   let rooted_directory = root.metadata(memory_path)
   let memory_directory = if let Err(failure) = rooted_directory {
-    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/{memory_path}".metadata() } else { rooted_directory }
+    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{memory_path}".resolve() { Ok(target) => target.metadata(), Err(failure) => Err(failure) } } else { rooted_directory }
   } else { rooted_directory }
   let directory = match memory_directory {
     Ok(metadata) => metadata
