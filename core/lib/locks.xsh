@@ -387,7 +387,7 @@ pure select_columns(output: Str?, output_all: Bool, environment: Str?) -> Result
   for index in range(names.len()) {
     let name = names[index]
     if name == "" {
-      return Err(UnknownColumn(list)) when index == names.len() - 1 and index > 0
+      return Err(UnknownColumn(names[index - 1] + ",")) when index == names.len() - 1 and index > 0
       return Err(EmptyColumnName)
     }
     let column = canonical_column(name)

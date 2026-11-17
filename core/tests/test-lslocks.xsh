@@ -988,3 +988,8 @@ test test_lslocks_non_ascii_filter { |ctx|
   let s = uu.scene(ctx)?
   let _ = compared(s, ["-Q", "COMMAND == \"café\""])?
 }
+
+test test_lslocks_trailing_column_delimiter { |ctx|
+  let s = uu.scene(ctx)?
+  rejected(s, ["-o", "COMMAND,PID,"])?
+}
