@@ -502,6 +502,17 @@ pure prepare_arguments(argv: List[Bytes]) -> Result[gnu.PreparedArguments] {
         }
       }
     }
+    let output_value = (index > 0 and argv[index - 1] in [b"-o", b"--output"]) or prefix == "-o" or prefix == "--output="
+    if output_value {
+      for at in range(offset, length) {
+        if argument.byte_at(at) == 44 {
+          if let Ok(decoded) = argument[offset..at + 1].utf8() {
+            prefix += decoded
+            offset = at + 1
+          }
+        }
+      }
+    }
     text += [prefix + marker]
     raw += [{marker: marker, value: argument[offset..length]}]
   }

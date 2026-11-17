@@ -1506,3 +1506,14 @@ test test_lsipc_non_utf8_posix_name { |ctx|
   assert reference.stderr == b"lsipc: message queue name must start with '/': a\xff\n"
   ul.compare(reference, uu.invoke_paths(s, "lsipc", args, timeout: 5s)?)
 }
+
+test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  for args in [[p"-g", p"-o", b"LIMIT,\xff" as Path], [p"-g", b"-oLIMIT,\xff" as Path], [p"-g", b"--output=LIMIT,\xff" as Path]] {
+    let reference = ul.reference_paths(s, "lsipc", args)?
+    assert reference.status == 1 and reference.stdout == b""
+    assert reference.stderr == b"lsipc: unknown column: \xff\n"
+    ul.compare(reference, uu.invoke_paths(s, "lsipc", args, timeout: 5s)?)
+  }
+}
