@@ -96,3 +96,17 @@ export pure raw_table_text(raw: Bytes, byte_locale: Bool) -> Bytes {
   bytes.concat(output)
 }
 
+
+## Applies libsmartcols shell-pairs escaping to bytes.
+export pure pairs_text(raw: Bytes) -> Str {
+  var output = ""
+  for index in range(raw.len()) {
+    let byte = raw.byte_at(index) ?? 0
+    if byte < 32 or byte >= 127 or byte in [34, 36, 92, 96] {
+      output += hex_byte(byte)
+    } else {
+      output += raw[index..index + 1].utf8() ?? ""
+    }
+  }
+  output
+}

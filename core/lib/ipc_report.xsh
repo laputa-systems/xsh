@@ -1,4 +1,5 @@
 ##! Validates lsipc options, resolves source-backed columns and renders report rows.
+use core.lib.scols_escape as scols
 
 ## Reports lsipc usage errors, invalid values, empty columns or excess columns.
 export error OptionError = Invalid(detail: Str) | Usage(detail: Str) | EmptyColumn | TooManyColumns
@@ -55,10 +56,10 @@ export type Selection = {
 }
 
 ## Holds one rendered field and whether the source supplied its value.
-export type Cell = {text: Str, present: Bool}
+export type Cell = {text: Bytes, present: Bool}
 
 ## Holds one System V semaphore element's observable status.
-export type Element = {number: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int, pid: Int, command: Str}
+export type Element = {number: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int, pid: Int, command: Bytes}
 
 ## Holds the source resource, selected cells and semaphore element rows.
 export type Row = {resource: Str, cells: List[Cell], elements: List[Element]}
@@ -104,49 +105,18 @@ pure hex_byte(byte: Int) -> Str {
   f"\\x{HEX.byte_slice(byte / 16, length: 1)}{HEX.byte_slice(byte % 16, length: 1)}"
 }
 
-pure escape_cell(text: Str) -> Str {
-  let data = bytes.from_text(text)
-  var out = ""
-  var start = 0
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte < 32 or byte == 127 {
-      out += text.byte_slice(start, length: index - start)
-      out += hex_byte(byte)
-      start = index + 1
-    }
-  }
-  out + text.byte_slice(start)
-}
-
-pure escape_json(text: Str) -> Str {
-  let data = bytes.from_text(text)
-  var out = ""
-  var start = 0
+pure escape_json_bytes(data: Bytes) -> Bytes {
+  var chunks: List[Bytes] = []
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
     if byte < 32 or byte == 34 or byte == 92 {
-      out += text.byte_slice(start, length: index - start)
-      out += if byte == 34 { "\\\"" } else if byte == 92 { "\\\\" } else if byte == 8 { "\\b" } else if byte == 12 { "\\f" } else if byte == 10 { "\\n" } else if byte == 13 { "\\r" } else if byte == 9 { "\\t" } else { f"\\u00{hex_byte(byte).byte_slice(2)}" }
-      start = index + 1
+      let escaped = if byte == 34 { "\\\"" } else if byte == 92 { "\\\\" } else if byte == 8 { "\\b" } else if byte == 12 { "\\f" } else if byte == 10 { "\\n" } else if byte == 13 { "\\r" } else if byte == 9 { "\\t" } else { f"\\u00{hex_byte(byte).byte_slice(2)}" }
+      chunks += [bytes.from_text(escaped)]
+    } else {
+      chunks += [data[index..index + 1]]
     }
   }
-  out + text.byte_slice(start)
-}
-
-pure escape_export(text: Str) -> Str {
-  let data = bytes.from_text(text)
-  var out = ""
-  var start = 0
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte < 32 or byte == 34 or byte == 92 or byte == 127 {
-      out += text.byte_slice(start, length: index - start)
-      out += hex_byte(byte)
-      start = index + 1
-    }
-  }
-  out + text.byte_slice(start)
+  bytes.concat(chunks)
 }
 
 pure shell_column(column: Str) -> Str {
@@ -186,12 +156,12 @@ pure truncate_cells(text: Str, width: Int) -> Str {
   out
 }
 
-pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> Str {
-  return "" when rows.is_empty()
+pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte_locale: Bool) -> Bytes {
+  return b"" when rows.is_empty()
   var widths: List[Int] = [if selection.noheadings { 0 } else { tui.cell_width(column) } for column in selection.columns]
   for row in rows {
     for index in range(selection.columns.len()) {
-      let shown = tui.cell_width(escape_cell(row.cells[index].text))
+      let shown = tui.cell_width(scols.safe_table_text(row.cells[index].text, false, byte_locale))
       if shown > widths[index] { widths[index] = shown }
     }
   }
@@ -213,6 +183,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
     }
   }
   var out = ""
+  var chunks: List[Bytes] = []
   if !selection.noheadings and selection.output_mode != "pretty" {
     let labels: List[Str] = collect {
       for index in range(selection.columns.len()) {
@@ -234,7 +205,9 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
         let cell = row.cells[index]
         if cell.present {
           let label = pretty_label(selection.columns[index])
-          out += f"{label}:{tui.right_pad("", 35 - label.count_chars())}{tui.right_pad(cell.text, 36)}\n"
+          out += f"{label}:{tui.right_pad("", 35 - label.count_chars())}"
+          chunks += [bytes.from_text(out), cell.text]
+          out = tui.right_pad("", 36 - cell.text.len()) + "\n"
         }
       }
       if !row.elements.is_empty() {
@@ -242,14 +215,14 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
         let names = ["SEMNUM", "VALUE", "NCOUNT", "ZCOUNT", "PID", "COMMAND"]
         var element_widths: List[Int] = [name.count_chars() for name in names]
         for element in row.elements {
-          let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", element.command]
+          let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", scols.safe_table_text(element.command, false, byte_locale)]
           for index in range(names.len()) {
             if values[index].count_chars() > element_widths[index] { element_widths[index] = values[index].count_chars() }
           }
         }
         out += [tui.left_pad(names[index], element_widths[index]) for index in range(names.len())].join(" ") + "\n"
         for element in row.elements {
-          let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", element.command]
+          let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", scols.safe_table_text(element.command, false, byte_locale)]
           out += [if index == names.len() - 1 { values[index] } else { tui.left_pad(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
         }
       }
@@ -257,7 +230,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
     }
     let values: List[Str] = collect {
       for index in range(selection.columns.len()) {
-        let escaped = escape_cell(row.cells[index].text)
+        let escaped = scols.safe_table_text(row.cells[index].text, false, byte_locale)
         let shown = if !selection.notruncate and selection.columns[index] == "COMMAND" and tui.cell_width(escaped) > widths[index] { truncate_cells(escaped, widths[index]) } else { escaped }
         if index + 1 == selection.columns.len() and shown.is_empty() {
           yield ""
@@ -272,7 +245,8 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
     }
     out += values.join(" ") + "\n"
   }
-  out
+  chunks += [bytes.from_text(out)]
+  bytes.concat(chunks)
 }
 
 pure render_raw(selection: Selection, rows: List[Row]) -> Str {
@@ -282,7 +256,7 @@ pure render_raw(selection: Selection, rows: List[Row]) -> Str {
     out += [heading(selection, column) for column in selection.columns].join(" ") + "\n"
   }
   for row in rows {
-    out += [escape_cell(cell.text).replace(" ", with: "\\x20") for cell in row.cells].join(" ") + "\n"
+    out += [scols.raw_table_text(cell.text, true).utf8() ?? "" for cell in row.cells].join(" ") + "\n"
   }
   out
 }
@@ -294,7 +268,7 @@ pure render_export(selection: Selection, rows: List[Row]) -> Str {
     let entries: List[Str] = collect {
       for index in range(selection.columns.len()) {
         let column = heading(selection, selection.columns[index])
-        let value = escape_export(row.cells[index].text)
+        let value = scols.pairs_text(row.cells[index].text)
         yield f"{column}=\"{value}\""
       }
     }
@@ -303,7 +277,7 @@ pure render_export(selection: Selection, rows: List[Row]) -> Str {
   out
 }
 
-pure render_json(selection: Selection, rows: List[Row]) -> Str {
+pure render_json(selection: Selection, rows: List[Row]) -> Bytes {
   let resource = if "semaphores" in selection.resources and (rows.is_empty() or rows[-1].resource != "posix_semaphores") {
     "semaphores"
   } else if !rows.is_empty() {
@@ -313,29 +287,33 @@ pure render_json(selection: Selection, rows: List[Row]) -> Str {
   }
   let table = if selection.global { "ipclimits" } else if resource == "queues" { "messages" } else if resource == "posix_mqueues" { "posix-messages" } else if resource == "shmems" { "sharedmemory" } else if resource == "posix_shmems" { "posix-sharedmemory" } else if resource == "semaphores" { "semaphores" } else if resource == "posix_semaphores" { "posix-semaphores" } else { "" }
   var out = f"{{\n   \"{table}\": [\n"
+  var chunks: List[Bytes] = []
   for row_index in range(rows.len()) {
     let row = rows[row_index]
     out += if row_index == 0 { "      {\n" } else { "{\n" }
     for index in range(selection.columns.len()) {
       let cell = row.cells[index]
-      let value = if !cell.present { "null" } else { f"\"{escape_json(cell.text)}\"" }
+      let value = if !cell.present { b"null" } else { bytes.concat([b"\"", escape_json_bytes(cell.text), b"\""]) }
       let comma = if index == selection.columns.len() - 1 { "" } else { "," }
-      out += f"         \"{heading(selection, selection.columns[index]).lower()}\": {value}{comma}\n"
+      out += f"         \"{heading(selection, selection.columns[index]).lower()}\": "
+      chunks += [bytes.from_text(out), value]
+      out = comma + "\n"
     }
     let suffix = if row_index == rows.len() - 1 { "      }\n" } else { "      }," }
     out += suffix
   }
   if rows.is_empty() { out += "\n" }
-  out + "   ]\n}\n"
+  chunks += [bytes.from_text(out + "   ]\n}\n")]
+  bytes.concat(chunks)
 }
 
 ## Renders rows in the selected lsipc output mode.
-export pure render(selection: Selection, rows: List[Row], output_width: Int) -> Str {
+export pure render(selection: Selection, rows: List[Row], output_width: Int, byte_locale: Bool) -> Bytes {
   match selection.output_mode {
     "json" => render_json(selection, rows)
-    "export" | "newline" => render_export(selection, rows)
-    "raw" => render_raw(selection, rows)
-    else => render_table(selection, rows, output_width)
+    "export" | "newline" => bytes.from_text(render_export(selection, rows))
+    "raw" => bytes.from_text(render_raw(selection, rows))
+    else => render_table(selection, rows, output_width, byte_locale)
   }
 }
 

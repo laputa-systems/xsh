@@ -1540,3 +1540,70 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
   assert ul.observed_equal(reference, candidate)
 }
 
+test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let object_path = Path.parse_bytes(b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
+  object_path.write(b"")
+  defer object_path.remove()
+  for locale in ["C", "C.UTF-8"] {
+    for mode in [[], ["-l"], ["-r"], ["-e"], ["-n"], ["-J"]] {
+      let pair = run_both_with_vars(s, ["-M", "-o", "NAME,OWNER"].extend(mode), vars: {LC_ALL: locale, TZ: "UTC"})?
+      assert pair.reference.status == 0
+      assert pair.reference.stdout == pair.candidate.stdout, f"{locale} {mode.join(" ")}"
+      ul.compare(pair.reference, pair.candidate)
+    }
+  }
+  let name = Path.parse_bytes(b"xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
+  let args = [p"-M", p"-N", name, p"-o", p"NAME"]
+  let reference = ul.reference_paths(s, "lsipc", args)?
+  let candidate = uu.invoke_paths(s, "lsipc", args, timeout: 5s)?
+  ul.compare(reference, candidate)
+}
+
+test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "command-keeper.py")
+  uu.write(s, "command-keeper.py",
+    "import ctypes, os, signal, sys\n" +
+    "if len(sys.argv) == 1:\n" +
+    "    os.execv(os.fsencode(sys.executable), [os.fsencode(sys.executable), os.fsencode(__file__), bytes([195,169,92,34,36]), b'a`b', bytes([255])])\n" +
+    "libc = ctypes.CDLL(None, use_errno=True)\n" +
+    "identity = libc.shmget(0, 4096, 0o1600)\n" +
+    "if identity < 0: raise OSError(ctypes.get_errno(), 'shmget')\n" +
+    "signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))\n" +
+    "try:\n" +
+    "    print(identity, flush=True)\n" +
+    "    sys.stdin.readline()\n" +
+    "finally:\n" +
+    "    libc.shmctl(identity, 0, None)\n")?
+  let keeper = ul.start_keeper(s, script, [])?
+  defer ul.stop_keeper(keeper)
+  let id = keeper.ready
+  for mode in [[], ["-l"], ["-r"], ["-e"], ["-n"], ["-J"]] {
+    let pair = run_both(s, ["-m", "-o", "ID,COMMAND", "--notruncate"].extend(mode))?
+    assert pair.reference.status == 0
+    ul.compare(pair.reference, pair.candidate)
+    if p"/dev/full".exists() {
+      let args = [p"-m", p"-o", p"ID,COMMAND", p"--notruncate"].extend([fp"{item}" for item in mode])
+      let vars = {LC_ALL: "C", TZ: "UTC"}
+      let reference_words = ul.reference_argv(s, "lsipc", args, vars)?
+      let candidate_words = uu.argv(s, "lsipc", args, vars)?
+      let errors = uu.at(s, "full-error")
+      let reference_status = process.run(process.command_argv(reference_words[0], reference_words, s.root, vars, b"", p"/dev/full", errors, timeout: 5s))?
+      let reference_error = errors.read_bytes()?
+      let candidate_status = process.run(process.command_argv(candidate_words[0], candidate_words, s.root, vars, b"", p"/dev/full", errors, timeout: 5s))?
+      assert reference_status.exit_code()? == candidate_status.exit_code()?
+      assert reference_error == errors.read_bytes()?
+    }
+  }
+  let terminal_args = [p"-m", p"-o", p"ID,COMMAND", p"--notruncate"]
+  let terminal_vars = {LC_ALL: "C", TZ: "UTC"}
+  let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars: terminal_vars)?
+  let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 120, vars: terminal_vars)?
+  assert ul.observed_equal(reference, candidate)
+  assert id != ""
+  ul.keeper_send(keeper, "release")
+  ul.finish_keeper(keeper)
+}

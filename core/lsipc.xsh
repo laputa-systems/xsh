@@ -3,8 +3,9 @@ use lib.gnu
 use lib.util_linux_io as ul_io
 use core.lib.ipc_report as report
 use core.lib.sys_ipc as ipc
+use core.lib.text_a2 as text
 
-type IpcEntry = {values: Map[Str, Str], elements: List[report.Element]}
+type IpcEntry = {values: Map[Str, Str], raw_values: Map[Str, Bytes], elements: List[report.Element]}
 type DecimalDivision = {quotient: Str, remainder: Int}
 
 proc help_column(name: Str, description: Str) -> Str {
@@ -194,25 +195,25 @@ pure number(record: Map[Str, Str], key: Str) -> Int? {
   null
 }
 
-proc command_line(pid: Int) [fs] -> Str {
-  return "" when pid <= 0
+proc command_line(pid: Int) [fs] -> Bytes {
+  return b"" when pid <= 0
   let raw = if let Ok(content) = try { ipc.read_process_arguments(pid) } { content } else { b"" }
   var at = 0
-  var words: List[Str] = []
+  var words: List[Bytes] = []
   for index in range(raw.len()) {
     if raw.byte_at(index) == 0 {
       if index > at {
-        let argument = raw[at..index]
-        words += [if let Ok(text) = argument.utf8() { text } else if let Ok(parsed_path) = Path.parse_bytes(argument) { parsed_path.display() } else { "?" }]
+        if !words.is_empty() { words += [b" "] }
+        words += [raw[at..index]]
       }
       at = index + 1
     }
   }
   if at < raw.len() {
-    let argument = raw[at..raw.len()]
-    words += [if let Ok(text) = argument.utf8() { text } else if let Ok(parsed_path) = Path.parse_bytes(argument) { parsed_path.display() } else { "?" }]
+    if !words.is_empty() { words += [b" "] }
+    words += [raw[at..]]
   }
-  words.join(" ")
+  bytes.concat(words)
 }
 
 proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Selection) [fs, process, time, env, error] -> IpcEntry? {
@@ -230,6 +231,7 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
   values = values.set("ID", f"{id}")
   values = add_user_fields(values, uid, gid, cuid, cgid, mode, selection.numeric_perms, true)
   if kind == "shmems" { values = values.set("CGID", f"{cuid}") }
+  var raw_values: Map[Str, Bytes] = {}
   var elements: List[report.Element] = []
   match record.details {
     ipc.Queue(queue) => {
@@ -270,7 +272,7 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
     }
     if let pid = segment.creator_pid {
       values = values.set("CPID", f"{pid}")
-      if "COMMAND" in selection.columns { values = values.set("COMMAND", command_line(pid)) }
+      if "COMMAND" in selection.columns { raw_values = raw_values.set("COMMAND", command_line(pid)) }
     }
     if let pid = segment.last_pid { values = values.set("LPID", f"{pid}") }
     }
@@ -294,7 +296,7 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
     }
   }
   }
-  {values: values, elements: elements}
+  {values: values, raw_values: raw_values, elements: elements}
 }
 
 proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs, time, env, error] -> IpcEntry {
@@ -312,7 +314,7 @@ proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs,
     ipc.PosixSemaphore(value) => { values = values.set("SVAL", f"{value}") }
   }
   if let text = display_time(observation.modified_ns / 1000000000, selection.time_format) { values = values.set("MTIME", text) }
-  {values: values, elements: []}
+  {values: values, raw_values: {NAME: observation.native_name}, elements: []}
 }
 
 proc posix_entries(kind: Str, selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[IpcEntry] {
@@ -341,8 +343,8 @@ proc posix_entries(kind: Str, selection: report.Selection, raw: List[gnu.RawArgu
   if let wanted = selection.name {
     var found_name = false
     for entry in entries {
-      if let Ok(name) = entry.values.get("NAME") {
-        if bytes.from_text(name) == gnu.argument_bytes(wanted, raw) { found_name = true; break }
+      if let Ok(name) = entry.raw_values.get("NAME") {
+        if name == gnu.argument_bytes(wanted, raw) { found_name = true; break }
       }
     }
     if !found_name {
@@ -356,9 +358,13 @@ proc posix_entries(kind: Str, selection: report.Selection, raw: List[gnu.RawArgu
 proc row_for(selection: report.Selection, entry: IpcEntry, resource: Str) -> report.Row {
   let cells: List[report.Cell] = collect {
     for column in selection.columns {
-      match entry.values.get(column) {
-        Ok(text) => yield {text: text, present: true}
-        Err(_) => yield {text: "", present: false}
+      if let Ok(raw_value) = entry.raw_values.get(column) {
+        yield {text: raw_value, present: true}
+      } else {
+        match entry.values.get(column) {
+          Ok(value) => yield {text: bytes.from_text(value), present: true}
+          Err(_) => yield {text: b"", present: false}
+        }
       }
     }
   }
@@ -394,7 +400,7 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
       }
       if kind.starts_with("posix_") {
         if let wanted_name = selection.name {
-          continue when bytes.from_text(entry.values.get("NAME") ?? "") != gnu.argument_bytes(wanted_name, raw)
+          continue when (entry.raw_values.get("NAME") ?? b"") != gnu.argument_bytes(wanted_name, raw)
         }
       }
       rows += [row_for(selection, entry, kind)]
@@ -414,7 +420,7 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
     values = values.set("USED", "-")
     values = values.set("USE%", "-")
   }
-  row_for(selection, {values: values, elements: []}, "global")
+  row_for(selection, {values: values, raw_values: {}, elements: []}, "global")
 }
 
 proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
@@ -619,5 +625,5 @@ proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
   }
   let rows = if selection.global { global_rows(selection, prepared.raw) } else { selected_rows(selection, prepared.raw) }
   if rows.is_empty() { missing_resource(selection) }
-  ul_io.write_text(report.render(selection, rows, output_width()))
+  ul_io.write_bytes(report.render(selection, rows, output_width(), text.byte_columns()))
 }
