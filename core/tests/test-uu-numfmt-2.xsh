@@ -28,11 +28,15 @@ test test_uu_numfmt_invalid_fail_with_fields_does_not_duplicate_output { |ctx|
 }
 
 proc reject_every_letter_after(s: uu.Scene, valid_suffix: Str) [fs, process, env, error] {
-  for c in ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".byte_slice(i, length: 1) for i in range(52)] {
-    let r = uu.invoke(s, "numfmt", ["--from=si", "--to=si", f"1{valid_suffix}{c}"])?
-    uu.fails_with_code(r, 2)
-    uu.stderr_only(r, f"numfmt: invalid suffix in input '1{valid_suffix}{c}': '{c}'\n")
-  }
+  let letters = ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".byte_slice(i, length: 1) for i in range(52)]
+  let default = uu.invoke(s, "numfmt", ["--from=si", "--to=si", f"1{valid_suffix}A"])?
+  uu.fails_with_code(default, 2)
+  uu.stderr_only(default, f"numfmt: invalid suffix in input '1{valid_suffix}A': 'A'\n")
+  let numbers = [f"1{valid_suffix}{c}" for c in letters]
+  let r = uu.invoke(s, "numfmt", ["--invalid=fail", "--from=si", "--to=si"].extend(numbers))?
+  uu.fails_with_code(r, 2)
+  uu.stdout_is(r, numbers.join("\n") + "\n")
+  uu.stderr_is(r, [f"numfmt: invalid suffix in input '1{valid_suffix}{c}': '{c}'\n" for c in letters].join(""))
 }
 
 # origin: uutils test_numfmt::test_invalid_following_valid_suffix
