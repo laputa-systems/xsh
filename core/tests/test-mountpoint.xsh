@@ -246,3 +246,37 @@ test test_mountpoint_pipe_descriptor_resolution { |ctx|
     ul.compare(reference, uu.invoke(s, "mountpoint", args, timeout: 5s)?)
   }
 }
+
+test test_mountpoint_show_pipe_descriptor { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  for args in [["--show", "/dev/stdin"], ["--show", "-q", "/dev/stdin"]] {
+    let reference = ul.reference(s, "mountpoint", args)?
+    assert reference.status == 1 and reference.stdout == b""
+    assert reference.stderr == b"mountpoint: --show is not supported on this system\n"
+    ul.compare(reference, uu.invoke(s, "mountpoint", args, timeout: 5s)?)
+  }
+}
+
+test test_mountpoint_show_deleted_working_directory { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  let args = [p"--show", p"/proc/self/cwd"]
+  let reference_words = ul.reference_argv(s, "mountpoint", args)?
+  let candidate_words = uu.argv(s, "mountpoint", args)?
+  var outputs: List[Bytes] = []
+  var errors: List[Bytes] = []
+  for words in [reference_words, candidate_words] {
+    let directory = uu.at(s, "deleted-cwd")
+    directory.mkdir()
+    let out = uu.at(s, "deleted-stdout")
+    let err = uu.at(s, "deleted-stderr")
+    let wrapper = [p"/bin/sh", p"-c", p"cd \"$1\"; rmdir \"$1\"; shift; exec \"$@\"", p"wrapper", directory].extend(words)
+    let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, {LC_ALL: "C"}, b"", out, err, timeout: 5s))?
+    assert result.exit_code()? == 0
+    outputs += [out.read_bytes()?]
+    errors += [err.read_bytes()?]
+  }
+  assert outputs[0] == outputs[1]
+  assert errors == [b"", b""]
+}

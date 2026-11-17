@@ -150,6 +150,21 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let resolved = match path_value.resolve() {
     Ok(value) => value
     Err(_) => {
+      if opts.show {
+        if let Ok(target) = path_value.readlink() {
+          let target_bytes = target.bytes()
+          let suffix = b" (deleted)"
+          if target_bytes.starts_with(b"/") and target_bytes.ends_with(suffix) {
+            let original = Path.parse_bytes(target_bytes[0..target_bytes.len() - suffix.len()])?
+            if let Ok(mount) = fs.mount_for(original) {
+              ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
+              return
+            }
+          }
+        }
+        gnu.error("--show is not supported on this system")
+        exit 1
+      }
       if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
       exit 32
     }
