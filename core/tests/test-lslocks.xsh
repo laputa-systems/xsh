@@ -1027,6 +1027,7 @@ test test_lslocks_output_mode_conflict_order { |ctx|
 test test_lslocks_pid_leading_whitespace { |ctx|
   let s = uu.scene(ctx)?
   let _ = compared(s, ["-p", " 1"])?
+  for value in ["a'b", "x\nq"] { rejected(s, ["-p", value])? }
 }
 
 test test_lslocks_raw_option_diagnostics { |ctx|

@@ -1071,7 +1071,7 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
     let valid = rx"^[ \t\r\n\x0b\x0c]*[+-]?[0-9]+$".matches(value)
     if ! valid or number == null or (number ?? 0) <= 0 or (number ?? 0) > 2147483647 {
       let suffix = if valid { ": Result not representable" } else { "" }
-      gnu.error(f"invalid PID argument: {gnu.quote(value)}{suffix}")
+      gnu.error(f"invalid PID argument: '{value}'{suffix}")
       exit 1
     }
   }
@@ -1265,7 +1265,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     let valid = rx"^[ \t\r\n\x0b\x0c]*[+-]?[0-9]+$".matches(opts.pid ?? "")
     if ! valid or value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
       let suffix = if valid { ": Result not representable" } else { "" }
-      gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}{suffix}")
+      gnu.error(f"invalid PID argument: '{opts.pid ?? ""}'{suffix}")
       exit 1
     }
   }
