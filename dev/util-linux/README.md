@@ -60,6 +60,34 @@ inode IDs, mapped by fixture identity. The exceptions are:
   directory with no numeric entries.
 - The thirteen `lsipc` invocations that crash the reference.
 
+Parity runs pinned verification products from
+`.work/protected-products/util-linux-runtime-SOURCE`, named by
+`RUNTIME_SOURCE` and checked against `RUNTIME_HASHES` in `check.py`. A change
+to any Rust input makes parity refuse them. Requalify by building the musl
+verification products from the clean new source (`cargo build --locked
+--profile verification --target x86_64-unknown-linux-musl -p xsh -p xsht --bin
+xsh --bin xsht --bin xsh-test-helper`), copying `xsh`, `xsht` and
+`xsh-test-helper` into a directory named for that commit, and updating both
+constants in the same change.
+
+### Accepted divergences
+
+The cohort follows util-linux 2.42.4 as built against musl, except for these
+recorded differences. A review reports them only if their behavior changes.
+
+- XSH's shared option parser honours `POSIXLY_CORRECT` and stops permuting at
+  the first operand, as glibc `getopt` does; musl ignores the variable. The
+  parser is shared by every core command, so the cohort keeps its behavior.
+- Under `LC_ALL=C`, an unrecognized multibyte short option such as `-é` is
+  echoed whole; musl echoes only its first byte.
+- `mountpoint` needs procfs: without `/proc/self/mountinfo` it reports an
+  error where util-linux 2.42.4 can fall back to `statmount`.
+- `lslocks -Q` evaluates regular expressions in XSH's regex dialect, not POSIX
+  ERE, with its own syntax-error text and number parsing. The BLOCKER column
+  still names a holder whose row `-i` hides.
+- `lsipc` clamps POSIX object times after 2262-04-11, the end of the
+  nanosecond `Int` range that `fs.stat` and the time formatter share.
+
 ## Acceptance
 
 `baseline --check` compares reference and candidate version output and samples
