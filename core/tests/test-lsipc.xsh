@@ -1517,3 +1517,26 @@ test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
     ul.compare(reference, uu.invoke_paths(s, "lsipc", args, timeout: 5s)?)
   }
 }
+
+test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/ipcmk.out"
+  let err = fp"{s.root}/ipcmk.err"
+  let create = process.command_argv(p"/usr/bin/ipcmk", [p"/usr/bin/ipcmk", p"-S", p"2"], s.root, {}, b"", out, err, timeout: 5s)
+  assert process.run(create)?.exited_with(0)
+  let id = out.read_text()?.trim().fields()[-1]
+  let remove = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-s", fp"{id}"], s.root, {}, b"", out, err, timeout: 5s)
+  defer { let _ = process.run(remove) }
+  for extra in [[], ["--notruncate"], ["-c"], ["-P"], ["-o", "ID"]] {
+    let pair = run_both(s, ["-s", "-i", id].extend(extra))?
+    assert b"     0     0      0      0   0 \n" in pair.reference.stdout
+    ul.compare(pair.reference, pair.candidate)
+  }
+  let terminal_args = [p"-s", p"-i", fp"{id}"]
+  let vars = {LC_ALL: "C", TZ: "UTC"}
+  let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars: vars)?
+  let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 120, vars: vars)?
+  assert ul.observed_equal(reference, candidate)
+}
+

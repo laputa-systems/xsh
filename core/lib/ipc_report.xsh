@@ -250,7 +250,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
         out += [tui.left_pad(names[index], element_widths[index]) for index in range(names.len())].join(" ") + "\n"
         for element in row.elements {
           let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", element.command]
-          out += [tui.left_pad(values[index], element_widths[index]) for index in range(names.len())].join(" ") + "\n"
+          out += [if index == names.len() - 1 { values[index] } else { tui.left_pad(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
         }
       }
       continue
