@@ -405,3 +405,11 @@ test test_lsmem_rooted_option_errors_match_reference { |ctx|
   ]
   for args in cases { compare_lsmem_rooted(s, args)? }
 }
+
+test test_lsmem_missing_or_nondirectory_sysroot_matches_reference { |ctx|
+  let s = uu.scene(ctx)?
+  let missing = uu.at(s, "missing-root")
+  let regular = uu.at(s, "regular-root")
+  regular.write("file")?
+  for root in [missing, regular] { compare_lsmem(s, ["--sysroot", root.display()])? }
+}

@@ -136,7 +136,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let root_path = opts.sysroot ?? p"/"
-  let root = fs.open_root(root_path)?
+  let root = match fs.open_root(root_path) {
+    Ok(value) => value
+    Err(failure) => { gnu.error(f"cannot open /sys/devices/system/memory: {gnu.strerror(failure)}"); exit 1 }
+  }
   defer root.close()
   let inventory = report.collect(root, split, opts.all, modes.summary)
   ul_io.write_text(report.render(inventory, opts, selected, modes))
