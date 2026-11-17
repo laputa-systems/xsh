@@ -10,6 +10,7 @@ const B32HEX = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
 const HEX = "0123456789ABCDEF"
 const Z85 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#"
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+const B58_LIMB = 656356768
 
 pure reverse_byte(value: Int) -> Int {
   var n = value
@@ -57,20 +58,40 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
     return Ok(out)
   }
   if kind == "base58" {
-    var digits = []
     # Leading zero bytes each become '1' and do not affect the radix digits.
     # Scan them without allocating a value for every input byte.
     let zeros = bytes.repeat_prefix_count(data, b"\0")?
+    # Little-endian limbs of five base58 digits. A limb is below 58^5 < 2^30 and
+    # each step folds in up to four input bytes (< 2^32), so limb * 2^32 + carry
+    # stays below 2^63.
+    var limbs = []
     var position = zeros
+    var width = (data.len() - zeros) % 4
+    if width == 0 { width = 4 }
     while position < data.len() {
-      var carry = data.byte_at(position) ?? 0
-      position += 1
-      for i in range(digits.len()) {
-        carry += digits[i] * 256
-        digits[i] = carry % 58
-        carry /= 58
+      var carry = 0
+      var scale = 1
+      for offset in range(width) {
+        carry = carry * 256 + (data.byte_at(position + offset) ?? 0)
+        scale *= 256
       }
-      while carry > 0 { digits += [carry % 58]; carry /= 58 }
+      position += width
+      width = 4
+      for i in range(limbs.len()) {
+        carry += limbs[i] * scale
+        limbs[i] = carry % B58_LIMB
+        carry /= B58_LIMB
+      }
+      while carry > 0 { limbs += [carry % B58_LIMB]; carry /= B58_LIMB }
+    }
+    var digits = []
+    for i in range(limbs.len()) {
+      var limb = limbs[i]
+      if i + 1 == limbs.len() {
+        while limb > 0 { digits += [limb % 58]; limb /= 58 }
+      } else {
+        for _ in range(5) { digits += [limb % 58]; limb /= 58 }
+      }
     }
     # Doubling builds the zero prefix without a list of individual characters.
     var out = ""
@@ -156,16 +177,37 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
     # produces no output at all.
     return Ok({data: b"", valid: false}) when ! valid
     var zeros = 0
-    var leading = true
-    for value in values {
-      if leading and value == 0 { zeros += 1 } else { leading = false }
-      var carry = value
-      for i in range(out.len()) {
-        carry += out[i] * 58
-        out[i] = carry % 256
-        carry /= 256
+    while zeros < values.len() and values[zeros] == 0 { zeros += 1 }
+    # Little-endian limbs of four output bytes. A limb is below 2^32 and each
+    # step folds in up to five digits (< 58^5 < 2^30), so limb * 58^5 + carry
+    # stays below 2^63.
+    var limbs = []
+    var position = zeros
+    var width = (values.len() - zeros) % 5
+    if width == 0 { width = 5 }
+    while position < values.len() {
+      var carry = 0
+      var scale = 1
+      for offset in range(width) {
+        carry = carry * 58 + values[position + offset]
+        scale *= 58
       }
-      while carry > 0 { out += [carry % 256]; carry /= 256 }
+      position += width
+      width = 5
+      for i in range(limbs.len()) {
+        carry += limbs[i] * scale
+        limbs[i] = carry % 4294967296
+        carry /= 4294967296
+      }
+      while carry > 0 { limbs += [carry % 4294967296]; carry /= 4294967296 }
+    }
+    for i in range(limbs.len()) {
+      var limb = limbs[i]
+      if i + 1 == limbs.len() {
+        while limb > 0 { out += [limb % 256]; limb /= 256 }
+      } else {
+        for _ in range(4) { out += [limb % 256]; limb /= 256 }
+      }
     }
     let result = [@[0 for _ in range(zeros)], @[out[out.len() - i - 1] for i in range(out.len())]]
     return Ok({data: bytes.from_ints(result)?, valid: valid})

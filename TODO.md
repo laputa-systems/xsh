@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 102
+Next: 103
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -170,11 +170,11 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-98 · P3 · Encode base58 in linear time
+### XSH-102 · P2 · Lower nested loops that update a list from a re-declared accumulator
 
-- **Area:** Core commands
-- **Where:** `core/lib/bytes_enc.xsh` (~:59-74), `core/tests/test-uu-basenc.xsh` (`base58_large_file_no_chunking`)
-- **Problem:** base58 conversion processes one digit at a time over the whole number, quadratic in input size; a large-file test takes about 47 s.
-- **Recommendation:** Convert in bounded limbs (e.g. base 58^k chunks) so work grows linearly, keeping byte-identical output.
-- **Fix with:** make-it-fast
-- **Effort:** S
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/indexed/full/` (indexed builder and `full_ir_verification`), reproducer below
+- **Problem:** This valid script checks but fails to run with `err[compact.indexed-build]: indexed IR could not encode full_ir_verification: ground producer form has no executable type proof: ExprBinary at instruction 23`: `var xs = [0 for _ in range(3)]` / `for round in range(2) {` / `var carry = round` / `for i in range(xs.len()) {` / `carry += xs[i] * 4294967296` / `xs[i] = carry % 656356768` / `carry /= 656356768` / `} }` / `print xs[0]`. Removing the outer loop, the multiplication, the element store or the `/=` each makes it run, so the failing combination is an accumulator re-declared per outer iteration whose compound updates feed an indexed list store inside an inner loop. A program the checker accepts must lower and run.
+- **Recommendation:** Add the reproducer as a native regression test, find which producer form loses its type proof when the re-declared `carry` flows through `+=` and `/=` into `xs[i]`, and record the proof in lowering instead of rejecting it in verification.
+- **Fix with:** root-cause
+- **Effort:** M
