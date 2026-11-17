@@ -998,3 +998,8 @@ test test_lslocks_multibyte_short_option { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-é"], ["-bé"]] { rejected(s, args)? }
 }
+
+test test_lslocks_output_mode_conflict_order { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-r", "-J"], ["-J", "-r"]] { rejected(s, args)? }
+}

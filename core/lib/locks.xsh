@@ -1035,6 +1035,7 @@ proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
   var index = 0
   var json_seen = false
   var raw = false
+  var first_mode = ""
   while index < argv.len() {
     let argument = argv[index]
     return when argument == "--"
@@ -1065,9 +1066,9 @@ proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
     }
     for name in options {
       return when name in ["help", "version"]
-      if name == "json" { json_seen = true }
-      if name == "raw" { raw = true }
-      if json_seen and raw { gnu.error("options --json and --raw cannot be combined"); exit 1 }
+      if name == "json" { json_seen = true; if first_mode == "" { first_mode = name } }
+      if name == "raw" { raw = true; if first_mode == "" { first_mode = name } }
+      if json_seen and raw { gnu.error(f"options --{first_mode} and --{name} cannot be combined"); exit 1 }
       if name in ["pid", "filter", "output"] {
         var value = attached
         if ! has_attached { index += 1; value = argv[index] }
