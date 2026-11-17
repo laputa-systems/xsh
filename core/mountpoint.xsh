@@ -4,7 +4,8 @@ use lib.util_linux_io as ul_io
 
 pure util_strerror(failure: Error) -> Str {
   let text = failure.message
-  let at = text.find(" (os error ") ?? -1
+  let segments = text.split(" (os error ")
+  let at = if segments.len() > 1 { text.byte_len() - segments[-1].byte_len() - " (os error ".byte_len() } else { -1 }
   if at < 0 { return text }
   let parts = text.byte_slice(0, at).split(": ")
   parts[-1]
@@ -224,20 +225,23 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 32
     }
   }
-  let mount = match fs.mount_for(resolved) {
-    Ok(value) => value
-    Err(failure) => {
-      if ! opts.quiet { report_path_error(name, failure) }
-      exit 1
-    }
+  let target = if let value = mount_target(metadata.mount_id) {
+    value
+  } else {
+      match fs.mount_for(resolved) {
+        Ok(mount) => mount.mounted_on.bytes()
+        Err(failure) => {
+          if ! opts.quiet { report_path_error(name, failure) }
+          exit 1
+        }
+      }
   }
-
-  if resolved != mount.mounted_on {
+  if resolved.bytes() != target {
     if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
   }
   if opts.fs_devno {
-    ul_io.write_text(f"{device_number(mount.device)}\n")
+    ul_io.write_text(f"{device_number(metadata.dev)}\n")
   } else if ! opts.quiet {
     ul_io.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
   }

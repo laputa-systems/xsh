@@ -362,3 +362,72 @@ test test_namei_loop_terminal_interleaving { |ctx|
     assert pipe_reference == pipe_candidate
   }
 }
+
+test test_namei_error_with_os_error_in_path { |ctx|
+  let s = uu.scene(ctx)?
+  parity(s, ["e (os error 5)/x"])?
+}
+
+test test_namei_fatal_readlink_after_link_limit_and_repeated_slashes { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  for n in range(0, 25) { uu.symlink(s, f"p{n + 1}", f"p{n}")? }
+  uu.symlink(s, "/proc/1", "p25")?
+  parity(s, ["p0/cwd"])?
+}
+
+test test_namei_fatal_readlink_preserves_repeated_slashes { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  parity(s, ["/proc//1/cwd"])?
+}
+
+test test_namei_owner_display_cell_width { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let passwd = uu.at(s, "passwd")
+  let groups = uu.at(s, "group")
+  passwd.write("jösé:x:0:0::/:/bin/sh\nabcd:x:65534:65534::/:/bin/sh\n")
+  groups.write("ab:x:0:\nxy:x:65534:\n")
+  var mounted_passwd = false
+  var mounted_group = false
+  defer {
+    if mounted_group { run.status umount /etc/group }
+    if mounted_passwd { run.status umount /etc/passwd }
+  }
+  assert (run.capture --text mount --bind $passwd /etc/passwd).status.exited_with(0)
+  mounted_passwd = true
+  assert (run.capture --text mount --bind $groups /etc/group).status.exited_with(0)
+  mounted_group = true
+  for locale in ["C", "C.UTF-8"] {
+    parity(s, ["-l", s.root.display()], vars: {LC_ALL: locale})?
+  }
+  passwd.write("一:x:0:0::/:/bin/sh\nabcd:x:65534:65534::/:/bin/sh\n")
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+}
+
+test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let passwd = uu.at(s, "passwd")
+  let groups = uu.at(s, "group")
+  passwd.write("a\x01b:x:0:0::/:/bin/sh\n")
+  groups.write("c\x01d:x:0:\n")
+  var mounted_passwd = false
+  var mounted_group = false
+  defer {
+    if mounted_group { run.status umount /etc/group }
+    if mounted_passwd { run.status umount /etc/passwd }
+  }
+  assert (run.capture --text mount --bind $passwd /etc/passwd).status.exited_with(0)
+  mounted_passwd = true
+  assert (run.capture --text mount --bind $groups /etc/group).status.exited_with(0)
+  mounted_group = true
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  for name in ["a\u{85}b", "a\u{fffe}b"] {
+    passwd.write(f"{name}:x:0:0::/:/bin/sh\n")
+    parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  }
+}

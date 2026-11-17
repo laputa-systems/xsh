@@ -1840,27 +1840,27 @@ fn statvfs(path: &Path, kind: &str, span: Span) -> Result<StatVfs, RuntimeError>
 
 #[cfg(target_os = "linux")]
 fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
-    let text = std::fs::read_to_string("/proc/self/mountinfo")
+    let data = std::fs::read("/proc/self/mountinfo")
         .map_err(|error| RuntimeError::host("fs-mount", &error).with_span(span))?;
-    Ok(text
-        .lines()
+    Ok(data.split(|byte| *byte == b'\n')
         .filter_map(parse_linux_mountinfo_line)
         .collect())
 }
 
 #[cfg(target_os = "linux")]
-fn parse_linux_mountinfo_line(line: &str) -> Option<MountSource> {
-    let (left, right) = line.split_once(" - ")?;
-    let left = left.split_whitespace().collect::<Vec<_>>();
-    let right = right.split_whitespace().collect::<Vec<_>>();
+fn parse_linux_mountinfo_line(line: &[u8]) -> Option<MountSource> {
+    let separator = line.windows(3).position(|window| window == b" - ")?;
+    let left = line[..separator].split(|byte| *byte == b' ').collect::<Vec<_>>();
+    let right = line[separator + 3..].split(|byte| *byte == b' ').collect::<Vec<_>>();
     if left.len() < 5 || right.len() < 2 {
         return None;
     }
+    let device = std::str::from_utf8(left[2]).ok()?;
     Some(MountSource {
-        filesystem: unescape_mount_text(right[1]),
+        filesystem: String::from_utf8_lossy(&unescape_mount_bytes(right[1])).into_owned(),
         mounted_on: PathBuf::from(OsString::from_vec(unescape_mount_bytes(left[4]))),
-        fstype: right[0].to_string(),
-        device: left[2]
+        fstype: String::from_utf8_lossy(right[0]).into_owned(),
+        device: device
             .split_once(':')
             .and_then(|(major, minor)| Some(rfs::makedev(major.parse().ok()?, minor.parse().ok()?)))
             .unwrap_or_default(),
@@ -1868,27 +1868,21 @@ fn parse_linux_mountinfo_line(line: &str) -> Option<MountSource> {
 }
 
 #[cfg(target_os = "linux")]
-fn unescape_mount_text(value: &str) -> String {
-    String::from_utf8_lossy(&unescape_mount_bytes(value)).into_owned()
-}
-
-#[cfg(target_os = "linux")]
-fn unescape_mount_bytes(value: &str) -> Vec<u8> {
-    let mut result = Vec::with_capacity(value.len());
-    let bytes = value.as_bytes();
+fn unescape_mount_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'\\' && index + 3 < bytes.len() {
-            let octal = &value[index + 1..index + 4];
-            if octal
-                .as_bytes()
-                .iter()
-                .all(|byte| (b'0'..=b'7').contains(byte))
-                && let Ok(decoded) = u8::from_str_radix(octal, 8)
-            {
-                result.push(decoded);
-                index += 4;
-                continue;
+            let octal = &bytes[index + 1..index + 4];
+            if octal.iter().all(|byte| (b'0'..=b'7').contains(byte)) {
+                let decoded = (octal[0] - b'0') as u16 * 64
+                    + (octal[1] - b'0') as u16 * 8
+                    + (octal[2] - b'0') as u16;
+                if let Ok(decoded) = u8::try_from(decoded) {
+                    result.push(decoded);
+                    index += 4;
+                    continue;
+                }
             }
         }
         result.push(bytes[index]);

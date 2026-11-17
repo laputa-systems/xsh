@@ -309,3 +309,49 @@ test test_mountpoint_invalid_utf8_long_option { |ctx|
   for index in range(result.stderr.len()) { assert result.stderr.byte_at(index) != 0 }
   assert result.stderr == b"mountpoint: unrecognized option: \xff\nTry 'mountpoint --help' for more information.\n"
 }
+
+test test_mountpoint_error_with_os_error_in_path { |ctx|
+  let s = uu.scene(ctx)?
+  parity(s, ["x/nope (os error 5)/z"])?
+}
+
+test test_mountpoint_hidden_mount_identity { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let a = uu.at(s, "a")
+  a.mkdir()
+  var mounted_a = false
+  var mounted_b = false
+  var mounted_over = false
+  defer {
+    if mounted_over { run.status umount -- $a }
+    if mounted_b { run.status umount -- fp"{a}/b" }
+    if mounted_a { run.status umount -- $a }
+  }
+  assert (run.capture --text mount -t tmpfs inner $a).status.exited_with(0)
+  mounted_a = true
+  let b = fp"{a}/b"
+  b.mkdir()
+  assert (run.capture --text mount -t tmpfs innerb $b).status.exited_with(0)
+  mounted_b = true
+  assert (run.capture --text mount -t tmpfs over $a).status.exited_with(0)
+  mounted_over = true
+  b.mkdir()
+  for args in [[b.display()], ["-q", b.display()], ["-d", b.display()]] { parity(s, args)? }
+}
+
+test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let bad = uu.at_bytes(s, b"bad-\xff")?
+  bad.mkdir()
+  var mounted = false
+  defer { if mounted { run.status umount -- $bad } }
+  assert (run.capture --text mount -t tmpfs bad $bad).status.exited_with(0)
+  mounted = true
+  parity(s, ["/"])?
+  assert fs.mount_for(p"/")?.mounted_on == p"/"
+  assert fs.mount_for(bad)?.mounted_on == bad
+}

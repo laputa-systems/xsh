@@ -4,7 +4,8 @@ use lib.util_linux_io as ul_io
 
 pure util_strerror(failure: Error) -> Str {
   let text = failure.message
-  let at = text.find(" (os error ") ?? -1
+  let segments = text.split(" (os error ")
+  let at = if segments.len() > 1 { text.byte_len() - segments[-1].byte_len() - " (os error ".byte_len() } else { -1 }
   if at < 0 { return text }
   let parts = text.byte_slice(0, at).split(": ")
   parts[-1]
@@ -144,26 +145,6 @@ pure mode_string(metadata: FsStat, mountpoint: Bool) -> Str {
   f"{if mountpoint { "D" } else { kind }}{owner}{group_bits}{other}"
 }
 
-pure components(pathname: Bytes, start: Int) -> List[Bytes] {
-  var begin = start
-  let parts = collect {
-    for index in range(start, pathname.len()) {
-      if pathname.byte_at(index) == 47 {
-        yield pathname[begin..index] when index > begin
-        begin = index + 1
-      }
-    }
-    yield pathname[begin..] when pathname.len() > begin
-  }
-  parts
-}
-
-pure append_path(prefix: Bytes, component: Bytes) -> Bytes {
-  if prefix.is_empty() { return component }
-  if prefix == b"/" { return bytes.concat([prefix, component]) }
-  bytes.concat([prefix, b"/", component])
-}
-
 pure last_slash(pathname: Bytes) -> Int? {
   var found: Int? = null
   for index in range(pathname.len()) {
@@ -233,14 +214,22 @@ proc path_entries(pathname: Bytes, start: Int, base: Bytes, level: Int, parent: 
     let root = inspect(b"/", b"/", level, parent, mounts)?
     entries += [root]
     previous = root
-    current = b"/"
+    current = pathname[0..offset]
+  } else if ! base.is_empty() and base != b"/" and start > 0 {
+    current = bytes.concat([base, b"/"])
   }
-  for component in components(pathname, offset) {
-    let full_path = append_path(current, component)
-    let item = inspect(component, full_path, level, previous, mounts)?
-    entries += [item]
-    previous = item
-    current = full_path
+  var begin = offset
+  while begin < pathname.len() {
+    var end = begin
+    while end < pathname.len() and pathname.byte_at(end) != 47 { end += 1 }
+    if end > begin {
+      let component = pathname[begin..end]
+      let full_path = bytes.concat([current, pathname[offset..end]])
+      let item = inspect(component, full_path, level, previous, mounts)?
+      entries += [item]
+      previous = item
+    }
+    begin = end + 1
   }
   Ok(entries)
 }
@@ -279,30 +268,51 @@ proc expand(entries: List[Entry], nosymlinks: Bool, mounts: Bool) [fs, error] ->
   Ok({entries: expanded, width_entries: expanded, exceeded: false})
 }
 
-proc username(uid: Int) [fs] -> Str {
+pure valid_account_name(name: Str, byte_locale: Bool) -> Bool {
+  let raw = bytes.from_text(name)
+  for index in range(raw.len()) {
+    let byte = raw.byte_at(index) ?? 0
+    if byte < 32 or byte == 127 { return false }
+    if ! byte_locale and byte == 194 and index + 1 < raw.len() {
+      let next = raw.byte_at(index + 1) ?? 0
+      if next >= 128 and next < 160 { return false }
+    }
+    if ! byte_locale and byte == 239 and index + 2 < raw.len() and raw.byte_at(index + 1) == 191 {
+      let next = raw.byte_at(index + 2) ?? 0
+      if next in [185, 186, 187, 190, 191] { return false }
+    }
+  }
+  true
+}
+
+proc username(uid: Int, byte_locale: Bool) [fs] -> Str {
   match user.by_uid(uid) {
-    Ok(account) => account.name
+    Ok(account) => if valid_account_name(account.name, byte_locale) { account.name } else { f"{uid}" }
     Err(_) => f"{uid}"
   }
 }
 
-proc groupname(gid: Int) [fs] -> Str {
+proc groupname(gid: Int, byte_locale: Bool) [fs] -> Str {
   match group.by_gid(gid) {
-    Ok(group_entry) => group_entry.name
+    Ok(group_entry) => if valid_account_name(group_entry.name, byte_locale) { group_entry.name } else { f"{gid}" }
     Err(_) => f"{gid}"
   }
 }
 
-proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> OwnerWidths {
+pure owner_width(name: Str, byte_locale: Bool) -> Int {
+  if byte_locale { name.byte_len() } else { tui.cell_width(name) }
+}
+
+proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int, byte_locale: Bool) [fs] -> OwnerWidths {
   var max_user = user_width
   var max_group = group_width
   if owners {
     for entry in entries {
       if let metadata = entry.metadata {
-        let user_name = username(metadata.uid)
-        let group_name = groupname(metadata.gid)
-        if user_name.byte_len() > max_user { max_user = user_name.byte_len() }
-        if group_name.byte_len() > max_group { max_group = group_name.byte_len() }
+        let user_name = username(metadata.uid, byte_locale)
+        let group_name = groupname(metadata.gid, byte_locale)
+        if owner_width(user_name, byte_locale) > max_user { max_user = owner_width(user_name, byte_locale) }
+        if owner_width(group_name, byte_locale) > max_group { max_group = owner_width(group_name, byte_locale) }
       }
     }
   }
@@ -310,10 +320,10 @@ proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, gr
 }
 
 pure spaces(count: Int) -> Bytes {
-  bytes.concat([b" " for _ in range(count)])
+  bytes.concat([b" " for _ in range(if count > 0 { count } else { 0 })])
 }
 
-proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int) [fs] -> Listing {
+proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int, byte_locale: Bool) [fs] -> Listing {
   if entries.is_empty() { return {chunks: [], failed: false} }
   var chunks: List[Bytes] = [b"f: ", operand, b"\n"]
   var failed = false
@@ -332,8 +342,8 @@ proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: 
     }
     chunks += [if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) }]
     if options.owners {
-      let user_name = username(metadata.uid)
-      let group_name = groupname(metadata.gid)
+      let user_name = username(metadata.uid, byte_locale)
+      let group_name = groupname(metadata.gid, byte_locale)
       chunks += [b" ", bytes.from_text(user_name), spaces(user_width - user_name.byte_len()), b" ", bytes.from_text(group_name), spaces(group_width - group_name.byte_len())]
     }
     if options.vertical { for _ in range(entry.level) { chunks += [b"  "] } }
@@ -412,6 +422,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var user_width = 0
   var group_width = 0
   var output: Output = {buffer: b"", initialized: false, failed: false}
+  let locale = env.get_or("LC_ALL", env.get_or("LC_CTYPE", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
+  let byte_locale = locale in ["C", "POSIX"]
   let terminal = unix.isatty(1)
   for token in normalized_options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
@@ -419,14 +431,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if fs.stat(operand_path, follow_symlinks: true) is Err(_) { failed = true }
     let entries_from_root = path_entries(operand, 0, b"", 0, null, options.mounts)?
     let result = expand(entries_from_root, options.nosymlinks, options.mounts)?
-    for entry in result.entries {
+    for entry in result.width_entries {
       if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure, output) }
       if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.. failed"]), "stat of ", failure, output) }
     }
-    let widths = update_owner_widths(result.width_entries, normalized_options.owners, user_width, group_width)
+    let widths = update_owner_widths(result.width_entries, normalized_options.owners, user_width, group_width, byte_locale)
     user_width = widths.user_width
     group_width = widths.group_width
-    let listing = render(result.entries, operand, normalized_options, user_width, group_width)
+    let listing = render(result.entries, operand, normalized_options, user_width, group_width, byte_locale)
     output = output_chunks(output, listing.chunks, terminal)
     failed = listing.failed or failed
     if result.exceeded and ! listing.failed {
