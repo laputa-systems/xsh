@@ -296,3 +296,16 @@ test test_namei_loop_errno_text { |ctx|
   assert reference.stdout == b"f: loop/x\n l loop -> loop\n    x - Symbolic link loop\n"
   ul.compare(reference, uu.invoke(s, "namei", args, timeout: 5s)?)
 }
+
+test test_namei_owner_width_includes_components_after_link_limit { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  var operand = ""
+  for n in range(1, 21) {
+    let link = f"c{n}"
+    uu.symlink(s, ".", link)
+    operand += link + "/"
+  }
+  uu.symlink(s, "/", "r21")
+  parity(s, ["-o", operand + "r21/etc/shadow"])?
+}
