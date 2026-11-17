@@ -450,3 +450,11 @@ test test_lsmem_column_list_errors_and_limits_match_reference { |ctx|
   }
   compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "FOO,SIZE"})?
 }
+
+test test_lsmem_empty_sysroot_matches_reference { |ctx|
+  let s = uu.scene(ctx)?
+  let args = ["--sysroot=", "--summary=only", "--bytes"]
+  let reference = ul.reference(s, "lsmem", args, timeout: 30s)?
+  let candidate = uu.invoke(s, "lsmem", args, timeout: 30s)?
+  ul.compare(reference, candidate)
+}

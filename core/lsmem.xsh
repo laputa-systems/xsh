@@ -139,7 +139,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     version: {form: "-V --version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
-  let sysroot: Path? = if parsed.sysroot == null { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
+  let sysroot: Path? = if parsed.sysroot == null or parsed.sysroot == "" { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
   let opts: report.Options = {...parsed, sysroot: sysroot}
   let canonical = canonical_arguments(arguments)
   let modes = report.modes(canonical)
