@@ -476,7 +476,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
     let separator = if root_path.ends_with("/") { "" } else { "/" }
     fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: no numeric memory entries")
   }
-  let have_config = root.exists(p"sys/firmware/memory/memory0")?
+  let have_config = root.exists(p"sys/firmware/memory/memory0") ?? false
   let config_paths = if have_config { children(root, p"sys/firmware/memory", "/sys/firmware/memory") } else { [] }
   let config_entries = memory_entries(config_paths)
   if have_config and config_entries.is_empty() { fail("Failed to read /sys/firmware/memory") }
@@ -486,7 +486,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
     let entry_path = fp"{entry.name}".require(RelPath)?
     let block_path: RelPath = fp"{MEMORY_PATH}/{entry_path}"
     if ! have_nodes and node_id(root, block_path, entry.name) != -1 { have_nodes = true }
-    if ! have_zones and root.exists(fp"{block_path}/valid_zones")? { have_zones = true }
+    if ! have_zones and (root.exists(fp"{block_path}/valid_zones") ?? false) { have_zones = true }
   }
   inventory_blocks(root, entries, config_entries, block_size, have_config, have_nodes, have_zones, split, all, include_summary)
 }

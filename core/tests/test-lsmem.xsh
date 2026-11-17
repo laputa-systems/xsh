@@ -530,3 +530,16 @@ test test_lsmem_human_size_rounding { |ctx|
     compare_lsmem_rooted(s, ["-a", "-o", "SIZE", "--summary=never"])?
   }
 }
+
+test test_lsmem_unreadable_optional_inventory_links { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let zones = uu.at(s, "sys/devices/system/memory/memory0/valid_zones")
+  zones.remove()?
+  zones.symlink(to: zones)?
+  compare_lsmem_rooted(s, ["--all", "-o", "BLOCK,ZONES"])?
+  uu.mkdir(s, "sys/firmware/memory")?
+  let firmware = uu.at(s, "sys/firmware/memory/memory0")
+  firmware.symlink(to: firmware)?
+  compare_lsmem_rooted(s, ["--all", "-o", "BLOCK,ZONES"])?
+}
