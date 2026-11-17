@@ -171,17 +171,14 @@ mod privileged {
         format!("{test_module}::{test_leaf}")
     }
 
-    fn mount_worker(module_path: &str, test_leaf: &str, ignored: bool, fixture: impl FnOnce()) {
+    fn mount_worker(module_path: &str, test_leaf: &str, fixture: impl FnOnce()) {
         let test_name = mount_worker_name(module_path, test_leaf);
         if std::env::var("XSH_CP_MOUNT_WORKER").as_deref() == Ok(test_name.as_str()) {
             fixture();
             return;
         }
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", test_name.as_str(), "--nocapture"]);
-        if ignored {
-            command.arg("--ignored");
-        }
+        command.args(["--exact", test_name.as_str(), "--nocapture", "--ignored"]);
         command
             .env("XSH_CP_MOUNT_WORKER", &test_name)
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -248,7 +245,7 @@ mod privileged {
     #[test]
     #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_one_file_system() {
-        mount_worker(module_path!(), "test_cp_one_file_system", false, || {
+        mount_worker(module_path!(), "test_cp_one_file_system", || {
             let directory = tempfile::tempdir().unwrap();
             let source = directory.path().join("dir_with_mount");
             let target = directory.path().join("copy_to_folder_new");
@@ -286,7 +283,7 @@ mod privileged {
     #[ignore = "requires guest-kernel BTRFS in a disposable QEMU guest"]
     fn test_cp_reflink_always_override() {
         super::require_disposable_qemu_guest();
-        mount_worker(module_path!(), "test_cp_reflink_always_override", true, || {
+        mount_worker(module_path!(), "test_cp_reflink_always_override", || {
             let directory = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(directory.path().join("disk_root/dir")).unwrap();
             std::fs::File::create(directory.path().join("disk.img")).unwrap().set_len(128 * 1024 * 1024).unwrap();

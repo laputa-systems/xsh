@@ -501,6 +501,7 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
             .args([
                 "--exact",
                 "linux_priv_kill_all_signals_contained_new_session_process",
+                "--ignored",
                 "--nocapture",
                 "--test-threads=1",
             ])
@@ -512,8 +513,8 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
             return;
         }
         assert!(
-            output.status.success(),
-            "stdout: {}\nstderr: {}",
+            output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "isolated rerun did not pass exactly this test\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -598,6 +599,7 @@ fn linux_priv_fuser_separates_six_digit_holder_pids() {
             .args([
                 "--exact",
                 "linux_priv_fuser_separates_six_digit_holder_pids",
+                "--ignored",
                 "--nocapture",
                 "--test-threads=1",
             ])
@@ -609,8 +611,8 @@ fn linux_priv_fuser_separates_six_digit_holder_pids() {
             return;
         }
         assert!(
-            output.status.success(),
-            "stdout: {}\nstderr: {}",
+            output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "isolated rerun did not pass exactly this test\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
