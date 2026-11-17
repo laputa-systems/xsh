@@ -1172,6 +1172,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if program != null {
     rows = rows |> where filter_matches(program ?? [], .) |> collect
   }
+  if rows.is_empty() and ! opts.json { return }
   let byte_locale = text.byte_columns()
   if opts.json {
     ul_io.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))

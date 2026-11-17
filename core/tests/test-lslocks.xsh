@@ -864,3 +864,17 @@ test test_lslocks_command_from_readable_comm_with_inaccessible_fds { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+test test_lslocks_empty_filtered_table_has_no_header { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "empty-selection")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  for args in [["-p", "99999999"], ["-r", "-p", "99999999"], ["-Q", "PID == 99999999", "-o", "PID"]] {
+    let result = compared(s, args)?
+    assert result.stdout == b"" and result.stderr == b"" and result.status == 0
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
