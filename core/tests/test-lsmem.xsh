@@ -551,6 +551,13 @@ test test_lsmem_multibyte_short_option { |ctx|
   compare_lsmem(s, ["-h", "-é"])?
 }
 
+test test_lsmem_unset_locale_is_utf8 { |ctx|
+  let s = uu.scene(ctx)?
+  for vars in [{LC_ALL: ""}, {LC_ALL: "", LANG: "C"}, {LC_ALL: "", LC_CTYPE: "POSIX"}, {LC_ALL: "", LANG: "xx_YY"}] {
+    compare_lsmem(s, ["-é"], vars)?
+  }
+}
+
 test test_lsmem_option_order_and_musl_diagnostics { |ctx|
   let s = uu.scene(ctx)?
   for args in [["--=x"], ["--a=1"], ["--help=1"], ["--summary=bad", "--bogus"], ["--bogus", "--summary=bad"]] { compare_lsmem(s, args)? }

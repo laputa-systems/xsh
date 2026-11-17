@@ -1197,7 +1197,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
         let flag = word.byte_at(position) ?? 0
         if flag >= 128 {
           if let detail = first_option_diagnostic(argv[..raw_index - 1], permute) { gnu.usage_error(detail) }
-          let length = if text.byte_columns() { 1 } else if flag >= 194 and flag < 224 { 2 } else if flag >= 224 and flag < 240 { 3 } else if flag >= 240 and flag < 245 { 4 } else { 1 }
+          let length = if ul_io.byte_locale() { 1 } else if flag >= 194 and flag < 224 { 2 } else if flag >= 224 and flag < 240 { 3 } else if flag >= 240 and flag < 245 { 4 } else { 1 }
           let available = word.len() - position
           let character = if length <= available and word.slice(position, length: length).utf8() is Ok(_) { word.slice(position, length: length) } else { word.slice(position, length: 1) }
           ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), character, bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
@@ -1342,7 +1342,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     if ! (program ?? []).is_empty() { rows = rows |> where filter_matches(program ?? [], .) |> collect }
   }
   if rows.is_empty() and ! opts.json { return }
-  let byte_locale = text.byte_columns()
+  let byte_locale = ul_io.byte_locale()
   if opts.json {
     ul_io.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {

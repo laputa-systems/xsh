@@ -2,6 +2,17 @@
 
 use lib.gnu
 
+## Whether musl's character-type locale is byte-oriented: the first non-empty of
+## LC_ALL, LC_CTYPE and LANG decides, only C and POSIX count bytes, and an unset
+## locale is C.UTF-8.
+export proc byte_locale() [env] -> Bool {
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get(name) ?? ""
+    if value != "" { return value in ["C", "POSIX"] }
+  }
+  false
+}
+
 proc write_error() [process] -> Unit {
   gnu.error("write error")
   exit 1

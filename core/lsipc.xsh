@@ -599,7 +599,7 @@ proc output_width() [env, process] -> Int {
 
 proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
   if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default")? }
-  let prepared = prepare_arguments(arguments, text.byte_columns())?
+  let prepared = prepare_arguments(arguments, ul_io.byte_locale())?
   let argv = prepared.text
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure, prepared.raw); return }
@@ -640,5 +640,5 @@ proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
   }
   let rows = if selection.global { global_rows(selection, prepared.raw) } else { selected_rows(selection, prepared.raw) }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
-  ul_io.write_bytes(report.render(selection, rows, output_width(), text.byte_columns(), json_mode))
+  ul_io.write_bytes(report.render(selection, rows, output_width(), ul_io.byte_locale(), json_mode))
 }

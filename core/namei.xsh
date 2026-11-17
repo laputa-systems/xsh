@@ -422,8 +422,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var user_width = 0
   var group_width = 0
   var output: Output = {buffer: b"", initialized: false, failed: false}
-  let locale = env.get_or("LC_ALL", env.get_or("LC_CTYPE", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
-  let byte_locale = locale in ["C", "POSIX"]
+  let byte_locale = ul_io.byte_locale()
   let terminal = unix.isatty(1)
   for token in normalized_options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
