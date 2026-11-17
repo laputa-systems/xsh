@@ -20912,35 +20912,85 @@ export pure rust_fixture_test_definition_exists(source: Str, test_name: Str) -> 
   false
 }
 
+pure fixture_test_definitions(source: Str) -> List[Str] {
+  var names: List[Str] = []
+  for line in source.lines() {
+    let trimmed = line.trim()
+    continue when ! trimmed.starts_with("test ")
+    let declaration = trimmed[5..]
+    var index = 0
+    while index < declaration.count_chars() {
+      if declaration[index..index + 1] in [" ", "\t", "{", "["] {
+        names += [declaration[..index]]
+      }
+      index += 1
+    }
+  }
+  names
+}
+
+pure rust_fixture_test_definitions(source: Str) -> List[Str] {
+  var names: List[Str] = []
+  var test_attribute = false
+  var block_comment = false
+  for line in source.lines() {
+    let trimmed = line.trim()
+    if block_comment {
+      if "*/" in trimmed { block_comment = false }
+      continue
+    }
+    if trimmed.starts_with("/*") {
+      if "*/" not in trimmed { block_comment = true }
+      continue
+    }
+    if trimmed == "#[test]" {
+      test_attribute = true
+    } else if test_attribute and (trimmed == "" or trimmed.starts_with("//") or trimmed.starts_with("#[")) {
+      continue
+    } else if test_attribute {
+      if trimmed.starts_with("fn ") {
+        let declaration = trimmed[3..]
+        var index = 0
+        while index < declaration.count_chars() {
+          names += [declaration[..index]] when declaration[index..index + 1] == "("
+          index += 1
+        }
+      }
+      test_attribute = false
+    }
+  }
+  names
+}
+
 proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCase]) [fs, error] {
-  let native_source = context.repo_path(root, "tests/xsh/system-report.xsh").read_text()?
-  let source_parser_tests = context.repo_path(root, "tests/xsh/system-report-collect.xsh").read_text()?
-  let reference_source = context.repo_path(root, "dev/tests/test-system-report-check.xsh").read_text()?
-  let sensors_reference_source = context.repo_path(root, "dev/tests/test-system-report-sensors-check.xsh").read_text()?
-  let cpupower_reference_source = context.repo_path(root, "dev/tests/test-system-report-cpupower-check.xsh").read_text()?
-  let lsusb_reference_source = context.repo_path(root, "dev/tests/test-system-report-lsusb-check.xsh").read_text()?
-  let rust_netlink_source = context.repo_path(root, "src/modules/linux/real/netlink.rs").read_text()?
-  let rust_privilege_source = context.repo_path(root, "tests/linux_priv.rs").read_text()?
+  let native_source = fixture_test_definitions(context.repo_path(root, "tests/xsh/system-report.xsh").read_text()?)
+  let source_parser_tests = fixture_test_definitions(context.repo_path(root, "tests/xsh/system-report-collect.xsh").read_text()?)
+  let reference_source = fixture_test_definitions(context.repo_path(root, "dev/tests/test-system-report-check.xsh").read_text()?)
+  let sensors_reference_source = fixture_test_definitions(context.repo_path(root, "dev/tests/test-system-report-sensors-check.xsh").read_text()?)
+  let cpupower_reference_source = fixture_test_definitions(context.repo_path(root, "dev/tests/test-system-report-cpupower-check.xsh").read_text()?)
+  let lsusb_reference_source = fixture_test_definitions(context.repo_path(root, "dev/tests/test-system-report-lsusb-check.xsh").read_text()?)
+  let rust_netlink_source = rust_fixture_test_definitions(context.repo_path(root, "src/modules/linux/real/netlink.rs").read_text()?)
+  let rust_privilege_source = rust_fixture_test_definitions(context.repo_path(root, "tests/linux_priv.rs").read_text()?)
   for fixture_case in fixture_cases {
     for test_name in fixture_case.tests {
       let parts = test_name.split("::")
       var exists = false
       if parts[0] == "src/modules/linux/real/netlink.rs" {
-        exists = rust_fixture_test_definition_exists(rust_netlink_source, parts[1])
+        exists = parts[1] in rust_netlink_source
       } else if parts[0] == "tests/linux_priv.rs" {
-        exists = rust_fixture_test_definition_exists(rust_privilege_source, parts[1])
+        exists = parts[1] in rust_privilege_source
       } else if parts[0] == "tests/xsh/system-report.xsh" {
-        exists = fixture_test_definition_exists(native_source, parts[1])
+        exists = parts[1] in native_source
       } else if parts[0] == "tests/xsh/system-report-collect.xsh" {
-        exists = fixture_test_definition_exists(source_parser_tests, parts[1])
+        exists = parts[1] in source_parser_tests
       } else if parts[0] == "dev/tests/test-system-report-sensors-check.xsh" {
-        exists = fixture_test_definition_exists(sensors_reference_source, parts[1])
+        exists = parts[1] in sensors_reference_source
       } else if parts[0] == "dev/tests/test-system-report-cpupower-check.xsh" {
-        exists = fixture_test_definition_exists(cpupower_reference_source, parts[1])
+        exists = parts[1] in cpupower_reference_source
       } else if parts[0] == "dev/tests/test-system-report-lsusb-check.xsh" {
-        exists = fixture_test_definition_exists(lsusb_reference_source, parts[1])
+        exists = parts[1] in lsusb_reference_source
       } else {
-        exists = fixture_test_definition_exists(reference_source, parts[1])
+        exists = parts[1] in reference_source
       }
 
       if ! exists {
@@ -26055,11 +26105,8 @@ proc run_fixture_cases(
   {passed: passed_cases, failed: failed_cases}
 }
 
-## Validates and summarizes the checked-in comparison denominator.
-export proc validate_and_run(
-  ctx: context.Context,
-  args: List[Str],
-) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+## Parses and validates mutually exclusive system-report operations.
+export pure parse_check_options(args: List[Str]) -> Result[CheckOptions, Error] {
   let parsed = cli.parse(
     args,
     {
@@ -26490,11 +26537,6 @@ export proc validate_and_run(
     },
   )?
   let options = CheckOptions(...parsed)
-  let manifest_path = context.repo_path(ctx.root, options.manifest)
-  let raw = json.read(manifest_path)?
-  let manifest = raw.require(CoverageManifest)?
-  validate(manifest)
-  validate_fixture_test_definitions(ctx.root, manifest.fixture_cases.extend(manifest.macos_fixture_cases))
   if options.run_fixtures and options.run_macos_fixtures {
     return Err(check_failure("choose one fixture platform gate"))
   }
@@ -26630,6 +26672,23 @@ export proc validate_and_run(
     return Err(check_failure("bundle operations cannot be combined with fixture, live comparison, or trace operations"))
   }
 
+  options
+}
+
+## Validates the coverage manifest and runs the selected operation.
+export proc validate_and_run(
+  ctx: context.Context,
+  args: List[Str],
+) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+  let options = match parse_check_options(args) {
+    Ok(value) => value
+    Err(failure) => { return Err(failure) }
+  }
+  let manifest_path = context.repo_path(ctx.root, options.manifest)
+  let raw = json.read(manifest_path)?
+  let manifest = raw.require(CoverageManifest)?
+  validate(manifest)
+  validate_fixture_test_definitions(ctx.root, manifest.fixture_cases.extend(manifest.macos_fixture_cases))
   if options.capture_cpu_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?

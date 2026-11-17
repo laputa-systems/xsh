@@ -3356,26 +3356,23 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state {
   test.error_kind(report_checks.read_cpuidle_reference(root), "SystemReportCheckError.Invalid")
 }
 
-proc assert_bundle_operation_rejected(
-  ctx: TestContext,
-  xsh_bin: Path,
-  core_dir: Path,
-  arguments: List[Str],
-  message: Str,
-) [fs, process, error] {
+pure assert_bundle_operation_rejected(arguments: List[Str], message: Str) -> Result[Unit, Error] {
+  match report_checks.parse_check_options([arguments[0], "/nonexistent", @arguments[1..]]) {
+    Ok(_) => test.fail("conflicting bundle operation was accepted")
+    Err(error) => assert message in error.message
+  }
+}
+
+test test_system_report_capture_conflict_cli_status_and_stderr { |ctx|
   let bundle = test.temp_path(ctx, name: "system-report-bundle")
   let stderr = test.temp_path(ctx, name: "system-report-bundle.stderr")
-  let main = fp"{core_dir.parent()}/dev/main.xsh"
-  let operation = arguments[0]
-  let rest = arguments[1..]
-  let status = run.status $xsh_bin $main -- system-report-check $operation $bundle $rest 2> $stderr
-  assert ! status.exited_with(0)
-  assert message in stderr.read_text()?
+  let main = fp"{ctx.core_dir.parent()}/dev/main.xsh"
+  let status = run.status $ctx.xsh_bin $main -- system-report-check --manifest /nonexistent/coverage.json --capture-cpu-bundle $bundle --compare-cpuidle 2> $stderr
+  assert status.exited_with(3)
+  assert "bundle operations cannot be combined with fixture, live comparison, or trace operations" in stderr.read_text()?
   assert ! bundle.exists()?
 }
 
-# Each rejected invocation prepares the whole dev entrypoint, so the cases are
-# split across tests to let the runner schedule them in parallel.
 test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb { |ctx|
   test.timeout(ctx, 300s)
   for arguments in [
@@ -3385,7 +3382,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb
     "--capture-cpu-bundle --compare-usb-power",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)
+    assert_bundle_operation_rejected(arguments.split(" "), message)
   }
 }
 
@@ -3398,7 +3395,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_devices { |
     "--capture-block-bundle --compare-storage",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)
+    assert_bundle_operation_rejected(arguments.split(" "), message)
   }
 }
 
@@ -3411,7 +3408,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_resources {
     "--capture-os-release-bundle --compare-identity",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)
+    assert_bundle_operation_rejected(arguments.split(" "), message)
   }
 }
 
@@ -3424,7 +3421,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_identity { 
     "--capture-kernel-command-line-bundle --compare-command-line",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)
+    assert_bundle_operation_rejected(arguments.split(" "), message)
   }
 }
 
@@ -3438,7 +3435,7 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_kernel { |c
     "--capture-kernel-parameters-bundle --compare-parameters",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)
+    assert_bundle_operation_rejected(arguments.split(" "), message)
   }
 }
 
@@ -3446,9 +3443,9 @@ test test_system_report_capture_rejects_simultaneous_live_comparison_smbios_corr
   test.timeout(ctx, 300s)
   let utility = ["--corroborate-smbios-bundle", "--dmidecode-bin", "/nonexistent", "--compare-smbios"]
   let combined = "bundle operations cannot be combined"
-  assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, utility, combined)
+  assert_bundle_operation_rejected(utility, combined)
   let missing = "requires --dmidecode-bin"
-  assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, ["--corroborate-smbios-bundle"], missing)
+  assert_bundle_operation_rejected(["--corroborate-smbios-bundle"], missing)
 }
 
 test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
