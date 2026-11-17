@@ -75,3 +75,17 @@ test test_unlink_missing_operand_reports_gnu_usage_error { |ctx|
   assert result.stdout == ""
   assert result.stderr == "unlink: missing operand\nTry 'unlink --help' for more information.\n", result.stderr
 }
+
+test test_unlink_invalid_utf8_long_option { |ctx|
+  let root = test.temp_dir(ctx)?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/unlink.xsh"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, b"--\xff" as Path], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exited_with(1)
+  assert stdout.read_bytes()? == b""
+  let diagnostic = stderr.read_bytes()?
+  for index in range(diagnostic.len()) { assert diagnostic.byte_at(index) != 0 }
+  assert diagnostic == b"unlink: unrecognized option '--\xff'\nTry 'unlink --help' for more information.\n"
+}

@@ -309,3 +309,12 @@ test test_namei_owner_width_includes_components_after_link_limit { |ctx|
   uu.symlink(s, "/", "r21")
   parity(s, ["-o", operand + "r21/etc/shadow"])?
 }
+
+test test_namei_invalid_utf8_short_option { |ctx|
+  let s = uu.scene(ctx)?
+  let result = uu.invoke_paths(s, "namei", [b"-q\xff" as Path, p"/"])?
+  assert result.status == 1
+  assert result.stdout == b""
+  for index in range(result.stderr.len()) { assert result.stderr.byte_at(index) != 0 }
+  assert result.stderr == b"namei: unrecognized option: q\nTry 'namei --help' for more information.\n"
+}

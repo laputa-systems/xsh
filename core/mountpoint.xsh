@@ -64,7 +64,13 @@ pure device_number(device: Int) -> Str {
   f"{fs.dev_major(device)}:{fs.dev_minor(device)}"
 }
 
-proc parse_options(argv: List[Str]) [process, env] -> Options {
+proc unrecognized_option(value: Bytes) [process, env, io] -> Unit {
+  ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), value, b"\n"]))
+  gnu.try_help()
+  exit 1
+}
+
+proc parse_options(argv: List[Str], raw: List[gnu.RawArgument]) [process, env, io] -> Options {
   var opts: Options = {quiet: false, nofollow: false, fs_devno: false, devno: false, show: false, help: false, version: false, operands: []}
   var at = 0
   while at < argv.len() {
@@ -82,12 +88,14 @@ proc parse_options(argv: List[Str]) [process, env] -> Options {
       let body = word.byte_slice(2)
       let typed = body.split("=")[0]
       let matches = [name for name in ["quiet", "nofollow", "fs-devno", "devno", "show", "help", "version"] if name.starts_with(typed)]
-      if matches.is_empty() { gnu.usage_error(f"unrecognized option: {body}") }
+      if matches.is_empty() { unrecognized_option(gnu.argument_bytes(body, raw)) }
       if matches.len() > 1 { gnu.usage_error(f"option is ambiguous: {body}") }
       if "=" in body { gnu.usage_error(f"option does not take an argument: {matches[0]}") }
       flags = matches
     } else {
-      flags = [flag for flag in word.byte_slice(1)]
+      let marker_at = word.find("\0") ?? word.byte_len()
+      flags = [flag for flag in word.byte_slice(1, length: marker_at - 1)]
+      if marker_at < word.byte_len() { flags += [word.byte_slice(marker_at)] }
     }
     for flag in flags {
       match flag {
@@ -98,7 +106,10 @@ proc parse_options(argv: List[Str]) [process, env] -> Options {
         "show" => opts = {...opts, show: true}
         "h" | "help" => return {...opts, help: true}
         "V" | "version" => return {...opts, version: true}
-        else => gnu.usage_error(f"unrecognized option: {flag}")
+        else => {
+          let value = gnu.argument_bytes(flag, raw)
+          unrecognized_option(if flag.starts_with("\0") { value[..1] } else { value })
+        }
       }
     }
   }
@@ -111,7 +122,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let prepared = gnu.prepare_arguments(argv)
-  let opts = parse_options(prepared.text)
+  let opts = parse_options(prepared.text, prepared.raw)
 
   if opts.help { ul_io.help(f"\n{USAGE}"); return }
   if opts.version { ul_io.version("mountpoint"); return }

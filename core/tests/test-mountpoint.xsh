@@ -280,3 +280,12 @@ test test_mountpoint_show_deleted_working_directory { |ctx|
   assert outputs[0] == outputs[1]
   assert errors == [b"", b""]
 }
+
+test test_mountpoint_invalid_utf8_long_option { |ctx|
+  let s = uu.scene(ctx)?
+  let result = uu.invoke_paths(s, "mountpoint", [b"--\xff" as Path])?
+  assert result.status == 1
+  assert result.stdout == b""
+  for index in range(result.stderr.len()) { assert result.stderr.byte_at(index) != 0 }
+  assert result.stderr == b"mountpoint: unrecognized option: \xff\nTry 'mountpoint --help' for more information.\n"
+}

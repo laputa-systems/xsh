@@ -428,6 +428,15 @@ impl Scan<'_> {
                 .next()
                 .expect("cluster offset is valid");
             let rest = &cluster[pos + ch.len_utf8()..];
+            if ch == '\0' && let Some(end) = rest.find('\0') {
+                let marker = &rest[..end];
+                if let Some((index, bytes)) = marker.strip_prefix("gnu-raw-argument-").and_then(|value| value.split_once('-'))
+                    && !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+                    && bytes.as_bytes().get(..2).is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+                {
+                    return Err(self.diag.error(format!("invalid option -- '\0gnu-raw-argument-{index}-{}\0'", &bytes[..2])));
+                }
+            }
             if let Some(name) = self.shorts.get(ch.to_string().as_str()) {
                 let spec = &self.specs[name];
                 let (raw, next, ends) = match arity(spec) {
@@ -548,5 +557,26 @@ impl Scan<'_> {
         }
         validate_relationships(self.specs, &state.present, self.span)
             .map_err(|error| self.diag.error(error.message))
+    }
+}
+
+#[cfg(test)]
+mod raw_option_tests {
+    use super::{GnuConfig, parse_values};
+    use crate::runtime::value::RecordMap;
+    use crate::source::{SourceId, Span};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn short_options_report_the_first_unknown_byte() {
+        let config = GnuConfig { prog: Some("tool".into()), status: 1, permute: true, unsupported: vec![] };
+        let span = Span::new(SourceId::new(0), 0, 0);
+        for (word, expected) in [
+            ("-q\0gnu-raw-argument-0-ff80\0", "invalid option -- 'q'"),
+            ("-\0gnu-raw-argument-0-ff80\0", "invalid option -- '\0gnu-raw-argument-0-ff\0'"),
+        ] {
+            let error = parse_values(&[word.into()], &BTreeMap::new(), &config, "tool", &RecordMap::new(), span).err().expect("unknown option");
+            assert!(error.message.contains(expected), "{}", error.message);
+        }
     }
 }

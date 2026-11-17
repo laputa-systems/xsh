@@ -28,9 +28,21 @@ export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
     if let Ok(value) = argument.utf8() {
       text += [value]
     } else {
-      let marker = f"\0gnu-raw-argument-{index}\0"
-      text += [marker]
-      raw += [{marker: marker, value: argument}]
+      var prefix = 0
+      if argument.starts_with(b"-") {
+        while prefix < argument.len() and (argument.byte_at(prefix) ?? 128) < 128 { prefix += 1 }
+      }
+      let suffix = argument[prefix..]
+      let digits = "0123456789abcdef"
+      let encoded = collect {
+        for at in range(suffix.len()) {
+          let byte = suffix.byte_at(at) ?? 0
+          yield @[digits.byte_slice(byte / 16, 1), digits.byte_slice(byte % 16, 1)]
+        }
+      }.join("")
+      let marker = f"\0gnu-raw-argument-{index}-{encoded}\0"
+      text += [(argument[..prefix].utf8() ?? "") + marker]
+      raw += [{marker: marker, value: suffix}]
     }
   }
   {text: text, raw: raw}
@@ -39,7 +51,9 @@ export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 ## Restore an undecodable argument or encode an ordinary text token as bytes.
 export pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    return argument.value when argument.marker == value
+    if let at = value.find(argument.marker) {
+      return bytes.concat([bytes.from_text(value.byte_slice(0, length: at)), argument.value, bytes.from_text(value.byte_slice(at + argument.marker.byte_len()))])
+    }
   }
   bytes.from_text(value)
 }

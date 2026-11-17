@@ -6383,7 +6383,8 @@ impl Evaluator {
         if error.kind == "cli-parse"
             && matches!(error.payload.get("cli_usage"), Some(Value::Bool(true)))
         {
-            self.write_stderr_line(&error.message);
+            self.stderr.extend_from_slice(&expand_cli_raw_arguments(&error.message));
+            self.stderr.push(b'\n');
             // GNU-mode diagnostics carry the utility's own usage-error status.
             return Some(match error.payload.get("cli_status") {
                 Some(Value::Int(status)) => u8::try_from(*status).unwrap_or(2),
@@ -7937,6 +7938,47 @@ fn normalize_path_value(path: &PathValue) -> Result<PathValue, RuntimeError> {
         bytes.extend_from_slice(b".");
     }
     PathValue::new(bytes)
+}
+
+fn expand_cli_raw_arguments(message: &str) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut rest = message;
+    const PREFIX: &str = "\0gnu-raw-argument-";
+    while let Some(start) = rest.find(PREFIX) {
+        output.extend_from_slice(rest[..start].as_bytes());
+        let marker = &rest[start + PREFIX.len()..];
+        let Some(end) = marker.find('\0') else {
+            output.extend_from_slice(rest[start..].as_bytes());
+            return output;
+        };
+        let candidate = &marker[..end];
+        let decoded = candidate.split_once('-').and_then(|(index, hex)| {
+            if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) || hex.is_empty() || hex.len() % 2 != 0 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return None;
+            }
+            (0..hex.len()).step_by(2).map(|at| u8::from_str_radix(&hex[at..at + 2], 16).ok()).collect::<Option<Vec<_>>>()
+        });
+        if let Some(decoded) = decoded {
+            output.extend_from_slice(&decoded);
+        } else {
+            output.extend_from_slice(rest[start..start + PREFIX.len() + end + 1].as_bytes());
+        }
+        rest = &marker[end + 1..];
+    }
+    output.extend_from_slice(rest.as_bytes());
+    output
+}
+
+#[cfg(test)]
+mod cli_raw_diagnostic_tests {
+    use super::expand_cli_raw_arguments;
+
+    #[test]
+    fn restores_only_complete_raw_markers() {
+        assert_eq!(expand_cli_raw_arguments("a\0gnu-raw-argument-12-ff8061\0z"), b"a\xff\x80az");
+        assert_eq!(expand_cli_raw_arguments("a\0gnu-raw-argument-x-ff\0z"), b"a\0gnu-raw-argument-x-ff\0z");
+        assert_eq!(expand_cli_raw_arguments("a\0gnu-raw-argument-1-ff"), b"a\0gnu-raw-argument-1-ff");
+    }
 }
 
 fn splice_to_argv(value: Value, span: Span) -> Result<Vec<Vec<u8>>, RuntimeError> {
