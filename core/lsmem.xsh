@@ -103,6 +103,7 @@ pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
   var normalized: List[Bytes] = []
   for argument in argv {
     if let Ok(_) = argument.utf8() { normalized += [argument]; continue }
+    if argument.starts_with(b"--summary=") { normalized += [b"--summary=invalid"]; continue }
     if let at = sysroot_equals_at(argument) {
       normalized += [argument.slice(0, length: at), argument.slice(at + 1, length: argument.len() - at - 1)]
     } else if let at = short_sysroot_value_start(argument) {
@@ -120,6 +121,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
   let prepared = gnu.prepare_arguments(normalize_sysroot_arguments(argv))
   let arguments = prepared.text
+  var raw_index = 0
+  while raw_index < arguments.len() {
+    let word = arguments[raw_index]
+    raw_index += 1
+    if word == "--" { break }
+    let raw_word = gnu.argument_bytes(word, prepared.raw)
+    if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
+      ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(2, length: raw_word.len() - 2), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+      exit 1
+    }
+    if word in ["-o", "-S", "-s", "--output", "--split", "--sysroot"] { raw_index += 1 }
+    if word in ["--help", "-h", "--version", "-V"] { break }
+  }
   if let diagnostic = option_diagnostic(arguments) { gnu.usage_error(diagnostic) }
 
   let parsed = cli.applet(arguments, {
@@ -155,6 +169,15 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var split: List[Str] = []
   if modes.table {
     let environment_columns: Str? = if opts.output == null { if let Ok(value) = env.get("LSMEM_COLUMNS") { value } else { null } } else { null }
+    for value in [opts.output, opts.split] {
+      if value != null {
+        let raw_value = gnu.argument_bytes(value ?? "", prepared.raw)
+        if raw_value != bytes.from_text(value ?? "") {
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), raw_value, b"\n"]))
+          exit 1
+        }
+      }
+    }
     selected = report.columns(opts, environment_columns)
     split = report.split_columns(opts, selected)
   }

@@ -458,3 +458,15 @@ test test_lsmem_empty_sysroot_matches_reference { |ctx|
   let candidate = uu.invoke(s, "lsmem", args, timeout: 30s)?
   ul.compare(reference, candidate)
 }
+
+test test_lsmem_non_utf8_option_values_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  let invalid = Path.parse_bytes(b"\xff")?
+  let invalid_option = Path.parse_bytes(b"--\xff")?
+  let invalid_summary = Path.parse_bytes(b"--summary=\xff")?
+  for args in [[p"-o", invalid], [p"-S", invalid], [invalid_option], [invalid_summary]] {
+    let reference = ul.reference_paths(s, "lsmem", args, timeout: 5s)?
+    let candidate = uu.invoke_paths(s, "lsmem", args, timeout: 5s)?
+    ul.compare(reference, candidate)
+  }
+}
