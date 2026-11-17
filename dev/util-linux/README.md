@@ -48,6 +48,9 @@ python3 dev/util-linux/check.py parity --commands lslocks,lsipc
 python3 dev/util-linux/check.py parity --all --require-positive-boundaries
 ```
 
+Private native cases run with 5 seconds per case for each command, and at
+least 120 seconds; a single case is capped at 30 seconds.
+
 A parity case fails when the reference or the candidate did not run, the
 fixture inputs differ, an unexpected signal or timeout occurred, or no case
 matched the selector. A skipped, unexecuted, or missing behavior is never a
@@ -83,8 +86,24 @@ recorded differences. A review reports them only if their behavior changes.
 - `lslocks -Q` evaluates regular expressions in XSH's regex dialect, not POSIX
   ERE, with its own syntax-error text and number parsing. The BLOCKER column
   still names a holder whose row `-i` hides.
-- `lsipc` clamps POSIX object times after 2262-04-11, the end of the
-  nanosecond `Int` range that `fs.stat` and the time formatter share.
+- `lsipc` clamps POSIX object times before 1677-09-21 and after 2262-04-11,
+  the ends of the nanosecond `Int` range that `fs.stat` and the time formatter
+  share.
+- User and group names that are not valid UTF-8 print with U+FFFD in `namei`
+  and `lsipc`; the `user` and `group` modules return names as text.
+- Display width follows XSH's terminal width rules, not musl `wcwidth`, for
+  emoji sequences and the few codepoints where they differ, and the shared
+  table escaping prints plane noncharacters such as U+1FFFE raw.
+- Without procfs, `lsipc` lists no System V objects or kernel limits.
+
+### Review standard
+
+The independent close review fails a command for a defect in behavior a user
+or script relies on: a wrong answer or exit status, a crash, lost or corrupted
+data, unsafe output, or a broken documented option. A byte-level difference in
+diagnostic wording, layout or character classification against musl or
+libsmartcols is recorded here as an accepted divergence or filed as a ticket;
+it does not fail the review.
 
 ## Acceptance
 
