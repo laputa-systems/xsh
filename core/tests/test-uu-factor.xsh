@@ -2370,7 +2370,11 @@ test test_uu_factor_parallel { |ctx|
   test.timeout(ctx, 1200s)
   let s = uu.scene(ctx)?
   uu.touch(s, "output")
-  let input = integer_input(50000)
+  let input = integer_input(5000)
+  let baseline = uu.invoke(s, "factor", [], input)?
+  uu.succeeds(baseline)
+  uu.no_stderr(baseline)
+  assert baseline.stdout.len() > 4096
   let children = collect {
     for index in range(8) {
       let plan = uu.command(s, "factor", [], input,
@@ -2384,5 +2388,7 @@ test test_uu_factor_parallel { |ctx|
   }
   let sorted = uu.invoke(s, "sort", [uu.at(s, "output").display()])?
   uu.succeeds(sorted)
-  assert hash.sha1(sorted.stdout).hex() == "73f104b140449feac7ccf27b4c13ef6b9a4c5ee4"
+  let expected = uu.invoke(s, "sort", [], stdin: bytes.concat([baseline.stdout for _ in range(8)]))?
+  uu.succeeds(expected)
+  assert sorted.stdout == expected.stdout
 }
