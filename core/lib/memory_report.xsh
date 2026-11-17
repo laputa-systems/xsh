@@ -444,7 +444,12 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
 }
 
 ## Reads the memory block inventory and optional summary parameter beneath root.
-export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
+export proc collect(root_path: Path, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
+  let root = match fs.open_root(root_path) {
+    Ok(value) => value
+    Err(failure) => { fail(f"cannot open /{MEMORY_PATH}: {gnu.strerror(failure)}"); return {block_size: {high: 0, low: 0}, online_bytes: {high: 0, low: 0}, offline_bytes: {high: 0, low: 0}, have_nodes: false, have_zones: false, have_config: false, memmap_parameter: null, blocks: []} }
+  }
+  defer root.close()
   let memory_path = MEMORY_PATH
   let directory = match root.metadata(memory_path) {
     Ok(metadata) => metadata
