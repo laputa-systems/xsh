@@ -2870,6 +2870,7 @@ pub(super) struct ExplicitFrames<'a, 'p> {
     /// boundary enters a frame, lowered where one is seen to leave, and
     /// corrected by any collection that finds fewer.
     open_context_boundaries: usize,
+    pipeline_frame_bound: usize,
 }
 
 struct ResolvedCall<'p> {
@@ -3031,8 +3032,10 @@ impl Evaluator {
         let mut work = self.frame_scratch.take_work();
         work.push(first);
         let open_context_boundaries = context_boundaries(&work);
+        let pipeline_frame_bound = usize::from(work.iter().any(|work| matches!(work, FrameWork::ForPipeline { .. } | FrameWork::StageValue { .. })));
         let mut frames = ExplicitFrames::new(self, &program);
         frames.open_context_boundaries = open_context_boundaries;
+        frames.pipeline_frame_bound = pipeline_frame_bound;
         frames.calls.push(CallFrame {
             owner: FrameOwner::Block {
                 owns_scope,
@@ -3601,6 +3604,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             suspended: None,
             block_flow: None,
             open_context_boundaries: 0,
+            pipeline_frame_bound: 0,
         }
     }
 
@@ -3636,6 +3640,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     pub(super) fn run_producer(&mut self, call: CallFrame<'p>) -> ProducerStep {
         // A resumed producer brings the boundaries it was suspended inside.
         self.open_context_boundaries += context_boundaries(&call.work);
+        if call.work.iter().any(|work| matches!(work, FrameWork::ForPipeline { .. } | FrameWork::StageValue { .. })) {
+            self.pipeline_frame_bound = self.pipeline_frame_bound.max(self.calls.len() + 1);
+        }
         self.calls.push(call);
         while self.result.is_none() && self.suspended.is_none() {
             let index = self
@@ -4008,7 +4015,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if !stage_error_was_wrapped && error.abort.is_none() && self.pending_error.is_none() {
             // A block callback leaves statement and function frames above the
             // pipeline continuation while an item error unwinds.
-            let stage_item = self.calls.iter().rev().find_map(|call| {
+            let stage_item = self.calls[..self.calls.len().min(self.pipeline_frame_bound)].iter().rev().find_map(|call| {
                 call.work.iter().rev().find_map(|work| match work {
                     FrameWork::ForPipeline { pipeline, .. } => pipeline
                         .pending_map_error_item()
@@ -8763,6 +8770,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     )?;
                     match pipeline {
                         ControlFlow::Continue(pipeline) => {
+                            self.pipeline_frame_bound = self.pipeline_frame_bound.max(index + 1);
                             self.calls[index].work.push(FrameWork::ForPipeline {
                                 slot,
                                 pipeline: Box::new(pipeline),
@@ -8784,6 +8792,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     let pipeline = IndexedStageEngine::new_frame(
                         input, *stages, span,
                     )?;
+                    self.pipeline_frame_bound = self.pipeline_frame_bound.max(index + 1);
                     self.calls[index].work.push(FrameWork::StageValue {
                         pipeline: Box::new(pipeline),
                         span,

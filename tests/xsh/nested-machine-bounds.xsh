@@ -67,7 +67,10 @@ test recursion_through_a_deferred_call_reports_stack_overflow { |ctx|
 descend(0)?
 """,
     status: 3,
-    stderr: ["stack-overflow"],
+    stderr: [
+      "stack-overflow: more than 100000 calls are open; the innermost are descend -> descend -> descend -> descend -> descend -> descend",
+      ":2:9-2:23",
+    ],
     env: {XSH_TEST_SMALL_EVAL_STACK: "1"},
   )?
   assert "overflowed its stack" not in output.stderr, output.stderr
