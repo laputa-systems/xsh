@@ -694,9 +694,14 @@ proc lsmem_size(value: U64) [error] -> Str {
   }
   var tenths: UInt = 0
   if exponent > 0 {
-    var fractional_digit = fraction
-    for _ in range(exponent - 1) { fractional_digit = u64_divide(fractional_digit, 1024).quotient }
-    tenths = (fractional_digit.low + 50) / 100
+    var scaled = u64_multiply_small(fraction, 10)
+    var remainder: UInt = 0
+    for _ in range(exponent) {
+      let division = u64_divide(scaled, 1024)
+      scaled = division.quotient
+      remainder = division.remainder
+    }
+    tenths = scaled.low + (if remainder >= 512 { 1 } else { 0 })
   }
   if tenths == 10 { whole = u64_add_small(whole, 1); tenths = 0 }
   let integer = u64_decimal(whole)

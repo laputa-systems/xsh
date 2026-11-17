@@ -521,3 +521,12 @@ test test_lsmem_smartcols_json_environment { |ctx|
   install_lsmem_fixture(s, "sparse")?
   for mode in ["compact", "lines"] { compare_lsmem_rooted(s, ["-J"], {LIBSMARTCOLS_JSON: mode})? }
 }
+
+test test_lsmem_human_size_rounding { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for size in ["1ee000\n", "1ee000000000\n"] {
+    uu.write(s, "sys/devices/system/memory/block_size_bytes", size)?
+    compare_lsmem_rooted(s, ["-a", "-o", "SIZE", "--summary=never"])?
+  }
+}
