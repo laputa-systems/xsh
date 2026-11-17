@@ -390,15 +390,11 @@ pure select_columns(output: Str?, output_all: Bool, environment: Str?) -> Result
     }
     let column = canonical_column(name)
     return Err(UnknownColumn(list.byte_slice(offset))) when column == null
-    return Err(TooManyColumns) when selected.len() == 25
+    return Err(TooManyColumns) when selected.len() == 26
     selected += [column ?? ""]
     offset += name.byte_len() + 1
   }
   Ok(selected)
-}
-
-pure too_many_columns_error() -> Str {
-  "too many columns specified, the limit is 25 columns"
 }
 
 pure column_value(lock: Lock, column: Str) -> FilterValue {
@@ -1142,7 +1138,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
       EmptyColumnList => exit 1
       EmptyColumnName => exit 1
       UnknownColumn(name) => { gnu.error(f"unknown column: {name}"); exit 1 }
-      TooManyColumns => gnu.usage_error(too_many_columns_error())
+      TooManyColumns => exit 1
     }
     return
   }

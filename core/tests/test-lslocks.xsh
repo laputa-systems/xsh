@@ -602,6 +602,8 @@ test test_lslocks_output_column_names_and_errors { |ctx|
     let result = compared_with_stdout_dump(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty(), args.join(" ")
   }
+  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])?
+  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])?
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
   for args in [
