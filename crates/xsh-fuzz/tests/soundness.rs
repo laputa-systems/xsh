@@ -143,7 +143,7 @@ fn jobs() -> usize {
     std::thread::available_parallelism()
         .map_or(2, std::num::NonZeroUsize::get)
         .div_ceil(2)
-        .clamp(1, 4)
+        .clamp(1, 5)
 }
 
 /// Runs `body` for every seed in `0..count` on a few threads, collecting
