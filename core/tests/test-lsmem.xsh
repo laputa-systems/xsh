@@ -559,3 +559,14 @@ test test_lsmem_option_order_and_musl_diagnostics { |ctx|
   let candidate = uu.invoke_paths(s, "lsmem", [attached])?
   ul.compare(reference, candidate)
 }
+
+test test_lsmem_zero_terminal_columns { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let script = fp"{ctx.core_dir}/tests/data/lsmem-zero-columns.py"
+  let applet_script = fp"{ctx.core_dir}/lsmem.xsh"
+  let stderr = uu.at(s, "terminal-error")
+  let command = process.command_argv(p"/usr/bin/python3", [p"/usr/bin/python3", script, ctx.xsh_bin, applet_script, s.root], s.root, {LC_ALL: "C"}, b"", uu.at(s, "terminal-output"), stderr, timeout: 15s)
+  let result = process.run(command)?
+  assert result.exited_with(0), stderr.read_text()?
+}

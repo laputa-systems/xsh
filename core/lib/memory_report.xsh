@@ -766,7 +766,8 @@ proc table_text(inventory: Inventory, output_columns: List[Str], opts: Options) 
   for width in widths { natural_width += width }
   if widths.len() > 1 { natural_width += widths.len() - 1 }
   if unix.tty_attrs(1) is Ok(_) {
-    let terminal_width = unix.window_size(1)?.cols
+    let cols = unix.window_size(1)?.cols
+    let terminal_width = if cols == 0 { 80 } else { cols }
     if natural_width < terminal_width {
       for index in range(shown.len()) {
         if shown[index] == "SIZE" { widths[index] = wider(widths[index], 5) }
