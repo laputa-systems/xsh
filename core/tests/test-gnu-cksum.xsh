@@ -147,235 +147,243 @@ test test_gnu_cksum_sum_log { |ctx|
 # origin: gnu cksum/sha1sum-vec.log
 test test_gnu_cksum_sha1sum_vec_log { |ctx|
   let s = uu.scene(ctx)?
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: bytes.from_text("")}], bytes.from_text(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: bytes.from_text("$")}], bytes.from_text(""), "3cdf2936da2fc556bfa533ab1eb59ce710ac80e5  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-2-0.bin".read_bytes()?}], bytes.from_text(""), "19c1e2048fa7393cfbf2d310ad8209ec11d996e5  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-3-0.bin".read_bytes()?}], bytes.from_text(""), "ca775d8c80faa6f87fa62beca6ca6089d63b56e5  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-4-0.bin".read_bytes()?}], bytes.from_text(""), "71ac973d0e4b50ae9e5043ff4d615381120a25a0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-5-0.bin".read_bytes()?}], bytes.from_text(""), "a6b5b9f854cfb76701c3bddbf374b3094ea49cba  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-6-0.bin".read_bytes()?}], bytes.from_text(""), "d87a0ee74e4b9ad72e6847c87bdeeb3d07844380  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-7-0.bin".read_bytes()?}], bytes.from_text(""), "1976b8dd509fe66bf09c9a8d33534d4ef4f63bfd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-8-0.bin".read_bytes()?}], bytes.from_text(""), "5a78f439b6db845bb8a558e4ceb106cd7b7ff783  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-9-0.bin".read_bytes()?}], bytes.from_text(""), "f871bce62436c1e280357416695ee2ef9b83695c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-10-0.bin".read_bytes()?}], bytes.from_text(""), "62b243d1b780e1d31cf1ba2de3f01c72aeea0e47  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-11-0.bin".read_bytes()?}], bytes.from_text(""), "1698994a273404848e56e7fda4457b5900de1342  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-12-0.bin".read_bytes()?}], bytes.from_text(""), "056f4cdc02791da7ed1eb2303314f7667518deef  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-13-0.bin".read_bytes()?}], bytes.from_text(""), "9fe2da967bd8441eea1c32df68ddaa9dc1fc8e4b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-14-0.bin".read_bytes()?}], bytes.from_text(""), "73a31777b4ace9384efa8bbead45c51a71aba6dd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-15-0.bin".read_bytes()?}], bytes.from_text(""), "3f9d7c4e2384eddabff5dd8a31e23de3d03f42ac  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-16-0.bin".read_bytes()?}], bytes.from_text(""), "4814908f72b93ffd011135bee347de9a08da838f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-17-0.bin".read_bytes()?}], bytes.from_text(""), "0978374b67a412a3102c5aa0b10e1a6596fc68eb  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-18-0.bin".read_bytes()?}], bytes.from_text(""), "44ad6cb618bd935460d46d3f921d87b99ab91c1e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-19-0.bin".read_bytes()?}], bytes.from_text(""), "02dc989af265b09cf8485640842128dcf95e9f39  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-20-0.bin".read_bytes()?}], bytes.from_text(""), "67507b8d497b35d6e99fc01976d73f54aeca75cf  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-21-0.bin".read_bytes()?}], bytes.from_text(""), "1eae0373c1317cb60c36a42a867b716039d441f5  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-22-0.bin".read_bytes()?}], bytes.from_text(""), "9c3834589e5bffac9f50950e0199b3ec2620bec8  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-23-0.bin".read_bytes()?}], bytes.from_text(""), "209f7abc7f3b878ee46cdf3a1fbb9c21c3474f32  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-24-0.bin".read_bytes()?}], bytes.from_text(""), "05fc054b00d97753a9b3e2da8fbba3ee808cef22  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-25-0.bin".read_bytes()?}], bytes.from_text(""), "0c4980ea3a46c757dfbfc5baa38ac6c8e72ddce7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-26-0.bin".read_bytes()?}], bytes.from_text(""), "96a460d2972d276928b69864445bea353bdcffd2  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-27-0.bin".read_bytes()?}], bytes.from_text(""), "f3ef04d8fa8c6fa9850f394a4554c080956fa64b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-28-0.bin".read_bytes()?}], bytes.from_text(""), "f2a31d875d1d7b30874d416c4d2ea6baf0ffbafe  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-29-0.bin".read_bytes()?}], bytes.from_text(""), "f4942d3b9e9588dcfdc6312a84df75d05f111c20  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-30-0.bin".read_bytes()?}], bytes.from_text(""), "310207df35b014e4676d30806fa34424813734dd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-31-0.bin".read_bytes()?}], bytes.from_text(""), "4da1955b2fa7c7e74e3f47d7360ce530bbf57ca3  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-32-0.bin".read_bytes()?}], bytes.from_text(""), "74c4bc5b26fb4a08602d40ccec6c6161b6c11478  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-33-0.bin".read_bytes()?}], bytes.from_text(""), "0b103ce297338dfc7395f7715ee47539b556ddb6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-34-0.bin".read_bytes()?}], bytes.from_text(""), "efc72d99e3d2311ce14190c0b726bdc68f4b0821  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-35-0.bin".read_bytes()?}], bytes.from_text(""), "660edac0a8f4ce33da0d8dbae597650e97687250  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-36-0.bin".read_bytes()?}], bytes.from_text(""), "fe0a55a988b3b93946a63eb36b23785a5e6efc3e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-37-0.bin".read_bytes()?}], bytes.from_text(""), "0cbdf2a5781c59f907513147a0de3cc774b54bf3  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-38-0.bin".read_bytes()?}], bytes.from_text(""), "663e40fee5a44bfcb1c99ea5935a6b5bc9f583b0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-39-0.bin".read_bytes()?}], bytes.from_text(""), "00162134256952dd9ae6b51efb159b35c3c138c7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-40-0.bin".read_bytes()?}], bytes.from_text(""), "ceb88e4736e354416e2010fc1061b3b53b81664b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-41-0.bin".read_bytes()?}], bytes.from_text(""), "a6a2c4b6bcc41ddc67278f3df4d8d0b9dd7784ef  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-42-0.bin".read_bytes()?}], bytes.from_text(""), "c23d083cd8820b57800a869f5f261d45e02dc55d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-43-0.bin".read_bytes()?}], bytes.from_text(""), "e8ac31927b78ddec41a31ca7a44eb7177165e7ab  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-44-0.bin".read_bytes()?}], bytes.from_text(""), "e864ec5dbab0f9ff6984ab6ad43a8c9b81cc9f9c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-45-0.bin".read_bytes()?}], bytes.from_text(""), "cfed6269069417a84d6de2347220f4b858bcd530  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-46-0.bin".read_bytes()?}], bytes.from_text(""), "d9217bfb46c96348722c3783d29d4b1a3feda38c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-47-0.bin".read_bytes()?}], bytes.from_text(""), "dec24e5554f79697218d317315fa986229ce3350  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-48-0.bin".read_bytes()?}], bytes.from_text(""), "83a099df7071437ba5495a5b0bfbfefe1c0ef7f3  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-49-0.bin".read_bytes()?}], bytes.from_text(""), "aa3198e30891a83e33ce3bfa0587d86a197d4f80  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-50-0.bin".read_bytes()?}], bytes.from_text(""), "9b6acbeb4989cbee7015c7d515a75672ffde3442  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-51-0.bin".read_bytes()?}], bytes.from_text(""), "b021eb08a436b02658eaa7ba3c88d49f1219c035  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-52-0.bin".read_bytes()?}], bytes.from_text(""), "cae36dab8aea29f62e0855d9cb3cd8e7d39094b1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-53-0.bin".read_bytes()?}], bytes.from_text(""), "02de8ba699f3c1b0cb5ad89a01f2346e630459d7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-54-0.bin".read_bytes()?}], bytes.from_text(""), "88021458847dd39b4495368f7254941859fad44b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-55-0.bin".read_bytes()?}], bytes.from_text(""), "91a165295c666fe85c2adbc5a10329daf0cb81a0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-56-0.bin".read_bytes()?}], bytes.from_text(""), "4b31312eaf8b506811151a9dbd162961f7548c4b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-57-0.bin".read_bytes()?}], bytes.from_text(""), "3fe70971b20558f7e9bac303ed2bc14bde659a62  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-58-0.bin".read_bytes()?}], bytes.from_text(""), "93fb769d5bf49d6c563685954e2aecc024dc02d6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-59-0.bin".read_bytes()?}], bytes.from_text(""), "bc8827c3e614d515e83dea503989dea4fda6ea13  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-60-0.bin".read_bytes()?}], bytes.from_text(""), "e83868dbe4a389ab48e61cfc4ed894f32ae112ac  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-61-0.bin".read_bytes()?}], bytes.from_text(""), "55c95459cde4b33791b4b2bcaaf840930af3f3bd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-62-0.bin".read_bytes()?}], bytes.from_text(""), "36bb0e2ba438a3e03214d9ed2b28a4d5c578fcaa  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-63-0.bin".read_bytes()?}], bytes.from_text(""), "3acbf874199763eba20f3789dfc59572aca4cf33  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-64-0.bin".read_bytes()?}], bytes.from_text(""), "86be037c4d509c9202020767d860dab039cadace  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-65-0.bin".read_bytes()?}], bytes.from_text(""), "51b57d7080a87394eec3eb2e0b242e553f2827c9  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-66-0.bin".read_bytes()?}], bytes.from_text(""), "1efbfa78866315ce6a71e457f3a750a38facab41  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-67-0.bin".read_bytes()?}], bytes.from_text(""), "57d6cb41aeec20236f365b3a490c61d0cfa39611  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-68-0.bin".read_bytes()?}], bytes.from_text(""), "c532cb64b4ba826372bccf2b4b5793d5b88bb715  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-69-0.bin".read_bytes()?}], bytes.from_text(""), "15833b5631032663e783686a209c6a2b47a1080e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-70-0.bin".read_bytes()?}], bytes.from_text(""), "d04f2043c96e10cd83b574b1e1c217052cd4a6b2  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-71-0.bin".read_bytes()?}], bytes.from_text(""), "e8882627c64db743f7db8b4413dd033fc63beb20  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-72-0.bin".read_bytes()?}], bytes.from_text(""), "cd2d32286b8867bc124a0af2236fc74be3622199  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-73-0.bin".read_bytes()?}], bytes.from_text(""), "019b70d745375091ed5c7b218445ec986d0f5a82  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-74-0.bin".read_bytes()?}], bytes.from_text(""), "e5ff5fec1dadbaed02bf2dad4026be6a96b3f2af  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-75-0.bin".read_bytes()?}], bytes.from_text(""), "6f4e23b3f2e2c068d13921fe4e5e053ffed4e146  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-76-0.bin".read_bytes()?}], bytes.from_text(""), "25e179602a575c915067566fba6da930e97f8678  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-77-0.bin".read_bytes()?}], bytes.from_text(""), "67ded0e68e235c8a523e051e86108eeb757efbfd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-78-0.bin".read_bytes()?}], bytes.from_text(""), "af78536ea83c822796745556d62a3ee82c7be098  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-79-0.bin".read_bytes()?}], bytes.from_text(""), "64d7ac52e47834be72455f6c64325f9c358b610d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-80-0.bin".read_bytes()?}], bytes.from_text(""), "9d4866baa3639c13e541f250ffa3d8bc157a491f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-81-0.bin".read_bytes()?}], bytes.from_text(""), "2e258811961d3eb876f30e7019241a01f9517bec  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-82-0.bin".read_bytes()?}], bytes.from_text(""), "8e0ebc487146f83bc9077a1630e0fb3ab3c89e63  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-83-0.bin".read_bytes()?}], bytes.from_text(""), "ce8953741fff3425d2311fbbf4ab481b669def70  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-84-0.bin".read_bytes()?}], bytes.from_text(""), "789d1d2dab52086bd90c0e137e2515ed9c6b59b5  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-85-0.bin".read_bytes()?}], bytes.from_text(""), "b76ce7472700dd68d6328b7aa8437fb051d15745  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-86-0.bin".read_bytes()?}], bytes.from_text(""), "f218669b596c5ffb0b1c14bd03c467fc873230a0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-87-0.bin".read_bytes()?}], bytes.from_text(""), "1ff3bdbe0d504cb0cdfab17e6c37aba6b3cffded  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-88-0.bin".read_bytes()?}], bytes.from_text(""), "2f3cbacbb14405a4652ed52793c1814fd8c4fce0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-89-0.bin".read_bytes()?}], bytes.from_text(""), "982c8ab6ce164f481915af59aaed9fff2a391752  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-90-0.bin".read_bytes()?}], bytes.from_text(""), "5cd92012d488a07ece0e47901d0e083b6bd93e3f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-91-0.bin".read_bytes()?}], bytes.from_text(""), "69603fec02920851d4b3b8782e07b92bb2963009  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-92-0.bin".read_bytes()?}], bytes.from_text(""), "3e90f76437b1ea44cf98a08d83ea24cecf6e6191  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-93-0.bin".read_bytes()?}], bytes.from_text(""), "34c09f107c42d990eb4881d4bf2dddcab01563ae  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-94-0.bin".read_bytes()?}], bytes.from_text(""), "474be0e5892eb2382109bfc5e3c8249a9283b03d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-95-0.bin".read_bytes()?}], bytes.from_text(""), "a04b4f75051786682483252438f6a75bf4705ec6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-96-0.bin".read_bytes()?}], bytes.from_text(""), "be88a6716083eb50ed9416719d6a247661299383  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-97-0.bin".read_bytes()?}], bytes.from_text(""), "c67e38717fee1a5f65ec6c7c7c42afc00cd37f04  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-98-0.bin".read_bytes()?}], bytes.from_text(""), "959ac4082388e19e9be5de571c047ef10c174a8d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-99-0.bin".read_bytes()?}], bytes.from_text(""), "baa7aa7b7753fa0abdc4a541842b5d238d949f0a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-100-0.bin".read_bytes()?}], bytes.from_text(""), "351394dcebc08155d100fcd488578e6ae71d0e9c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-101-0.bin".read_bytes()?}], bytes.from_text(""), "ab8be94c5af60d9477ef1252d604e58e27b2a9ee  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-102-0.bin".read_bytes()?}], bytes.from_text(""), "3429ec74a695fdd3228f152564952308afe0680a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-103-0.bin".read_bytes()?}], bytes.from_text(""), "907fa46c029bc67eaa8e4f46e3c2a232f85bd122  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-104-0.bin".read_bytes()?}], bytes.from_text(""), "2644c87d1fbbbc0fc8d65f64bca2492da15baae4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-105-0.bin".read_bytes()?}], bytes.from_text(""), "110a3eeb408756e2e81abaf4c5dcd4d4c6afcf6d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-106-0.bin".read_bytes()?}], bytes.from_text(""), "cd4fdc35fac7e1adb5de40f47f256ef74d584959  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-107-0.bin".read_bytes()?}], bytes.from_text(""), "8e6e273208ac256f9eccf296f3f5a37bc8a0f9f7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-108-0.bin".read_bytes()?}], bytes.from_text(""), "fe0606100bdbc268db39b503e0fdfe3766185828  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-109-0.bin".read_bytes()?}], bytes.from_text(""), "6c63c3e58047bcdb35a17f74eeba4e9b14420809  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-110-0.bin".read_bytes()?}], bytes.from_text(""), "bcc2bd305f0bcda8cf2d478ef9fe080486cb265f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-111-0.bin".read_bytes()?}], bytes.from_text(""), "ce5223fd3dd920a3b666481d5625b16457dcb5e8  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-112-0.bin".read_bytes()?}], bytes.from_text(""), "948886776e42e4f5fae1b2d0c906ac3759e3f8b0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-113-0.bin".read_bytes()?}], bytes.from_text(""), "4c12a51fcfe242f832e3d7329304b11b75161efb  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-114-0.bin".read_bytes()?}], bytes.from_text(""), "c54bdd2050504d92f551d378ad5fc72c9ed03932  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-115-0.bin".read_bytes()?}], bytes.from_text(""), "8f53e8fa79ea09fd1b682af5ed1515eca965604c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-116-0.bin".read_bytes()?}], bytes.from_text(""), "2d7e17f6294524ce78b33eab72cdd08e5ff6e313  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-117-0.bin".read_bytes()?}], bytes.from_text(""), "64582b4b57f782c9302bfe7d07f74aa176627a3a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-118-0.bin".read_bytes()?}], bytes.from_text(""), "6d88795b71d3e386bbd1eb830fb9f161ba98869f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-119-0.bin".read_bytes()?}], bytes.from_text(""), "86ad34a6463f12cee6de9596aba72f0df1397fd1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-120-0.bin".read_bytes()?}], bytes.from_text(""), "7eb46685a57c0d466152dc339c8122548c757ed1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-121-0.bin".read_bytes()?}], bytes.from_text(""), "e7a98fb0692684054407cc221abc60c199d6f52a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-122-0.bin".read_bytes()?}], bytes.from_text(""), "34df1306662206fd0a5fc2969a4beec4eb0197f7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-123-0.bin".read_bytes()?}], bytes.from_text(""), "56cf7ebf08d10f0cb9fe7ee3b63a5c3a02bcb450  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-124-0.bin".read_bytes()?}], bytes.from_text(""), "3bae5cb8226642088da760a6f78b0cf8eddea9f1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-125-0.bin".read_bytes()?}], bytes.from_text(""), "6475df681e061fa506672c27cbabfa9aa6ddff62  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-126-0.bin".read_bytes()?}], bytes.from_text(""), "79d81991fa4e4957c8062753439dbfd47bbb277d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-127-0.bin".read_bytes()?}], bytes.from_text(""), "bae224477b20302e881f5249f52ec6c34da8ecef  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-128-0.bin".read_bytes()?}], bytes.from_text(""), "ede4deb4293cfe4138c2c056b7c46ff821cc0acc  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-129-0.bin".read_bytes()?}], bytes.from_text(""), "a771fa5c812bd0c9596d869ec99e4f4ac988b13f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-130-0.bin".read_bytes()?}], bytes.from_text(""), "e99d566212bbbceee903946f6100c9c96039a8f4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-131-0.bin".read_bytes()?}], bytes.from_text(""), "b48ce6b1d13903e3925ae0c88cb931388c013f9c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-132-0.bin".read_bytes()?}], bytes.from_text(""), "e647d5baf670d4bf3afc0a6b72a2424b0c64f194  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-133-0.bin".read_bytes()?}], bytes.from_text(""), "65c1cd932a06b05cd0b43afb3bc7891f6bcef45c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-134-0.bin".read_bytes()?}], bytes.from_text(""), "70ffae353a5cd0f8a65a8b2746d0f16281b25ec7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-135-0.bin".read_bytes()?}], bytes.from_text(""), "cc8221f2b829b8cf39646bf46888317c3eb378ea  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-136-0.bin".read_bytes()?}], bytes.from_text(""), "26accc2d6d51ff7bf3e5895588907765111bb69b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-137-0.bin".read_bytes()?}], bytes.from_text(""), "01072915b8e868d9b28e759cf2bc1aea4bb92165  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-138-0.bin".read_bytes()?}], bytes.from_text(""), "3016115711d74236adf0c371e47992f87a428598  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-139-0.bin".read_bytes()?}], bytes.from_text(""), "bf30417999c1368f008c1f19feca4d18a5e1c3c9  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-140-0.bin".read_bytes()?}], bytes.from_text(""), "62ba49087185f2742c26e1c1f4844112178bf673  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-141-0.bin".read_bytes()?}], bytes.from_text(""), "e1f6b9536f384dd3098285bbfd495a474140dc5a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-142-0.bin".read_bytes()?}], bytes.from_text(""), "b522dae1d67726eba7c4136d4e2f6d6d645ac43e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-143-0.bin".read_bytes()?}], bytes.from_text(""), "e9a021c3eb0b9f2c710554d4bf21b19f78e09478  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-144-0.bin".read_bytes()?}], bytes.from_text(""), "df13573188f3bf705e697a3e1f580145f2183377  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-145-0.bin".read_bytes()?}], bytes.from_text(""), "188835cfe52ecfa0c4135c2825f245dc29973970  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-146-0.bin".read_bytes()?}], bytes.from_text(""), "41b615a34ee2cec9d84a91b141cfab115821950b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-147-0.bin".read_bytes()?}], bytes.from_text(""), "ab3dd6221d2afe6613b815da1c389eec74aa0337  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-148-0.bin".read_bytes()?}], bytes.from_text(""), "0706d414b4aa7fb4a9051aa70d6856a7264054fb  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-149-0.bin".read_bytes()?}], bytes.from_text(""), "3cbf8151f3a00b1d5a809cbb8c4f3135055a6bd1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-150-0.bin".read_bytes()?}], bytes.from_text(""), "da5d6a0319272bbccea63acfa6799756ffda6840  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-151-0.bin".read_bytes()?}], bytes.from_text(""), "fb4429c95f6277b346d3b389413758dfffeedc98  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-152-0.bin".read_bytes()?}], bytes.from_text(""), "2c6e30d9c895b42dcccfc84c906ec88c09b20de1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-153-0.bin".read_bytes()?}], bytes.from_text(""), "3de3189a5e19f225cdce254dff23dacd22c61363  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-154-0.bin".read_bytes()?}], bytes.from_text(""), "93530a9bc9a817f6922518a73a1505c411d05da2  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-155-0.bin".read_bytes()?}], bytes.from_text(""), "e31354345f832d31e05c1b842d405d4bd4588ec8  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-156-0.bin".read_bytes()?}], bytes.from_text(""), "3ff76957e80b60cf74d015ad431fca147b3af232  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-157-0.bin".read_bytes()?}], bytes.from_text(""), "34ae3b806be143a84dce82e4b830eb7d3d2bac69  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-158-0.bin".read_bytes()?}], bytes.from_text(""), "d7447e53d66bb5e4c26e8b41f83efd107bf4adda  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-159-0.bin".read_bytes()?}], bytes.from_text(""), "77dd2a4482705bc2e9dc96ec0a13395771ac850c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-160-0.bin".read_bytes()?}], bytes.from_text(""), "eaa1465db1f59de3f25eb8629602b568e693bb57  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-161-0.bin".read_bytes()?}], bytes.from_text(""), "9329d5b40e0dc43aa25fed69a0fa9c211a948411  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-162-0.bin".read_bytes()?}], bytes.from_text(""), "e94c0b6aa62aa08c625faf817ddf8f51ec645273  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-163-0.bin".read_bytes()?}], bytes.from_text(""), "7ff02b909d82ad668e31e547e0fb66cb8e213771  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-164-0.bin".read_bytes()?}], bytes.from_text(""), "5bb3570858fa1744123bac2873b0bb9810f53fa1  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-165-0.bin".read_bytes()?}], bytes.from_text(""), "905f43940b3591ce39d1145acb1eca80ab5e43cd  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-166-0.bin".read_bytes()?}], bytes.from_text(""), "336c79fbd82f33e490c577e3f791c3cbfe842aff  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-167-0.bin".read_bytes()?}], bytes.from_text(""), "5c6d07a6b44f7a75a64f6ce592f3bae91e022210  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-168-0.bin".read_bytes()?}], bytes.from_text(""), "7e0d3e9d33127f4a30eb8d9c134a58409fa8695b  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-169-0.bin".read_bytes()?}], bytes.from_text(""), "9a5f50dfcfb19286206c229019f0abf25283028c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-170-0.bin".read_bytes()?}], bytes.from_text(""), "dca737e269f9d8626d488988c996e06b352c0708  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-171-0.bin".read_bytes()?}], bytes.from_text(""), "b8ffc1d4972fce63241e0e77850ac46dde75dbfa  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-172-0.bin".read_bytes()?}], bytes.from_text(""), "e9c9bf41c8549354151b977003ce1d830be667db  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-173-0.bin".read_bytes()?}], bytes.from_text(""), "0942908960b54f96cb43452e583f4f9cb66e398a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-174-0.bin".read_bytes()?}], bytes.from_text(""), "fce34051c34d4b81b85ddc4b543cde8007e284b3  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-175-0.bin".read_bytes()?}], bytes.from_text(""), "61e8916532503627f4024d13884640a46f1d61d4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-176-0.bin".read_bytes()?}], bytes.from_text(""), "f008d5d7853b6a17b7466cd9e18bd135e520faf4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-177-0.bin".read_bytes()?}], bytes.from_text(""), "bd8d2e873cf659b5c77aac1616827ef8a3b1a3b3  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-178-0.bin".read_bytes()?}], bytes.from_text(""), "b25a04dd425302ed211a1c2412d2410fa10c63b6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-179-0.bin".read_bytes()?}], bytes.from_text(""), "a404e21588123e0893718b4b44e91414a785b91f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-180-0.bin".read_bytes()?}], bytes.from_text(""), "a1e13bc55bf6dad83cf3aabda3287ad68681ea64  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-181-0.bin".read_bytes()?}], bytes.from_text(""), "d5fd35ffabed6733c92365929df0fb4cae864d15  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-182-0.bin".read_bytes()?}], bytes.from_text(""), "c12e9c280ee9c079e0506ff89f9b20536e0a83ef  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-183-0.bin".read_bytes()?}], bytes.from_text(""), "e22769dc00748a9bbd6c05bbc8e81f2cd1dc4e2d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-184-0.bin".read_bytes()?}], bytes.from_text(""), "f29835a93475740e888e8c14318f3ca45a3c8606  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-185-0.bin".read_bytes()?}], bytes.from_text(""), "1a1d77c6d0f97c4b620faa90f3f8644408e4b13d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-186-0.bin".read_bytes()?}], bytes.from_text(""), "4ec84870e9bdd25f523c6dfb6edd605052ca4eaa  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-187-0.bin".read_bytes()?}], bytes.from_text(""), "d689513fed08b80c39b67371959bc4e3fecb0537  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-188-0.bin".read_bytes()?}], bytes.from_text(""), "c4fed58f209fc3c34ad19f86a6dacadc86c04d33  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-189-0.bin".read_bytes()?}], bytes.from_text(""), "051888c6d00029c176de792b84dece2dc1c74b00  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-190-0.bin".read_bytes()?}], bytes.from_text(""), "1a3540bee05518505827954f58b751c475aeece0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-191-0.bin".read_bytes()?}], bytes.from_text(""), "dfa19180359d5a7a38e842f172359caf4208fc05  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-192-0.bin".read_bytes()?}], bytes.from_text(""), "7b0fa84ebbcff7d7f4500f73d79660c4a3431b67  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-193-0.bin".read_bytes()?}], bytes.from_text(""), "9e886081c9acaad0f97b10810d1de6fcdce6b5f4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-194-0.bin".read_bytes()?}], bytes.from_text(""), "a4d46e4ba0ae4b012f75b1b50d0534d578ae9cb6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-195-0.bin".read_bytes()?}], bytes.from_text(""), "6342b199ee64c7b2c9cbcd4f2dcb65acef51516f  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-196-0.bin".read_bytes()?}], bytes.from_text(""), "aabfd63688eb678357869130083e1b52f6ea861d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-197-0.bin".read_bytes()?}], bytes.from_text(""), "f732b7372daf44801f81effe3108726239837936  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-198-0.bin".read_bytes()?}], bytes.from_text(""), "5e9347fe4574cdcb80281ed092191199badd7b42  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-199-0.bin".read_bytes()?}], bytes.from_text(""), "d5776b7dfff75c1358abdbbb3f27a20bb6ca7c55  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-200-0.bin".read_bytes()?}], bytes.from_text(""), "022b7ada472fb7a9da9219621c9c5f563d3792f6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-201-0.bin".read_bytes()?}], bytes.from_text(""), "7f1de4eca20362da624653d225a5b3f7964a9ff2  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-202-0.bin".read_bytes()?}], bytes.from_text(""), "ca0f2b1bfb4469c11ed006a994734f0f2f5efd17  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-203-0.bin".read_bytes()?}], bytes.from_text(""), "833d63f5c2ea0cd43ec15f2b9dd97ff12b030479  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-204-0.bin".read_bytes()?}], bytes.from_text(""), "14fd356190416c00592b86ff7ca50b622f85593a  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-205-0.bin".read_bytes()?}], bytes.from_text(""), "4ab6b57eddef1ce935622f935c1619ae7c1667d6  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-206-0.bin".read_bytes()?}], bytes.from_text(""), "b456a6a968acd66caa974f96a9a916e700aa3c5d  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-207-0.bin".read_bytes()?}], bytes.from_text(""), "fd1c257fe046b2a27e2f0cd55ed2deca845f01d7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-208-0.bin".read_bytes()?}], bytes.from_text(""), "66e0d01780f1063e2929eaad74826bc64060e38c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-209-0.bin".read_bytes()?}], bytes.from_text(""), "a8478df406f179fd4ef97f4574d7f99ea1ce9eb8  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-210-0.bin".read_bytes()?}], bytes.from_text(""), "248e58cf09a372114fc2f93b09c5fc14f3d0059e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-211-0.bin".read_bytes()?}], bytes.from_text(""), "f15767de91796a6816977efa4fced4b7fd9b8a57  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-212-0.bin".read_bytes()?}], bytes.from_text(""), "36a6bc5e680e15675d9696338c88b36248bbbaf4  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-213-0.bin".read_bytes()?}], bytes.from_text(""), "4dea6251b2a6df017a8093ab066ee3863a4ec369  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-214-0.bin".read_bytes()?}], bytes.from_text(""), "d30e70e357d57e3d82ca554b8a3d58dff528fa94  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-215-0.bin".read_bytes()?}], bytes.from_text(""), "70ca84d827f7fd61446233f88cf2f990b0f3e2aa  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-216-0.bin".read_bytes()?}], bytes.from_text(""), "8d500c9cfde0288530a2106b70bed39326c52c3c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-217-0.bin".read_bytes()?}], bytes.from_text(""), "f3d4d139edfc24596377bc97a96fb7621f27ffc7  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-218-0.bin".read_bytes()?}], bytes.from_text(""), "5509baffac6d507860cefc5ab5832cb63cd4b687  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-219-0.bin".read_bytes()?}], bytes.from_text(""), "0c0aea0c2fd7a620c77866b1a177481e26b4f592  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-220-0.bin".read_bytes()?}], bytes.from_text(""), "149176007fee58a591e3f00f8db658b605f8390c  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-221-0.bin".read_bytes()?}], bytes.from_text(""), "17c0d7b0256159f3626786ffdb20237ae154fa84  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-222-0.bin".read_bytes()?}], bytes.from_text(""), "741a58618abeb1d983d67afdcbc49aa397a3b8e0  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-223-0.bin".read_bytes()?}], bytes.from_text(""), "b738d6b3409eb9ed2f1719b84d13f7c36169cdec  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-224-0.bin".read_bytes()?}], bytes.from_text(""), "3d33de31f64055d3b128ac9a6aa3f92dfd4f5330  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-225-0.bin".read_bytes()?}], bytes.from_text(""), "b6925f4df94949b8844c867428ba3dedf4cf2b51  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-226-0.bin".read_bytes()?}], bytes.from_text(""), "cf5e7256292abec431d8e8b9cbeaf22af072377e  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-227-0.bin".read_bytes()?}], bytes.from_text(""), "975dce94902923977f129c0e4acf40ad28ddb9aa  f\n", "", 0)
-  check_case(s, "sha1sum", ["--text", "f"], [{name: "f", data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-228-0.bin".read_bytes()?}], bytes.from_text(""), "333b0259b18ce64d6b52cf563dd3041e5f63a516  f\n", "", 0)
+  let vectors = [
+    {data: bytes.from_text(""), digest: "da39a3ee5e6b4b0d3255bfef95601890afd80709"},
+    {data: bytes.from_text("$"), digest: "3cdf2936da2fc556bfa533ab1eb59ce710ac80e5"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-2-0.bin".read_bytes()?, digest: "19c1e2048fa7393cfbf2d310ad8209ec11d996e5"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-3-0.bin".read_bytes()?, digest: "ca775d8c80faa6f87fa62beca6ca6089d63b56e5"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-4-0.bin".read_bytes()?, digest: "71ac973d0e4b50ae9e5043ff4d615381120a25a0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-5-0.bin".read_bytes()?, digest: "a6b5b9f854cfb76701c3bddbf374b3094ea49cba"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-6-0.bin".read_bytes()?, digest: "d87a0ee74e4b9ad72e6847c87bdeeb3d07844380"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-7-0.bin".read_bytes()?, digest: "1976b8dd509fe66bf09c9a8d33534d4ef4f63bfd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-8-0.bin".read_bytes()?, digest: "5a78f439b6db845bb8a558e4ceb106cd7b7ff783"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-9-0.bin".read_bytes()?, digest: "f871bce62436c1e280357416695ee2ef9b83695c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-10-0.bin".read_bytes()?, digest: "62b243d1b780e1d31cf1ba2de3f01c72aeea0e47"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-11-0.bin".read_bytes()?, digest: "1698994a273404848e56e7fda4457b5900de1342"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-12-0.bin".read_bytes()?, digest: "056f4cdc02791da7ed1eb2303314f7667518deef"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-13-0.bin".read_bytes()?, digest: "9fe2da967bd8441eea1c32df68ddaa9dc1fc8e4b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-14-0.bin".read_bytes()?, digest: "73a31777b4ace9384efa8bbead45c51a71aba6dd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-15-0.bin".read_bytes()?, digest: "3f9d7c4e2384eddabff5dd8a31e23de3d03f42ac"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-16-0.bin".read_bytes()?, digest: "4814908f72b93ffd011135bee347de9a08da838f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-17-0.bin".read_bytes()?, digest: "0978374b67a412a3102c5aa0b10e1a6596fc68eb"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-18-0.bin".read_bytes()?, digest: "44ad6cb618bd935460d46d3f921d87b99ab91c1e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-19-0.bin".read_bytes()?, digest: "02dc989af265b09cf8485640842128dcf95e9f39"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-20-0.bin".read_bytes()?, digest: "67507b8d497b35d6e99fc01976d73f54aeca75cf"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-21-0.bin".read_bytes()?, digest: "1eae0373c1317cb60c36a42a867b716039d441f5"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-22-0.bin".read_bytes()?, digest: "9c3834589e5bffac9f50950e0199b3ec2620bec8"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-23-0.bin".read_bytes()?, digest: "209f7abc7f3b878ee46cdf3a1fbb9c21c3474f32"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-24-0.bin".read_bytes()?, digest: "05fc054b00d97753a9b3e2da8fbba3ee808cef22"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-25-0.bin".read_bytes()?, digest: "0c4980ea3a46c757dfbfc5baa38ac6c8e72ddce7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-26-0.bin".read_bytes()?, digest: "96a460d2972d276928b69864445bea353bdcffd2"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-27-0.bin".read_bytes()?, digest: "f3ef04d8fa8c6fa9850f394a4554c080956fa64b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-28-0.bin".read_bytes()?, digest: "f2a31d875d1d7b30874d416c4d2ea6baf0ffbafe"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-29-0.bin".read_bytes()?, digest: "f4942d3b9e9588dcfdc6312a84df75d05f111c20"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-30-0.bin".read_bytes()?, digest: "310207df35b014e4676d30806fa34424813734dd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-31-0.bin".read_bytes()?, digest: "4da1955b2fa7c7e74e3f47d7360ce530bbf57ca3"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-32-0.bin".read_bytes()?, digest: "74c4bc5b26fb4a08602d40ccec6c6161b6c11478"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-33-0.bin".read_bytes()?, digest: "0b103ce297338dfc7395f7715ee47539b556ddb6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-34-0.bin".read_bytes()?, digest: "efc72d99e3d2311ce14190c0b726bdc68f4b0821"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-35-0.bin".read_bytes()?, digest: "660edac0a8f4ce33da0d8dbae597650e97687250"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-36-0.bin".read_bytes()?, digest: "fe0a55a988b3b93946a63eb36b23785a5e6efc3e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-37-0.bin".read_bytes()?, digest: "0cbdf2a5781c59f907513147a0de3cc774b54bf3"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-38-0.bin".read_bytes()?, digest: "663e40fee5a44bfcb1c99ea5935a6b5bc9f583b0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-39-0.bin".read_bytes()?, digest: "00162134256952dd9ae6b51efb159b35c3c138c7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-40-0.bin".read_bytes()?, digest: "ceb88e4736e354416e2010fc1061b3b53b81664b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-41-0.bin".read_bytes()?, digest: "a6a2c4b6bcc41ddc67278f3df4d8d0b9dd7784ef"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-42-0.bin".read_bytes()?, digest: "c23d083cd8820b57800a869f5f261d45e02dc55d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-43-0.bin".read_bytes()?, digest: "e8ac31927b78ddec41a31ca7a44eb7177165e7ab"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-44-0.bin".read_bytes()?, digest: "e864ec5dbab0f9ff6984ab6ad43a8c9b81cc9f9c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-45-0.bin".read_bytes()?, digest: "cfed6269069417a84d6de2347220f4b858bcd530"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-46-0.bin".read_bytes()?, digest: "d9217bfb46c96348722c3783d29d4b1a3feda38c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-47-0.bin".read_bytes()?, digest: "dec24e5554f79697218d317315fa986229ce3350"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-48-0.bin".read_bytes()?, digest: "83a099df7071437ba5495a5b0bfbfefe1c0ef7f3"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-49-0.bin".read_bytes()?, digest: "aa3198e30891a83e33ce3bfa0587d86a197d4f80"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-50-0.bin".read_bytes()?, digest: "9b6acbeb4989cbee7015c7d515a75672ffde3442"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-51-0.bin".read_bytes()?, digest: "b021eb08a436b02658eaa7ba3c88d49f1219c035"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-52-0.bin".read_bytes()?, digest: "cae36dab8aea29f62e0855d9cb3cd8e7d39094b1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-53-0.bin".read_bytes()?, digest: "02de8ba699f3c1b0cb5ad89a01f2346e630459d7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-54-0.bin".read_bytes()?, digest: "88021458847dd39b4495368f7254941859fad44b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-55-0.bin".read_bytes()?, digest: "91a165295c666fe85c2adbc5a10329daf0cb81a0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-56-0.bin".read_bytes()?, digest: "4b31312eaf8b506811151a9dbd162961f7548c4b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-57-0.bin".read_bytes()?, digest: "3fe70971b20558f7e9bac303ed2bc14bde659a62"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-58-0.bin".read_bytes()?, digest: "93fb769d5bf49d6c563685954e2aecc024dc02d6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-59-0.bin".read_bytes()?, digest: "bc8827c3e614d515e83dea503989dea4fda6ea13"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-60-0.bin".read_bytes()?, digest: "e83868dbe4a389ab48e61cfc4ed894f32ae112ac"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-61-0.bin".read_bytes()?, digest: "55c95459cde4b33791b4b2bcaaf840930af3f3bd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-62-0.bin".read_bytes()?, digest: "36bb0e2ba438a3e03214d9ed2b28a4d5c578fcaa"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-63-0.bin".read_bytes()?, digest: "3acbf874199763eba20f3789dfc59572aca4cf33"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-64-0.bin".read_bytes()?, digest: "86be037c4d509c9202020767d860dab039cadace"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-65-0.bin".read_bytes()?, digest: "51b57d7080a87394eec3eb2e0b242e553f2827c9"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-66-0.bin".read_bytes()?, digest: "1efbfa78866315ce6a71e457f3a750a38facab41"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-67-0.bin".read_bytes()?, digest: "57d6cb41aeec20236f365b3a490c61d0cfa39611"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-68-0.bin".read_bytes()?, digest: "c532cb64b4ba826372bccf2b4b5793d5b88bb715"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-69-0.bin".read_bytes()?, digest: "15833b5631032663e783686a209c6a2b47a1080e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-70-0.bin".read_bytes()?, digest: "d04f2043c96e10cd83b574b1e1c217052cd4a6b2"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-71-0.bin".read_bytes()?, digest: "e8882627c64db743f7db8b4413dd033fc63beb20"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-72-0.bin".read_bytes()?, digest: "cd2d32286b8867bc124a0af2236fc74be3622199"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-73-0.bin".read_bytes()?, digest: "019b70d745375091ed5c7b218445ec986d0f5a82"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-74-0.bin".read_bytes()?, digest: "e5ff5fec1dadbaed02bf2dad4026be6a96b3f2af"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-75-0.bin".read_bytes()?, digest: "6f4e23b3f2e2c068d13921fe4e5e053ffed4e146"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-76-0.bin".read_bytes()?, digest: "25e179602a575c915067566fba6da930e97f8678"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-77-0.bin".read_bytes()?, digest: "67ded0e68e235c8a523e051e86108eeb757efbfd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-78-0.bin".read_bytes()?, digest: "af78536ea83c822796745556d62a3ee82c7be098"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-79-0.bin".read_bytes()?, digest: "64d7ac52e47834be72455f6c64325f9c358b610d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-80-0.bin".read_bytes()?, digest: "9d4866baa3639c13e541f250ffa3d8bc157a491f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-81-0.bin".read_bytes()?, digest: "2e258811961d3eb876f30e7019241a01f9517bec"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-82-0.bin".read_bytes()?, digest: "8e0ebc487146f83bc9077a1630e0fb3ab3c89e63"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-83-0.bin".read_bytes()?, digest: "ce8953741fff3425d2311fbbf4ab481b669def70"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-84-0.bin".read_bytes()?, digest: "789d1d2dab52086bd90c0e137e2515ed9c6b59b5"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-85-0.bin".read_bytes()?, digest: "b76ce7472700dd68d6328b7aa8437fb051d15745"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-86-0.bin".read_bytes()?, digest: "f218669b596c5ffb0b1c14bd03c467fc873230a0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-87-0.bin".read_bytes()?, digest: "1ff3bdbe0d504cb0cdfab17e6c37aba6b3cffded"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-88-0.bin".read_bytes()?, digest: "2f3cbacbb14405a4652ed52793c1814fd8c4fce0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-89-0.bin".read_bytes()?, digest: "982c8ab6ce164f481915af59aaed9fff2a391752"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-90-0.bin".read_bytes()?, digest: "5cd92012d488a07ece0e47901d0e083b6bd93e3f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-91-0.bin".read_bytes()?, digest: "69603fec02920851d4b3b8782e07b92bb2963009"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-92-0.bin".read_bytes()?, digest: "3e90f76437b1ea44cf98a08d83ea24cecf6e6191"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-93-0.bin".read_bytes()?, digest: "34c09f107c42d990eb4881d4bf2dddcab01563ae"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-94-0.bin".read_bytes()?, digest: "474be0e5892eb2382109bfc5e3c8249a9283b03d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-95-0.bin".read_bytes()?, digest: "a04b4f75051786682483252438f6a75bf4705ec6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-96-0.bin".read_bytes()?, digest: "be88a6716083eb50ed9416719d6a247661299383"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-97-0.bin".read_bytes()?, digest: "c67e38717fee1a5f65ec6c7c7c42afc00cd37f04"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-98-0.bin".read_bytes()?, digest: "959ac4082388e19e9be5de571c047ef10c174a8d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-99-0.bin".read_bytes()?, digest: "baa7aa7b7753fa0abdc4a541842b5d238d949f0a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-100-0.bin".read_bytes()?, digest: "351394dcebc08155d100fcd488578e6ae71d0e9c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-101-0.bin".read_bytes()?, digest: "ab8be94c5af60d9477ef1252d604e58e27b2a9ee"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-102-0.bin".read_bytes()?, digest: "3429ec74a695fdd3228f152564952308afe0680a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-103-0.bin".read_bytes()?, digest: "907fa46c029bc67eaa8e4f46e3c2a232f85bd122"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-104-0.bin".read_bytes()?, digest: "2644c87d1fbbbc0fc8d65f64bca2492da15baae4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-105-0.bin".read_bytes()?, digest: "110a3eeb408756e2e81abaf4c5dcd4d4c6afcf6d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-106-0.bin".read_bytes()?, digest: "cd4fdc35fac7e1adb5de40f47f256ef74d584959"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-107-0.bin".read_bytes()?, digest: "8e6e273208ac256f9eccf296f3f5a37bc8a0f9f7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-108-0.bin".read_bytes()?, digest: "fe0606100bdbc268db39b503e0fdfe3766185828"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-109-0.bin".read_bytes()?, digest: "6c63c3e58047bcdb35a17f74eeba4e9b14420809"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-110-0.bin".read_bytes()?, digest: "bcc2bd305f0bcda8cf2d478ef9fe080486cb265f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-111-0.bin".read_bytes()?, digest: "ce5223fd3dd920a3b666481d5625b16457dcb5e8"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-112-0.bin".read_bytes()?, digest: "948886776e42e4f5fae1b2d0c906ac3759e3f8b0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-113-0.bin".read_bytes()?, digest: "4c12a51fcfe242f832e3d7329304b11b75161efb"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-114-0.bin".read_bytes()?, digest: "c54bdd2050504d92f551d378ad5fc72c9ed03932"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-115-0.bin".read_bytes()?, digest: "8f53e8fa79ea09fd1b682af5ed1515eca965604c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-116-0.bin".read_bytes()?, digest: "2d7e17f6294524ce78b33eab72cdd08e5ff6e313"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-117-0.bin".read_bytes()?, digest: "64582b4b57f782c9302bfe7d07f74aa176627a3a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-118-0.bin".read_bytes()?, digest: "6d88795b71d3e386bbd1eb830fb9f161ba98869f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-119-0.bin".read_bytes()?, digest: "86ad34a6463f12cee6de9596aba72f0df1397fd1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-120-0.bin".read_bytes()?, digest: "7eb46685a57c0d466152dc339c8122548c757ed1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-121-0.bin".read_bytes()?, digest: "e7a98fb0692684054407cc221abc60c199d6f52a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-122-0.bin".read_bytes()?, digest: "34df1306662206fd0a5fc2969a4beec4eb0197f7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-123-0.bin".read_bytes()?, digest: "56cf7ebf08d10f0cb9fe7ee3b63a5c3a02bcb450"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-124-0.bin".read_bytes()?, digest: "3bae5cb8226642088da760a6f78b0cf8eddea9f1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-125-0.bin".read_bytes()?, digest: "6475df681e061fa506672c27cbabfa9aa6ddff62"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-126-0.bin".read_bytes()?, digest: "79d81991fa4e4957c8062753439dbfd47bbb277d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-127-0.bin".read_bytes()?, digest: "bae224477b20302e881f5249f52ec6c34da8ecef"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-128-0.bin".read_bytes()?, digest: "ede4deb4293cfe4138c2c056b7c46ff821cc0acc"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-129-0.bin".read_bytes()?, digest: "a771fa5c812bd0c9596d869ec99e4f4ac988b13f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-130-0.bin".read_bytes()?, digest: "e99d566212bbbceee903946f6100c9c96039a8f4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-131-0.bin".read_bytes()?, digest: "b48ce6b1d13903e3925ae0c88cb931388c013f9c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-132-0.bin".read_bytes()?, digest: "e647d5baf670d4bf3afc0a6b72a2424b0c64f194"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-133-0.bin".read_bytes()?, digest: "65c1cd932a06b05cd0b43afb3bc7891f6bcef45c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-134-0.bin".read_bytes()?, digest: "70ffae353a5cd0f8a65a8b2746d0f16281b25ec7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-135-0.bin".read_bytes()?, digest: "cc8221f2b829b8cf39646bf46888317c3eb378ea"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-136-0.bin".read_bytes()?, digest: "26accc2d6d51ff7bf3e5895588907765111bb69b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-137-0.bin".read_bytes()?, digest: "01072915b8e868d9b28e759cf2bc1aea4bb92165"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-138-0.bin".read_bytes()?, digest: "3016115711d74236adf0c371e47992f87a428598"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-139-0.bin".read_bytes()?, digest: "bf30417999c1368f008c1f19feca4d18a5e1c3c9"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-140-0.bin".read_bytes()?, digest: "62ba49087185f2742c26e1c1f4844112178bf673"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-141-0.bin".read_bytes()?, digest: "e1f6b9536f384dd3098285bbfd495a474140dc5a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-142-0.bin".read_bytes()?, digest: "b522dae1d67726eba7c4136d4e2f6d6d645ac43e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-143-0.bin".read_bytes()?, digest: "e9a021c3eb0b9f2c710554d4bf21b19f78e09478"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-144-0.bin".read_bytes()?, digest: "df13573188f3bf705e697a3e1f580145f2183377"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-145-0.bin".read_bytes()?, digest: "188835cfe52ecfa0c4135c2825f245dc29973970"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-146-0.bin".read_bytes()?, digest: "41b615a34ee2cec9d84a91b141cfab115821950b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-147-0.bin".read_bytes()?, digest: "ab3dd6221d2afe6613b815da1c389eec74aa0337"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-148-0.bin".read_bytes()?, digest: "0706d414b4aa7fb4a9051aa70d6856a7264054fb"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-149-0.bin".read_bytes()?, digest: "3cbf8151f3a00b1d5a809cbb8c4f3135055a6bd1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-150-0.bin".read_bytes()?, digest: "da5d6a0319272bbccea63acfa6799756ffda6840"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-151-0.bin".read_bytes()?, digest: "fb4429c95f6277b346d3b389413758dfffeedc98"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-152-0.bin".read_bytes()?, digest: "2c6e30d9c895b42dcccfc84c906ec88c09b20de1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-153-0.bin".read_bytes()?, digest: "3de3189a5e19f225cdce254dff23dacd22c61363"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-154-0.bin".read_bytes()?, digest: "93530a9bc9a817f6922518a73a1505c411d05da2"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-155-0.bin".read_bytes()?, digest: "e31354345f832d31e05c1b842d405d4bd4588ec8"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-156-0.bin".read_bytes()?, digest: "3ff76957e80b60cf74d015ad431fca147b3af232"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-157-0.bin".read_bytes()?, digest: "34ae3b806be143a84dce82e4b830eb7d3d2bac69"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-158-0.bin".read_bytes()?, digest: "d7447e53d66bb5e4c26e8b41f83efd107bf4adda"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-159-0.bin".read_bytes()?, digest: "77dd2a4482705bc2e9dc96ec0a13395771ac850c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-160-0.bin".read_bytes()?, digest: "eaa1465db1f59de3f25eb8629602b568e693bb57"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-161-0.bin".read_bytes()?, digest: "9329d5b40e0dc43aa25fed69a0fa9c211a948411"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-162-0.bin".read_bytes()?, digest: "e94c0b6aa62aa08c625faf817ddf8f51ec645273"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-163-0.bin".read_bytes()?, digest: "7ff02b909d82ad668e31e547e0fb66cb8e213771"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-164-0.bin".read_bytes()?, digest: "5bb3570858fa1744123bac2873b0bb9810f53fa1"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-165-0.bin".read_bytes()?, digest: "905f43940b3591ce39d1145acb1eca80ab5e43cd"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-166-0.bin".read_bytes()?, digest: "336c79fbd82f33e490c577e3f791c3cbfe842aff"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-167-0.bin".read_bytes()?, digest: "5c6d07a6b44f7a75a64f6ce592f3bae91e022210"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-168-0.bin".read_bytes()?, digest: "7e0d3e9d33127f4a30eb8d9c134a58409fa8695b"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-169-0.bin".read_bytes()?, digest: "9a5f50dfcfb19286206c229019f0abf25283028c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-170-0.bin".read_bytes()?, digest: "dca737e269f9d8626d488988c996e06b352c0708"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-171-0.bin".read_bytes()?, digest: "b8ffc1d4972fce63241e0e77850ac46dde75dbfa"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-172-0.bin".read_bytes()?, digest: "e9c9bf41c8549354151b977003ce1d830be667db"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-173-0.bin".read_bytes()?, digest: "0942908960b54f96cb43452e583f4f9cb66e398a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-174-0.bin".read_bytes()?, digest: "fce34051c34d4b81b85ddc4b543cde8007e284b3"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-175-0.bin".read_bytes()?, digest: "61e8916532503627f4024d13884640a46f1d61d4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-176-0.bin".read_bytes()?, digest: "f008d5d7853b6a17b7466cd9e18bd135e520faf4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-177-0.bin".read_bytes()?, digest: "bd8d2e873cf659b5c77aac1616827ef8a3b1a3b3"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-178-0.bin".read_bytes()?, digest: "b25a04dd425302ed211a1c2412d2410fa10c63b6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-179-0.bin".read_bytes()?, digest: "a404e21588123e0893718b4b44e91414a785b91f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-180-0.bin".read_bytes()?, digest: "a1e13bc55bf6dad83cf3aabda3287ad68681ea64"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-181-0.bin".read_bytes()?, digest: "d5fd35ffabed6733c92365929df0fb4cae864d15"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-182-0.bin".read_bytes()?, digest: "c12e9c280ee9c079e0506ff89f9b20536e0a83ef"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-183-0.bin".read_bytes()?, digest: "e22769dc00748a9bbd6c05bbc8e81f2cd1dc4e2d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-184-0.bin".read_bytes()?, digest: "f29835a93475740e888e8c14318f3ca45a3c8606"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-185-0.bin".read_bytes()?, digest: "1a1d77c6d0f97c4b620faa90f3f8644408e4b13d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-186-0.bin".read_bytes()?, digest: "4ec84870e9bdd25f523c6dfb6edd605052ca4eaa"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-187-0.bin".read_bytes()?, digest: "d689513fed08b80c39b67371959bc4e3fecb0537"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-188-0.bin".read_bytes()?, digest: "c4fed58f209fc3c34ad19f86a6dacadc86c04d33"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-189-0.bin".read_bytes()?, digest: "051888c6d00029c176de792b84dece2dc1c74b00"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-190-0.bin".read_bytes()?, digest: "1a3540bee05518505827954f58b751c475aeece0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-191-0.bin".read_bytes()?, digest: "dfa19180359d5a7a38e842f172359caf4208fc05"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-192-0.bin".read_bytes()?, digest: "7b0fa84ebbcff7d7f4500f73d79660c4a3431b67"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-193-0.bin".read_bytes()?, digest: "9e886081c9acaad0f97b10810d1de6fcdce6b5f4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-194-0.bin".read_bytes()?, digest: "a4d46e4ba0ae4b012f75b1b50d0534d578ae9cb6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-195-0.bin".read_bytes()?, digest: "6342b199ee64c7b2c9cbcd4f2dcb65acef51516f"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-196-0.bin".read_bytes()?, digest: "aabfd63688eb678357869130083e1b52f6ea861d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-197-0.bin".read_bytes()?, digest: "f732b7372daf44801f81effe3108726239837936"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-198-0.bin".read_bytes()?, digest: "5e9347fe4574cdcb80281ed092191199badd7b42"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-199-0.bin".read_bytes()?, digest: "d5776b7dfff75c1358abdbbb3f27a20bb6ca7c55"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-200-0.bin".read_bytes()?, digest: "022b7ada472fb7a9da9219621c9c5f563d3792f6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-201-0.bin".read_bytes()?, digest: "7f1de4eca20362da624653d225a5b3f7964a9ff2"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-202-0.bin".read_bytes()?, digest: "ca0f2b1bfb4469c11ed006a994734f0f2f5efd17"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-203-0.bin".read_bytes()?, digest: "833d63f5c2ea0cd43ec15f2b9dd97ff12b030479"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-204-0.bin".read_bytes()?, digest: "14fd356190416c00592b86ff7ca50b622f85593a"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-205-0.bin".read_bytes()?, digest: "4ab6b57eddef1ce935622f935c1619ae7c1667d6"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-206-0.bin".read_bytes()?, digest: "b456a6a968acd66caa974f96a9a916e700aa3c5d"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-207-0.bin".read_bytes()?, digest: "fd1c257fe046b2a27e2f0cd55ed2deca845f01d7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-208-0.bin".read_bytes()?, digest: "66e0d01780f1063e2929eaad74826bc64060e38c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-209-0.bin".read_bytes()?, digest: "a8478df406f179fd4ef97f4574d7f99ea1ce9eb8"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-210-0.bin".read_bytes()?, digest: "248e58cf09a372114fc2f93b09c5fc14f3d0059e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-211-0.bin".read_bytes()?, digest: "f15767de91796a6816977efa4fced4b7fd9b8a57"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-212-0.bin".read_bytes()?, digest: "36a6bc5e680e15675d9696338c88b36248bbbaf4"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-213-0.bin".read_bytes()?, digest: "4dea6251b2a6df017a8093ab066ee3863a4ec369"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-214-0.bin".read_bytes()?, digest: "d30e70e357d57e3d82ca554b8a3d58dff528fa94"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-215-0.bin".read_bytes()?, digest: "70ca84d827f7fd61446233f88cf2f990b0f3e2aa"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-216-0.bin".read_bytes()?, digest: "8d500c9cfde0288530a2106b70bed39326c52c3c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-217-0.bin".read_bytes()?, digest: "f3d4d139edfc24596377bc97a96fb7621f27ffc7"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-218-0.bin".read_bytes()?, digest: "5509baffac6d507860cefc5ab5832cb63cd4b687"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-219-0.bin".read_bytes()?, digest: "0c0aea0c2fd7a620c77866b1a177481e26b4f592"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-220-0.bin".read_bytes()?, digest: "149176007fee58a591e3f00f8db658b605f8390c"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-221-0.bin".read_bytes()?, digest: "17c0d7b0256159f3626786ffdb20237ae154fa84"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-222-0.bin".read_bytes()?, digest: "741a58618abeb1d983d67afdcbc49aa397a3b8e0"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-223-0.bin".read_bytes()?, digest: "b738d6b3409eb9ed2f1719b84d13f7c36169cdec"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-224-0.bin".read_bytes()?, digest: "3d33de31f64055d3b128ac9a6aa3f92dfd4f5330"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-225-0.bin".read_bytes()?, digest: "b6925f4df94949b8844c867428ba3dedf4cf2b51"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-226-0.bin".read_bytes()?, digest: "cf5e7256292abec431d8e8b9cbeaf22af072377e"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-227-0.bin".read_bytes()?, digest: "975dce94902923977f129c0e4acf40ad28ddb9aa"},
+    {data: fp"{ctx.core_dir}/tests/data/gnu/cksum/sha1sum-vec-228-0.bin".read_bytes()?, digest: "333b0259b18ce64d6b52cf563dd3041e5f63a516"},
+  ]
+  let names = [f"f{i}" for i in range(vectors.len())]
+  for i in range(vectors.len()) { uu.write_bytes(s, names[i], vectors[i].data) }
+  let r = uu.invoke(s, "sha1sum", ["--text"].extend(names), timeout: 30s)?
+  uu.fails_with_code(r, 0)
+  uu.stdout_is(r, [f"{vectors[i].digest}  {names[i]}\n" for i in range(vectors.len())].join(""))
+  uu.stderr_is(r, "")
 }
 
 # origin: gnu cksum/cksum-base64.log
