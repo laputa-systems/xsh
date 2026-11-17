@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 96
+Next: 101
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -150,3 +150,48 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
+### XSH-96 · P3 · Reuse checked programs across processes
+
+- **Area:** Performance
+- **Where:** `src/runtime/eval/indexed/full/`, `src/loader.rs`, `src/execution.rs`, [RFC](docs/rfc/XSH-96-checked-program-cache.md)
+- **Problem:** Every `xsh SCRIPT` run parses, loads, checks and lowers the whole import closure before executing. `xsh core/awk.xsh -- 'BEGIN{print 1}'` still costs 4.34 G user instructions, nearly all checking and lowering, and the 2026-11-17 suite audit found per-process startup is about 70% of each AWK case and dominates the awk, sed, find, patch, ls, expr and numfmt native corpora.
+- **Recommendation:** Prototype serializing one verified indexed program for `core/awk.xsh` and measure its size and decode-plus-verify time (RFC open question 1); build the keyed, verified cache only if the prototype shows an order-of-magnitude startup gain.
+- **Design:** [docs/rfc/XSH-96-checked-program-cache.md](docs/rfc/XSH-96-checked-program-cache.md)
+- **Fix with:** make-it-fast
+- **Effort:** L
+
+### XSH-97 · P3 · Speed up `sort` on ordinary inputs
+
+- **Area:** Core commands
+- **Where:** `core/sort.xsh`, `core/tests/test-gnu-sort.xsh` (`sort_buffer_size_log`), `core/tests/test-uu-sort-1.xsh` (`uu_sort_buffer_sizes`)
+- **Problem:** An in-memory `-n` sort of 20k lines takes about 16 s, and `sort_buffer_size_log` spends about 125 s per 200k-line sort; the single 380 s case is the longest in the native suite and bounds its wall time. The cost is general sort speed, not spilling or merging (2026-11-17 audit).
+- **Recommendation:** Profile one 200k-line sort with `xsht trace` self time and `cargo dev profile`, and remove the dominant per-line or per-comparison work.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-98 · P3 · Encode base58 in linear time
+
+- **Area:** Core commands
+- **Where:** `core/lib/bytes_enc.xsh` (~:59-74), `core/tests/test-uu-basenc.xsh` (`base58_large_file_no_chunking`)
+- **Problem:** base58 conversion processes one digit at a time over the whole number, quadratic in input size; a large-file test takes about 47 s.
+- **Recommendation:** Convert in bounded limbs (e.g. base 58^k chunks) so work grows linearly, keeping byte-identical output.
+- **Fix with:** make-it-fast
+- **Effort:** S
+
+### XSH-99 · P3 · Make deferred-call recursion as cheap per level as plain recursion
+
+- **Area:** Runtime
+- **Where:** `tests/xsh/nested-machine-bounds.xsh` (`recursion_through_a_deferred_call_reports_stack_overflow`), `tests/xsh/call-depth.xsh`, `explicit_run.rs` (`MAX_CALL_DEPTH`)
+- **Problem:** Plain 100k-deep recursion reports stack overflow in 0.77 s, while recursion through a deferred call takes about 53 s to reach the same limit, about 70 times slower per level (unproven which runtime path is responsible).
+- **Recommendation:** Profile the deferred-call path to the depth limit with `cargo dev profile` and remove the per-level cost; keep the stack-overflow report.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-100 · P3 · Report why a gate case is incomplete
+
+- **Area:** Tests
+- **Where:** `dev/gates.xsh` (native case execution and `ExecutionError.Incomplete` with `raw_status: 0`), `dev/gate_lane.xsh`
+- **Problem:** A native test file that fails `xsht check` (for example a `check.redundant-parens` diagnostic) made `cargo dev gate --case native-dev/tests/test-gates.xsh` print only `incomplete: native-dev/tests/test-gates.xsh raw_status=0`, with no diagnostic; the cause was found only by running `xsht test` directly. Separately, a file containing a test the Linux lane excludes as "covers a platform other than Linux" (e.g. `tests/xsh/tooling-trace.xsh::test_trace_rejects_syscalls_outside_linux`) makes every change to that file permanently incomplete, although a full Linux native run would only skip that test.
+- **Recommendation:** Print the runner's stderr or the first diagnostic when a case ends incomplete, and resolve tests excluded only because they cover another platform as not applicable on Linux rather than unresolved.
+- **Fix with:** error-model
+- **Effort:** S
