@@ -438,3 +438,15 @@ test test_lsmem_validation_precedes_help_in_argument_order { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-J", "-r", "--help"], ["--summary=bad", "--help"], ["--summary=bad", "-J", "-r"], ["-J", "-r", "--summary=bad"]] { compare_lsmem(s, args)? }
 }
+
+test test_lsmem_column_list_errors_and_limits_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for value in ["FOO,SIZE", "SIZE,", ",SIZE", "SIZE,,NODE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE"] {
+    compare_lsmem_rooted(s, ["-S", value])?
+  }
+  for value in ["FOO,SIZE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE"] {
+    compare_lsmem_rooted(s, ["-o", value])?
+  }
+  compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "FOO,SIZE"})?
+}

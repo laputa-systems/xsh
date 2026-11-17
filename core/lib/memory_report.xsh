@@ -577,8 +577,8 @@ export proc modes(argv: List[Str]) [process, env, error] -> Modes {
   {table: table, summary: summary}
 }
 
-pure column_list(text: Str) -> List[Str]? {
-  var names: List[Str] = []
+proc column_list(text: Str, initial: List[Str], limit: Int) [process, env] -> List[Str] {
+  var selected = initial
   var begin: Int? = null
   let length = text.byte_len()
   for position in range(length) {
@@ -589,34 +589,27 @@ pure column_list(text: Str) -> List[Str]? {
     if position + 1 == length { end = length }
     let stop = end ?? -1
     continue when stop < 0
-    return null when stop <= start
-    names += [text.byte_slice(start, length: stop - start)]
-    begin = null
-  }
-  names
-}
-
-## Selects output columns from explicit output, environment output, or defaults.
-export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str] {
-  var selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
-  var output = ""
-  if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
-  let text = output
-  if text == "" { exit 1 }
-  let append = text.starts_with("+")
-  let parsed = column_list(if append { text.byte_slice(1) } else { text })
-  if parsed == null { exit 1 }
-  let names = parsed ?? []
-  if ! append { selected = [] }
-  for name in names {
+    if stop <= start { exit 1 }
+    if selected.len() >= limit { exit 1 }
+    let name = text.byte_slice(start, length: stop - start)
     var found = false
     for column in COLUMN_NAMES {
       if name.upper() == column { selected += [column]; found = true; break }
     }
-    if ! found { gnu.error(f"unknown column: {name}"); exit 1 }
-    if selected.len() > 17 { gnu.error("too many columns specified, the limit is 17"); exit 1 }
+    if ! found { gnu.error(f"unknown column: {text.byte_slice(start)}"); exit 1 }
+    begin = null
   }
   selected
+}
+
+## Selects output columns from explicit output, environment output, or defaults.
+export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str] {
+  let selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
+  var output = ""
+  if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
+  if output == "" { exit 1 }
+  let append = output.starts_with("+")
+  column_list(if append { output.byte_slice(1) } else { output }, if append { selected } else { [] }, 18)
 }
 
 ## Selects which attributes prevent adjacent memory blocks from merging.
@@ -624,16 +617,7 @@ export proc split_columns(opts: Options, output_columns: List[Str]) [process, en
   if opts.split == null { return output_columns }
   let text = opts.split ?? ""
   return [] when text.lower() == "none"
-  var selected = []
-  for name in text.split(",") {
-    var found = false
-    for column in COLUMN_NAMES {
-      if name.upper() == column { selected += [column]; found = true; break }
-    }
-    if ! found { gnu.error(f"unknown column: {name}"); exit 1 }
-    if selected.len() > 8 { gnu.error("too many columns specified, the limit is 8 columns"); exit 1 }
-  }
-  selected
+  column_list(text, [], 9)
 }
 
 pure block_number(block: Block) -> Str {
