@@ -1083,3 +1083,111 @@ test test_lslocks_mount_bytes_fallback { |ctx|
     ul.finish_keeper(keeper)
   }
 }
+
+test test_lslocks_review6_columns { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-o", ","], ["-o", "PID,,"], ["-o", "FOO,,"], ["-o", ",PID,,"]] {
+    parity(s, args)?
+  }
+  parity(s, [], {LSLOCKS_COLUMNS: ","})?
+}
+
+test test_lslocks_review6_filter_lexer { |ctx|
+  let s = uu.scene(ctx)?
+  for expression in ["pıd > 0", "PID == \"a\\\"b\"", "COMMAND == café", "FOO == 1 && BAR", "\"abc"] {
+    parity(s, ["-Q", expression])?
+  }
+}
+
+
+test test_lslocks_review6_ascii_columns { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-o", "pıd"], ["-o", "ſize"]] { parity(s, args)? }
+}
+
+test test_lslocks_review6_list_columns_filter { |ctx|
+  let s = uu.scene(ctx)?
+  parity(s, ["-H", "-Q", "FOO"])?
+}
+
+test test_lslocks_review6_filter_echo { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-Q", "@ PID > 0", "-p", "abc"], ["-Q", "@ PID > 0", "-h"], ["-Q", "@ PID > 0", "-Q", "#PID == 0"]] { parity(s, args)? }
+}
+
+test test_lslocks_review6_merged_filter_error { |ctx|
+  let s = uu.scene(ctx)?
+  let args = [p"-Q", p"@ FOO > 0"]
+  let reference_words = ul.reference_argv(s, "lslocks", args, {})?
+  let candidate_words = uu.argv(s, "lslocks", args, {})?
+  let wrapper = [p"/bin/sh", p"-c", p"exec \"$@\" 2>&1", p"sh"]
+  let reference = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @reference_words], 80)?
+  let candidate = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @candidate_words], 80)?
+  assert reference == candidate
+}
+
+test test_lslocks_review6_terminal_width { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "terminal-width")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "flock-ex", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
+  for args in [[p"-p", fp"{pid}", p"-o", p"COMMAND,PID,TYPE,SIZE,MODE,M,START,END"], [p"-u", p"-p", fp"{pid}", p"-o", p"COMMAND,PID,TYPE,SIZE,MODE,M,START,END"]] {
+    for columns in [50, 60, 68, 80] {
+      let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
+      let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
+      assert reference == candidate, f"terminal width {columns}"
+    }
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
+test test_lslocks_review6_zero_terminal_width { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "zero-terminal-width")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "flock-ex", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
+  let args = [p"-p", fp"{pid}", p"-o", p"COMMAND,PID,TYPE,SIZE,MODE,M,START,END"]
+  let vars = {COLUMNS: "40"}
+  let reference_words = ul.reference_argv(s, "lslocks", args, vars)?
+  let candidate_words = uu.argv(s, "lslocks", args, vars)?
+  let wrapper = [p"/bin/sh", p"-c", p"python3 -c 'import fcntl,struct; fcntl.ioctl(1,0x5414,struct.pack(\"HHHH\",24,0,0,0))'; exec \"$@\"", p"sh"]
+  let reference = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @reference_words], 40, vars:)?
+  let candidate = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @candidate_words], 40, vars:)?
+  assert reference.stderr.is_empty(), f"{reference.stderr.base64()}"
+  assert reference == candidate
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
+
+test test_lslocks_review6_empty_cells { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  let lock_path = uu.at(s, "empty-filter")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
+  for expression in ["BLOCKER == 0", "SIZE == 0", "SIZE", "NOT SIZE"] {
+    parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PATH", "-Q", expression])?
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
+test test_lslocks_review6_filter_path_bytes { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold-bytes", "posix-r-", s.root.display(), "6c6f636b2dff", "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(BytePathReady)?.pid
+  parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PID", "-Q", f"PATH > \"{s.root}/lock-x\""])?
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}

@@ -66,7 +66,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
-enum FilterParseError { UnexpectedEnd, UnexpectedToken(Str), InvalidRegex(Str), InvalidExpression, UnknownFilterColumn(Str) }
+enum FilterParseError { UnexpectedEnd, UnexpectedToken(Str), UnexpectedHolder, InvalidRegex(Str), InvalidExpression, UnknownFilterColumns(List[Str]) }
 type FilterLexed = {tokens: List[FilterToken], echoed: Str}
 type FilterProgram = {tokens: List[FilterToken], echoed: Str}
 type FilterFailure = {reason: FilterParseError, echoed: Str}
@@ -392,6 +392,7 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
 }
 
 pure canonical_column(name: Str) -> Str? {
+  if ! rx"^[A-Za-z0-9:]+$".matches(name) { return null }
   let upper = name.upper()
   for column in COLUMNS { return column when column == upper }
   null
@@ -410,7 +411,9 @@ pure select_columns(output: Str?, output_all: Bool, environment: Str?) -> Result
   for index in range(names.len()) {
     let name = names[index]
     if name == "" {
+      return Err(UnknownColumn(",")) when index == names.len() - 2 and names[-1] == ""
       return Err(UnknownColumn(names[index - 1] + ",")) when index == names.len() - 1 and index > 0
+      return Err(UnknownColumn(",")) when index == names.len() - 1
       return Err(EmptyColumnName)
     }
     let column = canonical_column(name)
@@ -426,7 +429,7 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
   match column {
     "PID" => {kind: "number", value: f"{lock.pid}", boolean: false}
     "TYPE" => {kind: "string", value: lock.kind, boolean: false}
-    "SIZE" => {kind: "number", value: f"{lock.size}", boolean: false}
+    "SIZE" => {kind: if lock.size == 0 { "empty" } else { "number" }, value: f"{lock.size}", boolean: false}
     "INODE" => {kind: "number", value: f"{lock.inode}", boolean: false}
     "MAJ:MIN" => {kind: "string", value: f"{lock.major}:{lock.minor}", boolean: false}
     "MODE" => {kind: "string", value: lock.mode + (if lock.blocked { "*" } else { "" }), boolean: false}
@@ -434,7 +437,7 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
     "START" => {kind: "number", value: f"{lock.start}", boolean: false}
     "END" => {kind: "number", value: f"{lock.end}", boolean: false}
     "PATH" => {kind: "string", value: if let path_bytes = lock.path { path_bytes.utf8() ?? filter_byte_text(path_bytes) } else { "" }, boolean: false}
-    "BLOCKER" => {kind: "number", value: f"{lock.blocker ?? 0}", boolean: false}
+    "BLOCKER" => {kind: if lock.blocker == null { "empty" } else { "number" }, value: f"{lock.blocker ?? 0}", boolean: false}
     "HOLDERS" => {kind: "string", value: lock.holders.join("\n"), boolean: false}
     else => {kind: "string", value: lock.command, boolean: false}
   }
@@ -459,6 +462,7 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
     }
     if current in ["'", "\""] {
       let quote = current
+      let quote_at = at
       at += 1
       var value = ""
       var closed = false
@@ -469,16 +473,15 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
           at += 1
           break
         }
-        if part == "\\" and at + 1 < length {
-          at += 1
-          value += characters[at]
-          at += 1
-        } else {
-          value += part
-          at += 1
-        }
+        value += part
+        at += 1
       }
-      return Err({reason: InvalidExpression, echoed: echoed}) when ! closed
+      if ! closed {
+        echoed += quote
+        at = quote_at + 1
+        continue
+      }
+      if ! output.is_empty() and output[-1].kind in ["word", "literal", ")"] { return Err({reason: UnexpectedHolder, echoed: echoed}) }
       output += [{kind: "literal", value: value}]
       continue
     }
@@ -503,6 +506,8 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
     while at < length {
       let part = characters[at]
       break when part in [" ", "\t", "\n", "\r", "(", ")", "<", ">", "!", "=", "&", "|", "'", "\"", "[", "]"]
+      let code = bytes.from_text(part).byte_at(0) ?? 0
+      break when part.byte_len() != 1 or ! ((code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or part in ["_", ":", ".", "-", "%", "/"])
       break when numeric_start and part == "-"
       at += 1
     }
@@ -513,6 +518,7 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
     } else if upper in ["EQ", "NE", "LT", "LE", "GT", "GE"] {
       output += [{kind: "operator", value: match upper { "EQ" => "=="; "NE" => "!="; "LT" => "<"; "LE" => "<="; "GT" => ">"; else => ">=" }}]
     } else {
+      if ! output.is_empty() and output[-1].kind in ["word", "literal", ")"] { return Err({reason: UnexpectedHolder, echoed: echoed}) }
       output += [{kind: "word", value: word}]
     }
   }
@@ -540,7 +546,7 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
   var expects_value = true
   for token in tokens {
     if token.kind in ["word", "literal"] {
-      return Err(InvalidExpression) when ! expects_value
+      return Err(UnexpectedHolder) when ! expects_value
       output += [token]
       expects_value = false
     } else if token.kind == "(" {
@@ -581,11 +587,12 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
     output += [top]
   }
   var depth = 0
+  var unknown: List[Str] = []
   for token in output {
     if token.kind == "word" {
       let upper = token.value.upper()
       if canonical_column(token.value) == null and upper not in ["TRUE", "FALSE"] and ! filter_number(token.value) {
-        return Err(UnknownFilterColumn(token.value))
+        unknown += [token.value]
       }
     }
     if token.kind in ["word", "literal"] {
@@ -598,6 +605,7 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
     }
   }
   return Err(InvalidExpression) when depth != 1
+  if ! unknown.is_empty() { return Err(UnknownFilterColumns(unknown)) }
   Ok(output)
 }
 
@@ -622,6 +630,13 @@ pure parse_filter(text: Str) -> Result[FilterProgram, FilterFailure] {
   }
   if let Err(reason) = parsed { return Err({reason: reason, echoed: tokens.echoed}) }
   Err({reason: InvalidExpression, echoed: tokens.echoed})
+}
+
+pure filter_echo(text: Str) -> Str {
+  match filter_tokens(text) {
+    Ok(parsed) => parsed.echoed
+    Err(failure) => failure.echoed
+  }
 }
 
 pure filter_literal(token: FilterToken) -> FilterValue {
@@ -652,9 +667,37 @@ pure regex_byte_text(value: Str) -> Str {
   bytes.concat(chunks).utf8() ?? ""
 }
 
+pure filter_bytes(value: Str) -> List[Int] {
+  let raw = bytes.from_text(value)
+  var result: List[Int] = []
+  var index = 0
+  while index < raw.len() {
+    if raw.byte_at(index) == 0 and index + 3 < raw.len() and raw.byte_at(index + 3) == 0 {
+      result += [hexadecimal(raw[index + 1..index + 3].utf8() ?? "") ?? 0]
+      index += 4
+    } else {
+      result += [raw.byte_at(index) ?? 0]
+      index += 1
+    }
+  }
+  result
+}
+
+pure filter_byte_order(left: Str, right: Str) -> Int {
+  let l = filter_bytes(left)
+  let r = filter_bytes(right)
+  let length = if l.len() < r.len() { l.len() } else { r.len() }
+  for index in range(length) {
+    if l[index] < r[index] { return -1 }
+    if l[index] > r[index] { return 1 }
+  }
+  if l.len() < r.len() { -1 } else if l.len() > r.len() { 1 } else { 0 }
+}
+
 pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: Lock) -> Bool {
   let l = if left.kind == "column" { column_value(lock, left.value) } else { left }
   let r = if right.kind == "column" { column_value(lock, right.value) } else { right }
+  if l.kind == "empty" or r.kind == "empty" { return false }
   if operator in ["=~", "!~"] {
     let pattern = regex.compile(regex_byte_text(r.value))
     let matched = if let Ok(compiled) = pattern { compiled.matches(regex_byte_text(l.value)) } else { false }
@@ -686,17 +729,19 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
     return l.boolean == right_bool when operator == "=="
     return l.boolean != right_bool when operator == "!="
   }
-  return l.value == r.value when operator == "=="
-  return l.value != r.value when operator == "!="
-  return l.value > r.value when operator == ">"
-  return l.value < r.value when operator == "<"
-  return l.value >= r.value when operator == ">="
-  return l.value <= r.value when operator == "<="
+  let order = filter_byte_order(l.value, r.value)
+  return order == 0 when operator == "=="
+  return order != 0 when operator == "!="
+  return order > 0 when operator == ">"
+  return order < 0 when operator == "<"
+  return order >= 0 when operator == ">="
+  return order <= 0 when operator == "<="
   false
 }
 
 pure filter_truth(value: FilterValue, lock: Lock) -> Bool {
   let resolved = if value.kind == "column" { column_value(lock, value.value) } else { value }
+  if resolved.kind == "empty" { return false }
   if resolved.kind == "boolean" { return resolved.boolean }
   if resolved.kind == "number" { return (decimal(resolved.value) ?? 0) != 0 }
   if resolved.kind == "float" { return (resolved.value.parse_float() ?? 0.0) != 0.0 }
@@ -841,16 +886,6 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
   var widths = table_width(columns, data, headings)
   var output_width = columns.len() - 1
   for width in widths { output_width += width }
-  if terminal and ! raw {
-    for index in range(columns.len()) {
-      let hint = column_width_hint(columns[index])
-      let growth = hint - widths[index]
-      if growth > 0 and output_width + growth <= terminal_width {
-        widths[index] += growth
-        output_width += growth
-      }
-    }
-  }
   if terminal and ! raw and ! notruncate and "PATH" in columns and output_width > terminal_width {
     var path_column = -1
     for index in range(columns.len()) {
@@ -860,6 +895,22 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
       let excess = output_width - terminal_width
       let minimum = if headings { tui.cell_width("PATH") } else { 1 }
       widths[path_column] = if excess >= widths[path_column] - minimum { minimum } else { widths[path_column] - excess }
+    }
+  }
+  output_width = columns.len() - 1
+  for width in widths { output_width += width }
+  if terminal and ! raw {
+    var changed = true
+    while output_width < terminal_width and changed {
+      changed = false
+      for offset in range(columns.len()) {
+        let index = columns.len() - offset - 1
+        if widths[index] < column_width_hint(columns[index]) and output_width < terminal_width {
+          widths[index] += 1
+          output_width += 1
+          changed = true
+        }
+      }
     }
   }
   let rows: List[List[Str]] = if headings { [columns, @data] } else { data }
@@ -1077,14 +1128,14 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
   }
   if name == "filter" {
     if let Err(failure) = parse_filter(value) {
-      if failure.reason is UnknownFilterColumn(_) { return }
-      ul_io.write_text(failure.echoed)
+      if failure.reason is UnknownFilterColumns(_) { return }
       match failure.reason {
         UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
         UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
+        UnexpectedHolder => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected HOLDER, expecting end of file")
         InvalidRegex(message) => gnu.error(f"failed to parse \"{value}\": {message}")
         InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(value)}: invalid expression")
-        UnknownFilterColumn(_) => {}
+        UnknownFilterColumns(_) => {}
       }
       exit 1
     }
@@ -1169,14 +1220,34 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     }
   }
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
+  var echoed = ""
+  defer { if echoed != "" { ul_io.write_diagnostic_bytes(b""); ul_io.write_text(echoed) } }
   var raw_index = 0
   while raw_index < arguments.len() {
     let prefix = argv[..raw_index]
     if let detail = first_option_diagnostic(prefix, permute) { gnu.usage_error(detail) }
     validate_early(prefix, permute)
     let word = arguments[raw_index]
+    let argument = argv[raw_index]
     raw_index += 1
     if word == b"--" { break }
+    if argument.starts_with("--") and long_option_name(argument) == "filter" {
+      let value = if let equal = argument.find("=") { argument.byte_slice(equal + 1) } else if raw_index < argv.len() { argv[raw_index] } else { "" }
+      echoed += filter_echo(value)
+    } else if argument.starts_with("-") and ! argument.starts_with("--") {
+      for position in range(1, argument.byte_len()) {
+        if (word.byte_at(position) ?? 0) >= 128 { break }
+        let flag = argument.byte_slice(position, length: 1)
+        if flag in ["o", "p", "Q"] {
+          if flag == "Q" {
+            let value = if position + 1 < argument.byte_len() { argument.byte_slice(position + 1) } else if raw_index < argv.len() { argv[raw_index] } else { "" }
+            echoed += filter_echo(value)
+          }
+          break
+        }
+        if flag in ["h", "V"] or flag not in SHORT_OPTIONS { break }
+      }
+    }
     if word.starts_with(b"--") and word.utf8() is Err(_) {
       if ! word.starts_with(b"--output=") and ! word.starts_with(b"--pid=") and ! word.starts_with(b"--filter=") {
         ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), word[2..], bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
@@ -1270,30 +1341,32 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     }
   }
   var program: List[FilterToken]? = null
-  if let expression = if opts.help or opts.version { null } else { opts.filter } {
+  if let expression = if opts.help or opts.version or opts.list_columns { null } else { opts.filter } {
     match parse_filter(expression) {
-      Ok(parsed) => { ul_io.write_text(parsed.echoed); program = parsed.tokens }
+      Ok(parsed) => { program = parsed.tokens }
       Err(failure) => {
-        ul_io.write_text(failure.echoed)
         match failure.reason {
           UnexpectedEnd => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected end of file")
           UnexpectedToken(token) => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected '{token}', expecting end of file")
+          UnexpectedHolder => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected HOLDER, expecting end of file")
           InvalidRegex(message) => gnu.error(f"failed to parse \"{expression}\": {message}")
           InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(expression)}: invalid expression")
-          UnknownFilterColumn(name) => { gnu.error(f"unknown column: {name}"); gnu.error("failed to initialize filter") }
+          UnknownFilterColumns(names) => { for name in names { gnu.error(f"unknown column: {name}") }; gnu.error("failed to initialize filter") }
         }
         exit 1
       }
     }
   }
   if opts.help {
+    if echoed != "" { ul_io.write_text(echoed); echoed = "" }
     ul_io.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
     return
   }
-  if opts.version { ul_io.version("lslocks"); return }
+  if opts.version { if echoed != "" { ul_io.write_text(echoed); echoed = "" }; ul_io.version("lslocks"); return }
   let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
   if opts.list_columns {
+    if echoed != "" { ul_io.write_text(echoed); echoed = "" }
     let names = COLUMNS
     let json_types = ["<string>", "<integer>", "<string>", "<string|number>", "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
     let rows = collect {
@@ -1343,12 +1416,14 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   }
   if rows.is_empty() and ! opts.json { return }
   let byte_locale = ul_io.byte_locale()
+  if echoed != "" { ul_io.write_text(echoed); echoed = "" }
   if opts.json {
     ul_io.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {
     let terminal = unix.isatty(1)
     let terminal_width = if terminal {
-      if let Ok(size) = unix.window_size(1) { if size.cols > 0 { size.cols } else { 80 } } else { 80 }
+      let fallback = if let Ok(value) = env.get("COLUMNS") { decimal(value) ?? 80 } else { 80 }
+      if let Ok(size) = unix.window_size(1) { if size.cols > 0 { size.cols } else if fallback > 0 { fallback } else { 80 } } else if fallback > 0 { fallback } else { 80 }
     } else { 80 }
     ul_io.write_bytes(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes, opts.notruncate, terminal, terminal_width, byte_locale))
   }
