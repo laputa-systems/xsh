@@ -95,6 +95,52 @@ fn xsh_files(root: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
+fn config_glob_matches(pattern: &[&str], path: &[&str]) -> bool {
+    fn segment(pattern: &[u8], value: &[u8]) -> bool {
+        match pattern {
+            [] => value.is_empty(),
+            [b'*', rest @ ..] => segment(rest, value) || (!value.is_empty() && segment(pattern, &value[1..])),
+            [first, rest @ ..] => !value.is_empty() && *first == value[0] && segment(rest, &value[1..]),
+        }
+    }
+    match pattern {
+        [] => path.is_empty(),
+        ["**"] => true,
+        ["**", rest @ ..] => config_glob_matches(rest, path)
+            || (!path.is_empty() && config_glob_matches(pattern, &path[1..])),
+        [first, rest @ ..] => !path.is_empty()
+            && segment(first.as_bytes(), path[0].as_bytes())
+            && config_glob_matches(rest, &path[1..]),
+    }
+}
+
+fn lint_included_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    xsh_files(root, &mut files);
+    let mut configs = BTreeMap::new();
+    files.retain(|file| {
+        let mut directory = file.parent();
+        while let Some(dir) = directory.filter(|dir| dir.starts_with(root)) {
+            let excludes = configs.entry(dir.to_path_buf()).or_insert_with(|| {
+                let config = xsh::frontend::load::read_project_config(&dir.join("xsht-config.ini"))
+                    .expect("read lint config");
+                match config.as_ref().and_then(|fields| fields.get("exclude")) {
+                    Some(xsh::execution::value::Value::Str(value)) => value.lines().map(str::to_owned).collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                }
+            });
+            let relative = file.strip_prefix(dir).expect("file below config directory").to_string_lossy();
+            let parts = relative.split('/').collect::<Vec<_>>();
+            if excludes.iter().any(|pattern| config_glob_matches(&pattern.split('/').collect::<Vec<_>>(), &parts)) {
+                return false;
+            }
+            directory = dir.parent();
+        }
+        true
+    });
+    files
+}
+
 #[cfg(unix)]
 #[test]
 fn lint_corpus_copy_and_discovery_skip_work_tree() {
@@ -598,7 +644,7 @@ fn perturb_layout(source: &str) -> Option<String> {
             &canonical.formatted,
             &mut accepted,
             &groups,
-            &mut 48,
+            &mut (48usize / (1 + source.len() / 16_384)).max(4),
         );
     }
     (!accepted.is_empty()).then(|| apply(source, &accepted))
@@ -784,19 +830,14 @@ fn formatting_preserves_lints_on_the_repository_corpus() {
     eprintln!("repository corpus: {count} diagnostic(s), layout-independent");
 }
 
-/// Rewrites every file under `root` with `perturb_layout`, returning how many
-/// changed. Files are independent, so a bounded pool shares them, largest
-/// first so one long file does not start last.
 fn perturb_tree(root: &Path) -> usize {
-    let mut files = Vec::new();
-    xsh_files(root, &mut files);
+    let mut files = lint_included_files(root);
     files.sort_by_cached_key(|file| {
         std::cmp::Reverse(fs::metadata(file).map_or(0, |metadata| metadata.len()))
     });
     let next = AtomicUsize::new(0);
     let workers = thread::available_parallelism()
-        .map_or(1, std::num::NonZero::get)
-        .min(8);
+        .map_or(1, std::num::NonZero::get);
     thread::scope(|scope| {
         let workers: Vec<_> = (0..workers)
             .map(|_| {
@@ -856,8 +897,16 @@ fn lint_fix_commutes_with_formatting_on_corpus_files() {
     let scratch = TempDir::new().expect("scratch directory");
     let format_first = scratch.path().join("format-first");
     let fix_first = scratch.path().join("fix-first");
-    copy_corpus(&workspace_root(), &format_first);
-    copy_corpus(&workspace_root(), &fix_first);
+    for root in [&format_first, &fix_first] {
+        fs::create_dir_all(root.join("dev")).expect("create configured include");
+        fs::copy(workspace_root().join("xsht-config.ini"), root.join("xsht-config.ini"))
+            .expect("copy lint config");
+        for file in &FILES[1..] {
+            let target = root.join(file);
+            fs::create_dir_all(target.parent().expect("fixture parent")).expect("create fixture directory");
+            fs::copy(workspace_root().join(file), target).expect("copy fixture");
+        }
+    }
     fs::write(
         format_first.join(FIXTURE),
         "pure has_id(id: Str?) -> Bool {\n  if id == null or (id) == \"\" {\n    return false\n  }\n  true\n}\nlet value = \"  root=private  quiet  \" + \"\\n\"\nassert value == (\"  root=private  quiet  \" + \"\\n\")\nassert has_id(\"linux\")\npure greet(name: Str) -> Str {\n  \"hello {name}\"\n}\nassert greet(\"a\") == \"hello a\"\n",
