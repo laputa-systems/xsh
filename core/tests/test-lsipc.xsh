@@ -1845,3 +1845,18 @@ test test_lsipc_inaccessible_semaphore_elements { |ctx|
   assert reference.status.exited_with(1) and candidate.status.exited_with(1)
   assert reference.stdout == candidate.stdout and reference.stderr == candidate.stderr
 }
+
+test test_lsipc_global_shared_memory_overflow { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let code = "import ctypes\nl=ctypes.CDLL(None); l.shmget.argtypes=[ctypes.c_int,ctypes.c_size_t,ctypes.c_int]\nfor n in [2**62,2**62+2**61,2**62]:\n i=l.shmget(0,n,0o11600); assert i>=0; print(i)"
+  let created = run.capture --text python3 -c $code
+  assert created.status.exited_with(0)
+  let ids = created.stdout.fields()
+  defer { for id in ids { run.status ipcrm -m $id } }
+  assert ids.len() == 3
+  for args in [["-g"], ["-g", "-m"]] {
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
+  }
+}

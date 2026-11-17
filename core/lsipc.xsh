@@ -452,13 +452,20 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
   }
   if "shmems" in selection.resources {
     let records = ipc.collect_system_v(ipc.MemorySegments)
-    var bytes_used = 0
-    for record in records {
-      match record.details { ipc.SharedMemory(segment) => { bytes_used += segment.size_bytes ?? 0 }, else => {} }
-    }
     let page_size = system.execution_units()?.page_size_bytes
+    var pages_used = 0
+    var remaining_bytes = 0
+    for record in records {
+      match record.details { ipc.SharedMemory(segment) => {
+        let size = segment.size_bytes ?? 0
+        pages_used += size / page_size
+        remaining_bytes += size % page_size
+        pages_used += remaining_bytes / page_size
+        remaining_bytes = remaining_bytes % page_size
+      }, else => {} }
+    }
     rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), ipc.read_limit_text(ipc.SharedMemoryCount), true, false)]
-    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, ipc.read_limit_text(ipc.SharedMemoryPages), true, false)]
+    rows += [global_row(selection, "SHMALL", "Shared memory pages", pages_used, ipc.read_limit_text(ipc.SharedMemoryPages), true, false)]
     rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, ipc.read_limit_text(ipc.SharedMemoryBytes), false, true)]
     rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, "1", false, true)]
   }
