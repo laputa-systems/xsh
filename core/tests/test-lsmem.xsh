@@ -413,3 +413,11 @@ test test_lsmem_missing_or_nondirectory_sysroot_matches_reference { |ctx|
   regular.write("file")?
   for root in [missing, regular] { compare_lsmem(s, ["--sysroot", root.display()])? }
 }
+
+test test_lsmem_abbreviated_options_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for args in [["--js"], ["--summ"], ["--sum=only"], ["--summ=never"], ["--pai"], ["--ra"], ["--js", "--pai"], ["--al", "--split=STATE"]] {
+    compare_lsmem_rooted(s, args)?
+  }
+}

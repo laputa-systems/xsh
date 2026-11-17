@@ -50,6 +50,30 @@ proc unknown_long_option(argv: List[Str]) [env] -> Str? {
   null
 }
 
+pure canonical_arguments(argv: List[Str]) -> List[Str] {
+  var result: List[Str] = []
+  var index = 0
+  while index < argv.len() {
+    let word = argv[index]
+    index += 1
+    if word == "--" { return result.extend([word]).extend(argv[index..]) }
+    if word.starts_with("--") {
+      let parts = word.byte_slice(2).split("=", maxsplit: 1)
+      let matches = [option for option in LONG_OPTIONS if option.starts_with(parts[0])]
+      let name = if parts[0] in LONG_OPTIONS { parts[0] } else if matches.len() == 1 { matches[0] } else { parts[0] }
+      result += ["--" + name + (if parts.len() > 1 { "=" + parts[1] } else { "" })]
+      if name in ["output", "split", "sysroot"] and parts.len() == 1 and index < argv.len() {
+        result += [argv[index]]
+        index += 1
+      }
+    } else {
+      result += [word]
+      if word in ["-o", "-S", "-s"] and index < argv.len() { result += [argv[index]]; index += 1 }
+    }
+  }
+  result
+}
+
 pure sysroot_equals_at(argument: Bytes) -> Int? {
   return null when ! argument.starts_with(b"--")
   var equals: Int? = null
@@ -119,9 +143,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let opts: report.Options = {...parsed, sysroot: sysroot}
   if opts.help { ul_io.help(HELP); return }
   if opts.version { ul_io.version("lsmem"); return }
-  report.check_exclusive(arguments)
+  let canonical = canonical_arguments(arguments)
+  report.check_exclusive(canonical)
   if ! opts.operands.is_empty() { gnu.usage_error("bad usage") }
-  let modes = report.modes(arguments)
+  let modes = report.modes(canonical)
   if !modes.table and !modes.summary {
     gnu.error("options --{raw,json,pairs} and --summary=only are mutually exclusive")
     exit 1
