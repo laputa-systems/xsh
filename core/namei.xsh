@@ -369,7 +369,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let result = expand(entries_from_root, options.nosymlinks, options.mounts)?
     for entry in result.entries {
       if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure) }
-      if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.."]), "stat of ", failure) }
+      if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.. failed"]), "stat of ", failure) }
     }
     let widths = update_owner_widths(result.entries, normalized_options.owners, user_width, group_width)
     user_width = widths.user_width

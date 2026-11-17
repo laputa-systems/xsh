@@ -267,3 +267,17 @@ test test_namei_version_provenance { |ctx|
     assert candidate.stderr == b""
   }
 }
+
+test test_namei_mount_parent_stat_failure { |ctx|
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "locked")
+  uu.symlink(s, "locked", "link")
+  let locked = uu.at(s, "locked")
+  locked.chmod(0o000)
+  defer locked.chmod(0o755)
+  let args = ["-x", "link"]
+  let reference = ul.reference(s, "namei", args)?
+  assert reference.status == 1 and reference.stdout == b""
+  assert reference.stderr == b"namei: stat of locked/.. failed: Permission denied\n"
+  ul.compare(reference, uu.invoke(s, "namei", args, timeout: 5s)?)
+}
