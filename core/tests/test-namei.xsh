@@ -281,3 +281,13 @@ test test_namei_mount_parent_stat_failure { |ctx|
   assert reference.stderr == b"namei: stat of locked/.. failed: Permission denied\n"
   ul.compare(reference, uu.invoke(s, "namei", args, timeout: 5s)?)
 }
+
+test test_namei_loop_errno_text { |ctx|
+  let s = uu.scene(ctx)?
+  uu.symlink(s, "loop", "loop")
+  let args = ["-n", "loop/x"]
+  let reference = ul.reference(s, "namei", args)?
+  assert reference.status == 1 and reference.stderr == b""
+  assert reference.stdout == b"f: loop/x\n l loop -> loop\n    x - Symbolic link loop\n"
+  ul.compare(reference, uu.invoke(s, "namei", args, timeout: 5s)?)
+}

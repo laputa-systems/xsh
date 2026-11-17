@@ -2,6 +2,14 @@
 use lib.gnu as gnu
 use lib.util_linux_io as ul_io
 
+pure util_strerror(failure: Error) -> Str {
+  let text = failure.message
+  let at = text.find(" (os error ") ?? -1
+  if at < 0 { return text }
+  let parts = text.byte_slice(0, at).split(": ")
+  parts[-1]
+}
+
 const MAXSYMLINKS = 20
 const USAGE = """Usage:
  namei [options] <pathname>...
@@ -300,7 +308,7 @@ proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: 
     if let failure = entry.stat_error {
       failed = true
       let blanks = 1 + (if options.modes { 9 } else { 0 }) + (if options.owners { user_width + group_width + 2 } else { 0 }) + (if options.vertical { 0 } else { 1 }) + 1 + entry.level * 2
-      ul_io.write_bytes(bytes.concat([spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(gnu.strerror(failure)), b"\n"]))
+      ul_io.write_bytes(bytes.concat([spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(util_strerror(failure)), b"\n"]))
       break
     }
     guard let metadata = entry.metadata else { continue }
@@ -331,7 +339,7 @@ pure right_pad(text: Str, width: Int) -> Str {
 proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io, error] {
   ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: {kind}"), pathname,
-    bytes.from_text(f": {gnu.strerror(failure)}\n"),
+    bytes.from_text(f": {util_strerror(failure)}\n"),
   ]))
   exit 1
 }

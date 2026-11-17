@@ -225,3 +225,14 @@ test test_mountpoint_version_provenance { |ctx|
     assert candidate.stderr == b""
   }
 }
+
+test test_mountpoint_loop_errno_text { |ctx|
+  let s = uu.scene(ctx)?
+  uu.symlink(s, "loop", "loop")
+  for args in [["loop"], ["-d", "loop"], ["--show", "loop"]] {
+    let reference = ul.reference(s, "mountpoint", args)?
+    assert reference.status == 1 and reference.stdout == b""
+    assert reference.stderr == b"mountpoint: loop: Symbolic link loop\n"
+    ul.compare(reference, uu.invoke(s, "mountpoint", args, timeout: 5s)?)
+  }
+}

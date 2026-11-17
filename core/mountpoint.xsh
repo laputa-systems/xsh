@@ -2,6 +2,14 @@
 use lib.gnu as gnu
 use lib.util_linux_io as ul_io
 
+pure util_strerror(failure: Error) -> Str {
+  let text = failure.message
+  let at = text.find(" (os error ") ?? -1
+  if at < 0 { return text }
+  let parts = text.byte_slice(0, at).split(": ")
+  parts[-1]
+}
+
 const USAGE = """Usage:
  mountpoint [-qd] /path/to/directory
  mountpoint -x /dev/device
@@ -41,7 +49,7 @@ proc bad_usage() [process, env] {
 proc report_path_error(name: Bytes, failure: Error) [process, env, io] {
   ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: "), name,
-    bytes.from_text(f": {gnu.strerror(failure)}\n"),
+    bytes.from_text(f": {util_strerror(failure)}\n"),
   ]))
 }
 
