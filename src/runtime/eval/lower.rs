@@ -8849,7 +8849,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn)
                     && matches!(self.checked_expr_type(right), Some(Type::Map(key, _)) if *key == Type::UInt);
-                let lowered_left = self.lower_expr(left, slots, current_function, item_slot)?;
+                let lowered_left = self.lower_producer_input_expr(left, slots, current_function, item_slot)?;
                 let lowered_left = if uint_key {
                     self.require_ground_uint_key(lowered_left, self.program.arena.expr(left).span, slots)
                 } else {
@@ -8875,7 +8875,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildExprRow::Binary {
                         op,
                         left: lowered_left,
-                        right: self.lower_expr(right, slots, current_function, item_slot)?,
+                        right: self.lower_producer_input_expr(right, slots, current_function, item_slot)?,
                         span,
                     }
                 );
