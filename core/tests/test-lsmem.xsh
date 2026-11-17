@@ -499,3 +499,8 @@ test test_lsmem_non_utf8_option_values_match_reference { |ctx|
     ul.compare(reference, candidate)
   }
 }
+
+test test_lsmem_help_in_short_option_cluster { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-hJr"], ["-Jrh"]] { compare_lsmem(s, args)? }
+}

@@ -514,6 +514,7 @@ pure exclusive_options(argv: List[Str]) -> List[Str] {
     if word.starts_with("-") and word != "-" {
       let flags = word.byte_slice(1)
       for flag in flags {
+        if flag in ["h", "V"] { break }
         if flag == "a" { names += ["all"] }
         if flag == "J" { names += ["json"] }
         if flag == "P" { names += ["pairs"] }
