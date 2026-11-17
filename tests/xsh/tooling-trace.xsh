@@ -73,3 +73,53 @@ test test_trace_file_keeps_runtime_stderr_separate { |ctx|
 
   assert "kind=script.enter" not in trace, trace
 }
+
+type ProfileRow = {kind: Str, name: Str, count: Int, total_us: Int, self_us: Int, outer_total_us: Int}
+type ProfileSummary = {function_calls: List[ProfileRow]}
+
+test test_trace_function_self_time_and_recursion {
+  let traced = run.capture --text "xsht" trace --trace-format jsonl tests/fixtures/runtime/trace-profile.xsh
+  assert traced.status.exited_with(0), traced.stderr
+  let rows = json.decode(traced.stderr)?.require(ProfileSummary)?.function_calls
+  let root = (rows |> where { |row| row.name == "root" } |> collect())[0]
+  let recurse = (rows |> where { |row| row.name == "recurse" } |> collect())[0]
+  let leaf = (rows |> where { |row| row.name == "leaf" } |> collect())[0]
+  assert root.kind == "proc" and recurse.kind == "pure" and leaf.kind == "pure", traced.stderr
+  assert recurse.count == 5 and leaf.count == 5, traced.stderr
+  assert root.total_us == root.outer_total_us, traced.stderr
+  assert recurse.total_us > recurse.outer_total_us, traced.stderr
+  assert leaf.self_us == leaf.total_us, traced.stderr
+  assert root.self_us + recurse.self_us + leaf.self_us == root.total_us, traced.stderr
+  assert recurse.self_us + leaf.self_us == recurse.outer_total_us, traced.stderr
+  assert rows[0].self_us >= rows[1].self_us and rows[1].self_us >= rows[2].self_us, traced.stderr
+}
+
+test test_trace_flamegraph_includes_function_self_frames {
+  let traced = run.capture --text "xsht" trace --trace-format flamegraph tests/fixtures/runtime/trace-profile.xsh
+  assert traced.status.exited_with(0), traced.stderr
+  assert "script;proc:root " in traced.stderr, traced.stderr
+  assert "script;proc:root;pure:recurse " in traced.stderr, traced.stderr
+  assert "pure:recurse;pure:recurse" in traced.stderr, traced.stderr
+  assert "pure:leaf " in traced.stderr, traced.stderr
+  var total = 0
+  var script_self = 0
+  var root_inclusive = 0
+  var root_self = 0
+  var root_children = 0
+  for line in traced.stderr.lines() {
+    let parts = line.split(" ")
+    assert parts.len() == 2, line
+    let value = parts[1].parse_int()?
+    let stack = parts[0]
+    assert stack == "script" or stack.starts_with("script;proc:root"), line
+    total += value
+    if stack == "script" { script_self += value }
+    if stack.starts_with("script;proc:root") { root_inclusive += value }
+    if stack == "script;proc:root" { root_self += value }
+    if stack.starts_with("script;proc:root;") { root_children += value }
+  }
+  assert script_self > 0 and root_self > 0 and root_children > 0, traced.stderr
+  assert root_inclusive == root_self + root_children, traced.stderr
+  let script_inclusive = script_self + root_inclusive
+  assert total == script_inclusive, traced.stderr
+}

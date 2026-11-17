@@ -1044,6 +1044,7 @@ impl TraceSummaryRenderer {
         output.push('\n');
         render_summary_table(
             "function calls (duration µs)",
+            SummaryTable::Functions,
             &summary.functions,
             None,
             sources,
@@ -1053,6 +1054,7 @@ impl TraceSummaryRenderer {
         output.push('\n');
         render_summary_table(
             "hot commands (top 10 by total ms)",
+            SummaryTable::Operations,
             &summary.operations,
             Some(10),
             sources,
@@ -1583,6 +1585,8 @@ struct SummaryRowJson {
     name: String,
     count: u64,
     total_us: u64,
+    self_us: Option<u64>,
+    outer_total_us: Option<u64>,
     avg_us: f64,
     p50_us: u64,
     p75_us: u64,
@@ -2302,6 +2306,8 @@ fn summary_row_json_value(data: SummaryRowJson) -> JsonValue {
         ("name".to_string(), JsonValue::from(data.name)),
         ("count".to_string(), JsonValue::from(data.count)),
         ("total_us".to_string(), JsonValue::from(data.total_us)),
+        ("self_us".to_string(), option_u64_json_value(data.self_us)),
+        ("outer_total_us".to_string(), option_u64_json_value(data.outer_total_us)),
         ("avg_us".to_string(), JsonValue::from(data.avg_us)),
         ("p50_us".to_string(), JsonValue::from(data.p50_us)),
         ("p75_us".to_string(), JsonValue::from(data.p75_us)),
@@ -2475,6 +2481,8 @@ fn summary_rows_json(
             name: row.name.clone(),
             count: row.count,
             total_us: row.total_us,
+            self_us: matches!(row.kind.as_str(), "proc" | "pure").then_some(row.self_us),
+            outer_total_us: matches!(row.kind.as_str(), "proc" | "pure").then_some(row.outer_total_us),
             avg_us: (row.avg_us() * 10.0).round() / 10.0,
             p50_us: row.percentile_us(50),
             p75_us: row.percentile_us(75),
@@ -2535,6 +2543,47 @@ fn syscall_usecs_per_call(elapsed_ns: u128, calls: u64) -> u64 {
     }
 }
 
+struct TimedFrame<'a> {
+    enter: &'a TraceEvent,
+    exit: &'a TraceEvent,
+    self_us: u64,
+}
+
+fn timed_frames(events: &[TraceEvent]) -> Vec<TimedFrame<'_>> {
+    let by_id: FxHashMap<u64, &TraceEvent> = events.iter().map(|event| (event.event_id, event)).collect();
+    let mut frames: Vec<_> = events.iter().filter_map(|exit| {
+        let duration = exit.timing.duration_us?;
+        let enter = by_id.get(&exit.parent_event_id?)?;
+        if !matches!((enter.kind, exit.kind),
+            (TraceKind::ScriptEnter, TraceKind::ScriptExit)
+            | (TraceKind::ProcEnter, TraceKind::ProcExit)
+            | (TraceKind::PureEnter, TraceKind::PureExit)
+            | (TraceKind::StreamEnter, TraceKind::StreamExit)
+            | (TraceKind::StreamStageEnter, TraceKind::StreamStageExit)
+            | (TraceKind::PipelineEnter, TraceKind::PipelineExit)
+            | (TraceKind::CwdEnter, TraceKind::CwdExit)
+            | (TraceKind::CoreCall, TraceKind::CoreResult)
+            | (TraceKind::ModuleCall, TraceKind::ModuleResult)
+            | (TraceKind::MethodCall, TraceKind::MethodResult)
+            | (TraceKind::RunStart, TraceKind::RunEnd)) { return None; }
+        Some(TimedFrame { enter, exit, self_us: duration })
+    }).collect();
+    let indices: FxHashMap<u64, usize> = frames.iter().enumerate()
+        .map(|(index, frame)| (frame.enter.event_id, index)).collect();
+    for index in 0..frames.len() {
+        let mut parent = frames[index].enter.parent_event_id;
+        while let Some(id) = parent {
+            if let Some(&parent_index) = indices.get(&id) {
+                let duration = frames[index].exit.timing.duration_us.unwrap();
+                frames[parent_index].self_us = frames[parent_index].self_us.saturating_sub(duration);
+                break;
+            }
+            parent = by_id.get(&id).and_then(|event| event.parent_event_id);
+        }
+    }
+    frames
+}
+
 #[derive(Clone, Debug, Default)]
 struct TraceSummary {
     event_count: usize,
@@ -2555,6 +2604,9 @@ impl TraceSummary {
                     .map(|name| (event.event_id, name.clone()))
             })
             .collect();
+        let frames = timed_frames(events);
+        let frames_by_exit: FxHashMap<u64, &TimedFrame<'_>> = frames.iter().map(|frame| (frame.exit.event_id, frame)).collect();
+        let by_id: FxHashMap<u64, &TraceEvent> = events.iter().map(|event| (event.event_id, event)).collect();
         let mut functions = BTreeMap::new();
         let mut operations = BTreeMap::new();
         let mut timed_event_count = 0;
@@ -2632,13 +2684,35 @@ impl TraceSummary {
                 ),
                 _ => {}
             }
+            if matches!(event.kind, TraceKind::ProcExit | TraceKind::PureExit)
+                && let Some(frame) = frames_by_exit.get(&event.event_id)
+            {
+                let kind = if event.kind == TraceKind::ProcExit { "proc" } else { "pure" };
+                let name = summary_event_name(event, &names_by_id);
+                let mut parent = frame.enter.parent_event_id;
+                let mut recursive = false;
+                while let Some(id) = parent {
+                    let Some(ancestor) = by_id.get(&id) else { break };
+                    if ancestor.kind == frame.enter.kind && ancestor.name.as_deref() == Some(name.as_str())
+                        && ancestor.definition_span == frame.enter.definition_span {
+                        recursive = true;
+                        break;
+                    }
+                    parent = ancestor.parent_event_id;
+                }
+                let row = functions.get_mut(&(kind.to_string(), name)).unwrap();
+                row.self_us += frame.self_us;
+                if !recursive { row.outer_total_us += duration_us; }
+            }
         }
 
+        let mut functions = finish_summary_rows(functions);
+        functions.sort_unstable_by(|a, b| b.self_us.cmp(&a.self_us).then_with(|| a.name.cmp(&b.name)));
         Self {
             event_count: events.len(),
             timed_event_count,
             script_duration_us,
-            functions: finish_summary_rows(functions),
+            functions,
             operations: finish_summary_rows(operations),
         }
     }
@@ -2650,6 +2724,8 @@ struct SummaryRow {
     name: String,
     count: u64,
     total_us: u64,
+    self_us: u64,
+    outer_total_us: u64,
     durations_us: Vec<u64>,
     max_us: u64,
     slowest_span: Option<Span>,
@@ -2664,6 +2740,8 @@ enum SummaryField {
     Name,
     Calls,
     Total,
+    SelfTime,
+    OuterTotal,
     P50,
     P75,
     P90,
@@ -2686,6 +2764,8 @@ impl SummaryRow {
             name,
             count: 0,
             total_us: 0,
+            self_us: 0,
+            outer_total_us: 0,
             durations_us: Vec::new(),
             max_us: 0,
             slowest_span: None,
@@ -2792,8 +2872,15 @@ fn render_overview_table(summary: &TraceSummary, terminal_width: usize, output: 
     render_text_table(&columns, &rows, terminal_width, output);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SummaryTable {
+    Functions,
+    Operations,
+}
+
 fn render_summary_table(
     title: &str,
+    table: SummaryTable,
     rows: &[SummaryRow],
     limit: Option<usize>,
     sources: &SourceMap,
@@ -2812,7 +2899,7 @@ fn render_summary_table(
         return;
     }
 
-    let columns = select_summary_columns(terminal_width);
+    let columns = select_summary_columns(terminal_width, table);
     let table_columns: Vec<_> = columns.iter().map(|column| column.table.clone()).collect();
     let table_rows: Vec<_> = rows
         .iter()
@@ -2822,7 +2909,7 @@ fn render_summary_table(
     render_text_table(&table_columns, &table_rows, terminal_width, output);
 }
 
-fn select_summary_columns(terminal_width: usize) -> Vec<SummaryTableColumn> {
+fn select_summary_columns(terminal_width: usize, table: SummaryTable) -> Vec<SummaryTableColumn> {
     let mut columns = vec![
         summary_column(SummaryField::Kind, "kind", 4, 12, TableAlign::Left),
         summary_column(SummaryField::Name, "name", 8, 32, TableAlign::Left),
@@ -2833,6 +2920,17 @@ fn select_summary_columns(terminal_width: usize) -> Vec<SummaryTableColumn> {
         summary_column(SummaryField::P90, "p90", 3, 6, TableAlign::Right),
         summary_column(SummaryField::P99, "p99", 3, 6, TableAlign::Right),
     ];
+    if table == SummaryTable::Functions {
+        columns.insert(4, summary_column(SummaryField::SelfTime, "self", 4, 8, TableAlign::Right));
+        columns.insert(5, summary_column(SummaryField::OuterTotal, "outer", 5, 8, TableAlign::Right));
+    }
+    while table_width(&columns.iter().map(|column| column.table.min_width).collect::<Vec<_>>()) > terminal_width {
+        if let Some(index) = columns.iter().rposition(|column| matches!(column.field, SummaryField::P75 | SummaryField::P90 | SummaryField::P99 | SummaryField::P50)) {
+            columns.remove(index);
+        } else {
+            break;
+        }
+    }
     for optional in [
         summary_column(
             SummaryField::Slowest,
@@ -2882,6 +2980,8 @@ fn summary_table_row(
             SummaryField::Name => row.name.clone(),
             SummaryField::Calls => row.count.to_string(),
             SummaryField::Total => row.total_us.to_string(),
+            SummaryField::SelfTime => row.self_us.to_string(),
+            SummaryField::OuterTotal => row.outer_total_us.to_string(),
             SummaryField::P50 => row.percentile_us(50).to_string(),
             SummaryField::P75 => row.percentile_us(75).to_string(),
             SummaryField::P90 => row.percentile_us(90).to_string(),
@@ -2914,59 +3014,33 @@ impl TraceFlamegraphRenderer {
         Self
     }
 
-    /// Render events as inferno-compatible folded-stack text.
-    ///
-    /// Each leaf operation (module call, method call, external process) is emitted
-    /// as one line: `context;...;leaf DURATION_US`, where the context frames come
-    /// from walking the parent-event chain up to the script root.
     pub fn render_events(&self, events: &[TraceEvent]) -> String {
-        let names_by_id: FxHashMap<u64, String> = events
-            .iter()
-            .filter_map(|e| e.name.as_ref().map(|n| (e.event_id, n.clone())))
+        let names_by_id: FxHashMap<u64, String> = events.iter()
+            .filter_map(|event| event.name.as_ref().map(|name| (event.event_id, name.clone())))
             .collect();
-        let by_id: FxHashMap<u64, &TraceEvent> = events.iter().map(|e| (e.event_id, e)).collect();
-
+        let by_id: FxHashMap<u64, &TraceEvent> = events.iter().map(|event| (event.event_id, event)).collect();
         let mut output = String::new();
-
-        for event in events {
-            let Some(duration_us) = event.timing.duration_us else {
-                continue;
-            };
-            if duration_us == 0 {
-                continue;
+        for frame in timed_frames(events) {
+            if frame.self_us == 0 { continue; }
+            let mut labels = Vec::new();
+            let mut cursor = Some(frame.enter.event_id);
+            while let Some(id) = cursor {
+                let Some(event) = by_id.get(&id) else { break };
+                let label = flamegraph_context_label(event).or_else(|| match event.kind {
+                    TraceKind::ModuleCall => Some(format!("module.{}", flamegraph_leaf_name(event, &names_by_id))),
+                    TraceKind::MethodCall => Some(format!("method.{}", flamegraph_leaf_name(event, &names_by_id))),
+                    TraceKind::CoreCall => Some(format!("core.{}", flamegraph_leaf_name(event, &names_by_id))),
+                    TraceKind::RunStart => Some(format!("run:{}", flamegraph_leaf_name(event, &names_by_id))),
+                    TraceKind::CwdEnter => Some("cwd".to_string()),
+                    _ => None,
+                });
+                if let Some(label) = label { labels.push(label); }
+                cursor = event.parent_event_id;
             }
-
-            let leaf = match event.kind {
-                TraceKind::ModuleResult => {
-                    format!("module.{}", flamegraph_leaf_name(event, &names_by_id))
-                }
-                TraceKind::MethodResult => {
-                    format!("method.{}", flamegraph_leaf_name(event, &names_by_id))
-                }
-                TraceKind::RunEnd => {
-                    format!("run:{}", flamegraph_leaf_name(event, &names_by_id))
-                }
-                TraceKind::CoreResult => {
-                    format!("core.{}", flamegraph_leaf_name(event, &names_by_id))
-                }
-                _ => continue,
-            };
-
-            let mut frames: Vec<String> = Vec::new();
-            let mut cursor = event.parent_event_id;
-            while let Some(pid) = cursor {
-                let Some(parent) = by_id.get(&pid) else {
-                    break;
-                };
-                if let Some(label) = flamegraph_context_label(parent) {
-                    frames.push(label);
-                }
-                cursor = parent.parent_event_id;
+            labels.reverse();
+            if !labels.is_empty() {
+                let _ = writeln!(output, "{} {}", labels.join(";"), frame.self_us);
             }
-            frames.reverse();
-            frames.push(leaf);
-
-            let _ = writeln!(output, "{} {duration_us}", frames.join(";"));
         }
         output
     }
@@ -3109,7 +3183,7 @@ mod tests {
     use super::{
         CoverageTraceRenderer, SyscallSummary, SyscallSummaryRenderer, SyscallTraceRecord,
         FxHashMap, TraceArg, TraceError, TraceEvent, TraceJsonlRenderer, TraceKind, TracePayload,
-        TraceStatus, TraceSummaryRenderer, TraceTextRenderer,
+        TraceStatus, TraceSummaryRenderer, TraceTextRenderer, TraceFlamegraphRenderer,
     };
     use xsh::frontend::source::{SourceMap, Span};
     use xsh::trace::model::{
@@ -3253,6 +3327,22 @@ mod tests {
             )),
             1
         );
+    }
+
+    #[test]
+    fn folded_self_times_sum_to_the_same_trace_root_duration() {
+        let events = vec![
+            TraceEvent::new(1, TraceKind::ScriptEnter),
+            TraceEvent::new(2, TraceKind::ProcEnter).with_parent(1, 1).with_name("root"),
+            TraceEvent::new(3, TraceKind::PureEnter).with_parent(2, 2).with_name("child"),
+            TraceEvent::new(4, TraceKind::PureExit).with_parent(3, 2).with_timing(TraceTiming::new(Some(20), Some(40))),
+            TraceEvent::new(5, TraceKind::ProcExit).with_parent(2, 1).with_timing(TraceTiming::new(Some(10), Some(70))),
+            TraceEvent::new(6, TraceKind::ScriptExit).with_parent(1, 0).with_timing(TraceTiming::new(Some(0), Some(100))),
+        ];
+        let folded = TraceFlamegraphRenderer::new().render_events(&events);
+        assert_eq!(folded, "script;proc:root;pure:child 40\nscript;proc:root 30\nscript 30\n");
+        let total: u64 = folded.lines().map(|line| line.rsplit_once(' ').unwrap().1.parse::<u64>().unwrap()).sum();
+        assert_eq!(total, events.last().unwrap().timing.duration_us.unwrap());
     }
 
     #[test]
