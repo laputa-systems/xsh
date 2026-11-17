@@ -281,11 +281,9 @@ declared per-case limit and do not increase any automatic case's budget.
 
 Corpus-wide checks are Scenario cases, not part of the component Change contract.
 `native-core/tests` runs the whole core suite, about 9,800 native tests, within 3600
-seconds. `test-desugar-corpus` checks and runs every sugared native test file twice, once as
-written and once desugared, within 1800 seconds. `test-lint-format-corpus` formats and lints
-the repository corpus within 1800 seconds. Change selects `test-desugar` and
-`test-tooling` without them, and a Change request for a shared core path reports that no
-Change case owns it and lists `native-core/tests` as an available scenario. A Change request
+seconds. `test-lint-format-corpus` formats and lints the repository corpus within 1800
+seconds. Change selects `test-tooling` without it, and a Change request for a shared core
+path reports that no Change case owns it and lists `native-core/tests` as an available scenario. A Change request
 for `core/NAME.xsh` selects the `core/tests/test-NAME.xsh` module when it exists.
 The runner admits at most eight tests of one file at a time, so a module that needs more
 than 2,400 CPU-seconds cannot finish in 300 seconds. `core/tests/test-awk.xsh` (3,300

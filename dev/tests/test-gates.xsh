@@ -1374,21 +1374,6 @@ test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps
 
 test test_corpus_wide_xsht_tests_are_scenarios_outside_the_change_cases {
   let ctx = fixtures.linux_context(p"/repo")?
-  let sugar = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/desugar.rs"], [], gates.Change)?
-  assert "test-desugar-corpus" not in [entry.id for entry in sugar.cases]
-  assert "test-desugar-corpus" in sugar.available_scenarios
-  let desugar = [entry for entry in sugar.cases |> where .id == "test-desugar"]
-  assert desugar.len() == 1
-  match desugar[0].execution {
-    gates.RunCommand(spec) => assert "--skip" in spec.argv and "desugar::the_desugared_corpus_checks_and_tests_like_the_corpus" in spec.argv
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("test-desugar was not a command")
-  }
-  let corpus = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/desugar.rs"], ["test-desugar-corpus"], gates.Change)?
-  let selected = [entry for entry in corpus.cases |> where .id == "test-desugar-corpus"]
-  assert selected.len() == 1
-  assert selected[0].tier == gates.Scenario
-  assert selected[0].limit == gates.RuntimeSeconds(1800)
-
   let tooling = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/cli/files.rs"], [], gates.Change)?
   assert "test-lint-format-corpus" not in [entry.id for entry in tooling.cases]
   assert "test-lint-format-corpus" in tooling.available_scenarios

@@ -1,9 +1,7 @@
 //! `Formatter::desugar_source` prints the program the checker reads. These
 //! tests hold a handful of inline programs to that: the desugared program has
 //! no sugar, is stable under the formatter and under desugaring again, and
-//! checks exactly as the original does. The integration test
-//! `the_desugared_corpus_checks_and_tests_like_the_corpus` holds the whole
-//! native test corpus to the same contract and also runs it.
+//! checks exactly as the original does.
 
 use super::{Formatter, fresh_name, hidden_names, is_spellable_name};
 use std::collections::BTreeSet;

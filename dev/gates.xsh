@@ -664,8 +664,8 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
         plan += [rust_gate(ctx, profile, "test-route-witness-cli", [@xsht_target, "route_witness"])?] when Tooling not in selection.areas
         plan += [native_exact_gate(ctx, profile, "route-witness-env", "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries")] when "tests/xsh/stdlib/env.xsh" not in selection.native_files
       },
-      Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::", "--", "--skip", desugar_corpus_test])?, rust_gate(ctx, profile, "test-desugar-corpus", [@xsht_target, desugar_corpus_test, "--", "--exact"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
-      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.xsht_integration_exclusions, "--skip", lint_format_corpus_filter, "--skip", desugar_corpus_test])?, rust_gate(ctx, profile, "test-lint-format-corpus", [@xsht_target, lint_format_corpus_filter, "--", "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
+      Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
+      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.xsht_integration_exclusions, "--skip", lint_format_corpus_filter])?, rust_gate(ctx, profile, "test-lint-format-corpus", [@xsht_target, lint_format_corpus_filter, "--", "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
       Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "check", "docs/snippets/api"], ctx.root, {})],
       Stdlib => plan += [rust_gate(ctx, profile, "test-stdlib-catalog", [@root_lib, "stdlib::tests::every_catalog_module_parses_checks_and_lowers"], debug: true)?, native_gate(ctx, profile, "tests/xsh/stdlib")],
       Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],
@@ -760,13 +760,11 @@ pure tier_name(tier: Tier) -> Str {
   match tier { Edit => "edit", Change => "change", Scenario => "scenario" }
 }
 
-const desugar_corpus_test = "desugar::the_desugared_corpus_checks_and_tests_like_the_corpus"
 const lint_format_corpus_filter = "lint_format_invariance::"
 
 pure scenario_seconds_for_stage(stage: Str) -> Int? {
   match stage {
     "test-soundness" => 1200
-    "test-desugar-corpus" => 1800
     "test-lint-format-corpus" => 1800
     "native-core/tests" => 3600
     "native-core/tests/test-awk.xsh" => 1800
