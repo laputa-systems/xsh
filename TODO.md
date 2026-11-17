@@ -178,15 +178,6 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** S
 
-### XSH-99 · P3 · Make deferred-call recursion as cheap per level as plain recursion
-
-- **Area:** Runtime
-- **Where:** `tests/xsh/nested-machine-bounds.xsh` (`recursion_through_a_deferred_call_reports_stack_overflow`), `tests/xsh/call-depth.xsh`, `explicit_run.rs` (`MAX_CALL_DEPTH`)
-- **Problem:** Plain 100k-deep recursion reports stack overflow in 0.77 s, while recursion through a deferred call takes about 53 s to reach the same limit, about 70 times slower per level (unproven which runtime path is responsible).
-- **Recommendation:** Profile the deferred-call path to the depth limit with `cargo dev profile` and remove the per-level cost; keep the stack-overflow report.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-101 · P3 · Make in-process checking scale past two threads
 
 - **Area:** Performance
