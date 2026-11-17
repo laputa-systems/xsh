@@ -99,6 +99,18 @@ case.
 | `test_lsmem_util_linux_2_42_4_help_matches_reference` | Help output for `--help` and `-h` |
 | `test_lsmem_rooted_sparse_memory_attributes_and_output_modes` | Fixture-backed range discovery, merging, columns, output formats, bytes, headings, and summary modes |
 | `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, invalid environment columns, explicit `--output`, and `--output-all` |
+| `test_lsmem_separate_values_after_clusters_and_prefixes` | Separate values after clustered short options and unambiguous long prefixes |
+| `test_lsmem_sysroot_error_precedes_unknown_column` | Sysroot access errors take precedence over invalid columns |
+| `test_lsmem_non_utf8_environment_columns` | Raw environment column bytes reach the unknown-column diagnostic |
+| `test_lsmem_non_utf8_long_option_diagnostics` | Ambiguous and argument-forbidden long option diagnostics preserve raw bytes |
+| `test_lsmem_sysroot_with_absolute_sys_symlink` | Rooted inventory reached through an absolute sysfs symlink |
+| `test_lsmem_attribute_bytes_after_value` | NUL-terminated and non-UTF-8 attribute values |
+| `test_lsmem_wrapped_attribute_integers` | 32-bit conversion of removable values |
+| `test_lsmem_unsigned_block_indexes` | Unsigned block identifiers through and beyond the 64-bit limit |
+| `test_lsmem_block_size_bare_prefix` | Hexadecimal block size with a bare prefix |
+| `test_lsmem_empty_block_size_diagnostics` | Empty and whitespace-only block sizes with present and missing zones |
+| `test_lsmem_zones_read_limit` | The first 1023 bytes of valid zones |
+| `test_lsmem_permission_error_precedence`, `test_lsmem_firmware_permission_errors` | Memory and firmware permission handling |
 | `test_lsmem_rooted_short_option_aliases` | Short aliases for the supported output, byte, split, and sysroot options |
 | `test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference` | Raw non-UTF-8 sysroot values attached to `--sysroot=` and `-s`, with separated raw and ordinary path controls |
 | `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |

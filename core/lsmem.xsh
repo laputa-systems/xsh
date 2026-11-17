@@ -116,6 +116,24 @@ pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
   normalized
 }
 
+pure takes_next_argument(word: Str) -> Bool {
+  if word.starts_with("--") {
+    let name = word.byte_slice(2)
+    if name.find("=") != null { return false }
+    let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
+    let option = if name in LONG_OPTIONS { name } else if matches.len() == 1 { matches[0] } else { "" }
+    return option in ["output", "split", "sysroot"]
+  }
+  if ! word.starts_with("-") or word == "-" { return false }
+  let flags = word.byte_slice(1)
+  for position in range(flags.byte_len()) {
+    let flag = flags.byte_slice(position, length: 1)
+    if flag in ["o", "S", "s"] { return position + 1 == flags.byte_len() }
+    if flag not in SHORT_OPTIONS or flag in ["h", "V"] { return false }
+  }
+  false
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if process.signal_action("PIPE")? == "default" {
     process.set_signal_action("PIPE", "default")
@@ -151,10 +169,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
     if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
       if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
-      ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(2, length: raw_word.len() - 2), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+      var equals = raw_word.len()
+      for position in range(2, raw_word.len()) {
+        if raw_word.byte_at(position) == 61 { equals = position; break }
+      }
+      let name = raw_word.slice(2, length: equals - 2).utf8() ?? ""
+      let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
+      let option = if name in LONG_OPTIONS { name } else if matches.len() == 1 { matches[0] } else { "" }
+      if equals < raw_word.len() and option != "" and option not in ["output", "split", "sysroot", "summary"] { gnu.usage_error(f"option does not take an argument: {option}") }
+      let message = if name != "" and matches.len() > 1 and name not in LONG_OPTIONS { "option is ambiguous: " } else { "unrecognized option: " }
+      ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: {message}"), raw_word.slice(2, length: raw_word.len() - 2), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
       exit 1
     }
-    if word in ["-o", "-S", "-s", "--output", "--split", "--sysroot"] { raw_index += 1 }
+    if takes_next_argument(word) { raw_index += 1 }
     if word in ["--help", "-h", "--version", "-V"] { break }
   }
   if let diagnostic = option_diagnostic(arguments) { gnu.usage_error(diagnostic) }
@@ -188,15 +215,37 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     exit 1
   }
 
+  let root_path = opts.sysroot ?? p"/"
+  let root = match fs.open_root(root_path) {
+    Ok(value) => value
+    Err(failure) => { gnu.error(f"cannot open /sys/devices/system/memory: {gnu.strerror(failure)}"); exit 1 }
+  }
+  let rooted_directory = root.metadata(p"sys/devices/system/memory")
+  let directory = if let Err(failure) = rooted_directory {
+    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/sys/devices/system/memory".metadata() } else { rooted_directory }
+  } else { rooted_directory }
+  root.close()
+  match directory {
+    Err(failure) => {
+      let detail = gnu.strerror(failure)
+      if detail == "Permission denied" { gnu.error("This system does not support memory blocks"); exit 1 }
+      gnu.error(f"cannot open /sys/devices/system/memory: {detail}"); exit 1
+    }
+    Ok(value) => { if value.kind != "dir" { gnu.error("cannot open /sys/devices/system/memory: Not a directory"); exit 1 } }
+  }
   var selected: List[Str] = []
   var split: List[Str] = []
   if modes.table {
-    let environment_columns: Str? = if opts.output == null { if let Ok(value) = env.get("LSMEM_COLUMNS") { value } else { null } } else { null }
+    var environment_columns: Bytes? = null
+    if opts.output == null {
+      for entry in env.entries()? {
+        if entry.name == b"LSMEM_COLUMNS" { environment_columns = entry.value; break }
+      }
+    }
     selected = report.columns(opts, environment_columns, prepared.raw)
     split = report.split_columns(opts, selected, prepared.raw)
   }
 
-  let root_path = opts.sysroot ?? p"/"
   let inventory = report.collect(root_path, split, opts.all, modes.summary)
   ul_io.write_text(report.render(inventory, opts, selected, modes))
 }

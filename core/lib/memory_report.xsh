@@ -1,7 +1,4 @@
 ##! Collects memory block data from a rooted sysfs tree and renders lsmem output.
-##!
-##! All inventory reads stay beneath the supplied root. Rendering preserves
-##! util-linux column, summary, and serialization behavior for the selected mode.
 use lib.gnu as gnu
 use lib.util_linux_io as ul_io
 
@@ -129,6 +126,10 @@ proc u64_divide(value: U64, divisor: UInt) [error] -> U64Division {
 }
 
 proc u64_from_int(value: Int) [error] -> U64 {
+  if value < 0 {
+    let offset = (value + 9223372036854775807 + 1) as UInt
+    return {high: (2147483648 + offset / WORD_BASE) as Word32, low: (offset % WORD_BASE) as Word32}
+  }
   let number = value as UInt
   {high: (number / WORD_BASE) as Word32, low: (number % WORD_BASE) as Word32}
 }
@@ -164,8 +165,17 @@ pure block_entry(name: Str, prefix: Str) -> Entry? {
   return null when ! name.starts_with(prefix)
   let suffix = name.byte_slice(prefix.byte_len())
   return null when ! decimal_digits(suffix)
-  if let Ok(index) = suffix.parse_int() { return {name: name, index: index} }
-  null
+  var high = 0
+  var low = 0
+  for digit in suffix {
+    let value = "0123456789".find(digit) ?? 0
+    let next = low * 10 + value
+    low = next % 4294967296
+    high = high * 10 + next / 4294967296
+    if high > 4294967295 { high = 4294967295; low = 4294967295; break }
+  }
+  let index = if high < 2147483648 { high * 4294967296 + low } else { -9223372036854775807 - 1 + (high - 2147483648) * 4294967296 + low }
+  {name: name, index: index}
 }
 
 pure memory_version_digit(byte: Int) -> Bool {
@@ -268,7 +278,7 @@ proc block_size_value(text: Bytes) [process, env, error] -> U64 {
     negative = (text.byte_at(position) ?? 0) == 45
     position += 1
   }
-  if position + 1 < length and (text.byte_at(position) ?? 0) == 48 and (text.byte_at(position + 1) ?? 0) in [88, 120] { position += 2 }
+  if position + 2 < length and (text.byte_at(position) ?? 0) == 48 and (text.byte_at(position + 1) ?? 0) in [88, 120] and hex_digit_byte(text.byte_at(position + 2) ?? 0) != null { position += 2 }
   var number: U64 = {high: 0, low: 0}
   var found = false
   while position < length {
@@ -299,11 +309,35 @@ pure decimal_value(text: Str?) -> Int {
   var end = digits_start
   while end < value.byte_len() and "0123456789".find(value.byte_slice(end, length: 1)) != null { end += 1 }
   return 0 when end == digits_start
-  if let Ok(parsed) = value.byte_slice(start, length: end - start).parse_int() { parsed } else { 0 }
+  if let Ok(parsed) = value.byte_slice(start, length: end - start).parse_int() {
+    var wrapped = parsed % 4294967296
+    if wrapped < 0 { wrapped += 4294967296 }
+    if wrapped >= 2147483648 { wrapped -= 4294967296 }
+    wrapped
+  } else { 0 }
+}
+
+proc read_attribute(root: FsRoot, attr_path: RelPath) [fs, error] -> Result[Bytes, Error] {
+  let result = root.read_bytes(attr_path)
+  if let Err(failure) = result {
+    if gnu.strerror(failure) == "Invalid cross-device link" {
+      let host = root.host_path()?
+      return fp"{host}/{attr_path}".read_bytes()
+    }
+  }
+  result
 }
 
 proc optional_text(root: FsRoot, attr_path: RelPath) [fs, error] -> Str? {
-  if let Ok(text) = root.read_text(attr_path) { return without_final_newline(text) }
+  if let Ok(raw) = read_attribute(root, attr_path) {
+    var length = raw.len()
+    for at in range(length) { if raw.byte_at(at) == 0 { length = at; break } }
+    let data = raw.slice(0, length: length)
+    if let Ok(text) = data.utf8() { return without_final_newline(text) }
+    var ascii_length = 0
+    while ascii_length < data.len() and (data.byte_at(ascii_length) ?? 0) < 128 { ascii_length += 1 }
+    return (data.slice(0, length: ascii_length).utf8() ?? "") + "?"
+  }
   null
 }
 
@@ -312,7 +346,13 @@ pure without_final_newline(text: Str) -> Str {
 }
 
 proc children(root: FsRoot, directory_path: RelPath, label: Str) [fs, process, env, error] -> List[RelPath] {
-  let listing = root.children(directory_path, max_entries: 65536)?
+  var listing = root.children(directory_path, max_entries: 65536)?
+  if listing.errno == 18 {
+    let host = root.host_path()?
+    let target = fs.open_root(fp"{host}/{directory_path}")?
+    defer target.close()
+    listing = target.children(p".", max_entries: 65536)?
+  }
   if listing.state != "complete" {
     let detail = if listing.error_kind == null { "" } else { f": {listing.error_kind}" }
     fail(f"Failed to read {label}{detail}")
@@ -321,7 +361,8 @@ proc children(root: FsRoot, directory_path: RelPath, label: Str) [fs, process, e
 }
 
 proc node_id(root: FsRoot, block_path: RelPath, block_name: Str) [fs, process, env, error] -> Int {
-  let block_root = match root.open_root(block_path) {
+  let host = root.host_path()?
+  let block_root = match fs.open_root(fp"{host}/{block_path}") {
     Ok(directory) => directory
     Err(failure) => {
       fail(f"Failed to open {block_name}: {gnu.strerror(failure)}")
@@ -329,22 +370,27 @@ proc node_id(root: FsRoot, block_path: RelPath, block_name: Str) [fs, process, e
     }
   }
   defer block_root.close()
-  let entries = children(block_root, p".", block_name)
-  for entry_path in entries {
+  let listing = block_root.children(p".", max_entries: 65536)?
+  if listing.state != "complete" {
+    if listing.errno == 13 { fail(f"Failed to open {block_name}: Permission denied") }
+    let detail = if listing.error_kind == null { "" } else { f": {listing.error_kind}" }
+    fail(f"Failed to read {block_name}{detail}")
+  }
+  for entry_path in listing.children {
     let name = entry_path.name()
     continue when ! name.starts_with("node")
     let digits = name.byte_slice(4)
     continue when ! decimal_digits(digits)
-    if let Ok(value) = digits.parse_int() { return value }
+    if let Ok(_) = digits.parse_int() { return decimal_value(digits) }
   }
   -1
 }
 
 proc zone_values(root: FsRoot, block_path: RelPath) [fs, error] -> List[Str] {
   let zones_path: RelPath = fp"{block_path}/valid_zones"
-  match root.read_bytes(zones_path) {
+  match read_attribute(root, zones_path) {
     Ok(raw) => {
-      var length = raw.len()
+      var length = if raw.len() > 1023 { 1023 } else { raw.len() }
       for at in range(length) {
         if (raw.byte_at(at) ?? 0) == 0 { length = at; break }
       }
@@ -403,7 +449,7 @@ proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes:
 }
 
 pure mergeable(current: Block, next: Block, inventory: Inventory, split: List[Str], all: Bool) -> Bool {
-  return false when all or current.index + current.count != next.index
+  return false when all or current.index > 9223372036854775807 - current.count or current.index + current.count != next.index
   if "STATE" in split and current.state != next.state { return false }
   if "REMOVABLE" in split and current.removable != next.removable { return false }
   if "NODE" in split and inventory.have_nodes and current.node != next.node { return false }
@@ -451,7 +497,11 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   }
   defer root.close()
   let memory_path = MEMORY_PATH
-  let directory = match root.metadata(memory_path) {
+  let rooted_directory = root.metadata(memory_path)
+  let memory_directory = if let Err(failure) = rooted_directory {
+    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/{memory_path}".metadata() } else { rooted_directory }
+  } else { rooted_directory }
+  let directory = match memory_directory {
     Ok(metadata) => metadata
     Err(failure) => {
       fail(f"cannot open /sys/devices/system/memory: {gnu.strerror(failure)}")
@@ -460,19 +510,26 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   }
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
   let block_size_path: RelPath = fp"{MEMORY_PATH}/block_size_bytes"
-  let supports_memory_blocks = match root.exists(block_size_path) {
-    Ok(exists) => exists
-    Err(_) => false
-  }
-  if ! supports_memory_blocks { fail("This system does not support memory blocks") }
-  let block_size_contents = match root.read_bytes(block_size_path) {
+  let block_size_contents = match read_attribute(root, block_size_path) {
     Ok(text) => text
     Err(failure) => {
-      fail(f"failed to read memory block size: {gnu.strerror(failure)}")
+      let detail = gnu.strerror(failure)
+      if detail in ["No such file or directory", "Invalid cross-device link"] { fail("This system does not support memory blocks") }
+      fail(f"failed to read memory block size: {detail}")
       b""
     }
   }
-  if block_size_contents.is_empty() { fail("failed to read memory block size") }
+  var no_digits = true
+  for at in range(block_size_contents.len()) {
+    let byte = block_size_contents.byte_at(at) ?? 0
+    if byte == 0 { break }
+    if byte not in [9, 10, 11, 12, 13, 32] { no_digits = false; break }
+  }
+  if no_digits {
+    let zones = fp"{root_path}/{MEMORY_PATH}/memory0/valid_zones"
+    let detail = if zones.exists() ?? false { "No error information" } else { "No such file or directory" }
+    fail(f"failed to read memory block size: {detail}")
+  }
   let block_size = block_size_value(block_size_contents)
   let memory_paths = children(root, memory_path, "/sys/devices/system/memory")
   let entries = memory_entries(memory_paths)
@@ -481,8 +538,11 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
     let separator = if root_path.ends_with("/") { "" } else { "/" }
     fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: no numeric memory entries")
   }
-  let have_config = root.exists(p"sys/firmware/memory/memory0") ?? false
-  let config_paths = if have_config { children(root, p"sys/firmware/memory", "/sys/firmware/memory") } else { [] }
+  let firmware_listing = root.children(p"sys/firmware/memory", max_entries: 65536)
+  let firmware_root = root.host_path()?
+  let config_zero = fp"{firmware_root}/sys/firmware/memory/memory0"
+  let have_config = (config_zero.is_dir() ?? false) and (if let Ok(listing) = firmware_listing { listing.state == "complete" } else { false })
+  let config_paths = if have_config { if let Ok(listing) = firmware_listing { listing.children } else { [] } } else { [] }
   let config_entries = memory_entries(config_paths)
   if have_config and config_entries.is_empty() { fail("Failed to read /sys/firmware/memory") }
   var have_nodes = false
@@ -491,7 +551,7 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
     let entry_path = fp"{entry.name}".require(RelPath)?
     let block_path: RelPath = fp"{MEMORY_PATH}/{entry_path}"
     if ! have_nodes and node_id(root, block_path, entry.name) != -1 { have_nodes = true }
-    if ! have_zones and (root.exists(fp"{block_path}/valid_zones") ?? false) { have_zones = true }
+    if ! have_zones and (fp"{root_path}/{block_path}/valid_zones".exists() ?? false) { have_zones = true }
   }
   inventory_blocks(root, entries, config_entries, block_size, have_config, have_nodes, have_zones, split, all, include_summary)
 }
@@ -614,13 +674,11 @@ proc column_list(text: Bytes, initial: List[Str], limit: Int) [process, env, io]
 }
 
 ## Selects output columns from explicit output, environment output, or defaults.
-export proc columns(opts: Options, env_columns: Str?, raw: List[gnu.RawArgument]) [process, env, io] -> List[Str] {
+export proc columns(opts: Options, env_columns: Bytes?, raw: List[gnu.RawArgument]) [process, env, io] -> List[Str] {
   let selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
-  var output = ""
-  if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
-  if output == "" { exit 1 }
-  let append = output.starts_with("+")
-  let data = gnu.argument_bytes(output, raw)
+  let data: Bytes = if opts.output != null { gnu.argument_bytes(opts.output ?? "", raw) } else if env_columns != null { env_columns ?? b"" } else { return selected }
+  if data.is_empty() { exit 1 }
+  let append = data.starts_with(b"+")
   column_list(if append { data.slice(1, length: data.len() - 1) } else { data }, if append { selected } else { [] }, 18)
 }
 

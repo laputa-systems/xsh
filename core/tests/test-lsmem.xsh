@@ -173,6 +173,12 @@ test test_lsmem_rooted_columns_environment_and_explicit_output_precedence { |ctx
   compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "NOT-A-COLUMN"})?
 }
 
+test test_lsmem_non_utf8_environment_columns { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: b"SIZE\xff" as Path})?
+}
+
 test test_lsmem_rooted_column_list_grammar { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
@@ -217,6 +223,14 @@ test test_lsmem_rooted_short_option_aliases { |ctx|
   compare_lsmem(s, ["-s", s.root.display(), "-o", columns])?
 }
 
+test test_lsmem_separate_values_after_clusters_and_prefixes { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for args in [["-bo", "SIZE,STATE"], ["-ao", "SIZE"], ["-bS", "STATE"], ["--spl", "STATE"], ["--sysr", s.root.display()]] {
+    compare_lsmem_rooted(s, args.extend(["--summary=never"]))?
+  }
+}
+
 test test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
@@ -233,6 +247,14 @@ test test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference { |ctx|
     [p"--sysroot", s.root, p"--summary=only"],
   ]
   for args in cases { compare_lsmem_paths(s, args)? }
+}
+
+test test_lsmem_sysroot_with_absolute_sys_symlink { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  uu.mkdir(s, "linked-root")?
+  uu.at(s, "linked-root/sys").symlink(to: uu.at(s, "sys"))?
+  compare_lsmem(s, ["-s", uu.at(s, "linked-root").display(), "--summary=only"])?
 }
 
 test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
@@ -277,6 +299,53 @@ test test_lsmem_rooted_numeric_and_state_parsing_matches_reference { |ctx|
   }
 }
 
+test test_lsmem_attribute_bytes_after_value { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  uu.write_bytes(s, "sys/devices/system/memory/memory0/state", b"online\x00garbage")?
+  uu.write_bytes(s, "sys/devices/system/memory/memory0/removable", b"1\xff")?
+  compare_lsmem_rooted(s, ["-a", "-o", "BLOCK,STATE,REMOVABLE"])?
+}
+
+test test_lsmem_wrapped_attribute_integers { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  uu.write(s, "sys/devices/system/memory/memory0/state", "online\n")?
+  uu.write(s, "sys/devices/system/memory/memory0/removable", "4294967297\n")?
+  compare_lsmem_rooted(s, ["-a", "-o", "BLOCK,REMOVABLE"])?
+}
+
+test test_lsmem_block_size_bare_prefix { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for value in ["0x"] {
+    uu.write(s, "sys/devices/system/memory/block_size_bytes", value)?
+    compare_lsmem_rooted(s, ["--summary=only"])?
+  }
+}
+
+test test_lsmem_empty_block_size_diagnostics { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for value in ["", "\n"] {
+    uu.write(s, "sys/devices/system/memory/block_size_bytes", value)?
+    compare_lsmem_rooted(s, ["--summary=only"])?
+  }
+  uu.at(s, "sys/devices/system/memory/memory0/valid_zones").remove()?
+  for value in ["", "\n"] {
+    uu.write(s, "sys/devices/system/memory/block_size_bytes", value)?
+    compare_lsmem_rooted(s, ["--summary=only"])?
+  }
+}
+
+test test_lsmem_zones_read_limit { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let value = [" " for _ in range(1023)].join("") + "Normal\n"
+  uu.write(s, "sys/devices/system/memory/memory0/valid_zones", value)?
+  compare_lsmem_rooted(s, ["-a", "-o", "BLOCK,ZONES", "--summary=never"])?
+}
+
 test test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
@@ -287,6 +356,41 @@ test test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference { |ct
   }
   uu.write_bytes(s, zones, b"DMA \xff\n")?
   compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
+}
+
+test test_lsmem_permission_error_precedence { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let block = uu.at(s, "sys/devices/system/memory/memory1")
+  block.chmod(0o000)?
+  let block_result = compare_lsmem_rooted(s, ["-a"])
+  block.chmod(0o755)?
+  block_result?
+  let size = uu.at(s, "sys/devices/system/memory/block_size_bytes")
+  size.chmod(0o000)?
+  let size_result = compare_lsmem_rooted(s, [])
+  size.chmod(0o644)?
+  size_result?
+  let memory = uu.at(s, "sys/devices/system/memory")
+  memory.chmod(0o311)?
+  let memory_result = compare_lsmem_rooted(s, [])
+  memory.chmod(0o755)?
+  memory_result?
+}
+
+test test_lsmem_firmware_permission_errors { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "configured")?
+  let firmware = uu.at(s, "sys/firmware/memory")
+  firmware.chmod(0o311)?
+  let firmware_result = compare_lsmem_rooted(s, ["-a", "--output-all"])
+  firmware.chmod(0o755)?
+  firmware_result?
+  let block = uu.at(s, "sys/firmware/memory/memory0")
+  block.chmod(0o000)?
+  let block_result = compare_lsmem_rooted(s, ["-a", "--output-all"])
+  block.chmod(0o755)?
+  block_result?
 }
 
 test test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference { |ctx|
@@ -360,6 +464,15 @@ test test_lsmem_rooted_firmware_integer_parsing_matches_reference { |ctx|
     uu.write(s, memmap, value)?
     compare_lsmem_rooted(s, ["--all", "--output", columns])?
   }
+}
+
+test test_lsmem_unsigned_block_indexes { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for name in ["memory9223372036854775808", "memory18446744073709551615", "memory18446744073709551616"] {
+    uu.mkdir(s, "sys/devices/system/memory/" + name)?
+  }
+  compare_lsmem_rooted(s, ["-a", "-o", "BLOCK,RANGE", "--summary=never"])?
 }
 
 test test_lsmem_rooted_leading_zero_block_ids_follow_reference_order { |ctx|
@@ -442,6 +555,15 @@ test test_lsmem_missing_or_nondirectory_sysroot_matches_reference { |ctx|
   for root in [missing, regular] { compare_lsmem(s, ["--sysroot", root.display()])? }
 }
 
+test test_lsmem_sysroot_error_precedes_unknown_column { |ctx|
+  let s = uu.scene(ctx)?
+  let missing = uu.at(s, "missing-root")
+  let regular = uu.at(s, "regular-root")
+  regular.write("file")?
+  compare_lsmem(s, ["-o", "FOO", "-s", missing.display()])?
+  compare_lsmem(s, ["-s", regular.display()], {LSMEM_COLUMNS: "FOO"})?
+}
+
 test test_lsmem_abbreviated_options_match_reference { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
@@ -496,6 +618,15 @@ test test_lsmem_non_utf8_option_values_match_reference { |ctx|
   for args in [[p"-o", invalid], [p"-S", invalid], [p"-o", invalid_list], [invalid_option], [p"--bogus", invalid_option], [invalid_summary]] {
     let reference = ul.reference_paths(s, "lsmem", args, timeout: 5s)?
     let candidate = uu.invoke_paths(s, "lsmem", args, timeout: 5s)?
+    ul.compare(reference, candidate)
+  }
+}
+
+test test_lsmem_non_utf8_long_option_diagnostics { |ctx|
+  let s = uu.scene(ctx)?
+  for arg in [b"--out=\xff" as Path, b"--json=\xff" as Path] {
+    let reference = ul.reference_paths(s, "lsmem", [arg])?
+    let candidate = uu.invoke_paths(s, "lsmem", [arg])?
     ul.compare(reference, candidate)
   }
 }
