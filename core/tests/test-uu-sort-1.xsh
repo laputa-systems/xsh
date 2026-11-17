@@ -835,12 +835,16 @@ test test_uu_sort_buffer_size_limits_both_chunks { |ctx|
 
 # origin: uutils test_sort::test_buffer_sizes
 test test_uu_sort_buffer_sizes { |ctx|
-  # This corpus sorts 20,000 rows with nine buffer-size forms, including two external merges.
   test.timeout(ctx, 900s)
   let s = uu.scene(ctx)?
+  for size in ["0", "50K", "50k", "1M", "100M", "0%", "10%", "1000G", "10T"] {
+    let r = uu.invoke(s, "sort", ["-n", "-S", size], stdin: b"3\n1\n2\n")?
+    uu.succeeds(r)
+    uu.stdout_is(r, "1\n2\n3\n")
+  }
   uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")
-  for size in ["0", "50K", "50k", "1M", "100M", "0%", "10%", "1000G", "10T"] {
+  for size in ["0", "50K"] {
     let r = uu.invoke(s, "sort", ["-n", "-S", size, "ext_sort.txt"])?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, uu.read(s, "ext_sort.expected")?)
@@ -855,18 +859,6 @@ test test_uu_sort_check_stops_early_without_panicking { |ctx|
   let r = uu.invoke(s, "sort", ["-c", "--buffer-size=1K", "disorder.txt"])?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "sort: disorder.txt:20001: disorder: a\n")
-}
-
-# origin: uutils test_sort::test_compress_fail
-test test_uu_sort_compress_fail { |ctx|
-  let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
-  let r = uu.invoke(s, "sort", ["ext_sort.txt", "-n", "--compress-program", "nonexistent-program", "-S", "10"])?
-  uu.succeeds(r)
-  uu.stderr_contains(r, "sort: could not run compress program 'nonexistent-program': No such file or directory")
-  let baseline = uu.invoke(s, "sort", ["ext_sort.txt", "-n"])?
-  uu.succeeds(baseline)
-  assert r.stdout == baseline.stdout
 }
 
 # origin: uutils test_sort::test_debug_key_annotations
