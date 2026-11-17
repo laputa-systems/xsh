@@ -227,6 +227,11 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_missing_or_nondirectory_sysroot_matches_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_abbreviated_options_match_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_option_diagnostics_and_empty_columns_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_long_option_diagnostics_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_validation_precedes_help_in_argument_order",
+  "core/tests/test-lsmem.xsh::test_lsmem_column_list_errors_and_limits_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_empty_sysroot_matches_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_non_utf8_option_values_match_reference",
 ]
 
 const lsmem_heavy_test_ids = ["core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
