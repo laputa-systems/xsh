@@ -18,13 +18,13 @@ proc option_diagnostic(argv: List[Str]) [env] -> Str? {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
       let name = parts[0]
       let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
-      if matches.is_empty() { return f"unrecognized option: {name}" }
-      if matches.len() != 1 { return null }
-      let option = matches[0]
+      if matches.is_empty() { return f"unrecognized option: {word.byte_slice(2)}" }
+      if matches.len() != 1 and name not in LONG_OPTIONS { return f"option is ambiguous: {name}" }
+      let option = if name in LONG_OPTIONS { name } else { matches[0] }
       if option in ["help", "version"] { return null }
-      if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return null }
+      if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return f"option does not take an argument: {name}" }
       if option in ["output", "split", "sysroot"] and parts.len() == 1 {
-        if index == argv.len() { return null }
+        if index == argv.len() { return f"option requires an argument: {name}" }
         index += 1
       }
       continue

@@ -428,3 +428,8 @@ test test_lsmem_option_diagnostics_and_empty_columns_match_reference { |ctx|
   for args in [["-x"], ["-s"], ["-o"]] { compare_lsmem(s, args)? }
   for value in ["", ",", "RANGE,", ",RANGE", ",,", "RANGE,,SIZE", "+,STATE", "RANGE,BOGUS"] { compare_lsmem_rooted(s, ["-o", value])? }
 }
+
+test test_lsmem_long_option_diagnostics_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["--s"], ["--output"], ["--json=1"], ["--bogus=x"]] { compare_lsmem(s, args)? }
+}
