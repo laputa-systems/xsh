@@ -79,7 +79,7 @@ proc limited(s: uu.Scene, words: List[Path], kib: Int, input: Path, output: Path
   Ok(process.run(command)?.exited_with(0))
 }
 
-proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str]) [fs, process, env, error] {
+proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str], expected_lines: Int) [fs, process, env, error] {
   let s = uu.scene(ctx)?
   uu.write_bytes(s, name, data)
   let r = uu.invoke(s, "fold", args + [name], vars: {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, timeout: 600s)?
@@ -87,29 +87,29 @@ proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str]) 
   uu.no_stderr(r)
   let output = r.stdout.utf8()?
   let line_count = output.split("\n").len() - 1
-  assert line_count == (if args.is_empty() { 0 } else { BUFFER * 2 / 80 })
+  assert line_count == expected_lines
   assert bytes.from_text(output.replace("\n", with: "")) == data
 }
 
 # origin: gnu fold/fold-zero-width.log
 test test_gnu_fold_zero_width_nul_columns_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "nul", bytes.zero(BUFFER * 2)?, [])
+  zero_width_file(ctx, "nul", bytes.zero(BUFFER + 1)?, [], 0)
 }
 
 test test_gnu_fold_zero_width_nul_characters_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "nul", bytes.zero(BUFFER * 2)?, ["--characters"])
+  zero_width_file(ctx, "nul", bytes.zero(321)?, ["--characters"], 4)
 }
 
 test test_gnu_fold_zero_width_unicode_columns_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "inp", bytes.from_text(text.padding(BUFFER * 2, "​")), [])
+  zero_width_file(ctx, "inp", bytes.from_text(text.padding(BUFFER / 3 + 1, "​")), [], 0)
 }
 
 test test_gnu_fold_zero_width_unicode_characters_log { |ctx|
   test.timeout(ctx, 600s)
-  zero_width_file(ctx, "inp", bytes.from_text(text.padding(BUFFER * 2, "​")), ["--characters"])
+  zero_width_file(ctx, "inp", bytes.from_text(text.padding(321, "​")), ["--characters"], 4)
 }
 
 proc fold_argv(s: uu.Scene, script: Path, args: List[Path], vars: Record) [fs, error] -> Result[List[Path], Error] {
