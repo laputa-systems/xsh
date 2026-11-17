@@ -589,12 +589,14 @@ test test_gnu_ls_abmon_align_log { |ctx|
       let r = uu.invoke(s, "ls", ["-lgG"].extend(names), vars: {LC_ALL: locale, TIME_STYLE: f"+{format}"})?
       let months = [bytes.from_text(line)[15..line.byte_len() - 6].utf8()?.replace(" ", with: ".") for line in r.stdout.utf8()?.lines()]
       assert months.len() == 12
-      let widths = collect {
-        for month in months {
-          let width = uu.invoke(s, "wc", ["-L"], stdin: bytes.from_text(month + "\n"), vars: {LC_ALL: locale})?
-          yield width.stdout.utf8()?.trim()
-        }
-      }
+      let width_files = [f"width-{i}" for i in range(months.len())]
+      for i in range(months.len()) { uu.write(s, width_files[i], months[i] + "\n") }
+      let measured = uu.invoke(s, "wc", ["-L"].extend(width_files), vars: {LC_ALL: locale})?
+      uu.succeeds(measured)
+      let lines = measured.stdout.utf8()?.lines()
+      assert lines.len() == 13
+      let widths = [lines[i].words()[0] for i in range(months.len())]
+      for i in range(months.len()) { assert lines[i].words()[1] == width_files[i] }
       assert widths.to_set().len() == 1
       assert months.to_set().len() == 12
     }
