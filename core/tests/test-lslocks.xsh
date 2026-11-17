@@ -1046,3 +1046,19 @@ test test_lslocks_argument_error_precedence { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-p", "abc", "--bogus"], ["-Q", "FOO == 1", "-h"]] { parity(s, args)? }
 }
+
+test test_lslocks_process_name_bytes_and_spaces { |ctx|
+  let s = uu.scene(ctx)?
+  let script = fp"{s.ctx.core_dir}/tests/data/lslocks-comm-keeper.py"
+  for name in ["6c6bff", "206c6b20"] {
+    let lock_path = uu.at(s, f"comm-{name}")
+    let keeper = ul.start_keeper(s, script, [lock_path.display(), name])?
+    defer ul.stop_keeper(keeper)
+    let pid = json.get(json.decode(keeper.ready)?, ["pid"])?.require(Int)?
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS"])?
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-J"])?
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-r"])?
+    ul.keeper_send(keeper, "DONE")
+    ul.finish_keeper(keeper)
+  }
+}

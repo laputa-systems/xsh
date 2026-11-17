@@ -47,6 +47,7 @@ type DescriptorLock = {lock: KernelLock, descriptor: LinuxOpenFile, path: Bytes,
 
 type Lock = {
   command: Str,
+  command_bytes: Bytes,
   pid: Int,
   kind: Str,
   size: Int,
@@ -60,6 +61,7 @@ type Lock = {
   path: Bytes?,
   blocker: Int?,
   holders: List[Str],
+  holders_bytes: List[Bytes],
   blocked: Bool,
 }
 
@@ -279,11 +281,13 @@ pure descriptor_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> De
   null
 }
 
-pure holders_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> List[Str] {
+proc holders_for_lock(fallback: List[DescriptorLock], lock: KernelLock) [fs] -> List[Bytes] {
   collect {
     for item in fallback {
       if same_lock(lock, item.lock) {
-        yield f"{item.descriptor.pid},{item.descriptor.command},{item.descriptor.fd}"
+        let name = fp"/proc/{item.descriptor.pid}/comm".read_bytes() ?? bytes.from_text(item.descriptor.command)
+        let command = if name.ends_with(b"\n") { name[..name.len() - 1] } else { name }
+        yield bytes.concat([bytes.from_text(f"{item.descriptor.pid},"), command, bytes.from_text(f",{item.descriptor.fd}")])
       }
     }
   }
@@ -313,14 +317,15 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
   let rows = collect {
     for lock in locks {
       let resolved = descriptor_for_lock(fallback, lock)
-      let original_command = if lock.pid > 0 { fp"/proc/{lock.pid}/comm".read_text() } else { Err(error.failure("no process")) }
+      let original_command = if lock.pid > 0 { fp"/proc/{lock.pid}/comm".read_bytes() } else { Err(error.failure("no process")) }
       let needs_owner = ! lock.blocked and original_command is Err(_) and resolved != null
       let pid = if needs_owner { resolved.descriptor.pid } else { lock.pid }
-      let command = if pid < 0 {
-        "(undefined)"
-      } else if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
-        if name.ends_with("\n") { name.byte_slice(0, length: name.byte_len() - 1) } else { name }
-      } else { "(unknown)" }
+      let command_bytes = if pid < 0 {
+        b"(undefined)"
+      } else if let Ok(name) = fp"/proc/{pid}/comm".read_bytes() {
+        if name.ends_with(b"\n") { name[..name.len() - 1] } else { name }
+      } else { b"(unknown)" }
+      let command = command_bytes.utf8() ?? filter_byte_text(command_bytes)
       let descriptor_owner = if needs_owner { resolved } else { null }
       let path_file = if lock.pid > 0 { live_lock_file(lock.pid, lock.inode) } else { file_path(files, pid, lock.inode) }
       let lock_path: Bytes? = if descriptor_owner != null { descriptor_owner.path } else if path_file != null { path_file.path.bytes() } else { null }
@@ -344,8 +349,10 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
           }
         }
       }
+      let holder_bytes = holders_for_lock(fallback, lock)
       yield {
         command: command,
+        command_bytes: command_bytes,
         pid: pid,
         kind: lock.kind,
         size: size,
@@ -358,7 +365,8 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
         end: lock.end,
         path: visible_path,
         blocker: blocker,
-        holders: holders_for_lock(fallback, lock),
+        holders: [holder.utf8() ?? filter_byte_text(holder) for holder in holder_bytes],
+        holders_bytes: holder_bytes,
         blocked: lock.blocked,
       }
     }
@@ -729,6 +737,15 @@ pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool, path_
 
 pure table_value(lock: Lock, column: Str, as_bytes: Bool, raw: Bool) -> Bytes {
   if column == "PATH" { return lock.path ?? b"" }
+  if column == "COMMAND" { return lock.command_bytes }
+  if column == "HOLDERS" {
+    return bytes.concat(collect {
+      for index in range(lock.holders_bytes.len()) {
+        if index > 0 { yield b"\n" }
+        yield lock.holders_bytes[index]
+      }
+    })
+  }
   let value = match column {
     "COMMAND" => lock.command
     "PID" => f"{lock.pid}"
@@ -1006,6 +1023,7 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
   var replacements: List[JsonPathReplacement] = []
   for index in range(locks.len()) {
     let lock = locks[index]
+    var rendered_lock = lock
     var path_override: Str? = null
     if let path_bytes = lock.path {
       if path_bytes.utf8() is Err(_) {
@@ -1014,7 +1032,20 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
         replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(path_bytes)}]
       }
     }
-    rows += [json_lock(lock, columns, as_bytes, byte_locale, path_override)]
+    if lock.command_bytes.utf8() is Err(_) {
+      let marker = f"\0xsh-lslocks-command-{index}\0"
+      rendered_lock.command = marker
+      replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(lock.command_bytes)}]
+    }
+    for holder_index in range(lock.holders_bytes.len()) {
+      let holder = lock.holders_bytes[holder_index]
+      if holder.utf8() is Err(_) {
+        let marker = f"\0xsh-lslocks-holder-{index}-{holder_index}\0"
+        rendered_lock.holders[holder_index] = marker
+        replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(holder)}]
+      }
+    }
+    rows += [json_lock(rendered_lock, columns, as_bytes, byte_locale, path_override)]
   }
   replace_json_paths(bytes.from_text(json_table(rows, "locks", mode)), replacements)
 }
