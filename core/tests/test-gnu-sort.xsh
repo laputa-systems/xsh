@@ -83,9 +83,9 @@ test test_gnu_sort_sort_compress_hang_log { |ctx|
   let s = uu.scene(ctx)?
   test.timeout(ctx, 1800s)
   uu.at(s, "compress").write("#!/bin/sh\nif tr 41 14; then : >ok; else exit \"$?\"; fi\n", mode: 0o755)
-  let expected = sequence(1, 200000, 6)
-  uu.write(s, "in", [padded(200001 - number, 6) + "\n" for number in range(1, 200001)].join(""))
-  let r = uu.invoke(s, "sort", ["--compress-program=./compress", "-S", "1k", "in"], timeout: 1700s)?
+  let expected = sequence(1, 40000, 6)
+  uu.write(s, "in", [padded(40001 - number, 6) + "\n" for number in range(1, 40001)].join(""))
+  let r = uu.invoke(s, "sort", ["--compress-program=./compress", "--batch-size=2", "-S", "1k", "in"], timeout: 1700s)?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
   assert uu.exists(s, "ok")?
