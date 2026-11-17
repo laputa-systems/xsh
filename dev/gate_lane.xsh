@@ -216,6 +216,8 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-lslocks.xsh::test_lslocks_upstream_posix_read",
     "core/tests/test-lslocks.xsh::test_lslocks_upstream_posix_read_write",
     "core/tests/test-lslocks.xsh::test_lslocks_upstream_posix_write",
+    "core/tests/test-mountpoint.xsh::test_mountpoint_chroot_without_root_mount",
+    "core/tests/test-mountpoint.xsh::test_mountpoint_hidden_cwd",
     "core/tests/test-mountpoint.xsh::test_mountpoint_devno_reports_owned_block_device",
     "core/tests/test-mountpoint.xsh::test_mountpoint_inaccessible_path_from_unprivileged_runner",
     "core/tests/test-mountpoint.xsh::test_mountpoint_private_same_device_bind_mount",

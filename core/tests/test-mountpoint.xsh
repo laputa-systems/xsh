@@ -355,3 +355,22 @@ test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
   assert fs.mount_for(p"/")?.mounted_on == p"/"
   assert fs.mount_for(bad)?.mounted_on == bad
 }
+
+proc review6_mountpoint_fixture(ctx: TestContext, mode: Str) [fs, process, env, error] -> Result[Unit, Error] {
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let fixture = fp"{ctx.core_dir}/tests/data/mountpoint-review6.sh"
+  let result = run.capture --text /bin/sh $fixture $mode ${s.root} ${ctx.xsh_bin} ${ctx.core_dir}
+  assert result.status.exited_with(0), result.stderr
+  Ok()
+}
+
+test test_mountpoint_chroot_without_root_mount { |ctx| review6_mountpoint_fixture(ctx, "chroot")? }
+test test_mountpoint_hidden_cwd { |ctx| review6_mountpoint_fixture(ctx, "hidden")? }
+
+test test_mountpoint_multibyte_short_option_c_locale { |ctx|
+  let s = uu.scene(ctx)?
+  parity(s, ["-é"], vars: {LC_ALL: "C"})?
+  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})?
+}

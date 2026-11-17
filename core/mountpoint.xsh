@@ -109,7 +109,7 @@ proc parse_options(argv: List[Str], raw: List[gnu.RawArgument]) [process, env, i
         "V" | "version" => return {...opts, version: true}
         else => {
           let value = gnu.argument_bytes(flag, raw)
-          unrecognized_option(if flag.starts_with("\0") { value[..1] } else { value })
+          unrecognized_option(if flag.starts_with("\0") or (ul_io.byte_locale() and ! word.starts_with("--")) { value[..1] } else { value })
         }
       }
     }
@@ -160,8 +160,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.show {
-    match fs.mount_for(path_value) {
-      Ok(mount) => ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
+    let direct_mount = fs.mount_for(path_value)
+    let mount_result = if direct_mount is Err(_) and ! name.starts_with(b"/") {
+      fs.mount_for(Path.parse_bytes(bytes.concat([b"/proc/self/cwd/", name]))?)
+    } else { direct_mount }
+    match mount_result {
+      Ok(mount) => {
+        if direct_mount is Err(_) and fs.stat(mount.mounted_on) is Err(_) {
+          gnu.error("--show is not supported on this system")
+          exit 1
+        }
+        ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
+      }
       Err(_) => {
         gnu.error("--show is not supported on this system")
         exit 1
@@ -170,26 +180,39 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     return
   }
 
-  let resolved = match path_value.resolve() {
-    Ok(value) => value
+  let resolved = path_value.resolve()
+  var is_mountpoint = false
+  var mount_device = metadata.dev
+  match resolved {
+    Ok(value) => {
+      match fs.mount_for(value) {
+        Ok(mount) => {
+          is_mountpoint = value == mount.mounted_on
+          mount_device = mount.device
+        }
+        Err(failure) => {
+          if failure.message != "mount not found" {
+            if ! opts.quiet { report_path_error(name, failure) }
+            exit 1
+          }
+        }
+      }
+    }
     Err(_) => {
-      if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
-      exit 32
+      if metadata.kind == "dir" {
+        let parent = Path.parse_bytes(bytes.concat([name, b"/.."]))?
+        if let Ok(parent_stat) = fs.stat(parent) {
+          is_mountpoint = metadata.dev != parent_stat.dev
+        }
+      }
     }
   }
-  let mount = match fs.mount_for(resolved) {
-    Ok(value) => value
-    Err(failure) => {
-      if ! opts.quiet { report_path_error(name, failure) }
-      exit 1
-    }
-  }
-  if resolved != mount.mounted_on {
+  if ! is_mountpoint {
     if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
   }
   if opts.fs_devno {
-    ul_io.write_text(f"{device_number(mount.device)}\n")
+    ul_io.write_text(f"{device_number(mount_device)}\n")
   } else if ! opts.quiet {
     ul_io.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
   }

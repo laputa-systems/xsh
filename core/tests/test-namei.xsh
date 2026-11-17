@@ -403,6 +403,18 @@ test test_namei_owner_display_cell_width { |ctx|
   for locale in ["C", "C.UTF-8"] {
     parity(s, ["-l", s.root.display()], vars: {LC_ALL: locale})?
   }
+  passwd.write("ééééééé:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
+  groups.write("äääääääää:x:0:\nnogroup:x:65534:\n")
+  for vars in [{LC_ALL: "", LANG: ""}, {LC_ALL: "", LANG: "C"}] {
+    parity(s, ["-l", s.root.display()], vars:)?
+  }
+  let long_name = ["a"] |> repeat(300) |> join("")
+  passwd.write(f"{long_name}:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
+  groups.write("root:x:0:\nnogroup:x:65534:\n")
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  let wide_name = (["a"] |> repeat(255) |> join("")) + "中中中"
+  passwd.write(f"{wide_name}:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
   passwd.write("一:x:0:0::/:/bin/sh\nabcd:x:65534:65534::/:/bin/sh\n")
   parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
 }
@@ -426,8 +438,14 @@ test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
   assert (run.capture --text mount --bind $groups /etc/group).status.exited_with(0)
   mounted_group = true
   parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
-  for name in ["a\u{85}b", "a\u{fffe}b"] {
+  for name in ["a\u{85}b", "a\u{fffe}b", "\u{200b}", "\u{301}", "\u{1160}", "\u{feff}", "\u{e0001}", "a\u{fff9}b", "a\u{fffb}b", "a\u{1fffe}b", "a\u{3fffe}b", "a\u{effff}b", "a\u{10fffe}b"] {
     passwd.write(f"{name}:x:0:0::/:/bin/sh\n")
     parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
   }
+}
+
+test test_namei_multibyte_short_option_c_locale { |ctx|
+  let s = uu.scene(ctx)?
+  parity(s, ["-é"], vars: {LC_ALL: "C"})?
+  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})?
 }
