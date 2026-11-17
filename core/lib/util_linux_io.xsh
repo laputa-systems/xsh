@@ -22,6 +22,13 @@ proc flush_output() [process, io] -> Unit {
   if let Err(_) = io.flush_stdout() { write_error() }
 }
 
+## Names a relative path through the kernel's working directory, which still
+## reaches a directory whose mount was later covered; the evaluator's own
+## working directory is resolved by name.
+export pure process_cwd_path(relative: Bytes) -> Result[Path, Error] {
+  Path.parse_bytes(bytes.concat([b"/proc/self/cwd/", relative]))
+}
+
 ## Writes bytes and flushes stdout; a failed write reports NAME: write error and exits 1.
 export proc write_bytes(data: Bytes) [process, io] -> Unit {
   if let Err(_) = io.write_stdout_bytes(data) { write_error() }

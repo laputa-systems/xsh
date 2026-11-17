@@ -162,7 +162,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if opts.show {
     let direct_mount = fs.mount_for(path_value)
     let mount_result = if direct_mount is Err(_) and ! name.starts_with(b"/") {
-      fs.mount_for(Path.parse_bytes(bytes.concat([b"/proc/self/cwd/", name]))?)
+      fs.mount_for(ul_io.process_cwd_path(name)?)
     } else { direct_mount }
     match mount_result {
       Ok(mount) => {

@@ -1760,13 +1760,7 @@ fn fs_mount_value(mount: FsMount, span: Span) -> Result<Value, RuntimeError> {
 }
 
 pub(crate) fn mount_for(path: &Path, span: Span) -> Result<FsMount, RuntimeError> {
-    #[cfg(not(target_os = "linux"))]
-    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    #[cfg(target_os = "linux")]
-    let target = path;
-    #[cfg(not(target_os = "linux"))]
-    let target = target.as_path();
-    let Some(source) = selected_mount(target, mount_sources(span)?) else {
+    let Some(source) = selected_mount(path, mount_sources(span)?) else {
         return Err(RuntimeError::new("fs-mount", "mount not found").with_span(span));
     };
     // The caller named this mount, so a refusal is its answer, not a row to
@@ -1795,6 +1789,7 @@ fn selected_mount(target: &Path, sources: Vec<MountSource>) -> Option<MountSourc
     {
         return sources.into_iter().find(|mount| mount.mount_id == Some(stat.stx_mnt_id));
     }
+    let target = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     sources
         .into_iter()
         .filter(|mount| target.starts_with(&mount.mounted_on))
