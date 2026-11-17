@@ -76,3 +76,11 @@ class RankTests(unittest.TestCase):
             self.assertEqual(record['cargo'][0]['binary'], 'integration')
             self.assertEqual(record['cargo'][0]['cases'], [{'case': 'one', 'duration_ns': 250000000}])
             self.assertEqual(record['native'][0]['source'], 'native-events.jsonl')
+
+    def test_native_ranking_accepts_skipped_cases_and_rejects_unfinished_starts(self):
+        rows = native_rows()
+        rows[3]['outcome'] = 'skipped'
+        self.assertIn('Native run:', rank.render_native(rank.native_summary(encode(rows), 10)))
+        del rows[3]
+        with self.assertRaises(results.ResultError):
+            rank.native_summary(encode(rows), 10)

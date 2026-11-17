@@ -16,15 +16,34 @@ def seconds(ns):
     return f'{ns / 1_000_000_000:.6f}s'
 
 
+def native_cases(rows):
+    first, summary = rows[0], rows[-1]
+    if first.get('event') != 'run_started' or summary.get('event') != 'run_finished':
+        raise results.ResultError('native events must start with run_started and end with run_finished')
+    workers = first.get('workers')
+    if not results._integer(workers) or workers < 1:
+        raise results.ResultError('invalid worker count')
+    starts, cases = {}, []
+    for row in rows[1:-1]:
+        name = row.get('case_id')
+        if row.get('event') == 'case_started':
+            if name in starts or not results._integer(row.get('worker')) or row['worker'] >= workers \
+                    or not results._integer(row.get('start_offset_ns')):
+                raise results.ResultError(f'invalid case start: {name}')
+            starts[name] = row
+        elif row.get('event') == 'case_finished' and name in starts:
+            if not results._integer(row.get('duration_ns')):
+                raise results.ResultError(f'invalid case duration: {name}')
+            cases.append((name, row['duration_ns'], starts[name]['start_offset_ns'], starts[name]['worker']))
+    if len(cases) != len(starts):
+        raise results.ResultError('a started native case has no finish event')
+    return cases
+
+
 def native_summary(text, limit):
     rows = results._records(text)
     summary = rows[-1]
-    result = results.reconcile_xsht(text, rows[0]['selected'], child_status=summary['status'])
-    if not result['coverage_complete']:
-        raise results.ResultError('native results are incomplete')
-    starts = {row['case_id']: row for row in rows if row['event'] == 'case_started'}
-    cases = [(name, case['duration_ns'], starts[name]['start_offset_ns'], starts[name]['worker'])
-             for name, case in result['cases'].items() if name in starts]
+    cases = native_cases(rows)
     files = defaultdict(list)
     workers = defaultdict(int)
     for name, duration, start, worker in cases:
