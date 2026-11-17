@@ -168,7 +168,7 @@ fn checker_publication_options_preserve_repository_diagnostics() {
     ];
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
-        for _ in 0..std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(2) {
+        for _ in 0..std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(8) {
             scope.spawn(|| {
                 while let Some(path) = sources.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
                     let source = std::fs::read_to_string(path)

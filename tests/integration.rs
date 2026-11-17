@@ -1,3 +1,10 @@
+// musl's allocator serializes every allocation on one lock, which made
+// multi-threaded checking tests slower than single-threaded ones; the shipped
+// binaries use the same allocator.
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[macro_use]
 #[path = "test_binary.rs"]
 mod test_binary;
