@@ -1028,3 +1028,21 @@ test test_lslocks_pid_leading_whitespace { |ctx|
   let s = uu.scene(ctx)?
   let _ = compared(s, ["-p", " 1"])?
 }
+
+test test_lslocks_raw_option_diagnostics { |ctx|
+  let s = uu.scene(ctx)?
+  let bad = Path.parse_bytes(b"\xff")?
+  let long = Path.parse_bytes(b"--\xff")?
+  let short = Path.parse_bytes(b"-\xff")?
+  let attached = Path.parse_bytes(b"--output=PID,\xff")?
+  for args in [[long], [short], [p"-p", bad], [p"-o", bad], [attached]] {
+    let reference = ul.reference_paths(s, "lslocks", args)?
+    let candidate = uu.invoke_paths(s, "lslocks", args)?
+    ul.compare(reference, candidate)
+  }
+}
+
+test test_lslocks_argument_error_precedence { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-p", "abc", "--bogus"], ["-Q", "FOO == 1", "-h"]] { parity(s, args)? }
+}

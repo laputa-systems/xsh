@@ -1029,19 +1029,6 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
       exit 1
     }
   }
-  if name == "filter" {
-    if let Err(failure) = parse_filter(value) {
-      ul_io.write_text(failure.echoed)
-      match failure.reason {
-        UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
-        UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
-        InvalidRegex(message) => gnu.error(f"failed to parse \"{value}\": {message}")
-        InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(value)}: invalid expression")
-        UnknownFilterColumn(column) => { gnu.error(f"unknown column: {column}"); gnu.error("failed to initialize filter") }
-      }
-      exit 1
-    }
-  }
 }
 
 proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
@@ -1124,9 +1111,26 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   var raw_index = 0
   while raw_index < arguments.len() {
+    let prefix = argv[..raw_index]
+    if let detail = first_option_diagnostic(prefix, permute) { gnu.usage_error(detail) }
+    validate_early(prefix, permute)
     let word = arguments[raw_index]
     raw_index += 1
     if word == b"--" { break }
+    if word.starts_with(b"--") and word.utf8() is Err(_) {
+      if ! word.starts_with(b"--output=") and ! word.starts_with(b"--pid=") and ! word.starts_with(b"--filter=") {
+        ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), word[2..], bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+        exit 1
+      }
+    }
+    var value_kind = ""
+    var raw_value: Bytes? = null
+    if word.starts_with(b"--output=") { value_kind = "output"; raw_value = word[9..] }
+    if word.starts_with(b"--pid=") { value_kind = "pid"; raw_value = word[6..] }
+    if word in [b"--output", b"--pid"] and raw_index < arguments.len() {
+      value_kind = if word == b"--pid" { "pid" } else { "output" }
+      raw_value = arguments[raw_index]
+    }
     if word.starts_with(b"-") and ! word.starts_with(b"--") {
       var stop_options = false
       for position in range(1, word.len()) {
@@ -1140,6 +1144,10 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
           exit 1
         }
         if flag in [111, 112, 81] {
+          if flag in [111, 112] {
+            value_kind = if flag == 112 { "pid" } else { "output" }
+            if position + 1 < word.len() { raw_value = word[position + 1..] } else if raw_index < arguments.len() { raw_value = arguments[raw_index] }
+          }
           if position + 1 == word.len() { raw_index += 1 }
           break
         }
@@ -1148,6 +1156,23 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
       }
       if stop_options { break }
     } else if word in [b"--help", b"--version"] { break } else if word in [b"--output", b"--pid", b"--filter"] { raw_index += 1 }
+    if let value = raw_value {
+      if value.utf8() is Err(_) {
+        if value_kind == "pid" {
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: invalid PID argument: '"), value, b"'\n"]))
+          exit 1
+        }
+        if value_kind == "output" {
+          var start = 0
+          for index in range(value.len()) {
+            if (value.byte_at(index) ?? 0) >= 128 { break }
+            if value.byte_at(index) == 44 { start = index + 1 }
+          }
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), value[start..], b"\n"]))
+          exit 1
+        }
+      }
+    }
   }
   if let detail = first_option_diagnostic(argv, permute) {
     gnu.usage_error(detail)
@@ -1185,7 +1210,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     }
   }
   var program: List[FilterToken]? = null
-  if let expression = opts.filter {
+  if let expression = if opts.help or opts.version { null } else { opts.filter } {
     match parse_filter(expression) {
       Ok(parsed) => { ul_io.write_text(parsed.echoed); program = parsed.tokens }
       Err(failure) => {
