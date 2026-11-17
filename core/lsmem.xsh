@@ -127,6 +127,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     raw_index += 1
     if word == "--" { break }
     let raw_word = gnu.argument_bytes(word, prepared.raw)
+    if raw_word.starts_with(b"-") and ! raw_word.starts_with(b"--") {
+      for position in range(1, raw_word.len()) {
+        let flag = raw_word.byte_at(position) ?? 0
+        if flag >= 128 {
+          if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(position, length: 1), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+          exit 1
+        }
+        if flag in [111, 83, 115, 104, 86] { break }
+        if flag not in [97, 98, 74, 80, 110, 114] { break }
+      }
+    }
     if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
       if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
       ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(2, length: raw_word.len() - 2), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))

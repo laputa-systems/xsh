@@ -543,3 +543,8 @@ test test_lsmem_unreadable_optional_inventory_links { |ctx|
   firmware.symlink(to: firmware)?
   compare_lsmem_rooted(s, ["--all", "-o", "BLOCK,ZONES"])?
 }
+
+test test_lsmem_multibyte_short_option { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-é"], ["-bé"]] { compare_lsmem(s, args)? }
+}
