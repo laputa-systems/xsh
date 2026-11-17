@@ -1186,6 +1186,9 @@ test test_lsipc_id_option_order_controls_detail_columns { |ctx|
     assert id_last.candidate.status == 0, mode.selector
     assert id_last.candidate.stdout != b"", mode.selector
 
+    let appended = run_both(s, [mode.selector, "--id", id, "-o", "+ID", "--bytes"])?
+    ul.compare(appended.reference, appended.candidate)
+
     let flag_last = run_both(s, [mode.selector, "--id", id, "--bytes"])?
     ul.compare(flag_last.reference, flag_last.candidate)
     assert flag_last.candidate.status == 0, mode.selector
@@ -1533,6 +1536,13 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
     assert b"     0     0      0      0   0 \n" in pair.reference.stdout
     ul.compare(pair.reference, pair.candidate)
   }
+  let script = uu.at(s, "semop-keeper.py")
+  uu.write(s, "semop-keeper.py", "import ctypes,os,sys\nclass Op(ctypes.Structure): _fields_=[('num',ctypes.c_ushort),('op',ctypes.c_short),('flags',ctypes.c_short)]\nlibc=ctypes.CDLL(None)\nassert libc.semop(int(sys.argv[1]),ctypes.byref(Op(0,1,0)),1)==0\nprint('ready',flush=True)\nos.execv('/bin/cat',['cat'])\n")?
+  let keeper = ul.start_keeper(s, script, [id])?
+  defer ul.stop_keeper(keeper)
+  time.sleep(100ms)
+  let live = run_both(s, ["-s", "-i", id])?
+  ul.compare(live.reference, live.candidate)
   let terminal_args = [p"-s", p"-i", fp"{id}"]
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars: vars)?
@@ -1568,7 +1578,7 @@ test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
   uu.write(s, "command-keeper.py",
     "import ctypes, os, signal, sys\n" +
     "if len(sys.argv) == 1:\n" +
-    "    os.execv(os.fsencode(sys.executable), [os.fsencode(sys.executable), os.fsencode(__file__), bytes([195,169,92,34,36]), b'a`b', bytes([255])])\n" +
+    "    os.execv(os.fsencode(sys.executable), [os.fsencode(sys.executable), os.fsencode(__file__), b'', bytes([195,169,92,34,36]), b'a`b', bytes([255]), b'A' * 1100])\n" +
     "libc = ctypes.CDLL(None, use_errno=True)\n" +
     "identity = libc.shmget(0, 4096, 0o1600)\n" +
     "if identity < 0: raise OSError(ctypes.get_errno(), 'shmget')\n" +
@@ -1686,11 +1696,11 @@ test test_lsipc_regression_terminal_width { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "terminal-keeper.py")
-  uu.write(s, "terminal-keeper.py", "import ctypes,sys\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nlibc.shmat.restype=ctypes.c_void_p\nlibc.shmat(id,None,0)\nlibc.shmctl(id,0,None)\nprint(id,flush=True)\nsys.stdin.readline()\n")?
+  uu.write(s, "terminal-keeper.py", "import ctypes,os,sys\nif len(sys.argv)==1: os.execv(sys.executable,[sys.executable,__file__,'X'*370])\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nlibc.shmat.restype=ctypes.c_void_p\nlibc.shmat(id,None,0)\nlibc.shmctl(id,0,None)\nprint(id,flush=True)\nsys.stdin.readline()\n")?
   let fixture = ul.start_keeper(s, script, [])?
   defer ul.stop_keeper(fixture)
-  for args in [[p"-m", p"--noheadings"], [p"-m", p"-o", p"COMMAND,COMMAND"]] {
-    for columns in [40, 80, 400] {
+  for args in [[p"-m", p"-o", p"COMMAND,COMMAND"], [p"-m", p"--noheadings"], [p"-m", p"--noheadings", p"--notruncate"]] {
+    for columns in [40, 80, 270, 400] {
       let vars = {LC_ALL: "C", TZ: "UTC", COLUMNS: "200"}
       let reference = contexts.terminal_reference(s, "lsipc", args, columns: columns, vars: vars)?
       let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
@@ -1702,7 +1712,7 @@ test test_lsipc_regression_terminal_width { |ctx|
 test test_lsipc_regression_display_cell_padding { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
-  let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx"]
+  let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx", p"/dev/shm/\u{301}x", p"/dev/shm/n\u{601}x", p"/dev/shm/n\u{ad}x", p"/dev/shm/n\u{2065}x"]
   for target in paths { target.write(b"") }
   defer { for target in paths { target.remove() } }
   let pair = run_both_with_vars(s, ["-M", "-o", "NAME,PERMS"], vars: {LC_ALL: "C.UTF-8", TZ: "UTC"})?
@@ -1718,6 +1728,19 @@ test test_lsipc_regression_missing_id_with_other_resource { |ctx|
   let pair = run_both(s, ["-q", "-i", "2147483647", "-M"])?
   assert pair.reference.stderr == b"lsipc: id 2147483647 not found\n"
   ul.compare(pair.reference, pair.candidate)
+  let args = [p"-q", p"-i", p"2147483647", p"-M"]
+  let vars = {LC_ALL: "C", TZ: "UTC"}
+  let reference = contexts.terminal_reference(s, "lsipc", args, columns: 120, vars: vars)?
+  let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: 120, vars: vars)?
+  assert ul.observed_equal(reference, candidate)
+  let words = uu.argv(s, "lsipc", args, vars)?
+  let ref_words = ul.reference_argv(s, "lsipc", args, vars)?
+  let output = fp"{s.root}/missing-id.out"
+  let reference_status = process.run(process.command_argv(ref_words[0], ref_words, s.root, vars, b"", output, p"/dev/full", timeout: 5s))?
+  let reference_output = output.read_bytes()?
+  let status = process.run(process.command_argv(words[0], words, s.root, vars, b"", output, p"/dev/full", timeout: 5s))?
+  assert reference_status.exited_with(1) and status.exited_with(1)
+  assert reference_output == output.read_bytes()?
 }
 
 test test_lsipc_regression_negative_id_detail { |ctx|
@@ -1734,6 +1757,10 @@ test test_lsipc_regression_negative_id_detail { |ctx|
   let second = out.read_text()?.trim().fields()[-1]
   let remove_second = process.command_argv(p"/usr/bin/ipcrm", [p"/usr/bin/ipcrm", p"-m", fp"{second}"], s.root, {}, b"", out, err, timeout: 5s)
   defer { let _ = process.run(remove_second) }
+  for args in [["-m", "-i", first, "-o", "+SIZE", "-b"], ["-m", "-i", first, "-o", "+SIZE", "--"]] {
+    let detail = run_both(s, args)?
+    ul.compare(detail.reference, detail.candidate)
+  }
   let pair = run_both(s, ["-m", "-i", "-7"])?
   ul.compare(pair.reference, pair.candidate)
 }
@@ -1776,4 +1803,18 @@ test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
     let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
     assert ul.observed_equal(reference, candidate)
   }
+}
+
+test test_lsipc_without_procfs_empty_namespace { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/no-proc.out"
+  let err = fp"{s.root}/no-proc.err"
+  let script = "mount -t tmpfs none /proc\n" +
+    "LC_ALL=C /usr/bin/lsipc -m > \"$1/ref\" 2> \"$1/referr\"\n" +
+    "LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- -m > \"$1/cand\" 2> \"$1/canderr\"\n" +
+    "cmp \"$1/ref\" \"$1/cand\" && cmp \"$1/referr\" \"$1/canderr\"\n"
+  let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
+  let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 10s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
 }

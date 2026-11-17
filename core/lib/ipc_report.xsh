@@ -146,10 +146,16 @@ pure pretty_label(column: Str) -> Str {
 
 pure display_width(value: Str) -> Int {
   var measured = ""
+  var first = true
+  var leading_zero = false
   for character in value {
-    if character not in ["\u{600}", "\u{200c}", "\u{200d}", "\u{200e}", "\u{200f}", "\u{202a}", "\u{202b}", "\u{202c}", "\u{202d}", "\u{202e}", "\u{2060}", "\u{2061}", "\u{2062}", "\u{2063}", "\u{2064}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}", "\u{206a}", "\u{206b}", "\u{206c}", "\u{206d}", "\u{206e}", "\u{206f}", "\u{feff}"] { measured += character }
+    if first and tui.cell_width("x" + character) == 1 { leading_zero = true }
+    first = false
+    if character not in ["\u{600}", "\u{601}", "\u{602}", "\u{603}", "\u{604}", "\u{605}", "\u{61c}", "\u{6dd}", "\u{200c}", "\u{200d}", "\u{200e}", "\u{200f}", "\u{202a}", "\u{202b}", "\u{202c}", "\u{202d}", "\u{202e}", "\u{2060}", "\u{2061}", "\u{2062}", "\u{2063}", "\u{2064}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}", "\u{206a}", "\u{206b}", "\u{206c}", "\u{206d}", "\u{206e}", "\u{206f}", "\u{feff}"] { measured += character }
   }
-  tui.cell_width(measured)
+  var extra = 0
+  for character in measured { if character in ["\u{ad}", "\u{2065}"] { extra += 1 } }
+  tui.cell_width(measured) + extra - if leading_zero and !measured.is_empty() { 1 } else { 0 }
 }
 
 pure truncate_cells(text: Str, width: Int) -> Str {
@@ -182,7 +188,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
     }
   }
   var wrap_status = false
-  if !selection.notruncate and output_width > 0 {
+  if output_width > 0 {
     var total_width = 0
     for index in range(widths.len()) {
       total_width += widths[index]
@@ -199,14 +205,35 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
         }
       }
       var reduction = total_width - output_width
-      for reverse_index in range(selection.columns.len()) {
-        let index = selection.columns.len() - reverse_index - 1
-        if selection.columns[index] == "COMMAND" {
-          let minimum = if selection.noheadings { 1 } else { display_width(heading(selection, selection.columns[index])) }
-          let available = widths[index] - minimum
-          let change = if available < reduction { available } else { reduction }
-          if change > 0 { widths[index] -= change; reduction -= change }
-          if reduction <= 0 { break }
+      let command_count = (selection.columns |> where . == "COMMAND").len()
+      if !selection.notruncate and command_count > 1 {
+        while reduction > 0 {
+          var changed = false
+          var first_command = true
+          for reverse_index in range(selection.columns.len()) {
+            let index = selection.columns.len() - reverse_index - 1
+            if selection.columns[index] == "COMMAND" {
+              let minimum = if selection.noheadings { 1 } else { display_width(heading(selection, selection.columns[index])) }
+              let available = widths[index] - minimum
+              let wanted = if first_command { 3 } else { 1 }
+              let change = if available < wanted { available } else if reduction < wanted { reduction } else { wanted }
+              if change > 0 { widths[index] -= change; reduction -= change; changed = true }
+              first_command = false
+              if reduction <= 0 { break }
+            }
+          }
+          if !changed { break }
+        }
+      } else {
+        for reverse_index in range(selection.columns.len()) {
+          let index = selection.columns.len() - reverse_index - 1
+          if !selection.notruncate and selection.columns[index] == "COMMAND" {
+            let minimum = if selection.noheadings { 1 } else { display_width(heading(selection, selection.columns[index])) }
+            let available = widths[index] - minimum
+            let change = if available < reduction { available } else { reduction }
+            if change > 0 { widths[index] -= change; reduction -= change }
+            if reduction <= 0 { break }
+          }
         }
       }
     }
@@ -252,7 +279,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
         out += [tui.left_pad(names[index], element_widths[index]) for index in range(names.len())].join(" ") + "\n"
         for element in row.elements {
           let values = [f"{element.number}", f"{element.value}", f"{element.waiting_for_increase}", f"{element.waiting_for_zero}", f"{element.pid}", scols.safe_table_text(element.command, false, byte_locale)]
-          out += [if index == names.len() - 1 { values[index] } else { pad_left_cells(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
+          out += [if index == names.len() - 1 and values[index].is_empty() { "" } else { pad_left_cells(values[index], element_widths[index]) } for index in range(names.len())].join(" ") + "\n"
         }
       }
       break
@@ -719,6 +746,7 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
   }
   selection = {...selection, columns: id_columns(selection, resource_order)}
   let last_has_argument = !has_terminator(argv, permute) and !parsed_names.is_empty() and parsed_names[-1] in ARGUMENT_OPTIONS
+  if pretty and !options.creator and !options.time and !last_has_argument and options.output != null and (options.output ?? "").starts_with("+") { selection = {...selection, columns: ALL_COLUMNS} }
   let output_resource: Str? = if resource_order.is_empty() { null } else { resource_order[-1] }
   let columns = if let output = options.output {
     output_columns(output, selection, output_resource)?

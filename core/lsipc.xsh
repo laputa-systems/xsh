@@ -197,22 +197,19 @@ pure number(record: Map[Str, Str], key: Str) -> Int? {
 
 proc command_line(pid: Int) [fs] -> Bytes {
   return b"" when pid <= 0
-  let raw = if let Ok(content) = try { ipc.read_process_arguments(pid) } { content } else { b"" }
+  let content = if let Ok(data) = try { ipc.read_process_arguments(pid) } { data } else { b"" }
+  let length = if content.len() > 1023 { 1023 } else { content.len() }
+  let raw = content[0..length]
   var at = 0
   var words: List[Bytes] = []
   for index in range(raw.len()) {
     if raw.byte_at(index) == 0 {
-      if index > at {
-        if !words.is_empty() { words += [b" "] }
-        words += [raw[at..index]]
-      }
+      words += [raw[at..index]]
+      if index + 1 < raw.len() { words += [b" "] }
       at = index + 1
     }
   }
-  if at < raw.len() {
-    if !words.is_empty() { words += [b" "] }
-    words += [raw[at..]]
-  }
+  if at < raw.len() { words += [raw[at..]] }
   bytes.concat(words)
 }
 
@@ -374,13 +371,17 @@ proc row_for(selection: report.Selection, entry: IpcEntry, resource: Str) -> rep
   {resource: resource, cells: cells, elements: entry.elements}
 }
 
-proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
+type SelectedRows = {rows: List[report.Row], diagnostic_failed: Bool}
+
+proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> SelectedRows {
   var rows: List[report.Row] = []
+  var diagnostic_failed = false
   for kind in selection.resources {
     continue when selection.global
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
-      for record in ipc.collect_system_v(system_v_kind(kind)) {
+      let records = if p"/proc/sysvipc".exists() { ipc.collect_system_v(system_v_kind(kind)) } else { [] }
+      for record in records {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
             let record_id = record.id
@@ -391,7 +392,10 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
       }
       if entries.is_empty() {
         if let id = selection.id {
-          if id >= 0 { gnu.error(f"id {id} not found") }
+          if id >= 0 {
+            if io.write_stderr_bytes(bytes.from_text(f"{gnu.prog()}: id {id} not found\n")) is Err(_) { diagnostic_failed = true }
+            if io.flush_stderr() is Err(_) { diagnostic_failed = true }
+          }
         }
       }
     } else {
@@ -414,7 +418,7 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
       rows += [row_for(selection, entry, kind)]
     }
   }
-  rows
+  {rows: rows, diagnostic_failed: diagnostic_failed}
 }
 
 proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
@@ -638,7 +642,8 @@ proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
     Ok(value) => value
     Err(failure) => { report_failure(failure, prepared.raw); return }
   }
-  let rows = if selection.global { global_rows(selection, prepared.raw) } else { selected_rows(selection, prepared.raw) }
+  let result = if selection.global { {rows: global_rows(selection, prepared.raw), diagnostic_failed: false} } else { selected_rows(selection, prepared.raw) }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
-  ul_io.write_bytes(report.render(selection, rows, output_width(), ul_io.byte_locale(), json_mode))
+  ul_io.write_bytes(report.render(selection, result.rows, output_width(), ul_io.byte_locale(), json_mode))
+  if result.diagnostic_failed { exit 1 }
 }

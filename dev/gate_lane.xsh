@@ -181,6 +181,7 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-lsipc.xsh::test_lsipc_output_modes_and_table_controls_match_reference",
     "core/tests/test-lsipc.xsh::test_lsipc_short_option_aliases_match_long_options",
     "core/tests/test-lsipc.xsh::test_lsipc_visibility_matches_for_owner_and_unprivileged_observer",
+    "core/tests/test-lsipc.xsh::test_lsipc_without_procfs_empty_namespace",
     "core/tests/test-lslocks.xsh::test_lslocks_all_columns_types_and_json",
     "core/tests/test-lslocks.xsh::test_lslocks_blocker_flock",
     "core/tests/test-lslocks.xsh::test_lslocks_blocker_ofd",
