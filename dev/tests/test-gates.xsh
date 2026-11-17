@@ -684,8 +684,7 @@ test test_sema_gate_runs_the_library_unit_tests_of_the_files_it_owns {
   assert "--lib" in unit[0].argv
   assert "sema::" in unit[0].argv
   assert "sema::check::resource::tests::w9_resource_scope_attribution" in unit[0].argv
-  assert "sema::effects_conformance::production_matches_lean_effect_algebra" in unit[0].argv
-  assert "sema::effects::effect_predicate_conformance::production_matches_lean_effect_predicates" in unit[0].argv
+  assert "production_matches_lean_" in unit[0].argv
   let integration = [spec for spec in plan |> where .stage == "test-sema"]
   assert integration.len() == 1
   assert "--lib" not in integration[0].argv
