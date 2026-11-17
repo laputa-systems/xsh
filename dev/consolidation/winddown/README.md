@@ -173,19 +173,6 @@ failure. The observer's batch, `cargo dev gate --full`, stops at its first
 failing step, so a native failure leaves the repository and documentation
 checks unrun and the batch timing incomplete.
 
-### Carrying stage receipts forward
-
-`gate-tools/stage-reuse/stage_reuse.py --repo SOURCE --target COMMIT --stage
-STAGE=COMMIT ...` writes the acceptance listing: for every chain stage, the
-commit its passing receipt came from and the `git diff --no-renames` check that
-justified reuse. A receipt from an ancestor commit carries forward only when the
-diff touches nothing but `TODO.md`, `docs/ROADMAP.md`, or the campaign records
-`dev/consolidation/{CAMPAIGN,HANDOFF,ITEMS}.md` and this README. Any other path,
-including the gate tools, `Cargo.lock`, the image, `src/`, `crates/`, tests,
-documentation sources, and evidence, invalidates every stage. The stage tools
-still bind their upstream receipts to one commit, so a chain that reuses
-receipts must pass each tool the receipt commit, not the target.
-
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.
