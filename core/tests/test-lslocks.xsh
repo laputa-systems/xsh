@@ -951,21 +951,15 @@ test test_lslocks_exited_flock_acquirer { |ctx|
   defer child.cancel(signal: "TERM", kill_after: 2s)
   let keeper: ul.Keeper = {child: child, input_fd: input_fd, output_fd: output_fd, ready: "", stderr: stderr}
   let pid = json.get(json.decode(ul.keeper_receive(keeper)?)?, ["pid"])?.require(Int)?
-  let observed = ul.reference(s, "lslocks", ["-r", "-n", "-p", f"{pid}", "-o", "PID"])?
-  if observed.stdout.is_empty() {
-    let inode = fs.stat(lock_path)?.ino
-    for line in p"/proc/locks".read_text()?.lines() {
-      assert ! (f":{inode} " in line)
-    }
-    return
-  }
+  let inode = fs.stat(lock_path)?.ino
+  let visible = [line for line in p"/proc/locks".read_text()?.lines() if f":{inode} " in line].len() > 0
   for args in [
     ["-r", "-n", "-o", "COMMAND,PID,TYPE,MODE,PATH", "-p", f"{pid}"],
     ["-J", "-p", f"{pid}", "-o", "COMMAND,PID,PATH,HOLDERS"],
     ["-n", "-p", f"{pid}", "-o", "COMMAND,PID,PATH"],
   ] {
     let result = compared(s, args)?
-    assert ! result.stdout.is_empty()
+    assert result.stdout.is_empty() != visible
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
