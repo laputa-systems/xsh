@@ -421,9 +421,10 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
   var output: List[FilterToken] = []
   var echoed = ""
   var at = 0
-  let length = text.byte_len()
+  let characters = [character for character in text]
+  let length = characters.len()
   while at < length {
-    let current = text.byte_slice(at, length: 1)
+    let current = characters[at]
     if current in [" ", "\t", "\n", "\r"] {
       at += 1
       continue
@@ -439,7 +440,7 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
       var value = ""
       var closed = false
       while at < length {
-        let part = text.byte_slice(at, length: 1)
+        let part = characters[at]
         if part == quote {
           closed = true
           at += 1
@@ -447,7 +448,7 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
         }
         if part == "\\" and at + 1 < length {
           at += 1
-          value += text.byte_slice(at, length: 1)
+          value += characters[at]
           at += 1
         } else {
           value += part
@@ -458,7 +459,7 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
       output += [{kind: "literal", value: value}]
       continue
     }
-    let pair = if at + 1 < length { text.byte_slice(at, length: 2) } else { "" }
+    let pair = if at + 1 < length { current + characters[at + 1] } else { "" }
     if pair in ["==", "!=", ">=", "<=", "=~", "!~", "&&", "||"] {
       output += [{kind: "operator", value: pair}]
       at += 2
@@ -477,12 +478,12 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
     let start = at
     let numeric_start = rx"^[0-9]$".matches(current)
     while at < length {
-      let part = text.byte_slice(at, length: 1)
+      let part = characters[at]
       break when part in [" ", "\t", "\n", "\r", "(", ")", "<", ">", "!", "=", "&", "|", "'", "\"", "[", "]"]
       break when numeric_start and part == "-"
       at += 1
     }
-    let word = text.byte_slice(start, length: at - start)
+    let word = characters[start..at].join("")
     let upper = word.upper()
     if upper in ["AND", "OR", "NOT"] {
       output += [{kind: "operator", value: upper}]

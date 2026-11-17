@@ -983,3 +983,8 @@ test test_lslocks_terminal_path_minimum { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+test test_lslocks_non_ascii_filter { |ctx|
+  let s = uu.scene(ctx)?
+  let _ = compared(s, ["-Q", "COMMAND == \"café\""])?
+}
