@@ -47,8 +47,36 @@ enum StreamOrigin {
     OpaqueFormal { owner: EffectDeclarationId, parameter: usize, projection: ProjectionPath },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(super) struct OriginTransferId(u32);
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+enum TransferUse {
+    Projected { transfer: OriginTransferId, projection: ProjectionPath },
+    Overflowed(OriginTransferId),
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct StreamOrigins(BTreeSet<(ProjectionPath, StreamOrigin)>);
+pub(crate) struct StreamOrigins(BTreeSet<(ProjectionPath, StreamOrigin)>, TransferSet);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct TransferSet(BTreeSet<(TransferUse, ProjectionPath)>);
+
+impl TransferSet {
+    fn iter(&self) -> impl Iterator<Item = (&ProjectionPath, &TransferUse)> { self.0.iter().map(|(transfer, path)| (path, transfer)) }
+
+    fn insert(&mut self, path: ProjectionPath, transfer: TransferUse) { self.0.insert((transfer, path)); }
+
+    fn extend(&mut self, other: &Self) { self.0.extend(other.0.iter().cloned()); }
+
+    fn is_empty(&self) -> bool { self.0.is_empty() }
+
+    fn clear(&mut self) { self.0.clear(); }
+}
+
+impl FromIterator<(ProjectionPath, TransferUse)> for TransferSet {
+    fn from_iter<I: IntoIterator<Item = (ProjectionPath, TransferUse)>>(iter: I) -> Self { Self(iter.into_iter().map(|(path, transfer)| (transfer, path)).collect()) }
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct ProjectionDomain {
@@ -121,15 +149,71 @@ impl StreamOriginSummaries {
     }
 }
 
+#[derive(Clone, Debug)]
+enum OriginTransfer {
+    Call { target: EffectDeclarationId, actuals: Option<BTreeMap<usize, StreamOrigins>>, mismatched_applications: bool },
+    LoopHeader { identity: StreamLoopId, binding: super::BindingId },
+    Substitution { source: TransferUse, arguments: std::sync::Arc<BTreeMap<usize, StreamOrigins>> },
+    Occupied(StreamOrigins),
+    Union(Vec<TransferUse>),
+    Storage { source: TransferUse, at: ProjectionPath, domain: std::sync::Arc<ProjectionDomain> },
+    Summary { source: TransferUse, at: ProjectionPath, owner: EffectDeclarationId, output: std::sync::Arc<ProjectionDomain>, parameters: std::sync::Arc<[ProjectionDomain]> },
+}
+
+#[derive(Debug, Default)]
+pub(super) struct StreamOriginTransfers {
+    recording: bool,
+    transfers: std::sync::Mutex<Vec<OriginTransfer>>,
+    closure_rejected: std::sync::atomic::AtomicBool,
+    untracked_reads: std::sync::Mutex<BTreeSet<EffectDeclarationId>>,
+}
+
+impl StreamOriginTransfers {
+    fn record(&self, transfer: OriginTransfer) -> OriginTransferId {
+        let mut transfers = self.transfers.lock().expect("stream origin transfers are recorded by one checking pass");
+        let id = OriginTransferId(u32::try_from(transfers.len()).expect("stream origin transfers fit their identifier"));
+        transfers.push(transfer);
+        id
+    }
+
+    fn inspect<R>(&self, transfer: OriginTransferId, inspect: impl FnOnce(&OriginTransfer) -> R) -> R {
+        inspect(&self.transfers.lock().expect("stream origin transfers are recorded by one checking pass")[transfer.0 as usize])
+    }
+
+    fn reject_closure(&self) { self.closure_rejected.store(true, std::sync::atomic::Ordering::Relaxed); }
+
+    fn closure_rejected(&self) -> bool { self.closure_rejected.load(std::sync::atomic::Ordering::Relaxed) }
+
+    fn decide(&self, origin: &StreamOrigins) {
+        if origin.has_transfers() { self.reject_closure(); }
+    }
+
+    pub(super) fn decide_root(&self, origin: &StreamOrigins) {
+        if origin.has_root_transfer() { self.reject_closure(); }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct StreamOriginProbe {
+    pub(super) provisional: StreamOriginSummaries,
+    pub(super) record_transfers: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct StreamOriginInputs {
     dependencies: std::sync::Arc<StreamOriginSummaries>,
     provisional: StreamOriginSummaries,
+    transfers: std::sync::Arc<StreamOriginTransfers>,
 }
 
 impl StreamOriginInputs {
     pub(super) fn new(dependencies: std::sync::Arc<StreamOriginSummaries>, provisional: StreamOriginSummaries) -> Self {
-        Self { dependencies, provisional }
+        Self { dependencies, provisional, transfers: std::sync::Arc::default() }
+    }
+
+    pub(super) fn for_probe(dependencies: std::sync::Arc<StreamOriginSummaries>, probe: StreamOriginProbe) -> Self {
+        let transfers = StreamOriginTransfers { recording: probe.record_transfers, ..StreamOriginTransfers::default() };
+        Self { dependencies, provisional: probe.provisional, transfers: std::sync::Arc::new(transfers) }
     }
 
     fn declaration(&self, owner: &EffectDeclarationId) -> Option<&StreamReturnSummary> {
@@ -139,6 +223,15 @@ impl StreamOriginInputs {
     fn loop_header(&self, identity: &StreamLoopId) -> Option<&BTreeMap<super::BindingId, StreamOrigins>> {
         self.provisional.loops.get(identity).or_else(|| self.dependencies.loops.get(identity))
     }
+
+    fn tracks_declaration(&self, owner: EffectDeclarationId) -> bool {
+        if !self.transfers.recording { return false; }
+        if self.provisional.declarations.contains_key(&owner) || !self.dependencies.declarations.contains_key(&owner) { return true; }
+        self.transfers.untracked_reads.lock().expect("stream origin transfers are recorded by one checking pass").insert(owner);
+        false
+    }
+
+    pub(super) fn transfers(&self) -> &StreamOriginTransfers { &self.transfers }
 }
 
 impl ProjectionDomain {
@@ -178,11 +271,11 @@ impl StreamOrigins {
     }
 
     pub(super) fn formal(owner: EffectDeclarationId, parameter: usize) -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::Formal { owner, parameter, projection: ProjectionPath::default() })].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::Formal { owner, parameter, projection: ProjectionPath::default() })].into_iter().collect(), TransferSet::default())
     }
 
     pub(super) fn application(reference: crate::sema::constraints::CallableApplicationReference) -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::OriginalApplication { reference, projection: ProjectionPath::default() })].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::OriginalApplication { reference, projection: ProjectionPath::default() })].into_iter().collect(), TransferSet::default())
     }
 
     pub(super) fn return_applications(&self) -> BTreeSet<Option<crate::sema::constraints::CallableApplicationReference>> {
@@ -220,6 +313,7 @@ impl StreamOrigins {
             };
             output.0.insert((path.clone(), origin));
         }
+        output.1.extend(&self.1);
         Ok(output)
     }
 
@@ -238,6 +332,7 @@ impl StreamOrigins {
             for step in path.0.iter().rev() { projected = projected.prefix(step.clone())?; }
             output.join(&projected);
         }
+        output.1.extend(&self.1);
         Ok(output)
     }
 
@@ -262,6 +357,7 @@ impl StreamOrigins {
             };
             output.0.insert((path.clone(), origin));
         }
+        output.1.extend(&self.1);
         Ok(output)
     }
 
@@ -284,6 +380,7 @@ impl StreamOrigins {
             };
             output.0.insert((path.clone(), origin));
         }
+        output.1.extend(&self.1);
         Ok(output)
     }
 
@@ -292,11 +389,11 @@ impl StreamOrigins {
     }
 
     pub(super) fn callable(target: EffectDeclarationId) -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::Callable(target))].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::Callable(target))].into_iter().collect(), TransferSet::default())
     }
 
     pub(super) fn pending(target: EffectDeclarationId) -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::Pending(target))].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::Pending(target))].into_iter().collect(), TransferSet::default())
     }
 
     fn has_unknown_callable(&self) -> bool {
@@ -349,21 +446,27 @@ impl StreamOrigins {
     }
 
     pub(super) fn error() -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::Error)].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::Error)].into_iter().collect(), TransferSet::default())
     }
 
     pub(super) fn opaque() -> Self {
-        Self([(ProjectionPath::default(), StreamOrigin::Opaque)].into_iter().collect())
+        Self([(ProjectionPath::default(), StreamOrigin::Opaque)].into_iter().collect(), TransferSet::default())
     }
 
     pub(super) fn join(&mut self, other: &Self) -> bool {
         let previous = self.0.len();
         self.0.extend(other.0.iter().cloned());
+        self.1.extend(&other.1);
         self.0.len() != previous
     }
 
     pub(super) fn prefix(&self, step: StreamProjection) -> Result<Self, StreamOriginBoundaryError> {
-        self.0.iter().map(|(path, source)| Ok((path.prefix(step.clone())?, source.clone()))).collect::<Result<BTreeSet<_>, _>>().map(Self)
+        let known = self.0.iter().map(|(path, source)| Ok((path.prefix(step.clone())?, source.clone()))).collect::<Result<BTreeSet<_>, _>>()?;
+        let transfers = self.1.iter().map(|(path, transfer)| match (transfer, path.prefix(step.clone())) {
+            (TransferUse::Projected { .. }, Ok(path)) => (path, transfer.clone()),
+            _ => (ProjectionPath::default(), TransferUse::Overflowed(transfer.transfer())),
+        }).collect();
+        Ok(Self(known, transfers))
     }
 
     pub(super) fn project(&self, requested: &[StreamProjection]) -> Result<Self, StreamOriginBoundaryError> {
@@ -386,10 +489,24 @@ impl StreamOrigins {
                 output.0.insert((ProjectionPath::default(), projected));
             }
         }
+        for (path, transfer) in self.1.iter() {
+            if let Some(remaining) = path.0.strip_prefix(requested.0.as_slice()) {
+                output.1.insert(ProjectionPath(remaining.to_vec()), transfer.clone());
+            } else if let Some(remaining) = requested.0.strip_prefix(path.0.as_slice()) {
+                let projected = match transfer {
+                    TransferUse::Projected { transfer, projection } => match projection.append(remaining) {
+                        Ok(projection) => TransferUse::Projected { transfer: *transfer, projection },
+                        Err(_) => TransferUse::Overflowed(*transfer),
+                    },
+                    TransferUse::Overflowed(transfer) => TransferUse::Overflowed(*transfer),
+                };
+                output.1.insert(ProjectionPath::default(), projected);
+            }
+        }
         Ok(output)
     }
 
-    pub(super) fn substitute(&self, arguments: &BTreeMap<usize, Self>) -> Result<Self, StreamOriginBoundaryError> {
+    pub(super) fn substitute(&self, arguments: &BTreeMap<usize, Self>, transfers: &StreamOriginTransfers) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
         for (path, source) in &self.0 {
             match source {
@@ -397,10 +514,20 @@ impl StreamOrigins {
                 StreamOrigin::Formal { parameter, projection, .. } | StreamOrigin::OpaqueFormal { parameter, projection, .. } => {
                     let argument = arguments.get(parameter).cloned().unwrap_or_else(Self::opaque);
                     let mut value = argument.project(&projection.0)?;
-                    if matches!(source, StreamOrigin::OpaqueFormal { .. }) && !value.0.is_empty() { value = Self::opaque(); }
+                    if matches!(source, StreamOrigin::OpaqueFormal { .. }) {
+                        if !value.0.is_empty() { value = Self::opaque(); }
+                        else if !value.1.is_empty() { value = Self::transferred(transfers.record(OriginTransfer::Occupied(value))); }
+                    }
                     for step in path.0.iter().rev() { value = value.prefix(step.clone())?; }
                     output.join(&value);
                 }
+            }
+        }
+        if !self.1.is_empty() {
+            let arguments = std::sync::Arc::new(arguments.clone());
+            for (path, source) in self.1.iter() {
+                let transfer = transfers.record(OriginTransfer::Substitution { source: source.clone(), arguments: std::sync::Arc::clone(&arguments) });
+                output.1.insert(path.clone(), TransferUse::whole(transfer));
             }
         }
         Ok(output)
@@ -418,7 +545,7 @@ impl StreamOrigins {
         self.0.retain(|(_, origin)| !matches!(origin, StreamOrigin::Pending(target) if declarations.contains(target)));
     }
 
-    fn validate_storage(&self, domain: &ProjectionDomain) -> Result<Self, StreamOriginBoundaryError> {
+    fn validate_storage(&self, domain: &ProjectionDomain, transfers: &StreamOriginTransfers) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
         for (path, origin) in &self.0 {
             match domain.boundary(path)? {
@@ -426,10 +553,16 @@ impl StreamOrigins {
                 None => { output.0.insert((path.clone(), origin.clone())); }
             }
         }
+        if !self.1.is_empty() {
+            let domain = std::sync::Arc::new(domain.clone());
+            output.1 = self.bounded_transfers(&domain, transfers,
+                |transfer, path| matches!(transfer, OriginTransfer::Storage { at, domain: bound, .. } if at == path && bound == &domain),
+                |source, at| OriginTransfer::Storage { source, at, domain: std::sync::Arc::clone(&domain) });
+        }
         Ok(output)
     }
 
-    fn validate(&self, owner: EffectDeclarationId, output_domain: &ProjectionDomain, parameters: &[ProjectionDomain]) -> Result<Self, StreamOriginBoundaryError> {
+    fn validate(&self, owner: EffectDeclarationId, output_domain: &ProjectionDomain, parameters: &[ProjectionDomain], transfers: &StreamOriginTransfers) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
         for (path, source) in &self.0 {
             if let Some(prefix) = output_domain.boundary(path)? {
@@ -459,10 +592,313 @@ impl StreamOrigins {
             };
             output.0.insert((path.clone(), source));
         }
+        if !self.1.is_empty() {
+            let output_domain = std::sync::Arc::new(output_domain.clone());
+            let parameters: std::sync::Arc<[ProjectionDomain]> = parameters.into();
+            output.1 = self.bounded_transfers(&output_domain, transfers,
+                |transfer, path| matches!(transfer, OriginTransfer::Summary { at, owner: bound_owner, output: bound, parameters: bound_parameters, .. }
+                    if at == path && *bound_owner == owner && bound == &output_domain && bound_parameters == &parameters),
+                |source, at| OriginTransfer::Summary { source, at, owner, output: std::sync::Arc::clone(&output_domain), parameters: std::sync::Arc::clone(&parameters) });
+        }
         Ok(output)
+    }
+
+    fn bounded_transfers(&self, domain: &ProjectionDomain, transfers: &StreamOriginTransfers,
+        bound: impl Fn(&OriginTransfer, &ProjectionPath) -> bool, bounded: impl Fn(TransferUse, ProjectionPath) -> OriginTransfer,
+    ) -> TransferSet {
+        let mut output = TransferSet::default();
+        for (path, source) in self.1.iter() {
+            let checked = match source {
+                TransferUse::Overflowed(_) => true,
+                TransferUse::Projected { transfer, projection } => projection.0.is_empty() && transfers.inspect(*transfer, |transfer| bound(transfer, path)),
+            };
+            if checked { output.insert(path.clone(), source.clone()); continue; }
+            match domain.boundary(path) {
+                Ok(None) => { output.insert(path.clone(), TransferUse::whole(transfers.record(bounded(source.clone(), path.clone())))); }
+                Ok(Some(prefix)) => {
+                    let occupied = Self(BTreeSet::new(), [(ProjectionPath::default(), source.clone())].into_iter().collect());
+                    output.insert(prefix, TransferUse::whole(transfers.record(OriginTransfer::Occupied(occupied))));
+                }
+                Err(_) => transfers.reject_closure(),
+            }
+        }
+        output
+    }
+
+    fn transferred(transfer: OriginTransferId) -> Self {
+        Self(BTreeSet::new(), [(ProjectionPath::default(), TransferUse::whole(transfer))].into_iter().collect())
+    }
+
+    fn has_transfers(&self) -> bool { !self.1.is_empty() }
+
+    pub(super) fn compact_transfers(&mut self, transfers: &StreamOriginTransfers) {
+        let mut groups = BTreeMap::<&ProjectionPath, Vec<TransferUse>>::new();
+        for (path, transfer) in self.1.iter() { groups.entry(path).or_default().push(transfer.clone()); }
+        if groups.len() == self.1.0.len() { return; }
+        let compacted = groups.into_iter().map(|(path, mut uses)| {
+            let transfer = if uses.len() == 1 { uses.pop().expect("one transfer use") } else { TransferUse::whole(transfers.record(OriginTransfer::Union(uses))) };
+            (path.clone(), transfer)
+        }).collect();
+        self.1 = compacted;
+    }
+
+    fn has_root_transfer(&self) -> bool { self.1.iter().any(|(path, _)| path.0.is_empty()) }
+
+    pub(super) fn without_transfers(&mut self) { self.1.clear(); }
+}
+
+impl TransferUse {
+    fn whole(transfer: OriginTransferId) -> Self { Self::Projected { transfer, projection: ProjectionPath::default() } }
+
+    fn transfer(&self) -> OriginTransferId {
+        match self { Self::Projected { transfer, .. } | Self::Overflowed(transfer) => *transfer }
     }
 }
 
+
+#[derive(Clone, Copy, Debug)]
+struct ClosureUnavailable;
+
+impl From<StreamOriginBoundaryError> for ClosureUnavailable {
+    fn from(_: StreamOriginBoundaryError) -> Self { Self }
+}
+
+type SharedArguments = std::collections::HashMap<*const BTreeMap<usize, StreamOrigins>, Result<BTreeMap<usize, StreamOrigins>, ClosureUnavailable>>;
+
+enum TransferSlot<'a> {
+    Returned(EffectDeclarationId),
+    Default(EffectDeclarationId, usize),
+    Header(&'a StreamLoopId, super::BindingId),
+}
+
+pub(super) struct StreamOriginTransferClosure {
+    transfers: std::sync::Arc<StreamOriginTransfers>,
+    recorded: StreamOriginSummaries,
+    input: StreamOriginSummaries,
+    dependencies: std::sync::Arc<StreamOriginSummaries>,
+    settled: BTreeSet<EffectDeclarationId>,
+}
+
+impl StreamOriginTransferClosure {
+    pub(super) fn available(&self) -> bool {
+        let untracked = self.transfers.untracked_reads.lock().expect("stream origin transfers are recorded by one checking pass");
+        !self.transfers.closure_rejected() && !untracked.iter().any(|owner| self.recorded.declarations.contains_key(owner))
+    }
+
+    pub(super) fn close(&self, published: &StreamOriginSummaries) -> (StreamOriginSummaries, bool) {
+        let transfers = self.transfers.transfers.lock().expect("stream origin transfers are recorded by one checking pass");
+        let reachable = self.reachable(&transfers);
+        let slots = self.slots();
+        let reproduced = {
+            let mut replayed = published.clone();
+            let mut values = vec![Err(ClosureUnavailable); transfers.len()];
+            let dirty = self.evaluate(&transfers, &reachable, &mut values, &self.input, None);
+            self.extend_slots(&slots, &values, &dirty, &mut replayed)
+                .is_some_and(|(declarations, loops)| declarations.is_empty() && loops.is_empty())
+        };
+        if !reproduced { return (published.clone(), false); }
+        let mut current = published.clone();
+        let mut values = vec![Err(ClosureUnavailable); transfers.len()];
+        let mut dirty = self.evaluate(&transfers, &reachable, &mut values, &current, None);
+        loop {
+            let Some((declarations, loops)) = self.extend_slots(&slots, &values, &dirty, &mut current) else { return (published.clone(), false) };
+            if declarations.is_empty() && loops.is_empty() { return (current, true); }
+            dirty = self.evaluate(&transfers, &reachable, &mut values, &current, Some((&declarations, &loops)));
+        }
+    }
+
+    fn slots(&self) -> Vec<(TransferSlot<'_>, &StreamOrigins)> {
+        let mut slots = Vec::new();
+        for (owner, summary) in &self.recorded.declarations {
+            if summary.returned.has_transfers() { slots.push((TransferSlot::Returned(*owner), &summary.returned)); }
+            for (&position, origin) in summary.defaults.iter().filter(|(_, origin)| origin.has_transfers()) {
+                slots.push((TransferSlot::Default(*owner, position), origin));
+            }
+        }
+        for (identity, header) in &self.recorded.loops {
+            for (&binding, origin) in header.iter().filter(|(_, origin)| origin.has_transfers()) {
+                slots.push((TransferSlot::Header(identity, binding), origin));
+            }
+        }
+        slots
+    }
+
+    fn extend_slots(&self, slots: &[(TransferSlot, &StreamOrigins)], values: &[Result<StreamOrigins, ClosureUnavailable>], dirty: &[bool], current: &mut StreamOriginSummaries)
+        -> Option<(BTreeSet<EffectDeclarationId>, BTreeSet<StreamLoopId>)>
+    {
+        let mut declarations = BTreeSet::new();
+        let mut loops = BTreeSet::new();
+        for (slot, origin) in slots {
+            let mut resolved = StreamOrigins::default();
+            for (path, transfer) in origin.1.iter().filter(|(_, transfer)| dirty[transfer.transfer().0 as usize]) {
+                resolved.join(&Self::resolve_use(transfer, values).and_then(|value| Self::rooted(value, path)).ok()?);
+            }
+            if resolved.0.is_empty() { continue; }
+            resolved.settle_pending(&self.settled);
+            if resolved.has_application_dependency() { return None; }
+            let target = match slot {
+                TransferSlot::Returned(owner) => &mut current.declarations.get_mut(owner).expect("published stream origins keep every recorded declaration").returned,
+                TransferSlot::Default(owner, position) => current.declarations.get_mut(owner).and_then(|summary| summary.defaults.get_mut(position)).expect("published stream origins keep every recorded default"),
+                TransferSlot::Header(identity, binding) => current.loops.get_mut(*identity).and_then(|header| header.get_mut(binding)).expect("published loop headers keep every recorded binding"),
+            };
+            if target.join(&resolved) {
+                match slot {
+                    TransferSlot::Returned(owner) | TransferSlot::Default(owner, _) => { declarations.insert(*owner); }
+                    TransferSlot::Header(identity, _) => { loops.insert((*identity).clone()); }
+                }
+            }
+        }
+        Some((declarations, loops))
+    }
+
+    fn reachable(&self, transfers: &[OriginTransfer]) -> Vec<bool> {
+        let mut reachable = vec![false; transfers.len()];
+        let mark = |origin: &StreamOrigins, reachable: &mut Vec<bool>| for (_, transfer) in origin.1.iter() { reachable[transfer.transfer().0 as usize] = true; };
+        for summary in self.recorded.declarations.values() {
+            mark(&summary.returned, &mut reachable);
+            for origin in summary.defaults.values() { mark(origin, &mut reachable); }
+        }
+        for origin in self.recorded.loops.values().flat_map(BTreeMap::values) { mark(origin, &mut reachable); }
+        for id in (0..transfers.len()).rev() {
+            if !reachable[id] { continue; }
+            Self::visit_dependencies(&transfers[id], |dependency| reachable[dependency.0 as usize] = true);
+        }
+        reachable
+    }
+
+    fn visit_dependencies(transfer: &OriginTransfer, mut visit: impl FnMut(OriginTransferId)) {
+        let (source, origins): (Option<&TransferUse>, Vec<&StreamOrigins>) = match transfer {
+            OriginTransfer::Call { actuals, .. } => (None, actuals.iter().flat_map(BTreeMap::values).collect()),
+            OriginTransfer::LoopHeader { .. } => (None, Vec::new()),
+            OriginTransfer::Substitution { source, arguments } => (Some(source), arguments.values().collect()),
+            OriginTransfer::Occupied(origin) => (None, vec![origin]),
+            OriginTransfer::Union(uses) => {
+                for transfer in uses { visit(transfer.transfer()); }
+                (None, Vec::new())
+            }
+            OriginTransfer::Storage { source, .. } | OriginTransfer::Summary { source, .. } => (Some(source), Vec::new()),
+        };
+        if let Some(source) = source { visit(source.transfer()); }
+        for (_, transfer) in origins.into_iter().flat_map(|origin| origin.1.iter()) { visit(transfer.transfer()); }
+    }
+
+    fn evaluate(&self, transfers: &[OriginTransfer], reachable: &[bool], values: &mut [Result<StreamOrigins, ClosureUnavailable>], input: &StreamOriginSummaries,
+        changed: Option<(&BTreeSet<EffectDeclarationId>, &BTreeSet<StreamLoopId>)>,
+    ) -> Vec<bool> {
+        let inert = StreamOriginTransfers::default();
+        let mut arguments = SharedArguments::new();
+        let mut dirty = vec![false; transfers.len()];
+        for (id, transfer) in transfers.iter().enumerate() {
+            if !reachable[id] { continue; }
+            if let Some((declarations, loops)) = changed {
+                let mut affected = match transfer {
+                    OriginTransfer::Call { target, .. } => declarations.contains(target),
+                    OriginTransfer::LoopHeader { identity, .. } => loops.contains(identity),
+                    _ => false,
+                };
+                Self::visit_dependencies(transfer, |dependency| affected |= dirty[dependency.0 as usize]);
+                if !affected { continue; }
+            }
+            let value = self.resolve_transfer(transfer, input, values, &mut arguments, &inert);
+            let grown = match (&value, &values[id]) {
+                (Ok(value), Ok(previous)) => value.0.len() != previous.0.len(),
+                (Err(_), Err(_)) => false,
+                _ => true,
+            };
+            if changed.is_none() || grown {
+                dirty[id] = true;
+                values[id] = value;
+            }
+        }
+        dirty
+    }
+
+    fn resolve_use(transfer: &TransferUse, values: &[Result<StreamOrigins, ClosureUnavailable>]) -> Result<StreamOrigins, ClosureUnavailable> {
+        match transfer {
+            TransferUse::Projected { transfer, projection } => Ok(values[transfer.0 as usize].as_ref().map_err(|error| *error)?.project(&projection.0)?),
+            TransferUse::Overflowed(transfer) => {
+                if values[transfer.0 as usize].as_ref().map_err(|error| *error)?.0.is_empty() { Ok(StreamOrigins::default()) } else { Err(ClosureUnavailable) }
+            }
+        }
+    }
+
+    fn resolve_transfers(origin: &StreamOrigins, values: &[Result<StreamOrigins, ClosureUnavailable>]) -> Result<StreamOrigins, ClosureUnavailable> {
+        let mut output = StreamOrigins::default();
+        for (path, transfer) in origin.1.iter() {
+            output.join(&Self::rooted(Self::resolve_use(transfer, values)?, path)?);
+        }
+        Ok(output)
+    }
+
+    fn resolve_origin(origin: &StreamOrigins, values: &[Result<StreamOrigins, ClosureUnavailable>]) -> Result<StreamOrigins, ClosureUnavailable> {
+        let mut output = Self::resolve_transfers(origin, values)?;
+        output.0.extend(origin.0.iter().cloned());
+        Ok(output)
+    }
+
+    fn resolve_arguments(arguments: &BTreeMap<usize, StreamOrigins>, values: &[Result<StreamOrigins, ClosureUnavailable>]) -> Result<BTreeMap<usize, StreamOrigins>, ClosureUnavailable> {
+        arguments.iter().map(|(&slot, origin)| Ok((slot, Self::resolve_origin(origin, values)?))).collect()
+    }
+
+    fn rooted(mut origin: StreamOrigins, path: &ProjectionPath) -> Result<StreamOrigins, ClosureUnavailable> {
+        for step in path.0.iter().rev() { origin = origin.prefix(step.clone())?; }
+        Ok(origin)
+    }
+
+    fn unrooted(origin: StreamOrigins, path: &ProjectionPath) -> Result<StreamOrigins, ClosureUnavailable> {
+        let known = origin.0.into_iter().map(|(full, source)| {
+            full.0.strip_prefix(path.0.as_slice()).map(|remaining| (ProjectionPath(remaining.to_vec()), source)).ok_or(ClosureUnavailable)
+        }).collect::<Result<BTreeSet<_>, _>>()?;
+        Ok(StreamOrigins(known, TransferSet::default()))
+    }
+
+    fn resolve_transfer(&self, transfer: &OriginTransfer, input: &StreamOriginSummaries, values: &[Result<StreamOrigins, ClosureUnavailable>],
+        arguments: &mut SharedArguments, inert: &StreamOriginTransfers,
+    ) -> Result<StreamOrigins, ClosureUnavailable> {
+        match transfer {
+            OriginTransfer::Call { target, actuals, mismatched_applications } => {
+                let Some(summary) = input.declarations.get(target).or_else(|| self.dependencies.declarations.get(target)) else { return Ok(StreamOrigins::pending(*target)) };
+                if *mismatched_applications || summary.returned.has_application_dependency() { return Err(ClosureUnavailable); }
+                let mut arguments = Self::resolve_arguments(actuals.as_ref().ok_or(ClosureUnavailable)?, values)?;
+                for (&position, origin) in &summary.defaults { arguments.entry(position).or_insert_with(|| origin.clone()); }
+                Ok(summary.returned.substitute(&arguments, inert)?)
+            }
+            OriginTransfer::LoopHeader { identity, binding } => Ok(input.loops.get(identity).or_else(|| self.dependencies.loops.get(identity))
+                .and_then(|header| header.get(binding)).cloned().unwrap_or_default()),
+            OriginTransfer::Substitution { source, arguments: shared } => {
+                let resolved = arguments.entry(std::sync::Arc::as_ptr(shared)).or_insert_with(|| Self::resolve_arguments(shared, values));
+                let resolved = resolved.as_ref().map_err(|error| *error)?;
+                Ok(Self::resolve_use(source, values)?.substitute(resolved, inert)?)
+            }
+            OriginTransfer::Occupied(origin) => Ok(if Self::resolve_transfers(origin, values)?.0.is_empty() { StreamOrigins::default() } else { StreamOrigins::opaque() }),
+            OriginTransfer::Union(uses) => {
+                let mut output = StreamOrigins::default();
+                for transfer in uses { output.join(&Self::resolve_use(transfer, values)?); }
+                Ok(output)
+            }
+            OriginTransfer::Storage { source, at, domain } => {
+                let checked = Self::rooted(Self::resolve_use(source, values)?, at)?.validate_storage(domain, inert)?;
+                Self::unrooted(checked, at)
+            }
+            OriginTransfer::Summary { source, at, owner, output, parameters } => {
+                let checked = Self::rooted(Self::resolve_use(source, values)?, at)?.validate(*owner, output, parameters, inert)?;
+                Self::unrooted(checked, at)
+            }
+        }
+    }
+}
+
+impl StreamOriginSummaries {
+    fn without_transfers(&mut self) {
+        for summary in self.declarations.values_mut() {
+            summary.returned.without_transfers();
+            for origin in summary.defaults.values_mut() { origin.without_transfers(); }
+        }
+        for header in self.loops.values_mut() {
+            for origin in header.values_mut() { origin.without_transfers(); }
+        }
+    }
+}
 
 use super::{Checker, CheckedResultConstructor, Span};
 use crate::syntax::arena::{ArenaProgram, ArenaExprKind, ArenaStmtKind, ArenaExprOrRun, ArenaCallArgKind, ExprId, StmtId, BlockId};
@@ -507,6 +943,31 @@ impl Checker {
         }
         self.stream_origin_outputs = normalized;
         Ok(())
+    }
+
+    pub(super) fn take_stream_origin_transfers(&mut self, external: &std::sync::Arc<StreamOriginSummaries>) -> Option<StreamOriginTransferClosure> {
+        let recorded = self.stream_origin_inputs.transfers.recording.then(|| self.stream_origin_outputs.clone());
+        self.stream_origin_outputs.without_transfers();
+        let recorded = recorded?;
+        let settled = external.declarations.keys().chain(recorded.declarations.keys()).copied().collect();
+        Some(StreamOriginTransferClosure {
+            transfers: std::sync::Arc::clone(&self.stream_origin_inputs.transfers),
+            recorded,
+            input: self.stream_origin_inputs.provisional.clone(),
+            dependencies: std::sync::Arc::clone(external),
+            settled,
+        })
+    }
+
+    pub(super) fn discard_stream_origin_transfers(&mut self) {
+        self.stream_origin_outputs.without_transfers();
+        for origin in self.stream_expr_origins.values_mut().chain(self.stream_stmt_origins.values_mut()) { origin.without_transfers(); }
+        for scope in &mut self.scopes {
+            for (_, binding) in scope { binding.stream_origins.without_transfers(); }
+        }
+        for bindings in self.block_exit_bindings.values_mut() {
+            for binding in bindings.values_mut() { binding.stream_origins.without_transfers(); }
+        }
     }
 
     pub(super) fn validate_published_stream_origins(&self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
@@ -557,6 +1018,7 @@ impl Checker {
     }
 
     pub(super) fn report_stream_origin_boundary(&mut self, span: Span) {
+        self.stream_origin_inputs.transfers.reject_closure();
         self.error(span, "stream return provenance exceeds its checked projection boundary", crate::diagnostic::DiagnosticCode::CheckLocalInference);
     }
 
@@ -675,6 +1137,12 @@ impl Checker {
     }
 
     fn stream_call_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId, summary: &StreamReturnSummary) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
+        let mut output = self.stream_call_explicit_actuals(arena, args, span, target)?;
+        for (&position, origin) in &summary.defaults { output.entry(position).or_insert_with(|| origin.clone()); }
+        Ok(output)
+    }
+
+    fn stream_call_explicit_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         let entries = arena.arena.call_args(args);
         let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned());
@@ -699,7 +1167,6 @@ impl Checker {
             };
             output.entry(slot).or_default().join(&origin);
         }
-        for (&position, origin) in &summary.defaults { output.entry(position).or_insert_with(|| origin.clone()); }
         Ok(output)
     }
 
@@ -713,6 +1180,7 @@ impl Checker {
             self.provisional_stream_origins_read.set(true);
             self.provisional_stream_declarations_read.set(true);
         }
+        if current.is_none() && self.stream_origin_inputs.tracks_declaration(target) { self.stream_origin_inputs.transfers.reject_closure(); }
         current.or_else(|| self.stream_origin_inputs.declaration(&target))
     }
 
@@ -803,11 +1271,12 @@ impl Checker {
             return None;
         }
         if let Some(origin) = self.stream_expr_origins.get(&span) {
+            self.stream_origin_inputs.transfers.decide(origin);
             if origin.0.is_empty() || origin.0.iter().any(|(_, origin)| !matches!(origin,
                 StreamOrigin::Formal { owner, parameter, .. } | StreamOrigin::OpaqueFormal { owner, parameter, .. }
                     if *owner == source && actuals.contains_key(parameter)
             )) { return None; }
-            return origin.substitute(actuals).ok();
+            return origin.substitute(actuals, &self.stream_origin_inputs.transfers).ok();
         }
         let formal_bindings = formal_bindings?;
         let binding = expression_bindings.get(&span).copied().flatten()?;
@@ -869,12 +1338,14 @@ impl Checker {
                 .map_err(|_| StreamOriginBoundaryError)? else { continue; };
             let Some(callee_slot) = Self::direct_stream_formal_slot(&formal_slots, &requirement.callee) else { continue; };
             let Some(callee_origins) = actuals.get(&callee_slot) else { continue; };
+            self.stream_origin_inputs.transfers.decide(callee_origins);
             let Some(targets) = callee_origins.selected_callable_targets() else { continue; };
             if layout.argument_slots.len() != requirement.arguments.len() { continue; }
             let mut expanded = StreamOrigins::default();
             let mut complete = true;
             for target in targets {
                 let Some(callback_summary) = self.stream_target_summary(target) else { complete = false; break; };
+                self.stream_origin_inputs.transfers.decide(&callback_summary.returned);
                 if callback_summary.returned.has_application_dependency() || callback_summary.returned.has_pending() { complete = false; break; }
                 let Some(target_definition) = self.stream_target_definitions.get(&target) else { complete = false; break; };
                 let definition = arena.arena.function_def(target_definition.definition);
@@ -906,11 +1377,12 @@ impl Checker {
                 if !complete { break; }
                 for &slot in &layout.omitted_slots {
                     let Some(default) = callback_summary.defaults.get(&slot) else { complete = false; break; };
+                    self.stream_origin_inputs.transfers.decide(default);
                     if callback_actuals.contains_key(&slot) || default.has_application_dependency() || default.has_pending() { complete = false; break; }
                     callback_actuals.insert(slot, default.clone());
                 }
                 if !complete { break; }
-                let Ok(returned) = callback_summary.returned.substitute(&callback_actuals) else { complete = false; break; };
+                let Ok(returned) = callback_summary.returned.substitute(&callback_actuals, &self.stream_origin_inputs.transfers) else { complete = false; break; };
                 expanded.join(&returned);
             }
             if complete {
@@ -1027,6 +1499,7 @@ impl Checker {
                     Some(StreamOrigins::default())
                 } else {
                     let callee_origin = self.stream_expr_origin(arena, callee);
+                    if !self.selected_function_calls.contains_key(&span) && callee_origin.has_root_transfer() { self.stream_origin_inputs.transfers.reject_closure(); }
                     let mut targets = callee_origin.targets().collect::<BTreeSet<_>>();
                     if let Some(target) = self.selected_function_calls.get(&span).copied() {
                         let id = self.stream_origin_id(arena, target);
@@ -1047,14 +1520,30 @@ impl Checker {
                                 self.provisional_stream_origins_read.set(true);
                                 self.provisional_stream_declarations_read.set(true);
                             }
+                            let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
+                            let transferred = current_summary.is_none() && self.stream_origin_inputs.tracks_declaration(target);
+                            let explicit = transferred.then(|| self.stream_call_explicit_actuals(arena, args, span, target));
+                            if transferred {
+                                let transfers = &self.stream_origin_inputs.transfers;
+                                let mismatched_applications = call_instance.is_some_and(|(callable, instance)| instance.applications.len() != callable.requirements().applications.len());
+                                let transfer = transfers.record(OriginTransfer::Call { target, actuals: explicit.clone().and_then(Result::ok), mismatched_applications });
+                                origin.1.insert(ProjectionPath::default(), TransferUse::whole(transfer));
+                            }
                             if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declaration(&target)) {
-                                let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
-                                let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
+                                if transferred && summary.returned.has_application_dependency() { self.stream_origin_inputs.transfers.reject_closure(); }
+                                let arguments = match explicit {
+                                    Some(explicit) => {
+                                        let mut arguments = explicit?;
+                                        for (&position, origin) in &summary.defaults { arguments.entry(position).or_insert_with(|| origin.clone()); }
+                                        arguments
+                                    }
+                                    None => self.stream_call_actuals(arena, args, span, target, summary)?,
+                                };
                                 let instances = call_instance.map(|(_, instance)| instance.applications.as_slice());
                                 let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));
                                 let deferred_call = self.provisional_function_calls.get(&span).filter(|(owner, callee)| Some(*owner) == self.stream_origin_owner && callee.effect_declaration() == target).map(|(owner, _)| (*owner, span));
                                 let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints, pending, deferred_call)?;
-                                let returned = returned.substitute(&arguments)?;
+                                let returned = returned.substitute(&arguments, &self.stream_origin_inputs.transfers)?;
                                 if let Some((callable, instance)) = call_instance {
                                     let selected = self.selected_stream_application_origins(arena, target, &summary.returned, callable, instance, &arguments)?;
                                     origin.join(&returned.expand_selected_applications(&selected)?);
@@ -1129,6 +1618,7 @@ impl Checker {
     pub(super) fn join_stream_mutable_states(&mut self, states: &[BTreeMap<super::BindingId, StreamOrigins>]) {
         let mut joined = BTreeMap::<_, StreamOrigins>::new();
         for state in states { for (&identity, origin) in state { joined.entry(identity).or_default().join(origin); } }
+        for origin in joined.values_mut() { origin.compact_transfers(&self.stream_origin_inputs.transfers); }
         self.restore_stream_mutable_state(&joined);
     }
 
@@ -1151,9 +1641,15 @@ impl Checker {
             }
         }
         for (&binding, origin) in &mut header {
-            match ProjectionDomain::from_type(&types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
+            match ProjectionDomain::from_type(&types[&binding]).and_then(|domain| origin.validate_storage(&domain, &self.stream_origin_inputs.transfers)) {
                 Ok(checked) => *origin = checked,
                 Err(_) => { self.report_stream_origin_boundary(identity.body); *origin = StreamOrigins::opaque(); }
+            }
+        }
+        if body_flow == StreamFlow::Live && self.stream_origin_inputs.transfers.recording {
+            for (&binding, origin) in &mut header {
+                let transfer = self.stream_origin_inputs.transfers.record(OriginTransfer::LoopHeader { identity: identity.clone(), binding });
+                origin.1.insert(ProjectionPath::default(), TransferUse::whole(transfer));
             }
         }
         self.restore_stream_mutable_state(&header);
@@ -1195,7 +1691,7 @@ impl Checker {
         }
         let Some(mut frame) = self.boundary.stream_loops.pop() else { return };
         for (&binding, origin) in &mut frame.header {
-            match ProjectionDomain::from_type(&frame.types[&binding]).and_then(|domain| origin.validate_storage(&domain)) {
+            match ProjectionDomain::from_type(&frame.types[&binding]).and_then(|domain| origin.validate_storage(&domain, &self.stream_origin_inputs.transfers)) {
                 Ok(checked) => *origin = checked,
                 Err(_) => { self.report_stream_origin_boundary(frame.identity.body); *origin = StreamOrigins::opaque(); }
             }
@@ -1291,7 +1787,7 @@ impl Checker {
         let summary = self.stream_origin_outputs.declarations.entry(owner).or_default();
         summary.output = output;
         summary.parameters = parameters;
-        match summary.returned.validate(owner, &summary.output, &summary.parameters) {
+        match summary.returned.validate(owner, &summary.output, &summary.parameters, &self.stream_origin_inputs.transfers) {
             Ok(origins) => summary.returned = origins,
             Err(_) => self.report_stream_origin_boundary(owner.body),
         }
@@ -1450,7 +1946,7 @@ mod tests {
             let mut summaries = super::StreamOriginSummaries::new();
             for owner in owners {
                 let returned = StreamOrigins::formal(owner, 0);
-                assert_eq!(returned.validate(owner, &domain, std::slice::from_ref(&domain)).unwrap(), returned);
+                assert_eq!(returned.validate(owner, &domain, std::slice::from_ref(&domain), &super::StreamOriginTransfers::default()).unwrap(), returned);
                 summaries.declarations.insert(owner, super::StreamReturnSummary {
                     returned, defaults: BTreeMap::new(), output: domain.clone(), parameters: vec![domain.clone()],
                 });
@@ -1486,7 +1982,7 @@ mod tests {
     #[test]
     fn missing_projected_actual_remains_unknown() {
         let dependency = StreamOrigins::formal(super::EffectDeclarationId { namespace: None, body: crate::source::Span::new(crate::source::SourceId::new(0), 0, 0) }, 0).project(&[StreamProjection::Success]).unwrap();
-        assert!(dependency.substitute(&BTreeMap::new()).unwrap().may_fail());
+        assert!(dependency.substitute(&BTreeMap::new(), &super::StreamOriginTransfers::default()).unwrap().may_fail());
         assert!(StreamOrigins::opaque().project(&[StreamProjection::Success, StreamProjection::Element]).unwrap().may_fail());
     }
 

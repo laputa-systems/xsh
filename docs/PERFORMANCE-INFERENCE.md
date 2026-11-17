@@ -724,3 +724,21 @@ law. Readiness checks passed, while a profiling build and other host work were
 active. Avoiding whole-module replay would require a dependency-driven
 convergence design that preserves checked facts and invalidates affected
 callers, recursive components, and loop headers when their summaries change.
+
+## Stream origin transfer closure
+
+On 2026-11-17, the pinned `xsh-test` image built base `6c6c6eb4b` and the
+candidate with release O2, thin LTO and `x86_64-unknown-linux-musl`. Five
+interleaved runs per side of `xsh core/awk.xsh -- 'BEGIN{print 1}'` ran under
+`perf stat -e instructions:u` in the image. Every run printed `1` and exited
+0; `perf-gate-ready` before and `perf-gate-ready -1` after each run exited 0.
+Median user instructions fell from 8,779,719,911 to 4,341,541,422 (50.55%);
+ranges were 8,779,701,587–8,779,745,724 and 4,341,460,277–4,341,617,745.
+
+Debugger counters on `xsht check core/lib/awk.xsh` observed six program checks
+and 2,310 function-check entries at base, versus two and 770 for the candidate.
+The transfer closure advances stream origins between probes and checks the
+result in a confirming pass; it falls back to whole-module replay when the
+recorded transfers cannot reproduce the checked pass. Each probe still checks
+the whole module. Preserving per-function facts and selectively rechecking
+callers remains open.

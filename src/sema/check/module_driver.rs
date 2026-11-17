@@ -176,7 +176,7 @@ impl Checker {
                     ..options
                 };
                 let effect_probe = Self::solve_file_effect_probes(
-                    |provisional, provisional_origins| {
+                    |provisional, origin_probe| {
                         let mut probe = Self::session_effect_checker(
                             record_options,
                             byte_script_arguments,
@@ -186,7 +186,7 @@ impl Checker {
                             true,
                         );
                         probe.effect_summaries.extend(provisional);
-                        probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(&origin_summaries), provisional_origins);
+                        probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::for_probe(Arc::clone(&origin_summaries), origin_probe);
                         probe.check_program_arena_with_type_program_and_sources(
                             view,
                             source,
@@ -405,7 +405,7 @@ impl Checker {
         });
         let byte_script_arguments = record.args_domain() == ArgsDomain::Bytes;
         let effect_probe = Self::solve_file_effect_probes(
-            |provisional, provisional_origins| {
+            |provisional, origin_probe| {
                 let mut probe = Self::session_effect_checker(
                     options,
                     byte_script_arguments,
@@ -415,7 +415,7 @@ impl Checker {
                     true,
                 );
                 probe.effect_summaries.extend(provisional);
-                probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(dependency_origins), provisional_origins);
+                probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::for_probe(Arc::clone(dependency_origins), origin_probe);
                 record.prepared_facts().install(&mut probe, program);
                 probe.record_constructors.replace_instance_facts(
                     &bundle_record.prepared_facts().record_constructors,
@@ -547,15 +547,17 @@ impl Checker {
     fn solve_file_effect_probes<T>(
         mut probe: impl FnMut(
             std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-            super::stream_origins::StreamOriginSummaries,
+            super::stream_origins::StreamOriginProbe,
         ) -> (Self, T),
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         external_origins: &Arc<super::stream_origins::StreamOriginSummaries>,
     ) -> Result<(Self, T), FileInferenceFailure> {
         let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
+        let mut record_transfers = true;
+        let mut closed_origins = None;
         loop {
-            let (mut checker, output) = probe(provisional.clone(), provisional_origins.clone());
+            let (mut checker, output) = probe(provisional.clone(), super::stream_origins::StreamOriginProbe { provisional: provisional_origins.clone(), record_transfers });
             if let Err(failure) = checker.bind_effect_graph() {
                 return Err(checker.failed_effect_scope(failure));
             }
@@ -565,18 +567,37 @@ impl Checker {
             checker.validate_published_stream_origins()
                 .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
             checker.settle_stream_origin_dependencies(external_origins);
+            let transfers = checker.take_stream_origin_transfers(external_origins);
+            if let Some(closed) = closed_origins.take() {
+                assert!(checker.stream_origin_outputs == closed, "a closed stream origin transfer fixpoint is the checked pass output");
+            }
             let effects_ready = !checker.provisional_effects_read.get() || solved == provisional;
             let declarations_ready = !checker.provisional_stream_declarations_read.get()
                 || checker.stream_origin_outputs == provisional_origins;
             let origins_ready = checker.stream_origin_outputs == provisional_origins
                 || (!checker.stream_loop_header_widened.get() && declarations_ready);
             if effects_ready && origins_ready {
+                checker.discard_stream_origin_transfers();
                 checker.effect_summaries.extend(solved);
                 checker.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(external_origins), checker.stream_origin_outputs.clone());
                 return Ok((checker, output));
             }
+            provisional_origins = match transfers {
+                Some(transfers) if !transfers.available() || !checker.provisional_stream_declarations_read.get() => {
+                    record_transfers = false;
+                    checker.stream_origin_outputs
+                }
+                Some(transfers) if effects_ready => {
+                    let (origins, fixpoint) = transfers.close(&checker.stream_origin_outputs);
+                    if fixpoint {
+                        record_transfers = false;
+                        closed_origins = Some(origins.clone());
+                    }
+                    origins
+                }
+                _ => checker.stream_origin_outputs,
+            };
             provisional = solved;
-            provisional_origins = checker.stream_origin_outputs;
         }
     }
 
@@ -3154,4 +3175,102 @@ mod tests {
         );
     }
 
+    const PROJECTION_ROTATIONS: &str = concat!(
+        "type Fields = {a: Stream[Int], b: Stream[Int], c: Stream[Int], d: Stream[Int], at: Int}\n",
+        "type Parsed = {fields: Fields, value: Int}\n",
+        "pure term(fields: Fields, depth: Int) -> Result[Parsed] {\n",
+        "  return Ok({fields: fields, value: 0}) when depth > 8\n",
+        "  let inner = expression({a: fields.b, b: fields.c, c: fields.d, d: fields.a, at: fields.at}, depth + 1)?\n",
+        "  Ok({fields: inner.fields, value: inner.value + 1})\n",
+        "}\n",
+        "pure expression(fields: Fields, depth: Int) -> Result[Parsed] {\n",
+        "  let first = term(fields, depth)?\n",
+        "  statement(first.fields, depth)\n",
+        "}\n",
+        "pure statement(fields: Fields, depth: Int) -> Result[Parsed] {\n",
+        "  return Ok({fields: fields, value: 2}) when depth > 4\n",
+        "  term(fields, depth + 1)\n",
+        "}\n",
+    );
+
+    fn converge_with_and_without_transfer_closure(source: &str) -> [usize; 2] {
+        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let program = &parsed.arena;
+            let view = CheckBundleView::for_root(program, program.statements, None, Some(crate::source::SourceId::new(0)));
+            let converge = |record_transfers: bool| {
+                let mut passes = 0;
+                let mut records = ModuleRecordCache::default();
+                let active = records.get_or_prepare(&view, ArgsDomain::Str);
+                let modules = Arc::new(FxHashMap::default());
+                let type_program = Arc::new(program.clone());
+                let converged = Checker::solve_file_effect_probes(|effects, mut origins: super::super::stream_origins::StreamOriginProbe| {
+                    passes += 1;
+                    origins.record_transfers &= record_transfers;
+                    let mut checker = Checker::session_effect_checker(CheckOptions::for_execution(), false, &modules,
+                        EffectGraph::declarations_for_root(&view), std::collections::BTreeMap::new(), true);
+                    checker.effect_summaries.extend(effects);
+                    checker.stream_origin_inputs = super::super::stream_origins::StreamOriginInputs::for_probe(Arc::default(), origins);
+                    checker.check_program_arena_with_type_program_and_sources(&view, source, Arc::clone(&type_program), &active);
+                    (checker, ())
+                }, &std::collections::BTreeMap::new(), &Arc::default());
+                let Ok((checker, ())) = converged else { panic!("{source}: stream origins converge") };
+                (passes, checker)
+            };
+            let (replayed_passes, replayed) = converge(false);
+            let (closed_passes, closed) = converge(true);
+            assert!(replayed.diagnostics.is_empty(), "{source}: {:?}", replayed.diagnostics);
+            assert_eq!(closed.diagnostics, replayed.diagnostics);
+            assert_eq!(closed.effect_summaries, replayed.effect_summaries);
+            assert_eq!(closed.stream_origin_outputs, replayed.stream_origin_outputs);
+            assert_eq!(closed.stream_expr_origins, replayed.stream_expr_origins);
+            assert_eq!(closed.stream_stmt_origins, replayed.stream_stmt_origins);
+            [replayed_passes, closed_passes]
+        })
+    }
+
+    #[test]
+    fn mutually_recursive_projection_rotations_close_before_one_confirming_pass() {
+        let [replayed, closed] = converge_with_and_without_transfer_closure(PROJECTION_ROTATIONS);
+        assert!(replayed >= 4, "the rotation reaches its summaries one call level per replayed pass: {replayed}");
+        assert_eq!(closed, 2);
+    }
+
+    #[test]
+    fn callers_of_recursive_components_follow_their_later_callee_summaries() {
+        let source = format!("{PROJECTION_ROTATIONS}{}", concat!(
+            "pure parse(fields: Fields) -> Result[Parsed] { expression(fields, 0) }\n",
+            "pure program(fields: Fields) -> Result[Fields] {\n",
+            "  let parsed = parse(fields)?\n",
+            "  Ok({a: parsed.fields.d, b: parsed.fields.c, c: parsed.fields.b, d: parsed.fields.a, at: 0})\n",
+            "}\n",
+        ));
+        let [replayed, closed] = converge_with_and_without_transfer_closure(&source);
+        assert!(replayed >= 4, "{replayed}");
+        assert_eq!(closed, 2);
+    }
+
+    #[test]
+    fn loop_headers_widen_across_recursive_calls_in_the_closure() {
+        let source = format!("{PROJECTION_ROTATIONS}{}", concat!(
+            "pure scan(fields: Fields) -> Result[Fields] {\n",
+            "  var current = fields\n",
+            "  var count = 0\n",
+            "  while count < 3 {\n",
+            "    var inner = current\n",
+            "    for _ in [1, 2] {\n",
+            "      let parsed = expression(inner, count)?\n",
+            "      inner = {a: parsed.fields.b, b: parsed.fields.a, c: inner.c, d: parsed.fields.d, at: count}\n",
+            "    }\n",
+            "    current = {a: inner.c, b: current.a, c: inner.b, d: current.d, at: count}\n",
+            "    count += 1\n",
+            "  }\n",
+            "  Ok(current)\n",
+            "}\n",
+        ));
+        let [replayed, closed] = converge_with_and_without_transfer_closure(&source);
+        assert!(replayed >= 4, "{replayed}");
+        assert_eq!(closed, 2);
+    }
 }

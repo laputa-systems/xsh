@@ -802,6 +802,9 @@ impl Checker {
             }
         };
         let mut inferred = None;
+        for candidate in &candidates {
+            if !candidate.origin.return_applications().contains(&None) { self.stream_origin_inputs.transfers().decide_root(&candidate.origin); }
+        }
         let forwards_applications = candidates.iter().any(|candidate| !candidate.origin.return_applications().contains(&None));
         for candidate in candidates {
             let applications = candidate.origin.return_applications();
@@ -870,6 +873,7 @@ impl Checker {
         let mut applications = Vec::new();
         for candidate in candidates {
             let sources = candidate.origin.return_applications();
+            if !sources.contains(&None) { self.stream_origin_inputs.transfers().decide_root(&candidate.origin); }
             if sources.contains(&None) {
                 values.push(candidate.ty.clone());
             } else {

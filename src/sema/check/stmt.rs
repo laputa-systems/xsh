@@ -4191,6 +4191,7 @@ impl Checker {
                 let origin = bindings.get(name).filter(|binding| binding.proof.same_binding(&initial.proof)).unwrap_or(initial);
                 origins.join(&origin.stream_origins);
             }
+            origins.compact_transfers(self.stream_origin_inputs.transfers());
             if let Some(scope) = self.binding_scope(*name, initial)
                 && let Some(binding) = self.scopes[scope].get_mut(name)
             { binding.stream_origins = origins; }
@@ -4338,11 +4339,15 @@ impl Checker {
         let stream_source = if iter_ty.is_result() {
             self.stream_expr_origin(arena, iter).project(&[super::stream_origins::StreamProjection::Success])
         } else { Ok(self.stream_expr_origin(arena, iter)) };
+        let payload = iter_ty.result_ok().unwrap_or(iter_ty);
         let latent = match stream_source {
-            Ok(source) => source.may_fail(),
+            Ok(source) => {
+                let latent = source.may_fail();
+                if !latent && matches!(payload.unvalidated(), Type::Stream(_)) { self.stream_origin_inputs.transfers().decide_root(&source); }
+                latent
+            }
             Err(_) => { self.report_stream_origin_boundary(arena.arena.expr(iter).span); true }
         };
-        let payload = iter_ty.result_ok().unwrap_or(iter_ty);
         if matches!(payload.unvalidated(), Type::Stream(_))
             && (latent || self.expression_may_have_latent_stream_error(arena, iter))
         {
