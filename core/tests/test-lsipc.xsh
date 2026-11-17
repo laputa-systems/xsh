@@ -1831,3 +1831,17 @@ test test_lsipc_posix_shmem_symlink_targets { |ctx|
     ul.compare(pair.reference, pair.candidate)
   }
 }
+
+test test_lsipc_inaccessible_semaphore_elements { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let created = run.capture --text ipcmk -S 2 -p 000
+  assert created.status.exited_with(0)
+  let id = created.stdout.trim().fields()[-1]
+  defer { run.status ipcrm -s $id }
+  let script = fp"{ctx.core_dir}/lsipc.xsh"
+  let reference = run.capture --text setpriv --inh-caps=-all --bounding-set=-all /usr/bin/lsipc -s -i $id
+  let candidate = run.capture --text setpriv --inh-caps=-all --bounding-set=-all ${ctx.xsh_bin} $script -- -s -i $id
+  assert reference.status.exited_with(1) and candidate.status.exited_with(1)
+  assert reference.stdout == candidate.stdout and reference.stderr == candidate.stderr
+}

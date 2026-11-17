@@ -288,7 +288,7 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
       if selected_id >= 0 {
         if let count = semaphores.elements {
           for index in range(count) {
-            let observation = linux.system_v_semaphore_element(id, index)?
+            let observation = linux.system_v_semaphore_element(id, index) ?? { |failure| gnu.error(f"semctl(GETVAL) failed: {gnu.strerror(failure)}"); exit 1 }
             elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
           }
         }
