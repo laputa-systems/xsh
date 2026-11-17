@@ -1415,6 +1415,7 @@ test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
   assert "-d\n" in calls.read_text()?, "intermediate merge runs are read back through the decompress mode"
 }
 
+# origin: uutils test_sort::test_compress_fail
 test test_sort_compress_program_missing_is_reported_and_sorting_continues { |ctx|
   let root = test.temp_dir(ctx, name: "sort-compress-missing")?
   let script = fp"{ctx.core_dir}/sort.xsh"
