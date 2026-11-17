@@ -1062,3 +1062,23 @@ test test_lslocks_process_name_bytes_and_spaces { |ctx|
     ul.finish_keeper(keeper)
   }
 }
+
+test test_lslocks_mount_bytes_fallback { |ctx|
+  let s = uu.scene(ctx)?
+  let script = fp"{s.ctx.core_dir}/tests/data/lslocks-mount-keeper.py"
+  for mode in ["fallback"] {
+    let root = uu.at(s, mode)
+    root.mkdir()?
+    let keeper = ul.start_keeper(s, script, [root.display(), mode, s.ctx.xsh_bin.display(), fp"{s.ctx.core_dir}/lslocks.xsh".display()])?
+    defer ul.stop_keeper(keeper)
+    let result = json.decode(keeper.ready)?
+    let reference = json.get(result, ["reference"])?.require(Str)?
+    let candidate = json.get(result, ["candidate"])?.require(Str)?
+    assert json.get(result, ["reference_status"])?.require(Int)? == 0
+    assert json.get(result, ["candidate_status"])?.require(Int)? == 0
+    assert reference != "200a"
+    assert reference == candidate, f"reference={reference} candidate={candidate}"
+    ul.keeper_send(keeper, "DONE")
+    ul.finish_keeper(keeper)
+  }
+}

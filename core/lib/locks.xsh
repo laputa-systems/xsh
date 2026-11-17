@@ -5,7 +5,6 @@ use gnu
 use lib.util_linux_io as ul_io
 use smart_json as smart
 use text_a2 as text
-use sys_mount as mounts
 use sys_source as src
 use tui
 
@@ -294,16 +293,32 @@ proc holders_for_lock(fallback: List[DescriptorLock], lock: KernelLock) [fs] -> 
 }
 
 proc mount_fallback(lock: KernelLock) [fs] -> Bytes? {
-  let text = fp"/proc/self/mountinfo".read_text() ?? ""
-  let device = f"{lock.major}:{lock.minor}"
-  var target: Str? = null
-  for line in text.lines() {
-    let fields = src.parse_words(line)
-    if fields.len() > 4 and fields[2] == device {
-      target = mounts.decode_mount_field(fields[4]) + "..."
+  let content = fp"/proc/self/mountinfo".read_bytes() ?? b""
+  let device = bytes.from_text(f"{lock.major}:{lock.minor}")
+  var target: Bytes? = null
+  for line in content.lines() {
+    var fields: List[Bytes] = []
+    var start = 0
+    for index in range(line.len()) {
+      if line.byte_at(index) == 32 {
+        fields += [line[start..index]]
+        start = index + 1
+        if fields.len() == 5 { break }
+      }
+    }
+    if fields.len() >= 5 and fields[2] == device {
+      let field = fields[4]
+      var parts: List[Bytes] = []
+      var index = 0
+      while index < field.len() {
+        let escape = if index + 4 <= field.len() { field[index..index + 4] } else { b"" }
+        let decoded = match escape { b"\\040" => b" "; b"\\011" => b"\t"; b"\\012" => b"\n"; b"\\134" => b"\\"; else => b"" }
+        if ! decoded.is_empty() { parts += [decoded]; index += 4 } else { parts += [field[index..index + 1]]; index += 1 }
+      }
+      target = bytes.concat(parts.extend([b"..."]))
     }
   }
-  if let value = target { bytes.from_text(value) } else { null }
+  target
 }
 
 proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
