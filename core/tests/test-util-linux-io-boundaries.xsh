@@ -226,3 +226,15 @@ test test_util_linux_lsipc_preserves_raw_option_error_bytes { |ctx|
   assert reference.stdout.is_empty()
   assert ! reference.stderr.is_empty()
 }
+
+test test_namei_loop_diagnostic_precedes_stdout_write_error { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
+  let s = uu.scene(ctx)?
+  uu.symlink(s, "loop1", "loop1")
+  let reference = output_failure(s, "namei", [p"loop1"], true, "stdout")?
+  let candidate = output_failure(s, "namei", [p"loop1"], false, "stdout")?
+  assert reference.termination == ul.Exited(1)
+  assert reference.stderr == b"namei: loop1: exceeded limit of symlinks\nnamei: write error\n"
+  assert reference == candidate
+}

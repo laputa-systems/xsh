@@ -382,11 +382,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let widths = update_owner_widths(result.width_entries, normalized_options.owners, user_width, group_width)
     user_width = widths.user_width
     group_width = widths.group_width
-    failed = render(result.entries, operand, normalized_options, user_width, group_width) or failed
     if result.exceeded {
       failed = true
       report_loop(operand)
     }
+    failed = render(result.entries, operand, normalized_options, user_width, group_width) or failed
   }
   if failed { exit 1 }
 }
