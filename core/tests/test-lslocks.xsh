@@ -993,3 +993,8 @@ test test_lslocks_trailing_column_delimiter { |ctx|
   let s = uu.scene(ctx)?
   rejected(s, ["-o", "COMMAND,PID,"])?
 }
+
+test test_lslocks_multibyte_short_option { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["-é"], ["-bé"]] { rejected(s, args)? }
+}

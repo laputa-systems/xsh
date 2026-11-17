@@ -1108,6 +1108,28 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     }
   }
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
+  var raw_index = 0
+  while raw_index < arguments.len() {
+    let word = arguments[raw_index]
+    raw_index += 1
+    if word == b"--" { break }
+    if word.starts_with(b"-") and ! word.starts_with(b"--") {
+      for position in range(1, word.len()) {
+        let flag = word.byte_at(position) ?? 0
+        if flag >= 128 {
+          if let detail = first_option_diagnostic(argv[..raw_index - 1], permute) { gnu.usage_error(detail) }
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), word.slice(position, length: 1), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+          exit 1
+        }
+        if flag in [111, 112, 81] {
+          if position + 1 == word.len() { raw_index += 1 }
+          break
+        }
+        if flag in [104, 86] { break }
+        if flag not in [98, 105, 74, 110, 114, 117, 72] { break }
+      }
+    } else if word in [b"--output", b"--pid", b"--filter"] { raw_index += 1 }
+  }
   if let detail = first_option_diagnostic(argv, permute) {
     gnu.usage_error(detail)
     return
