@@ -1248,8 +1248,18 @@ exit 99
 """, mode: 0o755)
   }
   let inherited = env.get_or("PATH", "")?
+  let context = fixtures.linux_context(repository)?
+  env ({PATH: f"{tools}:{inherited}", XSH_TOKEI_REFERENCE: "", XSH_TOKEI_CORPUS_ROOT: ""}) {
+    for arguments in [["--batch"], ["--full", "src/sema.rs"], ["--case", "full"], ["--tier", "full"], ["--from-plan", "plan.json"]] {
+      match gates.execute_request(context, arguments) {
+        Err(gates.PlanError.Invalid {..}) => {}
+        Err(failure) => test.fail(f"unexpected error: {failure.message}")
+        Ok(_) => test.fail("invalid gate request was accepted")
+      }
+      assert ! marker.exists()?
+    }
+  }
   for arguments in [
-    ["--batch"], ["--full", "src/sema.rs"], ["--case", "full"], ["--tier", "full"], ["--from-plan", "plan.json"],
     ["--case", "showcase/tokei/uutils-rust-correctness"],
     ["--case", "showcase/tokei/uutils-rust-correctness", "--case", "core/cat/byte-stream"],
     ["--case", "showcase/tokei/UUTILS-RUST-CORRECTNESS"],
@@ -1951,7 +1961,7 @@ test test_product_inspection_respects_the_selected_case_deadline { |ctx|
   let root = test.temp_dir(ctx, name: "gate-product-deadline")?
   for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }
   fp"{root}/dev".mkdir()
-  fp"{root}/dev/gate_product.xsh".write("time.sleep(60s)?\n")
+  fp"{root}/dev/gate_product.xsh".write("time.sleep(5s)?\n")
   fp"{root}/tools".mkdir()
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
@@ -1963,14 +1973,36 @@ test test_product_inspection_respects_the_selected_case_deadline { |ctx|
   let source = f"""
 use gates
 use fixtures
+use test_workflows as tests
 proc main() [fs, process, env, time, error, io] {{
-  gates.lane(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
+  let context = fixtures.linux_context(p"{root}")?
+  let plan = gates.plan_paths(context, tests.Verification, [], ["showcase/tokei/correctness"], gates.Change)?
+  let selected = [{{...plan.cases[0], limit: gates.RuntimeSeconds(2)}}]
+  match gates.execute_plan(context, tests.Verification, {{...plan, cases: selected}}, [], null) {{
+    Err(gates.ExecutionError.TimedOut {{case_id: id, ..}}) => assert id == "products"
+    Err(failure) => test.fail(f"unexpected error: {{failure.message}}")
+    Ok(_) => test.fail("product inspection exceeded its deadline")
+  }}
 }}
+main()?
 """
   let inherited = env.get_or("PATH", "")?
-  let _ = test.expect(ctx, source, status: 2, stdout: ["timed out"], args: [],
+  let _ = test.expect(ctx, source, status: 0, args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+}
+
+test test_container_status_returns_gate_errors {
+  for raw in [1, 2, 130] {
+    let status = run.status sh -c "exit $1" -- $raw
+    match gates.container_status(status) {
+      Err(gates.ExecutionError.Failed {case_id: id, raw_status: observed}) => assert id == "container" and raw == 1 and observed == raw
+      Err(gates.ExecutionError.Incomplete {case_id: id, raw_status: observed}) => assert id == "container" and raw == 2 and observed == raw
+      Err(gates.ExecutionError.Cancelled {case_id: id, raw_status: observed}) => assert id == "container" and raw == 130 and observed == raw
+      Err(failure) => test.fail(f"unexpected error: {failure.message}")
+      Ok(_) => test.fail(f"container exit {raw} was accepted")
+    }
+  }
 }
 
 test test_gate_container_preserves_selected_failure_incomplete_and_cancel_statuses { |ctx|
@@ -2022,46 +2054,32 @@ main()?
     assert "--source-digest" in invocation.read_lines()?
   }
   invocation.unlink()?
-  for scenario in [{inspect: "1", identity: "0", expected: 2}, {inspect: "0", identity: "1", expected: 2}, {inspect: "130", identity: "0", expected: 130}, {inspect: "0", identity: "130", expected: 130}] {
-    let _ = test.expect(ctx, f"""
-use gates
-use fixtures
-proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
-}}
-main()?
-""", status: scenario.expected, args: [], env: {{
-    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", INSPECT_STATUS: scenario.inspect, IDENTITY_STATUS: scenario.identity,
-    XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:status-fixture",
-  }})?
+  for scenario in [{inspect: "1", identity: "0", raw: 1}, {inspect: "0", identity: "1", raw: 1}, {inspect: "130", identity: "0", raw: 130}, {inspect: "0", identity: "130", raw: 130}] {
+    env ({PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home.display(), INSPECT_STATUS: scenario.inspect,
+      IDENTITY_STATUS: scenario.identity, XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:status-fixture"}) {
+      match gates.execute_request(fixtures.linux_context(root)?, ["--case", "showcase/tokei/correctness"]) {
+        Err(docker.ImageError.Unavailable {raw_status: raw}) => assert raw == scenario.raw and raw == 1
+        Err(docker.ImageError.Cancelled {raw_status: raw}) => assert raw == scenario.raw and raw == 130
+        Err(failure) => test.fail(f"unexpected error: {failure.message}")
+        Ok(_) => test.fail("failed image inspection was accepted")
+      }
+    }
     assert ! invocation.exists()?
   }
-  let _ = test.expect(ctx, f"""
-use gates
-use fixtures
-proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
-}}
-main()?
-""", status: 2, stdout: ["image unavailable"], args: [], env: {{
-    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", BAD_IMAGE_ID: "1",
-    XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:status-fixture",
-  }})?
-  assert ! invocation.exists()?
-  let _ = test.expect(ctx, f"""
-use gates
-use fixtures
-proc main() [fs, process, env, time, error, io] {{
-  gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
-}}
-main()?
-""", status: 2, stdout: ["different image ID"], args: [], env: {{
-    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_TEST_IMAGE_BUILD: "0",
-    XSH_TEST_IMAGE: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-  }})?
+  for scenario in [
+    {image: "xsh-test:status-fixture", bad: "1", detail: "Docker returned an invalid image ID"},
+    {image: "sha256:1111111111111111111111111111111111111111111111111111111111111111", bad: "", detail: "Docker resolved a different image ID"},
+  ] {
+    env ({PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home.display(), BAD_IMAGE_ID: scenario.bad,
+      XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: scenario.image}) {
+      match gates.execute_request(fixtures.linux_context(root)?, ["--case", "showcase/tokei/correctness"]) {
+        Err(docker.ImageError.InvalidIdentity {detail: detail}) => assert detail == scenario.detail
+        Err(failure) => test.fail(f"unexpected error: {failure.message}")
+        Ok(_) => test.fail("invalid image identity was accepted")
+      }
+    }
+    assert ! invocation.exists()?
+  }
   assert ! invocation.exists()?
 }
 

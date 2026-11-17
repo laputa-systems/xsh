@@ -2338,7 +2338,8 @@ proc hand_to_native_user(ctx: context.Context, account: NativeUser?, directory: 
   }
 }
 
-proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan, paths: List[Str], expected_source: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+## Executes a selected plan under its declared runtime limits.
+export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan, paths: List[Str], expected_source: Str?) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   var first_limit_ns = automatic_budget_ns(plan.tier)
   for entry in plan.cases {
     match entry.execution {
@@ -2685,14 +2686,16 @@ proc present(result: Result[Unit, Error]) [error, io] -> Result[Unit, Error] {
   }
 }
 
-proc container_status(status: Status) [error] -> Result[Unit, Error] {
+## Maps a container exit status to the corresponding gate result.
+export proc container_status(status: Status) [error] -> Result[Unit, Error] {
   let raw = status.shell_code()?
   return Err(ExecutionError.Cancelled(case_id: "container", raw_status: raw)) when raw == 130
   return Err(ExecutionError.Incomplete(case_id: "container", raw_status: raw)) when raw == 2
   return Err(ExecutionError.Failed(case_id: "container", raw_status: raw)) when ! status.ok
 }
 
-proc execute_request(ctx: context.Context, requested: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
+## Executes a gate request and returns its failure to the caller.
+export proc execute_request(ctx: context.Context, requested: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   let request = parse_request(requested)?
   match request {
     Full => {
