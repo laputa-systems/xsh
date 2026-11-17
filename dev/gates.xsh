@@ -856,23 +856,30 @@ pure soundness_owners(areas: List[Area]) -> Bool {
   ! [area for area in areas if area in [Checker, Lowering, Runtime, RouteWitness, Syntax, Grammar, Soundness]].is_empty()
 }
 
+pure area_cases(ctx: context.Context, profile: tests.TestProfile, area: Area, reasons: List[Str]) -> Result[List[CatalogCase], Error] {
+  let owner = Selection(areas: [area], native_files: [])
+  var entries: List[CatalogCase] = []
+  for spec in lane_plan(ctx, profile, owner)? {
+    continue when spec.stage == "test-products"
+    entries += [declared_case(spec, required_products(owner), reasons)] when spec.stage not in [entry.id for entry in entries]
+  }
+  if area == Docs {
+    entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
+      products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: reasons,
+      execution: DocumentationCheck)]
+  }
+  entries
+}
+
 ## Derives cases from the established owner plans without a second test registry.
 export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selection: Selection, reasons: List[Str]) -> Result[List[CatalogCase], Error] {
   var entries: List[CatalogCase] = []
   let selected_stages = [spec.stage for spec in lane_plan(ctx, profile, selection)?]
   for area in selection.areas {
-    let owner = Selection(areas: [area], native_files: [])
-    for spec in lane_plan(ctx, profile, owner)? {
-      continue when spec.stage == "test-products" or spec.stage not in selected_stages
-      if spec.stage not in [entry.id for entry in entries] {
-        entries += [declared_case(spec, required_products(owner), reasons)]
-      }
+    for entry in area_cases(ctx, profile, area, reasons)? {
+      continue when entry.id != "check-docs" and entry.id not in selected_stages
+      entries += [entry] when entry.id not in [known.id for known in entries]
     }
-  }
-  if Docs in selection.areas {
-    entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
-      products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: reasons,
-      execution: DocumentationCheck)]
   }
   for file in selection.native_files {
     let owner = Selection(areas: [], native_files: [file])
@@ -1370,18 +1377,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
   let explicit_reasons = ["explicit case selection"]
   let common_entries = catalogue(ctx, profile, Selection(areas: [], native_files: []), explicit_reasons)?
   for area in all_areas() {
-    let owner = Selection(areas: [area], native_files: [])
-    var entries: List[CatalogCase] = []
-    for spec in lane_plan(ctx, profile, owner)? {
-      continue when spec.stage == "test-products"
-      entries += [declared_case(spec, required_products(owner), explicit_reasons)] when spec.stage not in [entry.id for entry in entries]
-    }
-    if area == Docs {
-      entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
-        products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: explicit_reasons,
-        execution: DocumentationCheck)]
-    }
-    for entry in entries.extend(common_entries) {
+    for entry in area_cases(ctx, profile, area, explicit_reasons)?.extend(common_entries) {
       chosen += [entry] when entry.id not in [known.id for known in chosen]
     }
   }
