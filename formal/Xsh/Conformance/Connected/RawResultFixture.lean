@@ -25,16 +25,17 @@ def resultCandidates : List (List StatementNode × List DerivationStep) :=
   [(throughCandidate, throughSteps), (refuseCandidate, refuseSteps)]
 
 def certifyResultControl (unit : SourceUnit) (signatures : List ResultSignature) (rows : RawInstructionRows)
-    (functions : RawFunctionRows) (cases : List (List StatementNode × List DerivationStep)) : Bool :=
+    (functions : RawFunctionRows) (table : List RawParameter) (cases : List (List StatementNode × List DerivationStep)) :
+    Bool :=
   decide (unit.declarations.length = signatures.length) &&
     decide (functions.functions.length = signatures.length) &&
     decide (cases.length = signatures.length) &&
     (cases.zipIdx.all fun ((candidate, steps), index) =>
-      certifyResultFunction unit rows functions signatures index candidate steps)
+      certifyResultFunction unit rows functions table signatures index candidate steps)
 
 def resultControlCertified : Bool :=
   match admitSource 0 resultControlSource with
-  | .ok unit => certifyResultControl unit resultSignatures resultRows resultFunctions resultCandidates
+  | .ok unit => certifyResultControl unit resultSignatures resultRows resultFunctions resultParameters resultCandidates
   | .error _ => false
 
 set_option maxRecDepth 100000 in

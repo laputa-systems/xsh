@@ -14,6 +14,11 @@ theorem result_control_functions_decode_to_the_fixture :
   decide +kernel
 
 set_option maxRecDepth 100000 in
+theorem result_control_parameters_decode_to_the_fixture :
+    (parseCodes resultRawParameterCodes).bind decodeRawParameters = some resultParameters := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
 theorem result_control_signatures_decode_to_the_fixture :
     decodeResultSignatures resultSignatureCodes = some resultSignatures := by
   decide +kernel

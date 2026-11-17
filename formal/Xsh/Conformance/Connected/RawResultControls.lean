@@ -9,9 +9,13 @@ def validationAccepts (signatures : List ResultSignature) (index : Nat) (candida
   | .ok unit => match validateResultFunction unit signatures index candidate steps with | .ok _ => true | .error _ => false
   | .error _ => false
 
+def rowsAcceptWith (table : List RawParameter) (rows : RawInstructionRows) (functions : RawFunctionRows)
+    (index : Nat) (candidate : List StatementNode) : Bool :=
+  rawResultReturnCheckFor resultSourceNames rows functions table resultSignatures index candidate
+
 def rowsAccept (rows : RawInstructionRows) (functions : RawFunctionRows) (index : Nat)
     (candidate : List StatementNode) : Bool :=
-  rawResultReturnCheckFor resultSourceNames rows functions resultSignatures index candidate
+  rowsAcceptWith resultParameters rows functions index candidate
 
 set_option maxRecDepth 100000 in
 theorem source_validation_accepts_each_candidate :
@@ -208,6 +212,18 @@ set_option maxRecDepth 100000 in
 theorem a_body_block_owned_by_another_function_is_rejected :
     rowsAccept resultRows { resultFunctions with blocks := resultFunctions.blocks.mapIdx fun position block =>
       if position = 0 then { block with owner := 2 } else block } 0 throughCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem forged_result_parameter_rows_are_rejected :
+    rowsAcceptWith [] resultRows resultFunctions 0 throughCandidate = false ∧
+    rowsAcceptWith [] resultRows resultFunctions 1 refuseCandidate = false ∧
+    rowsAcceptWith (resultParameters.map fun parameter => { parameter with name := 1 }) resultRows resultFunctions 0
+      throughCandidate = false ∧
+    rowsAcceptWith (resultParameters.map fun parameter => { parameter with flags := 1 }) resultRows resultFunctions 0
+      throughCandidate = false ∧
+    rowsAcceptWith (resultParameters.map fun parameter => { parameter with reserved := (0, 0, 1) }) resultRows
+      resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 end Xsh.Conformance.Connected

@@ -7,10 +7,10 @@ open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected
 def checkDerivedRawStoreValueFact (fuel : Nat) (names : TypeNames) (unit : SourceUnit)
     (result : MonoType) (types : BinderTypes) (principal : Substitution)
     (requirements : List Constraint) (fields : FieldResults)
-    (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat)
+    (rows : RawInstructionRows) (functions : RawFunctionRows) (table : List RawParameter) (owner row : Nat)
     (parameters : List Binding) (declarations : RawLocalDeclarations)
     (occurrences : List ScopedOccurrence) (document : ScopedBodyDocument) (entry : Nat × Nat) : Bool :=
-  match deriveRawSlots fuel (sourceRawNameBytes unit) rows functions owner parameters declarations occurrences with
+  match deriveRawSlots fuel (sourceRawNameBytes unit) rows functions table owner parameters declarations occurrences with
   | some slots =>
       checkRawStoreValueFact fuel names unit result types principal requirements fields rows functions owner row
         slots occurrences document entry
@@ -19,17 +19,17 @@ def checkDerivedRawStoreValueFact (fuel : Nat) (names : TypeNames) (unit : Sourc
 theorem checked_derived_raw_store_value_uses_derived_slots (fuel : Nat) (names : TypeNames) (unit : SourceUnit)
     (result : MonoType) (types : BinderTypes) (principal : Substitution)
     (requirements : List Constraint) (fields : FieldResults)
-    (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat)
+    (rows : RawInstructionRows) (functions : RawFunctionRows) (table : List RawParameter) (owner row : Nat)
     (parameters : List Binding) (declarations : RawLocalDeclarations)
     (occurrences : List ScopedOccurrence) (document : ScopedBodyDocument) (entry : Nat × Nat)
     (checked : checkDerivedRawStoreValueFact fuel names unit result types principal requirements fields rows
-      functions owner row parameters declarations occurrences document entry = true) :
-    ∃ slots, deriveRawSlots fuel (sourceRawNameBytes unit) rows functions owner parameters declarations
+      functions table owner row parameters declarations occurrences document entry = true) :
+    ∃ slots, deriveRawSlots fuel (sourceRawNameBytes unit) rows functions table owner parameters declarations
         occurrences = some slots ∧
       checkRawStoreValueFact fuel names unit result types principal requirements fields rows functions owner row
         slots occurrences document entry = true := by
   unfold checkDerivedRawStoreValueFact at checked
-  cases derived : deriveRawSlots fuel (sourceRawNameBytes unit) rows functions owner parameters declarations occurrences with
+  cases derived : deriveRawSlots fuel (sourceRawNameBytes unit) rows functions table owner parameters declarations occurrences with
   | none => simp [derived] at checked
   | some slots =>
       simp only [derived] at checked
@@ -38,16 +38,19 @@ theorem checked_derived_raw_store_value_uses_derived_slots (fuel : Nat) (names :
 theorem checked_derived_raw_store_value_types_every_solution (fuel : Nat) (names : TypeNames) (unit : SourceUnit)
     (result : MonoType) (types : BinderTypes) (principal later : Substitution)
     (requirements : List Constraint) (fields : FieldResults)
-    (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat)
+    (rows : RawInstructionRows) (functions : RawFunctionRows) (table : List RawParameter) (owner row : Nat)
     (parameters : List Binding) (declarations : RawLocalDeclarations)
     (occurrences : List ScopedOccurrence) (document : ScopedBodyDocument) (entry : Nat × Nat)
     (checked : checkDerivedRawStoreValueFact fuel names unit result types principal requirements fields rows
-      functions owner row parameters declarations occurrences document entry = true)
+      functions table owner row parameters declarations occurrences document entry = true)
     (sorted : WellSorted later) (solves : Solves requirements later) :
-    ∃ slots, deriveRawSlots fuel (sourceRawNameBytes unit) rows functions owner parameters declarations
+    ∃ slots, deriveRawSlots fuel (sourceRawNameBytes unit) rows functions table owner parameters declarations
         occurrences = some slots ∧
       (slots.map Prod.fst).Nodup ∧ (slots.map Prod.snd).Nodup ∧
-      (∀ index binder, (parameters.map Binding.binder)[index]? = some binder → (binder, index) ∈ slots) ∧
+      (∃ function, functions.functions[owner - 1]? = some function ∧
+        ∀ index binding, parameters[index]? = some binding →
+          (binding.binder, index) ∈ slots ∧
+          RawParameterNamesBinding (sourceRawNameBytes unit) rows table function index binding) ∧
       (∀ declaration ∈ sourceLocals occurrences, ∃ evidence,
         localEvidence fuel (sourceRawNameBytes unit) rows functions owner declarations slots declaration = some evidence ∧
         (declaration.binder, evidence.slot) ∈ slots ∧
@@ -71,10 +74,11 @@ theorem checked_derived_raw_store_value_types_every_solution (fuel : Nat) (names
         ExpressionHasTypeIn (compose later principal) (some (names, substitute later result)) occurrence.scope
           occurrence.source (substitute later store.replacement) := by
   obtain ⟨slots, derived, valued⟩ := checked_derived_raw_store_value_uses_derived_slots fuel names unit result
-    types principal requirements fields rows functions owner row parameters declarations occurrences document entry checked
+    types principal requirements fields rows functions table owner row parameters declarations occurrences document
+    entry checked
   obtain ⟨_, uniqueBinders, uniqueSlots, parametersHeld, localsHeld⟩ :=
-    derive_raw_slots_sound fuel (sourceRawNameBytes unit) rows functions owner parameters declarations occurrences
-      slots derived
+    derive_raw_slots_sound fuel (sourceRawNameBytes unit) rows functions table owner parameters declarations
+      occurrences slots derived
   refine ⟨slots, derived, uniqueBinders, uniqueSlots, parametersHeld, ?_,
     checked_raw_store_value_types_every_solution fuel names unit result types principal later requirements fields
       rows functions owner row slots occurrences document entry valued sorted solves⟩

@@ -1,5 +1,5 @@
 import Xsh.Conformance.Connected.RawStoreFixture
-import Xsh.Conformance.Connected.RawExpression
+import Xsh.Conformance.Connected.RawDeclarations
 import Xsh.Conformance.Connected.RawResultDocuments
 
 namespace Xsh.Conformance.Connected
@@ -266,13 +266,15 @@ def rawFunctionReturn (rows : RawInstructionRows) (functions : RawFunctionRows) 
 def namesRawBytes (names : List String) : RawNameBytes := fun name => (names[name.value]?).map rawBytes
 
 def rawResultReturnCheckFor (names : List String) (rows : RawInstructionRows) (functions : RawFunctionRows)
-    (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode) : Bool :=
+    (table : List RawParameter) (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode) :
+    Bool :=
   match signatures[index]?, functions.functions[index]? with
   | some signature, some function =>
       match resultParameterBindingsFor names signature.parameters, returnedNode candidate,
           rawFunctionReturn rows functions index with
       | some parameters, some node, some row =>
           decide (function.parameters.length = parameters.length) &&
+          rawParametersAuthenticated (namesRawBytes names) rows table function parameters &&
           decide (readRawStringBytes rows function.name = some (rawBytes signature.name)) &&
           rawValueCorrespondenceWith 16 (namesRawBytes names)
             (parameters.zipIdx.map fun (binding, slot) => (binding.binder, slot))
@@ -281,23 +283,24 @@ def rawResultReturnCheckFor (names : List String) (rows : RawInstructionRows) (f
   | _, _ => false
 
 def rawResultReturnCheck (unit : SourceUnit) (rows : RawInstructionRows) (functions : RawFunctionRows)
-    (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode) : Bool :=
-  rawResultReturnCheckFor unit.names rows functions signatures index candidate
+    (table : List RawParameter) (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode) :
+    Bool :=
+  rawResultReturnCheckFor unit.names rows functions table signatures index candidate
 
 def certifyResultFunction (unit : SourceUnit) (rows : RawInstructionRows) (functions : RawFunctionRows)
-    (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
+    (table : List RawParameter) (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep) : Bool :=
   (match validateResultFunction unit signatures index candidate steps with | .ok _ => true | .error _ => false) &&
-    rawResultReturnCheck unit rows functions signatures index candidate &&
+    rawResultReturnCheck unit rows functions table signatures index candidate &&
     checkResultExpressionTypes unit signatures index candidate steps &&
     checkResultCallTargets unit signatures index candidate
 
 theorem certified_result_function_components (unit : SourceUnit) (rows : RawInstructionRows)
-    (functions : RawFunctionRows) (signatures : List ResultSignature) (index : Nat)
+    (functions : RawFunctionRows) (table : List RawParameter) (signatures : List ResultSignature) (index : Nat)
     (candidate : List StatementNode) (steps : List DerivationStep)
-    (certified : certifyResultFunction unit rows functions signatures index candidate steps = true) :
+    (certified : certifyResultFunction unit rows functions table signatures index candidate steps = true) :
     validateResultFunction unit signatures index candidate steps = .ok () ∧
-      rawResultReturnCheck unit rows functions signatures index candidate = true ∧
+      rawResultReturnCheck unit rows functions table signatures index candidate = true ∧
       checkResultExpressionTypes unit signatures index candidate steps = true ∧
       checkResultCallTargets unit signatures index candidate = true := by
   unfold certifyResultFunction at certified
@@ -348,14 +351,16 @@ theorem validated_result_function_is_typed (unit : SourceUnit) (signatures : Lis
   exact ⟨signature, source, names, scope, rfl, rfl, rfl, scopeFound, generated, state, solution, run, derivation, typed⟩
 
 theorem raw_result_return_check_matches_the_checked_node (names : List String) (rows : RawInstructionRows)
-    (functions : RawFunctionRows) (signatures : List ResultSignature) (index : Nat)
+    (functions : RawFunctionRows) (table : List RawParameter) (signatures : List ResultSignature) (index : Nat)
     (candidate : List StatementNode)
-    (checked : rawResultReturnCheckFor names rows functions signatures index candidate = true) :
+    (checked : rawResultReturnCheckFor names rows functions table signatures index candidate = true) :
     ∃ signature function parameters node row tree,
       signatures[index]? = some signature ∧
       functions.functions[index]? = some function ∧
       readRawStringBytes rows function.name = some (rawBytes signature.name) ∧
       resultParameterBindingsFor names signature.parameters = some parameters ∧
+      (∀ slot binding, parameters[slot]? = some binding →
+        RawParameterNamesBinding (namesRawBytes names) rows table function slot binding) ∧
       returnedNode candidate = some node ∧
       rawFunctionReturn rows functions index = some row ∧
       readRawValueTree rows functions (index + 1) (parameters.zipIdx.map fun (_, slot) => slot) 16 row = some tree ∧
@@ -380,11 +385,13 @@ theorem raw_result_return_check_matches_the_checked_node (names : List String) (
   | some row =>
   simp only [signatureFound, functionFound, parametersFound, nodeFound, rowFound, Bool.and_eq_true,
     decide_eq_true_eq] at checked
-  obtain ⟨⟨_, named⟩, checked⟩ := checked
+  obtain ⟨⟨⟨_, authenticated⟩, named⟩, checked⟩ := checked
   obtain ⟨tree, actual, expected⟩ := raw_value_correspondence_with_sound 16 (namesRawBytes names)
     (parameters.zipIdx.map fun (binding, slot) => (binding.binder, slot)) (resultCalleeBinders signatures.length)
     rows functions (index + 1) row node checked
-  refine ⟨signature, function, parameters, node, row, tree, rfl, rfl, named, parametersFound, rfl, rfl, ?_, expected⟩
+  refine ⟨signature, function, parameters, node, row, tree, rfl, rfl, named, parametersFound,
+    raw_parameters_authenticated_sound (namesRawBytes names) rows table function parameters authenticated,
+    rfl, rfl, ?_, expected⟩
   simpa [List.map_map, Function.comp_def] using actual
 
 end Xsh.Conformance.Connected

@@ -474,6 +474,18 @@ fn encode_functions(rows: &RawFullRows) -> Result<String, CandidateDecodeError> 
     ])).map_err(|error| CandidateDecodeError::Malformed(error.to_string()))
 }
 
+fn encode_parameters(rows: &RawFullRows) -> Result<String, CandidateDecodeError> {
+    let params = rows.params.iter().map(|param| wire_object([
+        ("name", wire_word(param.name)), ("flags", wire_word(u32::from(param.flags))),
+        ("reserved0", wire_word(u32::from(param.reserved[0]))),
+        ("reserved1", wire_word(u32::from(param.reserved[1]))),
+        ("reserved2", wire_word(u32::from(param.reserved[2]))),
+    ])).collect();
+    deser_json::to_string(&wire_object([
+        ("schema", wire_string("xsh-connected-raw-parameters-v1")), ("params", WireValue::Array(params)),
+    ])).map_err(|error| CandidateDecodeError::Malformed(error.to_string()))
+}
+
 fn decode_functions(input: &str) -> Result<RawFunctions, CandidateDecodeError> {
     let mut object = parse_object_fields(parse_wire_document(input)?, &["blocks", "functions"])?;
     let blocks = take_array(&mut object, "blocks")?.into_iter().map(|value| {
@@ -930,6 +942,7 @@ fn raw_local_declarations_bind_source_sites_to_store_rows() {
             (format!("{prefix}LocalDeclarationsCodes"), export_local_declarations(&program, 1).unwrap()),
             (format!("{prefix}RawInstructionCodes"), encode_instructions(&raw.rows).unwrap()),
             (format!("{prefix}RawFunctionCodes"), encode_functions(&raw.rows).unwrap()),
+            (format!("{prefix}RawParameterCodes"), encode_parameters(&raw.rows).unwrap()),
         ] {
             if lean_document_from(LEAN_RAW_LOCAL_DOCUMENTS, &name).as_deref() != Some(exported.as_str()) {
                 stale.push(lean_definition(&name, &exported));
@@ -1081,6 +1094,7 @@ fn result_control_rows_and_signatures_are_the_lean_documents() {
     for (name, exported) in [
         ("resultRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
         ("resultRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultRawParameterCodes", encode_parameters(&raw.rows).unwrap()),
         ("resultSignatureCodes", signatures.clone()),
     ] {
         if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {
@@ -1112,6 +1126,7 @@ fn result_call_rows_and_signatures_are_the_lean_documents() {
     for (name, exported) in [
         ("resultCallRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
         ("resultCallRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultCallRawParameterCodes", encode_parameters(&raw.rows).unwrap()),
         ("resultCallSignatureCodes", signatures.clone()),
     ] {
         if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {

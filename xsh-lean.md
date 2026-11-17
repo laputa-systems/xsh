@@ -446,9 +446,18 @@ The connected path is in progress. Lean checks independently generated
 qualified schemes and supported function bodies, and captured Rust facts for
 generic projection, scoped mutable storage, polymorphic identity calls and raw
 assignments, with mutations rejected. Local slots derive from exported
-declaration claims, checked initializers and mutability facts. Open: the Rust
-claim table, positional parameter slots and single-assignment temporaries are
-assumptions; transfer metadata is unauthenticated; the parser projection covers
+declaration claims, checked initializers and mutability facts. Positional
+parameter slots are no longer an assumption: the derived slot map and the
+Result return check give the source parameter at position i slot i only when
+row i of the owner function's range in the exported Rust parameter table
+carries that parameter's spelling through the exported string pool and sets no
+rest, default or reserved bits, and they reject swapped, renamed, flagged,
+missing and out-of-range rows and malformed parameter documents. That a slot
+below the parameter count holds the parameter row at that offset is the
+indexed IR's own rule, which `FullVerifier` applies; that the executor stores
+each argument there belongs to the open execution observations. Open: the Rust
+claim table and single-assignment temporaries are assumptions; transfer
+metadata is unauthenticated; the parser projection covers
 only the supported subset and is not proved equivalent to Rust parsing;
 unsupported initializer and right-hand-side forms, annotated or destructuring
 declarations and global captures are outside it; deriving the connected

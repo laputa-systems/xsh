@@ -12656,8 +12656,17 @@
       "declaration": "Xsh.Conformance.Connected.derive_raw_slots_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "An accepted derived binder-to-slot map positions parameters by function parameter order, takes each source local's slot from the StmtLet row its captured declaration site claims, and is injective in binders and slots.",
-      "boundary": "The declaration site-to-row claims, the parameter slot convention, and the per-row local-declaration facts come from the test-only Rust export; Lean checks them against raw rows but does not prove the Rust lowerer assigned them. Two locals with structurally equal initializers are told apart only by the uses a later check covers."
+      "scope": "An accepted derived binder-to-slot map gives the source parameter at position i slot i only when row i of the owner function's range in the exported Rust parameter table carries that parameter's admitted spelling through the exported string pool and has no rest, default or reserved bits; it takes each source local's slot from the StmtLet row its captured declaration site claims, and is injective in binders and slots.",
+      "boundary": "The declaration site-to-row claims and the per-row local-declaration facts come from the test-only Rust export; Lean checks them against raw rows but does not prove the Rust lowerer assigned them. The parameter table and string pool are exported IR rows; that a slot below the parameter count holds the parameter row at that offset is the indexed IR rule FullVerifier applies, and that the executor stores each argument there is execution correspondence, which remains open. Two locals with structurally equal initializers are told apart only by the uses a later check covers."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_parameters_authenticated_sound",
+      "module": "Xsh.Conformance.Connected.RawDeclarations",
+      "declaration": "Xsh.Conformance.Connected.raw_parameters_authenticated_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted parameter check gives every source parameter at position i the exported Rust parameter row at the owner function's range start plus i, which the indexed IR rule assigns to slot i, with no rest, default or reserved bits and a string-pool name equal to the parameter's spelling.",
+      "boundary": "The spelling comes from the supplied name table; the parameter list order is authenticated against the admitted source by the occurrence or signature check that supplies it. Defaulted, rest and omitted-argument parameters are rejected rather than modeled."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.local_evidence_sound",
@@ -12701,7 +12710,7 @@
       "declaration": "Xsh.Conformance.Connected.checked_derived_raw_store_value_types_every_solution",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "For every sorted solution, an accepted derived store check yields an authenticated binder-to-slot map with its per-local evidence and keeps the store target, replacement tree, and typing conclusions of the supplied-map theorem.",
+      "scope": "For every sorted solution, an accepted derived store check yields an authenticated binder-to-slot map with the Rust parameter row naming each parameter, its per-local evidence, and the store target, replacement tree, and typing conclusions of the supplied-map theorem.",
       "boundary": "Source parsing, the declaration export, the lowering invariants named by the derivation theorems, transfer marks, and execution simulation remain assumed or open."
     },
     {
@@ -12710,7 +12719,7 @@
       "declaration": "Xsh.Conformance.Connected.exported_raw_documents_decode",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The exported raw instruction, function, and local-declaration documents for the scoped and pair fixtures decode.",
+      "scope": "The exported raw instruction, function, parameter, and local-declaration documents for the scoped and pair fixtures decode; the parameter tables decode to unflagged rows naming string 2 (value), and strings 2 and 3 (a and b).",
       "boundary": "The documents are Rust test-only exports of two small generic bodies; they are not foreign-artifact certificates."
     },
     {
@@ -12730,6 +12739,24 @@
       "status": "fragment",
       "scope": "The exported two-parameter, two-local body derives slots 0, 1, 3, 5 and rejects swapped local claims, a local claimed at a temporary row, and an unmatched site.",
       "boundary": "Swapped locals are caught here only because their initializers differ; identical initializers rely on checked uses."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.derived_slots_reject_forged_parameter_rows",
+      "module": "Xsh.Conformance.Connected.RawStoreDerivedFixture",
+      "declaration": "Xsh.Conformance.Connected.derived_slots_reject_forged_parameter_rows",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported scoped store and pair derivation are rejected when the parameter table is empty or truncated, a row names the function or the sentinel string, a row is swapped or renamed to another parameter, a rest or default flag or a reserved bit is set, or the function's parameter range moves past the table.",
+      "boundary": "Finite mutations of the two exported bodies; rejection shows these corruptions are caught, not that every corruption is."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_parameter_documents_reject_malformed_rows",
+      "module": "Xsh.Conformance.Connected.RawStoreDerivedFixture",
+      "declaration": "Xsh.Conformance.Connected.raw_parameter_documents_reject_malformed_rows",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The parameter document decoder accepts the closed schema with one row and rejects another schema version, a flag word wider than a byte, a missing field and an extra field.",
+      "boundary": "Decoder controls over hand-written wire values."
     },
     {
       "id": "fragment.Xsh.Core.EffectSet.ofList_contains",
@@ -13457,8 +13484,8 @@
       "declaration": "Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots, callees their function positions, and the function entry naming the published function.",
-      "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
+      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with each parameter at the slot whose row in the exported Rust parameter table carries its spelling and no rest, default or reserved bits, callees at their function positions, and the function entry naming the published function.",
+      "boundary": "The row layout and the exporter's function, block and parameter tables come from the Rust test-only export. The parameter slot rule is the indexed IR rule; execution correspondence remains open."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.result_control_is_certified",
@@ -14280,6 +14307,15 @@
       "boundary": "One document from the test-only export."
     },
     {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_parameters_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_parameters_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported parameter document decodes to the literal parameter table the Result fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
       "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
       "declaration": "Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
@@ -14505,6 +14541,15 @@
       "boundary": "One mutation or case of the exported Result fixture."
     },
     {
+      "id": "fragment.Xsh.Conformance.Connected.forged_result_parameter_rows_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_result_parameter_rows_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Result fixture's return check is rejected for each function when the parameter table is empty, and for the function with a parameter when its row names another string or sets a rest flag or a reserved bit.",
+      "boundary": "Finite mutations of the exported Result fixture's parameter table."
+    },
+    {
       "id": "fragment.Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
       "module": "Xsh.Typing.Connected.ExpectedConstructors",
       "declaration": "Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
@@ -14646,6 +14691,15 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The exported call fixture function-row document decodes to the literal function and block tables the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_parameters_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_parameters_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture parameter document decodes to the literal parameter table the call fixture checks use.",
       "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
     },
     {
@@ -14791,6 +14845,15 @@
       "status": "fragment",
       "scope": "A callee function entry that names the caller is rejected.",
       "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_callee_parameter_row_with_another_name_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_callee_parameter_row_with_another_name_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's return check is rejected when its parameter row names another string or sets a default flag.",
+      "boundary": "Finite mutations of the exported Result call fixture's parameter table."
     }
   ],
   "artifact_certificates": [

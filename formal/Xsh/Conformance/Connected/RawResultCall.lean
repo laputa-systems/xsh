@@ -23,6 +23,8 @@ def resultCallFunctions : RawFunctionRows :=
   ⟨[⟨⟨3, 2⟩, 4294967295, 1, 3, (0, 0, 0)⟩, ⟨⟨7, 3⟩, 4294967295, 2, 0, (0, 0, 0)⟩, ⟨⟨17, 2⟩, 4294967295, 2, 3, (0, 0, 0)⟩],
     [⟨1, .ground 1, ⟨0, 1⟩, ⟨0, 1⟩, 1, 2, ⟨0, 2⟩, 4⟩, ⟨4, .ground 2, ⟨1, 0⟩, ⟨1, 1⟩, 3, 1, ⟨2, 1⟩, 4⟩]⟩
 
+def resultCallParameters : List RawParameter := [⟨2, 0, (0, 0, 0)⟩]
+
 def resultCallSignatures : List ResultSignature :=
   [⟨"wrap", ⟨0, 38, 16⟩, [("n", .primitive .integer)], .result (.primitive .integer) (.primitive .string),
     [(⟨0, 47, 5⟩, .result (.primitive .integer) (.primitive .string)), (⟨0, 50, 1⟩, .primitive .integer)],
@@ -48,7 +50,8 @@ def resultCallCandidates : List (List StatementNode × List DerivationStep) :=
 
 def resultCallCertified : Bool :=
   match admitSource 0 resultCallSource with
-  | .ok unit => certifyResultControl unit resultCallSignatures resultCallRows resultCallFunctions resultCallCandidates
+  | .ok unit => certifyResultControl unit resultCallSignatures resultCallRows resultCallFunctions resultCallParameters
+      resultCallCandidates
   | .error _ => false
 
 set_option maxRecDepth 100000 in

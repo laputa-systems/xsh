@@ -41,6 +41,118 @@ def decodeRawLocalDeclarations (value : WireValue) : Option RawLocalDeclarations
     pure ⟨← wordField fields "function", locals, facts⟩
   else none
 
+structure RawParameter where
+  name : Nat
+  flags : Nat
+  reserved : Nat × Nat × Nat
+  deriving DecidableEq
+
+def decodeRawParameter (value : WireValue) : Option RawParameter := do
+  let fields ← value.closedObject? ["name", "flags", "reserved0", "reserved1", "reserved2"]
+  pure ⟨← wordField fields "name", ← rawByteField fields "flags",
+    (← rawByteField fields "reserved0", ← rawByteField fields "reserved1", ← rawByteField fields "reserved2")⟩
+
+def decodeRawParameters (value : WireValue) : Option (List RawParameter) := do
+  let fields ← value.closedObject? ["schema", "params"]
+  if textField fields "schema" = some "xsh-connected-raw-parameters-v1" then pure () else none
+  listField fields "params" decodeRawParameter
+
+def rawFunctionParameters (table : List RawParameter) (function : RawFunction) : Option (List RawParameter) :=
+  if function.parameters.start + function.parameters.length ≤ table.length then
+    some ((table.drop function.parameters.start).take function.parameters.length)
+  else none
+
+def rawParameterRow (function : RawFunction) (slot : Nat) : Option Nat :=
+  if slot < function.parameters.length then some (function.parameters.start + slot) else none
+
+def rawParameterNamed (names : RawNameBytes) (rows : RawInstructionRows) (parameter : RawParameter)
+    (binding : Binding) : Bool :=
+  match names binding.name with
+  | some spelling => decide (parameter.flags = 0) && decide (parameter.reserved = (0, 0, 0)) &&
+      decide (readRawStringBytes rows parameter.name = some spelling)
+  | none => false
+
+def rawParametersNamed (names : RawNameBytes) (rows : RawInstructionRows) :
+    List RawParameter → List Binding → Bool
+  | [], [] => true
+  | parameter :: parameters, binding :: bindings =>
+      rawParameterNamed names rows parameter binding && rawParametersNamed names rows parameters bindings
+  | _, _ => false
+
+def rawParametersAuthenticated (names : RawNameBytes) (rows : RawInstructionRows) (table : List RawParameter)
+    (function : RawFunction) (parameters : List Binding) : Bool :=
+  match rawFunctionParameters table function with
+  | some found => rawParametersNamed names rows found parameters
+  | none => false
+
+def RawParameterNamesBinding (names : RawNameBytes) (rows : RawInstructionRows) (table : List RawParameter)
+    (function : RawFunction) (slot : Nat) (binding : Binding) : Prop :=
+  ∃ row parameter spelling, rawParameterRow function slot = some row ∧ table[row]? = some parameter ∧
+    parameter.flags = 0 ∧ parameter.reserved = (0, 0, 0) ∧
+    names binding.name = some spelling ∧ readRawStringBytes rows parameter.name = some spelling
+
+theorem raw_parameter_named_sound (names : RawNameBytes) (rows : RawInstructionRows) (parameter : RawParameter)
+    (binding : Binding) (named : rawParameterNamed names rows parameter binding = true) :
+    parameter.flags = 0 ∧ parameter.reserved = (0, 0, 0) ∧ ∃ spelling,
+      names binding.name = some spelling ∧ readRawStringBytes rows parameter.name = some spelling := by
+  unfold rawParameterNamed at named
+  cases spelled : names binding.name with
+  | none => simp [spelled] at named
+  | some spelling =>
+      simp only [spelled, Bool.and_eq_true, decide_eq_true_eq] at named
+      exact ⟨named.1.1, named.1.2, spelling, rfl, named.2⟩
+
+theorem raw_parameters_named_at (names : RawNameBytes) (rows : RawInstructionRows) :
+    ∀ (found : List RawParameter) (bindings : List Binding), rawParametersNamed names rows found bindings = true →
+      ∀ (index : Nat) (binding : Binding), bindings[index]? = some binding →
+        ∃ parameter, found[index]? = some parameter ∧ rawParameterNamed names rows parameter binding = true
+  | [], [], _, _, _, at_index => by simp at at_index
+  | parameter :: found, head :: bindings, named, index, binding, at_index => by
+      simp only [rawParametersNamed, Bool.and_eq_true] at named
+      cases index with
+      | zero =>
+          simp at at_index
+          subst at_index
+          exact ⟨parameter, rfl, named.1⟩
+      | succ index =>
+          simp at at_index
+          exact raw_parameters_named_at names rows found bindings named.2 index binding at_index
+  | [], _ :: _, named, _, _, _ => by simp [rawParametersNamed] at named
+  | _ :: _, [], named, _, _, _ => by simp [rawParametersNamed] at named
+
+theorem raw_function_parameters_at (table : List RawParameter) (function : RawFunction)
+    (found : List RawParameter) (read : rawFunctionParameters table function = some found)
+    (index : Nat) (parameter : RawParameter) (at_index : found[index]? = some parameter) :
+    rawParameterRow function index = some (function.parameters.start + index) ∧
+      table[function.parameters.start + index]? = some parameter := by
+  unfold rawFunctionParameters at read
+  split at read
+  · cases read
+    simp only [List.getElem?_take, List.getElem?_drop] at at_index
+    split at at_index
+    · rename_i bound
+      exact ⟨by simp [rawParameterRow, bound], at_index⟩
+    · simp at at_index
+  · simp at read
+
+theorem raw_parameters_authenticated_sound (names : RawNameBytes) (rows : RawInstructionRows)
+    (table : List RawParameter) (function : RawFunction) (parameters : List Binding)
+    (authenticated : rawParametersAuthenticated names rows table function parameters = true) :
+    ∀ index binding, parameters[index]? = some binding →
+      RawParameterNamesBinding names rows table function index binding := by
+  intro index binding at_index
+  unfold rawParametersAuthenticated at authenticated
+  cases read : rawFunctionParameters table function with
+  | none => simp [read] at authenticated
+  | some found =>
+      simp only [read] at authenticated
+      obtain ⟨parameter, found_at, named⟩ :=
+        raw_parameters_named_at names rows found parameters authenticated index binding at_index
+      obtain ⟨row_eq, table_at⟩ := raw_function_parameters_at table function found read index parameter found_at
+      obtain ⟨flags, reserved, spelling, spelled, bytes⟩ :=
+        raw_parameter_named_sound names rows parameter binding named
+      exact ⟨_, parameter, spelling, row_eq, table_at, flags, reserved, spelled, bytes⟩
+
 structure SourceLocal where
   binder : BinderId
   mutable : Bool
@@ -152,7 +264,7 @@ def claimedRawSlots (rows : RawInstructionRows) (functions : RawFunctionRows) (o
       (claimedLocalSlot rows functions owner declarations declaration).map (declaration.binder, ·)
 
 def deriveRawSlots (fuel : Nat) (names : RawNameBytes) (rows : RawInstructionRows) (functions : RawFunctionRows)
-    (owner : Nat) (parameters : List Binding) (declarations : RawLocalDeclarations)
+    (table : List RawParameter) (owner : Nat) (parameters : List Binding) (declarations : RawLocalDeclarations)
     (occurrences : List ScopedOccurrence) : Option (List (BinderId × Nat)) :=
   match functions.functions[owner - 1]? with
   | none => none
@@ -160,6 +272,7 @@ def deriveRawSlots (fuel : Nat) (names : RawNameBytes) (rows : RawInstructionRow
     let slots := claimedRawSlots rows functions owner parameters declarations occurrences
     if decide (0 < owner) && decide (declarations.function = owner) &&
         decide (function.parameters.length = parameters.length) &&
+        rawParametersAuthenticated names rows table function parameters &&
         decide (declarations.locals.length = (sourceLocals occurrences).length) &&
         decide ((slots.map Prod.fst).Nodup) && decide ((slots.map Prod.snd).Nodup) &&
         slots.all (fun entry => decide (entry.2 < function.slotCount)) &&
@@ -268,12 +381,14 @@ theorem indexed_slots_hold_each_position (start : Nat) (binders : List BinderId)
           simp [indexedSlots, this]
 
 theorem derive_raw_slots_sound (fuel : Nat) (names : RawNameBytes) (rows : RawInstructionRows)
-    (functions : RawFunctionRows) (owner : Nat) (parameters : List Binding) (declarations : RawLocalDeclarations)
-    (occurrences : List ScopedOccurrence) (slots : List (BinderId × Nat))
-    (derived : deriveRawSlots fuel names rows functions owner parameters declarations occurrences = some slots) :
+    (functions : RawFunctionRows) (table : List RawParameter) (owner : Nat) (parameters : List Binding)
+    (declarations : RawLocalDeclarations) (occurrences : List ScopedOccurrence) (slots : List (BinderId × Nat))
+    (derived : deriveRawSlots fuel names rows functions table owner parameters declarations occurrences = some slots) :
     slots = claimedRawSlots rows functions owner parameters declarations occurrences ∧
     (slots.map Prod.fst).Nodup ∧ (slots.map Prod.snd).Nodup ∧
-    (∀ index binder, (parameters.map Binding.binder)[index]? = some binder → (binder, index) ∈ slots) ∧
+    (∃ function, functions.functions[owner - 1]? = some function ∧
+      ∀ index binding, parameters[index]? = some binding →
+        (binding.binder, index) ∈ slots ∧ RawParameterNamesBinding names rows table function index binding) ∧
     ∀ declaration ∈ sourceLocals occurrences, ∃ evidence,
       localEvidence fuel names rows functions owner declarations slots declaration = some evidence ∧
       (declaration.binder, evidence.slot) ∈ slots := by
@@ -286,11 +401,13 @@ theorem derive_raw_slots_sound (fuel : Nat) (names : RawNameBytes) (rows : RawIn
     · rename_i accepted
       cases derived
       simp only [Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at accepted
-      obtain ⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, uniqueBinders⟩, uniqueSlots⟩, _⟩, evidenced⟩ := accepted
-      refine ⟨rfl, uniqueBinders, uniqueSlots, ?_, ?_⟩
-      · intro index binder at_index
-        have := indexed_slots_hold_each_position 0 (parameters.map Binding.binder) index binder at_index
-        simpa [claimedRawSlots] using Or.inl this
+      obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, named⟩, _⟩, uniqueBinders⟩, uniqueSlots⟩, _⟩, evidenced⟩ := accepted
+      refine ⟨rfl, uniqueBinders, uniqueSlots, ⟨function, rfl, ?_⟩, ?_⟩
+      · intro index binding at_index
+        have binder_at : (parameters.map Binding.binder)[index]? = some binding.binder := by simp [at_index]
+        have held := indexed_slots_hold_each_position 0 (parameters.map Binding.binder) index binding.binder binder_at
+        exact ⟨by simpa [claimedRawSlots] using Or.inl held,
+          raw_parameters_authenticated_sound names rows table function parameters named index binding at_index⟩
       · intro declaration member
         have present := evidenced declaration member
         cases evidence : localEvidence fuel names rows functions owner declarations

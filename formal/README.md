@@ -152,16 +152,23 @@ for assignment right-hand sides. It rejects different same-type reads and
 integer payloads. Its general theorem composes this comparison with
 the scoped store typing theorem for every sorted solution. Name spellings come
 from the admitted source's name table. The binder-to-slot map is derived rather
-than supplied: parameters take their positional slots, and each source local
-takes the slot of the StmtLet row that a test-only Rust export claims for its
-declaration site. Lean accepts a claim only when the row lies in the function's
-own statement blocks, its exported fact has the local's mutability (a user `var`
-is thus told from a compiler temporary), the initializer resolved through the
+than supplied. The source parameter at position i takes slot i only when row i
+of the owner function's range in the exported Rust parameter table carries the
+parameter's spelling through the exported string pool and sets no rest, default
+or reserved bits; the indexed IR's rule, which `FullVerifier` applies, is that a
+slot below the parameter count holds the parameter row at that offset. Each
+source local takes the slot of the StmtLet row that a test-only Rust export
+claims for its declaration site. Lean accepts a claim only when the row lies in
+the function's own statement blocks, its exported fact has the local's
+mutability (a user `var` is thus told from a compiler temporary), the
+initializer resolved through the
 function's single-assignment temporaries equals the source initializer, and
 binders and slots are injective. Corrupting a claim, a fact, a row slot, or a
 store target is rejected for the exported scoped body, and swapped claims for the
-exported two-local body. The claim table, parameter order, fact kinds, and the
-invariant that slots are never reused remain assumptions of the Rust lowerer;
+exported two-local body. Swapped, renamed, flagged, missing and out-of-range
+parameter rows are rejected for both bodies, and malformed parameter documents
+fail to decode. The claim table, fact kinds, and the invariant that slots are
+never reused remain assumptions of the Rust lowerer;
 locals with equal initializers are told apart only by the uses a check covers.
 Calls, annotated or destructuring declarations, other value blocks,
 the older projected-row fixtures that still pass a map, and operational
@@ -201,18 +208,20 @@ A Result slice carries `Ok` construction, `Err` construction and `?` propagation
 through the connected path for one test-only fixture of two single-return pure
 functions over `Int`, `Str` and `Result`: `Ok(r?)` for a `Result[Int, Str]`
 parameter and `Err("no")`. A test-only Rust export publishes the checker's
-parameter and result types and the exported instruction and function rows.
+parameter and result types and the exported instruction, function and parameter rows.
 Lean admits the source, validates hand-written candidate bodies against the
 source and those types with a checked constraint derivation, and compares each
 function's return row, read as a value tree with Ok, Err and propagation
-forms, with the candidate's returned node. The connected machine executes the
+forms, with the candidate's returned node. That comparison reads each
+parameter at the slot whose row in the exported Rust parameter table carries
+its spelling, as the derived slot map does. The connected machine executes the
 validated nodes through construction, success propagation and propagation of
 an error to the caller frame; it also unwinds a propagation inside the left
 operand of an addition without evaluating the right operand, for a node the
 fixture does not include. Controls reject forged signatures, swapped Ok and
 Err in the candidate and in the rows, a dropped, misplaced or mistyped
-propagation, and forged rows and function tables. A bare `Ok` under `?`, in
-a binary operand, a field base, an unannotated declaration or a discarded
+propagation, and forged rows, function tables and parameter rows. A bare `Ok`
+under `?`, in a binary operand, a field base, an unannotated declaration or a discarded
 statement defaults its error type to `Error` (SPEC 8.5), while an `Ok` at the
 function's return keeps the declared error type; witnesses reject the nested
 `Ok(Ok(1)? + 1)` at `Result[Int, Str]` and accept it at `Result[Int, Error]`.

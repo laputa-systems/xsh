@@ -10,9 +10,13 @@ def callValidationAccepts (signatures : List ResultSignature) (index : Nat) (can
   | .ok unit => match validateResultFunction unit signatures index candidate steps with | .ok _ => true | .error _ => false
   | .error _ => false
 
+def callRowsAcceptWith (table : List RawParameter) (rows : RawInstructionRows) (functions : RawFunctionRows)
+    (index : Nat) (candidate : List StatementNode) : Bool :=
+  rawResultReturnCheckFor resultCallSourceNames rows functions table resultCallSignatures index candidate
+
 def callRowsAccept (rows : RawInstructionRows) (functions : RawFunctionRows) (index : Nat)
     (candidate : List StatementNode) : Bool :=
-  rawResultReturnCheckFor resultCallSourceNames rows functions resultCallSignatures index candidate
+  callRowsAcceptWith resultCallParameters rows functions index candidate
 
 def callTypesAccept (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep) : Bool :=
@@ -120,6 +124,14 @@ def withCallFunctions (change : RawFunction → RawFunction) (index : Nat) : Raw
 set_option maxRecDepth 100000 in
 theorem a_callee_function_entry_with_another_name_is_rejected :
     callRowsAccept resultCallRows (withCallFunctions (fun f => { f with name := 4 }) 0) 0 wrapCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_callee_parameter_row_with_another_name_is_rejected :
+    callRowsAcceptWith (resultCallParameters.map fun parameter => { parameter with name := 4 }) resultCallRows
+      resultCallFunctions 0 wrapCandidate = false ∧
+    callRowsAcceptWith (resultCallParameters.map fun parameter => { parameter with flags := 2 }) resultCallRows
+      resultCallFunctions 0 wrapCandidate = false := by
   decide +kernel
 
 end Xsh.Conformance.Connected
