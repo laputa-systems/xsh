@@ -1169,13 +1169,32 @@ fn awk_cache_scope_probe() {
         let check = crate::sema::check::Checker::check_arena_with_sources_options_and_type_program(
             &arena, &sources, source_id, crate::sema::check::CheckOptions::for_execution(), Arc::clone(&arena));
         assert!(check.diagnostics.iter().all(|d| d.severity != crate::diagnostic::Severity::Error), "{:?}", check.diagnostics);
-        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources);
-        arena.symbol_owner().with_current(|| {
+        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(vec!["BEGIN{print 1}".to_string()], sources);
+        let plan = arena.symbol_owner().with_current(|| {
             let declarations = crate::sema::check::Checker::compact_declarations(&arena, check);
-            evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations).unwrap();
+            evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations).unwrap()
         });
         let program = evaluator.indexed_program.as_ref().unwrap();
         FullVerifier::verify(program).unwrap();
         eprintln!("AWK_PROBE transfers={} plans={} schemas={} registered={}", program.store.resource_transfers.iter().filter(|x| **x).count(), program.store.prepared_module_call_plans.len(), program.store.prepared_schemas.len(), program.store.registered_calls.len());
+        let bytes = program.store.resource_transfers.iter().map(|mark| u8::from(*mark)).collect::<Vec<_>>();
+        let mut candidate = (**program).clone();
+        candidate.store.resource_transfers = bytes.iter().map(|byte| match byte {
+            0 => false,
+            1 => true,
+            _ => panic!("invalid transfer mark"),
+        }).collect();
+        FullVerifier::verify(&candidate).unwrap();
+        evaluator.indexed_program = Some(Arc::new(candidate));
+        let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("execution failed"));
+        let expected = crate::runner::run_script(crate::execution::script::RunOptions {
+            script: path.to_string(),
+            args: vec!["BEGIN{print 1}".into()],
+            coverage_trace_dir: None,
+        });
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.stdout, expected.stdout);
+        assert_eq!(actual.stderr, expected.stderr);
+        assert_eq!(actual.stdout, b"1\n");
     });
 }
