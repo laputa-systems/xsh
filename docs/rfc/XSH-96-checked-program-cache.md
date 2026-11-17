@@ -151,8 +151,10 @@ It found 855 marked resource-transfer instructions and no prepared module CLI
 plans, prepared schemas, or registered calls in that program. The existing
 wire decoder rejects marked resource transfers; the verifier checks their
 alignment and eligible instruction kinds, not whether the checker established
-each mark. A complete untrusted decoder needs an independent authentication
-argument for those marks. This probe does not measure a serialized artifact or
+each mark. A real cache must have the verifier independently check transfer marks;
+without that change the cached program cannot be treated as untrusted input.
+A test-only measurement that carries the marks assumes their truth and gives
+an upper bound on the potential speedup, not a safe cache design. This probe does not measure a serialized artifact or
 establish a performance result.
 
 ## Open questions
