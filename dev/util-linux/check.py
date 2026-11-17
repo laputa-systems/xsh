@@ -33,10 +33,10 @@ PRODUCT_SOURCE = ""
 _BASELINE = None
 
 
-RUNTIME_SOURCE = "c21b814c13761479dd8a070a523218caaab8b90b"
+RUNTIME_SOURCE = "4e1edfab432121c7abe1c9c2de640a712d3ef100"
 RUNTIME_HASHES = {
-    "xsh": "74790fc48fa4899ec8c65bdff8edab7e8d75a0bfd15dfec236165dd25807891f",
-    "xsht": "b6aa78ed7c3261cdc345e83fd379caf0bd23d54504220b742eab0686edc5ca0c",
+    "xsh": "d1ca7506ad269314e38b9f0d87ef316988fa15a71e4b717ca2e9f4dbb1f02b4b",
+    "xsht": "ef545451d26b400dcce39f2eadb6f89f105d5ceb164fe5a6af64196437792fbf",
     "xsh-test-helper": "86007235c2907f8925cc73ecc7a476e4abe8629c0668661213a18c412cd9d91b",
 }
 
