@@ -166,27 +166,34 @@ fn checker_publication_options_preserve_repository_diagnostics() {
         CheckOptions::for_execution(),
         CheckOptions::for_check_cli(),
     ];
-    for path in sources {
-        let source = std::fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-        let diagnostic_sets = options.map(|options| {
-            parsed.arena.symbol_owner().with_current(|| {
-                let checked = Checker::check_arena_with_options(&parsed.arena, &source, options);
-                let mut diagnostics = parsed.diagnostics.clone();
-                diagnostics.extend(checked.diagnostics);
-                diagnostics
-            })
-        });
-        for diagnostics in &diagnostic_sets[1..] {
-            assert_eq!(
-                diagnostics,
-                &diagnostic_sets[0],
-                "checker publication options changed diagnostics for {}",
-                path.display()
-            );
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(2) {
+            scope.spawn(|| {
+                while let Some(path) = sources.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
+                    let source = std::fs::read_to_string(path)
+                        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+                    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                    let diagnostic_sets = options.map(|options| {
+                        parsed.arena.symbol_owner().with_current(|| {
+                            let checked = Checker::check_arena_with_options(&parsed.arena, &source, options);
+                            let mut diagnostics = parsed.diagnostics.clone();
+                            diagnostics.extend(checked.diagnostics);
+                            diagnostics
+                        })
+                    });
+                    for diagnostics in &diagnostic_sets[1..] {
+                        assert_eq!(
+                            diagnostics,
+                            &diagnostic_sets[0],
+                            "checker publication options changed diagnostics for {}",
+                            path.display()
+                        );
+                    }
+                }
+            });
         }
-    }
+    });
 }
 
 #[test]
