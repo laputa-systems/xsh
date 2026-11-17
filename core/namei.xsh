@@ -55,6 +55,8 @@ type Entry = {
 
 type Expansion = {entries: List[Entry], width_entries: List[Entry], exceeded: Bool}
 type OwnerWidths = {user_width: Int, group_width: Int}
+type Listing = {chunks: List[Bytes], failed: Bool}
+type Output = {buffer: Bytes, initialized: Bool, failed: Bool}
 
 proc unrecognized_option(value: Bytes) [process, env, io] -> Unit {
   ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), value, b"\n"]))
@@ -311,47 +313,76 @@ pure spaces(count: Int) -> Bytes {
   bytes.concat([b" " for _ in range(count)])
 }
 
-proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int) [fs, env, process, io] -> Bool {
-  return false when entries.is_empty()
-  ul_io.write_bytes(bytes.concat([b"f: ", operand, b"\n"]))
+proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int) [fs] -> Listing {
+  if entries.is_empty() { return {chunks: [], failed: false} }
+  var chunks: List[Bytes] = [b"f: ", operand, b"\n"]
   var failed = false
   for entry in entries {
     if let failure = entry.stat_error {
       failed = true
       let blanks = 1 + (if options.modes { 9 } else { 0 }) + (if options.owners { user_width + group_width + 2 } else { 0 }) + (if options.vertical { 0 } else { 1 }) + 1 + entry.level * 2
-      ul_io.write_bytes(bytes.concat([spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(util_strerror(failure)), b"\n"]))
+      chunks += [spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(util_strerror(failure)), b"\n"]
       break
     }
     guard let metadata = entry.metadata else { continue }
     let mode = mode_string(metadata, entry.mountpoint)
-    if ! options.vertical { ul_io.write_bytes(spaces(entry.level * 2)); ul_io.write_bytes(b" ") }
-    ul_io.write_bytes(if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) })
+    if ! options.vertical {
+      for _ in range(entry.level) { chunks += [b"  "] }
+      chunks += [b" "]
+    }
+    chunks += [if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) }]
     if options.owners {
       let user_name = username(metadata.uid)
       let group_name = groupname(metadata.gid)
-      ul_io.write_bytes(bytes.from_text(f" {right_pad(user_name, user_width)} {right_pad(group_name, group_width)}"))
+      chunks += [b" ", bytes.from_text(user_name), spaces(user_width - user_name.byte_len()), b" ", bytes.from_text(group_name), spaces(group_width - group_name.byte_len())]
     }
-    if options.vertical { ul_io.write_bytes(spaces(entry.level * 2)) }
+    if options.vertical { for _ in range(entry.level) { chunks += [b"  "] } }
     if let target = entry.link {
-      ul_io.write_bytes(bytes.concat([b" ", entry.name, b" -> ", target, b"\n"]))
+      chunks += [b" ", entry.name, b" -> ", target, b"\n"]
     } else {
-      ul_io.write_bytes(bytes.concat([b" ", entry.name, b"\n"]))
+      chunks += [b" ", entry.name, b"\n"]
     }
   }
-  failed
+  {chunks: chunks, failed: failed}
 }
 
-pure right_pad(text: Str, width: Int) -> Str {
-  var result = text
-  while result.byte_len() < width { result += " " }
-  result
+proc write_output(output: Output, data: Bytes) [io] -> Output {
+  if output.failed { return output }
+  if let Err(_) = io.write_stdout_bytes(data) { return {...output, buffer: b"", initialized: true, failed: true} }
+  if let Err(_) = io.flush_stdout() { return {...output, buffer: b"", initialized: true, failed: true} }
+  {...output, buffer: b"", initialized: true}
 }
 
-proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io, error] {
+proc output_chunks(initial: Output, chunks: List[Bytes], terminal: Bool) [io] -> Output {
+  var output = initial
+  for chunk in chunks {
+    if output.failed { break }
+    if chunk.is_empty() { continue }
+    var newline = 0
+    if terminal or ! output.initialized {
+      for index in range(chunk.len()) {
+        if chunk.byte_at(index) == 10 { newline = index + 1 }
+      }
+    }
+    if output.buffer.len() + chunk.len() > 1024 {
+      output = write_output(output, bytes.concat([output.buffer, chunk]))
+    } else if newline > 0 {
+      output = write_output(output, bytes.concat([output.buffer, chunk[0..newline]]))
+      if ! output.failed { output = {...output, buffer: chunk[newline..]} }
+    } else {
+      output = {...output, buffer: bytes.concat([output.buffer, chunk])}
+    }
+  }
+  output
+}
+
+proc report_fatal(pathname: Bytes, kind: Str, failure: Error, output: Output) [process, env, io, error] {
   ul_io.write_diagnostic_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: {kind}"), pathname,
     bytes.from_text(f": {util_strerror(failure)}\n"),
   ]))
+  let finished = if output.buffer.is_empty() { output } else { write_output(output, output.buffer) }
+  if finished.failed { gnu.error("write error") }
   exit 1
 }
 
@@ -380,6 +411,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var failed = false
   var user_width = 0
   var group_width = 0
+  var output: Output = {buffer: b"", initialized: false, failed: false}
+  let terminal = unix.isatty(1)
   for token in normalized_options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
     let operand_path = Path.parse_bytes(operand)?
@@ -387,17 +420,21 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let entries_from_root = path_entries(operand, 0, b"", 0, null, options.mounts)?
     let result = expand(entries_from_root, options.nosymlinks, options.mounts)?
     for entry in result.entries {
-      if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure) }
-      if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.. failed"]), "stat of ", failure) }
+      if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure, output) }
+      if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.. failed"]), "stat of ", failure, output) }
     }
     let widths = update_owner_widths(result.width_entries, normalized_options.owners, user_width, group_width)
     user_width = widths.user_width
     group_width = widths.group_width
-    if result.exceeded {
+    let listing = render(result.entries, operand, normalized_options, user_width, group_width)
+    output = output_chunks(output, listing.chunks, terminal)
+    failed = listing.failed or failed
+    if result.exceeded and ! listing.failed {
       failed = true
       report_loop(operand)
     }
-    failed = render(result.entries, operand, normalized_options, user_width, group_width) or failed
   }
+  if ! output.buffer.is_empty() { output = write_output(output, output.buffer) }
+  if output.failed { gnu.error("write error"); exit 1 }
   if failed { exit 1 }
 }

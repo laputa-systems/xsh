@@ -318,3 +318,47 @@ test test_namei_invalid_utf8_short_option { |ctx|
   for index in range(result.stderr.len()) { assert result.stderr.byte_at(index) != 0 }
   assert result.stderr == b"namei: unrecognized option: q\nTry 'namei --help' for more information.\n"
 }
+
+type TerminalCapture = {status: Int, output: Bytes}
+
+proc merged_terminal(s: uu.Scene, words: List[Path]) [fs, process, net, error] -> Result[TerminalCapture, Error] {
+  let pair = unix.open_pty()?
+  defer unix.close_fd(pair.master)
+  defer unix.close_fd(pair.replica)
+  let plan = process.command_argv(words[0], words, s.root, {}, b"", fp"{pair.name}", fp"{pair.name}", timeout: 5s)
+  let status = process.run(plan)?
+  var output = b""
+  while "readable" in unix.poll_fd(pair.master, ["readable"], timeout_ms: 0)? {
+    let chunk = unix.read_fd(pair.master, 8192)?
+    break when chunk.is_empty()
+    output = bytes.concat([output, chunk])
+  }
+  Ok({status: status.exit_code()?, output: output})
+}
+
+proc merged_pipe(s: uu.Scene, words: List[Path]) [fs, process, error] -> Result[TerminalCapture, Error] {
+  let output = uu.at(s, "capture")
+  let command = [p"/bin/sh", p"-c", p"exec \"$@\" 2>&1", p"namei-merge"].extend(words)
+  let plan = process.command_argv(command[0], command, s.root, {}, b"", output, p"/dev/null", timeout: 5s)
+  let status = process.run(plan)?
+  let captured = output.read_bytes()?
+  output.remove()
+  Ok({status: status.exit_code()?, output: captured})
+}
+
+test test_namei_loop_terminal_interleaving { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  uu.symlink(s, "loop2", "loop1")
+  uu.symlink(s, "loop1", "loop2")
+  uu.write(s, "plain", "x")
+  for args in [[p"loop1"], [p"plain", p"loop1", p"plain"], [p"-l", p"loop1"], [p"-m", p"loop1"], [p"-o", p"loop1"], [p"-v", p"loop1"], [p"-x", p"loop1"], [p"-n", p"loop1"]] {
+    let reference = merged_terminal(s, ul.reference_argv(s, "namei", args)?)?
+    let candidate = merged_terminal(s, uu.argv(s, "namei", args)?)?
+    assert reference.status == 1
+    assert reference == candidate
+    let pipe_reference = merged_pipe(s, ul.reference_argv(s, "namei", args)?)?
+    let pipe_candidate = merged_pipe(s, uu.argv(s, "namei", args)?)?
+    assert pipe_reference == pipe_candidate
+  }
+}

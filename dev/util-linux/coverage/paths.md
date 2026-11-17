@@ -60,3 +60,6 @@ The path cases use stable missing, dangling, looped, and permission-denied
 fixtures. They do not attempt a component lookup race. Neither command exposes
 a barrier that can make the reference and candidate inspect a path during the
 same controlled mutation.
+
+| `namei` `test_namei_loop_terminal_interleaving` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Merged terminal and nonterminal output for a symlink loop, multiple operands, and output options, including the buffered warning position. |
+| `namei` `test_namei_loop_closed_stdout_pipe` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Loop warning and write failure with a closed pipe under default and ignored SIGPIPE. |

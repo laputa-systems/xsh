@@ -238,3 +238,20 @@ test test_namei_loop_diagnostic_precedes_stdout_write_error { |ctx|
   assert reference.stderr == b"namei: loop1: exceeded limit of symlinks\nnamei: write error\n"
   assert reference == candidate
 }
+
+test test_namei_loop_closed_stdout_pipe { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  uu.symlink(s, "loop1", "loop1")
+  for action in ["default", "ignore"] {
+    let reference = closed_reader(s, "namei", [p"loop1"], true, action)?
+    let candidate = closed_reader(s, "namei", [p"loop1"], false, action)?
+    if action == "default" {
+      assert reference.termination == ul.Signaled(13) and reference.stderr == b""
+    } else {
+      assert reference.termination == ul.Exited(1)
+      assert reference.stderr == b"namei: loop1: exceeded limit of symlinks\nnamei: write error\n"
+    }
+    assert reference == candidate
+  }
+}
