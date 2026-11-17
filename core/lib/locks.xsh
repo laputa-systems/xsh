@@ -778,7 +778,7 @@ pure safe_table_text(raw: Bytes, column: Str, byte_locale: Bool) -> Str {
         if column == "HOLDERS" and codepoint == 10 {
           output += "\n"
         } else if codepoint <= 31 or codepoint in [127, 8232, 8233] or (codepoint >= 128 and codepoint < 160) or
-            (codepoint >= 8203 and codepoint < 8208) or (codepoint >= 8234 and codepoint < 8239) or
+            (codepoint > 8203 and codepoint < 8208) or (codepoint >= 8234 and codepoint < 8239) or
             (codepoint >= 8287 and codepoint < 8304) or codepoint == 65279 {
           for byte_index in range(size) { output += hex_byte(raw.byte_at(at + byte_index) ?? 0) }
         } else {
@@ -798,7 +798,7 @@ pure raw_table_text(raw: Bytes, byte_locale: Bool) -> Bytes {
   var output: List[Bytes] = []
   for index in range(raw.len()) {
     let byte = raw.byte_at(index) ?? 0
-    if byte == 32 or byte == 92 or byte < 32 or (byte >= 127 and byte_locale) {
+    if byte == 32 or byte == 92 or byte < 32 or byte >= 127 {
       output += [bytes.from_text(hex_byte(byte))]
     } else {
       output += [raw[index..index + 1]]

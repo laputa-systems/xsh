@@ -451,6 +451,18 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   ul.keeper_send(escaped_keeper, "DONE")
   ul.finish_keeper(escaped_keeper)
 
+  for name in ["café", "zero​width"] {
+    let lock_path = uu.at(s, name)
+    let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
+    defer ul.stop_keeper(keeper)
+    let ready = json.decode(keeper.ready)?.require(LockReady)?
+    for args in [["-r", "-n", "-p", f"{ready.pid}", "-o", "PATH"], ["-n", "-p", f"{ready.pid}", "-o", "PATH"]] {
+      parity(s, args, {LC_ALL: "C.UTF-8"})?
+    }
+    ul.keeper_send(keeper, "DONE")
+    ul.finish_keeper(keeper)
+  }
+
   let invalid_utf8 = uu.at_bytes(s, b"lock-\xff")?
   let invalid_utf8_keeper = ul.start_keeper(s, script, [
     "hold-bytes", method, s.root.display(), "6c6f636b2dff", "none",
