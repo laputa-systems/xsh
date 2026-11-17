@@ -437,6 +437,10 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
 }
 
 proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
+  if ! ipc.system_v_available() {
+    gnu.error("cannot read IPC limits: procfs is not mounted")
+    exit 1
+  }
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
     let records = ipc.collect_system_v(ipc.MessageQueues)
