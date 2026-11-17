@@ -313,15 +313,11 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
     for lock in locks {
       let resolved = descriptor_for_lock(fallback, lock)
       let pid = if lock.pid < 0 and ! lock.blocked and resolved != null { resolved.descriptor.pid } else { lock.pid }
-      let command = if lock.pid < 0 {
-        if pid > 0 and resolved != null { resolved.descriptor.command } else { "(undefined)" }
-      } else {
-        var name = ""
-        for file in files {
-          if file.pid == pid { name = file.command; break }
-        }
-        if name == "" { "(unknown)" } else { name }
-      }
+      let command = if pid < 0 {
+        "(undefined)"
+      } else if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
+        if name.ends_with("\n") { name.byte_slice(0, length: name.byte_len() - 1) } else { name }
+      } else { "(unknown)" }
       let descriptor_owner = if lock.pid < 0 and ! lock.blocked { resolved } else { null }
       let path_file = if lock.pid > 0 { live_lock_file(lock.pid, lock.inode) } else { file_path(files, pid, lock.inode) }
       let lock_path: Bytes? = if descriptor_owner != null { descriptor_owner.path } else if path_file != null { path_file.path.bytes() } else { null }

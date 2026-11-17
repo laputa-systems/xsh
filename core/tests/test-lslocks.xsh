@@ -851,3 +851,16 @@ test test_lslocks_human_size_boundaries_match_reference { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+test test_lslocks_command_from_readable_comm_with_inaccessible_fds { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "nondumpable-lock")
+  let script = fp"{s.ctx.core_dir}/tests/data/lslocks-nondumpable.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  let result = compared(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "COMMAND"])?
+  assert result.stdout == b"python3\n" and result.stderr == b"" and result.status == 0
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
