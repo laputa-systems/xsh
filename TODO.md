@@ -146,6 +146,7 @@ out of scope.
   - `tests/xsh/named-argument-spreading.xsh`: test_named_argument_spread_handles_sixteen_thousand_fields_with_a_wall_guard (first-4:FAILED)
   - `tests/xsh/stream-producers.xsh`: test_process_stream_is_stopped_before_its_scope_defers (first-4:FAILED)
 - **Recommendation:** Reproduce each under the same four-suite load, separate per-process timeouts that are shorter than the work under load from real ordering races, and fix the test oracle or the product. Never raise a budget to hide a race; a budget may change only when its value is shown not to be what the test asserts.
+- **Blocks:** overlapping the native suite with the Rust stages in `cargo dev test linux`, parked on branch `lane/suite-wall`. At `4f9874c4f` the serial contract passed in 3,158 s on a quiet host (15,506 passed, 174 skipped). The overlapped candidate (native suite on 16 CPUs, Rust stages on the other 16) raised load to 49.8 on 32 cores and failed `core_compat_boundaries::test_dev_full_show_all` (`timed out reading stdout prefix`), which passed in the baseline. Retry the overlap only after this item lands.
 - **Fix with:** root-cause
 - **Effort:** M
 
