@@ -1261,3 +1261,12 @@ test test_lslocks_json_unresolved_path_is_null { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+test test_lslocks_filter_non_utf8_outside_literal { |ctx|
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "filter.py")
+  script.write("import os,subprocess,sys\ne=dict(os.environ,LC_ALL='C')\na=[b'-Q',b'\\xff PID > 0']\nr=subprocess.run([b'/usr/bin/lslocks',*a],capture_output=True,env=e)\nc=subprocess.run([os.fsencode(sys.argv[1]),os.fsencode(sys.argv[2]),b'--',*a],capture_output=True,env=e)\nassert (r.returncode,r.stdout,r.stderr)==(c.returncode,c.stdout,c.stderr),repr((r.returncode,r.stdout,r.stderr,c.returncode,c.stdout,c.stderr))\n")
+  let applet_path = fp"{ctx.core_dir}/lslocks.xsh"
+  let result = run.capture --text python3 $script ${ctx.xsh_bin} $applet_path
+  assert result.status.exited_with(0), result.stderr
+}

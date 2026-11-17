@@ -456,6 +456,11 @@ pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
   let length = characters.len()
   while at < length {
     let current = characters[at]
+    if current == "\0" and at + 3 < length and characters[at + 3] == "\0" {
+      echoed += characters[at..at + 4].join("")
+      at += 4
+      continue
+    }
     if current in [" ", "\t", "\n", "\r"] {
       at += 1
       continue
@@ -1227,7 +1232,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   }
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   var echoed = ""
-  defer { if echoed != "" { ul_io.write_diagnostic_bytes(b""); ul_io.write_text(echoed) } }
+  defer { if echoed != "" { ul_io.write_diagnostic_bytes(b""); ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b"") } }
   var raw_index = 0
   while raw_index < arguments.len() {
     let prefix = argv[..raw_index]
@@ -1364,15 +1369,15 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     }
   }
   if opts.help {
-    if echoed != "" { ul_io.write_text(echoed); echoed = "" }
+    if echoed != "" { ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b""); echoed = "" }
     ul_io.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
     return
   }
-  if opts.version { if echoed != "" { ul_io.write_text(echoed); echoed = "" }; ul_io.version("lslocks"); return }
+  if opts.version { if echoed != "" { ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b""); echoed = "" }; ul_io.version("lslocks"); return }
   let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
   if opts.list_columns {
-    if echoed != "" { ul_io.write_text(echoed); echoed = "" }
+    if echoed != "" { ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b""); echoed = "" }
     let names = COLUMNS
     let json_types = ["<string>", "<integer>", "<string>", "<string|number>", "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
     let rows = collect {
@@ -1422,7 +1427,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   }
   if rows.is_empty() and ! opts.json { return }
   let byte_locale = ul_io.byte_locale()
-  if echoed != "" { ul_io.write_text(echoed); echoed = "" }
+  if echoed != "" { ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b""); echoed = "" }
   if opts.json {
     ul_io.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {
