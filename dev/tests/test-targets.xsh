@@ -99,6 +99,36 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
   assert coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
 }
 
+test test_profiling_build_argv_and_environment_are_isolated {
+  let target_dir = "/repo/.work/tmp/profiling-target"
+  assert target_policy.profiling_argv("x86_64-unknown-linux-musl")? == [
+    "cargo",
+    "build",
+    "--locked",
+    "--profile",
+    "profiling",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "-p",
+    "xsht",
+    "--bin",
+    "xsht",
+  ]
+  let x86 = target_policy.profiling_environment("x86_64-unknown-linux-musl", target_dir)?
+  assert x86.CARGO_TARGET_DIR == target_dir
+  assert (x86.keys() |> sort()) == ["CARGO_TARGET_DIR", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"]
+  assert x86.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS == f"{target_policy.host_driver_rustflags} -C force-frame-pointers=yes"
+
+  let arm = target_policy.profiling_environment("aarch64-unknown-linux-musl", target_dir)?
+  assert arm.CARGO_TARGET_DIR == target_dir
+  assert (arm.keys() |> sort()) == ["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS", "CARGO_TARGET_DIR"]
+  assert arm.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS == f"{target_policy.host_driver_rustflags} -C force-frame-pointers=yes"
+}
+
 test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   let ctx = fixtures.linux_aarch64_context(p"/repo", "dev")?
   let argv = docker_workflows.internal_argv(

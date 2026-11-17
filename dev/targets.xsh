@@ -302,17 +302,54 @@ export pure mold_driver_rustflags(flags: Str) -> Str {
     .replace("link-arg=--defsym=__isoc23_strtol=strtol", with: "link-arg=-Wl,--defsym=__isoc23_strtol=strtol")
 }
 
+const linux_test_rustflags = "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol"
+
 ## Produces the static-link flags needed by Linux container test builds.
 export pure docker_test_env(triple: Str) -> Result[Record, Error] {
-  let flags = [
-    "-C target-feature=+crt-static",
-    "-C link-arg=--defsym=__isoc23_sscanf=sscanf",
-    "-C link-arg=--defsym=__isoc23_strtol=strtol",
-  ].join(" ")
-
   match triple {
-    "x86_64-unknown-linux-musl" => {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
-    "aarch64-unknown-linux-musl" => {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
+    "x86_64-unknown-linux-musl" => {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: linux_test_rustflags}
+    "aarch64-unknown-linux-musl" => {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: linux_test_rustflags}
     else => Err(TargetError.Unsupported(target: triple))
   }
+}
+
+## Produces isolated profiling build overrides for supported Linux targets.
+export pure profiling_environment(triple: Str, target_dir: Str) -> Result[Record, Error] {
+  match triple {
+    "x86_64-unknown-linux-musl" => {
+      CARGO_TARGET_DIR: target_dir,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: f"{host_driver_rustflags} -C force-frame-pointers=yes",
+    }
+    "aarch64-unknown-linux-musl" => {
+      CARGO_TARGET_DIR: target_dir,
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: f"{host_driver_rustflags} -C force-frame-pointers=yes",
+    }
+    else => Err(TargetError.Unsupported(target: triple))
+  }
+}
+
+## Produces the Cargo command that builds the profiling xsh and xsht binaries.
+export pure profiling_argv(triple: Str) -> Result[List[Str], Error] {
+  return Err(TargetError.Unsupported(target: triple)) when triple not in [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+  ]
+
+  [
+    "cargo",
+    "build",
+    "--locked",
+    "--profile",
+    "profiling",
+    "--target",
+    triple,
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "-p",
+    "xsht",
+    "--bin",
+    "xsht",
+  ]
 }

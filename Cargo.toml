@@ -219,6 +219,11 @@ opt-level = 2
 lto = false
 codegen-units = 64
 
+[profile.profiling]
+inherits = "verification"
+debug = "line-tables-only"
+strip = "none"
+
 [profile.dist]
 inherits = "release"
 lto = "fat"

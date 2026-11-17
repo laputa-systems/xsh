@@ -3,6 +3,7 @@
 # script; each lifecycle operation below uses typed policy and direct argv.
 use bench as benchmarks
 use build as builds
+use cargo_steps
 use context as lifecycle
 use coverage as coverage_workflow
 use dist as distributions
@@ -12,7 +13,9 @@ use install as installations
 use internal as container_internal
 use release as releases
 use system_report_check as system_reports
+use stage as stages
 use test_workflows as tests
+use targets as target_policy
 
 type GlobalOptions = {target: Str, rest: List[Str]}
 
@@ -94,6 +97,7 @@ usage: cargo dev COMMAND [OPTIONS]
 
 commands:
   build
+  profile  build xsh and xsht with line tables and frame pointers
   check [lint]
   gate [PATH...] [--tier edit|change] [--case ID] [--plan [--json]]
   gate [PATH...] [--case ID] --status
@@ -207,6 +211,24 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       }
 
       return builds.build(ctx)
+    }
+    "profile" => {
+      guard args.is_empty() else {
+        return Err(usage("profile accepts no arguments"))
+      }
+
+      let target_dir = fp"{ctx.root}/.work/tmp/profiling-target"
+      let environment = target_policy.profiling_environment(ctx.target.triple, target_dir.display())?
+      return cargo_steps.run_build(
+        stages.command(
+          "profile-build",
+          ctx.target.triple,
+          "cargo",
+          target_policy.profiling_argv(ctx.target.triple)?,
+          ctx.root,
+          environment,
+        ),
+      )
     }
     "check" => {
       return builds.check_lint(ctx) when args == ["lint"]

@@ -974,6 +974,31 @@ to inspect subprocess and kernel activity. The
 [performance adapter](../dev/performance/README.md) own their measurement
 procedures.
 
+### Profiling
+
+Build `xsh` and `xsht` with the verification profile's optimization settings,
+DWARF line tables and Rust frame pointers. The build has its own target
+directory, so its Rust flags cannot invalidate verification or release
+artifacts. On Linux x86_64, run:
+
+```sh
+CARGO_BUILD_JOBS=8 cargo dev profile
+PROFILING_BIN="$PWD/.work/tmp/profiling-target/x86_64-unknown-linux-musl/profiling"
+perf record --call-graph fp -o .work/tmp/xsht-perf.data -- "$PROFILING_BIN/xsht" check core/lib/awk.xsh
+perf report --stdio -i .work/tmp/xsht-perf.data
+```
+
+The profile command also accepts the other supported Linux target through
+`cargo dev profile --target aarch64-unknown-linux-musl`; use that target's
+triple in `PROFILING_BIN` when running on a matching host. To render an SVG
+flamegraph from the recorded call chains:
+
+```sh
+perf script -i .work/tmp/xsht-perf.data > .work/tmp/xsht-perf.script
+xsh showcase/perf-collapse.xsh -- .work/tmp/xsht-perf.script > .work/tmp/xsht-perf.folded
+xsh showcase/flamegraph.xsh -- .work/tmp/xsht-perf.folded > .work/tmp/xsht-perf.svg
+```
+
 ### Profile btop
 
 `dev/perf/btop-profile.xsh` is a Linux release workload. Set `XSH_BIN` to the
