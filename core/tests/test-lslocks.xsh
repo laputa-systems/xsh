@@ -984,6 +984,24 @@ test test_lslocks_terminal_path_minimum { |ctx|
   ul.finish_keeper(keeper)
 }
 
+test test_lslocks_terminal_width_hints { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "terminal-width-hints")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "flock-ex", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
+  for args in [[p"-p", fp"{pid}"], [p"-p", fp"{pid}", p"-o", p"PID,HOLDERS"]] {
+    for columns in [80, 200] {
+      let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
+      let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
+      assert reference == candidate, f"lslocks terminal width hints columns={columns}"
+    }
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
 test test_lslocks_non_ascii_filter { |ctx|
   let s = uu.scene(ctx)?
   let _ = compared(s, ["-Q", "COMMAND == \"café\""])?

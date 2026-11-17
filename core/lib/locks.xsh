@@ -760,6 +760,18 @@ pure cell_display_width(value: Str, column: Str) -> Int {
   width
 }
 
+pure column_width_hint(column: Str) -> Int {
+  match column {
+    "COMMAND" => 15
+    "PID" | "TYPE" | "INODE" | "MODE" => 5
+    "SIZE" => 4
+    "MAJ:MIN" => 6
+    "M" => 1
+    "START" | "END" => 10
+    else => 0
+  }
+}
+
 pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> List[Int] {
   collect {
     for index in range(columns.len()) {
@@ -770,17 +782,7 @@ pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> L
         if measured > width { width = measured }
       }
       let minimum = if headings and header_width > 0 { header_width } else { 1 }
-      let hint = match columns[index] {
-        "COMMAND" => 15
-        "PID" => 5
-        "TYPE" | "INODE" => 5
-        "SIZE" => 4
-        "MAJ:MIN" => 6
-        "MODE" => 5
-        "M" => 1
-        "START" | "END" => 10
-        else => 0
-      }
+      let hint = column_width_hint(columns[index])
       let selected = if width <= minimum {
         minimum
       } else if hint > 0 and width < hint and minimum < hint {
@@ -807,6 +809,16 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
   var widths = table_width(columns, data, headings)
   var output_width = columns.len() - 1
   for width in widths { output_width += width }
+  if terminal and ! raw {
+    for index in range(columns.len()) {
+      let hint = column_width_hint(columns[index])
+      let growth = hint - widths[index]
+      if growth > 0 and output_width + growth <= terminal_width {
+        widths[index] += growth
+        output_width += growth
+      }
+    }
+  }
   if terminal and ! raw and ! notruncate and "PATH" in columns and output_width > terminal_width {
     var path_column = -1
     for index in range(columns.len()) {
