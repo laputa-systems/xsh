@@ -936,7 +936,9 @@ entry is removed in the change that closes the gap.
 - Avoid unfiltered `cargo test --profile verification --target "$TARGET"`.
   The root `runtime::coverage` test runs the full native suite.
 - Do not run process tests in debug. They require verification or release
-  products, and debug unit tests are the place for debug assertions.
+  products. Debug assertions run in the focused debug unit gates of
+  `cargo dev gate`; the full contract runs library unit tests in its test
+  profile.
 - Do not run multiple full native suites at once. Bound ad-hoc probes and stop
   their child processes before the worktree is handed off.
 

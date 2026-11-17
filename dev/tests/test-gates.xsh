@@ -923,7 +923,7 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
       assert "test-xsht" in stages
       assert "test-soundness" in stages
       assert "test-linux-priv" in stages
-      assert "test-debug-assertions" in stages
+      assert "test-lib" in stages
       let privileged = [spec for spec in plan |> where .stage == "test-linux-priv"]
       assert [spec.argv[12] for spec in privileged] == ["core_compat_extra", "linux_priv"]
       for spec in privileged {
@@ -944,12 +944,10 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
         assert "--target" in spec.argv
         assert ctx.target.triple in spec.argv
         assert ! spec.environment.keys().is_empty()
-        if spec.stage == "test-debug-assertions" {
+        assert tests.profile_name(profile) in spec.argv
+        if spec.stage == "test-lib" {
           assert "--lib" in spec.argv
-          assert "--profile" not in spec.argv
-          assert "--release" not in spec.argv
         } else {
-          assert tests.profile_name(profile) in spec.argv
           assert "--lib" not in spec.argv
         }
       }
@@ -1110,7 +1108,7 @@ p"{observed}".write(args.join("|"))?
   assert [spec.stage for spec in rust_plan] == [
     "test-products",
     "test-rust", "test-rust", "test-rust", "test-rust", "test-rust", "test-rust",
-    "test-soundness", "test-debug-assertions", "test-xsht",
+    "test-soundness", "test-lib", "test-xsht",
     "test-linux-priv", "test-linux-priv",
   ]
 

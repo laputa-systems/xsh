@@ -138,7 +138,6 @@ export pure rust_plan(
 ) -> Result[List[contract.CommandSpec], Error] {
   let environment = cargo_environment(ctx)?
   let profile_args = ["--locked", "--profile", profile_name(profile), "--target", ctx.target.triple]
-  let debug_args = ["--locked", "--target", ctx.target.triple]
   var plan = product_builds(ctx, profile, all_products())?
   var test_targets = [
     "integration",
@@ -157,8 +156,8 @@ export pure rust_plan(
   plan += [
     stages.command("test-soundness", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
-    stages.command("test-debug-assertions", ctx.target.triple, "cargo",
-      ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
+    stages.command("test-lib", ctx.target.triple, "cargo",
+      ["cargo", "test", @profile_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @xsht_integration_exclusions], ctx.root, environment),
   ]
@@ -232,7 +231,7 @@ export proc native(
   }
 }
 
-## Runs process and debug-assertion gates, followed by one full native suite.
+## Runs process and library unit tests, followed by one full native suite.
 export proc full(
   ctx: context.Context,
   profile: TestProfile,
