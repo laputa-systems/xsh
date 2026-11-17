@@ -887,15 +887,3 @@ test test_copy_file_reports_cross_device_fallback_without_replacing_or_losing_by
   assert streamed.reflink_error == null and streamed.offload_error == null
   assert fp"{remote_path}/streamed".read_bytes()? == source.read_bytes()?
 }
-
-test test_stat_mount_id_matches_mountinfo { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux mountinfo"); return }
-  let root = test.temp_dir(ctx, name: "fs-stat-mount-id")?
-  let mount = fs.mount_for(root)?
-  let id = fs.stat(root)?.mount_id
-  assert id != null
-  let lines = p"/proc/self/mountinfo".read_text()?.lines()
-  let matches = [line for line in lines if (line.split(" ")[0].parse_int() ?? -1) == id]
-  assert matches.len() == 1
-  assert matches[0].split(" ")[4] == mount.mounted_on.display()
-}

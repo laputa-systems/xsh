@@ -188,7 +188,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.set_times(path: Path, atime_ns: Int? = default, mtime_ns: Int? = default, atime_now: Bool = default, mtime_now: Bool = default, follow_symlinks: Bool = default, atime_sec: Int? = default, atime_nsec: Int? = default, mtime_sec: Int? = default, mtime_nsec: Int? = default) -> Result[Unit, Error]` — Sets access and modification times with nanosecond precision.
 - `fs.setgid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.setuid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
-- `fs.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mount_id: Int?, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Reads complete metadata for a path without following a final symlink unless asked.
+- `fs.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Reads complete metadata for a path without following a final symlink unless asked.
 - `fs.statvfs(path: Path) -> Result[{block_size: Int, blocks: Int, blocks_available: Int, blocks_free: Int, files: Int, files_available: Int, files_free: Int, flags: Int, fragment_size: Int, fsid: Int, name_max: Int, nodev: Bool, noexec: Bool, nosuid: Bool, readonly: Bool, type_magic: Int?}, Error]` — Reads raw filesystem counters for the filesystem holding a path.
 - `fs.sticky(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.symlink(target: Path, path: Path) -> Result[Unit, Error]` — Creates a symbolic link with explicit target and link paths.
@@ -799,7 +799,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.readlink_result(path: RelPath) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
 - `FsRoot.remove(path: RelPath, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.rename(from: RelPath, to: RelPath, replace: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
-- `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mount_id: Int?, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
+- `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
 - `FsRoot.symlink(target: Path, path: RelPath, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
 - `FsRoot.syncfs() -> Result[Unit, Error]` — Flushes the whole filesystem that holds a rooted filesystem capability.
 - `FsRoot.tempdir(prefix: Str = default) -> Result[FsRoot, Error]` — Creates a private temporary directory below a rooted filesystem capability.
@@ -1002,7 +1002,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRootReadResult {data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}` — Describes a bounded read beneath a rooted filesystem capability.
 - `FsRootReadlinkResult {errno: Int?, error_kind: Str?, state: Str, target: Path?}` — Describes a symlink target observation beneath a rooted filesystem capability.
 - `FsRootRegularRead {data: Bytes, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, nlink: Int, size: Int, uid: Int}` — Describes one bounded regular-file read beneath a rooted filesystem capability.
-- `FsStat {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mount_id: Int?, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}` — Describes complete stat(2) or lstat(2) metadata for one path.
+- `FsStat {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}` — Describes complete stat(2) or lstat(2) metadata for one path.
 - `FsStatvfs {block_size: Int, blocks: Int, blocks_available: Int, blocks_free: Int, files: Int, files_available: Int, files_free: Int, flags: Int, fragment_size: Int, fsid: Int, name_max: Int, nodev: Bool, noexec: Bool, nosuid: Bool, readonly: Bool, type_magic: Int?}` — Reports raw statvfs(3) counters for the filesystem holding a path.
 - `Group {gid: Int, members: List[Str], name: Str}` — Describes a Unix group account.
 - `LinuxAcceptedSocket {fd: Int, peer: {address: Str, family: Str, port: Int, raw: Bytes, scope_id: Int}}` — Holds a connection accepted from a listening socket.

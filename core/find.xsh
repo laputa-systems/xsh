@@ -77,7 +77,7 @@ type Visit = {quit: Bool, failed: Bool, deferred: List[Deferred]}
 type Ancestor = {identity: Str, path: Path}
 type Run = {nodes: List[Node], root: Int, follow: Int, opts: Options, stat_needed: Bool, raw: List[gnu.RawArgument]}
 type Count = {compare: Int, number: Int}
-type Stat = {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mount_id: Int?, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}
+type Stat = {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}
 
 const NEEDS_ARGUMENT = ["-name","-iname","-path","-ipath","-wholename","-iwholename","-lname","-ilname","-regex","-iregex","-regextype","-type","-xtype","-size","-mtime","-atime","-ctime","-mmin","-amin","-cmin","-newer","-anewer","-cnewer","-perm","-user","-group","-uid","-gid","-links","-inum","-samefile","-used","-maxdepth","-mindepth","-printf","-fprint","-fprint0","-fls","-fstype"]
 const NO_ARGUMENT = ["-true","-false","-print","-print0","-prune","-quit","-delete","-empty","-ls","-nouser","-nogroup","-readable","-writable","-executable","-depth","-d","-mount","-xdev","-noleaf","-daystart","-follow","-warn","-nowarn","-ignore_readdir_race","-noignore_readdir_race"]

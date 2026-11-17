@@ -253,7 +253,6 @@ pub fn fs_stat_type() -> Type {
         ("mtime_ns", Type::Int),
         ("ctime_ns", Type::Int),
         ("birth_ns", Type::Optional(Box::new(Type::Int))),
-        ("mount_id", Type::Optional(Box::new(Type::Int))),
     ]))
 }
 
