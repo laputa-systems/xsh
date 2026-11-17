@@ -625,7 +625,7 @@ test test_lslocks_help_and_usage_errors { |ctx|
   assert stray_operand.status == 0
   for args in [
     ["--output"], ["--pid", "bad"], ["--unknown"], ["-z"], ["--o"], ["--raw=ignored"],
-    ["--pid"], ["--pid", "0"],
+    ["--pid"], ["--pid", "0"], ["-p", "0x10"], ["-p", "0o7"], ["-p", "0b1"], ["-p", "1_0"],
     ["--pid", "-1"], ["--pid", "2147483648"], ["--filter"], ["-Q"],
     ["--json", "--raw"], ["-J", "-r"],
   ] {

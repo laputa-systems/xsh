@@ -1101,7 +1101,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.pid != null {
     let value = decimal(opts.pid ?? "")
-    if value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
+    if ! rx"^[+-]?[0-9]+$".matches(opts.pid ?? "") or value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
       let suffix = if rx"^[+-]?[0-9]+$".matches(opts.pid ?? "") { ": Result not representable" } else { "" }
       gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}{suffix}")
       exit 1
