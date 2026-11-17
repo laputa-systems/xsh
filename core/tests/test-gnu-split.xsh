@@ -188,16 +188,17 @@ test test_gnu_split_l_chunk_log { |ctx|
     {count: 22, sizes: [6, 2, 6, 2, 6, 2, 6, 2, 6, 2, 6, 2, 6, 2, 6, 0, 8, 0, 2, 6, 0, 2]}
   ]
   for elide in [false, true] {
-    for block in [1, 2, 5, 10, 80, 100] {
+    for block in [["---io-blksize=1"], []] {
+      let block_label = block.join("")
       for row in matrix {
         clear_pieces(s)
-        let selected: Bytes? = if elide { null } else { uu.invoke(s, "split", [f"---io-blksize={block}", "-n", f"l/2/{row.count}", "in"])?.stdout }
+        let selected: Bytes? = if elide { null } else { uu.invoke(s, "split", block.extend(["-n", f"l/2/{row.count}", "in"]))?.stdout }
         if ! elide { assert pieces(s)?.is_empty() }
-        let flags = [f"---io-blksize={block}", @if elide { ["-e"] } else { [] }, "-n", f"l/{row.count}", "in"]
+        let flags = [@block, @if elide { ["-e"] } else { [] }, "-n", f"l/{row.count}", "in"]
         let _ = uu.invoke(s, "split", flags)?
         let found = pieces(s)?
         let sizes = [fs.stat(file)?.size for file in found]
-        assert sizes == [size for size in row.sizes if ! elide or size != 0], f"block {block}, count {row.count}, elide {elide}"
+        assert sizes == [size for size in row.sizes if ! elide or size != 0], f"block {block_label}, count {row.count}, elide {elide}"
         if let chunk = selected { assert chunk == uu.read(s, "xab")? }
       }
     }
@@ -271,14 +272,15 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
     let code = vm_status(s, args, candidate, discovery: true)?
     return Ok(null) when code == 77
     continue when code != 0
-    var previous = candidate
-    for step in range(1, candidate / 1000) {
-      let limit = candidate - step * 1000
-      let reduced = vm_status(s, args, limit, discovery: true)?
+    var low = 1
+    var high = candidate / 1000
+    while low < high {
+      let middle = (low + high) / 2
+      let reduced = vm_status(s, args, middle * 1000, discovery: true)?
       return Ok(null) when reduced == 77
-      return Ok(previous + page_kib) when reduced != 0
-      previous = limit
+      if reduced == 0 { high = middle } else { low = middle + 1 }
     }
+    return Ok(low * 1000 + page_kib) when low > 1
   }
   assert false, f"split cannot start within 800000 KiB; no startup baseline was established; stderr {uu.read_text(s, "vm-err")?}"
   Ok(null)
@@ -297,13 +299,14 @@ test test_gnu_split_line_bytes_log { |ctx|
   uu.write(s, "no_eol_in", "0123456789")
   let expected = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 1, 2, 1], [2, 3, 2, 2, 1], [2, 4, 3, 1], [2, 5, 3], [2, 5, 3], [7, 3], [7, 3], [9, 1], [9, 1], [10]]
   let no_eol = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 2, 2], [3, 3, 3, 1], [4, 4, 2], [5, 5], [6, 4], [7, 3], [8, 2], [9, 1], [10], [10]]
-  for block in range(1, 11) {
+  for block in [["---io=1"], []] {
+    let block_label = block.join("")
     for size in range(1, 12) {
       for row in [{name: "in", sizes: expected[size - 1]}, {name: "no_eol_in", sizes: no_eol[size - 1]}] {
         clear_pieces(s)
-        uu.succeeds(uu.invoke(s, "split", [f"---io={block}", f"-C{size}", row.name])?)
+        uu.succeeds(uu.invoke(s, "split", block.extend([f"-C{size}", row.name]))?)
         let found = pieces(s)?
-        assert [fs.stat(file)?.size for file in found] == row.sizes, f"block {block}, size {size}, file {row.name}"
+        assert [fs.stat(file)?.size for file in found] == row.sizes, f"block {block_label}, size {size}, file {row.name}"
         assert bytes.concat([file.read_bytes()? for file in found]) == uu.read(s, row.name)?
       }
     }
