@@ -165,8 +165,8 @@ out of scope.
 - **Area:** Core commands
 - **Where:** `core/sort.xsh`, `core/tests/test-gnu-sort.xsh` (`sort_buffer_size_log`), `core/tests/test-uu-sort-1.xsh` (`uu_sort_buffer_sizes`)
 - **Problem:** An in-memory `-n` sort of 20k lines takes about 16 s, and `sort_buffer_size_log` spends about 125 s per 200k-line sort; the single 380 s case is the longest in the native suite and bounds its wall time. The cost is general sort speed, not spilling or merging (2026-11-17 audit).
-- **Progress:** Raw-line tie-breaks now reuse the record text for valid UTF-8 input, removing the per-line decimal key encoding that ranked first in `xsht trace` (55 s self time on a 200k-line `-n` sort): user instructions fell 8.7% (default), 20.9% (`-n`) and 7.1% (`-k2,2 -t,`) with identical output. A 200k-line `-k2,2 -t,` sort still costs about 1.27 T instructions, roughly 350k per comparison; the profile shows interpreter and copying work spread across key extraction and comparison rather than one primitive.
-- **Recommendation:** Extract each record's sort keys once into a flat, cheap-to-compare form (for `-k` and `-n`, precomputed field slices or numbers) so the comparison callback does no allocation, and measure the per-comparison instruction count with `perf stat` on the same fixture.
+- **Progress:** Raw-line tie-breaks reuse the record text for valid UTF-8 input (default -8.7%, `-n` -20.9%), and a single unmodified delimited key now compares the extracted field directly: a 200k-line `-k2,2 -t,` sort fell from 1.27 T to 30.8 G user instructions (41x) with identical output. `-n` still costs about 362 G instructions for 200k lines, about 1.8 M per line, and `test_gnu_sort_sort_buffer_size_log` remains the longest native case.
+- **Recommendation:** Give numeric keys the same treatment: parse each record's numeric key once into a comparable value with GNU's tie rules, and compare those instead of reparsing per comparison; measure the per-line instruction count on the same fixture.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
