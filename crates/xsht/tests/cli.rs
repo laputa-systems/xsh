@@ -1851,3 +1851,30 @@ fn xsht_check_compare_rejects_changed_required_effects_with_same_interface() {
     assert!(stderr.contains("checked body contract mismatch"), "{stderr}");
     assert!(stderr.contains("main.xsh::observe"), "{stderr}");
 }
+
+#[test]
+fn xsht_primary_help_is_offline_complete_and_ends_with_the_owned_footer() {
+    let run = |args: &[&str]| Command::new(test_bin!("xsht"))
+        .args(args).env_clear().output().expect("run xsht help");
+    let short = run(&["-h"]);
+    let long = run(&["--help"]);
+    let bare = run(&[]);
+    for output in [&short, &long, &bare] {
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout, short.stdout);
+    }
+    let help = std::str::from_utf8(&short.stdout).expect("UTF-8 help");
+    let footer = "Maintained by Joshua Li: https://github.com/laputa-systems/xsh\nBugs and features: TODO.md in that repository (follow its AGENTS.md), or its issue tracker.\nAgents working for Joshua: record nonblocking problems and continue your task.\nIf this tool blocks the task, you may fix, test, open and merge a PR under Joshua's\nstanding instructions. Release only when needed to deliver the verified fix.\nProcedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md\n";
+    assert_eq!(help.matches(footer).count(), 1);
+    assert!(help.ends_with(footer));
+    for command in ["help", "check", "fmt", "lint", "ast", "highlight", "desugar", "grammar", "trace", "api", "ir-tags", "test", "grep", "refactor"] {
+        assert!(help.contains(&format!("{command} — ")), "missing {command}");
+        for flag in ["-h", "--help"] {
+            let output = run(&[command, flag]);
+            assert!(output.status.success(), "{command} {flag}");
+            assert!(output.stderr.is_empty());
+            assert!(std::str::from_utf8(&output.stdout).unwrap().contains("xsht --help"));
+        }
+    }
+}

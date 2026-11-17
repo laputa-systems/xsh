@@ -5,20 +5,28 @@ use xsh::execution::script::{
 };
 use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
-const HELP: &str = "\
-xsh 0.0.1
+struct OptionSpec {
+    names: &'static [&'static str],
+    description: &'static str,
+}
 
-Usage:
-  xsh SCRIPT [ARGS...]
-  xsh -- SCRIPT ARGS...
-  xsh --startup
-  xsh --help
+const HELP: OptionSpec = OptionSpec { names: &["-h", "--help"], description: "Print this reference and exit" };
+const STARTUP: OptionSpec = OptionSpec { names: &["--startup"], description: "Boot the interpreter and exit without running a program" };
+const EXAMPLES: &[&[&str]] = &[&["hello.xsh"], &["hello.xsh", "--", "word"]];
 
---startup boots the interpreter and exits immediately, running no program. It
-exposes the fixed startup cost for benchmarking (e.g. as a calibration baseline).
-Use `--` between SCRIPT and ARGS when the script path or first argument could be
-ambiguous; `xsh SCRIPT -- ARGS...` is also accepted.
-";
+fn help() -> String {
+    let mut text = format!("xsh {}\n\nUsage:\n  xsh SCRIPT [ARGS...]\n  xsh -- SCRIPT [ARGS...]\n  xsh SCRIPT -- [ARGS...]\n  xsh --startup\n\nArguments:\n  SCRIPT    Required script path; no default\n  ARGS...   Optional, repeated script arguments\n\nOptions:\n", env!("CARGO_PKG_VERSION"));
+    for option in [&HELP, &STARTUP] {
+        text.push_str(&format!("  {:<16} {}\n", option.names.join(", "), option.description));
+    }
+    text.push_str("\nUse -- before a script path or first script argument that could be ambiguous.\nRun xsht --help for checking, testing, tracing and other tooling.\n\nExamples:\n");
+    for example in EXAMPLES {
+        text.push_str(&format!("  xsh {}\n", example.join(" ")));
+    }
+    text.push('\n');
+    text.push_str(include_str!("owned-help.txt"));
+    text
+}
 
 pub fn main() -> ExitCode {
     clear_cancellation_request();
@@ -31,7 +39,7 @@ pub fn main() -> ExitCode {
     };
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
 
-    if args.first().and_then(|word| word.to_str()) == Some("--startup") {
+    if args.first().and_then(|word| word.to_str()) == Some(STARTUP.names[0]) {
         if let Err(message) = validate_text_arguments(&args) {
             eprintln!("xsh: {message}");
             return ExitCode::from(2);
@@ -41,7 +49,7 @@ pub fn main() -> ExitCode {
 
     match parse_run(args) {
         Ok(None) => {
-            print!("{HELP}");
+            print!("{}", help());
             ExitCode::SUCCESS
         }
         Ok(Some(options)) => {
@@ -56,7 +64,7 @@ pub fn main() -> ExitCode {
 }
 
 fn parse_run(args: Vec<OsString>) -> Result<Option<RunOptions>, String> {
-    if args.is_empty() || matches!(args.first().and_then(|word| word.to_str()), Some("--help" | "-h")) {
+    if args.is_empty() || args.first().and_then(|word| word.to_str()).is_some_and(|word| HELP.names.contains(&word)) {
         validate_text_arguments(&args)?;
         return Ok(None);
     }
@@ -140,4 +148,16 @@ fn finish(output: ScriptOutput) -> ExitCode {
     let _ = std::io::stdout().lock().write_all(&output.stdout);
     let _ = std::io::stderr().lock().write_all(&output.stderr);
     ExitCode::from(output.status)
+}
+
+#[cfg(test)]
+mod help_tests {
+    use super::*;
+
+    #[test]
+    fn examples_parse_without_running_scripts() {
+        for example in EXAMPLES {
+            assert!(matches!(parse_run(example.iter().map(OsString::from).collect()), Ok(Some(_))));
+        }
+    }
 }

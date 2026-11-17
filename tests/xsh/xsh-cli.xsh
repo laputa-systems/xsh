@@ -63,6 +63,18 @@ test test_xsh_help_describes_the_script_runner { |ctx|
   assert help.status.exited_with(0), help.stderr
   assert "xsh SCRIPT [ARGS...]" in help.stdout, help.stdout
   assert "--trace" not in help.stdout, help.stdout
+  let short = run.capture --text ${ctx.xsh_bin} -h
+  let bare = run.capture --text ${ctx.xsh_bin}
+  assert short.status.exited_with(0), short.stderr
+  assert bare.status.exited_with(0), bare.stderr
+  assert short.stdout == help.stdout
+  assert bare.stdout == help.stdout
+  assert help.stderr == ""
+  assert "Examples:" in help.stdout
+  assert "xsh hello.xsh" in help.stdout
+  assert "Maintained by Joshua Li: https://github.com/laputa-systems/xsh" in help.stdout
+  assert help.stdout.split("Maintained by Joshua Li:").len() == 2
+  assert help.stdout.ends_with("Procedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md\n")
 }
 
 test test_xsh_rejects_tool_subcommands { |ctx|

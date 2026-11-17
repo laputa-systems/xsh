@@ -193,6 +193,18 @@ impl CommandSpec {
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
+        name: "help",
+        summary: "Show the reference or a command's help",
+        quick_label: "Read help",
+        args: "[COMMAND]",
+        usage: &[&[UsagePart::Args]],
+        options: &[],
+        removed: &[],
+        options_end_at_first_argument: false,
+        notes: &[],
+        examples: &["xsht help check"],
+    },
+    CommandSpec {
         name: "check",
         summary: "Parse and type-check scripts",
         quick_label: "Validate source",
@@ -237,7 +249,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         }],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht check ."],
     },
     CommandSpec {
         name: "fmt",
@@ -254,7 +266,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht fmt --check ."],
     },
     CommandSpec {
         name: "lint",
@@ -312,7 +324,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht lint --list"],
     },
     CommandSpec {
         name: "ast",
@@ -324,7 +336,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht ast hello.xsh"],
     },
     CommandSpec {
         name: "highlight",
@@ -341,7 +353,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
             "  property, variable, string, path, regex, number, operator, punctuation,",
             "  interpolation.",
         ],
-        examples: &[],
+        examples: &["xsht highlight hello.xsh"],
     },
     CommandSpec {
         name: "desugar",
@@ -358,7 +370,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
             "The output is formatted XSH on stdout. SCRIPT is not modified and not",
             "  checked: the output checks when SCRIPT does.",
         ],
-        examples: &[],
+        examples: &["xsht desugar hello.xsh"],
     },
     CommandSpec {
         name: "grammar",
@@ -375,7 +387,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht grammar --format json"],
     },
     CommandSpec {
         name: "trace",
@@ -427,7 +439,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: true,
         notes: &[],
-        examples: &[],
+        examples: &["xsht trace hello.xsh"],
     },
     CommandSpec {
         name: "api",
@@ -474,7 +486,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
             "  summary | module:NAME | api:MODULE.FUNCTION | enum:NAME",
             "  method:RECEIVER.METHOD | record:NAME | language:ID | search:TERMS",
         ],
-        examples: &[],
+        examples: &["xsht api summary"],
     },
     CommandSpec {
         name: "ir-tags",
@@ -588,7 +600,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht test --list"],
     },
     CommandSpec {
         name: "grep",
@@ -626,7 +638,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[],
-        examples: &[],
+        examples: &["xsht refactor --dry-run 'X.len()' 'X.size()' ."],
     },
 ];
 
