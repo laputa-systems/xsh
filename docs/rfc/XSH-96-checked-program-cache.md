@@ -106,6 +106,45 @@ program.
 - **Run many applet invocations inside one test process.** It would speed the
   test suite only, and stop testing the real process boundary.
 
+## Prototype investigation (incomplete)
+
+At `6f7da1baab34a8ebe2a6e3b5996c3f7777249d22`, a profiling build ran
+`xsh core/awk.xsh -- 'BEGIN{print 1}'` three times under
+`perf stat -e instructions:u`. Each run printed `1`; instruction counts were
+4,569,447,715, 4,569,533,896 and 4,569,323,225 (median 4,569,447,715).
+These are whole-process counts, not phase counts. One `xsht runtime-stats`
+run reported process CPU times of 14.53 ms for project parse/load, 301.59 ms
+for checking, 4.79 ms for declaration publication and 73.79 ms for combined
+lowering, verification and installation. These times cannot substitute for
+instruction counts or separate lower from verification.
+
+No complete serialized artifact was produced, so its size, decode and verify
+instruction count, and decoded execution are unmeasured. The existing raw-store
+fixture captures all pools in memory, but its wire decoder supports only a
+subset (`src/runtime/eval/indexed/full/formal_bridge/raw_full.rs:6`,
+`:325`, `:382`). A complete encoder must also handle prepared CLI plans;
+`FullStore` owns them (`src/runtime/eval/indexed/full.rs:836`), while
+`CliDescriptorPlan` keeps its fields private (`src/modules/cli.rs:471`).
+A scoped implementation needs a way to export and reconstruct those fields,
+which is outside the prototype's permitted edit paths.
+
+There is a separate correctness issue for the proposed trust model. The
+existing test at `src/runtime/eval/indexed/full/formal_bridge/raw_full.rs:150`
+changes an integer in captured IR, passes `FullVerifier`, and demonstrates a
+changed result. Verification establishes IR invariants, not equivalence to the
+source identified by the key. A production design therefore needs an integrity
+and source-binding argument in addition to re-verification; verification alone
+cannot establish that a cache entry represents the loaded source.
+
+Execution also depends on state outside `FullProgram`: the runner uses checker
+parameter types to choose the byte argument domain (`src/runner.rs:582`),
+the evaluator installs tag arities and error families from compact declarations
+(`src/runtime/eval.rs:4985`, `:6285`), and constructs the signature CLI plan
+from checked entries (`src/runtime/eval.rs:5025`) before using it to parse
+arguments (`src/runtime/eval.rs:5389`). The run plan also owns auto-main
+arguments and dispatch state (`src/runtime/eval.rs:289`). This is evidence of
+specific dependencies, not a completed audit of every runtime path.
+
 ## Open questions
 
 1. How large is the serialized program for `core/awk.xsh`, and how long do
@@ -117,6 +156,12 @@ program.
 3. Should `xsht check` populate the cache, so checking a script also warms its
    next run?
 4. Eviction bound and default size.
+
+## Recommendation
+
+Defer the build decision until a complete round trip and phase instruction
+measurements are available. Resolve the source-binding and integrity question
+before treating the cache as an untrusted input.
 
 ## Decision
 
