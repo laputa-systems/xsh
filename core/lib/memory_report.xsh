@@ -575,6 +575,25 @@ export proc modes(argv: List[Str]) [process, env] -> Modes {
   {table: table, summary: summary}
 }
 
+pure column_list(text: Str) -> List[Str]? {
+  var names: List[Str] = []
+  var begin: Int? = null
+  let length = text.byte_len()
+  for position in range(length) {
+    let start = begin ?? position
+    begin = start
+    var end: Int? = null
+    if text.byte_slice(position, length: 1) == "," { end = position }
+    if position + 1 == length { end = length }
+    let stop = end ?? -1
+    continue when stop < 0
+    return null when stop <= start
+    names += [text.byte_slice(start, length: stop - start)]
+    begin = null
+  }
+  names
+}
+
 ## Selects output columns from explicit output, environment output, or defaults.
 export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str] {
   var selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
@@ -582,10 +601,10 @@ export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str
   if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
   let text = output
   if text == "" { exit 1 }
-  if text.starts_with(",") or text.ends_with(",") { gnu.error(f"unknown column: {text}"); exit 1 }
   let append = text.starts_with("+")
-  let names = if append { text.byte_slice(1).split(",") } else { text.split(",") }
-  if names.is_empty() or names[0] == "" { gnu.error("unknown column: "); exit 1 }
+  let parsed = column_list(if append { text.byte_slice(1) } else { text })
+  if parsed == null { exit 1 }
+  let names = parsed ?? []
   if ! append { selected = [] }
   for name in names {
     var found = false
