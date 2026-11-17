@@ -171,8 +171,9 @@ adapter needs libtest's JSON listing and a nonempty selection, so the
 `harness = false` suites (`papaparse_test_suite`, the INI `corpus`,
 `toml_test_suite` and `yaml_test_suite`) and the libraries with no tests have
 none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
-stay with manual lanes: `core_compat_extra_privileged` and `linux_priv` need the
-privileged `cargo dev test linux` container, and `profile_parity` compares
+stay with manual lanes: the root-only `core_compat_extra` modules and `linux_priv`
+are `#[ignore]`d outside the privileged `cargo dev test linux` container, which
+runs them with `--ignored` from the ordinary build, and `profile_parity` compares
 builds that exist only on aarch64 Linux and macOS. The `oxish-client` connect, exec,
 stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
 OpenSSH servers: run them through `crates/oxish-client/fixture/ssh-fixture.sh exec

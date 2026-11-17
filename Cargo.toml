@@ -79,7 +79,6 @@ doctest = false
 [features]
 default = ["native-tests", "net", "ssh", "tools"]
 benchmark = []
-linux-priv-tests = []
 native-tests = ["xsh-registry/native-tests"]
 net = [
     "dep:xsh-net",
@@ -187,15 +186,8 @@ name = "core_compat_extra"
 path = "tests/core_compat_extra.rs"
 
 [[test]]
-# Reuses the same source with privileged cases enabled for focused Linux runs.
-name = "core_compat_extra_privileged"
-path = "tests/core_compat_extra_privileged.rs"
-required-features = ["linux-priv-tests"]
-
-[[test]]
 name = "linux_priv"
 path = "tests/linux_priv.rs"
-required-features = ["linux-priv-tests"]
 
 [[test]]
 name = "fs_transfer"

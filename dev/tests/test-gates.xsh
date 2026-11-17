@@ -711,7 +711,6 @@ const harness_owner_paths = [
 ]
 
 const harnesses_run_outside_change_cases = [
-  {package: "xsh", harness: "core_compat_extra_privileged"},
   {package: "xsh", harness: "linux_priv"},
   {package: "xsht", harness: "profile_parity"},
   {package: "oxish-client", harness: "connect"},
@@ -925,13 +924,17 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
       assert "test-linux-priv" in stages
       assert "test-lib" in stages
       let privileged = [spec for spec in plan |> where .stage == "test-linux-priv"]
-      assert [spec.argv[12] for spec in privileged] == ["core_compat_extra", "linux_priv"]
+      assert [spec.argv[10] for spec in privileged] == ["core_compat_extra", "linux_priv"]
       for spec in privileged {
-        assert spec.argv[11] == "--test"
-        assert spec.argv[spec.argv.len() - 4..] == [
-          "--skip", "split::", "--skip", "cp::privileged::test_cp_recursive_block_device_",
-        ]
+        assert spec.argv[9] == "--test"
+        assert "--ignored" in spec.argv
+        assert "--features" not in spec.argv
       }
+      assert privileged[0].argv[12..] == [
+        "--ignored", "--nocapture", "privilege::", "rm::", "cp::privileged::",
+        "--skip", "cp::privileged::test_cp_recursive_block_device_",
+        "--skip", "cp::privileged::test_cp_reflink_always_override",
+      ]
       let ordinary = [spec for spec in plan |> where .stage == "test-rust"]
       assert [spec.argv[10] for spec in ordinary] == [
         "integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra", "fs_transfer",

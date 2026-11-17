@@ -19,6 +19,10 @@ export const xsht_integration_exclusions = [
   "--skip", repository_lint_budget_test_filter,
 ]
 
+## Modules of `core_compat_extra` whose tests need root; ordinary runs ignore
+## them and the privileged stage runs them with `--ignored`.
+export const privileged_core_compat_filters = ["privilege::", "rm::", "cp::privileged::"]
+
 ## The only profiles accepted by process and native tests.
 export enum TestProfile { Verification, Release }
 
@@ -162,12 +166,16 @@ export pure rust_plan(
       ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @xsht_integration_exclusions], ctx.root, environment),
   ]
   if privileged {
-    for target in ["core_compat_extra", "linux_priv"] {
-      plan += [stages.command("test-linux-priv", ctx.target.triple, "cargo",
-        ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", target,
-          "--", "--nocapture", "--skip", "split::",
-          "--skip", "cp::privileged::test_cp_recursive_block_device_"], ctx.root, environment)]
-    }
+    plan += [
+      stages.command("test-linux-priv", ctx.target.triple, "cargo",
+        ["cargo", "test", @profile_args, "-p", "xsh", "--test", "core_compat_extra",
+          "--", "--ignored", "--nocapture", @privileged_core_compat_filters,
+          "--skip", "cp::privileged::test_cp_recursive_block_device_",
+          "--skip", "cp::privileged::test_cp_reflink_always_override"], ctx.root, environment),
+      stages.command("test-linux-priv", ctx.target.triple, "cargo",
+        ["cargo", "test", @profile_args, "-p", "xsh", "--test", "linux_priv",
+          "--", "--ignored", "--nocapture"], ctx.root, environment),
+    ]
   }
   plan
 }

@@ -122,7 +122,7 @@ run() {
     -e TMPDIR=/work/.work/tmp \
     -e XSH_OS_RELEASE_SCENARIO="$scenario" xsh-test \
     sh -c "$setup; cargo test --profile verification \
-      --target aarch64-unknown-linux-musl --features linux-priv-tests \
+      --target aarch64-unknown-linux-musl \
       --test integration stdlib_port::os_release_entry_reads_the_fixed_paths \
       -- --exact"
 }

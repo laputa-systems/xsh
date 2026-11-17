@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "linux", feature = "linux-priv-tests"))]
+#![cfg(target_os = "linux")]
 
 use super::{applet, Running};
 use std::ffi::CString;
@@ -99,16 +99,20 @@ fn preserve_root(operand: &str, nested: bool, bind_root: bool) {
 
 // origin: uutils test_rm::test_preserve_root_literal_root
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_preserve_root_literal_root() { preserve_root("/", false, false); }
 
 // origin: uutils test_rm::test_preserve_root_symlink_to_root
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_preserve_root_symlink_to_root() { preserve_root("rootlink/", false, false); }
 
 // origin: uutils test_rm::test_preserve_root_nested_symlink_to_root
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_preserve_root_nested_symlink_to_root() { preserve_root("rootlink2/", true, false); }
 
 // origin: uutils test_rm::test_preserve_root_bind_mount_of_root
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_preserve_root_bind_mount_of_root() { preserve_root("", false, true); }

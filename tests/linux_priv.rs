@@ -262,6 +262,7 @@ fn mount_visible_in_parent(path: &Path) -> bool {
 // The mount and its optional bind-mounted fstab exist only in a child mount
 // namespace. TempDir removes the fixture after the child exits or on panic.
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup() {
     if !is_root() {
         eprintln!("skipped: private mount namespace requires root and CAP_SYS_ADMIN");
@@ -318,6 +319,7 @@ let target = Path({})
 // The failing calls run after private mount propagation is established in the
 // child. TempDir removes the fixture even if an assertion fails.
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_mount_and_switch_root_fail_within_private_namespace() {
     if !is_root() {
         eprintln!("skipped: private mount namespace requires root and CAP_SYS_ADMIN");
@@ -396,6 +398,7 @@ let missing_root = Path({})
 // Character-device creation is limited to a private temporary directory in
 // the pinned container; TempDir removes the node on success and on panic.
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_mknod_creates_character_device_when_permitted() {
     if !is_root() {
         eprintln!("skipped: character-device creation requires root and CAP_MKNOD");
@@ -432,6 +435,7 @@ let node = Path({})
 // LoopGuard detaches a loop device still backed by the temporary image on
 // success or panic; its TempDir then removes that image.
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_loop_attach_list_and_detach_release_device() {
     if !is_root() {
         eprintln!("skipped: loop device access requires root and CAP_SYS_ADMIN");
@@ -483,6 +487,7 @@ let image = Path({})
 // signal. The test harness is its init, so neither concurrent tests nor the
 // container's supervising process can be signalled by the fixture.
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_kill_all_signals_contained_new_session_process() {
     if !is_root() {
         eprintln!("skipped: kill_all fixture requires root in an isolated PID namespace");
@@ -579,6 +584,7 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
 }
 
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn linux_priv_fuser_separates_six_digit_holder_pids() {
     if !is_root() {
         eprintln!("skipped: fuser PID namespace fixture requires root");
@@ -683,6 +689,7 @@ fn linux_priv_fuser_separates_six_digit_holder_pids() {
 }
 
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
     assert_eq!(
         unsafe { libc::geteuid() },
@@ -792,6 +799,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
 }
 
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
     let fixture = tempfile::Builder::new()
         .prefix("xsh-system-report-no-ids-")

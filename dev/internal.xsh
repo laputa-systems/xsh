@@ -54,8 +54,6 @@ export proc linux_split_resource_test(ctx: context.Context) [fs, process, env, e
         ctx.target.triple,
         "-p",
         "xsh",
-        "--features",
-        "linux-priv-tests",
         "--test",
         "core_compat_extra",
         "split::",

@@ -6950,12 +6950,11 @@ test result: ok. 0 passed; 0 failed; 1 skipped
     "xsh",
     "--test",
     "linux_priv",
-    "--features",
-    "linux-priv-tests",
     "--target",
     "aarch64-unknown-linux-musl",
     "system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
     "--",
+    "--ignored",
     "--exact",
     "--test-threads=1",
   ]

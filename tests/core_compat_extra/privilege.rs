@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "linux", feature = "linux-priv-tests"))]
+#![cfg(target_os = "linux")]
 
 use super::{applet, Running};
 use std::ffi::CString;
@@ -79,6 +79,7 @@ fn chroot(directory: &Path, args: &[&str]) -> Output {
 
 // origin: uutils test_chown::test_chown_only_user_id_nonexistent_user
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chown_only_user_id_nonexistent_user() {
     require_capability(0, "CAP_CHOWN");
     let directory = tempfile::tempdir().unwrap();
@@ -88,6 +89,7 @@ fn test_chown_only_user_id_nonexistent_user() {
 
 // origin: uutils test_chown::test_chown_only_group_id_nonexistent_group
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chown_only_group_id_nonexistent_group() {
     require_capability(0, "CAP_CHOWN");
     let directory = tempfile::tempdir().unwrap();
@@ -97,6 +99,7 @@ fn test_chown_only_group_id_nonexistent_group() {
 
 // origin: uutils test_mknod::test_mknod_mode_permissions
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_mknod_mode_permissions() {
     require_capability(27, "CAP_MKNOD");
     for mode in [0o666, 0o000, 0o444, 0o004, 0o040, 0o400, 0o644] {
@@ -115,6 +118,7 @@ fn test_mknod_mode_permissions() {
 
 // origin: uutils test_ls::test_ls_capabilities
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_ls_capabilities() {
     require_capability(31, "CAP_SETFCAP");
     let directory = tempfile::tempdir().unwrap();
@@ -150,6 +154,7 @@ fn test_ls_capabilities() {
 
 // origin: uutils test_chroot::test_chroot
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot() {
     let directory = jail();
     stdout_only(chroot(directory.path(), &["CHROOT_DIR", "whoami"]), b"root\n");
@@ -158,6 +163,7 @@ fn test_chroot() {
 
 // origin: uutils test_chroot::test_chroot_retains_uid_gid
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_retains_uid_gid() {
     let directory = jail();
     for flag in ["-u", "-g"] {
@@ -167,6 +173,7 @@ fn test_chroot_retains_uid_gid() {
 
 // origin: uutils test_chroot::test_chroot_command_not_found_error
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_command_not_found_error() {
     let directory = jail();
     let output = chroot(directory.path(), &["CHROOT_DIR", "definitely_missing_command"]);
@@ -178,6 +185,7 @@ fn test_chroot_command_not_found_error() {
 
 // origin: uutils test_chroot::test_chroot_command_permission_denied_error
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_command_permission_denied_error() {
     let directory = jail();
     let script = directory.path().join("CHROOT_DIR/noexec.sh");
@@ -192,6 +200,7 @@ fn test_chroot_command_permission_denied_error() {
 
 // origin: uutils test_chroot::test_default_shell
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_default_shell() {
     let directory = jail();
     let mut command = applet("chroot", directory.path());
@@ -202,6 +211,7 @@ fn test_default_shell() {
 
 // origin: uutils test_chroot::test_invalid_user_spec
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_invalid_user_spec() {
     let directory = jail();
     for (spec, error) in [("--userspec=ARABA:", "invalid user"), ("--userspec=ARABA:ARABA", "invalid user"), ("--userspec=:ARABA", "invalid group")] {
@@ -213,6 +223,7 @@ fn test_invalid_user_spec() {
 
 // origin: uutils test_chroot::test_invalid_user
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_invalid_user() {
     let directory = jail();
     stdout_only(chroot(directory.path(), &["CHROOT_DIR", "whoami"]), b"root\n");
@@ -223,6 +234,7 @@ fn test_invalid_user() {
 
 // origin: uutils test_chroot::test_multiple_group_args
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_multiple_group_args() {
     require_capability(6, "CAP_SETGID");
     let directory = jail();
@@ -231,6 +243,7 @@ fn test_multiple_group_args() {
 
 // origin: uutils test_chroot::test_chroot_userspec_unknown_uid
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_userspec_unknown_uid() {
     let directory = jail();
     let output = chroot(directory.path(), &["--userspec=99999", "--groups=root", "CHROOT_DIR", "id", "-g"]);
@@ -240,6 +253,7 @@ fn test_chroot_userspec_unknown_uid() {
 
 // origin: uutils test_chroot::test_chroot_userspec_does_not_set_gid_with_uid
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_userspec_does_not_set_gid_with_uid() {
     require_capability(6, "CAP_SETGID");
     require_capability(7, "CAP_SETUID");
@@ -249,6 +263,7 @@ fn test_chroot_userspec_does_not_set_gid_with_uid() {
 
 // origin: uutils test_chroot::test_chroot_extra_arg
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_extra_arg() {
     let directory = jail();
     stdout_only(chroot(directory.path(), &["CHROOT_DIR", "pwd", "-P"]), b"/\n");
@@ -256,6 +271,7 @@ fn test_chroot_extra_arg() {
 
 // origin: uutils test_chroot::test_chroot_skip_chdir
 #[test]
+#[ignore = "requires root; run by the privileged test stage"]
 fn test_chroot_skip_chdir() {
     require_chroot();
     let directory = tempfile::tempdir().unwrap();

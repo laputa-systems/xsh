@@ -102,7 +102,7 @@ fn test_cp_absolute_paths_from_deleted_cwd_new_target() {
     deleted_cwd(false);
 }
 
-#[cfg(all(target_os = "linux", feature = "linux-priv-tests"))]
+#[cfg(target_os = "linux")]
 mod privileged {
     use super::*;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -148,18 +148,22 @@ mod privileged {
 
     // origin: uutils test_cp::test_cp_recursive_char_device::case_1_recursive
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_recursive_char_device_recursive() { device("-R", true); }
 
     // origin: uutils test_cp::test_cp_recursive_char_device::case_2_archive
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_recursive_char_device_archive() { device("-a", true); }
 
     // origin: uutils test_cp::test_cp_recursive_block_device::case_1_recursive
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_recursive_block_device_recursive() { device("-R", false); }
 
     // origin: uutils test_cp::test_cp_recursive_block_device::case_2_archive
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_recursive_block_device_archive() { device("-a", false); }
 
     fn mount_worker_name(module_path: &str, test_leaf: &str) -> String {
@@ -201,6 +205,7 @@ mod privileged {
     }
 
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_mount_worker_name_matches_current_test() {
         let expected_name = mount_worker_name(module_path!(), "test_mount_worker_name_matches_current_test");
         let current_thread = std::thread::current();
@@ -241,6 +246,7 @@ mod privileged {
 
     // origin: uutils test_cp::test_cp_one_file_system
     #[test]
+    #[ignore = "requires root; run by the privileged test stage"]
     fn test_cp_one_file_system() {
         mount_worker(module_path!(), "test_cp_one_file_system", false, || {
             let directory = tempfile::tempdir().unwrap();
