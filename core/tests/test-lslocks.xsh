@@ -674,6 +674,9 @@ test test_lslocks_reference_path_bytes { |ctx|
 test test_lslocks_filter_errors { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
+  for args in [["-J", "-r", "-h"], ["-p", "abc", "-h"], ["-Q", "bad(", "-h"], ["-Q", "PID ==", "-H"], ["-p", "abc", "-J", "-r"], ["-J", "-r", "-p", "abc"]] {
+    parity(s, args)?
+  }
   let missing_operand = compared(s, ["--filter", "TYPE =="])?
   assert missing_operand.status == 1 and missing_operand.stdout.is_empty()
   assert missing_operand.stderr == b"lslocks: failed to parse \"TYPE ==\": syntax error, unexpected end of file\n"

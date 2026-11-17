@@ -64,7 +64,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
-enum FilterParseError { UnexpectedEnd, InvalidExpression, UnknownFilterColumn(Str) }
+enum FilterParseError { UnexpectedEnd, UnexpectedToken(Str), InvalidExpression, UnknownFilterColumn(Str) }
 type FilterLexed = {tokens: List[FilterToken], echoed: Str}
 type FilterProgram = {tokens: List[FilterToken], echoed: Str}
 type FilterFailure = {reason: FilterParseError, echoed: Str}
@@ -518,7 +518,7 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
       output += [token]
       expects_value = false
     } else if token.kind == "(" {
-      return Err(InvalidExpression) when ! expects_value
+      return Err(UnexpectedToken("(")) when ! expects_value
       operators += [token]
       expects_value = true
     } else if token.kind == ")" {
@@ -1062,6 +1062,76 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
   replace_json_paths(bytes.from_text(json_table(rows, "locks", mode)), replacements)
 }
 
+proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
+  if name == "pid" {
+    let number = decimal(value)
+    if ! rx"^[+-]?[0-9]+$".matches(value) or number == null or (number ?? 0) <= 0 or (number ?? 0) > 2147483647 {
+      let suffix = if rx"^[+-]?[0-9]+$".matches(value) { ": Result not representable" } else { "" }
+      gnu.error(f"invalid PID argument: {gnu.quote(value)}{suffix}")
+      exit 1
+    }
+  }
+  if name == "filter" {
+    if let Err(failure) = parse_filter(value) {
+      ul_io.write_text(failure.echoed)
+      match failure.reason {
+        UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
+        UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
+        InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(value)}: invalid expression")
+        UnknownFilterColumn(column) => { gnu.error(f"unknown column: {column}"); gnu.error("failed to initialize filter") }
+      }
+      exit 1
+    }
+  }
+}
+
+proc validate_early(argv: List[Str], permute: Bool) [process, env, io, error] {
+  var index = 0
+  var json_seen = false
+  var raw = false
+  while index < argv.len() {
+    let argument = argv[index]
+    return when argument == "--"
+    var options: List[Str] = []
+    var attached = ""
+    var has_attached = false
+    if argument.starts_with("--") {
+      let name = long_option_name(argument) ?? ""
+      options = [name]
+      if let equal = argument.find("=") { attached = argument.byte_slice(equal + 1); has_attached = true }
+    } else if argument.starts_with("-") and argument != "-" {
+      let shorts = argument.byte_slice(1)
+      var offset = 0
+      while offset < shorts.byte_len() {
+        let short = shorts.byte_slice(offset, length: 1)
+        let name = match short { "J" => "json"; "r" => "raw"; "p" => "pid"; "Q" => "filter"; "o" => "output"; "h" => "help"; "V" => "version"; else => short }
+        options += [name]
+        offset += 1
+        if name in ["pid", "filter", "output"] {
+          if offset < shorts.byte_len() { attached = shorts.byte_slice(offset); has_attached = true }
+          break
+        }
+      }
+    } else {
+      return when ! permute
+      index += 1
+      continue
+    }
+    for name in options {
+      return when name in ["help", "version"]
+      if name == "json" { json_seen = true }
+      if name == "raw" { raw = true }
+      if json_seen and raw { gnu.error("options --json and --raw cannot be combined"); exit 1 }
+      if name in ["pid", "filter", "output"] {
+        var value = attached
+        if ! has_attached { index += 1; value = argv[index] }
+        validate_early_option(name, value)
+      }
+    }
+    index += 1
+  }
+}
+
 ## Runs the lslocks command over Linux procfs state.
 export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
@@ -1086,11 +1156,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
     filter: {form: "-Q --filter EXPR"},
     operands: {form: "...ARG"},
   })?
-  if opts.help {
-    ul_io.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
-    return
-  }
-  if opts.version { ul_io.version("lslocks"); return }
+  validate_early(argv, permute)
   if opts.json and opts.raw {
     gnu.error("options --json and --raw cannot be combined")
     exit 1
@@ -1103,6 +1169,27 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
   }
+  var program: List[FilterToken]? = null
+  if let expression = opts.filter {
+    match parse_filter(expression) {
+      Ok(parsed) => { ul_io.write_text(parsed.echoed); program = parsed.tokens }
+      Err(failure) => {
+        ul_io.write_text(failure.echoed)
+        match failure.reason {
+          UnexpectedEnd => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected end of file")
+          UnexpectedToken(token) => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected '{token}', expecting end of file")
+          InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(expression)}: invalid expression")
+          UnknownFilterColumn(name) => { gnu.error(f"unknown column: {name}"); gnu.error("failed to initialize filter") }
+        }
+        exit 1
+      }
+    }
+  }
+  if opts.help {
+    ul_io.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
+    return
+  }
+  if opts.version { ul_io.version("lslocks"); return }
   let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
   if opts.list_columns {
@@ -1143,21 +1230,6 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   let chosen = selection ?? []
-  var program: List[FilterToken]? = null
-  if let expression = opts.filter {
-    match parse_filter(expression) {
-      Ok(parsed) => { ul_io.write_text(parsed.echoed); program = parsed.tokens }
-      Err(failure) => {
-        ul_io.write_text(failure.echoed)
-        match failure.reason {
-          UnexpectedEnd => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected end of file")
-          InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(expression)}: invalid expression")
-          UnknownFilterColumn(name) => { gnu.error(f"unknown column: {name}"); gnu.error("failed to initialize filter") }
-        }
-        exit 1
-      }
-    }
-  }
   let all = collect(opts.no_inaccessible)
   return when all.is_empty()
   var rows = all
