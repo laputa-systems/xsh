@@ -36,6 +36,7 @@ export const root_tests = [
 
 ## Tests that need user namespaces, which Docker's default seccomp profile refuses; lane/namespace-native runs them.
 export const namespace_tests = [
+  "core/tests/test-lsipc.xsh::test_lsipc_posix_shmem_symlink_targets",
   "core/tests/test-arp.xsh::test_arp_lists_resolved_pending_and_permanent_entries",
   "core/tests/test-arp.xsh::test_arp_rejects_bad_set_and_delete_forms",
   "core/tests/test-arp.xsh::test_arp_reports_hosts_and_filters_with_no_match",

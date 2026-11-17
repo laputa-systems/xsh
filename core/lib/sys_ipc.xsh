@@ -109,7 +109,7 @@ export proc posix_directory_available(kind: PosixKind, root: Path = p"/") [fs] -
 }
 
 proc read_posix_object(kind: PosixKind, entry_path: Path, name: Str, native_name: Bytes) [fs, process, error] -> PosixObject {
-  let info = fs.stat(entry_path)?
+  let info = fs.stat(entry_path, follow_symlinks: true)?
   let details = if kind == PosixQueues {
     let status = words(entry_path.read_text()?)
     guard !status.is_empty() and status[0].starts_with("QSIZE:") else { return Err(InvalidObservation.QueueStatus("invalid POSIX message queue status"))? }

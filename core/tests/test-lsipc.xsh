@@ -1818,3 +1818,16 @@ test test_lsipc_without_procfs_empty_namespace { |ctx|
   let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 10s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
 }
+
+test test_lsipc_posix_shmem_symlink_targets { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  assert (run.capture --text mount -t tmpfs none /dev/shm).status.exited_with(0)
+  defer { run.status umount /dev/shm }
+  p"/dev/shm/link".symlink(to: p"/etc/hostname")
+  p"/dev/shm/dangle".symlink(to: p"/nonexistent-xsh-target")
+  for args in [["-M"], ["-M", "-N", "dangle"]] {
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
+  }
+}
