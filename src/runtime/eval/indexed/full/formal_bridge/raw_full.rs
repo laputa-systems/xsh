@@ -1154,3 +1154,28 @@ fn result_call_rows_and_signatures_are_the_lean_documents() {
     forged.declarations.bodies.selected_function_calls.remove(&call);
     assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
 }
+
+#[test]
+fn awk_cache_scope_probe() {
+    super::super::tests::run_with_large_stack(|| {
+        let path = "core/awk.xsh";
+        let source = std::fs::read_to_string(path).unwrap();
+        let entry = crate::loader::entry_source_from_text(path, source);
+        let source_id = entry.source_id;
+        let roots = crate::project::project_module_roots(std::path::Path::new(path)).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path, entry, roots);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let arena = Arc::new(parsed.arena);
+        let check = crate::sema::check::Checker::check_arena_with_sources_options_and_type_program(
+            &arena, &sources, source_id, crate::sema::check::CheckOptions::for_execution(), Arc::clone(&arena));
+        assert!(check.diagnostics.iter().all(|d| d.severity != crate::diagnostic::Severity::Error), "{:?}", check.diagnostics);
+        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources);
+        arena.symbol_owner().with_current(|| {
+            let declarations = crate::sema::check::Checker::compact_declarations(&arena, check);
+            evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations).unwrap();
+        });
+        let program = evaluator.indexed_program.as_ref().unwrap();
+        FullVerifier::verify(program).unwrap();
+        eprintln!("AWK_PROBE transfers={} plans={} schemas={} registered={}", program.store.resource_transfers.iter().filter(|x| **x).count(), program.store.prepared_module_call_plans.len(), program.store.prepared_schemas.len(), program.store.registered_calls.len());
+    });
+}

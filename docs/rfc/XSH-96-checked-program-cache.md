@@ -145,6 +145,16 @@ arguments (`src/runtime/eval.rs:5389`). The run plan also owns auto-main
 arguments and dispatch state (`src/runtime/eval.rs:289`). This is evidence of
 specific dependencies, not a completed audit of every runtime path.
 
+A focused AWK scope probe at base `5f41e9ad381a50fd6f9e4747bc2a90048747db41`
+loaded the normal closure, checked and lowered it, and ran `FullVerifier` again.
+It found 855 marked resource-transfer instructions and no prepared module CLI
+plans, prepared schemas, or registered calls in that program. The existing
+wire decoder rejects marked resource transfers; the verifier checks their
+alignment and eligible instruction kinds, not whether the checker established
+each mark. A complete untrusted decoder needs an independent authentication
+argument for those marks. This probe does not measure a serialized artifact or
+establish a performance result.
+
 ## Open questions
 
 1. How large is the serialized program for `core/awk.xsh`, and how long do
