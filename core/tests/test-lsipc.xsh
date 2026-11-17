@@ -1004,7 +1004,11 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
   for mode in RESOURCE_MODES {
     let resource = resource_of(fixture.ready, mode.kind)?
     if resource.kind == "posix_mqueue" {
-      mqueue_read_indices = mqueue_read_indices.extend([snapshot_resource_index(fixture.ready, resource)?])
+      var index = 0
+      for candidate in fixture.ready.resources {
+        if candidate.kind == "posix_mqueue" and index not in mqueue_read_indices { mqueue_read_indices = mqueue_read_indices.extend([index]) }
+        index += 1
+      }
     }
     let args = resource_args(mode, resource)
     let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
