@@ -388,9 +388,20 @@ proc node_id(root: FsRoot, block_path: RelPath, block_name: Str) [fs, process, e
 
 proc zone_values(root: FsRoot, block_path: RelPath) [fs, error] -> List[Str] {
   let zones_path: RelPath = fp"{block_path}/valid_zones"
-  match read_attribute(root, zones_path) {
-    Ok(raw) => {
-      var length = if raw.len() > 1023 { 1023 } else { raw.len() }
+  let snapshot = root.read_result(zones_path, max_bytes: 1023)?
+  var data = snapshot.data
+  if data == null and snapshot.errno == 18 {
+    let host = root.host_path()?
+    if let Ok(resolved) = fp"{host}/{zones_path}".resolve() {
+      if let Ok(parent) = fs.open_root(resolved.parent()) {
+        defer parent.close()
+        let name = fp"{resolved.name()}".require(RelPath)?
+        data = parent.read_result(name, max_bytes: 1023)?.data
+      }
+    }
+  }
+  if let raw = data {
+      var length = raw.len()
       for at in range(length) {
         if (raw.byte_at(at) ?? 0) == 0 { length = at; break }
       }
@@ -413,9 +424,7 @@ proc zone_values(root: FsRoot, block_path: RelPath) [fs, error] -> List[Str] {
         start = at + 1
       }
       zones
-    }
-    Err(_) => []
-  }
+  } else { [] }
 }
 
 proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes: Bool, have_zones: Bool) [fs, process, env, error] -> Block {
