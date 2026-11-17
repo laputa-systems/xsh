@@ -212,6 +212,34 @@ class ResourceControlTests(unittest.TestCase):
         self.assertEqual(calls, [acceptance._case_selector("lslocks", name) for name in names])
         self.assertEqual(result, acceptance.NativeResult(len(names), 0, 0, names))
 
+    def test_group_budget_grows_with_its_case_count(self):
+        names = tuple(f"test_lslocks_case_{index}" for index in range(61))
+        ticks = iter([0.0] + [index * 2.5 for index in range(1, 62)] + [152.5])
+
+        def native_case(selector, *, private=False, timeout=30):
+            return (
+                f"running 1 tests\n{selector} ... ok 1ms\n"
+                "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+            ).encode()
+
+        result = acceptance._run_group(
+            SimpleNamespace(native_case=native_case), "lslocks", names, monotonic=lambda: next(ticks))
+        self.assertEqual(result.passed, 61)
+
+    def test_large_group_rejects_time_past_its_scaled_budget(self):
+        names = tuple(f"test_lslocks_case_{index}" for index in range(61))
+        clock = iter((0.0, 0.0, 306.0))
+
+        def native_case(selector, *, private=False, timeout=30):
+            return (
+                f"running 1 tests\n{selector} ... ok 1ms\n"
+                "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+            ).encode()
+
+        with self.assertRaisesRegex(TimeoutError, "exceeded 305s"):
+            acceptance._run_group(
+                SimpleNamespace(native_case=native_case), "lslocks", names, monotonic=lambda: next(clock))
+
     def test_group_rejects_a_case_that_finishes_past_the_budget(self):
         names = ("test_lslocks_blocker_flock",)
         clock = iter((0.0, 0.0, 121.0))

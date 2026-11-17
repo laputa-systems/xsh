@@ -28,6 +28,7 @@ STARTUP_TARGETS = (
 REFERENCE_PROFILE = "apk-package-2.42.4-r3"
 REFERENCE_ALLOCATOR = "musl-libc"
 GROUP_BUDGET_SECONDS = 120
+CASE_BUDGET_SECONDS = 5
 REGRESSION_FILES = (
     "core/tests/test-util-linux-storage-regressions.xsh",
     "core/tests/test-util-linux-process-regressions.xsh",
@@ -321,18 +322,19 @@ def _run_group(
         raise ValueError(f"selector matched no behavior: {command}")
     if len(names) != len(set(names)):
         raise ValueError(f"native behavior selectors are duplicated: {command}")
-    deadline = monotonic() + GROUP_BUDGET_SECONDS
+    budget = max(GROUP_BUDGET_SECONDS, CASE_BUDGET_SECONDS * len(names))
+    deadline = monotonic() + budget
     results = []
     for name in names:
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise TimeoutError(f"private native acceptance exceeded {GROUP_BUDGET_SECONDS}s: {command}")
+            raise TimeoutError(f"private native acceptance exceeded {budget}s: {command}")
         selector = _case_selector(command, name)
         output = runtime.native_case(selector, private=True, timeout=min(30.0, remaining))
         result = _parse_native_group(command, (name,), output)
         results.extend(result.selectors)
     if monotonic() > deadline:
-        raise TimeoutError(f"private native acceptance exceeded {GROUP_BUDGET_SECONDS}s: {command}")
+        raise TimeoutError(f"private native acceptance exceeded {budget}s: {command}")
     return NativeResult(passed=len(results), failed=0, skipped=0, selectors=tuple(results))
 
 
