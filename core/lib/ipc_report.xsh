@@ -155,7 +155,7 @@ pure shell_column(column: Str) -> Str {
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
     let accepted = (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or byte == 95
-    out += if accepted { column.byte_slice(index, length: 1) } else { "_" }
+    out += if accepted { column.byte_slice(index, length: 1) } else if byte == 37 { "_PCT" } else { "_" }
   }
   let first = out.byte_at(0) ?? 0
   if out.is_empty() or (first >= 48 and first <= 57) { out = "_" + out }
@@ -188,7 +188,7 @@ pure truncate_cells(text: Str, width: Int) -> Str {
 
 pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> Str {
   return "" when rows.is_empty()
-  var widths: List[Int] = [if selection.noheadings { 0 } else { tui.cell_width(heading(selection, column)) } for column in selection.columns]
+  var widths: List[Int] = [if selection.noheadings { 0 } else { tui.cell_width(column) } for column in selection.columns]
   for row in rows {
     for index in range(selection.columns.len()) {
       let shown = tui.cell_width(escape_cell(row.cells[index].text))

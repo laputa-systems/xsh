@@ -1474,3 +1474,13 @@ test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycl
   let missing_sysv = observe_ipc_api(s, fixture.ready.owner_uid, "sysv_semaphore", sysv_identity)?
   assert_api_reads(missing_sysv, {errno: 22, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
 }
+
+test test_lsipc_global_shell_percent_heading { |ctx|
+  let s = uu.scene(ctx)?
+  for mode in [[], ["-e"], ["-r"], ["-n"], ["-J"]] {
+    let pair = run_both(s, ["-g", "-y"].extend(mode))?
+    assert pair.reference.status == 0
+    assert pair.reference.stderr == b""
+    ul.compare(pair.reference, pair.candidate)
+  }
+}
