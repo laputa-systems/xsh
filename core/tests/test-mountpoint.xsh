@@ -261,24 +261,44 @@ test test_mountpoint_show_pipe_descriptor { |ctx|
 test test_mountpoint_show_deleted_working_directory { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  let args = [p"--show", p"/proc/self/cwd"]
+  for target in [p"/proc/self/cwd", p"/proc/self/cwd/", p"/proc/self/cwd/..", uu.at(s, "cwd-link")] {
+    if target == uu.at(s, "cwd-link") { uu.symlink(s, "/proc/self/cwd", "cwd-link") }
+    let args = [p"--show", target]
+    let reference_words = ul.reference_argv(s, "mountpoint", args)?
+    let candidate_words = uu.argv(s, "mountpoint", args)?
+    var outputs: List[Bytes] = []
+    var errors: List[Bytes] = []
+    for words in [reference_words, candidate_words] {
+      let directory = uu.at(s, "deleted-cwd")
+      directory.mkdir()
+      let out = uu.at(s, "deleted-stdout")
+      let err = uu.at(s, "deleted-stderr")
+      let wrapper = [p"/bin/sh", p"-c", p"cd \"$1\"; rmdir \"$1\"; shift; exec \"$@\"", p"wrapper", directory].extend(words)
+      let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, {LC_ALL: "C"}, b"", out, err, timeout: 5s))?
+      assert result.exit_code()? == 0
+      outputs += [out.read_bytes()?]
+      errors += [err.read_bytes()?]
+    }
+    assert outputs[0] == outputs[1]
+    assert errors == [b"", b""]
+  }
+}
+
+test test_mountpoint_show_memfd { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  let args = [p"--show", p"/proc/self/fd/3"]
   let reference_words = ul.reference_argv(s, "mountpoint", args)?
   let candidate_words = uu.argv(s, "mountpoint", args)?
-  var outputs: List[Bytes] = []
-  var errors: List[Bytes] = []
   for words in [reference_words, candidate_words] {
-    let directory = uu.at(s, "deleted-cwd")
-    directory.mkdir()
-    let out = uu.at(s, "deleted-stdout")
-    let err = uu.at(s, "deleted-stderr")
-    let wrapper = [p"/bin/sh", p"-c", p"cd \"$1\"; rmdir \"$1\"; shift; exec \"$@\"", p"wrapper", directory].extend(words)
+    let out = uu.at(s, "memfd-stdout")
+    let err = uu.at(s, "memfd-stderr")
+    let wrapper = [p"/usr/bin/python3", p"-c", p"import os,sys; fd=os.memfd_create('test',0); os.dup2(fd,3,inheritable=True); os.execv(sys.argv[1],sys.argv[1:])"].extend(words)
     let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, {LC_ALL: "C"}, b"", out, err, timeout: 5s))?
-    assert result.exit_code()? == 0
-    outputs += [out.read_bytes()?]
-    errors += [err.read_bytes()?]
+    assert result.exit_code()? == 1
+    assert out.read_bytes()? == b""
+    assert err.read_bytes()? == b"mountpoint: --show is not supported on this system\n"
   }
-  assert outputs[0] == outputs[1]
-  assert errors == [b"", b""]
 }
 
 test test_mountpoint_invalid_utf8_long_option { |ctx|

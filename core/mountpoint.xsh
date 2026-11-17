@@ -10,6 +10,56 @@ pure util_strerror(failure: Error) -> Str {
   parts[-1]
 }
 
+pure decode_mount_field(encoded: Bytes) -> Bytes {
+  var parts: List[Bytes] = []
+  var at = 0
+  while at < encoded.len() {
+    if at + 4 <= encoded.len() {
+      let decoded: Bytes? = match encoded[at..at + 4] {
+        b"\\040" => b" "
+        b"\\011" => b"\t"
+        b"\\012" => b"\n"
+        b"\\134" => b"\\"
+        else => null
+      }
+      if let byte = decoded {
+        parts += [byte]
+        at += 4
+        continue
+      }
+    }
+    parts += [encoded[at..at + 1]]
+    at += 1
+  }
+  bytes.concat(parts)
+}
+
+proc mount_target(mount_id: Int?) [fs] -> Bytes? {
+  guard let id = mount_id else { return null }
+  let data = match p"/proc/self/mountinfo".read_bytes() {
+    Ok(value) => value
+    Err(_) => { return null }
+  }
+  for line in data.lines() {
+    var fields: List[Bytes] = []
+    var start = 0
+    for at in range(line.len()) {
+      if line.byte_at(at) == 32 {
+        fields += [line[start..at]]
+        start = at + 1
+      }
+    }
+    fields += [line[start..line.len()]]
+    continue when fields.len() < 5
+    if let Ok(text) = fields[0].utf8() {
+      if let Ok(found) = text.parse_int() {
+        if found == id { return decode_mount_field(fields[4]) }
+      }
+    }
+  }
+  null
+}
+
 const USAGE = """Usage:
  mountpoint [-qd] /path/to/directory
  mountpoint -x /dev/device
@@ -158,24 +208,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     exit 32
   }
 
+  if opts.show {
+    if let target = mount_target(metadata.mount_id) {
+      ul_io.write_bytes(bytes.concat([target, b"\n"]))
+      return
+    }
+    gnu.error("--show is not supported on this system")
+    exit 1
+  }
+
   let resolved = match path_value.resolve() {
     Ok(value) => value
     Err(_) => {
-      if opts.show {
-        if let Ok(target) = path_value.readlink() {
-          let target_bytes = target.bytes()
-          let suffix = b" (deleted)"
-          if target_bytes.starts_with(b"/") and target_bytes.ends_with(suffix) {
-            let original = Path.parse_bytes(target_bytes[0..target_bytes.len() - suffix.len()])?
-            if let Ok(mount) = fs.mount_for(original) {
-              ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
-              return
-            }
-          }
-        }
-        gnu.error("--show is not supported on this system")
-        exit 1
-      }
       if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
       exit 32
     }
@@ -188,10 +232,6 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
   }
 
-  if opts.show {
-    ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
-    return
-  }
   if resolved != mount.mounted_on {
     if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
