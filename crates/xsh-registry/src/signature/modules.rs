@@ -4879,7 +4879,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "FsStat" => (
             "Describes complete stat(2) or lstat(2) metadata for one path.",
-            "Times are nanoseconds since the Unix epoch; birth_ns is null where the filesystem reports none; dev and ino identify a file and its hard links; mode includes the file-type bits.",
+            "Times are nanoseconds since the Unix epoch; birth_ns is null where the filesystem reports none; mount_id is the Linux mountinfo ID or null where unavailable; dev and ino identify a file and its hard links; mode includes the file-type bits.",
             &["filesystem", "metadata", "record"],
         ),
         "FsStatvfs" => (

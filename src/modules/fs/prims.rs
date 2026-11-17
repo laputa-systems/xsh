@@ -60,10 +60,34 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
         std::fs::symlink_metadata(&path)
     }
     .map_err(|error| RuntimeError::host("fs-stat", &error).with_span(span))?;
-    Ok(stat_from_metadata(&metadata))
+    let flags = if follow { AtFlags::empty() } else { AtFlags::SYMLINK_NOFOLLOW };
+    Ok(stat_from_metadata(&metadata, mount_id(CWD, &path, flags)))
 }
 
-fn stat_from_metadata(metadata: &std::fs::Metadata) -> Value {
+#[cfg(target_os = "linux")]
+fn empty_path_flags() -> AtFlags {
+    AtFlags::EMPTY_PATH
+}
+#[cfg(not(target_os = "linux"))]
+fn empty_path_flags() -> AtFlags {
+    AtFlags::empty()
+}
+
+#[cfg(target_os = "linux")]
+fn mount_id<F: std::os::fd::AsFd>(dir: F, path: &Path, flags: AtFlags) -> Value {
+    rfs::statx(dir, path, flags, rfs::StatxFlags::MNT_ID)
+        .ok()
+        .filter(|stat| stat.stx_mask & rfs::StatxFlags::MNT_ID.bits() != 0)
+        .and_then(|stat| i64::try_from(stat.stx_mnt_id).ok())
+        .map_or(Value::Null, Value::Int)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn mount_id<F: std::os::fd::AsFd>(_dir: F, _path: &Path, _flags: AtFlags) -> Value {
+    Value::Null
+}
+
+fn stat_from_metadata(metadata: &std::fs::Metadata, mount_id: Value) -> Value {
     let birth = metadata
         .created()
         .ok()
@@ -99,6 +123,7 @@ fn stat_from_metadata(metadata: &std::fs::Metadata) -> Value {
             time_ns(metadata.ctime(), metadata.ctime_nsec()),
         ),
         (key("birth_ns"), birth),
+        (key("mount_id"), mount_id),
     ]))
 }
 
@@ -118,7 +143,10 @@ pub(crate) fn stat_root(
         let metadata = file
             .metadata()
             .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
-        return Ok(stat_from_metadata(&metadata));
+        return Ok(stat_from_metadata(
+            &metadata,
+            mount_id(&file, Path::new(""), empty_path_flags()),
+        ));
     }
 
     let name = path.file_name().expect("checked rooted stat path");
@@ -126,7 +154,10 @@ pub(crate) fn stat_root(
     if parent_path.as_os_str().is_empty() {
         let stat = rfs::statat(root, name, AtFlags::SYMLINK_NOFOLLOW)
             .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
-        return Ok(stat_from_raw(&stat));
+        return Ok(stat_from_raw(
+            &stat,
+            mount_id(root, Path::new(name), AtFlags::SYMLINK_NOFOLLOW),
+        ));
     }
 
     let parent = root
@@ -134,10 +165,13 @@ pub(crate) fn stat_root(
         .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
     let stat = rfs::statat(&parent, name, AtFlags::SYMLINK_NOFOLLOW)
         .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
-    Ok(stat_from_raw(&stat))
+    Ok(stat_from_raw(
+        &stat,
+        mount_id(&parent, Path::new(name), AtFlags::SYMLINK_NOFOLLOW),
+    ))
 }
 
-fn stat_from_raw(stat: &rfs::Stat) -> Value {
+fn stat_from_raw(stat: &rfs::Stat, mount_id: Value) -> Value {
     #[cfg(target_os = "linux")]
     let mode = stat.st_mode;
     #[cfg(not(target_os = "linux"))]
@@ -191,6 +225,7 @@ fn stat_from_raw(stat: &rfs::Stat) -> Value {
         (key("mtime_ns"), time_ns(stat.st_mtime, stat.st_mtime_nsec as i64)),
         (key("ctime_ns"), time_ns(stat.st_ctime, stat.st_ctime_nsec as i64)),
         (key("birth_ns"), Value::Null),
+        (key("mount_id"), mount_id),
     ]))
 }
 

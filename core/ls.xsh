@@ -327,6 +327,7 @@ const DEFAULT_COLORS: Map[Str] = {
 const ZERO_STAT: FsStat = {
   atime_ns: 0,
   birth_ns: null,
+  mount_id: null,
   blksize: 0,
   blocks_512: 0,
   ctime_ns: 0,
