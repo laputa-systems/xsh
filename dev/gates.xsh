@@ -2551,7 +2551,7 @@ proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
           return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when ! harness_selects(id, command.argv)
         }
         result_runner = "cargo"
-        selected_command = {...command, argv: [@command.argv, "--format", "json", "-Z", "unstable-options"]}
+        selected_command = {...command, argv: [@command.argv, "--format", "json", "-Z", "unstable-options", "--report-time"]}
       }
       if ! selected_ids.is_empty() {
         match cases_file.write(json.encode(selected_ids)?) {

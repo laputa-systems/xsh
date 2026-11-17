@@ -1027,3 +1027,92 @@ generated output directly.
 `dev/tour_html.xsh`; its renderer accepts only the Markdown constructs used by
 the tour. Update the renderer in the same change when the tour needs a new
 construct.
+
+### Test timing records
+
+Every `cargo dev test linux` run records its timings under
+`.work/test-records/latest`: libtest output with per-test `--report-time`
+durations for each Cargo test binary in `cargo/`, and the native suite's
+`--events-jsonl` stream in `native-events.jsonl`. A new full run replaces the
+directory. Rank the latest run with:
+
+```sh
+cargo dev test-health            # print rankings
+cargo dev test-health --record   # also write bench/test-suite-health-YYYY-MM-DD.json
+```
+
+`dev/performance/rank.py` ranks any recorded native event stream or Cargo
+timing file directly, for example a bounded native run:
+
+```sh
+xsht test --jobs 8 --events-jsonl .work/tmp/native.jsonl core/tests/test-uu-sort-
+python3 dev/performance/rank.py .work/tmp/native.jsonl
+```
+
+The native run start records its worker count, and each case start records a
+zero-based worker and nanoseconds since the run started. File time is the sum
+of case durations; file span runs from its first case start to its last case
+end. Worker idle includes setup, scheduling and teardown outside case
+durations. The tail lists the last case starts and the last case to finish,
+which is the suite's critical path. Unstarted cases have no schedule and are
+omitted. Cargo binaries record through `dev/cargo_test_runner.sh` when
+`XSH_CARGO_TIMINGS_DIR` names a writable directory: the harness output stays
+readable and also goes to one file per binary, with `<N.NNNs>` after each test.
+Ignored tests have no duration. Gate Cargo runs request the same timings in
+their scratch event streams.
+
+### Suite health
+
+The suite is part of the product: its wall time decides how often the full
+contract runs, and a test that costs far more than the defect it can catch
+crowds out tests that would catch more. Keep it measured and audited.
+
+**Records.** After a full contract run that is meant to stand as evidence, run
+`cargo dev test-health --record` and commit the dated
+`bench/test-suite-health-*.json` with the change it measures. Its label is the
+measured commit; each record keeps the native wall time, case-time sum, worker
+idle, the slowest files and cases, the tail, and each Cargo binary's slowest
+tests. Compare against the previous record before claiming a speedup or
+accepting a regression, and note the host load: rankings stay useful under
+load, absolute times do not.
+
+**Cost rules.** These make a test a suspect, to be judged, not deleted:
+
+- a native case of 30 s or more, or a native file whose case time exceeds 2% of
+  the suite's case-time sum;
+- a Rust test that libtest reports running for over 60 s, or a Cargo binary
+  whose case time exceeds 10% of the full contract's wall time;
+- any test in the ordinary contract that re-runs the native corpus, re-checks
+  or reformats the whole repository, or copies the workspace; such checks
+  belong in a Scenario gate case unless their unique coverage is named;
+- a test that waits out a real timeout or sleep instead of a short limit or an
+  injected clock, or that spawns one process per row where one invocation would
+  cover the rows.
+
+A new test that crosses a rule names, in its commit, the defect it catches that
+no cheaper test catches.
+
+**Audit procedure.** Rank the latest record. For each suspect in the top of the
+case-time and tail rankings, read the test, its fixtures and the code under
+test, and decide:
+
+1. What it asserts and which plausible defect it detects.
+2. Whether a cheaper test at the same boundary already detects it; name it.
+3. Where the time goes: real work in the code under test, per-process startup
+   and checking, oversized inputs, repetitions, or waiting.
+4. A disposition: **Retain**; **Fix** execution drag without changing what is
+   checked (batch invocations, smaller inputs that still cross the boundary
+   being tested, short limits, in-process calls); **Consolidate** duplicated
+   coverage into the outermost test that pins it; or **Delete** only with a
+   named cheaper test covering the same contract. Missing evidence means not
+   ready to delete; a slow test is not deletable for being slow.
+5. Cost that comes from slow product code is a product finding: file it in
+   `TODO.md` instead of shrinking the test around it.
+
+Reducing a recorded upstream conformance log to a sample, or moving a check out
+of the ordinary contract, changes what the suite proves and needs the owner's
+decision.
+
+**When to audit.** When a full contract run regresses by more than 10% against
+the last record, when a new file enters the top ten by case time, and at each
+roadmap milestone.

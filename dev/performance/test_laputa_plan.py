@@ -316,9 +316,9 @@ class LaputaPlanTests(TestCase):
     def test_json_events_reconcile_exact_scope(self):
         import json
         common = {'schema': 1, 'run_id': 'fixture'}
-        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS)}]
+        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS), 'workers': 2}]
         for name in plan.IDS:
-            rows.append({**common, 'event': 'case_started', 'case_id': name})
+            rows.append({**common, 'event': 'case_started', 'case_id': name, 'worker': 0, 'start_offset_ns': 0})
             rows.append({**common, 'event': 'case_finished', 'case_id': name,
                          'outcome': 'passed', 'reason': None, 'duration_ns': 1})
         counts = {name: int(name == 'passed') * 2 for name in plan.results.OUTCOMES}
@@ -433,8 +433,8 @@ class LaputaPlanTests(TestCase):
     def test_interrupted_runner_preserves_verified_failure_evidence(self):
         import json
         common = {'schema': 1, 'run_id': 'fixture'}
-        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS)},
-                {**common, 'event': 'case_started', 'case_id': plan.IDS[0]},
+        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS), 'workers': 2},
+                {**common, 'event': 'case_started', 'case_id': plan.IDS[0], 'worker': 0, 'start_offset_ns': 0},
                 {**common, 'event': 'case_finished', 'case_id': plan.IDS[0], 'outcome': 'failed',
                  'reason': {'kind': 'assertion', 'detail': 'failed'}, 'duration_ns': 1}]
         events = self.root / 'events.jsonl'
@@ -451,8 +451,8 @@ class LaputaPlanTests(TestCase):
         import json
         common = {'schema': 1, 'run_id': 'fixture'}
         selected = plan.KBUILD_DISCOVERY_IDS
-        rows = [{**common, 'event': 'run_started', 'selected': list(selected)},
-                {**common, 'event': 'case_started', 'case_id': selected[0]},
+        rows = [{**common, 'event': 'run_started', 'selected': list(selected), 'workers': 2},
+                {**common, 'event': 'case_started', 'case_id': selected[0], 'worker': 0, 'start_offset_ns': 0},
                 {**common, 'event': 'case_finished', 'case_id': selected[0], 'outcome': 'failed',
                  'reason': {'kind': 'assertion', 'detail': 'failure'}, 'duration_ns': 1}]
         (self.root / 'events.jsonl').write_text(
@@ -483,8 +483,8 @@ class LaputaPlanTests(TestCase):
         leases = SimpleNamespace(campaign_leases=lease, prepare_cleanup_unresolved=lambda detail: None,
                                  resolve_cleanup_unresolved=lambda: None)
         common = {'schema': 1, 'run_id': 'fixture'}
-        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS)},
-                {**common, 'event': 'case_started', 'case_id': plan.IDS[0]},
+        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS), 'workers': 2},
+                {**common, 'event': 'case_started', 'case_id': plan.IDS[0], 'worker': 0, 'start_offset_ns': 0},
                 {**common, 'event': 'case_finished', 'case_id': plan.IDS[0], 'outcome': 'failed',
                  'reason': {'kind': 'assertion', 'detail': 'failure'}, 'duration_ns': 1}]
         def docker(argv, work, *, timeout_seconds, on_cleanup_verified):
@@ -526,8 +526,8 @@ class LaputaPlanTests(TestCase):
         leases = SimpleNamespace(campaign_leases=lease, prepare_cleanup_unresolved=lambda detail: None,
                                  resolve_cleanup_unresolved=lambda: None)
         common = {'schema': 1, 'run_id': 'fixture'}
-        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS)},
-                {**common, 'event': 'case_started', 'case_id': plan.IDS[0]},
+        rows = [{**common, 'event': 'run_started', 'selected': list(plan.IDS), 'workers': 2},
+                {**common, 'event': 'case_started', 'case_id': plan.IDS[0], 'worker': 0, 'start_offset_ns': 0},
                 {**common, 'event': 'case_finished', 'case_id': plan.IDS[0], 'outcome': 'failed',
                  'reason': {'kind': 'assertion', 'detail': 'failure'}, 'duration_ns': 1}]
         def docker(argv, work, *, timeout_seconds, on_cleanup_verified):

@@ -214,9 +214,10 @@ def interrupted_evidence(work, selected=IDS):
         if not rows:
             return None
         first = rows[0]
-        results._fields(first, ('selected',))
+        results._fields(first, ('selected', 'workers'))
         if (type(first.get('schema')) is not int or first['schema'] != 1 or first.get('event') != 'run_started'
                 or not isinstance(first.get('run_id'), str) or not first['run_id']
+                or not results._integer(first.get('workers')) or first['workers'] == 0
                 or results._ids(first.get('selected')) != results._ids(selected)):
             return None
         states = dict.fromkeys(selected, 'pending')
@@ -234,8 +235,9 @@ def interrupted_evidence(work, selected=IDS):
             if name not in states:
                 return None
             if event == 'case_started':
-                results._fields(row, ('case_id',))
-                if states[name] != 'pending':
+                results._fields(row, ('case_id', 'worker', 'start_offset_ns'))
+                if (not results._integer(row.get('worker')) or row['worker'] >= first['workers'] or not results._integer(row.get('start_offset_ns'))
+                        or states[name] != 'pending'):
                     return None
                 states[name] = 'running'
             elif event == 'case_finished':

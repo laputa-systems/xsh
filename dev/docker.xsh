@@ -369,7 +369,7 @@ export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Boo
     marker.remove(missing_ok: true)?
     return
   }
-  let container_written = [fp"{ctx.root}/.work/gate", fp"{ctx.root}/.work/consolidation"]
+  let container_written = [fp"{ctx.root}/.work/gate", fp"{ctx.root}/.work/consolidation", fp"{ctx.root}/.work/test-records"]
   let outputs = [ctx.target_dir.display()] + [output.display() for output in container_written if output.exists()?]
   stages.execute(
     stages.command("container-ownership-repair", ctx.target.triple, "chown", ["chown", "-R", f"{uid}:{gid}", @outputs], ctx.root, {}),

@@ -98,6 +98,7 @@ usage: cargo dev COMMAND [OPTIONS]
 commands:
   build
   profile  build xsh and xsht with line tables and frame pointers
+  test-health [--record]  rank the timings of the latest full test run
   check [lint]
   gate [PATH...] [--tier edit|change] [--case ID] [--plan [--json]]
   gate [PATH...] [--case ID] --status
@@ -229,6 +230,27 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
           environment,
         ),
       )
+    }
+    "test-health" => {
+      guard args.is_empty() or args == ["--record"] else {
+        return Err(usage("test-health accepts only --record"))
+      }
+
+      let records = tests.test_records(ctx)
+      let native_events = fp"{records}/native-events.jsonl"
+      guard native_events.exists()? else {
+        return Err(usage(f"no recorded full run at {records.display()}; run cargo dev test linux first"))
+      }
+      let cargo_records = [entry.path.display() for entry in fs.children(fp"{records}/cargo")? if entry.name.starts_with("cargo-")]
+      var argv = ["python3", "-B", "dev/performance/rank.py", "--limit", "15"]
+      if args == ["--record"] {
+        let root = ctx.root.display()
+        let commit = run.capture --text git -C $root rev-parse HEAD
+        let day = time.format(time.now() * 1000000, "%Y-%m-%d", utc: true)?
+        argv += ["--json", fp"{ctx.root}/bench/test-suite-health-{day}.json".display(), "--label", commit.stdout.trim()]
+      }
+      return stages.execute(stages.command("test-health", ctx.target.triple, "python3",
+        [@argv, native_events.display(), @cargo_records], ctx.root, {}))
     }
     "check" => {
       return builds.check_lint(ctx) when args == ["lint"]

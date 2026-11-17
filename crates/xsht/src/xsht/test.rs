@@ -211,7 +211,7 @@ fn duration_ns(duration: Duration) -> Result<xsh::host::json::Value, String> {
 }
 
 impl TestRunLedger {
-    fn new(run_id: &str, ids: impl IntoIterator<Item = String>, path: Option<&Path>) -> Result<Self, String> {
+    fn new(run_id: &str, ids: impl IntoIterator<Item = String>, path: Option<&Path>, workers: usize) -> Result<Self, String> {
         let mut cases = BTreeMap::new();
         for id in ids {
             if cases.insert(id.clone(), CaseLifecycle::Pending).is_some() { return Err(format!("duplicate discovered test ID: {id}")); }
@@ -223,7 +223,7 @@ impl TestRunLedger {
         };
         let selected = cases.keys().cloned().map(json_string).collect::<xsh::host::json::Value>();
         let mut ledger = Self { run_id: run_id.to_owned(), cases, output, finished: false };
-        ledger.emit("run_started", [("selected", selected)])?;
+        ledger.emit("run_started", [("selected", selected), ("workers", json_number(workers as u64))])?;
         Ok(ledger)
     }
 
@@ -249,12 +249,12 @@ impl TestRunLedger {
         }
     }
 
-    fn start(&mut self, id: &str) -> Result<(), String> {
+    fn start(&mut self, id: &str, worker: usize, offset: Duration) -> Result<(), String> {
         if self.finished { return Err("test started after the final summary".into()); }
         let state = self.cases.get_mut(id).ok_or_else(|| format!("unselected test started: {id}"))?;
         if !matches!(state, CaseLifecycle::Pending) { return Err(format!("test started more than once: {id}")); }
         *state = CaseLifecycle::Running;
-        self.emit("case_started", [("case_id", json_string(id))])
+        self.emit("case_started", [("case_id", json_string(id)), ("worker", json_number(worker as u64)), ("start_offset_ns", duration_ns(offset)?)])
     }
 
     fn finish(&mut self, id: &str, outcome: &TestOutcome) -> Result<(), String> {
@@ -528,7 +528,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
 
     let run_id = test_run_id();
     let started = Instant::now();
-    let mut ledger = match TestRunLedger::new(&run_id, cases.iter().map(|case| case.id().to_owned()), options.events_jsonl.as_deref()) {
+    let mut ledger = match TestRunLedger::new(&run_id, cases.iter().map(|case| case.id().to_owned()), options.events_jsonl.as_deref(), test_jobs(&options, cases.len())) {
         Ok(ledger) => ledger,
         Err(error) => return test_input_error(error),
     };
@@ -550,8 +550,8 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
     let mut interrupted = None;
     let run_result = run_test_cases(cases, &run_id, &options, route_witness.as_ref(), |event| {
         let (id, outcome) = match event {
-            TestRunEvent::Started(id) => {
-                if let Err(error) = ledger.start(&id) { lifecycle_error.get_or_insert(error); return false; }
+            TestRunEvent::Started(id, worker, at) => {
+                if let Err(error) = ledger.start(&id, worker, at.duration_since(started)) { lifecycle_error.get_or_insert(error); return false; }
                 return true;
             }
             TestRunEvent::Finished(id, outcome) => (id, outcome),
@@ -696,7 +696,7 @@ fn test_input_error(message: String) -> CliOutput {
     CliOutput { status: 2, stdout: Vec::new(), stderr: text_bytes(format!("xsht: {message}\n")), trace_text: String::new(), syscall_summary: None }
 }
 
-enum TestRunEvent { Started(String), Finished(String, TestOutcome) }
+enum TestRunEvent { Started(String, usize, Instant), Finished(String, TestOutcome) }
 
 fn run_test_cases<F>(
     cases: Vec<TestCase>, run_id: &str, options: &TestOptions,
@@ -709,7 +709,7 @@ where F: FnMut(TestRunEvent) -> bool {
         for (index, case) in cases.into_iter().enumerate() {
             if cancellation_requested_signal().is_some() { break; }
             let id = case.id().to_owned();
-            if !on_event(TestRunEvent::Started(id.clone())) { break; }
+            if !on_event(TestRunEvent::Started(id.clone(), 0, Instant::now())) { break; }
             let outcome = run_test_case(case, index, run_id, options, route_witness, &stopped);
             if !on_event(TestRunEvent::Finished(id, outcome)) { break; }
         }
@@ -804,7 +804,7 @@ where F: FnMut(TestRunEvent) -> bool {
                 let Some((file_index, index, case)) = work else { break };
                 let _lease = ActiveTestLease { queue: &queue, file_index };
                 let id = case.id().to_owned();
-                if tx.send(TestRunEvent::Started(id.clone())).is_err() { break; }
+                if tx.send(TestRunEvent::Started(id.clone(), worker, Instant::now())).is_err() { break; }
                 let outcome = run_test_case(case, index, &run_id, &options, route_witness.as_ref().as_ref(), &worker_stopped);
                 if tx.send(TestRunEvent::Finished(id, outcome)).is_err() { break; }
             }
@@ -2476,13 +2476,13 @@ mod tests {
 
     #[test]
     fn test_ledger_rejects_missing_duplicate_and_out_of_order_results() {
-        let mut ledger = super::TestRunLedger::new("owned-run", ["a".to_owned(), "b".to_owned()], None).unwrap();
+        let mut ledger = super::TestRunLedger::new("owned-run", ["a".to_owned(), "b".to_owned()], None, 1).unwrap();
         let outcome = super::test_failure("actual assertion failure".into());
         assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err());
         assert!(ledger.finish("a", &outcome).is_err());
-        assert!(ledger.start("unknown").is_err());
-        ledger.start("a").unwrap();
-        assert!(ledger.start("a").is_err());
+        assert!(ledger.start("unknown", 0, Duration::ZERO).is_err());
+        ledger.start("a", 0, Duration::ZERO).unwrap();
+        assert!(ledger.start("a", 0, Duration::ZERO).is_err());
         ledger.finish("a", &outcome).unwrap();
         assert!(ledger.finish("a", &outcome).is_err());
         ledger.settle("fail-fast").unwrap();
@@ -2490,15 +2490,15 @@ mod tests {
         assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err());
         ledger.final_summary(super::RunCompletion::CaseFailure, Duration::ZERO).unwrap();
         assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err());
-        assert!(ledger.start("b").is_err());
+        assert!(ledger.start("b", 0, Duration::ZERO).is_err());
     }
 
     #[test]
     fn test_ledger_rejects_success_with_unsuccessful_terminal_outcomes() {
         for terminal in [super::TestTerminal::Failed, super::TestTerminal::TimedOut,
             super::TestTerminal::Cancelled, super::TestTerminal::NotExecuted] {
-            let mut ledger = super::TestRunLedger::new("contradictory-summary", ["case".to_owned()], None).unwrap();
-            if terminal != super::TestTerminal::NotExecuted { ledger.start("case").unwrap(); }
+            let mut ledger = super::TestRunLedger::new("contradictory-summary", ["case".to_owned()], None, 1).unwrap();
+            if terminal != super::TestTerminal::NotExecuted { ledger.start("case", 0, Duration::ZERO).unwrap(); }
             ledger.finish_case("case", terminal, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
             assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err(), "{terminal:?}");
             let completion = match terminal {
@@ -2508,8 +2508,8 @@ mod tests {
             };
             ledger.final_summary(completion, Duration::ZERO).unwrap();
         }
-        let mut ledger = super::TestRunLedger::new("legacy-skip", ["case".to_owned()], None).unwrap();
-        ledger.start("case").unwrap();
+        let mut ledger = super::TestRunLedger::new("legacy-skip", ["case".to_owned()], None, 1).unwrap();
+        ledger.start("case", 0, Duration::ZERO).unwrap();
         ledger.finish_case("case", super::TestTerminal::Skipped, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
         assert!(ledger.final_summary(super::RunCompletion::CaseFailure, Duration::ZERO).is_err());
         ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).unwrap();
@@ -2519,8 +2519,8 @@ mod tests {
     fn native_run_completion_keeps_late_cancellation_and_required_failures() {
         let coverage = super::RunCompletion::select(false, None, None, Some("cannot write coverage"), false, true);
         assert_eq!(coverage.status(), 1);
-        let mut ledger = super::TestRunLedger::new("coverage-only", ["case".to_owned()], None).unwrap();
-        ledger.start("case").unwrap();
+        let mut ledger = super::TestRunLedger::new("coverage-only", ["case".to_owned()], None, 1).unwrap();
+        ledger.start("case", 0, Duration::ZERO).unwrap();
         ledger.finish_case("case", super::TestTerminal::Passed, Duration::ZERO, xsh::host::json::Value::null()).unwrap();
         ledger.final_summary(coverage, Duration::ZERO).unwrap();
         assert!(matches!(super::RunCompletion::select(true, Some("cleanup"), None, Some("coverage"), true, true), super::RunCompletion::Cancelled));
@@ -2542,10 +2542,10 @@ mod tests {
     fn event_write_failure_cannot_publish_a_successful_final_summary() {
         let (writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
         let fd: std::os::fd::OwnedFd = writer.into();
-        let mut ledger = super::TestRunLedger::new("broken-output", ["case".to_owned()], None).unwrap();
+        let mut ledger = super::TestRunLedger::new("broken-output", ["case".to_owned()], None, 1).unwrap();
         ledger.output = super::EventOutput::Open(std::fs::File::from(fd));
         drop(reader);
-        assert!(ledger.start("case").is_err());
+        assert!(ledger.start("case", 0, Duration::ZERO).is_err());
         assert!(matches!(ledger.output, super::EventOutput::Failed(_)));
         assert!(ledger.settle("event output failed").is_err());
         assert!(ledger.final_summary(super::RunCompletion::Success, Duration::ZERO).is_err());
@@ -2554,11 +2554,11 @@ mod tests {
     #[test]
     fn parallel_runner_drains_fast_results_before_releasing_its_workers() {
         let cases = ["a::one", "a::two", "b::three"].map(invalid_case).into_iter().collect();
-        let mut ledger = super::TestRunLedger::new("fast-workers", ["a::one", "a::two", "b::three"].map(str::to_owned), None).unwrap();
+        let mut ledger = super::TestRunLedger::new("fast-workers", ["a::one", "a::two", "b::three"].map(str::to_owned), None, 1).unwrap();
         let mut finished = 0;
         super::run_test_cases(cases, "fast-workers", &runner_options(), None, |event| {
             match event {
-                super::TestRunEvent::Started(id) => ledger.start(&id).unwrap(),
+                super::TestRunEvent::Started(id, worker, _) => ledger.start(&id, worker, Duration::ZERO).unwrap(),
                 super::TestRunEvent::Finished(id, outcome) => { ledger.finish(&id, &outcome).unwrap(); finished += 1; }
             }
             true
@@ -2598,8 +2598,8 @@ mod tests {
             let stopped = std::sync::atomic::AtomicBool::new(true);
             let outcome = super::wait_native_test(worker, rx, xsh::execution::evaluator::TestCancellation::default(), None, &stopped);
             let expected = if signal.is_some() { super::TestTerminal::Cancelled } else { super::TestTerminal::Failed };
-            let mut ledger = super::TestRunLedger::new("publication", ["case".to_owned()], None).unwrap();
-            ledger.start("case").unwrap();
+            let mut ledger = super::TestRunLedger::new("publication", ["case".to_owned()], None, 1).unwrap();
+            ledger.start("case", 0, Duration::ZERO).unwrap();
             ledger.finish("case", &outcome).unwrap();
             assert!(matches!(ledger.cases["case"], super::CaseLifecycle::Finished(actual) if actual == expected));
             assert!(outcome.cleanup_error.is_none());

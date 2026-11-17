@@ -182,7 +182,9 @@ def _reconcile_xsht(text, selected, *, child_status):
         event = row.get('event')
         if index == 0:
             _require(event == 'run_started', 'missing initial run_started')
-            _fields(row, ('selected',))
+            _fields(row, ('selected', 'workers'))
+            _require(_integer(row.get('workers')) and row['workers'] > 0, 'invalid worker count')
+            workers = row['workers']
             _require(isinstance(row.get('selected'), list) and _ids(row['selected']) == selected, 'selected scope differs from runner')
             run_id = row['run_id']
             continue
@@ -192,7 +194,8 @@ def _reconcile_xsht(text, selected, *, child_status):
             name = row.get('case_id')
             _require(isinstance(name, str) and name in states, 'unselected case result')
             if event == 'case_started':
-                _fields(row, ('case_id',))
+                _fields(row, ('case_id', 'worker', 'start_offset_ns'))
+                _require(_integer(row.get('worker')) and row['worker'] < workers and _integer(row.get('start_offset_ns')), f'invalid schedule: {name}')
                 _require(states[name] == 'pending', f'duplicate or out-of-order start: {name}')
                 states[name] = 'running'
             else:
@@ -274,9 +277,11 @@ def _reconcile_cargo(text, selected, *, child_status):
             _require(isinstance(row.get('stdout', ''), str), 'invalid Cargo output')
             _require(states[name] == 'running' or (event == 'ignored' and states[name] == 'pending'), 'out-of-order Cargo terminal')
             states[name] = 'finished'
+            elapsed = row.get('exec_time')
+            _require(elapsed is None or type(elapsed) in (int, float) and 0 <= elapsed < 1e10, 'invalid Cargo test duration')
             cases[name] = {'outcome': {'ok': 'passed', 'failed': 'failed', 'ignored': 'skipped'}[event],
                            'reason': None if event == 'ok' else {'kind': event, 'detail': row.get('stdout', '')},
-                           'duration_ns': None}
+                           'duration_ns': None if elapsed is None else round(elapsed * 1_000_000_000)}
         elif row.get('type') == 'suite' and row.get('event') in ('ok', 'failed'):
             _require(all(state == 'finished' for state in states.values()), 'missing Cargo terminal result')
             counts = Counter(case['outcome'] for case in cases.values())

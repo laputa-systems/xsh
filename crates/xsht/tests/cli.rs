@@ -340,6 +340,8 @@ fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTre
     let first = events.first().unwrap();
     assert_eq!(native_event_text(native_event_field(first, "event")), "run_started");
     let run_id = native_event_text(native_event_field(first, "run_id"));
+    let workers = native_event_number(native_event_field(first, "workers"));
+    assert!(workers > 0);
     let Some(selected) = (native_event_field(first, "selected")).as_seq() else { panic!("run selection is not frozen") };
     let selected = selected.iter().map(|id| native_event_text(id).to_owned()).collect::<std::collections::BTreeSet<_>>();
     let mut active = std::collections::BTreeSet::new();
@@ -352,6 +354,8 @@ fn reconciled_native_events(path: &Path, status: u64) -> (std::collections::BTre
             "run_started" => assert_eq!(index, 0),
             "case_started" => {
                 let id = native_event_text(native_event_field(event, "case_id"));
+                assert!(native_event_number(native_event_field(event, "worker")) < workers);
+                native_event_number(native_event_field(event, "start_offset_ns"));
                 assert!(selected.contains(id) && !outcomes.contains_key(id));
                 assert!(active.insert(id.to_owned()));
             }

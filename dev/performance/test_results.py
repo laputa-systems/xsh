@@ -20,8 +20,8 @@ def native_rows(outcome='passed', status=0):
     if outcome == 'timed_out':
         reason['limit'] = '1s'
     common = {'schema': 1, 'run_id': 'native-fixture'}
-    return [common | {'event': 'run_started', 'selected': ['tests/a.xsh::case']},
-            common | {'event': 'case_started', 'case_id': 'tests/a.xsh::case'},
+    return [common | {'event': 'run_started', 'selected': ['tests/a.xsh::case'], 'workers': 2},
+            common | {'event': 'case_started', 'case_id': 'tests/a.xsh::case', 'worker': 0, 'start_offset_ns': 0},
             common | {'event': 'case_finished', 'case_id': 'tests/a.xsh::case', 'outcome': outcome,
                       'reason': reason, 'duration_ns': 7},
             common | {'event': 'run_finished', 'status': status, 'reason': None, 'selected': 1, 'completed': 1,

@@ -92,8 +92,26 @@ for argument do
   esac
 done
 
-if [ "$passthrough_request" -eq 1 ] || [ "$test_filter" -eq 0 ]; then
+run_test() {
+  if [ -z "${XSH_CARGO_TIMINGS_DIR-}" ]; then
+    exec "$test_executable" "$@"
+  fi
+  timing_file=$(mktemp "$XSH_CARGO_TIMINGS_DIR/cargo-$(basename "$test_executable").XXXXXX")
+  status_file="$timing_file.status"
+  { "$test_executable" "$@" -Z unstable-options --report-time || printf '%s\n' "$?" > "$status_file"; } | tee "$timing_file"
+  status=0
+  if [ -e "$status_file" ]; then
+    status=$(cat "$status_file")
+    rm -f "$status_file"
+  fi
+  exit "$status"
+}
+
+if [ "$passthrough_request" -eq 1 ]; then
   exec "$test_executable" "$@"
+fi
+if [ "$test_filter" -eq 0 ]; then
+  run_test "$@"
 fi
 
 if [ "$unsupported_option" -eq 1 ]; then
@@ -123,4 +141,4 @@ case "$listing" in
     ;;
 esac
 
-exec "$test_executable" "$@"
+run_test "$@"

@@ -248,8 +248,9 @@ the same source module share one prepared program.
 It cannot combine with `--list`. Each newline-terminated schema-1 object has
 `schema`, `run_id`, and `event`. The stream contains:
 
-- `run_started` with the sorted `selected` ID array.
-- `case_started` with `case_id` when a test is admitted.
+- `run_started` with the sorted `selected` ID array and integer `workers` count.
+- `case_started` with `case_id`, zero-based `worker`, and integer
+  `start_offset_ns` since the run started when a test is admitted.
 - `case_finished` with `case_id`, `outcome`, `reason`, and integer `duration_ns`.
   Outcomes are `passed`, `failed`, `skipped`, `timed_out`, `cancelled`, or
   `not_executed`. A reason is null for success, or an object with `kind` and

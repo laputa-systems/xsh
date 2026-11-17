@@ -231,14 +231,31 @@ export proc native(
   }
 }
 
-## Runs process and library unit tests, followed by one full native suite.
+## Holds the timing records of the most recent full contract run.
+export pure test_records(ctx: context.Context) -> Path {
+  fp"{ctx.root}/.work/test-records/latest"
+}
+
+## Runs process and library unit tests, followed by one full native suite, and
+## records Cargo per-test times and native schedule events for ranking.
 export proc full(
   ctx: context.Context,
   profile: TestProfile,
   privileged = false,
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
-  run_commands(rust_plan(ctx, profile, privileged)?)
-  native(ctx, profile, [])
+  let records = test_records(ctx)
+  records.remove()?
+  let cargo_records = fp"{records}/cargo"
+  cargo_records.mkdir(parents: true)?
+  if ctx.target.os == "linux" and unix.id()?.euid == 0 {
+    let owner = f"{env.get("HOST_UID")?.trim()}:{env.get("HOST_GID")?.trim()}"
+    stages.execute(stages.command("test-records-owner", ctx.target.triple, "chown",
+      ["chown", "-R", owner, records.display()], ctx.root, {}))
+  }
+  env ({XSH_CARGO_TIMINGS_DIR: cargo_records.display()}) {
+    run_commands(rust_plan(ctx, profile, privileged)?)?
+  }
+  native(ctx, profile, ["--events-jsonl", fp"{records}/native-events.jsonl".display()])
 }
 
 ## Runs the complete ordinary test contract in the verification profile by
