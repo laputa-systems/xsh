@@ -1198,18 +1198,26 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
   ## UTF-8 string order matches raw byte order only when every record is valid UTF-8.
   if plan.plain_whole_line {
     var all_text = true
-    let ordered: List[SortRecordOrder] = collect {
-      for record in unique_input {
-        if let text = record.text {
-          yield {record: record, key: text}
-        } else {
-          all_text = false
-          break
-        }
-      }
+    for record in unique_input {
+      if record.text == null { all_text = false; break }
     }
     if all_text {
-      return [entry.record for entry in ordered |> sort-by(desc: opts.reverse) .key]
+      return unique_input |> sort-by(desc: opts.reverse) { |record| record.text ?? "" }
+    }
+  }
+  if plan.last_resort and ! opts.reverse {
+    var all_text = true
+    for record in unique_input {
+      if record.text == null { all_text = false; break }
+    }
+    if all_text {
+      let primary_plan = {...plan, last_resort: false}
+      let ordered = collect {
+        for record in unique_input {
+          yield {record: record, key: {primary: sort_record_order(record, opts, primary_plan), raw: record.text ?? ""}}
+        }
+      }
+      return [entry.record for entry in ordered |> sort-by .key]
     }
   }
   let ordered: List[SortRecordOrder] = collect {
