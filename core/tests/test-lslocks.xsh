@@ -1,5 +1,6 @@
 use support.uu
 use support.util_linux as ul
+use support.util_linux_contexts as contexts
 
 type LockReady = {
   method: Str,
@@ -928,3 +929,45 @@ test test_lslocks_empty_filtered_table_has_no_header { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+
+test test_lslocks_exited_flock_acquirer { |ctx|
+  let s = uu.scene(ctx)?
+  let script = uu.at(s, "exited-acquirer.py")
+  script.write("import json, os, subprocess, sys\nfd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)\nos.dup2(fd, 17)\nos.dup2(fd, 18)\nsubprocess.run(['/usr/bin/flock', '17'], pass_fds=(17,), check=True)\nprint(json.dumps({'pid': os.getpid()}), flush=True)\nsys.stdin.readline()\n")
+  let lock_path = uu.at(s, "exited-acquirer-lock")
+  let input = uu.at(s, "input")
+  let output = uu.at(s, "output")
+  let stderr = uu.at(s, "stderr")
+  fs.mkfifo(input, 0o600)
+  fs.mkfifo(output, 0o600)
+  let input_fd = unix.open_fd(input, write: true, nonblock: true)?
+  defer unix.close_fd(input_fd)
+  let output_fd = unix.open_fd(output, nonblock: true)?
+  defer unix.close_fd(output_fd)
+  let words = [p"/usr/bin/python3", script, lock_path]
+  let plan = process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, output, stderr, timeout: 25s)
+  let child = spawn plan?
+  defer child.cancel(signal: "TERM", kill_after: 2s)
+  let keeper: ul.Keeper = {child: child, input_fd: input_fd, output_fd: output_fd, ready: "", stderr: stderr}
+  let pid = json.get(json.decode(ul.keeper_receive(keeper)?)?, ["pid"])?.require(Int)?
+  let observed = ul.reference(s, "lslocks", ["-r", "-n", "-p", f"{pid}", "-o", "PID"])?
+  if observed.stdout.is_empty() {
+    let inode = fs.stat(lock_path)?.ino
+    for line in p"/proc/locks".read_text()?.lines() {
+      assert ! (f":{inode} " in line)
+    }
+    return
+  }
+  for args in [
+    ["-r", "-n", "-o", "COMMAND,PID,TYPE,MODE,PATH", "-p", f"{pid}"],
+    ["-J", "-p", f"{pid}", "-o", "COMMAND,PID,PATH,HOLDERS"],
+    ["-n", "-p", f"{pid}", "-o", "COMMAND,PID,PATH"],
+  ] {
+    let result = compared(s, args)?
+    assert ! result.stdout.is_empty()
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
