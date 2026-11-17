@@ -263,6 +263,12 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+  fp"{root}/tests/xsh/required.xsh".write("test required { assert (true) }\n")
+  let invalid = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
+    env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+  assert "check.redundant-parens" in invalid.stdout or "check.redundant-parens" in invalid.stderr, f"stdout={invalid.stdout} stderr={invalid.stderr}"
+  assert "tests/xsh/required.xsh:1:" in invalid.stdout or "tests/xsh/required.xsh:1:" in invalid.stderr, f"stdout={invalid.stdout} stderr={invalid.stderr}"
   fp"{root}/tests/xsh/line\nbreak.xsh".write("test required { assert true }\n")
   let newline_id = json.encode("native-tests/xsh/line\nbreak.xsh")?
   let newline_source = f"""

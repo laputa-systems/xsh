@@ -2493,7 +2493,17 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
         return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when ids.is_empty()
         var seen: List[Str] = []
         for id in ids {
-          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when "::" not in id or command.argv[2] not in id or id in seen
+          if "::" not in id {
+            if id.starts_with(command.argv[2]) and id.ends_with(".xsh") {
+              let remaining = available_ns - (time.monotonic()? - case_started)
+              if remaining >= 1000000 {
+                let check = as_native_user(native, {...command, argv: [command.executable, "check", id]})
+                let _ = gate_execution.execute(check, gate_execution.limit_ms(seconds, remaining)?)?
+              }
+            }
+            return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0))
+          }
+          return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: 0)) when command.argv[2] not in id or id in seen
           seen += [id]
         }
         let in_lane = if ctx.target.os == "linux" { [id for id in seen if id not in lane_excluded_tests()] } else { seen }
