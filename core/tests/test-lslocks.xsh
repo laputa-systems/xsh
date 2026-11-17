@@ -1212,3 +1212,29 @@ test test_lslocks_unreadable_proc_locks { |ctx|
   assert reference.status.exited_with(255) and reference.stdout == "" and reference.stderr == ""
   assert candidate.status.exited_with(255) and candidate.stdout == "" and candidate.stderr == ""
 }
+
+test test_lslocks_descriptor_device_collision { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let mountpoint = uu.at(s, "mount")
+  mountpoint.mkdir()
+  assert (run.capture --text mount -t tmpfs none $mountpoint).status.exited_with(0)
+  defer { run.status umount $mountpoint }
+  let null_inode = fs.stat(p"/dev/null", follow_symlinks: true)?.ino
+  var target: Path? = null
+  for index in range(20) {
+    let file = fp"{mountpoint}/{index}"
+    file.write("hello")
+    if fs.stat(file)?.ino == null_inode { target = file; break }
+  }
+  assert target != null
+  let script = uu.at(s, "collision.py")
+  script.write("import fcntl,os,sys\nn=os.open('/dev/null',os.O_RDONLY)\nos.dup2(n,0)\nos.close(n)\nf=os.open(sys.argv[1],os.O_RDWR)\nfcntl.flock(f,fcntl.LOCK_EX)\nprint(os.getpid(),flush=True)\nsys.stdout.flush()\nimport time\ntime.sleep(60)\n")
+  let keeper = ul.start_keeper(s, script, [(target ?? mountpoint).display()])?
+  defer ul.stop_keeper(keeper)
+  let pid = keeper.ready.trim()
+  for args in [["-p", pid, "-o", "PATH,SIZE"], ["-J", "-p", pid, "-o", "PATH"]] {
+    let result = compared(s, args)?
+    assert (target ?? mountpoint).display() in (result.stdout.utf8() ?? "")
+  }
+}

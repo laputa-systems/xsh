@@ -260,17 +260,19 @@ proc descriptor_locks(files: List[LinuxOpenFile]) [fs] -> List[DescriptorLock] {
   }
 }
 
-pure file_path(files: List[LinuxOpenFile], pid: Int, inode: Int) -> LinuxOpenFile? {
+pure file_path(files: List[LinuxOpenFile], pid: Int, lock: KernelLock) -> LinuxOpenFile? {
   for file in files {
-    if file.pid == pid and file.fd >= 0 and file.inode == inode { return file }
+    if let dev = file.dev {
+      if file.pid == pid and file.fd > 0 and file.inode == lock.inode and fs.dev_major(dev) == lock.major and fs.dev_minor(dev) == lock.minor { return file }
+    }
   }
   null
 }
 
-proc live_lock_file(pid: Int, inode: Int) [fs, process] -> LinuxOpenFile? {
+proc live_lock_file(pid: Int, lock: KernelLock) [fs, process] -> LinuxOpenFile? {
   let observed = try { linux.open_files(pid)?.collect() }
   guard let files = observed else { return null }
-  file_path(files, pid, inode)
+  file_path(files, pid, lock)
 }
 
 pure descriptor_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> DescriptorLock? {
@@ -345,7 +347,7 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
       } else { b"(unknown)" }
       let command = command_bytes.utf8() ?? filter_byte_text(command_bytes)
       let descriptor_owner = if needs_owner { resolved } else { null }
-      let path_file = if lock.pid > 0 { live_lock_file(lock.pid, lock.inode) } else { file_path(files, pid, lock.inode) }
+      let path_file = if lock.pid > 0 { live_lock_file(lock.pid, lock) } else { file_path(files, pid, lock) }
       let lock_path: Bytes? = if descriptor_owner != null { descriptor_owner.path } else if path_file != null { path_file.path.bytes() } else { null }
       let size = if descriptor_owner != null {
         descriptor_owner.size
