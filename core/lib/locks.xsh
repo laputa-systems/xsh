@@ -608,12 +608,30 @@ pure filter_literal(token: FilterToken) -> FilterValue {
   {kind: "string", value: token.value, boolean: false}
 }
 
+pure regex_byte_text(value: Str) -> Str {
+  let raw = bytes.from_text(value)
+  var chunks: List[Bytes] = []
+  var index = 0
+  while index < raw.len() {
+    if raw.byte_at(index) == 0 and index + 3 < raw.len() and raw.byte_at(index + 3) == 0 {
+      let hex = raw[index + 1..index + 3].utf8() ?? ""
+      let byte = hexadecimal(hex) ?? 0
+      chunks += [bytes.from_ints([238, 128 + byte / 64, 128 + byte % 64]) ?? b""]
+      index += 4
+    } else {
+      chunks += [raw[index..index + 1]]
+      index += 1
+    }
+  }
+  bytes.concat(chunks).utf8() ?? ""
+}
+
 pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: Lock) -> Bool {
   let l = if left.kind == "column" { column_value(lock, left.value) } else { left }
   let r = if right.kind == "column" { column_value(lock, right.value) } else { right }
   if operator in ["=~", "!~"] {
-    let pattern = regex.compile(r.value)
-    let matched = if let Ok(compiled) = pattern { compiled.matches(l.value) } else { false }
+    let pattern = regex.compile(regex_byte_text(r.value))
+    let matched = if let Ok(compiled) = pattern { compiled.matches(regex_byte_text(l.value)) } else { false }
     return if operator == "=~" { matched } else { ! matched }
   }
   if l.kind in ["number", "float"] or r.kind in ["number", "float"] {

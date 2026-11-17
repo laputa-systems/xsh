@@ -494,6 +494,7 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   let raw_filter = bytes.concat([b"PATH == \"", invalid_utf8.bytes(), b"\""]) as Path
   let filter_args = [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", p"-Q", raw_filter]
   ul.compare(ul.reference_paths(s, "lslocks", filter_args)?, uu.invoke_paths(s, "lslocks", filter_args, timeout: 5s)?)
+  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH =~ \"ff\""])?
   ul.keeper_send(invalid_utf8_keeper, "DONE")
   ul.finish_keeper(invalid_utf8_keeper)
   Ok()
