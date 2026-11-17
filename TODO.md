@@ -187,15 +187,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-100 · P3 · Report why a gate case is incomplete
-
-- **Area:** Tests
-- **Where:** `dev/gates.xsh` (native case execution and `ExecutionError.Incomplete` with `raw_status: 0`), `dev/gate_lane.xsh`
-- **Problem:** A native test file that fails `xsht check` (for example a `check.redundant-parens` diagnostic) made `cargo dev gate --case native-dev/tests/test-gates.xsh` print only `incomplete: native-dev/tests/test-gates.xsh raw_status=0`, with no diagnostic; the cause was found only by running `xsht test` directly. Separately, a file containing a test the Linux lane excludes as "covers a platform other than Linux" (e.g. `tests/xsh/tooling-trace.xsh::test_trace_rejects_syscalls_outside_linux`) makes every change to that file permanently incomplete, although a full Linux native run would only skip that test.
-- **Recommendation:** Print the runner's stderr or the first diagnostic when a case ends incomplete, and resolve tests excluded only because they cover another platform as not applicable on Linux rather than unresolved.
-- **Fix with:** error-model
-- **Effort:** S
-
 ### XSH-101 · P3 · Make in-process checking scale past two threads
 
 - **Area:** Performance
