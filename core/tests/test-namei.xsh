@@ -269,17 +269,22 @@ test test_namei_version_provenance { |ctx|
 }
 
 test test_namei_mount_parent_stat_failure { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
+  s.root.chmod(0o755)
   uu.mkdir(s, "locked")
   uu.symlink(s, "locked", "link")
   let locked = uu.at(s, "locked")
   locked.chmod(0o000)
   defer locked.chmod(0o755)
   let args = ["-x", "link"]
-  let reference = ul.reference(s, "namei", args)?
-  assert reference.status == 1 and reference.stdout == b""
-  assert reference.stderr == b"namei: stat of locked/.. failed: Permission denied\n"
-  ul.compare(reference, uu.invoke(s, "namei", args, timeout: 5s)?)
+  for uid in [10001, 10002] {
+    let reference = ul.reference_as_user(s, "namei", args, uid:, timeout: 5s)?
+    assert reference.status == 1 and reference.stdout == b""
+    assert reference.stderr == b"namei: stat of locked/.. failed: Permission denied\n"
+    ul.compare(reference, ul.candidate_as_user(s, "namei", args, uid:, timeout: 5s)?)
+  }
 }
 
 test test_namei_loop_errno_text { |ctx|

@@ -221,6 +221,7 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-namei.xsh::test_namei_component_walk_reports_socket_and_block_device",
     "core/tests/test-namei.xsh::test_namei_modes_and_owner_columns_cover_special_bits",
     "core/tests/test-namei.xsh::test_namei_mountpoint_markers_follow_a_real_mount_boundary",
+    "core/tests/test-namei.xsh::test_namei_mount_parent_stat_failure",
     "core/tests/test-namei.xsh::test_namei_permission_denied_from_unprivileged_runner",
     "core/tests/test-namei.xsh::test_namei_private_same_device_bind_mount_matches_reference",
     "core/tests/test-nslookup.xsh::test_nslookup_owned_dns_server",
