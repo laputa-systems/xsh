@@ -224,6 +224,9 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_option_errors_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_missing_or_nondirectory_sysroot_matches_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_abbreviated_options_match_reference",
+  "core/tests/test-lsmem.xsh::test_lsmem_option_diagnostics_and_empty_columns_match_reference",
 ]
 
 const lsmem_heavy_test_ids = ["core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
