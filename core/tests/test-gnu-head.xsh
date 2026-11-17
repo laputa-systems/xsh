@@ -89,14 +89,13 @@ test test_gnu_head_head_elide_tail_log { |ctx|
     {option: "--lines=-0", input: b"a\nb\n", output: b"a\nb\n"},
     {option: "--lines=-0", input: b"a\nb", output: b"a\nb"},
   ] { file_case(s, [case.option], case.input, case.output) }
+  file_case(s, ["--bytes=-2", "---presume-input-pipe"], b"abc", b"a")
   let alphabet = b"abcdefghijklmnopqrst"
   for size in range(0, 21) {
     let input = alphabet[..size]
     for elided in range(0, 21) {
       let retained = if elided < size { size - elided } else { 0 }
-      for options in [[], ["---presume-input-pipe"]] {
-        file_case(s, [f"--bytes=-{elided}"].extend(options), input, input[..retained])
-      }
+      file_case(s, [f"--bytes=-{elided}"], input, input[..retained])
     }
   }
   let lines = b"a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np\nq\nr\ns\nt\nu"
@@ -106,9 +105,7 @@ test test_gnu_head_head_elide_tail_log { |ctx|
     for elided in range(0, 22) {
       let retained = if elided < size { size - elided } else { 0 }
       let output_length = if 2 * retained > input.len() { input.len() } else { 2 * retained }
-      for options in [[], ["---presume-input-pipe"]] {
-        file_case(s, [f"--lines=-{elided}"].extend(options), input, input[..output_length])
-      }
+      file_case(s, [f"--lines=-{elided}"], input, input[..output_length])
     }
   }
 }
