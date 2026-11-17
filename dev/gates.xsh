@@ -1367,8 +1367,21 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     chosen += [entry]
     selected_ids += [entry.id] when entry.id not in selected_ids
   }
+  let explicit_reasons = ["explicit case selection"]
+  let common_entries = catalogue(ctx, profile, Selection(areas: [], native_files: []), explicit_reasons)?
   for area in all_areas() {
-    for entry in catalogue(ctx, profile, Selection(areas: [area], native_files: []), ["explicit case selection"])? {
+    let owner = Selection(areas: [area], native_files: [])
+    var entries: List[CatalogCase] = []
+    for spec in lane_plan(ctx, profile, owner)? {
+      continue when spec.stage == "test-products"
+      entries += [declared_case(spec, required_products(owner), explicit_reasons)] when spec.stage not in [entry.id for entry in entries]
+    }
+    if area == Docs {
+      entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
+        products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: explicit_reasons,
+        execution: DocumentationCheck)]
+    }
+    for entry in entries.extend(common_entries) {
       chosen += [entry] when entry.id not in [known.id for known in chosen]
     }
   }
