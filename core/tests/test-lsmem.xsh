@@ -550,3 +550,12 @@ test test_lsmem_multibyte_short_option { |ctx|
   compare_lsmem(s, ["-é"], {LC_ALL: "C.UTF-8"})?
   compare_lsmem(s, ["-h", "-é"])?
 }
+
+test test_lsmem_option_order_and_musl_diagnostics { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["--=x"], ["--a=1"], ["--help=1"], ["--summary=bad", "--bogus"], ["--bogus", "--summary=bad"]] { compare_lsmem(s, args)? }
+  let attached = Path.parse_bytes(b"--output=SIZE,\xff")?
+  let reference = ul.reference_paths(s, "lsmem", [attached])?
+  let candidate = uu.invoke_paths(s, "lsmem", [attached])?
+  ul.compare(reference, candidate)
+}

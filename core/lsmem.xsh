@@ -20,10 +20,10 @@ proc option_diagnostic(argv: List[Str]) [env] -> Str? {
       let name = parts[0]
       let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
       if matches.is_empty() { return f"unrecognized option: {word.byte_slice(2)}" }
-      if matches.len() != 1 and name not in LONG_OPTIONS { return f"option is ambiguous: {name}" }
+      if matches.len() != 1 and name not in LONG_OPTIONS { return f"option is ambiguous: {word.byte_slice(2)}" }
       let option = if name in LONG_OPTIONS { name } else { matches[0] }
+      if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return f"option does not take an argument: {option}" }
       if option in ["help", "version"] { return null }
-      if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return f"option does not take an argument: {name}" }
       if option in ["output", "split", "sysroot"] and parts.len() == 1 {
         if index == argv.len() { return f"option requires an argument: {name}" }
         index += 1
@@ -75,7 +75,7 @@ pure canonical_arguments(argv: List[Str]) -> List[Str] {
   result
 }
 
-pure sysroot_equals_at(argument: Bytes) -> Int? {
+pure value_equals_at(argument: Bytes) -> Int? {
   return null when ! argument.starts_with(b"--")
   var equals: Int? = null
   for index in range(argument.len()) {
@@ -86,14 +86,14 @@ pure sysroot_equals_at(argument: Bytes) -> Int? {
   return null when at == 2
   let name = argument.slice(2, length: at - 2).utf8() ?? ""
   let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
-  if matches.len() == 1 and matches[0] == "sysroot" { at } else { null }
+  if name in ["sysroot", "output", "split"] or (matches.len() == 1 and matches[0] in ["sysroot", "output", "split"]) { at } else { null }
 }
 
-pure short_sysroot_value_start(argument: Bytes) -> Int? {
+pure short_value_start(argument: Bytes) -> Int? {
   return null when ! argument.starts_with(b"-") or argument.starts_with(b"--")
   for index in range(1, argument.len()) {
     let flag = argument.byte_at(index) ?? 0
-    if flag == 115 { return index + 1 when index + 1 < argument.len() }
+    if flag in [111, 83, 115] { return index + 1 when index + 1 < argument.len() }
     if flag in [97, 98, 74, 80, 110, 114] { continue }
     return null
   }
@@ -105,9 +105,9 @@ pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
   for argument in argv {
     if let Ok(_) = argument.utf8() { normalized += [argument]; continue }
     if argument.starts_with(b"--summary=") { normalized += [b"--summary=invalid"]; continue }
-    if let at = sysroot_equals_at(argument) {
+    if let at = value_equals_at(argument) {
       normalized += [argument.slice(0, length: at), argument.slice(at + 1, length: argument.len() - at - 1)]
-    } else if let at = short_sysroot_value_start(argument) {
+    } else if let at = short_value_start(argument) {
       normalized += [argument.slice(0, length: at), argument.slice(at, length: argument.len() - at)]
     } else {
       normalized += [argument]
@@ -124,6 +124,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let arguments = prepared.text
   var raw_index = 0
   while raw_index < arguments.len() {
+    let prefix = arguments[..raw_index]
+    if let diagnostic = option_diagnostic(prefix) { gnu.usage_error(diagnostic) }
+    let _ = report.modes(canonical_arguments(prefix))
     let word = arguments[raw_index]
     raw_index += 1
     if word == "--" { break }
