@@ -17,6 +17,7 @@ if [ "$mode" = chroot ]; then
   trap 'cd /; umount -l "$root"' EXIT
   mkdir -p "$root/r" "$root/r$core" "$(dirname "$root/r$xsh")"
   for d in bin lib lib64 usr etc dev sbin proc; do
+    [ -d "/$d" ] && [ ! -L "/$d" ] || continue
     mkdir -p "$root/r/$d"
     mount --rbind "/$d" "$root/r/$d"
   done
@@ -24,7 +25,7 @@ if [ "$mode" = chroot ]; then
   mount --bind "$core" "$root/r$core"
   touch "$root/r$xsh"
   mount --bind "$xsh" "$root/r$xsh"
-  chroot "$root/r" /bin/sh "$core/tests/data/mountpoint-review6.sh" inside /tmp "$xsh" "$core"
+  PATH="$PATH:/usr/sbin:/sbin" chroot "$root/r" /bin/sh "$core/tests/data/mountpoint-review6.sh" inside /tmp "$xsh" "$core"
 elif [ "$mode" = inside ]; then
   for path in / /plain /tmp /usr; do
     compare "$path"
