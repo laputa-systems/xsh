@@ -997,6 +997,8 @@ test test_lslocks_trailing_column_delimiter { |ctx|
 test test_lslocks_multibyte_short_option { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-é"], ["-bé"]] { rejected(s, args)? }
+  let _ = compared(s, ["-é"], {LC_ALL: "C.UTF-8"})?
+  let _ = compared(s, ["-h", "-é"])?
 }
 
 test test_lslocks_output_mode_conflict_order { |ctx|

@@ -1116,21 +1116,26 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     raw_index += 1
     if word == b"--" { break }
     if word.starts_with(b"-") and ! word.starts_with(b"--") {
+      var stop_options = false
       for position in range(1, word.len()) {
         let flag = word.byte_at(position) ?? 0
         if flag >= 128 {
           if let detail = first_option_diagnostic(argv[..raw_index - 1], permute) { gnu.usage_error(detail) }
-          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), word.slice(position, length: 1), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
+          let length = if text.byte_columns() { 1 } else if flag >= 194 and flag < 224 { 2 } else if flag >= 224 and flag < 240 { 3 } else if flag >= 240 and flag < 245 { 4 } else { 1 }
+          let available = word.len() - position
+          let character = if length <= available and word.slice(position, length: length).utf8() is Ok(_) { word.slice(position, length: length) } else { word.slice(position, length: 1) }
+          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), character, bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
           exit 1
         }
         if flag in [111, 112, 81] {
           if position + 1 == word.len() { raw_index += 1 }
           break
         }
-        if flag in [104, 86] { break }
+        if flag in [104, 86] { stop_options = true; break }
         if flag not in [98, 105, 74, 110, 114, 117, 72] { break }
       }
-    } else if word in [b"--output", b"--pid", b"--filter"] { raw_index += 1 }
+      if stop_options { break }
+    } else if word in [b"--help", b"--version"] { break } else if word in [b"--output", b"--pid", b"--filter"] { raw_index += 1 }
   }
   if let detail = first_option_diagnostic(argv, permute) {
     gnu.usage_error(detail)
