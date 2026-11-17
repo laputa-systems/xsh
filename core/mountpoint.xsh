@@ -11,58 +11,6 @@ pure util_strerror(failure: Error) -> Str {
   parts[-1]
 }
 
-pure decode_mount_field(encoded: Bytes) -> Bytes {
-  var parts: List[Bytes] = []
-  var at = 0
-  while at < encoded.len() {
-    if at + 4 <= encoded.len() {
-      let decoded: Bytes? = match encoded[at..at + 4] {
-        b"\\040" => b" "
-        b"\\011" => b"\t"
-        b"\\012" => b"\n"
-        b"\\134" => b"\\"
-        else => null
-      }
-      if let byte = decoded {
-        parts += [byte]
-        at += 4
-        continue
-      }
-    }
-    parts += [encoded[at..at + 1]]
-    at += 1
-  }
-  bytes.concat(parts)
-}
-
-type MountEntry = {target: Bytes, devno: Bytes}
-
-proc mount_entry(mount_id: Int?) [fs] -> MountEntry? {
-  guard let id = mount_id else { return null }
-  let data = match p"/proc/self/mountinfo".read_bytes() {
-    Ok(value) => value
-    Err(_) => { return null }
-  }
-  for line in data.lines() {
-    var fields: List[Bytes] = []
-    var start = 0
-    for at in range(line.len()) {
-      if line.byte_at(at) == 32 {
-        fields += [line[start..at]]
-        start = at + 1
-      }
-    }
-    fields += [line[start..line.len()]]
-    continue when fields.len() < 5
-    if let Ok(text) = fields[0].utf8() {
-      if let Ok(found) = text.parse_int() {
-        if found == id { return {target: decode_mount_field(fields[4]), devno: fields[2]} }
-      }
-    }
-  }
-  null
-}
-
 const USAGE = """Usage:
  mountpoint [-qd] /path/to/directory
  mountpoint -x /dev/device
@@ -212,12 +160,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.show {
-    if let entry = mount_entry(metadata.mount_id) {
-      ul_io.write_bytes(bytes.concat([entry.target, b"\n"]))
-      return
+    match fs.mount_for(path_value) {
+      Ok(mount) => ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
+      Err(_) => {
+        gnu.error("--show is not supported on this system")
+        exit 1
+      }
     }
-    gnu.error("--show is not supported on this system")
-    exit 1
+    return
   }
 
   let resolved = match path_value.resolve() {
@@ -227,23 +177,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 32
     }
   }
-  let entry: MountEntry = if let found = mount_entry(metadata.mount_id) {
-    found
-  } else {
-    match fs.mount_for(resolved) {
-      Ok(mount) => {target: mount.mounted_on.bytes(), devno: bytes.from_text(device_number(mount.device))}
-      Err(failure) => {
-        if ! opts.quiet { report_path_error(name, failure) }
-        exit 1
-      }
+  let mount = match fs.mount_for(resolved) {
+    Ok(value) => value
+    Err(failure) => {
+      if ! opts.quiet { report_path_error(name, failure) }
+      exit 1
     }
   }
-  if resolved.bytes() != entry.target {
+  if resolved != mount.mounted_on {
     if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
   }
   if opts.fs_devno {
-    ul_io.write_bytes(bytes.concat([entry.devno, b"\n"]))
+    ul_io.write_text(f"{device_number(mount.device)}\n")
   } else if ! opts.quiet {
     ul_io.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
   }

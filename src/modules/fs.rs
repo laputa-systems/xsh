@@ -1406,6 +1406,8 @@ struct MountSource {
     fstype: String,
     /// The `st_dev` of files on this mount.
     device: u64,
+    #[cfg(target_os = "linux")]
+    mount_id: Option<u64>,
 }
 
 fn df_capacity_percent(used_1k: u64, available_1k: u64) -> u64 {
@@ -1779,6 +1781,15 @@ fn selected_mount(target: &Path, sources: Vec<MountSource>) -> Option<MountSourc
             return Some(found.clone());
         }
     }
+    // A mount hidden under a later mount on the same target still matches the
+    // longest prefix; the kernel's mount ID names the visible one. An ID absent
+    // from mountinfo is an internal mount (pipefs, memfd), which has no target.
+    #[cfg(target_os = "linux")]
+    if let Ok(stat) = rfs::statx(CWD, target, AtFlags::empty(), rfs::StatxFlags::MNT_ID)
+        && stat.stx_mask & rfs::StatxFlags::MNT_ID.bits() != 0
+    {
+        return sources.into_iter().find(|mount| mount.mount_id == Some(stat.stx_mnt_id));
+    }
     sources
         .into_iter()
         .filter(|mount| target.starts_with(&mount.mounted_on))
@@ -1856,6 +1867,7 @@ fn parse_linux_mountinfo_line(line: &[u8]) -> Option<MountSource> {
         return None;
     }
     let device = std::str::from_utf8(left[2]).ok()?;
+    let mount_id = std::str::from_utf8(left[0]).ok().and_then(|id| id.parse().ok());
     Some(MountSource {
         filesystem: String::from_utf8_lossy(&unescape_mount_bytes(right[1])).into_owned(),
         mounted_on: PathBuf::from(OsString::from_vec(unescape_mount_bytes(left[4]))),
@@ -1864,6 +1876,7 @@ fn parse_linux_mountinfo_line(line: &[u8]) -> Option<MountSource> {
             .split_once(':')
             .and_then(|(major, minor)| Some(rfs::makedev(major.parse().ok()?, minor.parse().ok()?)))
             .unwrap_or_default(),
+        mount_id,
     })
 }
 
