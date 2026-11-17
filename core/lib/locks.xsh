@@ -1,4 +1,5 @@
 ##! Reads Linux lock state and renders the lslocks command interface.
+use core.lib.scols_escape as scols
 use disk_usage as usage
 use gnu
 use lib.util_linux_io as ul_io
@@ -745,97 +746,8 @@ pure table_value(lock: Lock, column: Str, as_bytes: Bool, raw: Bool) -> Bytes {
   bytes.from_text(value)
 }
 
-pure hex_byte(value: Int) -> Str {
-  let digits = "0123456789abcdef"
-  "\\x" + digits.byte_slice(value / 16, length: 1) + digits.byte_slice(value % 16, length: 1)
-}
-
-pure codepoint_value(value: Str) -> Int {
-  let raw = bytes.from_text(value)
-  let first = raw.byte_at(0) ?? 0
-  return first when first < 128
-  let second = (raw.byte_at(1) ?? 128) - 128
-  return (first - 192) * 64 + second when raw.len() == 2
-  let third = (raw.byte_at(2) ?? 128) - 128
-  return (first - 224) * 4096 + second * 64 + third when raw.len() == 3
-  let third_byte = (raw.byte_at(2) ?? 128) - 128
-  let fourth_byte = (raw.byte_at(3) ?? 128) - 128
-  (first - 240) * 262144 + second * 4096 + third_byte * 64 + fourth_byte
-}
-
-pure utf8_size(first: Int) -> Int {
-  return 1 when first < 128
-  return 2 when first >= 194 and first < 224
-  return 3 when first >= 224 and first < 240
-  return 4 when first >= 240 and first < 245
-  0
-}
-
 pure safe_table_text(raw: Bytes, column: Str, byte_locale: Bool) -> Str {
-  if byte_locale {
-    var output = ""
-    var at = 0
-    while at < raw.len() {
-      let byte = raw.byte_at(at) ?? 0
-      if column == "HOLDERS" and byte == 10 {
-        output += "\n"
-        at += 1
-      } else if byte == 92 and at + 1 < raw.len() and raw.byte_at(at + 1) == 120 {
-        output += hex_byte(byte)
-        at += 1
-      } else if byte >= 32 and byte < 127 {
-        output += raw[at..at + 1].utf8() ?? ""
-        at += 1
-      } else {
-        output += hex_byte(byte)
-        at += 1
-      }
-    }
-    return output
-  }
-  var output = ""
-  var at = 0
-  while at < raw.len() {
-    let byte = raw.byte_at(at) ?? 0
-    if byte == 92 and at + 1 < raw.len() and raw.byte_at(at + 1) == 120 {
-      output += hex_byte(byte)
-      at += 1
-      continue
-    }
-    let size = utf8_size(byte)
-    if size > 0 and at + size <= raw.len() {
-      if let Ok(character) = raw[at..at + size].utf8() {
-        let codepoint = codepoint_value(character)
-        if column == "HOLDERS" and codepoint == 10 {
-          output += "\n"
-        } else if codepoint <= 31 or codepoint in [127, 8232, 8233] or (codepoint >= 128 and codepoint < 160) or
-            (codepoint > 8203 and codepoint < 8208) or (codepoint >= 8234 and codepoint < 8239) or
-            (codepoint >= 8287 and codepoint < 8304) or codepoint == 65279 {
-          for byte_index in range(size) { output += hex_byte(raw.byte_at(at + byte_index) ?? 0) }
-        } else {
-          output += character
-        }
-        at += size
-        continue
-      }
-    }
-    output += hex_byte(byte)
-    at += 1
-  }
-  output
-}
-
-pure raw_table_text(raw: Bytes, byte_locale: Bool) -> Bytes {
-  var output: List[Bytes] = []
-  for index in range(raw.len()) {
-    let byte = raw.byte_at(index) ?? 0
-    if byte == 32 or byte == 92 or byte < 32 or byte >= 127 {
-      output += [bytes.from_text(hex_byte(byte))]
-    } else {
-      output += [raw[index..index + 1]]
-    }
-  }
-  bytes.concat(output)
+  scols.safe_table_text(raw, column == "HOLDERS", byte_locale)
 }
 
 pure cell_display_width(value: Str, column: Str) -> Int {
@@ -941,7 +853,7 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
           tui.cell_right_pad(shown, widths[index])
         }
         rendered_cells += [padded]
-        raw_cells += [if heading { bytes.from_text(row[index]) } else { raw_table_text(byte_rows[row_index][index], byte_locale) }]
+        raw_cells += [if heading { bytes.from_text(row[index]) } else { scols.raw_table_text(byte_rows[row_index][index], byte_locale) }]
       }
       if raw {
         var raw_line: Bytes = b""
@@ -1170,7 +1082,7 @@ pure filter_byte_text(value: Bytes) -> Str {
   for index in range(value.len()) {
     let byte = value.byte_at(index) ?? 0
     if byte >= 128 {
-      result += "\0" + hex_byte(byte).byte_slice(2) + "\0"
+      result += "\0" + scols.hex_byte(byte).byte_slice(2) + "\0"
     } else {
       result += value[index..index + 1].utf8() ?? ""
     }
@@ -1271,7 +1183,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
       }
       let rendered_rows = collect {
         for row in rows {
-          let description = if opts.raw { raw_table_text(bytes.from_text(row[2]), false).utf8() ?? "" } else { row[2] }
+          let description = if opts.raw { scols.raw_table_text(bytes.from_text(row[2]), false).utf8() ?? "" } else { row[2] }
           yield (if opts.raw { row[0] } else { pad_left(row[0], holder_width) }) + " " +
             (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + description
         }
