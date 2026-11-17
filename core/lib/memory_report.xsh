@@ -581,6 +581,8 @@ export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str
   var output = ""
   if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
   let text = output
+  if text == "" { exit 1 }
+  if text.starts_with(",") or text.ends_with(",") { gnu.error(f"unknown column: {text}"); exit 1 }
   let append = text.starts_with("+")
   let names = if append { text.byte_slice(1).split(",") } else { text.split(",") }
   if names.is_empty() or names[0] == "" { gnu.error("unknown column: "); exit 1 }

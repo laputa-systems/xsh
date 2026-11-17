@@ -8,7 +8,7 @@ const HELP = "\nUsage:\n lsmem [options]\n\nList the ranges of available memory 
 const LONG_OPTIONS = ["all", "bytes", "json", "noheadings", "output", "output-all", "pairs", "raw", "split", "sysroot", "summary", "help", "version"]
 const SHORT_OPTIONS = ["a", "b", "J", "P", "n", "o", "r", "S", "s", "h", "V"]
 
-proc unknown_long_option(argv: List[Str]) [env] -> Str? {
+proc option_diagnostic(argv: List[Str]) [env] -> Str? {
   var index = 0
   while index < argv.len() {
     let word = argv[index]
@@ -18,7 +18,7 @@ proc unknown_long_option(argv: List[Str]) [env] -> Str? {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
       let name = parts[0]
       let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
-      if matches.is_empty() { return name }
+      if matches.is_empty() { return f"unrecognized option: {name}" }
       if matches.len() != 1 { return null }
       let option = matches[0]
       if option in ["help", "version"] { return null }
@@ -33,11 +33,11 @@ proc unknown_long_option(argv: List[Str]) [env] -> Str? {
       let flags = word.byte_slice(1)
       for position in range(flags.byte_len()) {
         let flag = flags.byte_slice(position, length: 1)
-        if flag not in SHORT_OPTIONS { return null }
+        if flag not in SHORT_OPTIONS { return f"unrecognized option: {flag}" }
         if flag == "h" or flag == "V" { return null }
         if flag in ["o", "S", "s"] {
           if position + 1 == flags.byte_len() {
-            if index == argv.len() { return null }
+            if index == argv.len() { return f"option requires an argument: {flag}" }
             index += 1
           }
           break
@@ -120,7 +120,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
   let prepared = gnu.prepare_arguments(normalize_sysroot_arguments(argv))
   let arguments = prepared.text
-  if let option = unknown_long_option(arguments) { gnu.usage_error(f"unrecognized option: {option}") }
+  if let diagnostic = option_diagnostic(arguments) { gnu.usage_error(diagnostic) }
 
   let parsed = cli.applet(arguments, {
     gnu: {status: 1},

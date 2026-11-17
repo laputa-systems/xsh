@@ -421,3 +421,10 @@ test test_lsmem_abbreviated_options_match_reference { |ctx|
     compare_lsmem_rooted(s, args)?
   }
 }
+
+test test_lsmem_option_diagnostics_and_empty_columns_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for args in [["-x"], ["-s"], ["-o"]] { compare_lsmem(s, args)? }
+  for value in ["", ",", "RANGE,"] { compare_lsmem_rooted(s, ["-o", value])? }
+}
