@@ -855,7 +855,10 @@ proc summary_text(inventory: Inventory, byte_mode: Bool) [error] -> Str {
 export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [process, error] -> Str {
   var output = ""
   if modes.table {
-    if opts.json { output = json_text(inventory, columns, opts) } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
+    let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+    if ! shown.is_empty() {
+      if opts.json { output = json_text(inventory, columns, opts) } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
+    }
     if modes.summary { output += "\n" }
   }
   if modes.summary { output += summary_text(inventory, opts.bytes) }

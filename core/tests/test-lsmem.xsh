@@ -187,6 +187,20 @@ test test_lsmem_rooted_column_list_grammar { |ctx|
   }
 }
 
+test test_lsmem_rooted_all_columns_hidden { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for args in [
+    ["-o", "CONFIGURED"],
+    ["-n", "-o", "CONFIGURED"],
+    ["-o", "CONFIGURED,MEMMAP-ON-MEMORY", "--summary=never"],
+    ["-J", "-o", "CONFIGURED"],
+    ["-P", "-o", "CONFIGURED"],
+    ["-r", "-o", "CONFIGURED"],
+    ["-r", "-n", "-o", "CONFIGURED"],
+  ] { compare_lsmem_rooted(s, args)? }
+}
+
 test test_lsmem_rooted_short_option_aliases { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
