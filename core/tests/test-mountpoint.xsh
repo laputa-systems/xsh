@@ -236,3 +236,13 @@ test test_mountpoint_loop_errno_text { |ctx|
     ul.compare(reference, uu.invoke(s, "mountpoint", args, timeout: 5s)?)
   }
 }
+
+test test_mountpoint_pipe_descriptor_resolution { |ctx|
+  let s = uu.scene(ctx)?
+  for args in [["/proc/self/fd/0"], ["-d", "/proc/self/fd/0"]] {
+    let reference = ul.reference(s, "mountpoint", args)?
+    assert reference.status == 32 and reference.stderr == b""
+    assert reference.stdout == b"/proc/self/fd/0 is not a mountpoint\n"
+    ul.compare(reference, uu.invoke(s, "mountpoint", args, timeout: 5s)?)
+  }
+}

@@ -149,9 +149,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   let resolved = match path_value.resolve() {
     Ok(value) => value
-    Err(failure) => {
-      if ! opts.quiet { report_path_error(name, failure) }
-      exit 1
+    Err(_) => {
+      if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
+      exit 32
     }
   }
   let mount = match fs.mount_for(resolved) {
