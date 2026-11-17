@@ -901,7 +901,8 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
     }
     if path_column >= 0 {
       let excess = output_width - terminal_width
-      widths[path_column] = if excess >= widths[path_column] { 0 } else { widths[path_column] - excess }
+      let minimum = if headings { tui.cell_width("PATH") } else { 1 }
+      widths[path_column] = if excess >= widths[path_column] - minimum { minimum } else { widths[path_column] - excess }
     }
   }
   let rows: List[List[Str]] = if headings { [columns, @data] } else { data }

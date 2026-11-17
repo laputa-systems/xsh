@@ -971,3 +971,21 @@ test test_lslocks_exited_flock_acquirer { |ctx|
   ul.finish_keeper(keeper)
 }
 
+
+test test_lslocks_terminal_path_minimum { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "terminal-path-minimum")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "flock-ex", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
+  for args in [[p"-p", fp"{pid}"], [p"-n", p"-p", fp"{pid}"], [p"-p", fp"{pid}", p"--output-all"]] {
+    for columns in [30, 80, 120] {
+      let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
+      let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
+      assert reference == candidate, f"lslocks terminal columns={columns}"
+    }
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}

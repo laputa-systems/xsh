@@ -144,6 +144,7 @@ that field.
 | `test_lslocks_deleted_path_and_owner_exit` | A deleted locked file shows the reference path text while the descriptor remains open; owner exit removes its row. |
 | `test_lslocks_path_escaping_and_non_utf8_names` | Exact reference comparison for normal, JSON, and raw `PATH` output containing whitespace, backslash, newline, and an invalid UTF-8 filename byte. |
 | `test_lslocks_reference_path_bytes` | Reference-only checks pin decoded JSON and escaped normal-table output for a control-character path, exact raw-mode `PATH` spelling for valid and invalid-UTF-8 names, raw invalid-UTF-8 bytes inside JSON, and nonempty POSIX `HOLDERS` entries for duplicated descriptors without assuming their multiplicity. |
+| `test_lslocks_terminal_path_minimum` | Default and all-column output retain the four-cell PATH minimum at widths 30, 80, and 120. |
 | `test_util_linux_context_terminal_lock_path_truncation` | Real holder paths containing tab and ESC or an invalid UTF-8 byte are compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
 | Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
