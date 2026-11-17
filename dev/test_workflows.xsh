@@ -260,6 +260,9 @@ export proc full(
     stages.execute(stages.command("test-records-owner", ctx.target.triple, "chown",
       ["chown", "-R", owner, records.display()], ctx.root, {}))
   }
+  let root = ctx.root.display()
+  let commit = run.capture --text git -C $root rev-parse HEAD
+  fp"{records}/commit".write(commit.stdout)?
   env ({XSH_CARGO_TIMINGS_DIR: cargo_records.display()}) {
     run_commands(rust_plan(ctx, profile, privileged)?)?
   }

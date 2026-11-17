@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 101
+Next: 102
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -146,7 +146,7 @@ out of scope.
   - `tests/xsh/named-argument-spreading.xsh`: test_named_argument_spread_handles_sixteen_thousand_fields_with_a_wall_guard (first-4:FAILED)
   - `tests/xsh/stream-producers.xsh`: test_process_stream_is_stopped_before_its_scope_defers (first-4:FAILED)
 - **Recommendation:** Reproduce each under the same four-suite load, separate per-process timeouts that are shorter than the work under load from real ordering races, and fix the test oracle or the product. Never raise a budget to hide a race; a budget may change only when its value is shown not to be what the test asserts.
-- **Blocks:** overlapping the native suite with the Rust stages in `cargo dev test linux`, parked on branch `lane/suite-wall`. At `4f9874c4f` the serial contract passed in 3,158 s on a quiet host (15,506 passed, 174 skipped). The overlapped candidate (native suite on 16 CPUs, Rust stages on the other 16) raised load to 49.8 on 32 cores and failed `core_compat_boundaries::test_dev_full_show_all` (`timed out reading stdout prefix`), which passed in the baseline. Retry the overlap only after this item lands.
+- **Blocks:** overlapping the native suite with the Rust stages in `cargo dev test linux`, parked on branch `lane/suite-wall`. At `4f9874c4f` the serial contract passed in 3,158 s on a quiet host (15,506 passed, 174 skipped). The overlapped candidate (native suite on 16 CPUs, Rust stages on the other 16) raised load to 49.8 on 32 cores and failed `core_compat_boundaries::test_dev_full_show_all` (`timed out reading stdout prefix`), which passed in the baseline. Retry the overlap only after this item lands. Raising the native suite from its default 16 jobs (one per physical core) to 24 or 32 on this host measured 1,151 s and 1,112 s against 1,305 s at 16 jobs in single runs; adopt it only once these tests are robust to that load.
 - **Fix with:** root-cause
 - **Effort:** M
 
@@ -195,3 +195,12 @@ out of scope.
 - **Recommendation:** Print the runner's stderr or the first diagnostic when a case ends incomplete, and resolve tests excluded only because they cover another platform as not applicable on Linux rather than unresolved.
 - **Fix with:** error-model
 - **Effort:** S
+
+### XSH-101 · P3 · Make in-process checking scale past two threads
+
+- **Area:** Performance
+- **Where:** `tests/sema.rs` (`checker_publication_options_preserve_repository_diagnostics`), `src/sema/check/`, `crates/xsht/src/cli/` (parallel `xsht check`)
+- **Problem:** Checking independent files on separate threads in one process stops scaling almost immediately: the repository diagnostic comparison took 31 to 42 s on two worker threads and 104 s on 32 (two runs each on a quiet host, 2026-11-17), and the soundness test slowed from about 14 s to 29 s when its child-process workers rose from 5 to 16. The cause is unproven; shared interning, symbol ownership or allocator contention are candidates. `xsht check core` and every parallel test that checks in-process pay the same cost.
+- **Recommendation:** Profile the 32-thread run of the sema test with `cargo dev profile` and `perf record --call-graph fp`, find the contended lock or shared structure, and remove the sharing; acceptance is near-linear speedup to at least 8 threads on that test.
+- **Fix with:** make-it-fast
+- **Effort:** M

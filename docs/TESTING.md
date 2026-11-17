@@ -1071,11 +1071,27 @@ crowds out tests that would catch more. Keep it measured and audited.
 **Records.** After a full contract run that is meant to stand as evidence, run
 `cargo dev test-health --record` and commit the dated
 `bench/test-suite-health-*.json` with the change it measures. Its label is the
-measured commit; each record keeps the native wall time, case-time sum, worker
+commit the full run measured, which the run records beside its timings; each record keeps the native wall time, case-time sum, worker
 idle, the slowest files and cases, the tail, and each Cargo binary's slowest
 tests. Compare against the previous record before claiming a speedup or
 accepting a regression, and note the host load: rankings stay useful under
 load, absolute times do not.
+
+**Current record.** `bench/test-suite-health-2026-11-17.json` measured
+`c716265d1` on the 32-thread x86_64 host with warm build caches. The full
+contract passed in 1,374 s, against 3,158 s for the serial contract at
+`4f9874c4f` with a cold build. The `xsht` integration stage fell from 1,875 s to
+354 s, mostly from deleting the desugared-corpus test and bounding the
+lint-format corpus work; the privileged stage from 183 s to 3 s by running its
+root-only tests from the ordinary build; the native suite ran 15,480 passed and
+174 skipped in 831 s of wall time with 12,616 s of case time (17,137 s before
+the audit). Its 16 workers were 94 to 96% busy, so the suite is now bound by
+total work rather than by its tail; its single longest case is
+`test_gnu_sort_sort_buffer_size_log` at 341 s (XSH-97), and per-process
+checking of large applet scripts dominates the remaining case time (XSH-96).
+Library unit tests in the verification profile took about as long to compile
+as the debug build they replaced, so that change removed a second dependency
+build but no wall time.
 
 **Cost rules.** These make a test a suspect, to be judged, not deleted:
 

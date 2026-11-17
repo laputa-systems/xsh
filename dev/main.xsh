@@ -244,10 +244,12 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       let cargo_records = [entry.path.display() for entry in fs.children(fp"{records}/cargo")? if entry.name.starts_with("cargo-")]
       var argv = ["python3", "-B", "dev/performance/rank.py", "--limit", "15"]
       if args == ["--record"] {
-        let root = ctx.root.display()
-        let commit = run.capture --text git -C $root rev-parse HEAD
+        let recorded = fp"{records}/commit"
+        guard recorded.exists()? else {
+          return Err(usage(f"the run at {records.display()} did not record its commit"))
+        }
         let day = time.format(time.now() * 1000000, "%Y-%m-%d", utc: true)?
-        argv += ["--json", fp"{ctx.root}/bench/test-suite-health-{day}.json".display(), "--label", commit.stdout.trim()]
+        argv += ["--json", fp"{ctx.root}/bench/test-suite-health-{day}.json".display(), "--label", recorded.read_text()?.trim()]
       }
       return stages.execute(stages.command("test-health", ctx.target.triple, "python3",
         [@argv, native_events.display(), @cargo_records], ctx.root, {}))

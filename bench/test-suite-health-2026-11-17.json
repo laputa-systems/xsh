@@ -1,0 +1,962 @@
+{
+  "cargo": [
+    {
+      "binary": "integration",
+      "case_count": 151,
+      "case_sum_ns": 521326000000,
+      "cases": [
+        {
+          "case": "lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus",
+          "duration_ns": 354307000000
+        },
+        {
+          "case": "lint_format_invariance::lint_fix_commutes_with_formatting_on_corpus_files",
+          "duration_ns": 95400000000
+        },
+        {
+          "case": "lint_format_invariance::formatting_preserves_lints_on_the_repository_corpus",
+          "duration_ns": 39647000000
+        },
+        {
+          "case": "syntax::joined_token_pairs_lex_back_to_the_same_tokens",
+          "duration_ns": 18806000000
+        },
+        {
+          "case": "cli::test_runner_times_out_hung_tests_and_stops_their_descendants",
+          "duration_ns": 2563000000
+        },
+        {
+          "case": "cli::test_runner_admits_another_file_while_one_file_is_at_its_active_limit",
+          "duration_ns": 2117000000
+        },
+        {
+          "case": "cli::fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file",
+          "duration_ns": 712000000
+        },
+        {
+          "case": "cli::test_exact_ids_file_accepts_selection_larger_than_argument_limit",
+          "duration_ns": 690000000
+        },
+        {
+          "case": "cli::lint_fix_cancellation_writes_no_file",
+          "duration_ns": 673000000
+        },
+        {
+          "case": "cli::copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules",
+          "duration_ns": 322000000
+        },
+        {
+          "case": "cli::test_exact_set_events_reconcile_pass_skip_failure_timeout_and_unstarted_cases",
+          "duration_ns": 244000000
+        },
+        {
+          "case": "cli::native_test_route_witness_captures_the_exact_oracle_in_both_modes",
+          "duration_ns": 189000000
+        },
+        {
+          "case": "syntax::formatter_is_idempotent_on_example_catalog",
+          "duration_ns": 173000000
+        },
+        {
+          "case": "api::enum_query_lists_each_builtin_variant_with_its_purpose",
+          "duration_ns": 167000000
+        },
+        {
+          "case": "lint::value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context",
+          "duration_ns": 157000000
+        }
+      ]
+    },
+    {
+      "binary": "integration",
+      "case_count": 296,
+      "case_sum_ns": 337886000000,
+      "cases": [
+        {
+          "case": "sema::checker_publication_options_preserve_repository_diagnostics",
+          "duration_ns": 33225000000
+        },
+        {
+          "case": "runtime::signal_storm::signal_storm_leaves_no_orphans_and_runs_cleanup_once_in_order",
+          "duration_ns": 18231000000
+        },
+        {
+          "case": "libc_hygiene::no_migratable_libc_calls",
+          "duration_ns": 17393000000
+        },
+        {
+          "case": "grammar::grammar_recognizes_every_parsed_repository_source",
+          "duration_ns": 15205000000
+        },
+        {
+          "case": "grammar::grammar_deeper_generated_sentences_parse_without_diagnostics",
+          "duration_ns": 12498000000
+        },
+        {
+          "case": "grammar::callable_parameters_allow_inferred_annotations",
+          "duration_ns": 10463000000
+        },
+        {
+          "case": "grammar::multiline_command_word_boundaries_are_recognized",
+          "duration_ns": 10188000000
+        },
+        {
+          "case": "grammar::discarded_lookahead_attempts_do_not_change_generated_derivations",
+          "duration_ns": 8867000000
+        },
+        {
+          "case": "grammar::command_argument_spacing_is_preserved",
+          "duration_ns": 8575000000
+        },
+        {
+          "case": "grammar::command_dot_words_are_recognized",
+          "duration_ns": 6806000000
+        },
+        {
+          "case": "grammar::typed_codec_calls_require_ordered_values_and_a_trailing_type",
+          "duration_ns": 6705000000
+        },
+        {
+          "case": "grammar::spawn_and_wait_indices_reset_enclosing_expression_boundaries",
+          "duration_ns": 6250000000
+        },
+        {
+          "case": "grammar::bare_exit_and_fail_do_not_end_before_arm_commas",
+          "duration_ns": 5860000000
+        },
+        {
+          "case": "grammar::bare_minus_command_arguments_preserve_source_adjacency",
+          "duration_ns": 5797000000
+        },
+        {
+          "case": "grammar::unknown_run_option_names_are_command_targets",
+          "duration_ns": 5638000000
+        }
+      ]
+    },
+    {
+      "binary": "soundness",
+      "case_count": 18,
+      "case_sum_ns": 180670000000,
+      "cases": [
+        {
+          "case": "well_typed_programs_run_and_match_the_reference_evaluator",
+          "duration_ns": 53484000000
+        },
+        {
+          "case": "generated_programs_are_grammar_sentences",
+          "duration_ns": 49430000000
+        },
+        {
+          "case": "metamorphic::generated_programs_keep_their_output_when_reordered_renamed_and_made_explicit",
+          "duration_ns": 32327000000
+        },
+        {
+          "case": "mutants_get_ordinary_diagnostics",
+          "duration_ns": 27910000000
+        },
+        {
+          "case": "accepted_registry_probes_run_without_internal_or_type_errors",
+          "duration_ns": 13200000000
+        },
+        {
+          "case": "metamorphic::generic_programs_keep_their_output_under_equivalent_rewrites",
+          "duration_ns": 1748000000
+        },
+        {
+          "case": "pipeline_stage_blocks_observe_loop_body_mutations",
+          "duration_ns": 640000000
+        },
+        {
+          "case": "cleanly_parsed_mutants_are_recognized_despite_check_or_import_errors",
+          "duration_ns": 619000000
+        },
+        {
+          "case": "metamorphic::a_transformation_that_changes_meaning_is_detected",
+          "duration_ns": 534000000
+        },
+        {
+          "case": "mutants_preserve_acceptance_and_ordinary_parse_diagnostics",
+          "duration_ns": 389000000
+        },
+        {
+          "case": "metamorphic::a_generic_rewrite_that_changes_meaning_is_detected",
+          "duration_ns": 110000000
+        },
+        {
+          "case": "sandbox_kills_a_child_over_the_memory_limit",
+          "duration_ns": 97000000
+        },
+        {
+          "case": "sandbox_preserves_explicit_llvm_profile_destination_only",
+          "duration_ns": 83000000
+        },
+        {
+          "case": "str_replace_prints_the_required_with_label",
+          "duration_ns": 69000000
+        },
+        {
+          "case": "oracle_methods_match_the_registry",
+          "duration_ns": 23000000
+        }
+      ]
+    },
+    {
+      "binary": "xsh",
+      "case_count": 3091,
+      "case_sum_ns": 42199000000,
+      "cases": [
+        {
+          "case": "runtime::eval::indexed::full::tests::independent_constructor_arguments_share_complete_substitution_validation",
+          "duration_ns": 2493000000
+        },
+        {
+          "case": "diagnostic::code::tests::every_code_is_referenced_outside_the_table",
+          "duration_ns": 1883000000
+        },
+        {
+          "case": "runner::tests::a_wide_named_spread_is_prepared_within_a_fixed_stack",
+          "duration_ns": 1819000000
+        },
+        {
+          "case": "runtime::eval::lowered_run::indexed_run::explicit_run::tests::nested_machine_depth_is_restored_after_an_execution_error",
+          "duration_ns": 1550000000
+        },
+        {
+          "case": "runtime::eval::indexed::full::verify_schemes::scalar_predicate_tests::imported_system_report_json_get_calls_have_slot_contracts",
+          "duration_ns": 1323000000
+        },
+        {
+          "case": "runtime::value::error_cause::tests::typed_cause_long_shared_chains_clone_compare_and_drop_without_recursion",
+          "duration_ns": 940000000
+        },
+        {
+          "case": "runtime::value::resource_values::tests::resource_reachable_values_walk_long_shared_causes_once_without_recursion",
+          "duration_ns": 894000000
+        },
+        {
+          "case": "runtime::eval::indexed::full::tests::generic_calls_accept_flat_immutable_alias_chains",
+          "duration_ns": 827000000
+        },
+        {
+          "case": "syntax::highlight::tests::runs_tile_every_corpus_file",
+          "duration_ns": 777000000
+        },
+        {
+          "case": "runtime::eval::indexed::full::tests::driver_input_headers_follow_used_aliases",
+          "duration_ns": 775000000
+        },
+        {
+          "case": "runner::tests::nesting_far_past_the_limit_is_the_same_diagnostic",
+          "duration_ns": 756000000
+        },
+        {
+          "case": "modules::codec::sequence::tests::sequence_frame_limit_accepts_exact_eof_and_yaml_marker_lookahead",
+          "duration_ns": 743000000
+        },
+        {
+          "case": "modules::codec::sequence::tests::sequence_cumulative_input_is_bounded_even_when_every_line_is_blank",
+          "duration_ns": 740000000
+        },
+        {
+          "case": "syntax::parser::sugar::tests::every_resource_scope_sentence_parses_as_a_scope",
+          "duration_ns": 619000000
+        },
+        {
+          "case": "runtime::eval::indexed::full::tests::module_callable_projection_facts_match_their_selected_export_signatures",
+          "duration_ns": 557000000
+        }
+      ]
+    },
+    {
+      "binary": "core_compat_extra",
+      "case_count": 59,
+      "case_sum_ns": 25387000000,
+      "cases": [
+        {
+          "case": "pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells",
+          "duration_ns": 2519000000
+        },
+        {
+          "case": "pty::btop_input_to_present_latency_is_separate_from_replay_sample_interval",
+          "duration_ns": 2159000000
+        },
+        {
+          "case": "pty::btop_replay_updates_after_resize_and_quits_with_restored_terminal",
+          "duration_ns": 2093000000
+        },
+        {
+          "case": "pty::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input",
+          "duration_ns": 1792000000
+        },
+        {
+          "case": "pty::btop_replay_finite_completion_restores_terminal_attributes",
+          "duration_ns": 1693000000
+        },
+        {
+          "case": "pty::btop_replay_ctrl_c_byte_exits_and_restores_terminal",
+          "duration_ns": 1594000000
+        },
+        {
+          "case": "pty::btop_replay_stdin_eof_restores_terminal_attributes",
+          "duration_ns": 1594000000
+        },
+        {
+          "case": "pty::btop_replay_write_failure_restores_input_terminal_attributes",
+          "duration_ns": 1502000000
+        },
+        {
+          "case": "pty::native_terminal_redirection_does_not_hang_up_its_session_leader",
+          "duration_ns": 1131000000
+        },
+        {
+          "case": "fd::test_block_stats_are_reported_when_a_write_fails",
+          "duration_ns": 571000000
+        },
+        {
+          "case": "lifecycle::test_uchild_when_run_no_wait_with_a_non_blocking_util",
+          "duration_ns": 510000000
+        },
+        {
+          "case": "more::shared_valid_options_exit_at_short_file_eof",
+          "duration_ns": 421000000
+        },
+        {
+          "case": "more::basic_display",
+          "duration_ns": 419000000
+        },
+        {
+          "case": "fd::test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file",
+          "duration_ns": 390000000
+        },
+        {
+          "case": "fd::test_large_bs_does_not_fault_in_copy_buffer",
+          "duration_ns": 382000000
+        }
+      ]
+    },
+    {
+      "binary": "core_compat_boundaries",
+      "case_count": 23,
+      "case_sum_ns": 5657000000,
+      "cases": [
+        {
+          "case": "test_dev_full_show_all",
+          "duration_ns": 1922000000
+        },
+        {
+          "case": "test_dev_random",
+          "duration_ns": 921000000
+        },
+        {
+          "case": "test_dev_full",
+          "duration_ns": 908000000
+        },
+        {
+          "case": "test_uu_mkfifo_create_fifo_with_mode_and_umask",
+          "duration_ns": 424000000
+        },
+        {
+          "case": "test_validate_stdin_offset_lines",
+          "duration_ns": 335000000
+        },
+        {
+          "case": "test_validate_stdin_offset_bytes",
+          "duration_ns": 159000000
+        },
+        {
+          "case": "test_child_when_pipe_in",
+          "duration_ns": 95000000
+        },
+        {
+          "case": "test_comm_anonymous_pipes",
+          "duration_ns": 95000000
+        },
+        {
+          "case": "test_uu_mkfifo_create_fifo_with_umask",
+          "duration_ns": 91000000
+        },
+        {
+          "case": "test_stdin_is_socket",
+          "duration_ns": 90000000
+        },
+        {
+          "case": "test_dev_zero_closed_pipe",
+          "duration_ns": 80000000
+        },
+        {
+          "case": "test_broken_pipe_no_error",
+          "duration_ns": 78000000
+        },
+        {
+          "case": "test_uchild_when_no_capture_reading_from_infinite_source",
+          "duration_ns": 72000000
+        },
+        {
+          "case": "test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe",
+          "duration_ns": 65000000
+        },
+        {
+          "case": "test_large_tab_stop_without_tabs_does_not_allocate",
+          "duration_ns": 55000000
+        }
+      ]
+    },
+    {
+      "binary": "core_compat_extra",
+      "case_count": 24,
+      "case_sum_ns": 3420000000,
+      "cases": [
+        {
+          "case": "privilege::test_ls_capabilities",
+          "duration_ns": 532000000
+        },
+        {
+          "case": "privilege::test_mknod_mode_permissions",
+          "duration_ns": 280000000
+        },
+        {
+          "case": "privilege::test_chroot_skip_chdir",
+          "duration_ns": 236000000
+        },
+        {
+          "case": "privilege::test_invalid_user_spec",
+          "duration_ns": 188000000
+        },
+        {
+          "case": "privilege::test_invalid_user",
+          "duration_ns": 164000000
+        },
+        {
+          "case": "privilege::test_chroot_retains_uid_gid",
+          "duration_ns": 164000000
+        },
+        {
+          "case": "cp::privileged::test_cp_one_file_system",
+          "duration_ns": 158000000
+        },
+        {
+          "case": "cp::privileged::test_cp_recursive_char_device_archive",
+          "duration_ns": 154000000
+        },
+        {
+          "case": "privilege::test_chroot",
+          "duration_ns": 152000000
+        },
+        {
+          "case": "cp::privileged::test_cp_recursive_char_device_recursive",
+          "duration_ns": 149000000
+        },
+        {
+          "case": "privilege::test_default_shell",
+          "duration_ns": 113000000
+        },
+        {
+          "case": "privilege::test_multiple_group_args",
+          "duration_ns": 108000000
+        },
+        {
+          "case": "privilege::test_chroot_command_not_found_error",
+          "duration_ns": 107000000
+        },
+        {
+          "case": "rm::test_preserve_root_symlink_to_root",
+          "duration_ns": 103000000
+        },
+        {
+          "case": "privilege::test_chroot_extra_arg",
+          "duration_ns": 102000000
+        }
+      ]
+    },
+    {
+      "binary": "fs_transfer",
+      "case_count": 84,
+      "case_sum_ns": 2781000000,
+      "cases": [
+        {
+          "case": "policy::generated_top_level_policy_matrix_matches_the_logical_model",
+          "duration_ns": 742000000
+        },
+        {
+          "case": "interruption::killing_publication_at_each_journal_step_leaves_a_complete_destination",
+          "duration_ns": 246000000
+        },
+        {
+          "case": "recovery::killed_retirement_restores_only_before_unlink_and_never_replays_deletion",
+          "duration_ns": 173000000
+        },
+        {
+          "case": "recovery::killed_batch_restores_every_unlinked_capture",
+          "duration_ns": 94000000
+        },
+        {
+          "case": "recovery::current_records_validate_version_owner_mode_mount_and_captured_identity",
+          "duration_ns": 81000000
+        },
+        {
+          "case": "interruption::killing_an_inflight_copy_never_exposes_a_partial_final_file",
+          "duration_ns": 77000000
+        },
+        {
+          "case": "engine::iterative_transfer_preserves_a_tree_beyond_the_path_limit",
+          "duration_ns": 75000000
+        },
+        {
+          "case": "publication::concurrent_readers_observe_complete_old_or_new_replacement_bytes",
+          "duration_ns": 65000000
+        },
+        {
+          "case": "recovery::refused_batch_boundary_restores_every_capture_at_its_name",
+          "duration_ns": 56000000
+        },
+        {
+          "case": "policy::into_maps_multiple_sources_with_raw_names_and_trailing_slashes",
+          "duration_ns": 53000000
+        },
+        {
+          "case": "engine::cancellation_cleans_a_partial_replacement_destination",
+          "duration_ns": 49000000
+        },
+        {
+          "case": "engine::parallel_transfer_preserves_a_wide_tree_and_counts_every_entry",
+          "duration_ns": 48000000
+        },
+        {
+          "case": "engine::sync_parallel_workers_replace_a_wide_destination_directory",
+          "duration_ns": 45000000
+        },
+        {
+          "case": "engine::publication_and_observation_agree_on_the_same_entry",
+          "duration_ns": 43000000
+        },
+        {
+          "case": "policy::intermediate_parent_symlinks_resolve_and_into_stays_anchored_after_swap",
+          "duration_ns": 43000000
+        }
+      ]
+    },
+    {
+      "binary": "ambient_fs_policy",
+      "case_count": 2,
+      "case_sum_ns": 2340000000,
+      "cases": [
+        {
+          "case": "ambient_filesystem_use_is_allowlisted",
+          "duration_ns": 2338000000
+        },
+        {
+          "case": "test_only_external_sources_require_exclusive_test_ownership",
+          "duration_ns": 2000000
+        }
+      ]
+    },
+    {
+      "binary": "linux_priv",
+      "case_count": 8,
+      "case_sum_ns": 1673000000,
+      "cases": [
+        {
+          "case": "system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper",
+          "duration_ns": 804000000
+        },
+        {
+          "case": "system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
+          "duration_ns": 803000000
+        },
+        {
+          "case": "linux_priv_loop_attach_list_and_detach_release_device",
+          "duration_ns": 24000000
+        },
+        {
+          "case": "linux_priv_kill_all_signals_contained_new_session_process",
+          "duration_ns": 15000000
+        },
+        {
+          "case": "linux_priv_fuser_separates_six_digit_holder_pids",
+          "duration_ns": 13000000
+        },
+        {
+          "case": "linux_priv_mount_and_switch_root_fail_within_private_namespace",
+          "duration_ns": 6000000
+        },
+        {
+          "case": "linux_priv_mknod_creates_character_device_when_permitted",
+          "duration_ns": 4000000
+        },
+        {
+          "case": "linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup",
+          "duration_ns": 4000000
+        }
+      ]
+    },
+    {
+      "binary": "symbol_plateau",
+      "case_count": 4,
+      "case_sum_ns": 415000000,
+      "cases": [
+        {
+          "case": "streaming_keys::fresh_streaming_record_keys_do_not_accumulate_for_the_program_lifetime",
+          "duration_ns": 332000000
+        },
+        {
+          "case": "repeated_preparation_returns_to_a_stable_symbol_plateau",
+          "duration_ns": 81000000
+        },
+        {
+          "case": "test_binary::tests::other_profiles_are_rejected",
+          "duration_ns": 2000000
+        },
+        {
+          "case": "test_binary::tests::optimized_product_paths_are_accepted",
+          "duration_ns": 0
+        }
+      ]
+    }
+  ],
+  "label": "c716265d1c3923657cfdb2a0547b96737b77e5d8",
+  "native": [
+    {
+      "case_count": 15654,
+      "case_sum_ns": 12615717689795,
+      "cases": [
+        {
+          "case": "core/tests/test-gnu-sort.xsh::test_gnu_sort_sort_buffer_size_log",
+          "duration_ns": 341146120568
+        },
+        {
+          "case": "core/tests/test-gnu-od.xsh::test_gnu_od_big_w_log",
+          "duration_ns": 81237799376
+        },
+        {
+          "case": "core/tests/test-gnu-head.xsh::test_gnu_head_head_elide_tail_log",
+          "duration_ns": 78624011932
+        },
+        {
+          "case": "core/tests/test-gnu-ls.xsh::test_gnu_ls_ls_misc_log",
+          "duration_ns": 75770499428
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_14",
+          "duration_ns": 74003403540
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_12",
+          "duration_ns": 69841760311
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_13",
+          "duration_ns": 67390267750
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_11",
+          "duration_ns": 66915814620
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_01",
+          "duration_ns": 65739445358
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_06",
+          "duration_ns": 65218001614
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_07",
+          "duration_ns": 65202281888
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_04",
+          "duration_ns": 65153886877
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_09",
+          "duration_ns": 64565247905
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_08",
+          "duration_ns": 64553375886
+        },
+        {
+          "case": "core/tests/test-sed.xsh::sed_table_slice_03",
+          "duration_ns": 64231538484
+        }
+      ],
+      "files": [
+        {
+          "case_sum_ns": 2631560681248,
+          "cases": 308,
+          "file": "core/tests/test-awk.xsh",
+          "span_ns": 330542173230
+        },
+        {
+          "case_sum_ns": 951337517705,
+          "cases": 48,
+          "file": "core/tests/test-sed.xsh",
+          "span_ns": 686814973778
+        },
+        {
+          "case_sum_ns": 550561876824,
+          "cases": 18,
+          "file": "core/tests/test-gnu-sort.xsh",
+          "span_ns": 463606937819
+        },
+        {
+          "case_sum_ns": 331427346747,
+          "cases": 59,
+          "file": "core/tests/test-gnu-cp.xsh",
+          "span_ns": 719015461600
+        },
+        {
+          "case_sum_ns": 278369149827,
+          "cases": 111,
+          "file": "dev/tests/test-gates.xsh",
+          "span_ns": 723073205703
+        },
+        {
+          "case_sum_ns": 271577926509,
+          "cases": 15,
+          "file": "core/tests/test-gnu-cut.xsh",
+          "span_ns": 467962136397
+        },
+        {
+          "case_sum_ns": 253938694003,
+          "cases": 14,
+          "file": "core/tests/test-find.xsh",
+          "span_ns": 442642392729
+        },
+        {
+          "case_sum_ns": 251098254190,
+          "cases": 44,
+          "file": "core/tests/test-gnu-ls.xsh",
+          "span_ns": 656845519075
+        },
+        {
+          "case_sum_ns": 250075720095,
+          "cases": 80,
+          "file": "core/tests/test-uu-ls-2.xsh",
+          "span_ns": 736963446042
+        },
+        {
+          "case_sum_ns": 225376029042,
+          "cases": 84,
+          "file": "core/tests/test-uu-ls-1.xsh",
+          "span_ns": 714703266652
+        },
+        {
+          "case_sum_ns": 222702037193,
+          "cases": 237,
+          "file": "dev/tests/test-system-report-check.xsh",
+          "span_ns": 765200520287
+        },
+        {
+          "case_sum_ns": 188353895954,
+          "cases": 80,
+          "file": "core/tests/test-uu-sort-1.xsh",
+          "span_ns": 701855104998
+        },
+        {
+          "case_sum_ns": 186746432151,
+          "cases": 10,
+          "file": "core/tests/test-dhcp-integration.xsh",
+          "span_ns": 398448048248
+        },
+        {
+          "case_sum_ns": 185501442200,
+          "cases": 96,
+          "file": "core/tests/test-sort.xsh",
+          "span_ns": 721517552675
+        },
+        {
+          "case_sum_ns": 172797779147,
+          "cases": 7,
+          "file": "core/tests/test-gnu-od.xsh",
+          "span_ns": 320886043919
+        }
+      ],
+      "last_case_end_ns": 831014664771,
+      "last_to_finish": {
+        "case": "dev/tests/test-system-report-check.xsh::test_system_report_traced_live_text_modes_keep_host_effect_contract",
+        "duration_ns": 60219535597,
+        "start_ns": 770795129174,
+        "worker": 13
+      },
+      "source": "native-events.jsonl",
+      "tail": [
+        {
+          "case": "dev/tests/test-gates.xsh::test_xargs_edit_selects_process_and_stream_contracts",
+          "end_ns": 776952647937,
+          "start_ns": 776228900777,
+          "worker": 14
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_uniq_edit_selects_record_grouping_and_stream_contracts",
+          "end_ns": 776809280622,
+          "start_ns": 776135574279,
+          "worker": 11
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_tokei_gate_requires_each_external_input_before_launch",
+          "end_ns": 776135564911,
+          "start_ns": 776129350262,
+          "worker": 11
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_source_observation_ignores_user_git_excludes",
+          "end_ns": 776311112058,
+          "start_ns": 776071580323,
+          "worker": 2
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_source_edit_cases_deduplicate_and_preserve_unresolved_paths",
+          "end_ns": 776129340944,
+          "start_ns": 775796535523,
+          "worker": 11
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_soundness_leaf_gates_skip_product_builds",
+          "end_ns": 775796526366,
+          "start_ns": 775794399617,
+          "worker": 11
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_soundness_fuzzing_is_an_explicit_scenario_offered_for_semantic_changes",
+          "end_ns": 777037597210,
+          "start_ns": 775674312053,
+          "worker": 8
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_sort_edit_selects_ordering_and_spill_contracts",
+          "end_ns": 776228887742,
+          "start_ns": 775502548638,
+          "worker": 14
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_sema_gate_runs_the_library_unit_tests_of_the_files_it_owns",
+          "end_ns": 775502535944,
+          "start_ns": 775163097036,
+          "worker": 14
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_scenario_only_scope_does_not_report_a_focused_pass",
+          "end_ns": 776350386473,
+          "start_ns": 775103177215,
+          "worker": 15
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases",
+          "end_ns": 775103166004,
+          "start_ns": 775068757190,
+          "worker": 15
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_route_witness_selector_preserves_broad_shared_runtime_gates",
+          "end_ns": 775068751640,
+          "start_ns": 775065837212,
+          "worker": 15
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_route_witness_selector_avoids_duplicate_cli_and_native_runs",
+          "end_ns": 775065826992,
+          "start_ns": 775063145168,
+          "worker": 15
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases",
+          "end_ns": 775063130780,
+          "start_ns": 775060471909,
+          "worker": 15
+        },
+        {
+          "case": "dev/tests/test-gates.xsh::test_root_and_namespace_groups_are_separate_scenarios_each_selected_alone",
+          "end_ns": 775163082558,
+          "start_ns": 774494191601,
+          "worker": 14
+        }
+      ],
+      "wall_ns": 831016064405,
+      "workers": [
+        {
+          "busy_ns": 781394032600,
+          "idle_ns": 49622031805,
+          "worker": 0
+        },
+        {
+          "busy_ns": 785446310933,
+          "idle_ns": 45569753472,
+          "worker": 1
+        },
+        {
+          "busy_ns": 776293216901,
+          "idle_ns": 54722847504,
+          "worker": 2
+        },
+        {
+          "busy_ns": 796425520160,
+          "idle_ns": 34590544245,
+          "worker": 3
+        },
+        {
+          "busy_ns": 822730205254,
+          "idle_ns": 8285859151,
+          "worker": 4
+        },
+        {
+          "busy_ns": 778449450964,
+          "idle_ns": 52566613441,
+          "worker": 5
+        },
+        {
+          "busy_ns": 777171954978,
+          "idle_ns": 53844109427,
+          "worker": 6
+        },
+        {
+          "busy_ns": 778523206429,
+          "idle_ns": 52492857976,
+          "worker": 7
+        },
+        {
+          "busy_ns": 777007349448,
+          "idle_ns": 54008714957,
+          "worker": 8
+        },
+        {
+          "busy_ns": 774273001847,
+          "idle_ns": 56743062558,
+          "worker": 9
+        },
+        {
+          "busy_ns": 818859997659,
+          "idle_ns": 12156066746,
+          "worker": 10
+        },
+        {
+          "busy_ns": 776781963065,
+          "idle_ns": 54234101340,
+          "worker": 11
+        },
+        {
+          "busy_ns": 788124989945,
+          "idle_ns": 42891074460,
+          "worker": 12
+        },
+        {
+          "busy_ns": 830984605519,
+          "idle_ns": 31458886,
+          "worker": 13
+        },
+        {
+          "busy_ns": 776929934173,
+          "idle_ns": 54086130232,
+          "worker": 14
+        },
+        {
+          "busy_ns": 776321949920,
+          "idle_ns": 54694114485,
+          "worker": 15
+        }
+      ]
+    }
+  ],
+  "schema": 1
+}
