@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 103
+Next: 104
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -177,4 +177,13 @@ out of scope.
 - **Problem:** This valid script checks but fails to run with `err[compact.indexed-build]: indexed IR could not encode full_ir_verification: ground producer form has no executable type proof: ExprBinary at instruction 23`: `var xs = [0 for _ in range(3)]` / `for round in range(2) {` / `var carry = round` / `for i in range(xs.len()) {` / `carry += xs[i] * 4294967296` / `xs[i] = carry % 656356768` / `carry /= 656356768` / `} }` / `print xs[0]`. Removing the outer loop, the multiplication, the element store or the `/=` each makes it run, so the failing combination is an accumulator re-declared per outer iteration whose compound updates feed an indexed list store inside an inner loop. A program the checker accepts must lower and run.
 - **Recommendation:** Add the reproducer as a native regression test, find which producer form loses its type proof when the re-declared `carry` flows through `+=` and `/=` into `xs[i]`, and record the proof in lowering instead of rejecting it in verification.
 - **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-103 · P3 · Qualify the util-linux cohort on non-UTF-8 and unreadable host state
+
+- **Area:** Core commands
+- **Where:** `src/modules/fs.rs` (`fs.mount_for`, ~:1843), `core/mountpoint.xsh`, `core/lib/locks.xsh` (~:271, ~:286), `core/lsipc.xsh`, `core/namei.xsh`
+- **Problem:** The 2026-11-17 adversarial review of the util-linux cohort recorded these risks without reproducing them (unproven): `fs.mount_for` reads `/proc/self/mountinfo` as UTF-8, so a mount whose source or target is not UTF-8 would make every `mountpoint` query exit 1, and its longest-prefix search could name a hidden mount under an overmount; an unreadable `/proc/locks` would escape `lslocks` as a stack trace, and its mount fallback rereads mountinfo for every inaccessible lock; POSIX IPC objects with non-UTF-8 names can never match `lsipc -N`; and `namei` stops at the first operand whose output fails, while util-linux still reports the remaining operands.
+- **Recommendation:** Reproduce each in a disposable root container (non-UTF-8 mount points, an overmount, a chroot without a root mount, `chmod 000 /proc/locks` in a private procfs, non-UTF-8 POSIX IPC names) against the host's util-linux 2.42.4, and fix the ones that differ with byte-exact regression tests.
+- **Fix with:** reference-parity
 - **Effort:** M
