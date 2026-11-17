@@ -579,6 +579,7 @@ export proc modes(argv: List[Str]) [process, env, error] -> Modes {
 }
 
 proc column_list(text: Bytes, initial: List[Str], limit: Int) [process, env, io] -> List[Str] {
+  if text.is_empty() { exit 1 }
   var selected = initial
   var begin: Int? = null
   let length = text.len()
@@ -622,7 +623,8 @@ export proc split_columns(opts: Options, output_columns: List[Str], raw: List[gn
   if opts.split == null { return output_columns }
   let text = opts.split ?? ""
   return [] when text.lower() == "none"
-  column_list(gnu.argument_bytes(text, raw), [], 9)
+  let data = gnu.argument_bytes(text, raw)
+  column_list(if text.starts_with("+") { data.slice(1, length: data.len() - 1) } else { data }, [], 9)
 }
 
 pure block_number(block: Block) -> Str {

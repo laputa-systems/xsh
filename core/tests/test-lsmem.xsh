@@ -173,6 +173,20 @@ test test_lsmem_rooted_columns_environment_and_explicit_output_precedence { |ctx
   compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "NOT-A-COLUMN"})?
 }
 
+test test_lsmem_rooted_column_list_grammar { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for option in ["-S", "-o"] {
+    for value in ["", "+", "+SIZE", "+STATE,NODE", "+none", ",", "SIZE,", "+,SIZE", "+SIZE,", ",SIZE", "SIZE,,NODE"] {
+      compare_lsmem_rooted(s, [option, value, "--summary=never"])?
+    }
+  }
+  for value in ["", "+", "+SIZE", "SIZE,"] {
+    compare_lsmem_rooted(s, ["--summary=never"], {LSMEM_COLUMNS: value})?
+    compare_lsmem_rooted(s, ["-o", "SIZE", "--summary=never"], {LSMEM_COLUMNS: value})?
+  }
+}
+
 test test_lsmem_rooted_short_option_aliases { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
