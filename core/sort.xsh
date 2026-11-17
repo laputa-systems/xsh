@@ -1205,6 +1205,29 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
       return unique_input |> sort-by(desc: opts.reverse) { |record| record.text ?? "" }
     }
   }
+  if plan.last_resort and ! opts.reverse and plan.has_key and opts.key.len() == 1 and
+    ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting and
+    ! plan.mode.month and ! plan.mode.human_numeric and ! plan.mode.general_numeric and
+    ! plan.mode.version and ! plan.mode.numeric {
+    let spec = opts.key[0]
+    let field = key_index(spec)
+    let delimiter = sort_delimiter(opts)
+    if field >= 0 and spec == f"{field + 1},{field + 1}" and delimiter.byte_len() == 1 {
+      var all_text = true
+      for record in unique_input {
+        if record.text == null { all_text = false; break }
+      }
+      if all_text {
+        let ordered = collect {
+          for record in unique_input {
+            let raw = record.text ?? ""
+            yield {record: record, key: {primary: raw.split(delimiter).get(field) ?? "", raw: raw}}
+          }
+        }
+        return [entry.record for entry in ordered |> sort-by .key]
+      }
+    }
+  }
   if plan.last_resort and ! opts.reverse {
     var all_text = true
     for record in unique_input {
@@ -1267,7 +1290,7 @@ pure input_records(input: Bytes, zero_terminated: Bool) -> List[SortRecord] {
     let delimiter = if zero_terminated { "\0" } else { "\n" }
     let parts = text.split(delimiter)
     let count = parts.len() - (if input.byte_at(input.len() - 1) == separator { 1 } else { 0 })
-    return [{bytes: bytes.from_text(parts[index]), text: parts[index]} for index in range(count)]
+    return [{bytes: bytes.from_text(part), text: part} for part in parts[..count]]
   }
   var start = 0
   var at = 0
