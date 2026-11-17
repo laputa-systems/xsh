@@ -1238,3 +1238,26 @@ test test_lslocks_descriptor_device_collision { |ctx|
     assert (target ?? mountpoint).display() in (result.stdout.utf8() ?? "")
   }
 }
+
+test test_lslocks_json_unresolved_path_is_null { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let mountpoint = uu.at(s, "mount")
+  mountpoint.mkdir()
+  assert (run.capture --text mount -t tmpfs none $mountpoint).status.exited_with(0)
+  var mounted = true
+  defer { if mounted { run.status umount -l $mountpoint } }
+  let file = fp"{mountpoint}/locked"
+  file.write("abc")
+  let script = uu.at(s, "fork.py")
+  script.write("import fcntl,os,signal,sys\nf=os.open(sys.argv[1],os.O_RDWR)\nfcntl.flock(f,fcntl.LOCK_EX)\np=os.fork()\nif p==0:\n signal.pause(); os._exit(0)\nos.close(f)\nprint(os.getpid(),flush=True)\ntry: sys.stdin.readline()\nfinally: os.kill(p,signal.SIGTERM); os.waitpid(p,0)\n")
+  let keeper = ul.start_keeper(s, script, [file.display()])?
+  defer ul.stop_keeper(keeper)
+  let pid = keeper.ready.trim()
+  assert (run.capture --text umount -l $mountpoint).status.exited_with(0)
+  mounted = false
+  let result = compared(s, ["-J", "-p", pid, "-o", "PID,PATH"])?
+  assert "\"path\": null" in (result.stdout.utf8() ?? "")
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}

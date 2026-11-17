@@ -794,7 +794,7 @@ pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool, path_
     "END" => lock.end
     "PATH" => if path_override != null { path_override ?? "" } else if let path_bytes = lock.path {
       if let Ok(text) = path_bytes.utf8() { text } else { safe_table_text(path_bytes, column, byte_locale) }
-    } else { "" }
+    } else { null }
     "BLOCKER" => lock.blocker
     "HOLDERS" => lock.holders
     else => null
