@@ -35,7 +35,9 @@ pure decode_mount_field(encoded: Bytes) -> Bytes {
   bytes.concat(parts)
 }
 
-proc mount_target(mount_id: Int?) [fs] -> Bytes? {
+type MountEntry = {target: Bytes, devno: Bytes}
+
+proc mount_entry(mount_id: Int?) [fs] -> MountEntry? {
   guard let id = mount_id else { return null }
   let data = match p"/proc/self/mountinfo".read_bytes() {
     Ok(value) => value
@@ -54,7 +56,7 @@ proc mount_target(mount_id: Int?) [fs] -> Bytes? {
     continue when fields.len() < 5
     if let Ok(text) = fields[0].utf8() {
       if let Ok(found) = text.parse_int() {
-        if found == id { return decode_mount_field(fields[4]) }
+        if found == id { return {target: decode_mount_field(fields[4]), devno: fields[2]} }
       }
     }
   }
@@ -210,8 +212,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.show {
-    if let target = mount_target(metadata.mount_id) {
-      ul_io.write_bytes(bytes.concat([target, b"\n"]))
+    if let entry = mount_entry(metadata.mount_id) {
+      ul_io.write_bytes(bytes.concat([entry.target, b"\n"]))
       return
     }
     gnu.error("--show is not supported on this system")
@@ -225,23 +227,23 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 32
     }
   }
-  let target = if let value = mount_target(metadata.mount_id) {
-    value
+  let entry: MountEntry = if let found = mount_entry(metadata.mount_id) {
+    found
   } else {
-      match fs.mount_for(resolved) {
-        Ok(mount) => mount.mounted_on.bytes()
-        Err(failure) => {
-          if ! opts.quiet { report_path_error(name, failure) }
-          exit 1
-        }
+    match fs.mount_for(resolved) {
+      Ok(mount) => {target: mount.mounted_on.bytes(), devno: bytes.from_text(device_number(mount.device))}
+      Err(failure) => {
+        if ! opts.quiet { report_path_error(name, failure) }
+        exit 1
       }
+    }
   }
-  if resolved.bytes() != target {
+  if resolved.bytes() != entry.target {
     if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
   }
   if opts.fs_devno {
-    ul_io.write_text(f"{device_number(metadata.dev)}\n")
+    ul_io.write_bytes(bytes.concat([entry.devno, b"\n"]))
   } else if ! opts.quiet {
     ul_io.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
   }
