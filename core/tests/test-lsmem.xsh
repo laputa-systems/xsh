@@ -504,3 +504,20 @@ test test_lsmem_help_in_short_option_cluster { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-hJr"], ["-Jrh"]] { compare_lsmem(s, args)? }
 }
+
+test test_lsmem_noheadings_size_width { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  compare_lsmem_rooted(s, ["-a", "-n", "--summary=never"])?
+}
+
+test test_lsmem_ascii_column_case { |ctx|
+  let s = uu.scene(ctx)?
+  compare_lsmem(s, ["-o", "sıze"])?
+}
+
+test test_lsmem_smartcols_json_environment { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  for mode in ["compact", "lines"] { compare_lsmem_rooted(s, ["-J"], {LIBSMARTCOLS_JSON: mode})? }
+}

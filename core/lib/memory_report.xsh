@@ -597,7 +597,7 @@ proc column_list(text: Bytes, initial: List[Str], limit: Int) [process, env, io]
     let name = text.slice(start, length: stop - start).utf8() ?? ""
     var found = false
     for column in COLUMN_NAMES {
-      if name.upper() == column { selected += [column]; found = true; break }
+      if name.byte_len() == name.count_chars() and name.upper() == column { selected += [column]; found = true; break }
     }
     if ! found {
       ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), text.slice(start, length: length - start), b"\n"]))
@@ -749,6 +749,9 @@ proc table_text(inventory: Inventory, output_columns: List[Str], opts: Options) 
   for row in rows {
     for index in range(shown.len()) { widths[index] = wider(widths[index], row[index].byte_len()) }
   }
+  for index in range(shown.len()) {
+    if opts.noheadings and shown[index] == "SIZE" { widths[index] = wider(widths[index], 5) }
+  }
   var natural_width = 0
   for width in widths { natural_width += width }
   if widths.len() > 1 { natural_width += widths.len() - 1 }
@@ -807,8 +810,22 @@ proc pairs_text(inventory: Inventory, output_columns: List[Str], opts: Options) 
   output
 }
 
-proc json_text(inventory: Inventory, output_columns: List[Str], opts: Options) [error] -> Str {
+proc json_text(inventory: Inventory, output_columns: List[Str], opts: Options, mode: Str) [error] -> Str {
   let shown = [column for column in output_columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+  if mode in ["compact", "lines"] {
+    var rows: List[Str] = []
+    for block in inventory.blocks {
+      var fields: List[Str] = []
+      for column in shown {
+        let key = json.encode(column.lower())?
+        let value = block_json_value(inventory, block, column, opts.bytes) ?? "null"
+        fields += [f"{key}:{value}"]
+      }
+      rows += ["{" + fields.join(",") + "}"]
+    }
+    if mode == "lines" { return rows.join("\n") + (if rows.is_empty() { "" } else { "\n" }) }
+    return "{\"memory\":[\n" + rows.join(",\n") + (if rows.is_empty() { "" } else { "\n" }) + "]}\n"
+  }
   var output = "{\n   \"memory\": ["
   if ! inventory.blocks.is_empty() { output += "\n" }
   for block_index in range(inventory.blocks.len()) {
@@ -853,12 +870,12 @@ proc summary_text(inventory: Inventory, byte_mode: Bool) [error] -> Str {
 }
 
 ## Renders the requested table format and summary as one output string.
-export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [process, error] -> Str {
+export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [process, env, error] -> Str {
   var output = ""
   if modes.table {
     let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
     if ! shown.is_empty() {
-      if opts.json { output = json_text(inventory, columns, opts) } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
+      if opts.json { output = json_text(inventory, columns, opts, env.get("LIBSMARTCOLS_JSON") ?? "") } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
     }
     if modes.summary { output += "\n" }
   }
