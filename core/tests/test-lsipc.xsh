@@ -1484,3 +1484,21 @@ test test_lsipc_global_shell_percent_heading { |ctx|
     ul.compare(pair.reference, pair.candidate)
   }
 }
+
+test test_lsipc_non_utf8_posix_name { |ctx|
+  let s = uu.scene(ctx)?
+  let name = Path.parse_bytes(b"/a\xff")?
+  for selector in [p"-M", p"-Q", p"-S"] {
+    let args = [selector, p"-N", name]
+    let reference = ul.reference_paths(s, "lsipc", args)?
+    let candidate = uu.invoke_paths(s, "lsipc", args, timeout: 5s)?
+    assert reference.status == 0
+    assert reference.stdout == b""
+    ul.compare(reference, candidate)
+  }
+  let args = [p"-Q", p"-N", Path.parse_bytes(b"a\xff")?]
+  let reference = ul.reference_paths(s, "lsipc", args)?
+  assert reference.status == 0 and reference.stdout == b""
+  assert reference.stderr == b"lsipc: message queue name must start with '/': a\xff\n"
+  ul.compare(reference, uu.invoke_paths(s, "lsipc", args, timeout: 5s)?)
+}

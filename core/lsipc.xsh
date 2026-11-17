@@ -315,7 +315,7 @@ proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs,
   {values: values, elements: []}
 }
 
-proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, env, error] -> List[IpcEntry] {
+proc posix_entries(kind: Str, selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[IpcEntry] {
   let family = posix_kind(kind)
   if kind == "posix_mqueues" {
     if !ipc.posix_directory_available(family) {
@@ -323,8 +323,8 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, e
       return []
     }
     if let name = selection.name {
-      if !name.starts_with("/") {
-        gnu.error(f"message queue name must start with '/': {name}")
+      if !gnu.argument_bytes(name, raw).starts_with(b"/") {
+        ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: message queue name must start with '/': "), gnu.argument_bytes(name, raw), b"\n"]))
         return []
       }
     }
@@ -342,11 +342,12 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, e
     var found_name = false
     for entry in entries {
       if let Ok(name) = entry.values.get("NAME") {
-        if name == wanted { found_name = true; break }
+        if bytes.from_text(name) == gnu.argument_bytes(wanted, raw) { found_name = true; break }
       }
     }
     if !found_name {
-      if kind == "posix_shmems" { gnu.error(f"shared memory segment {wanted} not found") } else { gnu.error(f"message queue {wanted} not found") }
+      let label = if kind == "posix_shmems" { "shared memory segment" } else { "message queue" }
+      ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: {label} "), gnu.argument_bytes(wanted, raw), b" not found\n"]))
     }
   }
   entries
@@ -364,7 +365,7 @@ proc row_for(selection: report.Selection, entry: IpcEntry, resource: Str) -> rep
   {resource: resource, cells: cells, elements: entry.elements}
 }
 
-proc selected_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
+proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
   var rows: List[report.Row] = []
   for kind in selection.resources {
     continue when selection.global
@@ -380,7 +381,7 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
         if let entry = make_sysv_entry(kind, record, selection) { entries += [entry] }
       }
     } else {
-      entries = posix_entries(kind, selection)
+      entries = posix_entries(kind, selection, raw)
     }
     for entry in entries {
       if kind in ["queues", "shmems", "semaphores"] {
@@ -393,7 +394,7 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
       }
       if kind.starts_with("posix_") {
         if let wanted_name = selection.name {
-          continue when (entry.values.get("NAME") ?? "") != wanted_name
+          continue when bytes.from_text(entry.values.get("NAME") ?? "") != gnu.argument_bytes(wanted_name, raw)
         }
       }
       rows += [row_for(selection, entry, kind)]
@@ -416,7 +417,7 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   row_for(selection, {values: values, elements: []}, "global")
 }
 
-proc global_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
+proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
     let records = ipc.collect_system_v(ipc.MessageQueues)
@@ -425,7 +426,7 @@ proc global_rows(selection: report.Selection) [fs, process, time, env, error] ->
     rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, ipc.read_limit_text(ipc.QueueBytes), false, true)]
   }
   if "posix_mqueues" in selection.resources {
-    let posix = posix_entries("posix_mqueues", selection)
+    let posix = posix_entries("posix_mqueues", selection, raw)
     rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), ipc.read_limit_text(ipc.PosixQueueCount), true, false)]
     rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, ipc.read_limit_text(ipc.PosixMessageBytes), false, true)]
     rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, ipc.read_limit_text(ipc.PosixQueueMessages), false, false)]
@@ -605,7 +606,7 @@ proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
     Ok(value) => value
     Err(failure) => { report_failure(failure, prepared.raw); return }
   }
-  let rows = if selection.global { global_rows(selection) } else { selected_rows(selection) }
+  let rows = if selection.global { global_rows(selection, prepared.raw) } else { selected_rows(selection, prepared.raw) }
   if rows.is_empty() { missing_resource(selection) }
   ul_io.write_text(report.render(selection, rows, output_width()))
 }
