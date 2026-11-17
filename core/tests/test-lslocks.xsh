@@ -1191,3 +1191,20 @@ test test_lslocks_review6_filter_path_bytes { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
+
+test test_lslocks_unreadable_proc_locks { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let source = fp"{s.root}/unreadable-locks"
+  source.write("")
+  source.chmod(0)
+  var mounted = false
+  defer { if mounted { run.status umount /proc/locks } }
+  assert (run.capture --text mount --bind $source /proc/locks).status.exited_with(0)
+  mounted = true
+  let reference = run.capture --text setpriv --bounding-set=-dac_override,-dac_read_search lslocks
+  let script = fp"{ctx.core_dir}/lslocks.xsh"
+  let candidate = run.capture --text setpriv --bounding-set=-dac_override,-dac_read_search ${ctx.xsh_bin} $script
+  assert reference.status.exited_with(255) and reference.stdout == "" and reference.stderr == ""
+  assert candidate.status.exited_with(255) and candidate.stdout == "" and candidate.stderr == ""
+}

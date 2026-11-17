@@ -324,7 +324,10 @@ proc mount_fallback(lock: KernelLock) [fs] -> Bytes? {
 proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
   let files: List[LinuxOpenFile] = linux.open_files()?.collect()
   let fallback = descriptor_locks(files)
-  let text = fp"/proc/locks".read_text()?
+  let text = match fp"/proc/locks".read_text() {
+    Ok(value) => value
+    Err(_) => { exit 255 }
+  }
   var locks: List[KernelLock] = []
   for line in text.lines() {
     if let lock = parse_kernel_lock(line) { locks += [lock] }
