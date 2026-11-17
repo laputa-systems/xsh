@@ -1479,6 +1479,17 @@ test test_one_native_file_partly_outside_the_lane_is_incomplete_by_case_id_as_by
   assert suite.unresolved.is_empty()
 }
 
+test test_other_platform_tests_do_not_leave_linux_scope_unresolved {
+  let ctx = fixtures.linux_context(fs.cwd()?)?
+  let file = "tests/xsh/tooling-trace.xsh"
+  let by_path = gates.plan_paths(ctx, tests.Verification, [file], [], gates.Change)?
+  let by_case = gates.plan_paths(ctx, tests.Verification, [], [f"native-{file}"], gates.Change)?
+  assert by_path.unresolved.is_empty()
+  assert by_case.unresolved.is_empty()
+  assert [entry.id for entry in by_path.cases] == [f"native-{file}"]
+  assert [entry.id for entry in by_case.cases] == [f"native-{file}"]
+}
+
 test test_evidence_is_current_only_for_the_target_and_profile_it_ran_on { |ctx|
   let root = test.temp_dir(ctx, name: "evidence-profile")?
   let on_linux = fixtures.linux_context(root)?

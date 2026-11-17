@@ -2297,12 +2297,21 @@ pure lane_excluded_tests() -> List[Str] {
 
 type LaneNote = {keep: Bool, unresolved: List[Str], scenarios: List[Str]}
 
+pure other_platform_tests() -> List[Str] {
+  var ids: List[Str] = []
+  for exclusion in gate_lane.lane_exclusions {
+    ids += exclusion.tests when exclusion.missing == "the test covers a platform other than Linux"
+  }
+  ids
+}
+
 proc lane_note(ctx: context.Context, file: Str) [fs, error] -> Result[LaneNote, Error] {
   let untouched = LaneNote(keep: true, unresolved: [], scenarios: [])
   return untouched when ctx.target.os != "linux"
-  let excluded = [id for id in lane_excluded_tests() if id.starts_with(f"{file}::")]
+  let excluded = [id for id in lane_excluded_tests() if id.starts_with(f"{file}::") and id not in other_platform_tests()]
   return untouched when excluded.is_empty()
-  let declared = [line for line in fp"{ctx.root}/{file}".read_text()?.split("\n") if line.starts_with("test ")].len()
+  let not_applicable = [id for id in other_platform_tests() if id.starts_with(f"{file}::")].len()
+  let declared = [line for line in fp"{ctx.root}/{file}".read_text()?.split("\n") if line.starts_with("test ")].len() - not_applicable
   var scenarios: List[Str] = []
   scenarios += [root_native_case_id] when ! [id for id in excluded if id in gate_lane.root_tests].is_empty()
   scenarios += [namespace_native_case_id] when ! [id for id in excluded if id in gate_lane.namespace_tests].is_empty()
@@ -2507,8 +2516,10 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
           seen += [id]
         }
         let in_lane = if ctx.target.os == "linux" { [id for id in seen if id not in lane_excluded_tests()] } else { seen }
-        outside_lane += seen.len() - in_lane.len()
-        print f"lane scope: {seen.len() - in_lane.len()} of {seen.len()} native tests need a capability the unprivileged Linux lane lacks; they are not selected" when in_lane.len() != seen.len()
+        let not_applicable = if ctx.target.os == "linux" { [id for id in seen if id in other_platform_tests()].len() } else { 0 }
+        let outside = seen.len() - in_lane.len() - not_applicable
+        outside_lane += outside
+        print f"lane scope: {outside} of {seen.len() - not_applicable} native tests need a capability the unprivileged Linux lane lacks; they are not selected" when outside > 0
         if in_lane.is_empty() and ! seen.is_empty() {
           print f"lane scope: every selected native test is outside the unprivileged Linux lane; request {root_native_case_id} or {namespace_native_case_id} for the ones a container can run"
         }
