@@ -3,6 +3,7 @@
 ##! All inventory reads stay beneath the supplied root. Rendering preserves
 ##! util-linux column, summary, and serialization behavior for the selected mode.
 use lib.gnu as gnu
+use lib.util_linux_io as ul_io
 
 const MEMORY_PATH: RelPath = p"sys/devices/system/memory"
 const CONFIG_PATH: RelPath = p"sys/firmware/memory"
@@ -577,47 +578,51 @@ export proc modes(argv: List[Str]) [process, env, error] -> Modes {
   {table: table, summary: summary}
 }
 
-proc column_list(text: Str, initial: List[Str], limit: Int) [process, env] -> List[Str] {
+proc column_list(text: Bytes, initial: List[Str], limit: Int) [process, env, io] -> List[Str] {
   var selected = initial
   var begin: Int? = null
-  let length = text.byte_len()
+  let length = text.len()
   for position in range(length) {
     let start = begin ?? position
     begin = start
     var end: Int? = null
-    if text.byte_slice(position, length: 1) == "," { end = position }
+    if text.byte_at(position) == 44 { end = position }
     if position + 1 == length { end = length }
     let stop = end ?? -1
     continue when stop < 0
     if stop <= start { exit 1 }
     if selected.len() >= limit { exit 1 }
-    let name = text.byte_slice(start, length: stop - start)
+    let name = text.slice(start, length: stop - start).utf8() ?? ""
     var found = false
     for column in COLUMN_NAMES {
       if name.upper() == column { selected += [column]; found = true; break }
     }
-    if ! found { gnu.error(f"unknown column: {text.byte_slice(start)}"); exit 1 }
+    if ! found {
+      ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), text.slice(start, length: length - start), b"\n"]))
+      exit 1
+    }
     begin = null
   }
   selected
 }
 
 ## Selects output columns from explicit output, environment output, or defaults.
-export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str] {
+export proc columns(opts: Options, env_columns: Str?, raw: List[gnu.RawArgument]) [process, env, io] -> List[Str] {
   let selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
   var output = ""
   if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
   if output == "" { exit 1 }
   let append = output.starts_with("+")
-  column_list(if append { output.byte_slice(1) } else { output }, if append { selected } else { [] }, 18)
+  let data = gnu.argument_bytes(output, raw)
+  column_list(if append { data.slice(1, length: data.len() - 1) } else { data }, if append { selected } else { [] }, 18)
 }
 
 ## Selects which attributes prevent adjacent memory blocks from merging.
-export proc split_columns(opts: Options, output_columns: List[Str]) [process, env] -> List[Str] {
+export proc split_columns(opts: Options, output_columns: List[Str], raw: List[gnu.RawArgument]) [process, env, io] -> List[Str] {
   if opts.split == null { return output_columns }
   let text = opts.split ?? ""
   return [] when text.lower() == "none"
-  column_list(text, [], 9)
+  column_list(gnu.argument_bytes(text, raw), [], 9)
 }
 
 pure block_number(block: Block) -> Str {

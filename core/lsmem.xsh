@@ -128,6 +128,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if word == "--" { break }
     let raw_word = gnu.argument_bytes(word, prepared.raw)
     if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
+      if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
       ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), raw_word.slice(2, length: raw_word.len() - 2), bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
       exit 1
     }
@@ -169,17 +170,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var split: List[Str] = []
   if modes.table {
     let environment_columns: Str? = if opts.output == null { if let Ok(value) = env.get("LSMEM_COLUMNS") { value } else { null } } else { null }
-    for value in [opts.output, opts.split] {
-      if value != null {
-        let raw_value = gnu.argument_bytes(value ?? "", prepared.raw)
-        if raw_value != bytes.from_text(value ?? "") {
-          ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), raw_value, b"\n"]))
-          exit 1
-        }
-      }
-    }
-    selected = report.columns(opts, environment_columns)
-    split = report.split_columns(opts, selected)
+    selected = report.columns(opts, environment_columns, prepared.raw)
+    split = report.split_columns(opts, selected, prepared.raw)
   }
 
   let root_path = opts.sysroot ?? p"/"
