@@ -165,7 +165,8 @@ out of scope.
 - **Area:** Core commands
 - **Where:** `core/sort.xsh`, `core/tests/test-gnu-sort.xsh` (`sort_buffer_size_log`), `core/tests/test-uu-sort-1.xsh` (`uu_sort_buffer_sizes`)
 - **Problem:** An in-memory `-n` sort of 20k lines takes about 16 s, and `sort_buffer_size_log` spends about 125 s per 200k-line sort; the single 380 s case is the longest in the native suite and bounds its wall time. The cost is general sort speed, not spilling or merging (2026-11-17 audit).
-- **Recommendation:** Profile one 200k-line sort with `xsht trace` self time and `cargo dev profile`, and remove the dominant per-line or per-comparison work.
+- **Progress:** Raw-line tie-breaks now reuse the record text for valid UTF-8 input, removing the per-line decimal key encoding that ranked first in `xsht trace` (55 s self time on a 200k-line `-n` sort): user instructions fell 8.7% (default), 20.9% (`-n`) and 7.1% (`-k2,2 -t,`) with identical output. A 200k-line `-k2,2 -t,` sort still costs about 1.27 T instructions, roughly 350k per comparison; the profile shows interpreter and copying work spread across key extraction and comparison rather than one primitive.
+- **Recommendation:** Extract each record's sort keys once into a flat, cheap-to-compare form (for `-k` and `-n`, precomputed field slices or numbers) so the comparison callback does no allocation, and measure the per-comparison instruction count with `perf stat` on the same fixture.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
