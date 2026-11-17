@@ -836,3 +836,18 @@ test test_lslocks_ranges_and_eof { |ctx|
   ranged_lock_case(s, "ofd-rw", ["0:0:READ", "2:2:WRITE"])?
   ranged_lock_case(s, "ofd-eof-w", ["2:0:WRITE"])?
 }
+
+test test_lslocks_human_size_boundaries_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  let lock_path = uu.at(s, "size-boundaries")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-size", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  for size in [1023, 1024, 4096, 1536, 1048575, 84094976, 1099511627776] {
+    lock_path.truncate(size)?
+    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "SIZE"])?
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}

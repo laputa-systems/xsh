@@ -149,7 +149,28 @@ pure first_option_diagnostic(argv: List[Str], permute: Bool) -> Str? {
 }
 
 pure human_size(value: Int) -> Str {
-  if value < 1024 { f"{value}B" } else { usage.amount(value, {block: 1, human: 1024, label: "Size"}) }
+  var unit = 1
+  var suffix_index = 0
+  while suffix_index < 6 and value / unit >= 1024 {
+    unit *= 1024
+    suffix_index += 1
+  }
+  var whole = value / unit
+  var remainder = value % unit
+  var thousandths = 0
+  for _ in range(3) {
+    var digit = 0
+    var next = 0
+    for _ in range(10) {
+      if next >= unit - remainder { next -= unit - remainder; digit += 1 } else { next += remainder }
+    }
+    thousandths = thousandths * 10 + digit
+    remainder = next
+  }
+  var tenth = (thousandths + 50) / 100
+  if tenth == 10 { whole += 1; tenth = 0 }
+  let suffix = ["B", "K", "M", "G", "T", "P", "E"][suffix_index]
+  if tenth == 0 { f"{whole}{suffix}" } else { f"{whole}.{tenth}{suffix}" }
 }
 
 pure decimal(value: Str) -> Int? {
