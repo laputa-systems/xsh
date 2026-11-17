@@ -498,6 +498,27 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
   inventory
 }
 
+## Exits with util-linux's diagnostic unless root holds a readable memory block directory.
+export proc require_memory_root(root_path: Path) [fs, process, env, error] {
+  let root = match fs.open_root(root_path) {
+    Ok(value) => value
+    Err(failure) => { gnu.error(f"cannot open /{MEMORY_PATH}: {gnu.strerror(failure)}"); exit 1 }
+  }
+  let rooted_directory = root.metadata(MEMORY_PATH)
+  let directory = if let Err(failure) = rooted_directory {
+    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/{MEMORY_PATH}".metadata() } else { rooted_directory }
+  } else { rooted_directory }
+  root.close()
+  match directory {
+    Err(failure) => {
+      let detail = gnu.strerror(failure)
+      if detail == "Permission denied" { gnu.error("This system does not support memory blocks"); exit 1 }
+      gnu.error(f"cannot open /{MEMORY_PATH}: {detail}"); exit 1
+    }
+    Ok(value) => { if value.kind != "dir" { gnu.error(f"cannot open /{MEMORY_PATH}: Not a directory"); exit 1 } }
+  }
+}
+
 ## Reads the memory block inventory and optional summary parameter beneath root.
 export proc collect(root_path: Path, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
   let root = match fs.open_root(root_path) {

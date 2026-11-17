@@ -216,23 +216,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let root_path = opts.sysroot ?? p"/"
-  let root = match fs.open_root(root_path) {
-    Ok(value) => value
-    Err(failure) => { gnu.error(f"cannot open /sys/devices/system/memory: {gnu.strerror(failure)}"); exit 1 }
-  }
-  let rooted_directory = root.metadata(p"sys/devices/system/memory")
-  let directory = if let Err(failure) = rooted_directory {
-    if gnu.strerror(failure) == "Invalid cross-device link" { fp"{root_path}/sys/devices/system/memory".metadata() } else { rooted_directory }
-  } else { rooted_directory }
-  root.close()
-  match directory {
-    Err(failure) => {
-      let detail = gnu.strerror(failure)
-      if detail == "Permission denied" { gnu.error("This system does not support memory blocks"); exit 1 }
-      gnu.error(f"cannot open /sys/devices/system/memory: {detail}"); exit 1
-    }
-    Ok(value) => { if value.kind != "dir" { gnu.error("cannot open /sys/devices/system/memory: Not a directory"); exit 1 } }
-  }
+  report.require_memory_root(root_path)
   var selected: List[Str] = []
   var split: List[Str] = []
   if modes.table {
