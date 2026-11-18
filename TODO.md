@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 104
+Next: 106
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -95,3 +95,22 @@ out of scope.
 - **Recommendation:** Retain the existing bridge, declared source/IR/binary identities, and counterexamples within the existing connected milestone. The newer 33-test resumed-branch runs do not add a matching-freeze `RUST_CONFORMANCE` entry. Reuse G1b/G9; no new Lean campaign or product-visible exporter. - **Progress:** That branch's `formal/coverage.json` records `finite_conformance.status: passed` and 18 source-identified `RUST_CONFORMANCE` cases for source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, on verification Linux x86-64 musl products. The rows cover source/artifact association, exported arithmetic and facts bytes, malformed and corrupted IR, tampered observations, wrong facts, and program and assignment mutations. These are the named branch and freeze's receipts, not a claim about main or a later source. - **Acceptance:** The bounded-witness acceptance is satisfied only by the named matching-freeze ledger. Its entries compare model expectations with actual Rust/XSH outcomes and reject recorded malformed inputs and mutations. The connected milestone and full-core obligations remain open. Make no full-language or Rust/kernel soundness claim. This TODO does not resume Lean work.
 - **Fix with:** reference-parity
 - **Effort:** M
+
+### XSH-104 · P3 · Match lslocks OFD rows to the locked file when inodes collide
+
+- **Area:** util-linux cohort
+- **Where:** `core/lib/locks.xsh` (`file_path`, `live_lock_file`), `core/tests/test-lslocks.xsh`
+- **Problem:** The independent close review of `acf1ac973` found that, run as real root, `lslocks` reports a different PATH and SIZE from util-linux 2.42.4 for an OFD lock whose holder also has open a file on another filesystem with the same inode number (two tmpfs mounts, or tmpfs and devtmpfs). `file_path` matches a holder's descriptors on inode alone, as util-linux does, so either tool can name the wrong file, and the two choose differently for OFD rows. The same difference exists at `b5aa95e4a`; it is not recorded as an accepted divergence and has no regression test.
+- **Recommendation:** Reproduce it in a private namespace with two tmpfs mounts whose locked and decoy files share an inode number. Then either match descriptors on device and inode (`LinuxOpenFile.dev` against the `/proc/locks` major:minor), which is correct where util-linux is not, and record that as an accepted divergence, or match util-linux's choice exactly.
+- **Acceptance:** A native lslocks test with colliding inode numbers on two filesystems covers POSIX and OFD rows; the chosen behavior is either reference parity or a README accepted divergence; the cohort parity selectors still pass.
+- **Fix with:** reference-parity
+- **Effort:** S
+
+### XSH-105 · P4 · Correct the per-file concurrency in `xsht test --help`
+
+- **Area:** Tooling
+- **Where:** `crates/xsht/src/xsht/test.rs` (`ParallelTestQueue::new`), `xsht test --help`, `docs/XSHT.md`
+- **Problem:** The help says at most 8 tests per file run at once, but `per_file_limit` is `(jobs / 2).clamp(8, 16)`, so hosts running 32 or more jobs run up to 16. Tests that serialize on a shared resource, such as the lsipc reruns in `core/tests/support/util_linux.xsh`, size their time limits from this number.
+- **Recommendation:** State the real limit in the help and in `docs/XSHT.md`, or make the limit a fixed 8 if 16 was unintended.
+- **Acceptance:** Help text, docs and code agree; a unit test pins the limit.
+- **Effort:** S

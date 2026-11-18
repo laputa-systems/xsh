@@ -92,8 +92,8 @@ the POSIX name; it never scans the directory for cleanup.
 The foundation lane owns private namespaces, mount setup, and the shared keeper
 process API. This lane owns resource setup, identity capture, and cleanup of
 registered IPC objects. Native tests use the shared scene wrapper to run the
-keeper, reference, and candidate in that namespace. In the full native suite,
-each lsipc test reruns alone in fresh IPC, mount and PID namespaces with its own
+keeper, reference, and candidate in that namespace. In a private util-linux
+context, each lsipc test reruns alone in fresh IPC, mount and PID namespaces with its own
 `/dev/shm` and `/dev/mqueue`, holding one lock in turn, because the suite's
 shared namespace exposes other tests' objects and `RLIMIT_MSGQUEUE` charges
 every namespace's queues to the same user. The case map is in

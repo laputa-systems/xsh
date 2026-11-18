@@ -169,7 +169,7 @@ must provide a result bound to the frozen commit and tree through
 `independent_review(result)` during the same invocation. The adapter consumes
 the result once and does not save a review receipt.
 
-`close --check` passed on 2026-11-18 at `b5aa95e4a`, with an independent review of
+`close --check` passed on 2026-11-18 at `a105f3d73`, with an independent review of
 that commit and the release baseline built from `c21b814c1`: 227 parity
 selectors, 5 positive boundaries and 13 required gates.
 
