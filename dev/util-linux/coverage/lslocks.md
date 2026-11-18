@@ -146,7 +146,7 @@ that field.
 | `test_lslocks_reference_path_bytes` | Reference-only checks pin decoded JSON and escaped normal-table output for a control-character path, exact raw-mode `PATH` spelling for valid and invalid-UTF-8 names, raw invalid-UTF-8 bytes inside JSON, and nonempty POSIX `HOLDERS` entries for duplicated descriptors without assuming their multiplicity. |
 | `test_lslocks_terminal_path_minimum` | Default and all-column output retain the four-cell PATH minimum at widths 30, 80, and 120. |
 | `test_util_linux_context_terminal_lock_path_truncation` | Real holder paths containing tab and ESC or an invalid UTF-8 byte are compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
-| `test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots` | An owner that exits after both commands have read `/proc/locks` and its descriptors yields the same JSON row in both, with the path no longer resolved to the fixture. Attribution for an owner that exits between those reads is a recorded divergence (see the README). |
+| `test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots` | Each command pauses once its `/proc/locks` read returns the owner's row, which is after util-linux's descriptor scan and before XSH's. The owner then exits, and both commands yield the same `PID,INODE,PATH` JSON row, with the path no longer resolved to the fixture. COMMAND and HOLDERS differ in that window, a recorded divergence (see the README). |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing and invalid option values, invalid PID, unknown short and long options, ambiguous long prefixes, stray operands, and `-J -r`. |
 | `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact` retains the `locks` object and emits each compact row on its own line, including an empty array when no lock matches; `unknown` and unset values retain the pretty `locks` object and its empty-array whitespace; `lines` emits one standalone object per lock row with lowercase keys. |
@@ -194,4 +194,4 @@ cross-UID cases use dedicated context fixtures. The cross-UID case runs the
 command as UID 10001 with capabilities dropped while a UID 10002 owner holds
 the lock. Terminal truncation uses a captured PTY with selected widths. Owner
 disappearance during one collection uses the race-boundary observer, which
-pauses both commands after their kernel snapshots.
+pauses each command after its `/proc/locks` read returns the owner's row.

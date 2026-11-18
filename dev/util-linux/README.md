@@ -120,8 +120,9 @@ recorded differences. A review reports them only if their behavior changes.
   `lsipc -g` exits 1 naming the unreadable limit instead of using those syscalls.
 - `lslocks` reads `/proc/locks` before each owner's descriptors; util-linux
   reads the descriptors first. An owner that exits between the two reads loses
-  its COMMAND and HOLDERS attribution (`(unknown)`, empty HOLDERS), and an OFD
-  lock it held drops out of `--pid` output, where util-linux keeps the row.
+  its COMMAND and HOLDERS attribution (`(unknown)`, or `(undefined)` for an OFD
+  row, with empty HOLDERS), and an OFD lock it held drops out of `--pid`
+  output, where util-linux keeps the row.
 - Without a `/proc` directory, `lslocks` exits 255 without a diagnostic;
   util-linux reports `failed to open /proc` and exits 1.
 
