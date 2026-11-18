@@ -2595,7 +2595,7 @@ test test_performance_python_owners_select_contract_tests {
       else => test.fail("focused Python owner did not select its contract test")
     }
   }
-  for changed_path in ["dev/performance/check.py", "dev/performance/test_check.py"] {
+  for changed_path in ["dev/performance/check.py", "dev/performance/owned_containers.py", "dev/performance/test_check.py"] {
     let plan = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in plan.cases] == ["verification/performance-check"]
     match plan.cases[0].execution {

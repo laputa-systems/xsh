@@ -1296,7 +1296,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
       continue
     }
-    if changed_path in ["dev/performance/check.py", "dev/performance/test_check.py"] {
+    if changed_path in ["dev/performance/check.py", "dev/performance/owned_containers.py", "dev/performance/test_check.py"] {
       selected_ids += [performance_check_case_id] when performance_check_case_id not in selected_ids
       continue
     }
