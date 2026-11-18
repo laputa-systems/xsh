@@ -46,6 +46,27 @@ class ContainerTests(unittest.TestCase):
         self.stack[1].assert_called_once()
         self.assertTrue(self.scratch.exists())
 
+    def test_removal_already_in_progress_waits_for_the_container_to_vanish(self):
+        with patch("check.subprocess.run", side_effect=[
+            subprocess.CompletedProcess([], 0, b"result", b""),
+            subprocess.CompletedProcess([], 1, b"", b"Error response from daemon: removal of container x is already in progress\n"),
+            subprocess.CompletedProcess([], 0, b"[{}]", b""),
+            subprocess.CompletedProcess([], 1, b"", b"Error: No such container: x\n"),
+        ]), patch("check.time.sleep"):
+            self.assertEqual(check.container("true"), b"result")
+        self.stack[1].assert_not_called()
+        self.assertFalse(self.scratch.exists())
+
+    def test_removal_in_progress_that_never_finishes_is_unresolved(self):
+        responses = [subprocess.CompletedProcess([], 0, b"result", b""),
+                     subprocess.CompletedProcess([], 1, b"", b"removal of container x is already in progress")]
+        responses += [subprocess.CompletedProcess([], 0, b"[{}]", b"")] * 200
+        with patch("check.subprocess.run", side_effect=responses), patch("check.time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                check.container("true")
+        self.stack[1].assert_called_once()
+        self.assertTrue(self.scratch.exists())
+
     def test_cancellation_runs_cleanup_before_returning(self):
         with patch("check.subprocess.run", side_effect=[
             check.Cancelled(signal.SIGTERM),

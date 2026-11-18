@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 sys.dont_write_bytecode = True
@@ -55,6 +56,15 @@ def cancellation_scope():
             signal.signal(number, handler)
 
 
+def _container_vanished(name: str, attempts: int = 100) -> bool:
+    for _ in range(attempts):
+        inspect = subprocess.run(["docker", "container", "inspect", name], capture_output=True, timeout=10)
+        if inspect.returncode and b"No such container" in inspect.stderr:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 @cancellation_scope()
 def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30, cpus: int = 1, memory_gib: int = 1) -> bytes:
     require_native_lease()
@@ -90,6 +100,8 @@ def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = 
         removed = False
         try:
             cleanup = subprocess.run(["docker", "rm", "--force", name], capture_output=True, timeout=10)
+            if cleanup.returncode and b"is already in progress" in cleanup.stderr and _container_vanished(name):
+                cleanup = subprocess.CompletedProcess(cleanup.args, 0, b"", b"")
             if cleanup.returncode and b"No such container" not in cleanup.stderr:
                 raise RuntimeError(f"container cleanup failed for {name}; retain {scratch}: {cleanup.stderr!r}")
             removed = True
