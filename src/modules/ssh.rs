@@ -147,7 +147,19 @@ fn failure(variant: &'static str, message: impl Into<String>) -> RuntimeError {
 
 #[cfg(feature = "ssh")]
 fn ssh_error(error: SshError, span: Span) -> RuntimeError {
-    let variant = match &error {
+    let variant = ssh_variant(&error);
+    let certainty = match error.certainty() {
+        Certainty::NotSubmitted => "NotSubmitted",
+        Certainty::Submitted => "Submitted",
+    };
+    structured(variant, error.to_string(), certainty).with_span(span)
+}
+
+/// The `SshError` variant of a client failure; a failure after submission keeps its cause's variant.
+#[cfg(feature = "ssh")]
+fn ssh_variant(error: &SshError) -> &'static str {
+    match error {
+        SshError::AfterSubmission { cause } => ssh_variant(cause),
         SshError::InvalidFingerprint { .. }
         | SshError::UnsupportedTrust { .. }
         | SshError::InvalidTrust { .. } => "TrustMaterial",
@@ -168,12 +180,7 @@ fn ssh_error(error: SshError, span: Span) -> RuntimeError {
         SshError::Cancelled { .. } => "Canceled",
         SshError::OutputLimit { .. } => "OutputLimit",
         SshError::Unusable => "Unusable",
-    };
-    let certainty = match error.certainty() {
-        Certainty::NotSubmitted => "NotSubmitted",
-        Certainty::Submitted => "Submitted",
-    };
-    structured(variant, error.to_string(), certainty).with_span(span)
+    }
 }
 
 #[cfg(feature = "ssh")]
@@ -631,4 +638,22 @@ pub(crate) fn transfer(id: u64, owner: &Arc<()>, target: u64) -> Option<u64> {
 #[cfg(not(feature = "ssh"))]
 pub(crate) fn transfer(_id: u64, _owner: &Arc<()>, _target: u64) -> Option<u64> {
     None
+}
+
+#[cfg(all(test, feature = "ssh"))]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    #[test]
+    fn a_failure_after_submission_keeps_its_variant_and_reports_submitted() {
+        let mismatch = SshError::HostKeyMismatch { expected: "SHA256:a".into(), actual: "SHA256:b".into() };
+        let error = ssh_error(SshError::AfterSubmission { cause: Box::new(mismatch) }, Span::new(SourceId::new(0), 0, 0));
+        assert_eq!(error.variant, "HostKeyMismatch");
+        assert!(matches!(
+            error.payload.get("certainty"),
+            Some(Value::Tag { name, .. }) if name.as_ref() == "Submitted"
+        ));
+        assert!(error.message.contains("host key mismatch"), "{}", error.message);
+    }
 }

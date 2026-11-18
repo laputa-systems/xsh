@@ -114,7 +114,7 @@ value typed `SshError` exposes only `message` as a field.
 | Variant | Meaning |
 |---|---|
 | `Options`, `Disabled` | invalid options; a build without the `ssh` feature |
-| `HostKeyMismatch`, `HostKeyUnknown`, `HostKeyRevoked`, `HostKeyInvalid` | the server key is not the trusted one, is not listed, is revoked, or its signature is wrong; all happen before authentication |
+| `HostKeyMismatch`, `HostKeyUnknown`, `HostKeyRevoked`, `HostKeyInvalid` | the server key is not the trusted one, is not listed, is revoked, or its signature is wrong, at connect or at a later key exchange; one found while a command runs has `certainty = .Submitted` |
 | `TrustMaterial` | a fingerprint or `known_hosts` file is malformed or uses an unsupported feature |
 | `Algorithm`, `Hardware` | no common algorithm; the processor lacks a feature Graviola requires |
 | `Key`, `Authentication` | an unusable, encrypted or non-Ed25519 identity or an agent failure; the server refused the identity |
