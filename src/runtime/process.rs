@@ -4989,7 +4989,7 @@ mod tests {
             mode: FileRedirectionMode::Read,
             path: PathBuf::from("/dev/null"),
         };
-        assert_eq!(run(&[close.clone()]), b"closed");
+        assert_eq!(run(std::slice::from_ref(&close)), b"closed");
         assert_eq!(run(&[close.clone(), open.clone()]), b"open");
         assert_eq!(run(&[open, close]), b"closed");
         assert_eq!(rio::fcntl_getfd(std::io::stdin()).ok(), parent_stdin);

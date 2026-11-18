@@ -7945,10 +7945,10 @@ fn expand_cli_raw_arguments(message: &str) -> Vec<u8> {
     let mut rest = message;
     const PREFIX: &str = "\0gnu-raw-argument-";
     while let Some(start) = rest.find(PREFIX) {
-        output.extend_from_slice(rest[..start].as_bytes());
+        output.extend_from_slice(&rest.as_bytes()[..start]);
         let marker = &rest[start + PREFIX.len()..];
         let Some(end) = marker.find('\0') else {
-            output.extend_from_slice(rest[start..].as_bytes());
+            output.extend_from_slice(&rest.as_bytes()[start..]);
             return output;
         };
         let candidate = &marker[..end];
@@ -7961,7 +7961,7 @@ fn expand_cli_raw_arguments(message: &str) -> Vec<u8> {
         if let Some(decoded) = decoded {
             output.extend_from_slice(&decoded);
         } else {
-            output.extend_from_slice(rest[start..start + PREFIX.len() + end + 1].as_bytes());
+            output.extend_from_slice(&rest.as_bytes()[start..start + PREFIX.len() + end + 1]);
         }
         rest = &marker[end + 1..];
     }

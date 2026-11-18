@@ -440,14 +440,9 @@ fn nonblocking_flags_are_applied_at_the_staged_name() {
 }
 
 fn settable_blocking_flag(path: &std::path::Path) -> Option<u32> {
-    for flag in [IFlags::IMMUTABLE.bits(), IFlags::APPEND.bits()] {
-        if set_flag(path, flag, true).is_ok() {
-            if set_flag(path, flag, false).is_ok() {
-                return Some(flag);
-            }
-        }
-    }
-    None
+    [IFlags::IMMUTABLE.bits(), IFlags::APPEND.bits()]
+        .into_iter()
+        .find(|&flag| set_flag(path, flag, true).is_ok() && set_flag(path, flag, false).is_ok())
 }
 
 fn read_flags(path: &std::path::Path) -> u32 {

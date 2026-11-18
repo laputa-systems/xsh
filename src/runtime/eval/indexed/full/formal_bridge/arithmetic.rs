@@ -623,7 +623,7 @@ fn encode_arithmetic_document(document: &ArithmeticDocument) -> Result<String, S
             ("function", wire_string(hex_u32(observation.function.raw()))),
             ("arguments", WireValue::Array(observation.arguments.iter().map(|argument| wire_string(hex_u64(*argument))).collect())),
             ("outcome", wire_string(observation.outcome.name())),
-            ("detail", wire_string(&observation.outcome.detail())),
+            ("detail", wire_string(observation.outcome.detail())),
         ])).collect())),
     ]);
     deser_json::to_string(&value).map_err(|error| error.to_string())

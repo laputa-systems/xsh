@@ -178,16 +178,14 @@ fn wrap_table_text(text: &str, width: usize) -> Vec<String> {
     let mut current_width = 0;
     for ch in text.chars() {
         if ch == '\n' {
-            lines.push(current);
-            current = String::new();
+            lines.push(std::mem::take(&mut current));
             current_width = 0;
             continue;
         }
         current.push(ch);
         current_width += 1;
         if current_width == width {
-            lines.push(current);
-            current = String::new();
+            lines.push(std::mem::take(&mut current));
             current_width = 0;
         }
     }

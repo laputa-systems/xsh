@@ -1952,275 +1952,7 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
     .with_span(span))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        AtomicReplace, df_capacity_percent, list_filesystem, mount_for, mount_listing_skips,
-        mounts, rooted_children, rooted_write_atomic,
-    };
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::PermissionsExt;
-    use crate::runtime::value::Value;
-    use crate::source::{SourceId, Span};
-    use std::path::Path;
-    use xsh_root::Root;
 
-    fn test_span() -> Span {
-        Span::new(SourceId::new(0), 0, 0)
-    }
-
-    #[test]
-    fn create_path_refuses_existing_files_and_leaf_symlinks() {
-        let directory = tempfile::tempdir().unwrap();
-        let target = directory.path().join("target");
-        super::create_path(target.clone(), b"original", test_span()).unwrap();
-        let error = super::create_path(target.clone(), b"replacement", test_span()).unwrap_err();
-        assert_eq!(error.errno(), Some(i64::from(libc::EEXIST)));
-        assert_eq!(std::fs::read(&target).unwrap(), b"original");
-        let link = directory.path().join("link");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        assert!(super::create_path(link.clone(), b"replacement", test_span()).is_err());
-        assert_eq!(std::fs::read(&target).unwrap(), b"original");
-        std::fs::remove_file(&target).unwrap();
-        assert!(super::create_path(link, b"replacement", test_span()).is_err());
-        assert!(!target.exists());
-    }
-
-    fn install_options(overwrite: bool) -> super::RootedInstallOptions {
-        super::RootedInstallOptions {
-            mode: 0o640,
-            parents: true,
-            overwrite,
-            span: test_span(),
-        }
-    }
-
-    #[test]
-    fn rooted_install_keeps_the_prior_file_when_the_copy_fails() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::write(directory.path().join("out"), b"prior").unwrap();
-        std::fs::create_dir(directory.path().join("unreadable")).unwrap();
-        let root = Root::open(directory.path()).unwrap();
-        let result = super::rooted_install_file(
-            &root,
-            Path::new("unreadable"),
-            &root,
-            Path::new("out"),
-            install_options(true),
-        );
-        assert!(result.is_err());
-        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
-        let mut names: Vec<_> = std::fs::read_dir(directory.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        names.sort();
-        assert_eq!(names, ["out", "unreadable"]);
-    }
-
-    #[test]
-    fn rooted_install_refuses_to_replace_without_overwrite_and_never_shows_a_partial_file() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::write(directory.path().join("src"), b"new").unwrap();
-        std::fs::write(directory.path().join("out"), b"prior").unwrap();
-        let root = Root::open(directory.path()).unwrap();
-        let refused = super::rooted_install_file(
-            &root,
-            Path::new("src"),
-            &root,
-            Path::new("out"),
-            install_options(false),
-        );
-        assert!(refused.is_err());
-        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
-        super::rooted_install_file(
-            &root,
-            Path::new("src"),
-            &root,
-            Path::new("nested/fresh"),
-            install_options(false),
-        )
-        .unwrap();
-        let installed = directory.path().join("nested/fresh");
-        assert_eq!(std::fs::read(&installed).unwrap(), b"new");
-        assert_eq!(std::fs::metadata(&installed).unwrap().permissions().mode() & 0o7777, 0o640);
-        assert_eq!(std::fs::read_dir(directory.path().join("nested")).unwrap().count(), 1);
-    }
-
-    fn atomic_fixture() -> (tempfile::TempDir, Root) {
-        let directory = tempfile::tempdir().expect("create atomic write fixture");
-        let root = Root::open(directory.path()).expect("open atomic write fixture");
-        (directory, root)
-    }
-
-    fn write_atomic_for_test(
-        root: &Root,
-        name: &str,
-        data: &[u8],
-        mode: Option<u32>,
-        replace: AtomicReplace,
-    ) -> Result<(), crate::runtime::value::RuntimeError> {
-        rooted_write_atomic(root, Path::new(name), data, mode, replace, test_span())
-    }
-
-    fn stray_temporaries(directory: &Path) -> usize {
-        std::fs::read_dir(directory)
-            .expect("list fixture")
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .expect("fixture entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .contains(".tmp.")
-            })
-            .count()
-    }
-
-    #[test]
-    fn rooted_write_atomic_sets_the_requested_mode_regardless_of_umask() {
-        let (directory, root) = atomic_fixture();
-        write_atomic_for_test(&root, "public", b"data", Some(0o644), AtomicReplace::Any).unwrap();
-        write_atomic_for_test(&root, "private", b"data", Some(0o600), AtomicReplace::Any).unwrap();
-        let mode = |name: &str| {
-            std::fs::metadata(directory.path().join(name)).unwrap().permissions().mode() & 0o7777
-        };
-        assert_eq!(mode("public"), 0o644);
-        assert_eq!(mode("private"), 0o600);
-        assert_eq!(stray_temporaries(directory.path()), 0);
-    }
-
-    #[test]
-    fn regular_or_absent_replaces_a_regular_file_and_creates_an_absent_one() {
-        let (directory, root) = atomic_fixture();
-        write_atomic_for_test(&root, "file", b"one", None, AtomicReplace::RegularOrAbsent).unwrap();
-        write_atomic_for_test(&root, "file", b"two", None, AtomicReplace::RegularOrAbsent).unwrap();
-        assert_eq!(std::fs::read(directory.path().join("file")).unwrap(), b"two");
-        assert_eq!(stray_temporaries(directory.path()), 0);
-    }
-
-    #[test]
-    fn regular_or_absent_refuses_a_symlink_directory_and_special_file_untouched() {
-        let (directory, root) = atomic_fixture();
-        let outside = directory.path().join("outside");
-        std::fs::write(&outside, b"outside").unwrap();
-        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
-        std::os::unix::fs::symlink("missing", directory.path().join("dangling")).unwrap();
-        std::fs::create_dir(directory.path().join("dir")).unwrap();
-        let fifo = std::ffi::CString::new(directory.path().join("fifo").as_os_str().as_bytes()).unwrap();
-        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-        for (name, errno) in [
-            ("link", libc::ELOOP),
-            ("dangling", libc::ELOOP),
-            ("dir", libc::EISDIR),
-            ("fifo", libc::EEXIST),
-        ] {
-            let error =
-                write_atomic_for_test(&root, name, b"new", None, AtomicReplace::RegularOrAbsent)
-                    .unwrap_err();
-            assert_eq!(error.errno(), Some(i64::from(errno)), "{name}");
-        }
-        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
-        assert_eq!(std::fs::read_link(directory.path().join("link")).unwrap(), outside);
-        assert!(directory.path().join("dir").is_dir());
-        assert_eq!(stray_temporaries(directory.path()), 0);
-    }
-
-    #[test]
-    fn any_replaces_a_symlink_itself_and_not_its_target() {
-        let (directory, root) = atomic_fixture();
-        let outside = directory.path().join("outside");
-        std::fs::write(&outside, b"outside").unwrap();
-        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
-        write_atomic_for_test(&root, "link", b"new", None, AtomicReplace::Any).unwrap();
-        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
-        assert_eq!(std::fs::read(directory.path().join("link")).unwrap(), b"new");
-        assert!(!std::fs::symlink_metadata(directory.path().join("link")).unwrap().file_type().is_symlink());
-    }
-
-    #[test]
-    fn a_failed_rename_keeps_the_old_content_and_removes_the_temporary() {
-        let (directory, root) = atomic_fixture();
-        std::fs::create_dir(directory.path().join("dir")).unwrap();
-        std::fs::write(directory.path().join("dir/child"), b"child").unwrap();
-        let error = write_atomic_for_test(&root, "dir", b"new", None, AtomicReplace::Any).unwrap_err();
-        assert!(error.errno().is_some());
-        assert_eq!(std::fs::read(directory.path().join("dir/child")).unwrap(), b"child");
-        assert_eq!(stray_temporaries(directory.path()), 0);
-    }
-
-    #[test]
-    fn replace_policy_names_are_a_closed_set() {
-        assert!(AtomicReplace::parse("regular_or_absent", test_span()).is_ok());
-        assert!(AtomicReplace::parse("regular", test_span()).is_err());
-    }
-
-    #[test]
-    fn mount_listing_skips_only_a_permission_refusal() {
-        use rustix::io::Errno;
-        assert!(mount_listing_skips(Errno::ACCESS));
-        assert!(mount_listing_skips(Errno::PERM));
-        for errno in [Errno::NOENT, Errno::IO, Errno::NOTCONN, Errno::STALE] {
-            assert!(!mount_listing_skips(errno), "{errno:?}");
-        }
-    }
-
-    #[test]
-    fn df_capacity_percent_matches_busybox_df() {
-        assert_eq!(df_capacity_percent(74, 26), 74);
-        assert_eq!(df_capacity_percent(741, 259), 75);
-        assert_eq!(df_capacity_percent(0, 0), 0);
-        assert_eq!(df_capacity_percent(74, 27), 74);
-    }
-
-    #[test]
-    fn mounts_include_root_and_positive_counters() {
-        let mounts = mounts(test_span()).expect("read mounts");
-        let mut includes_root = false;
-        while let Some(mount) = mounts.next_live(test_span()).expect("read mount") {
-            if let Value::Record(record) = mount
-                && record.get("mounted_on")
-                    == Some(&Value::Path(
-                        crate::runtime::value::PathValue::from_text("/").expect("root path"),
-                    ))
-            {
-                includes_root = true;
-                break;
-            }
-        }
-        assert!(includes_root);
-        let root = mount_for(Path::new("/"), test_span()).expect("root mount");
-        assert_eq!(root.mounted_on, Path::new("/"));
-        assert!(root.blocks_1k > 0);
-    }
-
-    #[test]
-    fn unordered_directory_listing_is_lazy() {
-        let root = tempfile::tempdir().expect("create directory listing fixture");
-        std::fs::write(root.path().join("first.txt"), "first").expect("write first entry");
-        std::fs::create_dir(root.path().join("nested")).expect("create nested entry");
-        let listing = list_filesystem(root.path().to_path_buf(), false, false, test_span())
-            .expect("list directory");
-
-        assert!(listing.source.is_some());
-        assert!(listing.items.is_empty());
-    }
-
-    #[test]
-    fn rooted_children_returns_relative_paths() {
-        let directory = tempfile::tempdir().expect("create rooted children fixture");
-        std::fs::create_dir(directory.path().join("nested")).expect("create nested directory");
-        std::fs::write(directory.path().join("nested/file"), "data").expect("write child");
-        let root = Root::open(directory.path()).expect("open rooted children fixture");
-        let result = rooted_children(&root, Path::new("nested"), 65_536, true, test_span())
-            .expect("list rooted children");
-
-        assert_eq!(result.children, [Path::new("nested/file")]);
-        assert!(result.children.iter().all(|path| {
-            crate::sema::validated::is_rel_path(&crate::runtime::process::path_bytes(path))
-        }));
-    }
-}
 
 pub fn gitroot(start: PathBuf, span: Span) -> Result<PathBuf, RuntimeError> {
     let mut current = start;
@@ -3557,4 +3289,274 @@ pub(crate) fn fs_entry_record(
             Value::Bool(mode_world_writable(mode)),
         ],
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AtomicReplace, df_capacity_percent, list_filesystem, mount_for, mount_listing_skips,
+        mounts, rooted_children, rooted_write_atomic,
+    };
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    use crate::runtime::value::Value;
+    use crate::source::{SourceId, Span};
+    use std::path::Path;
+    use xsh_root::Root;
+
+    fn test_span() -> Span {
+        Span::new(SourceId::new(0), 0, 0)
+    }
+
+    #[test]
+    fn create_path_refuses_existing_files_and_leaf_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        super::create_path(target.clone(), b"original", test_span()).unwrap();
+        let error = super::create_path(target.clone(), b"replacement", test_span()).unwrap_err();
+        assert_eq!(error.errno(), Some(i64::from(libc::EEXIST)));
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        let link = directory.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(super::create_path(link.clone(), b"replacement", test_span()).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        std::fs::remove_file(&target).unwrap();
+        assert!(super::create_path(link, b"replacement", test_span()).is_err());
+        assert!(!target.exists());
+    }
+
+    fn install_options(overwrite: bool) -> super::RootedInstallOptions {
+        super::RootedInstallOptions {
+            mode: 0o640,
+            parents: true,
+            overwrite,
+            span: test_span(),
+        }
+    }
+
+    #[test]
+    fn rooted_install_keeps_the_prior_file_when_the_copy_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("out"), b"prior").unwrap();
+        std::fs::create_dir(directory.path().join("unreadable")).unwrap();
+        let root = Root::open(directory.path()).unwrap();
+        let result = super::rooted_install_file(
+            &root,
+            Path::new("unreadable"),
+            &root,
+            Path::new("out"),
+            install_options(true),
+        );
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
+        let mut names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["out", "unreadable"]);
+    }
+
+    #[test]
+    fn rooted_install_refuses_to_replace_without_overwrite_and_never_shows_a_partial_file() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("src"), b"new").unwrap();
+        std::fs::write(directory.path().join("out"), b"prior").unwrap();
+        let root = Root::open(directory.path()).unwrap();
+        let refused = super::rooted_install_file(
+            &root,
+            Path::new("src"),
+            &root,
+            Path::new("out"),
+            install_options(false),
+        );
+        assert!(refused.is_err());
+        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
+        super::rooted_install_file(
+            &root,
+            Path::new("src"),
+            &root,
+            Path::new("nested/fresh"),
+            install_options(false),
+        )
+        .unwrap();
+        let installed = directory.path().join("nested/fresh");
+        assert_eq!(std::fs::read(&installed).unwrap(), b"new");
+        assert_eq!(std::fs::metadata(&installed).unwrap().permissions().mode() & 0o7777, 0o640);
+        assert_eq!(std::fs::read_dir(directory.path().join("nested")).unwrap().count(), 1);
+    }
+
+    fn atomic_fixture() -> (tempfile::TempDir, Root) {
+        let directory = tempfile::tempdir().expect("create atomic write fixture");
+        let root = Root::open(directory.path()).expect("open atomic write fixture");
+        (directory, root)
+    }
+
+    fn write_atomic_for_test(
+        root: &Root,
+        name: &str,
+        data: &[u8],
+        mode: Option<u32>,
+        replace: AtomicReplace,
+    ) -> Result<(), crate::runtime::value::RuntimeError> {
+        rooted_write_atomic(root, Path::new(name), data, mode, replace, test_span())
+    }
+
+    fn stray_temporaries(directory: &Path) -> usize {
+        std::fs::read_dir(directory)
+            .expect("list fixture")
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .expect("fixture entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".tmp.")
+            })
+            .count()
+    }
+
+    #[test]
+    fn rooted_write_atomic_sets_the_requested_mode_regardless_of_umask() {
+        let (directory, root) = atomic_fixture();
+        write_atomic_for_test(&root, "public", b"data", Some(0o644), AtomicReplace::Any).unwrap();
+        write_atomic_for_test(&root, "private", b"data", Some(0o600), AtomicReplace::Any).unwrap();
+        let mode = |name: &str| {
+            std::fs::metadata(directory.path().join(name)).unwrap().permissions().mode() & 0o7777
+        };
+        assert_eq!(mode("public"), 0o644);
+        assert_eq!(mode("private"), 0o600);
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn regular_or_absent_replaces_a_regular_file_and_creates_an_absent_one() {
+        let (directory, root) = atomic_fixture();
+        write_atomic_for_test(&root, "file", b"one", None, AtomicReplace::RegularOrAbsent).unwrap();
+        write_atomic_for_test(&root, "file", b"two", None, AtomicReplace::RegularOrAbsent).unwrap();
+        assert_eq!(std::fs::read(directory.path().join("file")).unwrap(), b"two");
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn regular_or_absent_refuses_a_symlink_directory_and_special_file_untouched() {
+        let (directory, root) = atomic_fixture();
+        let outside = directory.path().join("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
+        std::os::unix::fs::symlink("missing", directory.path().join("dangling")).unwrap();
+        std::fs::create_dir(directory.path().join("dir")).unwrap();
+        let fifo = std::ffi::CString::new(directory.path().join("fifo").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        for (name, errno) in [
+            ("link", libc::ELOOP),
+            ("dangling", libc::ELOOP),
+            ("dir", libc::EISDIR),
+            ("fifo", libc::EEXIST),
+        ] {
+            let error =
+                write_atomic_for_test(&root, name, b"new", None, AtomicReplace::RegularOrAbsent)
+                    .unwrap_err();
+            assert_eq!(error.errno(), Some(i64::from(errno)), "{name}");
+        }
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+        assert_eq!(std::fs::read_link(directory.path().join("link")).unwrap(), outside);
+        assert!(directory.path().join("dir").is_dir());
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn any_replaces_a_symlink_itself_and_not_its_target() {
+        let (directory, root) = atomic_fixture();
+        let outside = directory.path().join("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, directory.path().join("link")).unwrap();
+        write_atomic_for_test(&root, "link", b"new", None, AtomicReplace::Any).unwrap();
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+        assert_eq!(std::fs::read(directory.path().join("link")).unwrap(), b"new");
+        assert!(!std::fs::symlink_metadata(directory.path().join("link")).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn a_failed_rename_keeps_the_old_content_and_removes_the_temporary() {
+        let (directory, root) = atomic_fixture();
+        std::fs::create_dir(directory.path().join("dir")).unwrap();
+        std::fs::write(directory.path().join("dir/child"), b"child").unwrap();
+        let error = write_atomic_for_test(&root, "dir", b"new", None, AtomicReplace::Any).unwrap_err();
+        assert!(error.errno().is_some());
+        assert_eq!(std::fs::read(directory.path().join("dir/child")).unwrap(), b"child");
+        assert_eq!(stray_temporaries(directory.path()), 0);
+    }
+
+    #[test]
+    fn replace_policy_names_are_a_closed_set() {
+        assert!(AtomicReplace::parse("regular_or_absent", test_span()).is_ok());
+        assert!(AtomicReplace::parse("regular", test_span()).is_err());
+    }
+
+    #[test]
+    fn mount_listing_skips_only_a_permission_refusal() {
+        use rustix::io::Errno;
+        assert!(mount_listing_skips(Errno::ACCESS));
+        assert!(mount_listing_skips(Errno::PERM));
+        for errno in [Errno::NOENT, Errno::IO, Errno::NOTCONN, Errno::STALE] {
+            assert!(!mount_listing_skips(errno), "{errno:?}");
+        }
+    }
+
+    #[test]
+    fn df_capacity_percent_matches_busybox_df() {
+        assert_eq!(df_capacity_percent(74, 26), 74);
+        assert_eq!(df_capacity_percent(741, 259), 75);
+        assert_eq!(df_capacity_percent(0, 0), 0);
+        assert_eq!(df_capacity_percent(74, 27), 74);
+    }
+
+    #[test]
+    fn mounts_include_root_and_positive_counters() {
+        let mounts = mounts(test_span()).expect("read mounts");
+        let mut includes_root = false;
+        while let Some(mount) = mounts.next_live(test_span()).expect("read mount") {
+            if let Value::Record(record) = mount
+                && record.get("mounted_on")
+                    == Some(&Value::Path(
+                        crate::runtime::value::PathValue::from_text("/").expect("root path"),
+                    ))
+            {
+                includes_root = true;
+                break;
+            }
+        }
+        assert!(includes_root);
+        let root = mount_for(Path::new("/"), test_span()).expect("root mount");
+        assert_eq!(root.mounted_on, Path::new("/"));
+        assert!(root.blocks_1k > 0);
+    }
+
+    #[test]
+    fn unordered_directory_listing_is_lazy() {
+        let root = tempfile::tempdir().expect("create directory listing fixture");
+        std::fs::write(root.path().join("first.txt"), "first").expect("write first entry");
+        std::fs::create_dir(root.path().join("nested")).expect("create nested entry");
+        let listing = list_filesystem(root.path().to_path_buf(), false, false, test_span())
+            .expect("list directory");
+
+        assert!(listing.source.is_some());
+        assert!(listing.items.is_empty());
+    }
+
+    #[test]
+    fn rooted_children_returns_relative_paths() {
+        let directory = tempfile::tempdir().expect("create rooted children fixture");
+        std::fs::create_dir(directory.path().join("nested")).expect("create nested directory");
+        std::fs::write(directory.path().join("nested/file"), "data").expect("write child");
+        let root = Root::open(directory.path()).expect("open rooted children fixture");
+        let result = rooted_children(&root, Path::new("nested"), 65_536, true, test_span())
+            .expect("list rooted children");
+
+        assert_eq!(result.children, [Path::new("nested/file")]);
+        assert!(result.children.iter().all(|path| {
+            crate::sema::validated::is_rel_path(&crate::runtime::process::path_bytes(path))
+        }));
+    }
 }

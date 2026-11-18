@@ -575,7 +575,7 @@ mod raw_option_tests {
             ("-q\0gnu-raw-argument-0-ff80\0", "invalid option -- 'q'"),
             ("-\0gnu-raw-argument-0-ff80\0", "invalid option -- '\0gnu-raw-argument-0-ff\0'"),
         ] {
-            let error = parse_values(&[word.into()], &BTreeMap::new(), &config, "tool", &RecordMap::new(), span).err().expect("unknown option");
+            let error = parse_values(&[word.into()], &BTreeMap::new(), &config, "tool", &RecordMap::new(), span).expect_err("unknown option");
             assert!(error.message.contains(expected), "{}", error.message);
         }
     }

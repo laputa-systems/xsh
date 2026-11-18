@@ -663,7 +663,7 @@ impl From<StreamOriginBoundaryError> for ClosureUnavailable {
     fn from(_: StreamOriginBoundaryError) -> Self { Self }
 }
 
-type SharedArguments = std::collections::HashMap<*const BTreeMap<usize, StreamOrigins>, Result<BTreeMap<usize, StreamOrigins>, ClosureUnavailable>>;
+type SharedArguments = rustc_hash::FxHashMap<*const BTreeMap<usize, StreamOrigins>, Result<BTreeMap<usize, StreamOrigins>, ClosureUnavailable>>;
 
 enum TransferSlot<'a> {
     Returned(EffectDeclarationId),
@@ -786,7 +786,7 @@ impl StreamOriginTransferClosure {
         changed: Option<(&BTreeSet<EffectDeclarationId>, &BTreeSet<StreamLoopId>)>,
     ) -> Vec<bool> {
         let inert = StreamOriginTransfers::default();
-        let mut arguments = SharedArguments::new();
+        let mut arguments = SharedArguments::default();
         let mut dirty = vec![false; transfers.len()];
         for (id, transfer) in transfers.iter().enumerate() {
             if !reachable[id] { continue; }

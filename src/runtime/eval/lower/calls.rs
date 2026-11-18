@@ -278,7 +278,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let Some(expected) = instance.type_arguments().get(parameter).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { continue; };
                 if !matches!(expected, Type::Any | Type::Optional(_)) { continue; }
                 let closed = |ty: &Type| !ty.contains_inference() && !ty.contains_recovery();
-                let actual = closed_argument_type(&argument.ty).filter(&closed).or_else(|| {
+                let actual = closed_argument_type(&argument.ty).filter(closed).or_else(|| {
                     let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.source else { return None; };
                     self.bodies.expr_types.get(&expression).filter(|ty| closed(ty)).cloned()
                 });

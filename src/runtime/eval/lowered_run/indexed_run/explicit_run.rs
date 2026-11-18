@@ -421,694 +421,7 @@ fn expr_if_branches<'e>(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::runtime::eval::route_witness::{RouteWitnessRoute, RouteWitnessSink};
-    use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
-    use crate::source::SourceMap;
-    use crate::syntax::parser::Parser;
 
-    fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
-        let mut sources = SourceMap::new();
-        let source_id = sources.add_file("explicit-frame-test.xsh", source);
-        let parsed = Parser::parse_source_arena_only(source_id, source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = crate::sema::check::Checker::check_arena_with_sources_and_options(
-            &parsed.arena,
-            &sources,
-            source_id,
-            crate::sema::check::CheckOptions {
-                reveal_types: true,
-                embedded_bodies: true,
-                ..crate::sema::check::CheckOptions::default()
-            },
-        );
-        let declarations =
-            crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
-        assert!(
-            declarations.diagnostics.is_empty(),
-            "{:?}",
-            declarations.diagnostics
-        );
-        let program = crate::runtime::eval::FullBuilder::build_compact(
-            &parsed.arena,
-            &declarations,
-            source,
-            Arc::new(sources),
-            source_id,
-        )
-        .unwrap();
-        (Arc::new(program), source_id)
-    }
-
-    fn function_instruction(
-        program: &FullProgram,
-        execution: &FullExecution<'_>,
-        tag: FullTag,
-    ) -> u32 {
-        let matches = (0..program.instruction_count())
-            .filter_map(|instruction| {
-                let actual = execution.instruction_id(instruction as u32).ok()?.0;
-                (actual == tag).then_some(instruction as u32)
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(matches.len(), 1, "expected one {tag:?} instruction");
-        matches[0]
-    }
-
-    struct FailingScopeStream(&'static str);
-
-    impl ScriptStream for FailingScopeStream {
-        fn finished(&self) -> bool { false }
-
-        fn poll(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<ScriptStreamStep, RuntimeError> {
-            Ok(ScriptStreamStep::Finished)
-        }
-
-        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> { Ok(()) }
-
-        fn visit_retained_values(&self, _visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>)) {}
-
-        fn delegated_finished(&mut self) {}
-
-        fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) {
-            (None, Vec::new(), None)
-        }
-
-        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
-            Err(RuntimeError::new(self.0, self.0))
-        }
-    }
-
-    #[test]
-    fn call_scope_cleanup_reports_later_host_scope_failure() {
-        crate::runtime::eval::run_eval(|| {
-            let (program, source_id) = full_program("proc parent() {}\n");
-            program.symbol_owner().with_current(|| {
-                let span = Span::new(source_id, 0, 0);
-                let mut evaluator = Evaluator::new(Vec::new());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
-                frames.push_call(LoweredFunctionKey::Name(Name::intern("parent")), CallableKind::Proc, Vec::new(), span, None).unwrap();
-                let mut outer = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("outer")));
-                frames.evaluator.register_returned_stream(&mut outer, span).unwrap();
-                let block_scope = frames.evaluator.enter_owned_host_scope();
-                frames.calls[0].block_scopes.push(block_scope);
-                let mut inner = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("inner")));
-                frames.evaluator.register_returned_stream(&mut inner, span).unwrap();
-
-                let error = cleanup_call_scopes(frames.evaluator, &mut frames.calls[0]).unwrap_err();
-                assert_eq!(error.kind, "inner");
-                let stderr = String::from_utf8_lossy(&frames.evaluator.stderr);
-                assert!(stderr.contains("cleanup error [outer]"), "{stderr:?}");
-            });
-        });
-    }
-
-    #[test]
-    fn forced_cleanup_failure_overrides_earlier_failure() {
-        crate::runtime::eval::run_eval(|| {
-            let (program, source_id) = full_program("proc parent() { defer { let _ = 1 } }\n");
-            program.symbol_owner().with_current(|| {
-                let parent = Name::intern("parent");
-                let span = Span::new(source_id, 0, 0);
-                let mut evaluator = Evaluator::new(Vec::new());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
-                frames.push_call(LoweredFunctionKey::Name(parent), CallableKind::Proc, Vec::new(), span, None).unwrap();
-                let execution = program.function_view(LoweredFunctionKey::Name(parent), CallableKind::Proc).unwrap().unwrap().execution().unwrap();
-                let instruction = function_instruction(&program, &execution, FullTag::StmtDefer);
-                let (tag, payload) = execution.instruction_id(instruction).unwrap();
-                let StmtView::Defer { value, .. } = StmtView::decode(&execution, tag, payload).unwrap() else { unreachable!() };
-                let group = Box::new(CleanupGroup {
-                    defers: vec![RegisteredDefer::new(value.raw(), DeferKind::Always)],
-                    next_defer: 0,
-                    leaves_with_error: false,
-                    failures: CleanupFailures::default(),
-                    primary_error: None,
-                    primary_traceback: None,
-                    released: None,
-                    cleanup_contexts: Vec::new(),
-                    call_span: span,
-                    resume: CleanupGroupResume::Call(StmtFlow::None),
-                });
-                frames.record_cleanup_action_failure(group, RuntimeError::new("first", "first"), None);
-                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
-                frames.evaluator.deliver_test_cancel(crate::runtime::eval::TestCancelRequest::Force, span).unwrap();
-                frames.record_cleanup_action_failure(group, RuntimeError::abort(143, true).with_span(span), None);
-                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
-                let result = frames.finish_cleanup_group(0, *group);
-                assert!(matches!(result, Err(error) if error.abort.is_some_and(|signal| signal.force)), "forced cleanup must surface");
-            });
-        });
-    }
-
-    #[test]
-    fn forced_discard_keeps_child_captures_and_skips_parent_defers() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"var checks = 0
-proc child() { checks = 1 }
-proc parent() {
-  defer { checks = 99 }
-  child()
-}
-"#;
-            let (program, source_id) = full_program(source);
-            program.symbol_owner().with_current(|| {
-                let checks = Name::intern("checks");
-                let child = Name::intern("child");
-                let parent = Name::intern("parent");
-                let span = Span::new(source_id, 0, 0);
-                let mut evaluator = Evaluator::new(Vec::new());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                for index in 0..program.driver_step_count().unwrap() {
-                    evaluator
-                        .eval_indexed_driver_step(index, span)
-                        .expect("verified driver step has a direct executor")
-                        .expect("declared capture initializes");
-                }
-                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
-                frames
-                    .push_call(
-                        LoweredFunctionKey::Name(parent),
-                        CallableKind::Proc,
-                        Vec::new(),
-                        span,
-                        None,
-                    )
-                    .expect("parent frame starts");
-
-                let parent_execution = program
-                    .function_view(
-                        LoweredFunctionKey::Name(parent),
-                        CallableKind::Proc,
-                    )
-                    .unwrap()
-                    .expect("parent function exists")
-                    .execution()
-                    .unwrap();
-                let defer_instruction =
-                    function_instruction(&program, &parent_execution, FullTag::StmtDefer);
-                let (tag, payload) = parent_execution
-                    .instruction_id(defer_instruction)
-                    .unwrap();
-                let StmtView::Defer { value, .. } =
-                    StmtView::decode(&parent_execution, tag, payload).unwrap()
-                else {
-                    unreachable!()
-                };
-                frames.calls[0]
-                    .defers
-                    .push(RegisteredDefer::new(value.raw(), DeferKind::Always));
-
-                frames
-                    .push_call(
-                        LoweredFunctionKey::Name(child),
-                        CallableKind::Proc,
-                        Vec::new(),
-                        span,
-                        None,
-                    )
-                    .expect("child frame starts");
-                let child_header = ExplicitFrames::function_header(
-                    &program,
-                    LoweredFunctionKey::Name(child),
-                    CallableKind::Proc,
-                    span,
-                )
-                .unwrap();
-                let child_capture = child_header
-                    .captures
-                    .iter()
-                    .find(|capture| capture.name == checks)
-                    .expect("child captures checks")
-                    .slot;
-                frames.calls[1].slots[child_capture] = LoweredValue::Int(1);
-
-                frames
-                    .evaluator
-                    .deliver_test_cancel(
-                        crate::runtime::eval::TestCancelRequest::Force,
-                        span,
-                    )
-                    .expect("forced cancellation is delivered");
-                assert!(frames.evaluator.shutting_down());
-                frames.begin_error_unwind(RuntimeError::abort(143, true).with_span(span));
-
-                let result = frames.result.take().expect("force abort completes the machine");
-                assert!(matches!(
-                    result,
-                    Err(error) if error.abort.is_some_and(|signal| signal.force)
-                ));
-                assert!(frames.calls.is_empty());
-                assert_eq!(frames.evaluator.lookup(checks).unwrap().value, Value::Int(1));
-            });
-        });
-    }
-
-    #[test]
-    fn empty_map_witnesses_capture_the_selected_dispatch_route() {
-        crate::runtime::eval::run_eval(|| {
-            let source = "pure empty() -> Map[Str, Int] { let value: Map[Str, Int] = {}; return value }\n";
-            let (program, source_id) = full_program(source);
-            let function = program
-                .symbol_owner()
-                .with_current(|| Name::intern("empty"));
-            let view = program
-                .function_view(
-                    LoweredFunctionKey::Name(function),
-                    CallableKind::Pure,
-                )
-                .unwrap()
-                .expect("empty map function is present");
-            let execution = view.execution().unwrap();
-            let instruction = function_instruction(&program, &execution, FullTag::ExprEmptyMap);
-            let span = Span::new(source_id, 0, 0);
-
-            for (forced, expected_route, expected_mode) in [
-                (
-                    false,
-                    RouteWitnessRoute::ExplicitFrameApply,
-                    RouteWitnessMode::Normal,
-                ),
-                (
-                    true,
-                    RouteWitnessRoute::GenericOperandApply,
-                    RouteWitnessMode::Forced,
-                ),
-            ] {
-                let sink = RouteWitnessSink::default();
-                let mut evaluator = Evaluator::new(Vec::new());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                evaluator.force_frames = forced;
-                evaluator.install_route_witness_sink(sink.clone());
-                let mut slots = vec![LoweredValue::Unit; view.slot_count()];
-
-                let result = evaluator
-                    .eval_indexed_expr(&execution, instruction, &mut slots, span)
-                    .expect("empty map evaluation succeeds");
-                assert!(matches!(
-                    result,
-                    ControlFlow::Continue(LoweredValue::Map(ref value)) if value.is_empty()
-                ));
-                assert!(evaluator.stdout.is_empty());
-                assert!(evaluator.stderr.is_empty());
-
-                let records = sink.take_records();
-                assert_eq!(records.len(), 1);
-                assert_eq!(records[0].tag.name, "ExprEmptyMap");
-                assert_eq!(records[0].tag.ordinal, FullTag::ExprEmptyMap as u32);
-                assert_eq!(records[0].route, expected_route);
-                assert_eq!(records[0].mode, expected_mode);
-                assert_eq!(records[0].route.name(), expected_route.name());
-                assert_eq!(records[0].mode.name(), expected_mode.name());
-            }
-        });
-    }
-
-    #[test]
-    fn forced_frames_run_an_expression_loop() {
-        crate::runtime::eval::run_eval(|| {
-            let source = "proc recursive_only() -> Int { return loop { break 0 } }\n";
-            let mut sources = SourceMap::new();
-            let source_id = sources.add_file("frame-scheduler.xsh", source);
-            let parsed = Parser::parse_source_arena_only(source_id, source);
-            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-            let function = parsed
-                .arena
-                .symbol_owner()
-                .with_current(|| Name::intern("recursive_only"));
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
-            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
-            evaluator.force_frames = true;
-            let value = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(function),
-                    CallableKind::Proc,
-                    &[],
-                    Span::new(source_id, 0, 0),
-                )
-                .expect("prepared recursive procedure")
-                .expect("forced frames run expression loops");
-            assert!(matches!(value, Value::Int(0)));
-        });
-    }
-
-    #[test]
-    fn complete_pipeline_decode_preserves_the_stage_count() {
-        crate::runtime::eval::run_eval(|| {
-            let source = "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> sort |> map { |item| item } |> collect() }\n";
-            let (program, source_id) = full_program(source);
-            let function = program.symbol_owner().with_current(|| {
-                program
-                    .function_view(
-                        LoweredFunctionKey::Name(Name::intern("pipeline")),
-                        CallableKind::Pure,
-                    )
-                    .unwrap()
-                    .expect("pipeline function is present")
-            });
-            let execution = function.execution().unwrap();
-            let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
-            let span = Span::new(source_id, 0, 0);
-            let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
-                .unwrap();
-
-            assert_eq!(stages.len(), 4);
-        });
-    }
-
-    struct RetainedFrameStream(ProducerFrameState);
-
-    impl ScriptStream for RetainedFrameStream {
-        fn finished(&self) -> bool { false }
-
-        fn poll(
-            &mut self,
-            _evaluator: &mut Evaluator,
-            _span: Span,
-        ) -> Result<ScriptStreamStep, RuntimeError> {
-            Ok(ScriptStreamStep::Finished)
-        }
-
-        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
-            Ok(())
-        }
-
-        fn visit_retained_values(
-            &self,
-            visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
-        ) {
-            self.0.visit_retained_values(visitor);
-        }
-
-        fn delegated_finished(&mut self) {}
-
-        fn take_delegated(
-            &mut self,
-        ) -> (
-            Option<ScriptStreamState>,
-            Vec<u64>,
-            Option<crate::runtime::eval::ScopedProducerContext>,
-        ) {
-            (None, Vec::new(), None)
-        }
-
-        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn continuation_retained_root_transfers_with_its_producer() {
-        crate::runtime::eval::run_eval(|| {
-            let mut evaluator = Evaluator::new(Vec::new());
-            let root_scope = evaluator.current_scope_id();
-            let child_scope = evaluator.enter_owned_host_scope();
-            let temp = tempfile::tempdir().unwrap();
-            let root_id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(
-                Box::new(super::super::super::FsRootHandle::TempDir(
-                        crate::modules::fs::TempRoot::adopt(temp).unwrap(),
-                    )),
-            ));
-            let apply_temp = tempfile::tempdir().unwrap();
-            let apply_root_id =
-                evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir(
-                        crate::modules::fs::TempRoot::adopt(apply_temp).unwrap(),
-                    ),
-                )));
-            let mut sources = SourceMap::new();
-            let source_id = sources.add_file("retained-frame.xsh", "");
-            let span = Span::new(source_id, 0, 0);
-            let retained_root = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
-                id: root_id,
-                owner: Arc::clone(&evaluator.resource_owner),
-            });
-            let apply_retained_root =
-                LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
-                    id: apply_root_id,
-                    owner: Arc::clone(&evaluator.resource_owner),
-                });
-            let frame = ProducerFrameState {
-                applications: PreparedInvocationBindings::default(),
-                work: vec![
-                    FrameWork::Expr {
-                        instruction: 0,
-                        span,
-                        next: FrameContinuation::BinaryRight {
-                            op: BinaryOp::Add,
-                            left: retained_root.clone(),
-                            span,
-                            next: Box::new(FrameContinuation::Discard(span)),
-                        },
-                    },
-                    FrameWork::Expr {
-                        instruction: 0,
-                        span,
-                        next: FrameContinuation::ApplyOperands {
-                            instruction: 0,
-                            tag: FullTag::ExprRange,
-                            position: 1,
-                            tag_position: None,
-                            error_field_position: None,
-                            values: vec![super::super::FrameApplyValue::Value(apply_retained_root)],
-                            span,
-                            next: Box::new(FrameContinuation::Discard(span)),
-                        },
-                    },
-                ],
-                slots: Vec::new(),
-                slot_scopes: Vec::new(),
-                defers: Vec::new(),
-                block_scopes: Vec::new(),
-                block_defer_offsets: Vec::new(),
-                scope_id: child_scope,
-            };
-            let state = ScriptStreamState::new(RetainedFrameStream(frame));
-            let mut stream = StreamValue::from_script(state);
-            evaluator.register_returned_stream(&mut stream, span).unwrap();
-
-            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
-
-            assert_eq!(
-                evaluator.fs_capabilities[0].as_ref().unwrap().owner_scope,
-                root_scope
-            );
-            assert_eq!(
-                evaluator.fs_capabilities[1].as_ref().unwrap().owner_scope,
-                root_scope
-            );
-            evaluator.exit_owned_host_scope(child_scope).unwrap();
-        });
-    }
-
-    #[test]
-    fn continuation_transfers_materialized_fold_root_with_its_producer() {
-        crate::runtime::eval::run_eval(|| {
-            let source = "pure folded() -> Int { [1] |> fold(0) { |acc, item| acc + item } }\n";
-            let (program, source_id) = full_program(source);
-            let function = program
-                .symbol_owner()
-                .with_current(|| Name::intern("folded"));
-            let function_view = program
-                .function_view(LoweredFunctionKey::Name(function), CallableKind::Pure)
-                .unwrap()
-                .expect("folded function is present");
-            let execution = function_view.execution().unwrap();
-            let pipeline_instruction =
-                function_instruction(&program, &execution, FullTag::ExprPipeline);
-            let span = Span::new(source_id, 0, 0);
-            let (_, span, stages) = super::super::serial_pipeline::indexed_value_pipeline_input(
-                &execution,
-                pipeline_instruction,
-                span,
-            )
-            .unwrap();
-            assert_eq!(stages.len(), 1);
-
-            let mut evaluator = Evaluator::new(Vec::new());
-            let root_scope = evaluator.current_scope_id();
-            let child_scope = evaluator.enter_owned_host_scope();
-            let stage_temp = tempfile::tempdir().unwrap();
-            let stage_root_id = evaluator.push_fs_capability(
-                crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir(
-                        crate::modules::fs::TempRoot::adopt(stage_temp).unwrap(),
-                    ),
-                )),
-            );
-            let continuation_temp = tempfile::tempdir().unwrap();
-            let continuation_root_id = evaluator.push_fs_capability(
-                crate::runtime::eval::FsCapability::Root(Box::new(
-                    super::super::super::FsRootHandle::TempDir(
-                        crate::modules::fs::TempRoot::adopt(continuation_temp).unwrap(),
-                    ),
-                )),
-            );
-            let stage_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
-                id: stage_root_id,
-                owner: Arc::clone(&evaluator.resource_owner),
-            });
-            let continuation_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
-                id: continuation_root_id,
-                owner: Arc::clone(&evaluator.resource_owner),
-            });
-
-            let mut pipeline = IndexedStageEngine::new_frame(
-                LoweredValue::List(vec![LoweredValue::Int(1)]),
-                stages,
-                span,
-            )
-            .unwrap();
-            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
-            assert!(matches!(
-                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
-                Ok(IndexedStageStep::Expr(_))
-            ));
-            pipeline.resume(ControlFlow::Continue(stage_value));
-            assert!(matches!(
-                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
-                Ok(IndexedStageStep::Block(_))
-            ));
-            // The callback receives a copy in its local slots; isolate the
-            // accumulator's suspended retention path from that ordinary copy.
-            slots.fill(LoweredValue::Unit);
-
-            let frame = ProducerFrameState {
-                applications: PreparedInvocationBindings::default(),
-                work: vec![FrameWork::StageValue {
-                    pipeline: Box::new(pipeline),
-                    span,
-                    next: FrameContinuation::BinaryRight {
-                        op: BinaryOp::Add,
-                        left: continuation_value,
-                        span,
-                        next: Box::new(FrameContinuation::Discard(span)),
-                    },
-                }],
-                slots,
-                slot_scopes: Vec::new(),
-                defers: Vec::new(),
-                block_scopes: Vec::new(),
-                block_defer_offsets: Vec::new(),
-                scope_id: child_scope,
-            };
-            let state = ScriptStreamState::new(RetainedFrameStream(frame));
-            let mut stream = StreamValue::from_script(state);
-            evaluator.register_returned_stream(&mut stream, span).unwrap();
-
-            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
-
-            for root_id in [stage_root_id, continuation_root_id] {
-                assert_eq!(
-                    evaluator.fs_capabilities[root_id as usize - 1]
-                        .as_ref()
-                        .unwrap()
-                        .owner_scope,
-                    root_scope
-                );
-            }
-            evaluator.exit_owned_host_scope(child_scope).unwrap();
-            assert!(evaluator.fs_capabilities[stage_root_id as usize - 1].is_some());
-            assert!(evaluator.fs_capabilities[continuation_root_id as usize - 1].is_some());
-        });
-    }
-
-    #[test]
-    fn range_start_type_error_precedes_later_operand_effects() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"
-proc later(divisor: Int) [] -> Int {
-  print "later"
-  1 / divisor
-}
-proc range_case(start: Int, divisor: Int) [] -> Any {
-  range(start, later(divisor))
-}
-"#;
-            let (program, source_id) = full_program(source);
-            let function = program
-                .symbol_owner()
-                .with_current(|| Name::intern("range_case"));
-            let function_view = program
-                .function_view(LoweredFunctionKey::Name(function), CallableKind::Proc)
-                .unwrap()
-                .expect("range_case function is present");
-            let execution = function_view.execution().unwrap();
-            let range_instruction = function_instruction(&program, &execution, FullTag::ExprRange);
-            let span = Span::new(source_id, 0, 0);
-            let mut evaluator = Evaluator::new(Vec::new());
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
-            slots[0] = LoweredValue::Str(Arc::from("bad start"));
-            slots[1] = LoweredValue::Int(0);
-
-            let error = evaluator
-                .eval_indexed_expr_with_frames(
-                    &execution,
-                    range_instruction,
-                    &mut slots,
-                    span,
-                )
-                .expect_err("invalid start bound fails before the later call");
-
-            assert_eq!(error.kind, "type-error");
-            assert!(error.message.contains("range start expected Int, found Str"));
-            assert!(evaluator.stdout.is_empty(), "later operand ran: {:?}", evaluator.stdout);
-        });
-    }
-
-    // Native scripts terminate on a runtime fault. Reusing that same evaluator
-    // after the fault is a host lifecycle that only the library caller can test.
-    #[test]
-    fn nested_machine_depth_is_restored_after_an_execution_error() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"proc descend(n: Int) -> Int {
-  let values = [n] |> map { |item|
-    let next = item + 1
-    descend(next)
-  }
-  values[0]
-}
-pure increment(n: Int) -> Int { n + 1 }
-"#;
-            let mut sources = SourceMap::new();
-            let source_id = sources.add_file("nested-machine-depth.xsh", source);
-            let parsed = Parser::parse_source_arena_only(source_id, source);
-            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
-            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
-            let (descend, increment) = parsed.arena.symbol_owner().with_current(|| {
-                (Name::intern("descend"), Name::intern("increment"))
-            });
-            let span = Span::new(source_id, 0, 0);
-            let error = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(descend),
-                    CallableKind::Proc,
-                    &[Value::Int(0)],
-                    span,
-                )
-                .expect("prepared recursive function")
-                .expect_err("nested machines have a bounded depth");
-            assert_eq!(error.kind, "stack-overflow");
-            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(increment),
-                    CallableKind::Pure,
-                    &[Value::Int(41)],
-                    span,
-                )
-                .expect("prepared ordinary function")
-                .expect("the failed call leaves the evaluator reusable");
-            assert_eq!(result, Value::Int(42));
-            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
-        });
-    }
-}
 
 enum FrameValue {
     Value(LoweredValue),
@@ -11454,20 +10767,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .as_ref()
             .expect("retry schedule was just built")
             .max_attempts();
-        self.start_retry_attempt(index, state, next)
+        self.start_retry_attempt(index, state, *next)
     }
 
     fn start_retry_attempt(
         &mut self,
         index: usize,
         state: Box<RetryFrameState>,
-        next: Box<FrameContinuation>,
+        next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let body = state.body;
         let span = state.span;
         self.calls[index].work.push(FrameWork::ExpressionBoundary {
             policy: ExpressionBoundaryPolicy::Retry(state),
-            next: *next,
+            next,
         });
         self.push_statement_block(index, body, span)
     }
@@ -11492,7 +10805,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let value = match value {
             LoweredValue::ResultOk(value) => *value,
             LoweredValue::ResultErr(error) => {
-                return self.fail_retry_attempt(index, state, *error, traceback, Box::new(next));
+                return self.fail_retry_attempt(index, state, *error, traceback, next);
             }
             value => value,
         };
@@ -11520,7 +10833,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         mut state: Box<RetryFrameState>,
         error: Value,
         traceback: Option<Traceback>,
-        next: Box<FrameContinuation>,
+        next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let error_value = LoweredValue::Error(Box::new(error));
         let selected = match state.pattern {
@@ -11587,7 +10900,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         mut state: Box<RetryFrameState>,
-        next: Box<FrameContinuation>,
+        next: FrameContinuation,
     ) {
         let error = state
             .last_error
@@ -11597,7 +10910,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.push_value(
             index,
             FrameValue::Value(LoweredValue::ResultErr(Box::new(error))),
-            *next,
+            next,
         );
     }
 
@@ -12862,7 +12175,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         retry,
                         error,
                         traceback,
-                        Box::new(next),
+                        next,
                     );
                 }
                 self.evaluator.pending_traceback = None;
@@ -13068,5 +12381,694 @@ fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
             _ => return,
         };
         traceback.error = crate::trace::TraceError::from_value(error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::eval::route_witness::{RouteWitnessRoute, RouteWitnessSink};
+    use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
+    use crate::source::SourceMap;
+    use crate::syntax::parser::Parser;
+
+    fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("explicit-frame-test.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations =
+            crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let program = crate::runtime::eval::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        (Arc::new(program), source_id)
+    }
+
+    fn function_instruction(
+        program: &FullProgram,
+        execution: &FullExecution<'_>,
+        tag: FullTag,
+    ) -> u32 {
+        let matches = (0..program.instruction_count())
+            .filter_map(|instruction| {
+                let actual = execution.instruction_id(instruction as u32).ok()?.0;
+                (actual == tag).then_some(instruction as u32)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected one {tag:?} instruction");
+        matches[0]
+    }
+
+    struct FailingScopeStream(&'static str);
+
+    impl ScriptStream for FailingScopeStream {
+        fn finished(&self) -> bool { false }
+
+        fn poll(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> { Ok(()) }
+
+        fn visit_retained_values(&self, _visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>)) {}
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Err(RuntimeError::new(self.0, self.0))
+        }
+    }
+
+    #[test]
+    fn call_scope_cleanup_reports_later_host_scope_failure() {
+        crate::runtime::eval::run_eval(|| {
+            let (program, source_id) = full_program("proc parent() {}\n");
+            program.symbol_owner().with_current(|| {
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames.push_call(LoweredFunctionKey::Name(Name::intern("parent")), CallableKind::Proc, Vec::new(), span, None).unwrap();
+                let mut outer = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("outer")));
+                frames.evaluator.register_returned_stream(&mut outer, span).unwrap();
+                let block_scope = frames.evaluator.enter_owned_host_scope();
+                frames.calls[0].block_scopes.push(block_scope);
+                let mut inner = StreamValue::from_script(ScriptStreamState::new(FailingScopeStream("inner")));
+                frames.evaluator.register_returned_stream(&mut inner, span).unwrap();
+
+                let error = cleanup_call_scopes(frames.evaluator, &mut frames.calls[0]).unwrap_err();
+                assert_eq!(error.kind, "inner");
+                let stderr = String::from_utf8_lossy(&frames.evaluator.stderr);
+                assert!(stderr.contains("cleanup error [outer]"), "{stderr:?}");
+            });
+        });
+    }
+
+    #[test]
+    fn forced_cleanup_failure_overrides_earlier_failure() {
+        crate::runtime::eval::run_eval(|| {
+            let (program, source_id) = full_program("proc parent() { defer { let _ = 1 } }\n");
+            program.symbol_owner().with_current(|| {
+                let parent = Name::intern("parent");
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames.push_call(LoweredFunctionKey::Name(parent), CallableKind::Proc, Vec::new(), span, None).unwrap();
+                let execution = program.function_view(LoweredFunctionKey::Name(parent), CallableKind::Proc).unwrap().unwrap().execution().unwrap();
+                let instruction = function_instruction(&program, &execution, FullTag::StmtDefer);
+                let (tag, payload) = execution.instruction_id(instruction).unwrap();
+                let StmtView::Defer { value, .. } = StmtView::decode(&execution, tag, payload).unwrap() else { unreachable!() };
+                let group = Box::new(CleanupGroup {
+                    defers: vec![RegisteredDefer::new(value.raw(), DeferKind::Always)],
+                    next_defer: 0,
+                    leaves_with_error: false,
+                    failures: CleanupFailures::default(),
+                    primary_error: None,
+                    primary_traceback: None,
+                    released: None,
+                    cleanup_contexts: Vec::new(),
+                    call_span: span,
+                    resume: CleanupGroupResume::Call(StmtFlow::None),
+                });
+                frames.record_cleanup_action_failure(group, RuntimeError::new("first", "first"), None);
+                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
+                frames.evaluator.deliver_test_cancel(crate::runtime::eval::TestCancelRequest::Force, span).unwrap();
+                frames.record_cleanup_action_failure(group, RuntimeError::abort(143, true).with_span(span), None);
+                let Some(FrameWork::CleanupGroup(group)) = frames.calls[0].work.pop() else { unreachable!() };
+                let result = frames.finish_cleanup_group(0, *group);
+                assert!(matches!(result, Err(error) if error.abort.is_some_and(|signal| signal.force)), "forced cleanup must surface");
+            });
+        });
+    }
+
+    #[test]
+    fn forced_discard_keeps_child_captures_and_skips_parent_defers() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"var checks = 0
+proc child() { checks = 1 }
+proc parent() {
+  defer { checks = 99 }
+  child()
+}
+"#;
+            let (program, source_id) = full_program(source);
+            program.symbol_owner().with_current(|| {
+                let checks = Name::intern("checks");
+                let child = Name::intern("child");
+                let parent = Name::intern("parent");
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for index in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(index, span)
+                        .expect("verified driver step has a direct executor")
+                        .expect("declared capture initializes");
+                }
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames
+                    .push_call(
+                        LoweredFunctionKey::Name(parent),
+                        CallableKind::Proc,
+                        Vec::new(),
+                        span,
+                        None,
+                    )
+                    .expect("parent frame starts");
+
+                let parent_execution = program
+                    .function_view(
+                        LoweredFunctionKey::Name(parent),
+                        CallableKind::Proc,
+                    )
+                    .unwrap()
+                    .expect("parent function exists")
+                    .execution()
+                    .unwrap();
+                let defer_instruction =
+                    function_instruction(&program, &parent_execution, FullTag::StmtDefer);
+                let (tag, payload) = parent_execution
+                    .instruction_id(defer_instruction)
+                    .unwrap();
+                let StmtView::Defer { value, .. } =
+                    StmtView::decode(&parent_execution, tag, payload).unwrap()
+                else {
+                    unreachable!()
+                };
+                frames.calls[0]
+                    .defers
+                    .push(RegisteredDefer::new(value.raw(), DeferKind::Always));
+
+                frames
+                    .push_call(
+                        LoweredFunctionKey::Name(child),
+                        CallableKind::Proc,
+                        Vec::new(),
+                        span,
+                        None,
+                    )
+                    .expect("child frame starts");
+                let child_header = ExplicitFrames::function_header(
+                    &program,
+                    LoweredFunctionKey::Name(child),
+                    CallableKind::Proc,
+                    span,
+                )
+                .unwrap();
+                let child_capture = child_header
+                    .captures
+                    .iter()
+                    .find(|capture| capture.name == checks)
+                    .expect("child captures checks")
+                    .slot;
+                frames.calls[1].slots[child_capture] = LoweredValue::Int(1);
+
+                frames
+                    .evaluator
+                    .deliver_test_cancel(
+                        crate::runtime::eval::TestCancelRequest::Force,
+                        span,
+                    )
+                    .expect("forced cancellation is delivered");
+                assert!(frames.evaluator.shutting_down());
+                frames.begin_error_unwind(RuntimeError::abort(143, true).with_span(span));
+
+                let result = frames.result.take().expect("force abort completes the machine");
+                assert!(matches!(
+                    result,
+                    Err(error) if error.abort.is_some_and(|signal| signal.force)
+                ));
+                assert!(frames.calls.is_empty());
+                assert_eq!(frames.evaluator.lookup(checks).unwrap().value, Value::Int(1));
+            });
+        });
+    }
+
+    #[test]
+    fn empty_map_witnesses_capture_the_selected_dispatch_route() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure empty() -> Map[Str, Int] { let value: Map[Str, Int] = {}; return value }\n";
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("empty"));
+            let view = program
+                .function_view(
+                    LoweredFunctionKey::Name(function),
+                    CallableKind::Pure,
+                )
+                .unwrap()
+                .expect("empty map function is present");
+            let execution = view.execution().unwrap();
+            let instruction = function_instruction(&program, &execution, FullTag::ExprEmptyMap);
+            let span = Span::new(source_id, 0, 0);
+
+            for (forced, expected_route, expected_mode) in [
+                (
+                    false,
+                    RouteWitnessRoute::ExplicitFrameApply,
+                    RouteWitnessMode::Normal,
+                ),
+                (
+                    true,
+                    RouteWitnessRoute::GenericOperandApply,
+                    RouteWitnessMode::Forced,
+                ),
+            ] {
+                let sink = RouteWitnessSink::default();
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = forced;
+                evaluator.install_route_witness_sink(sink.clone());
+                let mut slots = vec![LoweredValue::Unit; view.slot_count()];
+
+                let result = evaluator
+                    .eval_indexed_expr(&execution, instruction, &mut slots, span)
+                    .expect("empty map evaluation succeeds");
+                assert!(matches!(
+                    result,
+                    ControlFlow::Continue(LoweredValue::Map(ref value)) if value.is_empty()
+                ));
+                assert!(evaluator.stdout.is_empty());
+                assert!(evaluator.stderr.is_empty());
+
+                let records = sink.take_records();
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].tag.name, "ExprEmptyMap");
+                assert_eq!(records[0].tag.ordinal, FullTag::ExprEmptyMap as u32);
+                assert_eq!(records[0].route, expected_route);
+                assert_eq!(records[0].mode, expected_mode);
+                assert_eq!(records[0].route.name(), expected_route.name());
+                assert_eq!(records[0].mode.name(), expected_mode.name());
+            }
+        });
+    }
+
+    #[test]
+    fn forced_frames_run_an_expression_loop() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "proc recursive_only() -> Int { return loop { break 0 } }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("frame-scheduler.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let function = parsed
+                .arena
+                .symbol_owner()
+                .with_current(|| Name::intern("recursive_only"));
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            evaluator.force_frames = true;
+            let value = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(function),
+                    CallableKind::Proc,
+                    &[],
+                    Span::new(source_id, 0, 0),
+                )
+                .expect("prepared recursive procedure")
+                .expect("forced frames run expression loops");
+            assert!(matches!(value, Value::Int(0)));
+        });
+    }
+
+    #[test]
+    fn complete_pipeline_decode_preserves_the_stage_count() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> sort |> map { |item| item } |> collect() }\n";
+            let (program, source_id) = full_program(source);
+            let function = program.symbol_owner().with_current(|| {
+                program
+                    .function_view(
+                        LoweredFunctionKey::Name(Name::intern("pipeline")),
+                        CallableKind::Pure,
+                    )
+                    .unwrap()
+                    .expect("pipeline function is present")
+            });
+            let execution = function.execution().unwrap();
+            let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
+            let span = Span::new(source_id, 0, 0);
+            let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
+                .unwrap();
+
+            assert_eq!(stages.len(), 4);
+        });
+    }
+
+    struct RetainedFrameStream(ProducerFrameState);
+
+    impl ScriptStream for RetainedFrameStream {
+        fn finished(&self) -> bool { false }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+        ) {
+            self.0.visit_retained_values(visitor);
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (
+            Option<ScriptStreamState>,
+            Vec<u64>,
+            Option<crate::runtime::eval::ScopedProducerContext>,
+        ) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn continuation_retained_root_transfers_with_its_producer() {
+        crate::runtime::eval::run_eval(|| {
+            let mut evaluator = Evaluator::new(Vec::new());
+            let root_scope = evaluator.current_scope_id();
+            let child_scope = evaluator.enter_owned_host_scope();
+            let temp = tempfile::tempdir().unwrap();
+            let root_id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(
+                Box::new(super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(temp).unwrap(),
+                    )),
+            ));
+            let apply_temp = tempfile::tempdir().unwrap();
+            let apply_root_id =
+                evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(apply_temp).unwrap(),
+                    ),
+                )));
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("retained-frame.xsh", "");
+            let span = Span::new(source_id, 0, 0);
+            let retained_root = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            let apply_retained_root =
+                LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                    id: apply_root_id,
+                    owner: Arc::clone(&evaluator.resource_owner),
+                });
+            let frame = ProducerFrameState {
+                applications: PreparedInvocationBindings::default(),
+                work: vec![
+                    FrameWork::Expr {
+                        instruction: 0,
+                        span,
+                        next: FrameContinuation::BinaryRight {
+                            op: BinaryOp::Add,
+                            left: retained_root.clone(),
+                            span,
+                            next: Box::new(FrameContinuation::Discard(span)),
+                        },
+                    },
+                    FrameWork::Expr {
+                        instruction: 0,
+                        span,
+                        next: FrameContinuation::ApplyOperands {
+                            instruction: 0,
+                            tag: FullTag::ExprRange,
+                            position: 1,
+                            tag_position: None,
+                            error_field_position: None,
+                            values: vec![super::super::FrameApplyValue::Value(apply_retained_root)],
+                            span,
+                            next: Box::new(FrameContinuation::Discard(span)),
+                        },
+                    },
+                ],
+                slots: Vec::new(),
+                slot_scopes: Vec::new(),
+                defers: Vec::new(),
+                block_scopes: Vec::new(),
+                block_defer_offsets: Vec::new(),
+                scope_id: child_scope,
+            };
+            let state = ScriptStreamState::new(RetainedFrameStream(frame));
+            let mut stream = StreamValue::from_script(state);
+            evaluator.register_returned_stream(&mut stream, span).unwrap();
+
+            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+
+            assert_eq!(
+                evaluator.fs_capabilities[0].as_ref().unwrap().owner_scope,
+                root_scope
+            );
+            assert_eq!(
+                evaluator.fs_capabilities[1].as_ref().unwrap().owner_scope,
+                root_scope
+            );
+            evaluator.exit_owned_host_scope(child_scope).unwrap();
+        });
+    }
+
+    #[test]
+    fn continuation_transfers_materialized_fold_root_with_its_producer() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure folded() -> Int { [1] |> fold(0) { |acc, item| acc + item } }\n";
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("folded"));
+            let function_view = program
+                .function_view(LoweredFunctionKey::Name(function), CallableKind::Pure)
+                .unwrap()
+                .expect("folded function is present");
+            let execution = function_view.execution().unwrap();
+            let pipeline_instruction =
+                function_instruction(&program, &execution, FullTag::ExprPipeline);
+            let span = Span::new(source_id, 0, 0);
+            let (_, span, stages) = super::super::serial_pipeline::indexed_value_pipeline_input(
+                &execution,
+                pipeline_instruction,
+                span,
+            )
+            .unwrap();
+            assert_eq!(stages.len(), 1);
+
+            let mut evaluator = Evaluator::new(Vec::new());
+            let root_scope = evaluator.current_scope_id();
+            let child_scope = evaluator.enter_owned_host_scope();
+            let stage_temp = tempfile::tempdir().unwrap();
+            let stage_root_id = evaluator.push_fs_capability(
+                crate::runtime::eval::FsCapability::Root(Box::new(
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(stage_temp).unwrap(),
+                    ),
+                )),
+            );
+            let continuation_temp = tempfile::tempdir().unwrap();
+            let continuation_root_id = evaluator.push_fs_capability(
+                crate::runtime::eval::FsCapability::Root(Box::new(
+                    super::super::super::FsRootHandle::TempDir(
+                        crate::modules::fs::TempRoot::adopt(continuation_temp).unwrap(),
+                    ),
+                )),
+            );
+            let stage_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: stage_root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            let continuation_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: continuation_root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+
+            let mut pipeline = IndexedStageEngine::new_frame(
+                LoweredValue::List(vec![LoweredValue::Int(1)]),
+                stages,
+                span,
+            )
+            .unwrap();
+            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
+            assert!(matches!(
+                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
+                Ok(IndexedStageStep::Expr(_))
+            ));
+            pipeline.resume(ControlFlow::Continue(stage_value));
+            assert!(matches!(
+                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
+                Ok(IndexedStageStep::Block(_))
+            ));
+            // The callback receives a copy in its local slots; isolate the
+            // accumulator's suspended retention path from that ordinary copy.
+            slots.fill(LoweredValue::Unit);
+
+            let frame = ProducerFrameState {
+                applications: PreparedInvocationBindings::default(),
+                work: vec![FrameWork::StageValue {
+                    pipeline: Box::new(pipeline),
+                    span,
+                    next: FrameContinuation::BinaryRight {
+                        op: BinaryOp::Add,
+                        left: continuation_value,
+                        span,
+                        next: Box::new(FrameContinuation::Discard(span)),
+                    },
+                }],
+                slots,
+                slot_scopes: Vec::new(),
+                defers: Vec::new(),
+                block_scopes: Vec::new(),
+                block_defer_offsets: Vec::new(),
+                scope_id: child_scope,
+            };
+            let state = ScriptStreamState::new(RetainedFrameStream(frame));
+            let mut stream = StreamValue::from_script(state);
+            evaluator.register_returned_stream(&mut stream, span).unwrap();
+
+            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+
+            for root_id in [stage_root_id, continuation_root_id] {
+                assert_eq!(
+                    evaluator.fs_capabilities[root_id as usize - 1]
+                        .as_ref()
+                        .unwrap()
+                        .owner_scope,
+                    root_scope
+                );
+            }
+            evaluator.exit_owned_host_scope(child_scope).unwrap();
+            assert!(evaluator.fs_capabilities[stage_root_id as usize - 1].is_some());
+            assert!(evaluator.fs_capabilities[continuation_root_id as usize - 1].is_some());
+        });
+    }
+
+    #[test]
+    fn range_start_type_error_precedes_later_operand_effects() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"
+proc later(divisor: Int) [] -> Int {
+  print "later"
+  1 / divisor
+}
+proc range_case(start: Int, divisor: Int) [] -> Any {
+  range(start, later(divisor))
+}
+"#;
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("range_case"));
+            let function_view = program
+                .function_view(LoweredFunctionKey::Name(function), CallableKind::Proc)
+                .unwrap()
+                .expect("range_case function is present");
+            let execution = function_view.execution().unwrap();
+            let range_instruction = function_instruction(&program, &execution, FullTag::ExprRange);
+            let span = Span::new(source_id, 0, 0);
+            let mut evaluator = Evaluator::new(Vec::new());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
+            slots[0] = LoweredValue::Str(Arc::from("bad start"));
+            slots[1] = LoweredValue::Int(0);
+
+            let error = evaluator
+                .eval_indexed_expr_with_frames(
+                    &execution,
+                    range_instruction,
+                    &mut slots,
+                    span,
+                )
+                .expect_err("invalid start bound fails before the later call");
+
+            assert_eq!(error.kind, "type-error");
+            assert!(error.message.contains("range start expected Int, found Str"));
+            assert!(evaluator.stdout.is_empty(), "later operand ran: {:?}", evaluator.stdout);
+        });
+    }
+
+    // Native scripts terminate on a runtime fault. Reusing that same evaluator
+    // after the fault is a host lifecycle that only the library caller can test.
+    #[test]
+    fn nested_machine_depth_is_restored_after_an_execution_error() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"proc descend(n: Int) -> Int {
+  let values = [n] |> map { |item|
+    let next = item + 1
+    descend(next)
+  }
+  values[0]
+}
+pure increment(n: Int) -> Int { n + 1 }
+"#;
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("nested-machine-depth.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            let (descend, increment) = parsed.arena.symbol_owner().with_current(|| {
+                (Name::intern("descend"), Name::intern("increment"))
+            });
+            let span = Span::new(source_id, 0, 0);
+            let error = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(descend),
+                    CallableKind::Proc,
+                    &[Value::Int(0)],
+                    span,
+                )
+                .expect("prepared recursive function")
+                .expect_err("nested machines have a bounded depth");
+            assert_eq!(error.kind, "stack-overflow");
+            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(increment),
+                    CallableKind::Pure,
+                    &[Value::Int(41)],
+                    span,
+                )
+                .expect("prepared ordinary function")
+                .expect("the failed call leaves the evaluator reusable");
+            assert_eq!(result, Value::Int(42));
+            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
+        });
     }
 }

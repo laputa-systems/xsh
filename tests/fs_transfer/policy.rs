@@ -57,8 +57,7 @@ fn exact(source: &str, destination: &str) -> Operands {
 }
 
 fn final_name(path: &Path) -> &OsStr {
-    path.file_name()
-        .unwrap_or_else(|| path.as_os_str())
+    path.file_name().unwrap_or(path.as_os_str())
 }
 
 fn source_parent(cwd: &Path, path: &Path) -> io::Result<fs::File> {

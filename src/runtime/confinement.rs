@@ -188,7 +188,7 @@ mod linux {
     }
 
     fn allow_descriptor(ruleset: &OwnedFd, parent: BorrowedFd<'_>, access: u64) -> io::Result<()> {
-        let stat = rustix::fs::fstat(&parent)?;
+        let stat = rustix::fs::fstat(parent)?;
         let allowed_access = if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
             access
         } else {

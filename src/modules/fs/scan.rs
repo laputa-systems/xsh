@@ -4,7 +4,7 @@ use crate::runtime::value::{
     LiveStream, PathValue, RecordMap, RecordShape, RuntimeError, StreamValue, Value,
 };
 use crate::source::Span;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::ffi::OsString;
 use std::fs::Metadata;
 use std::os::unix::ffi::OsStrExt;
@@ -56,12 +56,12 @@ struct PendingDirectory {
 }
 
 struct ExclusionSet {
-    paths: HashSet<Vec<u8>>,
+    paths: FxHashSet<Vec<u8>>,
 }
 
 impl ExclusionSet {
     fn new(paths: &[PathBuf]) -> Result<Self, String> {
-        let mut set = HashSet::with_capacity(paths.len());
+        let mut set = FxHashSet::with_capacity_and_hasher(paths.len(), Default::default());
         for path in paths {
             let mut normalized = Vec::new();
             let mut named = false;
@@ -111,7 +111,7 @@ pub(crate) fn scan_filesystem(
     }
     let entries = std::fs::read_dir(&root)
         .map_err(|error| RuntimeError::host("fs-scan", &error).with_span(span))?;
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     seen.insert((root_metadata.dev(), root_metadata.ino()));
     let (entries, error) = sorted_names(entries.map(|entry| entry.map(|entry| entry.file_name())));
     let root = PendingDirectory {
@@ -295,7 +295,7 @@ fn relative_child(parent: &[u8], name: &[u8]) -> Vec<u8> {
 
 struct ScanStream {
     stack: Vec<PendingDirectory>,
-    seen: HashSet<(u64, u64)>,
+    seen: FxHashSet<(u64, u64)>,
     exclusions: ExclusionSet,
     root_device: u64,
     one_file_system: bool,
@@ -371,12 +371,12 @@ impl LiveStream for ScanStream {
             };
             let Some(name) = top.entries.next() else {
                 let directory = self.stack.pop().expect("the top directory exists");
-                if directory.incomplete || directory.error.is_some() || directory.omitted {
-                    if let Some(parent) = self.stack.last_mut() {
-                        parent.incomplete = true;
-                        if parent.error.is_none() {
-                            parent.error = directory.error.clone();
-                        }
+                if (directory.incomplete || directory.error.is_some() || directory.omitted)
+                    && let Some(parent) = self.stack.last_mut()
+                {
+                    parent.incomplete = true;
+                    if parent.error.is_none() {
+                        parent.error = directory.error.clone();
                     }
                 }
                 return done_record(&directory).map(Some);
@@ -461,7 +461,7 @@ mod tests {
                     directory(temp.path().join("a"), 1, 0, Vec::new().into_iter(), None),
                     directory(nested, 2, 1, entries, error),
                 ],
-                seen: HashSet::new(), exclusions: ExclusionSet::new(&[]).unwrap(),
+                seen: FxHashSet::default(), exclusions: ExclusionSet::new(&[]).unwrap(),
                 root_device: 0, one_file_system: false, next_index: 3,
                 root_entry_emitted: true, finished: false,
             };

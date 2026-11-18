@@ -19,18 +19,7 @@ impl TokenId {
     }
 }
 
-#[cfg(test)]
-mod layout_tests {
-    use super::{TokenId, TokenPayload, TokenTag};
-    use std::mem::size_of;
 
-    #[test]
-    fn compact_token_rows_keep_fixed_layouts() {
-        assert_eq!(size_of::<TokenId>(), 4);
-        assert_eq!(size_of::<TokenTag>(), 1);
-        assert_eq!(size_of::<TokenPayload>(), 4);
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
@@ -1004,5 +993,18 @@ impl Keyword {
             Self::Within => "within",
             Self::Yield => "yield",
         }
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{TokenId, TokenPayload, TokenTag};
+    use std::mem::size_of;
+
+    #[test]
+    fn compact_token_rows_keep_fixed_layouts() {
+        assert_eq!(size_of::<TokenId>(), 4);
+        assert_eq!(size_of::<TokenTag>(), 1);
+        assert_eq!(size_of::<TokenPayload>(), 4);
     }
 }

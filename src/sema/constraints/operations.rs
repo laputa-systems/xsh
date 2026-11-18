@@ -31,368 +31,7 @@ pub(crate) enum SealedOperationError {
     Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sema::sealed_operation::SealedBinaryOperation;
 
-    #[test]
-    fn equality_waits_for_inputs_and_rolls_back_incompatible_evidence() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let input = constraints.fresh(span);
-        let operation = SealedOperation::Equality { left: input.clone(), right: Type::Str, span };
-        let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, operation).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&input).unwrap(), input);
-        let before = constraints.operations.clone();
-        let rejected = constraints.commit_constraint_transaction(|this| {
-            this.constrain(&input, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
-            this.solve_sealed_operations()
-        });
-        assert!(matches!(rejected, Err(SealedOperationError::UnsupportedEquality { .. })));
-        assert_eq!(constraints.operations, before);
-        assert_eq!(constraints.resolve(&input).unwrap(), input);
-        constraints.constrain(&input, &Type::Optional(Box::new(Type::Str)), span).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Equality));
-    }
-
-    #[test]
-    fn store_value_waits_for_exact_replacement_and_rejects_incompatible_storage() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-            let span = Span::at(crate::source::SourceId::new(0), 0);
-            let mut constraints = TypeConstraints::default();
-            let replacement = constraints.fresh(span);
-            let storage = Type::Optional(Box::new(Type::Str));
-            let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::StoreValue {
-                storage: storage.clone(), replacement: replacement.clone(), span,
-            }).unwrap();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.resolve(&replacement).unwrap(), replacement);
-            assert_eq!(constraints.operations.entries[&id].selection, None);
-            let before = constraints.operations.clone();
-            let rejected = constraints.commit_constraint_transaction(|trial| {
-                trial.constrain(&replacement, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
-                trial.solve_sealed_operations()
-            });
-            assert!(matches!(rejected, Err(SealedOperationError::StorageConstraint(_))));
-            assert_eq!(constraints.operations, before);
-            constraints.constrain(&replacement, &Type::Str, span).unwrap();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::StoreValue));
-            assert_eq!(constraints.resolve(&replacement).unwrap(), Type::Str);
-        });
-    }
-
-    #[test]
-    fn checked_unsigned_contexts_distinguish_arithmetic_results_from_operands() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let left = constraints.fresh(span);
-        let result = constraints.fresh(span);
-        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left: left.clone(), right: Type::Int, result: result.clone(), span }).unwrap();
-        constraints.constrain_context(&Type::UInt, &result, span).unwrap();
-        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
-        assert_eq!(constraints.resolve(&left).unwrap(), left);
-        constraints.constrain_context(&Type::UInt, &left, span).unwrap();
-        assert_eq!(constraints.resolve(&left).unwrap(), Type::UInt);
-        let unrelated = constraints.fresh(span);
-        constraints.constrain_context(&Type::UInt, &unrelated, span).unwrap();
-        assert_eq!(constraints.resolve(&unrelated).unwrap(), Type::UInt);
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
-    }
-
-    #[test]
-    fn sealed_field_requirements_restore_failed_domain_selection() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-            let span = Span::at(crate::source::SourceId::new(0), 0);
-            let mut constraints = TypeConstraints::default();
-            let receiver = constraints.fresh_at_level(span, 1);
-            let result = constraints.fresh_at_level(span, 1);
-            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::Field {
-                receiver: receiver.clone(), name: crate::symbol::Name::intern("errno"), result: result.clone(), span,
-            }).unwrap();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
-            let pending = constraints.operations.clone();
-            let rejected = constraints.commit_constraint_transaction(|constraints| {
-                constraints.constrain(&receiver, &Type::Bool, span).map_err(SealedOperationError::Constraint)?;
-                constraints.solve_sealed_operations()
-            });
-            assert!(matches!(rejected, Err(SealedOperationError::UnsupportedField { .. })));
-            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
-            assert_eq!(constraints.operations, pending);
-            constraints.constrain(&receiver, &Type::Error, span).unwrap();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.resolve(&receiver).unwrap(), Type::Error);
-            assert_eq!(constraints.resolve(&result).unwrap(), Type::Optional(Box::new(Type::Int)));
-        });
-    }
-
-    #[test]
-    fn arithmetic_result_contexts_follow_unions_and_rollback_watches() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let alias = constraints.fresh(span);
-        let result = constraints.fresh(span);
-        let left = constraints.fresh(span);
-        let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left: left.clone(), right: Type::Int, result: result.clone(), span }).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert!(!constraints.operations.queued.contains(&id));
-        let before = constraints.operations.clone();
-        assert!(!constraints.trial(|constraints| {
-            constraints.constrain(&alias, &result, span)?;
-            constraints.constrain_context(&Type::UInt, &alias, span)?;
-            assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
-            constraints.constrain(&Type::Bool, &Type::Str, span)
-        }).unwrap());
-        assert_eq!(constraints.operations, before);
-        assert_eq!(constraints.resolve(&alias).unwrap(), alias);
-        assert_eq!(constraints.resolve(&result).unwrap(), result);
-        constraints.constrain(&alias, &result, span).unwrap();
-        let Type::Inference(alias_id) = alias else { unreachable!() };
-        let Type::Inference(result_id) = result else { unreachable!() };
-        assert_eq!(constraints.representative_root(alias_id).unwrap(), alias_id);
-        assert_eq!(constraints.representative_root(result_id).unwrap(), alias_id);
-        assert!(constraints.operations.watchers[&ApplicationDependency::Type(alias_id)].contains(&id));
-        constraints.constrain_context(&Type::UInt, &alias, span).unwrap();
-        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
-        assert!(constraints.operations.queued.contains(&id));
-        constraints.constrain(&left, &Type::Int, span).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Binary(ArithmeticSignature::Integer)));
-    }
-
-    #[test]
-    fn nested_record_contexts_keep_arithmetic_results_intrinsic() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let left = constraints.fresh(span);
-        let result = constraints.fresh(span);
-        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left, right: Type::Int, result: result.clone(), span }).unwrap();
-        let field = crate::symbol::Name::intern("item");
-        let nested = |ty| Type::Record(BTreeMap::from([(field, Type::Record(BTreeMap::from([(field, ty)]).into()))]).into());
-        constraints.constrain_context(&nested(Type::UInt), &nested(result.clone()), span).unwrap();
-        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
-        });
-    }
-
-    #[test]
-    fn indexed_iteration_evidence_keeps_its_operation_owner() {
-        use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let receiver = constraints.fresh(span);
-        let item = constraints.fresh(span);
-        constraints.require_iteration(&receiver, &IterationRequirement { item: item.clone(), policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::Direct }, span).unwrap();
-        let outer = super::super::CallableApplicationScope::Invocation;
-        let source = constraints.fresh(span);
-        let view = constraints.fresh(span);
-        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
-        let guard = super::super::CallableApplicationScope::Guard(guard);
-        constraints.register_sealed_operation(guard, SealedOperation::Index { receiver, key: Type::Int, result: Type::Bytes, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
-        let Type::Inference(item) = item else { unreachable!() };
-        let evidence = constraints.indexed_iteration_evidence().unwrap();
-        assert!(evidence.contains_key(&(guard, item)));
-        assert!(!evidence.contains_key(&(outer, item)));
-    }
-
-    #[test]
-    fn linked_slices_respect_their_owning_guard() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let receiver = constraints.fresh(span);
-        let outer = super::super::CallableApplicationScope::Invocation;
-        let source = constraints.fresh(span);
-        let view = constraints.fresh(span);
-        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
-        let guard = super::super::CallableApplicationScope::Guard(guard);
-        for (owner, result) in [(outer, Type::Bytes), (guard, Type::Str)] {
-            constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
-        }
-        assert_eq!(constraints.linked_slices(outer, &receiver).unwrap(), vec![(receiver.clone(), Type::Bytes, span)]);
-        assert_eq!(constraints.linked_slices(guard, &receiver).unwrap(), vec![(receiver.clone(), Type::Str, span)]);
-    }
-
-    #[test]
-    fn sealed_postfix_operations_preserve_input_ambiguity_and_atomic_rollback() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let owner = super::super::CallableApplicationScope::Invocation;
-        let mut constraints = TypeConstraints::default();
-        let receiver = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Int, result: Type::Str, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
-        constraints.constrain(&receiver, &Type::Map(Box::new(Type::Int), Box::new(Type::Str)), span).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-
-        let mut constraints = TypeConstraints::default();
-        let key = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: Type::List(Box::new(Type::Int)), key: key.clone(), result: Type::Bool, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
-        let before = constraints.operations.clone();
-        assert!(constraints.solve_sealed_operations().is_err());
-        assert_eq!(constraints.operations, before);
-        assert_eq!(constraints.resolve(&key).unwrap(), key);
-
-        let mut constraints = TypeConstraints::default();
-        let receiver = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result: Type::Str, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
-    }
-
-    #[test]
-    fn sealed_postfix_record_projection_preserves_rollback_and_stable_wakeups() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let owner = super::super::CallableApplicationScope::Invocation;
-        let mut constraints = TypeConstraints::default();
-        let receiver = constraints.fresh(span);
-        let name = crate::symbol::Name::intern("name");
-        let item = crate::symbol::Name::intern("item");
-        constraints.project_record_field(&receiver, name, 1, span).unwrap();
-        let result = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Str, result: result.clone(), syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: Some(item), span }).unwrap();
-        let operations = constraints.operations.clone();
-        let fields = constraints.contextual_record_fields(&receiver).unwrap();
-        let rows = constraints.rows.len();
-        let variables = constraints.variables.len();
-        constraints.trial(|trial| {
-            trial.solve_sealed_operations().unwrap();
-            assert!(trial.contextual_record_fields(&receiver).unwrap().unwrap().contains_key(&item));
-            Ok(())
-        }).unwrap();
-        assert_eq!(constraints.operations, operations);
-        assert_eq!(constraints.contextual_record_fields(&receiver).unwrap(), fields);
-        assert_eq!(constraints.rows.len(), rows);
-        assert_eq!(constraints.variables.len(), variables);
-        constraints.solve_sealed_operations().unwrap();
-        let fields = constraints.contextual_record_fields(&receiver).unwrap().unwrap();
-        assert_eq!(fields.get(&item), Some(&result));
-        let rows = constraints.rows.len();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.rows.len(), rows);
-    }
-
-    #[test]
-    fn sealed_record_overrides_keep_distinct_remainders_and_atomic_rollback() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-            let span = Span::at(crate::source::SourceId::new(0), 0);
-            let name = crate::symbol::Name::intern("name");
-            let index = crate::symbol::Name::intern("index");
-            let extra = crate::symbol::Name::intern("extra");
-            let mut constraints = TypeConstraints::default();
-            let source = constraints.fresh_at_level(span, 1);
-            constraints.project_record_field(&source, name, 1, span).unwrap();
-            let result = constraints.fresh_at_level(span, 1);
-            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::RecordOverride {
-                receiver: source.clone(), result: result.clone(), span,
-                overrides: vec![crate::sema::sealed_operation::RecordOverrideField { name, ty: Type::Str }, crate::sema::sealed_operation::RecordOverrideField { name: index, ty: Type::Bool }].into(),
-            }).unwrap();
-            let operations = constraints.operations.clone();
-            let rows = constraints.rows.len();
-            constraints.trial(|candidate| {
-                candidate.solve_sealed_operations().unwrap();
-                let super::super::ConstraintType::Record(input) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(source.clone())).unwrap() else { panic!("input remains an open record") };
-                let super::super::ConstraintType::Record(output) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(result.clone())).unwrap() else { panic!("output retains a separate open record") };
-                assert_ne!(input.tail, output.tail);
-                let RowTail::Variable(input) = input.tail else { unreachable!() };
-                let RowTail::Variable(output) = output.tail else { unreachable!() };
-                let super::super::RowVariable::Representative(input) = &candidate.rows[&input] else { unreachable!() };
-                let super::super::RowVariable::Representative(output) = &candidate.rows[&output] else { unreachable!() };
-                assert!(!input.lacks.contains(&index));
-                assert!(output.lacks.contains(&index));
-                Ok(())
-            }).unwrap();
-            assert_eq!(constraints.operations, operations);
-            assert_eq!(constraints.rows.len(), rows);
-            assert_eq!(constraints.resolve(&result).unwrap(), result);
-            constraints.solve_sealed_operations().unwrap();
-            let rows = constraints.rows.len();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.rows.len(), rows);
-            constraints.constrain(&source, &Type::Record(BTreeMap::from([(name, Type::Int), (index, Type::Str), (extra, Type::UInt)]).into()), span).unwrap();
-            constraints.solve_sealed_operations().unwrap();
-            assert_eq!(constraints.resolve(&result).unwrap(), Type::Record(BTreeMap::from([(name, Type::Str), (index, Type::Bool), (extra, Type::UInt)]).into()));
-        });
-    }
-
-    #[test]
-    fn sealed_record_override_census_counts_owned_field_allocations() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-            let span = Span::at(crate::source::SourceId::new(0), 0);
-            let owner = super::super::CallableApplicationScope::Invocation;
-            let mut baseline = TypeConstraints::default();
-            let receiver = baseline.fresh(span);
-            let result = baseline.fresh(span);
-            baseline.register_sealed_operation(owner, SealedOperation::Slice { receiver, result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
-            let baseline = baseline.operations.retained_bytes();
-            for count in [1, 16] {
-                let mut constraints = TypeConstraints::default();
-                let receiver = constraints.fresh(span);
-                let result = constraints.fresh(span);
-                constraints.register_sealed_operation(owner, SealedOperation::RecordOverride {
-                    receiver, result, span,
-                    overrides: (0..count).map(|_| crate::sema::sealed_operation::RecordOverrideField { name: crate::symbol::Name::intern("index"), ty: Type::Int }).collect::<Vec<_>>().into(),
-                }).unwrap();
-                assert_eq!(constraints.operations.retained_bytes() - baseline, 2 * std::mem::size_of::<usize>() + count * std::mem::size_of::<crate::sema::sealed_operation::RecordOverrideField<Type>>());
-            }
-        });
-    }
-
-    #[test]
-    fn sealed_binary_operations_reject_recursive_list_results_without_binding_the_result() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let mut constraints = TypeConstraints::default();
-        let result = constraints.fresh_at_level(span, 1);
-        let items = Type::List(Box::new(result.clone()));
-        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: items.clone(), right: items, result: result.clone(), span }).unwrap();
-        assert!(constraints.solve_sealed_operations().is_err());
-        assert_eq!(constraints.resolve(&result).unwrap(), result);
-    }
-
-    #[test]
-    fn sealed_binary_operations_preserve_ambiguity_descendant_wakeups_and_atomic_rollback() {
-        let span = Span::at(crate::source::SourceId::new(0), 0);
-        let owner = super::super::CallableApplicationScope::Invocation;
-        let mut constraints = TypeConstraints::default();
-        let left = constraints.fresh(span);
-        let right = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: left.clone(), right: right.clone(), result: Type::Int, span }).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&left).unwrap(), left);
-        assert_eq!(constraints.resolve(&right).unwrap(), right);
-        constraints.constrain(&left, &Type::Str, span).unwrap();
-        let before = constraints.operations.clone();
-        assert!(constraints.solve_sealed_operations().is_err());
-        assert_eq!(constraints.operations, before);
-        assert_eq!(constraints.resolve(&right).unwrap(), right);
-
-        let mut constraints = TypeConstraints::default();
-        let source = constraints.fresh(span);
-        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Subtract, left: source.clone(), right: Type::Set(Box::new(Type::Int)), result: Type::Bool, span }).unwrap();
-        let operations = constraints.operations.clone();
-        let variables = constraints.variables.len();
-        assert!(constraints.solve_sealed_operations().is_err());
-        assert_eq!(constraints.operations, operations);
-        assert_eq!(constraints.variables.len(), variables);
-        assert_eq!(constraints.resolve(&source).unwrap(), source);
-
-        let mut constraints = TypeConstraints::default();
-        let item = constraints.fresh(span);
-        let result = constraints.fresh(span);
-        let list = Type::List(Box::new(item.clone()));
-        let id = constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: list.clone(), right: list, result: result.clone(), span }).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.operations.entries[&id].selection, None);
-        constraints.constrain(&item, &Type::Bool, span).unwrap();
-        constraints.solve_sealed_operations().unwrap();
-        assert_eq!(constraints.resolve(&result).unwrap(), Type::List(Box::new(Type::Bool)));
-        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Binary(ArithmeticSignature::ListConcatenation)));
-    }
-}
 
 impl From<ConstraintResolutionError> for SealedOperationError {
     fn from(error: ConstraintResolutionError) -> Self { Self::Resolution(error) }
@@ -1449,5 +1088,368 @@ impl TypeConstraints {
             entry.selection.map(crate::sema::schemes::SealedOperationBinding::Selected)
                 .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))
         }).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sema::sealed_operation::SealedBinaryOperation;
+
+    #[test]
+    fn equality_waits_for_inputs_and_rolls_back_incompatible_evidence() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let input = constraints.fresh(span);
+        let operation = SealedOperation::Equality { left: input.clone(), right: Type::Str, span };
+        let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, operation).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&input).unwrap(), input);
+        let before = constraints.operations.clone();
+        let rejected = constraints.commit_constraint_transaction(|this| {
+            this.constrain(&input, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
+            this.solve_sealed_operations()
+        });
+        assert!(matches!(rejected, Err(SealedOperationError::UnsupportedEquality { .. })));
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&input).unwrap(), input);
+        constraints.constrain(&input, &Type::Optional(Box::new(Type::Str)), span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Equality));
+    }
+
+    #[test]
+    fn store_value_waits_for_exact_replacement_and_rejects_incompatible_storage() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let replacement = constraints.fresh(span);
+            let storage = Type::Optional(Box::new(Type::Str));
+            let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::StoreValue {
+                storage: storage.clone(), replacement: replacement.clone(), span,
+            }).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&replacement).unwrap(), replacement);
+            assert_eq!(constraints.operations.entries[&id].selection, None);
+            let before = constraints.operations.clone();
+            let rejected = constraints.commit_constraint_transaction(|trial| {
+                trial.constrain(&replacement, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
+                trial.solve_sealed_operations()
+            });
+            assert!(matches!(rejected, Err(SealedOperationError::StorageConstraint(_))));
+            assert_eq!(constraints.operations, before);
+            constraints.constrain(&replacement, &Type::Str, span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::StoreValue));
+            assert_eq!(constraints.resolve(&replacement).unwrap(), Type::Str);
+        });
+    }
+
+    #[test]
+    fn checked_unsigned_contexts_distinguish_arithmetic_results_from_operands() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let left = constraints.fresh(span);
+        let result = constraints.fresh(span);
+        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left: left.clone(), right: Type::Int, result: result.clone(), span }).unwrap();
+        constraints.constrain_context(&Type::UInt, &result, span).unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+        assert_eq!(constraints.resolve(&left).unwrap(), left);
+        constraints.constrain_context(&Type::UInt, &left, span).unwrap();
+        assert_eq!(constraints.resolve(&left).unwrap(), Type::UInt);
+        let unrelated = constraints.fresh(span);
+        constraints.constrain_context(&Type::UInt, &unrelated, span).unwrap();
+        assert_eq!(constraints.resolve(&unrelated).unwrap(), Type::UInt);
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn sealed_field_requirements_restore_failed_domain_selection() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let receiver = constraints.fresh_at_level(span, 1);
+            let result = constraints.fresh_at_level(span, 1);
+            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::Field {
+                receiver: receiver.clone(), name: crate::symbol::Name::intern("errno"), result: result.clone(), span,
+            }).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+            let pending = constraints.operations.clone();
+            let rejected = constraints.commit_constraint_transaction(|constraints| {
+                constraints.constrain(&receiver, &Type::Bool, span).map_err(SealedOperationError::Constraint)?;
+                constraints.solve_sealed_operations()
+            });
+            assert!(matches!(rejected, Err(SealedOperationError::UnsupportedField { .. })));
+            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+            assert_eq!(constraints.operations, pending);
+            constraints.constrain(&receiver, &Type::Error, span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&receiver).unwrap(), Type::Error);
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Optional(Box::new(Type::Int)));
+        });
+    }
+
+    #[test]
+    fn arithmetic_result_contexts_follow_unions_and_rollback_watches() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let alias = constraints.fresh(span);
+        let result = constraints.fresh(span);
+        let left = constraints.fresh(span);
+        let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left: left.clone(), right: Type::Int, result: result.clone(), span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert!(!constraints.operations.queued.contains(&id));
+        let before = constraints.operations.clone();
+        assert!(!constraints.trial(|constraints| {
+            constraints.constrain(&alias, &result, span)?;
+            constraints.constrain_context(&Type::UInt, &alias, span)?;
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+            constraints.constrain(&Type::Bool, &Type::Str, span)
+        }).unwrap());
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&alias).unwrap(), alias);
+        assert_eq!(constraints.resolve(&result).unwrap(), result);
+        constraints.constrain(&alias, &result, span).unwrap();
+        let Type::Inference(alias_id) = alias else { unreachable!() };
+        let Type::Inference(result_id) = result else { unreachable!() };
+        assert_eq!(constraints.representative_root(alias_id).unwrap(), alias_id);
+        assert_eq!(constraints.representative_root(result_id).unwrap(), alias_id);
+        assert!(constraints.operations.watchers[&ApplicationDependency::Type(alias_id)].contains(&id));
+        constraints.constrain_context(&Type::UInt, &alias, span).unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+        assert!(constraints.operations.queued.contains(&id));
+        constraints.constrain(&left, &Type::Int, span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Binary(ArithmeticSignature::Integer)));
+    }
+
+    #[test]
+    fn nested_record_contexts_keep_arithmetic_results_intrinsic() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let left = constraints.fresh(span);
+        let result = constraints.fresh(span);
+        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Divide, left, right: Type::Int, result: result.clone(), span }).unwrap();
+        let field = crate::symbol::Name::intern("item");
+        let nested = |ty| Type::Record(BTreeMap::from([(field, Type::Record(BTreeMap::from([(field, ty)]).into()))]).into());
+        constraints.constrain_context(&nested(Type::UInt), &nested(result.clone()), span).unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+        });
+    }
+
+    #[test]
+    fn indexed_iteration_evidence_keeps_its_operation_owner() {
+        use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let item = constraints.fresh(span);
+        constraints.require_iteration(&receiver, &IterationRequirement { item: item.clone(), policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::Direct }, span).unwrap();
+        let outer = super::super::CallableApplicationScope::Invocation;
+        let source = constraints.fresh(span);
+        let view = constraints.fresh(span);
+        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
+        let guard = super::super::CallableApplicationScope::Guard(guard);
+        constraints.register_sealed_operation(guard, SealedOperation::Index { receiver, key: Type::Int, result: Type::Bytes, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        let Type::Inference(item) = item else { unreachable!() };
+        let evidence = constraints.indexed_iteration_evidence().unwrap();
+        assert!(evidence.contains_key(&(guard, item)));
+        assert!(!evidence.contains_key(&(outer, item)));
+    }
+
+    #[test]
+    fn linked_slices_respect_their_owning_guard() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let outer = super::super::CallableApplicationScope::Invocation;
+        let source = constraints.fresh(span);
+        let view = constraints.fresh(span);
+        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
+        let guard = super::super::CallableApplicationScope::Guard(guard);
+        for (owner, result) in [(outer, Type::Bytes), (guard, Type::Str)] {
+            constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+        }
+        assert_eq!(constraints.linked_slices(outer, &receiver).unwrap(), vec![(receiver.clone(), Type::Bytes, span)]);
+        assert_eq!(constraints.linked_slices(guard, &receiver).unwrap(), vec![(receiver.clone(), Type::Str, span)]);
+    }
+
+    #[test]
+    fn sealed_postfix_operations_preserve_input_ambiguity_and_atomic_rollback() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Int, result: Type::Str, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+        constraints.constrain(&receiver, &Type::Map(Box::new(Type::Int), Box::new(Type::Str)), span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+
+        let mut constraints = TypeConstraints::default();
+        let key = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: Type::List(Box::new(Type::Int)), key: key.clone(), result: Type::Bool, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        let before = constraints.operations.clone();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&key).unwrap(), key);
+
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result: Type::Str, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+    }
+
+    #[test]
+    fn sealed_postfix_record_projection_preserves_rollback_and_stable_wakeups() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let name = crate::symbol::Name::intern("name");
+        let item = crate::symbol::Name::intern("item");
+        constraints.project_record_field(&receiver, name, 1, span).unwrap();
+        let result = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Str, result: result.clone(), syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: Some(item), span }).unwrap();
+        let operations = constraints.operations.clone();
+        let fields = constraints.contextual_record_fields(&receiver).unwrap();
+        let rows = constraints.rows.len();
+        let variables = constraints.variables.len();
+        constraints.trial(|trial| {
+            trial.solve_sealed_operations().unwrap();
+            assert!(trial.contextual_record_fields(&receiver).unwrap().unwrap().contains_key(&item));
+            Ok(())
+        }).unwrap();
+        assert_eq!(constraints.operations, operations);
+        assert_eq!(constraints.contextual_record_fields(&receiver).unwrap(), fields);
+        assert_eq!(constraints.rows.len(), rows);
+        assert_eq!(constraints.variables.len(), variables);
+        constraints.solve_sealed_operations().unwrap();
+        let fields = constraints.contextual_record_fields(&receiver).unwrap().unwrap();
+        assert_eq!(fields.get(&item), Some(&result));
+        let rows = constraints.rows.len();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.rows.len(), rows);
+    }
+
+    #[test]
+    fn sealed_record_overrides_keep_distinct_remainders_and_atomic_rollback() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let name = crate::symbol::Name::intern("name");
+            let index = crate::symbol::Name::intern("index");
+            let extra = crate::symbol::Name::intern("extra");
+            let mut constraints = TypeConstraints::default();
+            let source = constraints.fresh_at_level(span, 1);
+            constraints.project_record_field(&source, name, 1, span).unwrap();
+            let result = constraints.fresh_at_level(span, 1);
+            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::RecordOverride {
+                receiver: source.clone(), result: result.clone(), span,
+                overrides: vec![crate::sema::sealed_operation::RecordOverrideField { name, ty: Type::Str }, crate::sema::sealed_operation::RecordOverrideField { name: index, ty: Type::Bool }].into(),
+            }).unwrap();
+            let operations = constraints.operations.clone();
+            let rows = constraints.rows.len();
+            constraints.trial(|candidate| {
+                candidate.solve_sealed_operations().unwrap();
+                let super::super::ConstraintType::Record(input) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(source.clone())).unwrap() else { panic!("input remains an open record") };
+                let super::super::ConstraintType::Record(output) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(result.clone())).unwrap() else { panic!("output retains a separate open record") };
+                assert_ne!(input.tail, output.tail);
+                let RowTail::Variable(input) = input.tail else { unreachable!() };
+                let RowTail::Variable(output) = output.tail else { unreachable!() };
+                let super::super::RowVariable::Representative(input) = &candidate.rows[&input] else { unreachable!() };
+                let super::super::RowVariable::Representative(output) = &candidate.rows[&output] else { unreachable!() };
+                assert!(!input.lacks.contains(&index));
+                assert!(output.lacks.contains(&index));
+                Ok(())
+            }).unwrap();
+            assert_eq!(constraints.operations, operations);
+            assert_eq!(constraints.rows.len(), rows);
+            assert_eq!(constraints.resolve(&result).unwrap(), result);
+            constraints.solve_sealed_operations().unwrap();
+            let rows = constraints.rows.len();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.rows.len(), rows);
+            constraints.constrain(&source, &Type::Record(BTreeMap::from([(name, Type::Int), (index, Type::Str), (extra, Type::UInt)]).into()), span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Record(BTreeMap::from([(name, Type::Str), (index, Type::Bool), (extra, Type::UInt)]).into()));
+        });
+    }
+
+    #[test]
+    fn sealed_record_override_census_counts_owned_field_allocations() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let owner = super::super::CallableApplicationScope::Invocation;
+            let mut baseline = TypeConstraints::default();
+            let receiver = baseline.fresh(span);
+            let result = baseline.fresh(span);
+            baseline.register_sealed_operation(owner, SealedOperation::Slice { receiver, result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+            let baseline = baseline.operations.retained_bytes();
+            for count in [1, 16] {
+                let mut constraints = TypeConstraints::default();
+                let receiver = constraints.fresh(span);
+                let result = constraints.fresh(span);
+                constraints.register_sealed_operation(owner, SealedOperation::RecordOverride {
+                    receiver, result, span,
+                    overrides: (0..count).map(|_| crate::sema::sealed_operation::RecordOverrideField { name: crate::symbol::Name::intern("index"), ty: Type::Int }).collect::<Vec<_>>().into(),
+                }).unwrap();
+                assert_eq!(constraints.operations.retained_bytes() - baseline, 2 * std::mem::size_of::<usize>() + count * std::mem::size_of::<crate::sema::sealed_operation::RecordOverrideField<Type>>());
+            }
+        });
+    }
+
+    #[test]
+    fn sealed_binary_operations_reject_recursive_list_results_without_binding_the_result() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let result = constraints.fresh_at_level(span, 1);
+        let items = Type::List(Box::new(result.clone()));
+        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: items.clone(), right: items, result: result.clone(), span }).unwrap();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.resolve(&result).unwrap(), result);
+    }
+
+    #[test]
+    fn sealed_binary_operations_preserve_ambiguity_descendant_wakeups_and_atomic_rollback() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let left = constraints.fresh(span);
+        let right = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: left.clone(), right: right.clone(), result: Type::Int, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&left).unwrap(), left);
+        assert_eq!(constraints.resolve(&right).unwrap(), right);
+        constraints.constrain(&left, &Type::Str, span).unwrap();
+        let before = constraints.operations.clone();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&right).unwrap(), right);
+
+        let mut constraints = TypeConstraints::default();
+        let source = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Subtract, left: source.clone(), right: Type::Set(Box::new(Type::Int)), result: Type::Bool, span }).unwrap();
+        let operations = constraints.operations.clone();
+        let variables = constraints.variables.len();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, operations);
+        assert_eq!(constraints.variables.len(), variables);
+        assert_eq!(constraints.resolve(&source).unwrap(), source);
+
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span);
+        let result = constraints.fresh(span);
+        let list = Type::List(Box::new(item.clone()));
+        let id = constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: list.clone(), right: list, result: result.clone(), span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.operations.entries[&id].selection, None);
+        constraints.constrain(&item, &Type::Bool, span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::List(Box::new(Type::Bool)));
+        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Binary(ArithmeticSignature::ListConcatenation)));
     }
 }

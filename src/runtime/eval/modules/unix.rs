@@ -254,7 +254,7 @@ impl Evaluator {
             {
                 return replay.current()?.results.get(key).map(String::as_str);
             }
-            return fake.values.get(key).map(String::as_str);
+            fake.values.get(key).map(String::as_str)
         }
         #[cfg(not(feature = "native-tests"))]
         {
