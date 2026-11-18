@@ -1845,6 +1845,13 @@ test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
 
 test test_lsipc_posix_shmem_symlink_targets { |ctx|
   ul.require_private_namespace()
+  if env.get_or("XSH_LSIPC_SHMEM_LINKS_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private env XSH_LSIPC_SHMEM_LINKS_ISOLATED=1 \"$1\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_posix_shmem_symlink_targets"
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   assert (run.capture --text mount -t tmpfs none /dev/shm).status.exited_with(0)
   defer { run.status umount /dev/shm }

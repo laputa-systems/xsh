@@ -385,6 +385,13 @@ test test_namei_fatal_readlink_preserves_repeated_slashes { |ctx|
 test test_namei_owner_display_cell_width { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   ul.require_private_namespace()
+  if env.get_or("XSH_NAMEI_OWNER_WIDTH_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private env XSH_NAMEI_OWNER_WIDTH_ISOLATED=1 \"$1\" test --exact-id core/tests/test-namei.xsh::test_namei_owner_display_cell_width"
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let passwd = uu.at(s, "passwd")
   let groups = uu.at(s, "group")
@@ -422,6 +429,13 @@ test test_namei_owner_display_cell_width { |ctx|
 test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   ul.require_private_namespace()
+  if env.get_or("XSH_NAMEI_NONPRINTABLE_OWNER_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private env XSH_NAMEI_NONPRINTABLE_OWNER_ISOLATED=1 \"$1\" test --exact-id core/tests/test-namei.xsh::test_namei_nonprintable_owner_falls_back_to_id"
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let passwd = uu.at(s, "passwd")
   let groups = uu.at(s, "group")
