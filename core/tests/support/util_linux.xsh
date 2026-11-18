@@ -166,6 +166,7 @@ export proc rerun_ipc_isolated(ctx: TestContext) [fs, process, env, error] -> Re
   let selector = ctx.name
   if env.get_or("XSH_UTIL_LINUX_IPC_ISOLATED", "")? == selector { return Ok(false) }
   require_private_namespace()
+  test.timeout(ctx, 600s)
   let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_UTIL_LINUX_IPC_ISOLATED=\"$2\"; exec \"$1\" test --exact-id \"$2\""
   let source = "export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc) XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt) XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid); exec /usr/bin/flock \"$4\" unshare --ipc --mount --pid --fork --kill-child=KILL --mount-proc --propagation private sh -ec \"$1\" isolated \"$2\" \"$3\""
   let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
