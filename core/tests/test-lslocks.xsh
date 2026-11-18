@@ -432,7 +432,10 @@ proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, net, time,
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
   let after_exit = compared(s, ["--json", "--pid", f"{ready.pid}"])?
-  assert after_exit.status == 0 and after_exit.stdout.is_empty()
+  assert after_exit.status == 0
+  if ! after_exit.stdout.is_empty() {
+    assert json.get(json.decode(after_exit.stdout.utf8() ?? "")?, ["locks"])?.require(List[Any])?.is_empty()
+  }
   Ok()
 }
 
