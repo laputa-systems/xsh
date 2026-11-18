@@ -116,7 +116,10 @@ const RUNNER_KILLED: &str = r#"proc main(...argv: List[Str]) [fs, process, time,
 const ESCAPED_DESCENDANT: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
   let dir = Path(argv[0])
   ready(dir)?
-  run.status sh -c "setsid sleep 30 </dev/null >/dev/null 2>&1 &"
+  let detached = fp"{dir}/detached"
+  let script = """setsid sh -c ': > "$0"; exec sleep 30' "$0" </dev/null >/dev/null 2>&1 &
+while [ ! -e "$0" ]; do sleep 0.01; done"""
+  run.status sh -c $script $detached
 }
 "#;
 
