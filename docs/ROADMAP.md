@@ -24,7 +24,7 @@ instructions and open items.
 | 9 | SSH-native remote XSH: native client (XSH-55, XSH-110, XSH-111), xsh-infra (XSH-56) | Linux implementations delivered; qualification open | [Remote XSH](#ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | XSH-55 delivered the native client, `known_hosts` and ssh-agent trust, hybrid post-quantum key exchange, rekeying in both directions, typed `SshError` outcomes and a loopback OpenSSH fixture, and Laputa's R6 library administers one headless x86-64 VM over it (see the RFC's audit). An internal source review on 2026-11-05 fixed five protocol and cancellation defects and ran the client suite on glibc and musl; a second round fixed seven further risks and reran the suite on glibc only. Open: native macOS qualification (deferred by the owner), an independent protocol and security review before any claim beyond experimental, and an acknowledged remote cancellation action. xsh-infra's remote execution is complete only over this client. |
 | 10 | Archive and compression consolidation (XSH-57) | implemented; macOS qualification open | [SPEC](SPEC.md#15-standard-modules), [testing evidence](TESTING.md#archive-and-compression) | Laputa call sites migrated. Root extraction of ownership and device nodes is covered on Linux (XSH-107). Built-in enums support qualified `match` arms (XSH-108). Open: macOS coverage; `xsht api enum:NAME` lists variants. Revisit ZIP creation and repacking if a caller needs them. |
 | 11 | Syntax consolidation without feature removal | done | [SYNTAX-AUDIT.md](SYNTAX-AUDIT.md) | Every decided removal and reservation landed; see the audit's [Phase B status](SYNTAX-AUDIT.md#phase-b-status) and [final metrics](SYNTAX-AUDIT.md#final-metrics). |
-| 12 | Internal functional cores | active; deadline, membership, Int arithmetic, effect, cleanup precedence and cleanup order pilots linked | [Sequence and acceptance](#internal-functional-cores) | Finish deadline boundary qualification (XSH-106). Expand cleanup beyond action selection and error precedence only where a boundary removes runner complexity. |
+| 12 | Internal functional cores | active; deadline, membership, Int arithmetic, effect, cleanup precedence and cleanup order pilots linked | [Sequence and acceptance](#internal-functional-cores) | Deadline boundary qualification is done (XSH-106). Expand cleanup beyond action selection and error precedence only where a boundary removes runner complexity. |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.
 Lean's source-bound correspondence uses the qualified source available after
@@ -128,6 +128,13 @@ Clock domain, units, representability and host behavior remain assumptions to
 qualify under [XSH-35](../TODO.md#xsh-35--p2--qualify-clock-domains-and-deadline-conversions).
 No universal obligation is closed. See the [formal README](../formal/README.md)
 for the relation and proof limits.
+
+Retain native `within` tests for real sleeps, child cancellation, stream and
+worker checkpoints, swallowed interruptions, and cleanup. Those tests establish
+adapter behavior that supplied-time decision tests cannot. Expand into a full
+state/event transition component only when selection extraction simplifies the
+implementation. Do not add a universal request interpreter or serialized action
+object to ordinary synchronous operations.
 
 ### Follow-up boundaries
 

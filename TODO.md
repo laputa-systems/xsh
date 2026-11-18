@@ -86,16 +86,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** S
 
-### XSH-106 · P2 · Finish deadline boundary qualification
-
-- **Area:** Internal functional cores
-- **Where:** `src/runtime/eval.rs` (deadline selector and its checkpoints), native `within` tests, `formal/Xsh/` deadline policy, [roadmap pilot 1B](docs/ROADMAP.md#pilot-1b-supplied-time-deadline-selection)
-- **Problem:** Pilot 1B extracted a supplied-time deadline selector and compared it with Lean's `choose` on 2,925 small inputs, but the monotonic-time abstraction and state relation are not stated, the selection invariants are not stated in Lean against that abstraction, and deadline identity and order through rearming, cleanup shielding and restoration are not checked. The current-source Linux qualification gate has not run.
-- **Recommendation:** State the monotonic abstraction and invariants, add deterministic checks for rearming, shielding and restoration, and record whether Rust agreement is proved or conformance-only.
-- **Acceptance:** The roadmap's pilot 1B checks pass on current source on pinned Linux verification products; the native `within` cases still pass; the evidence class of each claim is recorded in `formal/README.md`.
-- **Fix with:** isolate-effects
-- **Effort:** M
-
 ### XSH-110 · P2 · Add an acknowledged remote cancellation action
 
 - **Area:** Remote execution
