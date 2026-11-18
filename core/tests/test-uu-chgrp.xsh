@@ -92,42 +92,43 @@ test test_uu_chgrp_preserve_root { |ctx|
 # origin: uutils test_chgrp::test_preserve_root_symlink
 test test_uu_chgrp_preserve_root_symlink { |ctx|
   let s = uu.scene(ctx)?
+  let group_name = p"/etc/group".read_lines()?[0].split(":")[0]
   uu.symlink(s, "/", "test_chgrp_symlink2root")
-  let r0 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r0 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r0)
   uu.stderr_is(r0, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, "//", "test_chgrp_symlink2root")
-  let r1 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r1 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r1)
   uu.stderr_is(r1, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, "///", "test_chgrp_symlink2root")
-  let r2 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r2 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r2)
   uu.stderr_is(r2, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, "////dev//../../../../", "test_chgrp_symlink2root")
-  let r3 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r3 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r3)
   uu.stderr_is(r3, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, uu.at(s, "..//../../..//../..//../../../../../../../../").display(), "test_chgrp_symlink2root")
-  let r4 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r4 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r4)
   uu.stderr_is(r4, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, uu.at(s, ".//../../../../../../..//../../../../../../../").display(), "test_chgrp_symlink2root")
-  let r5 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", "test_chgrp_symlink2root"], timeout: 5s)?
+  let r5 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r5)
   uu.stderr_is(r5, "chgrp: it is dangerous to operate recursively on 'test_chgrp_symlink2root' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.remove(s, "test_chgrp_symlink2root")
   uu.symlink(s, "///dev", "test_chgrp_symlink2root")
-  let r6 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", "bin", ".//test_chgrp_symlink2root/..//..//../../"], timeout: 5s)?
+  let r6 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, ".//test_chgrp_symlink2root/..//..//../../"], timeout: 5s)?
   uu.fails(r6)
   uu.stderr_is(r6, "chgrp: it is dangerous to operate recursively on './/test_chgrp_symlink2root/..//..//../../' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
   uu.symlink(s, "/", "__root__")
-  let r7 = uu.invoke(s, "chgrp", ["--preserve-root", "-R", "bin", "__root__/."], timeout: 5s)?
+  let r7 = uu.invoke(s, "chgrp", ["--preserve-root", "-R", group_name, "__root__/."], timeout: 5s)?
   uu.fails(r7)
   uu.stderr_is(r7, "chgrp: it is dangerous to operate recursively on '__root__/.' (same as '/')\nchgrp: use --no-preserve-root to override this failsafe\n")
 }

@@ -149,7 +149,7 @@ proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, env, net, time, e
     assert empty_holders.stdout.is_empty()
   }
   let args = if method == "ofd--w" {
-    ["--json", "--filter", "MODE == 'WRITE*'", "--output", "PID,TYPE,MODE,BLOCKER,PATH,INODE,MAJ:MIN"]
+    ["--json", "--filter", f"MODE == 'WRITE*' AND INODE == {owner_ready.inode}", "--output", "PID,TYPE,MODE,BLOCKER,PATH,INODE,MAJ:MIN"]
   } else {
     ["--json", "--pid", f"{waiter_ready.pid}", "--output", "PID,TYPE,MODE,BLOCKER,PATH,INODE,MAJ:MIN"]
   }
@@ -315,22 +315,23 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -
   let second = ul.start_keeper(s, script, ["hold", "posix-r-", second_path.display(), "none"])?
   defer ul.stop_keeper(second)
   let second_ready = json.decode(second.ready)?.require(LockReady)?
-  let all = compared(s, ["--raw"], {LC_ALL: "C"})?
+  let filter = f"PID == {first_ready.pid} OR PID == {second_ready.pid}"
+  let all = compared(s, ["--raw", "--filter", filter], {LC_ALL: "C"})?
   let all_lines = scene_rows(s, all.stdout.utf8()?.lines())
   for column in ["COMMAND", "PID", "TYPE", "SIZE", "MODE", "M", "START", "END", "PATH"] {
     assert column in all_lines[0], column
   }
   assert all_lines.len() == 3
-  let type_only = compared(s, ["--raw"], {LSLOCKS_COLUMNS: "TYPE"})?
+  let type_only = compared(s, ["--raw", "--filter", filter], {LSLOCKS_COLUMNS: "TYPE"})?
   let type_lines = type_only.stdout.utf8()?.lines()
   assert type_lines[0] == "TYPE" and type_lines.len() == all.stdout.utf8()?.lines().len()
-  let extended = compared(s, ["--raw"], {LSLOCKS_COLUMNS: "+BLOCKER"})?
+  let extended = compared(s, ["--raw", "--filter", filter], {LSLOCKS_COLUMNS: "+BLOCKER"})?
   let extended_lines = scene_rows(s, extended.stdout.utf8()?.lines())
   for column in ["COMMAND", "PID", "TYPE", "SIZE", "MODE", "M", "START", "END", "PATH", "BLOCKER"] {
     assert column in extended_lines[0], column
   }
   assert extended_lines.len() == 3
-  let selected = compared(s, ["--raw", "--output", "PATH,TYPE"], {LSLOCKS_COLUMNS: "PID"})?
+  let selected = compared(s, ["--raw", "--filter", filter, "--output", "PATH,TYPE"], {LSLOCKS_COLUMNS: "PID"})?
   let selected_lines = scene_rows(s, selected.stdout.utf8()?.lines())
   assert "PATH" in selected_lines[0] and "TYPE" in selected_lines[0]
   assert ! ("PID" in selected_lines[0]) and selected_lines.len() == 3
@@ -663,7 +664,7 @@ test test_lslocks_help_and_usage_errors { |ctx|
     let result = compared(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty()
   }
-  let stray_operand = compared(s, ["stray"])?
+  let stray_operand = compared(s, ["--filter", "PID == 2147483647", "stray"])?
   assert stray_operand.status == 0
   for args in [
     ["--output"], ["--pid", "bad"], ["--unknown"], ["-z"], ["--o"], ["--raw=ignored"],

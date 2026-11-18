@@ -386,9 +386,10 @@ test test_setpriv_supplementary_groups_are_cleared_listed_or_initialized { |ctx|
   let listed = ids_after(ctx, ["--groups=3,4,3"])?
   assert listed.status == 0, listed.stderr
   assert list_after(listed.stdout, "Groups:") == [3, 3, 4]
-  let by_name = ids_after(ctx, ["--groups=root"])?
+  let group_fields = p"/etc/group".read_lines()?[0].split(":")
+  let by_name = ids_after(ctx, [f"--groups={group_fields[0]}"])?
   assert by_name.status == 0, by_name.stderr
-  assert list_after(by_name.stdout, "Groups:") == [0]
+  assert list_after(by_name.stdout, "Groups:") == [group_fields[2] as Int]
   # The root account always exists; its groups come from the group database.
   let initialized = ids_after(ctx, ["--reuid=0", "--regid=0", "--init-groups"])?
   assert initialized.status == 0, initialized.stderr

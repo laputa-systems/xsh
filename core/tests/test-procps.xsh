@@ -289,7 +289,7 @@ test test_pkill_filters_by_process_group_and_session { |ctx|
   let owner: List[ProcessEntry] = process.list()? |> where .pid == target.pid |> collect
   let pgroup = owner[0].pgrp ?? -1
   let session = owner[0].session ?? -1
-  assert pgroup > 0 and session > 0
+  if pgroup <= 0 or session <= 0 { test.skip("process group or session is outside the PID namespace") }
   assert pkill(ctx, ["--signal", "0", "-x", "-g", f"{pgroup}", target.name])?.status.exited_with(0)
   assert pkill(ctx, ["--signal", "0", "-x", "-s", f"{session}", target.name])?.status.exited_with(0)
   assert pkill(ctx, ["--signal", "0", "-x", "-g", f"{pgroup + 1}", target.name])?.status.exited_with(1)

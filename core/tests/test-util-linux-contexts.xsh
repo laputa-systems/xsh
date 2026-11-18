@@ -63,11 +63,13 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
     assert filtered_reference.stdout == b"" and filtered_reference.stderr == b""
   }
   contexts.release_keeper(keeper)
-  let after_reference = ul.reference(s, "lslocks", options)?
-  let after_candidate = uu.invoke(s, "lslocks", options)?
+  let after_options = options.extend(["--filter", f"PID == {owner.pid}"])
+  let after_reference = ul.reference(s, "lslocks", after_options)?
+  let after_candidate = uu.invoke(s, "lslocks", after_options)?
   uu.succeeds(after_reference)
   ul.compare(after_reference, after_candidate)
-  assert after_reference.stdout == b"" and after_reference.stderr == b""
+  assert json.get(json.decode(after_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+  assert after_reference.stderr == b""
 }
 
 test test_util_linux_context_terminal_preserves_both_streams_width_and_exit { |ctx|

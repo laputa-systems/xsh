@@ -1278,12 +1278,13 @@ exit 99
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  let ctx = fixtures.linux_context(p"{repository}")?
+  let ctx = fixtures.linux_context(p"{root}")?
   let arguments = json.decode({json.encode(encoded)?})?.require(List[Str])?
   gates.execute(ctx, arguments)?
 }}
 main()?
 """, status: 2, args: [], env: {{
+      TMPDIR: tools.display(),
       PATH: f"{tools}:{inherited}",
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TOKEI_REFERENCE: "",
