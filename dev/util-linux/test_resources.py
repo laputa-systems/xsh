@@ -1117,6 +1117,33 @@ class MeasurementProtocolTests(unittest.TestCase):
             with self.subTest(malformed=malformed), self.assertRaises(ValueError):
                 resources._parse_frames(malformed, ("first", "second"))
 
+    def test_rust_gate_counts_tests_its_name_filter_deselects(self):
+        def frame(label, content):
+            data = content.encode()
+            return b"@@xsh-util-linux:" + label.encode() + b":" + str(len(data)).encode() + b"@@\n" + data + b"\n"
+
+        def output(deselected):
+            parts = []
+            for label, _, name_filter, _ in resources._RUST_GATE_CASES:
+                selected = f"{name_filter or 'case'}::{label}_runs"
+                listed = [selected] + (["other::deselected"] if name_filter else [])
+                parts.append(frame(label + ".list", "".join(f"{name}: test\n" for name in listed)))
+                filtered = deselected if name_filter else 0
+                parts.append(frame(label + ".run", (
+                    "running 1 tests\n"
+                    f"test {selected} ... ok\n"
+                    f"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; {filtered} filtered out; finished in 0.01s\n"
+                )))
+            return b"".join(parts)
+
+        executed, selectors, skips = resources._parse_rust_gate(output(1))
+        self.assertEqual(executed, len(resources._RUST_GATE_CASES))
+        self.assertIn("cargo:libxsh_api::libxsh_api::libxsh_api_runs", selectors)
+        self.assertNotIn("cargo:libxsh_api::other::deselected", selectors)
+        self.assertEqual(skips, ())
+        with self.assertRaisesRegex(ValueError, "did not account for each selected and filtered test"):
+            resources._parse_rust_gate(output(0))
+
     def test_cargo_results_reconcile_lists_summaries_and_actual_skip_reasons(self):
         listed = ("api::active", "api::ignored")
         output = (

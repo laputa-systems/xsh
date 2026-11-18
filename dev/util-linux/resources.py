@@ -70,41 +70,49 @@ _CARGO_SUMMARY = re.compile(
     r"(?P<failed>\d+) failed; (?P<ignored>\d+) ignored; "
     r"(?P<measured>\d+) measured; (?P<filtered>\d+) filtered out; finished in .+$"
 )
+_SPLIT_SKIP = ("--", "--skip", "split::")
+
 _RUST_GATE_CASES = (
     (
         "core_compat_boundaries",
         ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
          "-p", "xsh", "--test", "core_compat_boundaries"),
-        ("--", "--skip", "split::"),
+        None,
+        _SPLIT_SKIP,
     ),
     (
         "core_compat_extra",
         ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
          "-p", "xsh", "--test", "core_compat_extra"),
-        ("--", "--skip", "split::"),
+        None,
+        _SPLIT_SKIP,
     ),
     (
         "libxsh_api",
         ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
-         "-p", "xsh", "--test", "integration", "libxsh_api"),
-        (),
+         "-p", "xsh", "--test", "integration"),
+        "libxsh_api",
+        ("--", "libxsh_api"),
     ),
     (
         "xsh_registry",
         ("cargo", "test", "--locked", "-p", "xsh-registry", "--lib"),
+        None,
         (),
     ),
     (
         "xsh_signature",
         ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
-         "-p", "xsh", "--lib", "modules::signature"),
-        (),
+         "-p", "xsh", "--lib"),
+        "modules::signature",
+        ("--", "modules::signature"),
     ),
     (
         "xsht_api",
         ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
-         "-p", "xsht", "--test", "integration", "api::"),
-        (),
+         "-p", "xsht", "--test", "integration"),
+        "api::",
+        ("--", "api::"),
     ),
 )
 
@@ -2017,6 +2025,7 @@ def _rust_test_results(
     output: bytes,
     *,
     filtered: tuple[str, ...] = (),
+    unselected: int = 0,
 ) -> tuple[int, int, tuple[str, ...], tuple[str, ...]]:
     try:
         lines = output.decode("utf-8").splitlines()
@@ -2053,7 +2062,7 @@ def _rust_test_results(
         raise ValueError(f"{label} Rust summaries differ from their observed test results")
     if summary_failed or any(match.group("result") != "ok" for match in summaries):
         raise ValueError(f"{label} Rust tests failed")
-    if summary_measured or summary_filtered != len(filtered):
+    if summary_measured or summary_filtered != len(filtered) + unselected:
         raise ValueError(f"{label} did not account for each selected and filtered test")
     accounted_skips = tuple(sorted(
         (*ignored, *(f"cargo:{label}::{selector}: filtered by --skip split::" for selector in filtered))
@@ -2100,7 +2109,7 @@ if failed:
 
 
 def _rust_gate_script() -> str:
-    cases = tuple((label, command, suffix) for label, command, suffix in _RUST_GATE_CASES)
+    cases = tuple((label, command, suffix) for label, command, _, suffix in _RUST_GATE_CASES)
     products = shlex.join(("cargo", "build", "--locked", "--profile", "verification", "--target", TARGET,
                            "-p", "xsh", "-p", "xsht", "--bin", "xsh", "--bin", "xsht"))
     return "cd /work; " + products + " >&2; " + _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
@@ -2158,29 +2167,25 @@ def _parse_rust_gate(
 ) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
     labels = tuple(
         label + suffix
-        for label, _, _ in _RUST_GATE_CASES
+        for label, _, _, _ in _RUST_GATE_CASES
         for suffix in (".list", ".run")
     )
     frames = _parse_frames(output, labels)
-    filtered = {
-        label: tuple(
-            selector
-            for selector in _rust_test_list(frames[label + ".list"], label)
-            if "split::" in selector
-        )
-        for label, _, suffix in _RUST_GATE_CASES
-        if suffix == ("--", "--skip", "split::")
-    }
     total = 0
     selectors: list[str] = []
     skips: list[str] = []
-    for label, _, _ in _RUST_GATE_CASES:
-        listed = _rust_test_list(frames[label + ".list"], label)
+    for label, _, name_filter, suffix in _RUST_GATE_CASES:
+        every = _rust_test_list(frames[label + ".list"], label)
+        listed = every if name_filter is None else tuple(selector for selector in every if name_filter in selector)
+        if not listed:
+            raise ValueError(f"{label} name filter selected no Rust tests")
+        filtered = tuple(selector for selector in listed if "split::" in selector) if suffix == _SPLIT_SKIP else ()
         passed, executed, observed, accounted = _rust_test_results(
             label,
             listed,
             frames[label + ".run"],
-            filtered=filtered.get(label, ()),
+            filtered=filtered,
+            unselected=len(every) - len(listed),
         )
         total += executed
         selectors.extend(observed)
