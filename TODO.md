@@ -86,16 +86,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** S
 
-### XSH-110 · P2 · Add an acknowledged remote cancellation action
-
-- **Area:** Remote execution
-- **Where:** `crates/oxish-client`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md` (Stage 1)
-- **Problem:** Closing a channel does not prove the remote command stopped, so a cancelled remote execution has an unknown outcome. The RFC's Stage 1 requires an acknowledged remote cancellation action.
-- **Recommendation:** Send the SSH `signal` request and wait for an exit status or exit signal within a bound; report unacknowledged cancellation as unknown.
-- **Acceptance:** Against disposable OpenSSH servers, cancellation of a running command reports an acknowledged stop when the server delivers one and an unknown outcome when it does not.
-- **Fix with:** error-model
-- **Effort:** M
-
 ### XSH-111 · P2 · Independent protocol and security review of the SSH client
 
 - **Area:** Remote execution
