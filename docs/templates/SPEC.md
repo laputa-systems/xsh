@@ -5493,6 +5493,9 @@ Contracts worth knowing without consulting the reference:
   `crypto-ed25519-signature-length`, `crypto-ed25519-public-key`, or
   `crypto-ed25519-provider`. The operation is pure and has no filesystem or
   network effects.
+- `net.pool` `idle_timeout` and every HTTP request timeout (`timeout`,
+  `dns_timeout`, `connect_timeout`, `tls_timeout`, `headers_timeout`, and
+  `body_idle_timeout`) must be positive.
 - `net.request`, `net.download` and `net.upload` follow up to `redirects`
   redirects (default 3). `redirect_limit: "return"` makes a redirect they will
   not follow the result instead of a `NetError.Redirect` failure, so a caller

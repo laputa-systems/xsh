@@ -25,6 +25,11 @@ impl Evaluator {
                     Some(value) => lowered_duration_arg(Some(value), "net.pool", span)?,
                     None => DurationValue { millis: 90_000 },
                 };
+                if idle_timeout.millis == 0 {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new("net-pool", "idle_timeout must be greater than zero").with_span(span),
+                    )));
+                }
                 self.net_pool_options.insert(
                     name.to_string(),
                     net_module::NetPoolOptions {

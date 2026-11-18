@@ -498,8 +498,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["net", "tls", "certificate", "trust", "validation"],
         )),
         ("net", "request") => Some((
-            "Performs one structured HTTP request.",
-            "Network, timeout, and response failures remain typed error data: a NetError variant (Dns, Connect, ConnectTimeout, Timeout, Tls, Certificate, TrustStore, EmptyReply, Status, Redirect, Unsupported, Write, Io, Other) to branch on, never a boolean. redirects bounds how many redirects are followed (default 3) and redirect_limit selects what happens to a redirect that is not followed: error (default) fails with NetError.Redirect, return hands back the 3xx response with its Location header. A followed 301 or 302 answer to POST, and a 303 answer to any method but GET and HEAD, is repeated as GET without a body; 307 and 308 repeat the method and body; Authorization, Cookie and an explicit Host header are dropped when the redirect leaves the origin.",
+            "Performs one structured HTTP request; timeouts must be positive.",
+            "All request timeouts (timeout, dns_timeout, connect_timeout, tls_timeout, headers_timeout, body_idle_timeout) must be positive. Network, timeout, and response failures remain typed error data: a NetError variant (Dns, Connect, ConnectTimeout, Timeout, Tls, Certificate, TrustStore, EmptyReply, Status, Redirect, Unsupported, Write, Io, Other) to branch on, never a boolean. redirects bounds how many redirects are followed (default 3) and redirect_limit selects what happens to a redirect that is not followed: error (default) fails with NetError.Redirect, return hands back the 3xx response with its Location header. A followed 301 or 302 answer to POST, and a 303 answer to any method but GET and HEAD, is repeated as GET without a body; 307 and 308 repeat the method and body; Authorization, Cookie and an explicit Host header are dropped when the redirect leaves the origin.",
             &["net", "http", "status-data"],
         )),
         ("net", "start") => Some((
@@ -1261,18 +1261,18 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["mime", "parsing", "text"],
         )),
         ("net", "download") => Some((
-            "Downloads one HTTP response to a destination path.",
-            "The destination write and response status are explicit failures; a network response is not implicitly text. redirects, redirect_limit and fail_status behave as for net.request, and effective_url and redirect_count describe the redirects followed.",
+            "Downloads one HTTP response to a destination path; timeouts must be positive.",
+            "All request timeouts must be positive. The destination write and response status are explicit failures; a network response is not implicitly text. redirects, redirect_limit and fail_status behave as for net.request, and effective_url and redirect_count describe the redirects followed.",
             &["net", "http", "filesystem"],
         )),
         ("net", "upload") => Some((
-            "Uploads a path or byte source in one structured HTTP request.",
-            "Request, transport, and response failures remain typed error data and the source is read explicitly.",
+            "Uploads a path or byte source in one structured HTTP request; timeouts must be positive.",
+            "All request timeouts must be positive. Request, transport, and response failures remain typed error data and the source is read explicitly.",
             &["net", "http", "filesystem"],
         )),
         ("net", "pool") => Some((
-            "Creates a named HTTP connection pool.",
-            "Pool state is evaluator-owned and must be closed when the workflow ends; it is not a process-global singleton.",
+            "Creates a named HTTP connection pool; idle_timeout must be positive.",
+            "The idle_timeout must be positive. Pool state is evaluator-owned and must be closed when the workflow ends; it is not a process-global singleton.",
             &["net", "http", "ownership", "pool"],
         )),
         ("net", "close_pool" | "close_all_pools") => Some((

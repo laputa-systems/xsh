@@ -6,8 +6,9 @@ Run `cargo dev gate --full` for the full local integration gate and
 selection lives in `dev/gates.xsh`; profile and platform rules live in
 `dev/test_workflows.xsh` and `dev/targets.xsh`.
 
-Cargo resolves crates.io packages through the mycrates archive and h12tiny
-through the native mycrates registry, as configured in `.cargo/config.toml`.
+Cargo resolves crates.io packages, including h12tiny, through the mycrates archive
+and the owned async runtime through the native mycrates registry, as configured
+in `.cargo/config.toml` and the workspace patches.
 The archive contains pinned versions, so publish newly locked dependencies to
 the archive before relying on an updated `Cargo.lock`.
 

@@ -431,13 +431,13 @@ HTTP request, transfer, and connection-pool helpers.
 
 - `net.close_all_pools() -> Result[Unit, Error]` — Closes one or all evaluator-owned HTTP connection pools.
 - `net.close_pool(name: Str = default) -> Result[Unit, Error]` — Closes one or all evaluator-owned HTTP connection pools.
-- `net.download(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Downloads one HTTP response to a destination path.
+- `net.download(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Downloads one HTTP response to a destination path; timeouts must be positive.
 - `net.download_many(batch: Record) -> Result[List[Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
-- `net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]` — Creates a named HTTP connection pool.
-- `net.request(request: Record) -> Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Performs one structured HTTP request.
+- `net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]` — Creates a named HTTP connection pool; idle_timeout must be positive.
+- `net.request(request: Record) -> Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Performs one structured HTTP request; timeouts must be positive.
 - `net.request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
 - `net.start(request: Record) -> Result[NetJob, Error]` — Starts an owned HTTP request and returns its NetJob handle.
-- `net.upload(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Uploads a path or byte source in one structured HTTP request.
+- `net.upload(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Uploads a path or byte source in one structured HTTP request; timeouts must be positive.
 - `net.validate_root_bundle(pem: Bytes) -> Result[Unit, Error]` — Validate a PEM certificate bundle without changing trust.
 
 ### `patch`

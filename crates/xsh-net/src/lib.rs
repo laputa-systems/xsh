@@ -5,7 +5,7 @@ use async_io::Async;
 use crossbeam_channel::RecvTimeoutError;
 use h12tiny_client::{
     Client as H12Client, Connector as H12Connector, Error as H12Error, ErrorKind as H12ErrorKind,
-    RequestOptions as H12RequestOptions, TcpConnected, TcpDialFuture, TcpDialer,
+    Protocol as H12Protocol, RequestOptions as H12RequestOptions, TcpConnected, TcpDialFuture, TcpDialer,
 };
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
@@ -22,6 +22,7 @@ use std::fs::{self, File, OpenOptions};
 use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read, Write};
+use std::num::NonZeroUsize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -917,12 +918,15 @@ fn h12_client(
         .tls_config(tls_config)
         .build();
     let mut builder = H12Client::builder(h12_executor(executor));
-    builder
-        .connector(connector)
-        .pool_max_idle_per_host(max_idle_per_host)
-        .pool_idle_timeout(idle_timeout);
+    builder.connector(connector);
+    if let Some(limit) = NonZeroUsize::new(max_idle_per_host) {
+        builder.pool_max_idle_per_host(limit);
+    } else {
+        builder.disable_pool();
+    }
+    builder.pool_idle_timeout(idle_timeout).expect("validated pool idle timeout");
     if http1_only {
-        builder.http1_only();
+        builder.protocol(H12Protocol::Http1Only);
     }
     GuardedClient { inner: builder.build(), trust }
 }
@@ -1158,16 +1162,16 @@ async fn h12_send(
 fn h12_request_options(config: &RequestConfig) -> H12RequestOptions {
     let mut options = H12RequestOptions::new();
     if let Some(timeout) = phase_timeout(config, config.dns_timeout) {
-        options = options.with_dns_timeout(timeout);
+        options = options.with_dns_timeout(timeout).expect("validated DNS timeout");
     }
     if let Some(timeout) = phase_timeout(config, config.connect_timeout) {
-        options = options.with_connect_timeout(timeout);
+        options = options.with_connect_timeout(timeout).expect("validated connect timeout");
     }
     if let Some(timeout) = phase_timeout(config, config.tls_timeout) {
-        options = options.with_tls_timeout(timeout);
+        options = options.with_tls_timeout(timeout).expect("validated TLS timeout");
     }
     if let Some(timeout) = phase_timeout(config, config.headers_timeout) {
-        options = options.with_headers_timeout(timeout);
+        options = options.with_headers_timeout(timeout).expect("validated headers timeout");
     }
     options
 }

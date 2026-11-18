@@ -546,6 +546,19 @@ test test_net_transport_rejects_invalid_shapes { |ctx|
   test.error_kind(net.request_many({requests: [], concurrency: 0}), "net-concurrency")
   test.error_kind(net.download_many({downloads: [], concurrency: -1}), "net-concurrency")
   test.error_kind(net.pool("invalid", -1), "net-pool")
+  test.error_kind(net.pool("invalid-zero", 1, 0ms), "net-pool")
+  let positive_pool = net.pool("positive", 1, 1ms)?
+  assert positive_pool.idle_timeout_ms == 1
+  test.error_kind(net.request({method: "GET", url: "ftp://example.test/", dns_timeout: 1ms}), "net-scheme")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", dns_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", connect_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", tls_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", headers_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", body_idle_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.download({url: "http://127.0.0.1:9/", dest: p"/unused", dns_timeout: 0ms})""", "range-error")
+  assert_invalid_net_input(ctx, """let _ = net.upload({url: "http://127.0.0.1:9/", source: p"/unused", dns_timeout: 0ms})""", "range-error")
+
   assert_invalid_net_input(
     ctx,
     """let _ = net.request({

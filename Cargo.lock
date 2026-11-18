@@ -30,32 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
-name = "async-channel"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
-dependencies = [
- "concurrent-queue",
- "event-listener-strategy",
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
-name = "async-executor"
-version = "1.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
-dependencies = [
- "async-task",
- "concurrent-queue",
- "fastrand",
- "futures-lite",
- "pin-project-lite",
- "slab",
-]
-
-[[package]]
 name = "async-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,29 +48,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-net"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b948000fad4873c1c9339d60f2623323a0cfd3816e5181033c6a5cb68b2accf7"
-dependencies = [
- "async-io",
- "blocking",
- "futures-lite",
-]
-
-[[package]]
-name = "async-task"
-version = "4.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
-
-[[package]]
-name = "atomic-waker"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -104,9 +55,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "base64"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bindgen"
@@ -160,19 +111,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
 dependencies = [
  "hybrid-array",
-]
-
-[[package]]
-name = "blocking"
-version = "1.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e83f8d02be6967315521be875afa792a316e28d57b5a2d401897e2a7921b7f21"
-dependencies = [
- "async-channel",
- "async-task",
- "futures-io",
- "futures-lite",
- "piper",
 ]
 
 [[package]]
@@ -598,26 +536,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "event-listener"
-version = "5.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
-dependencies = [
- "parking",
- "pin-project-lite",
-]
-
-[[package]]
-name = "event-listener-strategy"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
-dependencies = [
- "event-listener",
- "pin-project-lite",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -694,10 +612,7 @@ version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad"
 dependencies = [
- "fastrand",
  "futures-core",
- "futures-io",
- "parking",
  "pin-project-lite",
 ]
 
@@ -802,12 +717,10 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client"
-version = "0.6.0"
-source = "sparse+https://crates.17166969.xyz/current/registry/"
-checksum = "6c6004fb68255068392faeec3757487b9f90f7fdba701e1aa2e60c5a369edd54"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d5b6adb9c8238e3acd1bf3a0b758acb52246ee4ed67edc4ecdfe6fb6d07a8a1"
 dependencies = [
- "async-io",
- "async-net",
  "futures-channel",
  "futures-io",
  "futures-rustls",
@@ -817,6 +730,8 @@ dependencies = [
  "h12tiny-tls-system",
  "http",
  "http-body",
+ "laputa-async-io",
+ "laputa-async-net",
  "laputa-hyper-futures-lite",
  "rustls",
  "rustls-graviola",
@@ -825,32 +740,33 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client-normalize"
-version = "0.6.0"
-source = "sparse+https://crates.17166969.xyz/current/registry/"
-checksum = "8d20166a88fa4b6b4f301c9faae5790b4cc7d8e4cabfbd22d7cdb4935c4048ba"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4742323990543454dba088ced5a5c58bf7c6e060667162714f84fce2433df93"
 dependencies = [
  "http",
 ]
 
 [[package]]
 name = "h12tiny-core"
-version = "0.6.0"
-source = "sparse+https://crates.17166969.xyz/current/registry/"
-checksum = "c501c1c514e7a2f5abdc5fc4da0cb09de0192c26d581283dbef352fece5e1540"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6508a2c4e8bece3649e951b87082f949871c4bc1335b6eececb131a80aa525f4"
 dependencies = [
- "async-io",
  "futures-io",
+ "laputa-async-io",
  "laputa-hyper-futures-lite",
 ]
 
 [[package]]
 name = "h12tiny-tls-system"
-version = "0.6.0"
-source = "sparse+https://crates.17166969.xyz/current/registry/"
-checksum = "e83f47eaf57b4c7f29a0fc6c9feb7039693fd01fbc6693f196102e7217995d91"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41149a08e2633e5e8f24e35d0e6b85deb863dc637e1360ca62dca2ed185016f2"
 dependencies = [
  "base64",
  "openssl-probe",
+ "rustc-hash",
  "rustls",
  "rustls-native-certs",
  "rustls-platform-verifier",
@@ -1108,20 +1024,147 @@ dependencies = [
 ]
 
 [[package]]
-name = "laputa-h2-futures-lite"
-version = "0.4.20-beta.0"
+name = "laputa-async-channel"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d26dcbb89718ab44652ef9cf634a7082c6700f4b060069de08cad304e7da0ef"
+checksum = "301e40a50c73f66d4077ce1f7452927b1758353c74cc7f7c1487d50948ab181a"
 dependencies = [
- "atomic-waker",
+ "futures-core",
+ "laputa-concurrent-queue",
+ "laputa-event-listener-strategy",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "laputa-async-executor"
+version = "0.3.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "06059a4ea8b28af8a83c3cee6f0786ba187d3a9448b7e087265959c4943068dd"
+dependencies = [
+ "laputa-async-task",
+ "laputa-concurrent-queue",
+ "laputa-fastrand",
+ "laputa-futures-lite",
+ "pin-project-lite",
+ "slab",
+]
+
+[[package]]
+name = "laputa-async-io"
+version = "0.3.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "8094862d08a07b80bd6235e8b3b495a03a45f94b037bda1f8027b21cb5370aba"
+dependencies = [
+ "autocfg",
+ "cfg-if",
+ "futures-io",
+ "laputa-concurrent-queue",
+ "laputa-futures-lite",
+ "laputa-parking",
+ "laputa-polling",
+ "rustix",
+ "slab",
+]
+
+[[package]]
+name = "laputa-async-net"
+version = "0.3.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "a9eec335e2b0555445e1615d85c6d4274b2d37bb65653dab5cb87a974acbf1d4"
+dependencies = [
+ "laputa-async-io",
+ "laputa-blocking",
+ "laputa-futures-lite",
+]
+
+[[package]]
+name = "laputa-async-task"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f9214e1398617e925fbab32e339cdca4cc5e28b8a5588b2b96d8dda1806e86a"
+
+[[package]]
+name = "laputa-atomic-waker"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dfbb69b3249a24b88f19721ed8298cc45698dc174bce20bb3ad01f74a429e0a"
+
+[[package]]
+name = "laputa-blocking"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1330f150657c1a20d8d9ae7bb8f8ae399c34cd214a88f19c3eb699a1a8e6d266"
+dependencies = [
+ "futures-io",
+ "laputa-async-channel",
+ "laputa-async-task",
+ "laputa-futures-lite",
+ "laputa-piper",
+]
+
+[[package]]
+name = "laputa-concurrent-queue"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89b2085e453bcfc89af7e0d0de15412480e6ce513c7f19214aea77926c819865"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "laputa-event-listener"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df46a90ff6330321080a0853469051233556b75885c23d1805a4a5f5e9ea134b"
+dependencies = [
+ "laputa-parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "laputa-event-listener-strategy"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ca0818c0c7254287c796aa610ccc95e48acbe562e520a5907b18614a85118e"
+dependencies = [
+ "laputa-event-listener",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "laputa-fastrand"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c1293aa4081169faa64c29c796e2facc823e1babf6ca28702fdacaee4e2c02a"
+
+[[package]]
+name = "laputa-futures-lite"
+version = "0.3.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "a86489af4082bdca979a7bb6805d6493a523e2eb50971918955ad45bf2a5a7fd"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "laputa-fastrand",
+ "laputa-parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "laputa-h2-futures-lite"
+version = "0.4.20-beta.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ab2267e9473f8c2262683370b9f16fbab20cc8f914be08f0aa976c2c72989cd"
+dependencies = [
  "bytes",
  "fnv",
  "futures-core",
  "futures-io",
- "futures-lite",
  "futures-sink",
  "http",
  "indexmap",
+ "laputa-atomic-waker",
+ "laputa-futures-lite",
  "log",
  "pin-project-lite",
  "slab",
@@ -1129,24 +1172,52 @@ dependencies = [
 
 [[package]]
 name = "laputa-hyper-futures-lite"
-version = "1.12.0-beta.0"
+version = "1.12.0-beta.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2f825e7b83ea97d3c32efe96cd423c2dee61fd735224da9577cef59ad68bc7"
+checksum = "90f0c32d9d90f65367d225d7dc3ec5d2ccbdd33c00043402a5aa7718af771fb5"
 dependencies = [
- "atomic-waker",
  "bytes",
  "futures-channel",
  "futures-core",
  "futures-io",
- "futures-lite",
  "http",
  "http-body",
  "httparse",
  "itoa",
+ "laputa-atomic-waker",
+ "laputa-futures-lite",
  "laputa-h2-futures-lite",
  "pin-project-lite",
  "smallvec",
  "want",
+]
+
+[[package]]
+name = "laputa-parking"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad447eb1edac8353805e8f17ea8dac6e7beddd938bb0999ce9d270a3a495a2a7"
+
+[[package]]
+name = "laputa-piper"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbeb67a14cf0b8c79c39b733ef35e83f1104c8bc5476b22ea096f5137107e1ad"
+dependencies = [
+ "futures-io",
+ "laputa-atomic-waker",
+ "laputa-fastrand",
+]
+
+[[package]]
+name = "laputa-polling"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "428738cb4dc42799e8623fede00781356e7214fe688b69f84d25fddcc252006e"
+dependencies = [
+ "cfg-if",
+ "hermit-abi",
+ "rustix",
 ]
 
 [[package]]
@@ -1380,17 +1451,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "piper"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1"
-dependencies = [
- "atomic-waker",
- "fastrand",
- "futures-io",
-]
 
 [[package]]
 name = "pkg-config"
@@ -2391,15 +2451,15 @@ dependencies = [
 name = "xsh-net"
 version = "0.0.1"
 dependencies = [
- "async-executor",
- "async-io",
- "async-net",
  "crossbeam-channel",
- "futures-lite",
  "graviola",
  "h12tiny-client",
  "http",
  "http-body-util",
+ "laputa-async-executor",
+ "laputa-async-io",
+ "laputa-async-net",
+ "laputa-futures-lite",
  "laputa-hyper-futures-lite",
  "laputa-rustix",
  "libc",

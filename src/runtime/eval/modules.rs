@@ -378,6 +378,10 @@ pub(super) fn record_duration(
     span: Span,
 ) -> Result<Option<Duration>, RuntimeError> {
     match record.get(name) {
+        Some(Value::Duration(value)) if value.millis == 0 => Err(RuntimeError::new(
+            "range-error",
+            format!("{name} must be greater than zero"),
+        ).with_span(span)),
         Some(Value::Duration(value)) => Ok(Some(Duration::from_millis(value.millis))),
         Some(value) => Err(RuntimeError::new(
             "type-error",
