@@ -85,7 +85,7 @@ proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: 
       return Ok(.Ran(launch.dir)) when status.exited_with(0)
       let text = launch.log.read_text()?
       if "cannot" in text or "Operation not permitted" in text {
-        return Ok(.Unavailable(f"cannot build the namespaces: {text.trim()}"))
+        return Ok(.Unavailable(f"cannot build the namespaces: {text.trim().lines()[0]}"))
       }
       Err(error.failure(f"scenario {name} failed ({status.shell_code()?}): {text}"))
     }
