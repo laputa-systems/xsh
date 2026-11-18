@@ -21,7 +21,7 @@ proc require_tools() [process, error] -> Result[Bool, Error] {
 
 test test_dnsmasq_offers_and_acknowledges_the_clients_request_and_both_captures_agree { |ctx|
   guard require_tools() else { return }
-  guard let dir = scenario.execute_as_real_root(
+  let scene = scenario.execute_as_real_root(
     ctx,
     "reference",
     [
@@ -33,7 +33,14 @@ test test_dnsmasq_offers_and_acknowledges_the_clients_request_and_both_captures_
       scenario.probe(7001),
       scenario.sleep(500),
     ],
-  )? else { return }
+  )?
+  let dir = match scene {
+    scenario.Unavailable(reason) => {
+      test.skip(reason)
+      return
+    }
+    scenario.Ran(found) => found
+  }
   assert fp"{dir}/probe.status".read_text()?.trim() == "0", fp"{dir}/probe.log".read_text()? + fp"{dir}/dnsmasq.log".read_text()?
   let result = json.read(fp"{dir}/probe.json")?.require(ProbeResult)?
   assert result.offer.kind == 2 and result.ack.kind == 5

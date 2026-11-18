@@ -53,38 +53,43 @@ export pure snapshot(name: Str) -> types.Step {
   {...step("snapshot"), name: name}
 }
 
+## A scenario's directory, or why the environment cannot run it.
+export enum Run { Ran(Path), Unavailable(Str) }
+
 ## Runs `steps` in a fresh world below the test's temporary directory and
 ## returns that directory, or null after skipping the test.
 export proc execute(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Path?, Error] {
-  run_scenario(ctx, name, steps, true)
+  match run_scenario(ctx, name, steps, true)? {
+    Ran(dir) => Ok(dir)
+    Unavailable(reason) => {
+      test.skip(reason)
+      Ok(null)
+    }
+  }
 }
 
 ## Like `execute`, but without a user namespace, for a server that must drop
-## group privileges. Skips the test unless the caller is root.
-export proc execute_as_real_root(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Path?, Error] {
+## group privileges. Returns why it cannot run unless the caller is root and
+## may build mount and network namespaces; the caller skips with that reason.
+export proc execute_as_real_root(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Run, Error] {
   if unix.id()?.uid != 0 {
-    test.skip("this scenario needs real root, because its server drops group privileges")
-    return Ok(null)
+    return Ok(.Unavailable("this scenario needs real root, because its server drops group privileges"))
   }
   run_scenario(ctx, name, steps, false)
 }
 
-proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: Bool) [fs, process, error] -> Result[Path?, Error] {
+proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: Bool) [fs, process, error] -> Result[Run, Error] {
   let launch = launch_driver(ctx, name, steps, mapped)?
   match launch.outcome {
     Ok(status) => {
-      return Ok(launch.dir) when status.exited_with(0)
+      return Ok(.Ran(launch.dir)) when status.exited_with(0)
       let text = launch.log.read_text()?
       if "cannot" in text or "Operation not permitted" in text {
-        test.skip(f"cannot build the namespaces: {text.trim()}")
-        return Ok(null)
+        return Ok(.Unavailable(f"cannot build the namespaces: {text.trim()}"))
       }
       Err(error.failure(f"scenario {name} failed ({status.shell_code()?}): {text}"))
     }
-    Err(failure) => {
-      test.skip(f"the kernel refuses user, mount and network namespaces: {failure.message}")
-      Ok(null)
-    }
+    Err(failure) => Ok(.Unavailable(f"the kernel refuses user, mount and network namespaces: {failure.message}"))
   }
 }
 
