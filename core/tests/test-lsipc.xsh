@@ -1561,6 +1561,13 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
 
 test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
   ul.require_private_namespace()
+  if env.get_or("XSH_LSIPC_POSIX_NAME_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_POSIX_NAME_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_posix_name_preserves_and_escapes_bytes\" test \"$1\""
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let object_path = Path.parse_bytes(b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
   object_path.write(b"")
@@ -1655,6 +1662,13 @@ test test_lsipc_regression_repeated_selector_limit { |ctx|
 
 test test_lsipc_regression_unicode_table { |ctx|
   ul.require_private_namespace()
+  if env.get_or("XSH_LSIPC_UNICODE_TABLE_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_UNICODE_TABLE_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_regression_unicode_table\" test \"$1\""
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let names = ["n一x", "nAx", "x\u{200c}", "x\u{200f}", "x\u{202a}", "x\u{202e}", "x\u{205f}", "x\u{206f}", "x\u{feff}", "x\u{fff9}", "x\u{fffa}", "x\u{fffb}", "x\u{fffe}", "x\u{ffff}", "x\u{10ffff}"]
   for name in names { fp"/dev/shm/{name}".write(b"") }
@@ -1720,6 +1734,13 @@ test test_lsipc_regression_terminal_width { |ctx|
 
 test test_lsipc_regression_display_cell_padding { |ctx|
   ul.require_private_namespace()
+  if env.get_or("XSH_LSIPC_CELL_PADDING_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_CELL_PADDING_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_regression_display_cell_padding\" test \"$1\""
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx", p"/dev/shm/\u{301}x", p"/dev/shm/n\u{601}x", p"/dev/shm/n\u{ad}x", p"/dev/shm/n\u{2065}x"]
   for target in paths { target.write(b"") }
