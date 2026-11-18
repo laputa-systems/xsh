@@ -824,6 +824,46 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
   assert gates.select(["tests/stdlib_port.rs"])?.areas == [gates.Stdlib, gates.Api]
 }
 
+test test_interactive_feature_harnesses_do_not_share_the_product_target {
+  let ctx = fixtures.linux_context(p"/repo")?
+  let plan = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/xshi/src/lib.rs"])?)?
+  let featured = [spec for spec in plan |> where "laputa-asterinas" in .argv]
+  assert featured.len() == 4
+  let separate = gates.asterinas_xshi_target_dir(ctx).display()
+  assert separate != ctx.target_dir.display()
+  for spec in featured {
+    var at = -1
+    var separator = spec.argv.len()
+    for index in range(spec.argv.len()) {
+      at = index when spec.argv[index] == "--target-dir"
+      separator = index when spec.argv[index] == "--" and index < separator
+    }
+    assert at > 0 and at < separator and spec.argv[at + 1] == separate, spec.stage
+  }
+  let parity = [spec for spec in featured |> where .stage == "test-xshi-parity"][0]
+  let build = gates.harness_build_argv(parity.argv)
+  var kept = false
+  for index in range(build.len() - 1) {
+    kept = true when build[index] == "--target-dir" and build[index + 1] == separate
+  }
+  assert kept, build.join(" ")
+  assert gates.harness_arguments(parity.argv) == ["--test-threads=4"]
+  let stub = [spec for spec in plan |> where .stage == "test-xshi-stub"]
+  assert stub.len() == 1
+  assert "--target-dir" not in stub[0].argv
+}
+
+test test_harness_selection_ignores_thread_count_options {
+  let harness = "/work/target/parity"
+  assert gates.harness_selects("scenarios::l_forms", [harness, "--test-threads=4"])
+  assert gates.harness_selects("scenarios::l_forms", [harness, "--test-threads", "4"])
+  assert gates.harness_selects("scenarios::l_forms", [harness, "scenarios::", "--test-threads=4"])
+  assert ! gates.harness_selects("builtins::cd", [harness, "scenarios::", "--test-threads=4"])
+  assert ! gates.harness_selects("scenarios::l_forms", [harness, "--skip", "l_forms", "--test-threads=4"])
+  assert ! gates.harness_selects("scenarios::l_forms", [harness, "--test-threads"])
+  assert ! gates.harness_selects("scenarios::l_forms", [harness, "--include-ignored"])
+}
+
 test test_compile_residual_cases_skip_only_prefixes_another_case_runs {
   let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.lane_plan(ctx, tests.Verification, gates.select(harness_owner_paths)?)?

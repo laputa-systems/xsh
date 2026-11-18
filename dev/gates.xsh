@@ -507,6 +507,17 @@ pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args
     ctx.root, tests.cargo_environment(ctx)?)
 }
 
+# The feature build gets its own target directory so it cannot replace the
+# stub `xshi` product that other cases have already bound.
+pure asterinas_xshi_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args: List[Str], debug = false) -> Result[contract.CommandSpec, Error] {
+  rust_gate(ctx, profile, name, ["-p", "xshi", "--features", "laputa-asterinas", "--target-dir", asterinas_xshi_target_dir(ctx).display(), @args], debug: debug)
+}
+
+## The Cargo target directory the interactive xshi harnesses build into.
+export pure asterinas_xshi_target_dir(ctx: context.Context) -> Path {
+  fp"{ctx.target_dir}/xshi-laputa-asterinas"
+}
+
 pure native_gate(ctx: context.Context, profile: tests.TestProfile, filter: Str) -> contract.CommandSpec {
   let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
   stages.command(f"native-{filter}", ctx.target.triple, xsht, [xsht, "test", filter], ctx.root, {})
@@ -632,10 +643,10 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-effect-oracle", ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true)?,
     ]
     Interactive => [
-      rust_gate(ctx, profile, "test-xshi-unit", ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true)?,
-      rust_gate(ctx, profile, "test-xshi-cli", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"])?,
-      rust_gate(ctx, profile, "test-xshi-parity", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "parity", "--", "--test-threads=4"])?,
-      rust_gate(ctx, profile, "test-xshi-preparation", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "stdlib_preparation"])?,
+      asterinas_xshi_gate(ctx, profile, "test-xshi-unit", ["--lib"], debug: true)?,
+      asterinas_xshi_gate(ctx, profile, "test-xshi-cli", ["--test", "cli"])?,
+      asterinas_xshi_gate(ctx, profile, "test-xshi-parity", ["--test", "parity", "--", "--test-threads=4"])?,
+      asterinas_xshi_gate(ctx, profile, "test-xshi-preparation", ["--test", "stdlib_preparation"])?,
       rust_gate(ctx, profile, "test-xshi-stub", ["-p", "xshi", "--test", "stub_cli"], debug: true)?,
     ]
     else => []
@@ -1957,13 +1968,16 @@ export proc run_case(ctx: context.Context, action: CaseAction, id: Str, paths: L
   }
 }
 
-pure harness_build_argv(argv: List[Str]) -> List[Str] {
+const cargo_valued_options = ["--target", "--target-dir", "--profile", "-p", "--package", "--test", "--bin", "--features"]
+
+## Derives the Cargo build command that compiles a harness case's test executable.
+export pure harness_build_argv(argv: List[Str]) -> List[Str] {
   var build = ["cargo", "test"]
   var index = 2
   while index < argv.len() {
     let word = argv[index]
     break when word == "--"
-    if word in ["--target", "--profile", "-p", "--package", "--test", "--bin", "--features"] {
+    if word in cargo_valued_options {
       build += [word, argv[index + 1]]
       index += 2
       continue
@@ -1974,7 +1988,8 @@ pure harness_build_argv(argv: List[Str]) -> List[Str] {
   cargo_steps.test_build_argv(build)
 }
 
-pure harness_arguments(argv: List[Str]) -> List[Str] {
+## Derives the arguments a harness case passes to its compiled test executable.
+export pure harness_arguments(argv: List[Str]) -> List[Str] {
   var arguments: List[Str] = []
   var index = 2
   while index < argv.len() {
@@ -1983,7 +1998,7 @@ pure harness_arguments(argv: List[Str]) -> List[Str] {
       let literal_arguments = argv |> drop(index + 1)
       return [@arguments, @literal_arguments]
     }
-    if word in ["--target", "--profile", "-p", "--package", "--test", "--bin", "--features"] {
+    if word in cargo_valued_options {
       index += 2
       continue
     }
@@ -1993,7 +2008,10 @@ pure harness_arguments(argv: List[Str]) -> List[Str] {
   arguments
 }
 
-pure harness_selects(id: Str, argv: List[Str]) -> Bool {
+## Reports whether a Rust test harness run with `argv` selects the test `id`.
+## Thread-count options do not change the selection; any other option does not
+## qualify, so the caller treats the run as unselectable.
+export pure harness_selects(id: Str, argv: List[Str]) -> Bool {
   var filter: Str? = null
   var skips: List[Str] = []
   var exact = false
@@ -2006,8 +2024,14 @@ pure harness_selects(id: Str, argv: List[Str]) -> Bool {
       index += 2
       continue
     }
+    if word == "--test-threads" {
+      return false when index + 1 >= argv.len()
+      index += 2
+      continue
+    }
     if word == "--exact" {
       exact = true
+    } else if word.starts_with("--test-threads=") {
     } else if word.starts_with("-") or filter != null {
       return false
     } else {
