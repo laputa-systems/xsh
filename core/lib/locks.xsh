@@ -441,7 +441,7 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
     "END" => {kind: "number", value: f"{lock.end}", boolean: false}
     "PATH" => {kind: "string", value: if let path_bytes = lock.path { path_bytes.utf8() ?? filter_byte_text(path_bytes) } else { "" }, boolean: false}
     "BLOCKER" => {kind: if lock.blocker == null { "empty" } else { "number" }, value: f"{lock.blocker ?? 0}", boolean: false}
-    "HOLDERS" => {kind: "string", value: lock.holders.join("\n"), boolean: false}
+    "HOLDERS" => {kind: if lock.holders.is_empty() { "empty_holder" } else { "string" }, value: lock.holders.join("\n"), boolean: false}
     else => {kind: "string", value: lock.command, boolean: false}
   }
 }
@@ -705,12 +705,34 @@ pure filter_byte_order(left: Str, right: Str) -> Int {
 pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: Lock) -> Bool {
   let l = if left.kind == "column" { column_value(lock, left.value) } else { left }
   let r = if right.kind == "column" { column_value(lock, right.value) } else { right }
-  if l.kind == "empty" or r.kind == "empty" { return false }
-  if operator == "==" and ((left.kind == "column" and left.value == "HOLDERS" and l.value == "") or (right.kind == "column" and right.value == "HOLDERS" and r.value == "")) { return false }
   if operator in ["=~", "!~"] {
-    let pattern = regex.compile(regex_byte_text(r.value))
-    let matched = if let Ok(compiled) = pattern { compiled.matches(regex_byte_text(l.value)) } else { false }
+    let pattern = regex.compile(regex_byte_text(if r.kind == "empty_holder" { "" } else { r.value }))
+    let matched = if let Ok(compiled) = pattern { compiled.matches(regex_byte_text(if l.kind == "empty_holder" { "" } else { l.value })) } else { false }
     return if operator == "=~" { matched } else { ! matched }
+  }
+  if l.kind in ["empty", "empty_holder"] or r.kind in ["empty", "empty_holder"] {
+    if l.kind == "empty_holder" and r.kind == "empty_holder" { return operator in ["==", "<=", ">="] }
+    if l.kind in ["empty", "empty_holder"] and r.kind in ["empty", "empty_holder"] { return false }
+    if l.kind in ["empty", "empty_holder"] and r.kind in ["number", "float", "boolean"] or r.kind in ["empty", "empty_holder"] and l.kind in ["number", "float", "boolean"] { return false }
+    let left_empty = l.kind in ["empty", "empty_holder"]
+    let empty_numeric = if left_empty { l.kind == "empty" } else { r.kind == "empty" }
+    let other = if left_empty { r.value } else { l.value }
+    let empty_order = if empty_numeric { filter_byte_order("0", other) } else { -1 }
+    let order = if left_empty { empty_order } else { 0 - empty_order }
+    return empty_numeric and order == 0 when operator == "=="
+    return ! empty_numeric or order != 0 when operator == "!="
+    return order < 0 when operator == "<"
+    return order <= 0 when operator == "<="
+    return order > 0 when operator == ">"
+    return order >= 0 when operator == ">="
+    return false
+  }
+  if (l.kind in ["number", "float"] and r.kind == "string" and r.value == "") or (r.kind in ["number", "float"] and l.kind == "string" and l.value == "") {
+    let order = filter_byte_order(l.value, r.value)
+    return order == 0 when operator == "=="
+    return order != 0 when operator == "!="
+    return order < 0 when operator in ["<", "<="]
+    return order > 0 when operator in [">", ">="]
   }
   if l.kind in ["number", "float"] or r.kind in ["number", "float"] {
     if (l.kind == "string" and l.value.parse_float() is Err(_)) or (r.kind == "string" and r.value.parse_float() is Err(_)) { return operator == "!=" }

@@ -1184,6 +1184,36 @@ test test_lslocks_review6_empty_cells { |ctx|
   ul.finish_keeper(keeper)
 }
 
+proc empty_cell_comparisons(s: uu.Scene, column: Str, blocked: Bool) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+  ul.require_private_namespace()
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let lock_path = uu.at(s, "empty-comparisons")
+  let owner = ul.start_keeper(s, script, ["hold", "flock-ex", lock_path.display(), "none"])?
+  defer ul.stop_keeper(owner)
+  let owner_pid = json.decode(owner.ready)?.require(LockReady)?.pid
+  let waiter = ul.start_keeper(s, script, ["wait", "flock-ex", lock_path.display(), f"{owner_pid}"])?
+  defer ul.stop_keeper(waiter)
+  let waiter_pid = json.decode(waiter.ready)?.require(WaiterReady)?.pid
+  let pid = if blocked { waiter_pid } else { owner_pid }
+  for operator in ["==", "!=", "<", "<=", ">", ">=", "=~", "!~"] {
+    let expressions = if operator in ["=~", "!~"] {
+      [f"{column} {operator} \"^$\"", f"{column} {operator} \"^0$\"", f"{column} {operator} \"x\""]
+    } else {
+      [f"{column} {operator} \"\"", f"\"\" {operator} {column}", f"{column} {operator} {column}", f"{column} {operator} \"0\"", f"{column} {operator} \"abc\"", f"{column} {operator} 0"]
+    }
+    for expression in expressions {
+      let _ = compared_with_stdout_dump(s, ["-r", "-n", "-p", f"{pid}", "-o", "PID", "-Q", expression])?
+    }
+  }
+  ul.keeper_send(owner, "DONE")
+  ul.finish_keeper(owner)
+  Ok()
+}
+
+test test_lslocks_filter_empty_size_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "SIZE", false)? }
+test test_lslocks_filter_empty_blocker_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "BLOCKER", false)? }
+test test_lslocks_filter_empty_holders_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "HOLDERS", true)? }
+
 test test_lslocks_review6_filter_path_bytes { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
