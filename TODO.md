@@ -97,11 +97,12 @@ out of scope.
 - **Effort:** M
 
 
-### XSH-103 · P3 · Qualify the util-linux cohort on non-UTF-8 and unreadable host state
+### XSH-103 · P3 · Avoid repeated mountinfo reads in lslocks
 
 - **Area:** Core commands
-- **Where:** `src/modules/fs.rs` (`fs.mount_for`, ~:1843), `core/mountpoint.xsh`, `core/lib/locks.xsh` (~:271, ~:286), `core/lsipc.xsh`, `core/namei.xsh`
-- **Problem:** The 2026-11-17 adversarial review of the util-linux cohort recorded these risks without reproducing them (unproven): `fs.mount_for` reads `/proc/self/mountinfo` as UTF-8, so a mount whose source or target is not UTF-8 would make every `mountpoint` query exit 1, and its longest-prefix search could name a hidden mount under an overmount; an unreadable `/proc/locks` would escape `lslocks` as a stack trace, and its mount fallback rereads mountinfo for every inaccessible lock; POSIX IPC objects with non-UTF-8 names can never match `lsipc -N`; and `namei` stops at the first operand whose output fails, while util-linux still reports the remaining operands.
-- **Recommendation:** Reproduce each in a disposable root container (non-UTF-8 mount points, an overmount, a chroot without a root mount, `chmod 000 /proc/locks` in a private procfs, non-UTF-8 POSIX IPC names) against the host's util-linux 2.42.4, and fix the ones that differ with byte-exact regression tests.
-- **Fix with:** reference-parity
+- **Where:** `core/lib/locks.xsh` (`mount_fallback`)
+- **Problem:** Each inaccessible lock causes a fresh `/proc/self/mountinfo` read. In a private root container with 25 inaccessible lock rows, syscall tracing observed 25 opens for XSH and one for util-linux 2.42.4; both produced the same paths and exited 0. This is a performance issue, not a measured timing claim.
+- **Progress:** Against util-linux 2.42.4 in private namespaces, non-UTF-8 mount source and target bytes, a hidden mount, a chroot without a root mount, unreadable `/proc/locks`, a non-UTF-8 POSIX shared-memory name, and multiple `namei` operands produced matching output and status. Existing native regressions cover the previously fixed mount and unreadable-lock cases. A missing `namei` operand did not suppress the next operand; a fatal permission error stopped both implementations.
+- **Recommendation:** Reuse one mountinfo snapshot across inaccessible lock rows while preserving the fallback's output and error behavior.
+- **Fix with:** make-it-fast
 - **Effort:** M
