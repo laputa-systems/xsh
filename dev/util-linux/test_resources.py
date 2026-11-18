@@ -1117,6 +1117,12 @@ class MeasurementProtocolTests(unittest.TestCase):
             with self.subTest(malformed=malformed), self.assertRaises(ValueError):
                 resources._parse_frames(malformed, ("first", "second"))
 
+    def test_signature_gate_runs_in_the_lanes_dev_profile_for_the_pinned_target(self):
+        cases = {label: command for label, command, _, _ in resources._RUST_GATE_CASES}
+        command = cases["xsh_signature"]
+        self.assertNotIn("--profile", command)
+        self.assertEqual(command[command.index("--target") + 1], resources.TARGET)
+
     def test_rust_gate_counts_tests_its_name_filter_deselects(self):
         def frame(label, content):
             data = content.encode()
