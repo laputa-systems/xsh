@@ -9,11 +9,9 @@ use std::path::PathBuf;
 /// Size and content can change between the host calls. Retry ERANGE a bounded
 /// number of times, then report contention rather than spinning indefinitely.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn read_attribute(mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>) -> std::io::Result<Vec<u8>> {
+fn read_attribute(mut query: impl FnMut() -> rustix::io::Result<usize>, mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>) -> std::io::Result<Vec<u8>> {
     for _ in 0..8 {
-        let size = read(&mut [])?;
-        // A zero-sized fetch is a size query, so use at least one byte to read
-        // an attribute that becomes nonempty between these calls.
+        let size = query()?;
         let mut value = Vec::new();
         value.try_reserve_exact(size.max(1)).map_err(std::io::Error::other)?;
         value.resize(size.max(1), 0);
@@ -32,7 +30,9 @@ fn read_attribute(mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>) 
 pub(crate) fn xattr_list(path: PathBuf, follow_symlinks: bool, span: Span) -> Result<Value, RuntimeError> {
     let shown = path.display().to_string();
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let result = read_attribute(|buffer| {
+    let result = read_attribute(|| {
+        if follow_symlinks { rustix::fs::listxattr_query(&path) } else { rustix::fs::llistxattr_query(&path) }
+    }, |buffer| {
         if follow_symlinks {
             rustix::fs::listxattr(&path, buffer)
         } else {
@@ -60,7 +60,9 @@ pub(crate) fn xattr_list(path: PathBuf, follow_symlinks: bool, span: Span) -> Re
 pub(crate) fn xattr_get(path: PathBuf, name: &str, follow_symlinks: bool, span: Span) -> Result<Value, RuntimeError> {
     let shown = path.display().to_string();
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let result = read_attribute(|buffer| {
+    let result = read_attribute(|| {
+        if follow_symlinks { rustix::fs::getxattr_query(&path, name) } else { rustix::fs::lgetxattr_query(&path, name) }
+    }, |buffer| {
         if follow_symlinks {
             rustix::fs::getxattr(&path, name, buffer)
         } else {
@@ -116,4 +118,30 @@ pub(crate) fn xattr_remove(path: PathBuf, name: &str, follow_symlinks: bool, spa
         Err(rustix::io::Errno::NOTSUP)
     };
     name_error_path(&shown, result.map_err(|error| RuntimeError::host("fs-xattr-remove", &error).with_span(span)))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::read_attribute;
+    use rustix::fs::{self, XattrFlags};
+
+    #[test]
+    fn growing_attribute_is_retried() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let name = "user.xsh-growth";
+        let payload = b"\x02\0\0\x02\xff\0\x01\0\0\0\0\0";
+        fs::setxattr(file.path(), name, b"a", XattrFlags::empty()).unwrap();
+        let mut grow = true;
+        let value = read_attribute(
+            || fs::getxattr_query(file.path(), name),
+            |buffer| {
+                if grow {
+                    fs::setxattr(file.path(), name, payload, XattrFlags::empty()).unwrap();
+                    grow = false;
+                }
+                fs::getxattr(file.path(), name, buffer)
+            },
+        ).unwrap();
+        assert_eq!(value, payload);
+    }
 }

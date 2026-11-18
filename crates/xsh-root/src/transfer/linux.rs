@@ -463,8 +463,7 @@ fn allocation_error(error: std::collections::TryReserveError) -> io::Error {
 
 fn fd_list_xattrs(fd: BorrowedFd<'_>, buffer: &mut [u8]) -> rustix::io::Result<usize> {
     if buffer.is_empty() {
-        let mut empty: [u8; 0] = [];
-        fs::flistxattr(fd, &mut empty[..])
+        fs::flistxattr_query(fd)
     } else {
         fs::flistxattr(fd, buffer)
     }
@@ -476,8 +475,7 @@ fn fd_get_xattr(
     buffer: &mut [u8],
 ) -> rustix::io::Result<usize> {
     if buffer.is_empty() {
-        let mut empty: [u8; 0] = [];
-        fs::fgetxattr(fd, name, &mut empty[..])
+        fs::fgetxattr_query(fd, name)
     } else {
         fs::fgetxattr(fd, name, buffer)
     }
@@ -485,8 +483,7 @@ fn fd_get_xattr(
 
 fn path_list_xattrs(path: &OsStr, buffer: &mut [u8]) -> rustix::io::Result<usize> {
     if buffer.is_empty() {
-        let mut empty: [u8; 0] = [];
-        fs::llistxattr(path, &mut empty[..])
+        fs::llistxattr_query(path)
     } else {
         fs::llistxattr(path, buffer)
     }
@@ -498,8 +495,7 @@ fn path_get_xattr(
     buffer: &mut [u8],
 ) -> rustix::io::Result<usize> {
     if buffer.is_empty() {
-        let mut empty: [u8; 0] = [];
-        fs::lgetxattr(path, name, &mut empty[..])
+        fs::lgetxattr_query(path, name)
     } else {
         fs::lgetxattr(path, name, buffer)
     }
@@ -2165,5 +2161,39 @@ fn directory_chain_contains(
             return Ok(false);
         }
         current = parent;
+    }
+}
+
+#[cfg(test)]
+mod xattr_tests {
+    use super::*;
+    use std::os::fd::AsFd;
+
+    #[test]
+    fn capture_xattrs_and_retry_growth() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let fd = file.as_file().as_fd();
+        let payload = b"\x02\0\0\x02\xff\0\x01\0\0\0\0\0";
+        for (name, value) in [("user.first", &b"hello"[..]), ("user.binary", &payload[..]), ("user.third", &b"world"[..])] {
+            fs::fsetxattr(fd, name, value, XattrFlags::empty()).unwrap();
+        }
+        let (attributes, _) = read_fd_xattrs(fd).unwrap();
+        let (path_attributes, _) = read_path_xattrs(file.path().as_os_str()).unwrap();
+        for captured in [&attributes, &path_attributes] {
+            for (name, value) in [("user.first", &b"hello"[..]), ("user.binary", &payload[..]), ("user.third", &b"world"[..])] {
+                assert!(captured.iter().any(|attr| attr.name == name && attr.value == value));
+            }
+        }
+        fs::fsetxattr(fd, "user.growing", b"a", XattrFlags::empty()).unwrap();
+        let mut grow = true;
+        let mut budget = CaptureBudget::new(METADATA_CAPTURE_BYTES);
+        let value = read_xattr_value(|buffer| {
+            if !buffer.is_empty() && grow {
+                fs::fsetxattr(fd, "user.growing", payload, XattrFlags::empty()).unwrap();
+                grow = false;
+            }
+            fd_get_xattr(fd, OsStr::new("user.growing"), buffer)
+        }, &mut budget).unwrap();
+        assert_eq!(value, payload);
     }
 }

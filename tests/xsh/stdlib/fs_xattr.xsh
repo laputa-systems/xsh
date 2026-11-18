@@ -14,6 +14,12 @@ test test_xattrs_round_trip_binary_and_empty_values_with_strict_modes { |ctx|
   }
   assert fs.xattr_get(file, attribute)? == payload
   assert attribute in fs.xattr_list(file)?
+  fs.xattr_set(file, "user.xsh-second", b"second")
+  fs.xattr_set(file, "user.xsh-third", b"third")
+  let names = fs.xattr_list(file)?
+  assert "user.xsh-second" in names
+  assert "user.xsh-third" in names
+  assert fs.xattr_get(file, "user.xsh-second")? == b"second"
   let duplicate = fs.xattr_set(file, attribute, b"other", mode: "create")
   assert duplicate is Err(_)
   if let Err(failure) = duplicate {
