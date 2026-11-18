@@ -102,8 +102,7 @@ _RUST_GATE_CASES = (
     ),
     (
         "xsh_signature",
-        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
-         "-p", "xsh", "--lib"),
+        ("cargo", "test", "--locked", "--target", TARGET, "-p", "xsh", "--lib"),
         "modules::signature",
         ("--", "modules::signature"),
     ),
