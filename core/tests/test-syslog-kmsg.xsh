@@ -100,11 +100,12 @@ test test_epipe_is_an_overrun_eagain_is_empty_and_other_errors_are_reported {
   let c = linux.net_constants()
   let client = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(client)
-  let nothing = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
-  linux.bind(nothing, {family: "unix", address: f"@kmsg-broken-{process.current_pid()?}"})
-  linux.listen(nothing)
-  linux.connect(client, linux.getsockname(nothing)?)
-  unix.close_fd(nothing)
+  let listener = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
+  defer unix.close_fd(listener)
+  linux.bind(listener, {family: "unix", address: f"@kmsg-broken-{process.current_pid()?}"})?
+  linux.listen(listener)?
+  linux.connect(client, linux.getsockname(listener)?)?
+  linux.shutdown(client, c.SHUT_WR)?
   let broken = unix.write_fd(client, b"x")
   match kmsg.classify(failure_of(broken)) {
     Ok(outcome) => assert kind_of(outcome) == "overrun"
