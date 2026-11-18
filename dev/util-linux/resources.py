@@ -96,7 +96,8 @@ _RUST_GATE_CASES = (
     ),
     (
         "xsh_signature",
-        ("cargo", "test", "--locked", "-p", "xsh", "--lib", "modules::signature"),
+        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
+         "-p", "xsh", "--lib", "modules::signature"),
         (),
     ),
     (
@@ -2100,7 +2101,9 @@ if failed:
 
 def _rust_gate_script() -> str:
     cases = tuple((label, command, suffix) for label, command, suffix in _RUST_GATE_CASES)
-    return _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
+    products = shlex.join(("cargo", "build", "--locked", "--profile", "verification", "--target", TARGET,
+                           "-p", "xsh", "-p", "xsht", "--bin", "xsh", "--bin", "xsht"))
+    return products + " >&2; " + _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
 
 
 def _cargo_mounts(

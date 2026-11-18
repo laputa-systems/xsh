@@ -131,6 +131,9 @@ class ReleaseProducerTests(unittest.TestCase):
             self.assertEqual(context.allocator, "mimalloc")
             self.assertEqual(context.allocation, "1cpu/1GiB")
             self.assertEqual(tuple(sorted(path.name for path in products.iterdir())), tuple(sorted(release.PRODUCTS)))
+            build_roots = list(self.scratch.iterdir())
+            self.assertEqual(len(build_roots), 1)
+            self.assertEqual(build_roots[0].stat().st_mode & 0o777, 0o755, "tests that drop root must reach the cargo target")
             return "measured"
 
         self.assertEqual(self.run_with_fake_build(runtime, operation), "measured")

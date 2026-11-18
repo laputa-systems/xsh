@@ -4,6 +4,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import re
 import shlex
 import shutil
@@ -282,6 +283,7 @@ def with_release_products(
     if work.is_symlink() or not work.is_dir() or scratch.is_symlink() or not scratch.is_dir():
         raise ValueError("release products require the ignored repository scratch directory")
     build_root = Path(tempfile.mkdtemp(prefix="util-linux-release-", dir=scratch))
+    os.chmod(build_root, 0o755)
     container_attempted = False
     failure: BaseException | None = None
     try:
