@@ -678,12 +678,21 @@ Python tar and zip, Info-ZIP and cpio archives; BusyBox tar, Python tar and
 cpio read archives made by XSH. These historical results do not qualify later
 source.
 
-Rooted extraction was cross-compiled for macOS but not run there. Root
-ownership application and device-node creation were not tested; FIFO creation
-was covered. CPIO hard-link sets are unsupported. TAR members with the GNU
+Rooted extraction was cross-compiled for macOS but not run there. On Linux,
+root extraction applies non-zero uid and gid and creates character and block
+devices and FIFOs with their archived modes, including set-id bits; the device
+numbers, kinds, ownership and modes match GNU tar and bsdtar. Unprivileged
+extraction ignores ownership by default and reports refused ownership changes.
+CPIO hard-link sets are unsupported. TAR members with the GNU
 sparse type flag or `GNU.sparse.*` pax keys list as unsupported entries and
 extraction refuses them; XSH never extracts a sparse member as its compacted
 bytes.
+
+For the root reference fixture, create an empty writable directory and run
+`dev/reference/archive-root.sh DIRECTORY`. Run the `rooted` Rust tests as root
+in the pinned Linux image with `XSH_ARCHIVE_ROOT_FIXTURE` set to the mounted
+fixture directory. Run the unprivileged test as a non-root user as well. The
+fixture contains device nodes; do not open them.
 
 `crates/xsh-archive/tests/interop.rs` runs GNU tar 1.35 and bsdtar 3.8 (the
 `tar` and `libarchive-tools` packages of the `xsh-oracle` image, started through

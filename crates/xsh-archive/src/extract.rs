@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
@@ -115,6 +116,27 @@ fn to_path(components: &[Vec<u8>]) -> PathBuf {
 
 fn io_error(error: &io::Error, entry: &[u8]) -> Error {
     Error::from_host(error).with_entry(entry)
+}
+
+fn set_special_mode(root: &Root, path: &Path, mode: u32) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    type Mode = u32;
+    #[cfg(target_os = "macos")]
+    type Mode = u16;
+    let parent_path = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = root.open_dir_strict(parent_path)?;
+    let leaf = std::ffi::CString::new(path.file_name().unwrap().as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    unsafe extern "C" {
+        fn fchmodat(dirfd: i32, path: *const std::ffi::c_char, mode: Mode, flags: i32) -> i32;
+    }
+    #[cfg(target_os = "linux")]
+    const NOFOLLOW: i32 = 0x100;
+    #[cfg(target_os = "macos")]
+    const NOFOLLOW: i32 = 0x20;
+    // SAFETY: the directory descriptor and NUL-terminated leaf remain valid for the call.
+    let result = unsafe { fchmodat(parent.as_fd().as_raw_fd(), leaf.as_ptr(), mode as Mode, NOFOLLOW) };
+    if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 pub fn extract(
@@ -820,6 +842,10 @@ impl State<'_> {
             .make_node(&path, kind, mode, major, minor)
             .map_err(|error| io_error(&error, &meta.name))?;
         self.apply_owner(meta, &path)?;
+        if self.policy.ownership == Ownership::Apply && mode & 0o6000 != 0 {
+            set_special_mode(&self.stage.root, &path, mode)
+                .map_err(|error| io_error(&error, &meta.name))?;
+        }
         self.files.insert(components.clone());
         Ok(())
     }

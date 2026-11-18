@@ -292,3 +292,72 @@ fn a_failure_mid_archive_leaves_prior_outputs_and_no_staging() {
     assert_eq!(fs::read_to_string(fixture.root.join("prior/out")).unwrap(), "prior");
     assert_outside_untouched(&fixture);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn root_extraction_matches_gnu_and_bsdtar_ownership_and_devices() {
+    use xsh_archive::{Modes, Ownership, Special};
+    use xsh_root::FileKind;
+
+    let Some(fixture) = std::env::var_os("XSH_ARCHIVE_ROOT_FIXTURE") else {
+        eprintln!("skipped root archive reference test: XSH_ARCHIVE_ROOT_FIXTURE is unset");
+        return;
+    };
+    let fixture = PathBuf::from(fixture);
+    let scratch = tempfile::tempdir().unwrap();
+    assert_eq!(std::os::unix::fs::MetadataExt::uid(&fs::metadata(scratch.path()).unwrap()), 0);
+    let root = Root::open(scratch.path()).unwrap();
+    let bytes = fs::read(fixture.join("archive.tar")).unwrap();
+    let mut archive = open(bytes, Format::Tar, Compression::Auto).unwrap();
+    let policy = Policy { ownership: Ownership::Apply, special: Special::Create, modes: Modes::Exact, ..Policy::default() };
+    extract_into(&root, "dest", &mut archive, &policy).unwrap();
+    let actual = Root::open(scratch.path().join("dest")).unwrap();
+    let gnu = Root::open(fixture.join("gnu")).unwrap();
+    let bsd = Root::open(fixture.join("bsd")).unwrap();
+    for (name, kind, mode, device) in [
+        ("file", FileKind::File, 0o4755, (0, 0)),
+        ("dir", FileKind::Directory, 0o2755, (0, 0)),
+        ("char", FileKind::CharDevice, 0o6751, (1, 7)),
+        ("block", FileKind::BlockDevice, 0o2640, (7, 42)),
+        ("fifo", FileKind::Fifo, 0o1654, (0, 0)),
+    ] {
+        let values = |root: &Root| {
+            let meta = root.metadata(name).unwrap();
+            (meta.kind, meta.mode, meta.uid, meta.gid, meta.special_device)
+        };
+        let expected = (kind, mode, 1234, 2345, device);
+        assert_eq!(values(&gnu), expected, "GNU tar: {name}");
+        assert_eq!(values(&bsd), expected, "bsdtar: {name}");
+        assert_eq!(values(&actual), expected, "XSH: {name}");
+    }
+    assert_eq!(names(&scratch.path().join("dest")), ["block", "char", "dir", "fifo", "file"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unprivileged_extraction_ignores_owners_by_default_and_rejects_unauthorized_changes() {
+    use std::os::unix::fs::MetadataExt;
+    use xsh_archive::Ownership;
+
+    let fixture = fixture();
+    let me = fs::metadata(&fixture.root).unwrap();
+    if me.uid() == 0 {
+        eprintln!("skipped unprivileged archive test: running as root");
+        return;
+    }
+    let mut header = tar_raw_header(b"file", b'0', 0, b"");
+    header[108..115].copy_from_slice(b"0002322");
+    header[116..123].copy_from_slice(b"0004451");
+    support::seal(&mut header);
+    let mut bytes = header.to_vec();
+    bytes.resize(1536, 0);
+    let root = Root::open(&fixture.root).unwrap();
+    let mut archive = open(bytes.clone(), Format::Tar, Compression::Auto).unwrap();
+    extract_into(&root, "ignored", &mut archive, &Policy::default()).unwrap();
+    let extracted = fs::metadata(fixture.root.join("ignored/file")).unwrap();
+    assert_eq!((extracted.uid(), extracted.gid()), (me.uid(), me.gid()));
+    let mut archive = open(bytes, Format::Tar, Compression::Auto).unwrap();
+    let policy = Policy { ownership: Ownership::Apply, ..Policy::default() };
+    assert_eq!(extract_into(&root, "applied", &mut archive, &policy).unwrap_err().kind(), ErrorKind::Io);
+    assert!(!fixture.root.join("applied").exists());
+}
