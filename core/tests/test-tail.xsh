@@ -776,11 +776,24 @@ test test_tail_redirected_initial_output_stays_buffered_during_terminal_read { |
   fp"{root}/data".write(b"file data\n")
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  assert unix.write_fd(pty.master, b"terminal input\n")? == 15
+  assert "readable" in unix.poll_fd(pty.replica, ["readable"], timeout_ms: 5000)?
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "-f", "data", "-"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, p"/dev/ptmx", stdout, stderr)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, Path(pty.name), stdout, stderr)
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(500ms)
+  var consumed = false
+  for _ in range(3000) {
+    if "readable" not in unix.poll_fd(pty.replica, ["readable"], timeout_ms: 0)? {
+      consumed = true
+      break
+    }
+    time.sleep(10ms)
+  }
+  assert consumed, "tail did not consume the terminal input"
   assert process.wait_timeout([child], 0ms)? == null
   child.cancel(signal: "KILL", kill_after: 0ms)
   assert stdout.read_bytes()? == b""
