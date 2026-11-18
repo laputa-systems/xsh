@@ -2280,7 +2280,7 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
     target = products[0].parent.parent
     script = (
         "cd /work; "
-        + _cargo_environment().replace("CARGO_TARGET_DIR=/cargo-target", "CARGO_TARGET_DIR=/target")
+        + _cargo_environment().replace("CARGO_TARGET_DIR=/cargo-target", "CARGO_TARGET_DIR=/t/cargo-target")
         + shlex.join(("cargo", "run", "--quiet", "--locked", "--target", TARGET, "-p", "xsh", "--bin", "xsh",
                       "--", "dev/main.xsh", "--", "docs", "check"))
     )
@@ -2289,7 +2289,6 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
         mounts=[
             f"type=bind,source={runtime.ROOT},target=/work,readonly",
             DOCS_PRIVATE_CARGO_LOCKS,
-            f"type=bind,source={target},target=/target",
             f"type=bind,source={products[0]},target=/products,readonly",
             *[
                 mount
