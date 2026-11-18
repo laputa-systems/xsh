@@ -185,6 +185,26 @@ impl Root {
         fchmod(&opened, mode_bits(mode)).map_err(io::Error::from)
     }
 
+    /// Set the mode of a special file this root created, without opening it.
+    pub fn set_node_mode(&self, path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+        let target = self.target(path.as_ref())?;
+        if !matches!(
+            FileType::from_raw_mode(
+                statat(target.parent.fd(), target.leaf.as_os_str(), AtFlags::SYMLINK_NOFOLLOW)?.st_mode
+            ),
+            FileType::Fifo | FileType::CharacterDevice | FileType::BlockDevice
+        ) {
+            return Err(invalid("the path is not a special file"));
+        }
+        chmodat(
+            target.parent.fd(),
+            target.leaf.as_os_str(),
+            mode_bits(mode),
+            AtFlags::empty(),
+        )
+        .map_err(io::Error::from)
+    }
+
     pub fn set_owner(&self, path: impl AsRef<Path>, uid: u32, gid: u32) -> io::Result<()> {
         let target = self.target(path.as_ref())?;
         chownat(
