@@ -66,8 +66,9 @@ inode IDs, mapped by fixture identity. The exceptions are:
 Parity, source checks, the harness self-test and `baseline --check` run
 qualified verification products from
 `.work/protected-products/util-linux-runtime-SOURCE` in the original checkout.
-`SOURCE` is the latest commit that changed a Rust input (`src`, `crates`,
-`third_party`, `tests/helpers`, the Cargo manifests and `.cargo`). The
+`SOURCE` is the latest commit that changed a Rust input: `src`, `crates`,
+`third_party`, `tests/helpers`, `.cargo`, `Cargo.toml`, `Cargo.lock`,
+`build.rs` or `rust-toolchain.toml`. The
 directory's `receipt.json` records that commit and the SHA-256 of `xsh`, `xsht`
 and `xsh-test-helper`. These commands refuse to run when a Rust input differs
 from `SOURCE` or is untracked, when the receipt is missing or names another
