@@ -872,7 +872,7 @@ fn test_help_describes_native_test_concurrency_bounds() {
     assert!(output.stderr.is_empty());
     assert!(String::from_utf8(output.stdout)
         .expect("UTF-8 test help")
-        .contains("default: one per CPU core capped at 32; max 8 per file"));
+        .contains("default: one per CPU core capped at 32; per file half of N, 8 to 16"));
 }
 
 #[test]
