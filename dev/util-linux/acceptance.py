@@ -45,7 +45,7 @@ HOST_BOUNDARY_FILES = (
 
 _CASE_DECLARATION = re.compile(r"^test (test_[A-Za-z0-9_]+)\s*\{", re.MULTILINE)
 _NATIVE_SELECTOR = re.compile(
-    r"^(?P<path>(?:core/tests|dev/tests|tests|showcase/tests)/[A-Za-z0-9_./-]+\.xsh)::"
+    r"^(?P<path>(?:core/tests|dev/tests|tests|showcase/tests)/[A-Za-z0-9_./\[-]+\.xsh)::"
     r"(?P<name>test_[A-Za-z0-9_]+)$"
 )
 _SUMMARY = re.compile(

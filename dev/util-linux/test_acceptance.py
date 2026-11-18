@@ -297,6 +297,12 @@ class NativeSuiteParserTests(unittest.TestCase):
             ),
         )
 
+    def test_selector_list_accepts_the_bracket_applet_test_file(self):
+        self.assertEqual(
+            acceptance._parse_native_selector_list("full-native", b"core/tests/test-[.xsh::test_bracket\n"),
+            ("core/tests/test-[.xsh::test_bracket",),
+        )
+
     def test_selector_list_rejects_zero_tests_duplicates_and_malformed_rows(self):
         for output, message in (
             (b"", "empty or malformed"),
