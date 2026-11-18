@@ -2272,6 +2272,9 @@ def run_repository_contract(runtime: ResourceRuntime, source: SourceIdentity) ->
     )
 
 
+DOCS_PRIVATE_CARGO_LOCKS = "type=tmpfs,target=/work/.work/consolidation/infra"
+
+
 def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
     products = _qualified_candidate(runtime, source)
     target = products[0].parent.parent
@@ -2285,6 +2288,7 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
         script,
         mounts=[
             f"type=bind,source={runtime.ROOT},target=/work,readonly",
+            DOCS_PRIVATE_CARGO_LOCKS,
             f"type=bind,source={target},target=/target",
             f"type=bind,source={products[0]},target=/products,readonly",
             *[
