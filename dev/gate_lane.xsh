@@ -205,6 +205,7 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-lslocks.xsh::test_lslocks_filter_values_and_hidden_columns",
     "core/tests/test-lslocks.xsh::test_lslocks_help_and_usage_errors",
     "core/tests/test-lslocks.xsh::test_lslocks_list_columns_modes",
+    "core/tests/test-lslocks.xsh::test_lslocks_overlay_descriptor_path",
     "core/tests/test-lslocks.xsh::test_lslocks_output_column_names_and_errors",
     "core/tests/test-lslocks.xsh::test_lslocks_path_escaping_and_non_utf8_names",
     "core/tests/test-lslocks.xsh::test_lslocks_posix_holders",

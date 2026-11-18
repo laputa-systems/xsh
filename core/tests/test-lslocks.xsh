@@ -1213,6 +1213,40 @@ test test_lslocks_unreadable_proc_locks { |ctx|
   assert candidate.status.exited_with(255) and candidate.stdout == "" and candidate.stderr == ""
 }
 
+test test_lslocks_overlay_descriptor_path { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let lower = uu.at(s, "lower")
+  let upper_mount = uu.at(s, "upper-mount")
+  lower.mkdir()
+  upper_mount.mkdir()
+  let lower_file = fp"{lower}/locked"
+  lower_file.write("lowerdata")
+  assert (run.capture --text mount -t tmpfs none $upper_mount).status.exited_with(0)
+  defer { run.status umount $upper_mount }
+  let upper = fp"{upper_mount}/upper"
+  let work = fp"{upper_mount}/work"
+  let overlay = fp"{upper_mount}/overlay"
+  upper.mkdir()
+  work.mkdir()
+  overlay.mkdir()
+  let options = f"lowerdir={lower},upperdir={upper},workdir={work}"
+  assert (run.capture --text mount -t overlay overlay -o $options $overlay).status.exited_with(0)
+  defer { run.status umount $overlay }
+  let lock_path = fp"{overlay}/locked"
+  let script = uu.at(s, "overlay-keeper.py")
+  script.write("import fcntl,os,sys\nf=os.open(sys.argv[1],os.O_RDONLY)\nfcntl.flock(f,fcntl.LOCK_SH)\nprint(os.getpid(),flush=True)\nsys.stdin.readline()\n")
+  let keeper = ul.start_keeper(s, script, [lock_path.display()])?
+  defer ul.stop_keeper(keeper)
+  let pid = keeper.ready.trim()
+  for args in [["-p", f"{pid}", "-o", "PATH,SIZE"], ["-J", "-p", f"{pid}", "-o", "PATH,SIZE"], ["-i", "-p", f"{pid}", "-o", "PATH"]] {
+    let result = compared(s, args)?
+    assert lock_path.display() in (result.stdout.utf8() ?? "")
+  }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
+}
+
 test test_lslocks_descriptor_device_collision { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?

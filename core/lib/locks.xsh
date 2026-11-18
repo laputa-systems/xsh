@@ -262,9 +262,7 @@ proc descriptor_locks(files: List[LinuxOpenFile]) [fs] -> List[DescriptorLock] {
 
 pure file_path(files: List[LinuxOpenFile], pid: Int, lock: KernelLock) -> LinuxOpenFile? {
   for file in files {
-    if let dev = file.dev {
-      if file.pid == pid and file.fd > 0 and file.inode == lock.inode and fs.dev_major(dev) == lock.major and fs.dev_minor(dev) == lock.minor { return file }
-    }
+    if file.pid == pid and file.fd > 0 and file.inode == lock.inode { return file }
   }
   null
 }
