@@ -192,7 +192,7 @@ test test_uu_env_env_with_empty_executable_double_quotes { |ctx|
 # origin: uutils test_env::test_env_overwrite_arg0
 test test_uu_env_env_overwrite_arg0 { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke(s, "env", ["--argv0", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r1 = uu.invoke(s, "env", ["--argv0", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "hijacked\n")
 }
@@ -200,16 +200,16 @@ test test_uu_env_env_overwrite_arg0 { |ctx|
 # origin: uutils test_env::test_env_arg_argv0_overwrite
 test test_uu_env_env_arg_argv0_overwrite { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke(s, "env", ["--argv0", "dirname", "--argv0", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r1 = uu.invoke(s, "env", ["--argv0", "dirname", "--argv0", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "hijacked\n")
-  let r2 = uu.invoke(s, "env", ["-a", "dirname", "-a", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r2 = uu.invoke(s, "env", ["-a", "dirname", "-a", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "hijacked\n")
-  let r3 = uu.invoke(s, "env", ["--argv0", "dirname", "-a", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r3 = uu.invoke(s, "env", ["--argv0", "dirname", "-a", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "hijacked\n")
-  let r4 = uu.invoke(s, "env", ["-a", "dirname", "--argv0", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r4 = uu.invoke(s, "env", ["-a", "dirname", "--argv0", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r4)
   uu.stdout_only(r4, "hijacked\n")
 }
@@ -217,19 +217,19 @@ test test_uu_env_env_arg_argv0_overwrite { |ctx|
 # origin: uutils test_env::test_env_arg_argv0_overwrite_mixed_with_string_args
 test test_uu_env_env_arg_argv0_overwrite_mixed_with_string_args { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke(s, "env", ["-S--argv0 dirname", "--argv0", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r1 = uu.invoke(s, "env", ["-S--argv0 dirname", "--argv0", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "hijacked\n")
-  let r2 = uu.invoke(s, "env", ["-a", "dirname", r"""-S-a hijacked sh -c 'echo $0'"""])?
+  let r2 = uu.invoke(s, "env", ["-a", "dirname", r"""-S-a hijacked /bin/bash -c 'echo $0'"""])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "hijacked\n")
-  let r3 = uu.invoke(s, "env", [r"""-S--argv0 dirname -a hijacked sh -c 'echo $0'"""])?
+  let r3 = uu.invoke(s, "env", [r"""-S--argv0 dirname -a hijacked /bin/bash -c 'echo $0'"""])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "hijacked\n")
-  let r4 = uu.invoke(s, "env", ["-S-a dirname", r"""-S--argv0 hijacked sh -c 'echo $0'"""])?
+  let r4 = uu.invoke(s, "env", ["-S-a dirname", r"""-S--argv0 hijacked /bin/bash -c 'echo $0'"""])?
   uu.succeeds(r4)
   uu.stdout_only(r4, "hijacked\n")
-  let r5 = uu.invoke(s, "env", ["-a", "sleep", "-S-a dirname", "-a", "hijacked", "sh", "-c", r"""echo $0"""])?
+  let r5 = uu.invoke(s, "env", ["-a", "sleep", "-S-a dirname", "-a", "hijacked", "/bin/bash", "-c", r"""echo $0"""])?
   uu.succeeds(r5)
   uu.stdout_only(r5, "hijacked\n")
 }
@@ -504,7 +504,7 @@ test test_uu_env_disallow_equals_sign_on_short_unset_option { |ctx|
 test test_uu_env_simulation_of_terminal_false { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "env", "is_a_tty.sh", "is_a_tty.sh")
-  let r = uu.invoke(s, "env", ["sh", "is_a_tty.sh"])?
+  let r = uu.invoke(s, "env", ["/bin/sh", "is_a_tty.sh"])?
   uu.succeeds(r)
   uu.stdout_is(r, "stdin is not a tty\nstdout is not a tty\nstderr is not a tty\n")
   uu.stderr_is(r, "This is an error message.\n")

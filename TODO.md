@@ -107,43 +107,6 @@ out of scope.
 - **Effort:** M
 
 
-### XSH-95 · P2 · Make native tests robust to concurrent suite load
-
-- **Area:** Tests
-- **Where:** the 24 modules below
-- **Problem:** At `e3e1656d5`, four native suites run concurrently in the pinned image, then a retry, failed these IDs. The label after each run is FAILED or TIMEOUT; most also fail in a single suite at host load above 40 and pass alone, so the common cause is unproven per ID. Both sweeps also lacked writable gate-infrastructure mounts for the developer tests, which are not listed. These failures can void timed qualification runs that share the host.
-  - `core/tests/test-bb-sed-1.xsh`: test_bb_sed_sed_normal_newlines_a3cedd0b (first-1:FAILED)
-  - `core/tests/test-find.xsh`: test_find_matches_recorded_gnu_output_0 (first-1:TIMEOUT, first-3:TIMEOUT, first-4:TIMEOUT, retry-1:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT); test_find_matches_recorded_gnu_output_1 (first-1:TIMEOUT, first-2:TIMEOUT, first-3:TIMEOUT, first-4:TIMEOUT, retry-1:TIMEOUT, retry-2:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT); test_find_matches_recorded_gnu_output_2 (first-1:TIMEOUT, first-2:TIMEOUT, first-3:TIMEOUT, first-4:TIMEOUT, retry-1:TIMEOUT, retry-2:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT); test_find_matches_recorded_gnu_output_3 (first-1:TIMEOUT, first-2:TIMEOUT, first-3:TIMEOUT, first-4:TIMEOUT, retry-1:TIMEOUT, retry-2:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT); test_find_matches_recorded_gnu_output_4 (first-1:TIMEOUT, first-2:TIMEOUT, first-3:TIMEOUT, retry-2:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT); test_find_matches_recorded_gnu_output_5 (first-4:TIMEOUT)
-  - `core/tests/test-gnu-cat.xsh`: test_gnu_cat_splice_log (first-2:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED)
-  - `core/tests/test-gnu-cut.xsh`: test_gnu_cut_cut_log_core_97_to_97 (first-4:FAILED, retry-2:FAILED); test_gnu_cut_cut_log_multibyte_17_to_33 (first-1:FAILED, first-3:FAILED, first-4:FAILED)
-  - `core/tests/test-gnu-head.xsh`: test_gnu_head_head_pos_log (first-2:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-gnu-od.xsh`: test_gnu_od_od_multiple_t_log (first-1:TIMEOUT, first-2:TIMEOUT, first-3:TIMEOUT, first-4:TIMEOUT, retry-1:TIMEOUT, retry-2:TIMEOUT, retry-3:TIMEOUT, retry-4:TIMEOUT)
-  - `core/tests/test-gnu-rm.xsh`: test_gnu_rm_isatty_log (first-3:FAILED, retry-3:FAILED)
-  - `core/tests/test-gnu-wc.xsh`: test_gnu_wc_wc_parallel_log (first-1:FAILED, first-2:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-lscpu.xsh`: test_lscpu_fixture_preserves_cpu_identity_and_offline_selection (first-1:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-lsmem.xsh`: test_lsmem_util_linux_2_42_4_upstream_x86_64_16g (first-2:FAILED, first-3:FAILED, retry-1:FAILED, retry-4:FAILED)
-  - `core/tests/test-lspci.xsh`: test_lspci_help_and_unsupported_register_reads_are_deterministic (first-1:FAILED, first-2:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-lsusb.xsh`: test_lsusb_help_and_invalid_node_are_deterministic (first-1:FAILED, first-2:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-rfkill.xsh`: test_rfkill_invalid_command_is_rejected_before_inventory (retry-3:FAILED)
-  - `core/tests/test-sensors.xsh`: test_sensors_rejects_configuration_and_mutation_options (first-1:FAILED, first-2:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED)
-  - `core/tests/test-seq.xsh`: test_seq_option_errors_and_infinite_sequences_stream (retry-1:FAILED); test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers (first-1:FAILED, first-2:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED)
-  - `core/tests/test-sort.xsh`: test_sort_checks_all_input_paths_before_opening_fifo (first-1:FAILED, retry-1:FAILED, retry-2:FAILED)
-  - `core/tests/test-split.xsh`: test_split_filter_byte_chunks_keep_processing_until_timeout (first-1:FAILED, first-3:FAILED, retry-1:FAILED, retry-2:FAILED)
-  - `core/tests/test-tail.xsh`: test_tail_redirected_initial_output_stays_buffered_during_terminal_read (first-2:FAILED, first-3:FAILED, first-4:FAILED, retry-1:FAILED, retry-2:FAILED, retry-3:FAILED, retry-4:FAILED)
-  - `core/tests/test-uu-env-1.xsh`: test_uu_env_env_arg_ignore_signal_valid_signals (retry-3:FAILED)
-  - `core/tests/test-uu-ls-2.xsh`: test_uu_ls_ls_long_formats (retry-2:TIMEOUT)
-  - `core/tests/test-uu-ls-3.xsh`: test_uu_ls_ls_width (first-1:TIMEOUT)
-  - `core/tests/test-uu-tail-2.xsh`: test_uu_tail_retry9 (retry-2:FAILED)
-  - `tests/xsh/named-argument-spreading.xsh`: test_named_argument_spread_handles_sixteen_thousand_fields_with_a_wall_guard (first-4:FAILED)
-  - `tests/xsh/stream-producers.xsh`: test_process_stream_is_stopped_before_its_scope_defers (first-4:FAILED)
-- **Recommendation:** Reproduce each under the same four-suite load, separate per-process timeouts that are shorter than the work under load from real ordering races, and fix the test oracle or the product. Never raise a budget to hide a race; a budget may change only when its value is shown not to be what the test asserts.
-- **2026-11-18 loaded reproduction:** At `136efa14226e8f54438b1b54536e614e24d22e59`, each file above was run with the pinned `xsht test FILE -j 16` alongside three `xsht test core/tests -j 16` runs. Every ID above except the tail ID passed and is classified **not reproducible** in this attempt; its earlier cause remains unestablished. In particular, find shares 0–5 passed in 67–72 s, od multiple-t in 99 s, wc parallel in 28.9 s, ls long-formats in 66 s, ls width in 44.5 s, and the named-spread wall guard in 6.0 s. These passes do not establish that their historical failures are fixed. The find file exited 1 because the separate nonroot corpus case timed out at 120 s; the env file exited 1 on four other shell-environment cases. All other listed files except tail exited 0.
-- **Tail disposition:** `test_tail_redirected_initial_output_stays_buffered_during_terminal_read` failed under load after 518 ms with empty stderr instead of the warning. This is an **ordering race**: the 500 ms sleep expired before the child reached the warning. Commit `b8a4090b3` synchronizes on consumption of queued terminal input, which occurs after the first operand is processed, and retains the buffered-output and warning assertions. The entire tail file passed three consecutive times under the same three-suite load (37 passed each), and the exact case passed alone. Continue investigating the other IDs when their failures can be reproduced.
-- **Whole-file limits:** Repeating find and env with `PATH=/usr/bin:/bin` under the same load again passed all their listed IDs, but both commands exited 1: the unlisted nonroot find corpus again timed out at 120 s, and three unlisted env argv-zero cases failed with `hijacked: applet not found` from the host's BusyBox `sh`. The initial env run instead resolved a user-local `sh` wrapper. These other cases are outside this ticket's listed IDs; whole-file success for those two commands remains unverified.
-- **Blocks:** overlapping the native suite with the Rust stages in `cargo dev test linux`, parked on branch `lane/suite-wall`. At `4f9874c4f` the serial contract passed in 3,158 s on a quiet host (15,506 passed, 174 skipped). The overlapped candidate (native suite on 16 CPUs, Rust stages on the other 16) raised load to 49.8 on 32 cores and failed `core_compat_boundaries::test_dev_full_show_all` (`timed out reading stdout prefix`), which passed in the baseline. Retry the overlap only after this item lands. Raising the native suite from its default 16 jobs (one per physical core) to 24 or 32 on this host measured 1,151 s and 1,112 s against 1,305 s at 16 jobs in single runs; adopt it only once these tests are robust to that load.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-103 · P3 · Qualify the util-linux cohort on non-UTF-8 and unreadable host state
 
 - **Area:** Core commands
