@@ -123,7 +123,7 @@ its change.
 | Severity | Defect | Fix and test |
 |---|---|---|
 | Medium | A server could send channel data, extended data, EOF, close or a completion before its reply to the `exec` request, and the command failed as a protocol error after submission. RFC 4254 section 5.4 lets the sender continue without waiting for a reply, and section 6.5 orders neither the reply nor the command's traffic; OpenSSH and Dropbear reply first, but the RFC does not require it. | `Channel::exec` holds those messages, bounded by the receive window and 1024 packets, and delivers them in order once the reply succeeds. `output_and_completion_before_the_exec_reply_are_delivered` |
-| Medium | `Connection::exec_stream` called the caller's writers synchronously, so one that blocked stopped the connection from answering keepalives, key exchanges and other requests, as a stalled output file once did. | The connection runs on one bounded scoped thread with nonblocking pipes for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input source, feeds and drains them, holding at most the pipe capacity and the receive window. A writer that never returns still keeps the call from returning, but no longer stops service. `a_stalled_writer_does_not_stop_the_connection_from_being_served` |
+| Medium | `Connection::exec_stream` called the caller's writers synchronously, so one that blocked stopped the connection from answering keepalives, key exchanges and other requests, as a stalled output file once did. | The connection runs on one bounded scoped thread with nonblocking pipes for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input source, feeds and drains them, holding at most the pipe capacity and the receive window. Since XSH-109 the writers are owned and run on their own threads, so a writer that never returns no longer keeps the call from returning either. `a_stalled_writer_does_not_stop_the_connection_from_being_served` |
 
 ### Agent establishment and private-key buffers
 
@@ -187,10 +187,11 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
   it came from, the receive buffer while it grows, and whatever a caller's writer
   keeps after the bounded pipe copies it. Swap and core dumps are outside any
   guarantee.
-- A writer passed to `Connection::exec_stream` that never returns still keeps
-  the call from returning, although it no longer stops the connection from
-  serving the command; a writer that is merely slow holds up to the bounded
-  pipe and the receive window.
+- `Connection::exec_stream` takes owned writers, each driven by its own thread,
+  and returns them on success. A writer that never returns no longer keeps the
+  call from returning: the deadline or interrupt returns the typed outcome, and
+  that writer's thread stays blocked until its write returns (XSH-109). A writer
+  that is merely slow holds up to the bounded pipe and the receive window.
 - An output FIFO whose reader opens later than the command start is refused
   (`ENXIO`) rather than waited for.
 - The session handle is a counter into a process-wide registry, and `ssh.exec`
