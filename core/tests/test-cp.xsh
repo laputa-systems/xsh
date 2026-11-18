@@ -230,7 +230,9 @@ test test_cp_interactive_decline_and_accept { |ctx|
   assert declined.stderr == f"cp: overwrite '{dest}'? "
   let yes = fp"{root}/yes"
   yes.write("y\n")
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i $source $dest < $yes
+  let accepted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i $source $dest < $yes
+  assert accepted.status.exited_with(0)
+  assert accepted.stderr == f"cp: overwrite '{dest}'? "
   assert dest.read_text()? == "new"
 }
 
@@ -392,7 +394,9 @@ test test_cp_option_order_and_equals_validation { |ctx|
   dest.write("old")
   let input = fp"{root}/input"
   input.write("y\n")
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -n -i $source $dest < $input
+  let prompted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -n -i $source $dest < $input
+  assert prompted.status.exited_with(0)
+  assert prompted.stderr == f"cp: overwrite '{dest}'? "
   assert dest.read_text()? == "new"
   source.write("changed")
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i -n $source $dest < $input

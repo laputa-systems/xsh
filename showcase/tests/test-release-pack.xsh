@@ -16,8 +16,10 @@ test test_release_pack_refuses_existing_output { |ctx|
   let old_archive = fp"{out}/release.tar"
   old_archive.write("previous release")
 
-  let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  assert ! status.exited_with(0), "existing output must not be replaced"
+  let result = run.capture --text "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
+  assert ! result.status.exited_with(0), "existing output must not be replaced"
+  assert result.stdout.find("output already exists") != null, result.stdout
+  assert result.stderr == "", result.stderr
   assert old_archive.read_text()? == "previous release"
 }
 
@@ -25,8 +27,9 @@ test test_release_pack_cleans_failed_staging { |ctx|
   let source = test.temp_file(ctx, name: "not-a-directory", contents: b"invalid source")?
   let out = test.temp_path(ctx, name: "new-release")
   let pending = fp"{out.parent}/.{out.name()}.xsh-stage"
-  let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  assert ! status.exited_with(0), "invalid source must fail"
+  let result = run.capture --text "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
+  assert ! result.status.exited_with(0), "invalid source must fail"
+  assert result.stderr.find("fs-copy-tree: source is not a directory") != null, result.stderr
   assert ! out.exists()?
   assert ! pending.exists()?
 }
@@ -35,8 +38,10 @@ test test_release_pack_rejects_output_inside_input { |ctx|
   let source = test.temp_dir(ctx, name: "nested-source")?
   fp"{source}/input".write("unchanged")
   let out = fp"{source}/release"
-  let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  assert ! status.exited_with(0), "output inside source would recurse during copy"
+  let result = run.capture --text "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
+  assert ! result.status.exited_with(0), "output inside source would recurse during copy"
+  assert result.stdout.find("output must be outside the input tree") != null, result.stdout
+  assert result.stderr == "", result.stderr
   assert fp"{source}/input".read_text()? == "unchanged"
   assert ! out.exists()?
 }

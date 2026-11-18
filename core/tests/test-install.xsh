@@ -93,8 +93,9 @@ test test_install_backup_cannot_destroy_source { |ctx|
   let dest = fp"{root}/file"
   source.write("source")
   dest.write("destination")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -b $source $dest
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -b $source $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: backing up '{dest}' might destroy source;  '{source}' not copied\n", result.stderr
   assert source.read_text()? == "source"
   assert dest.read_text()? == "destination"
 }
@@ -111,8 +112,9 @@ test test_install_directory_continues_after_existing_file { |ctx|
   let existing = fp"{root}/existing"
   existing.write("keep")
   let later = fp"{root}/later"
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d $existing $later
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d $existing $later
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: cannot create directory '{existing}': File exists\n", result.stderr
   assert existing.read_text()? == "keep"
   assert later.is_dir()?
 }
@@ -155,8 +157,9 @@ test test_install_missing_directory_target_does_not_create_it { |ctx|
   let source = fp"{root}/source"
   source.write("payload")
   let target = fp"{root}/missing/"
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -D $source $target
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -D $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: cannot create regular file '{target}': Not a directory\n", result.stderr
   assert ! target.exists()?
   assert source.read_text()? == "payload"
 }
@@ -207,8 +210,9 @@ test test_install_source_symlink_cannot_replace_its_own_target { |ctx|
   target.write("keep")
   let source = fp"{root}/source"
   source.symlink(to: target)
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $source $target
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: '{source}' and '{target}' are the same file\n", result.stderr
   assert target.read_text()? == "keep"
   assert source.readlink()? == target
 }

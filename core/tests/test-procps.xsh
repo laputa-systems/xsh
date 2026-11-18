@@ -48,8 +48,12 @@ while ! release.exists()? { time.sleep(10ms) }
   let parent = owned[0].parent_pid
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pgrep.xsh" -- -P $parent -x owned[0].command
   assert f"{child.pid}" in output.split("\n")
-  let delivered = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x owned[0].command
-  assert delivered.exited_with(0)
+  let delivered = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x owned[0].command
+  assert delivered.status.exited_with(0)
+  # Sibling tests of the same runner share the parent and name; one may exit between selection and signal.
+  for line in delivered.stderr.lines() {
+    assert line.ends_with(": process does not exist") and ! line.starts_with(f"pkill: {child.pid}:"), delivered.stderr
+  }
   let ps = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ps.xsh" -- -p ${child.pid} -o pid=,comm=
   assert ps.trim() == f"{child.pid} {owned[0].command}"
   let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- owned[0].command
@@ -126,8 +130,10 @@ test test_procps_inspection_finds_owned_directory_descriptor { |ctx|
   assert "DIR" in listing and f"{pid}" in listing
   let terse = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/lsof.xsh" -- -t -p $pid $directory
   assert terse.trim() == f"{pid}"
-  let owners = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fuser.xsh" -- $directory
-  assert f"{pid}" in owners.trim().split(" ")
+  let owners = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/fuser.xsh" -- $directory
+  assert owners.status.exited_with(0)
+  assert owners.stderr.trim() == f"{directory}:", owners.stderr
+  assert f"{pid}" in owners.stdout.trim().split(" ")
 }
 
 

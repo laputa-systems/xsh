@@ -45,8 +45,9 @@ test test_mv_continues_after_missing_source { |ctx|
   let dest = fp"{root}/dir"
   source.write("data")
   dest.mkdir()
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- fp"{root}/missing" $source $dest
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- fp"{root}/missing" $source $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"mv: cannot stat '{root}/missing': No such file or directory\n", result.stderr
   assert fp"{dest}/source".read_text()? == "data"
 }
 
@@ -110,8 +111,9 @@ test test_mv_exchange_swaps_file_and_directory_atomically { |ctx|
 
 test test_mv_same_entry_fails_and_retains_source { |ctx|
   let source = test.temp_file(ctx, contents: b"keep")?
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $source
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $source
+  assert result.status.exited_with(1)
+  assert result.stderr == f"mv: '{source}' and '{source}' are the same file\n", result.stderr
   assert source.read_text()? == "keep"
 }
 

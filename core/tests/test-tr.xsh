@@ -58,8 +58,9 @@ test test_tr_repeat_leaves_room_for_suffix_and_rejects_misaligned_classes { |ctx
   let input = test.temp_file(ctx, name: "raw", contents: b"abcd")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- a-d "[x*]YZ" < $input
   assert output == "xxYZ"
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -t "1[:upper:]" "[:upper:]" < $input
-  assert ! status.exited_with(0)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -t "1[:upper:]" "[:upper:]" < $input
+  assert ! result.status.exited_with(0)
+  assert result.stderr == "tr: misaligned [:upper:] and/or [:lower:] construct\n", result.stderr
 }
 
 test test_tr_requires_a_longer_first_set_to_end_with_plain_characters { |ctx|

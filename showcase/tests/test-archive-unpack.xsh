@@ -38,8 +38,9 @@ test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
 
   let out = test.temp_path(ctx, name: "unsafe-out")
   let pending = fp"{out.parent}/.{out.name()}.xsh-stage"
-  let status = run.status "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
-  assert ! status.exited_with(0), "unsafe member must fail extraction"
+  let result = run.capture --text "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
+  assert ! result.status.exited_with(0), "unsafe member must fail extraction"
+  assert result.stderr.find("symbolic link target escapes the extraction root") != null, result.stderr
   assert ! out.exists()?, "failed extraction must not publish partial output"
   assert ! pending.exists()?, "failed extraction must clean its staging directory"
 }

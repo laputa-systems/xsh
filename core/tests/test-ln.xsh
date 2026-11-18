@@ -25,8 +25,9 @@ test test_ln_failed_force_preserves_destination { |ctx|
   let root = test.temp_dir(ctx)?
   let dest = fp"{root}/dest"
   dest.write("keep")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -f fp"{root}/missing" $dest
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -f fp"{root}/missing" $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"ln: failed to access '{root}/missing': No such file or directory\n", result.stderr
   assert dest.read_text()? == "keep"
 }
 
@@ -46,16 +47,18 @@ test test_ln_backup_restored_on_failed_link { |ctx|
   let root = test.temp_dir(ctx)?
   let dest = fp"{root}/dest"
   dest.write("keep")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -b fp"{root}/missing" $dest
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -b fp"{root}/missing" $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"ln: failed to access '{root}/missing': No such file or directory\n", result.stderr
   assert dest.read_text()? == "keep"
   assert ! fp"{dest}~".exists()?
 }
 
 test test_ln_force_same_entry_keeps_source { |ctx|
   let source = test.temp_file(ctx, contents: b"keep")?
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sf $source $source
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sf $source $source
+  assert result.status.exited_with(1)
+  assert result.stderr == f"ln: '{source}' and '{source}' are the same file\n", result.stderr
   assert fs.stat(source)?.kind == "file"
   assert source.read_text()? == "keep"
 }
@@ -114,8 +117,9 @@ test test_ln_no_dereference_does_not_imply_force { |ctx|
   let dest = fp"{root}/dest"
   source.write("new")
   dest.write("old")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sn $source $dest
-  assert status.exited_with(1)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sn $source $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"ln: failed to create symbolic link '{dest}': File exists\n", result.stderr
   assert dest.read_text()? == "old"
 }
 
