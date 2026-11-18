@@ -300,6 +300,11 @@ proc filtered_lock_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   Ok()
 }
 
+pure scene_rows(s: uu.Scene, lines: List[Str]) -> List[Str] {
+  if lines.is_empty() { return [] }
+  [lines[0]] + [line for line in lines[1..] if s.root.display() in line]
+}
+
 proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
   let first_path = uu.at(s, "rows-first")
@@ -311,22 +316,22 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -
   defer ul.stop_keeper(second)
   let second_ready = json.decode(second.ready)?.require(LockReady)?
   let all = compared(s, ["--raw"], {LC_ALL: "C"})?
-  let all_lines = all.stdout.utf8()?.lines()
+  let all_lines = scene_rows(s, all.stdout.utf8()?.lines())
   for column in ["COMMAND", "PID", "TYPE", "SIZE", "MODE", "M", "START", "END", "PATH"] {
     assert column in all_lines[0], column
   }
   assert all_lines.len() == 3
   let type_only = compared(s, ["--raw"], {LSLOCKS_COLUMNS: "TYPE"})?
   let type_lines = type_only.stdout.utf8()?.lines()
-  assert type_lines[0] == "TYPE" and type_lines.len() == 3
+  assert type_lines[0] == "TYPE" and type_lines.len() == all.stdout.utf8()?.lines().len()
   let extended = compared(s, ["--raw"], {LSLOCKS_COLUMNS: "+BLOCKER"})?
-  let extended_lines = extended.stdout.utf8()?.lines()
+  let extended_lines = scene_rows(s, extended.stdout.utf8()?.lines())
   for column in ["COMMAND", "PID", "TYPE", "SIZE", "MODE", "M", "START", "END", "PATH", "BLOCKER"] {
     assert column in extended_lines[0], column
   }
   assert extended_lines.len() == 3
   let selected = compared(s, ["--raw", "--output", "PATH,TYPE"], {LSLOCKS_COLUMNS: "PID"})?
-  let selected_lines = selected.stdout.utf8()?.lines()
+  let selected_lines = scene_rows(s, selected.stdout.utf8()?.lines())
   assert "PATH" in selected_lines[0] and "TYPE" in selected_lines[0]
   assert ! ("PID" in selected_lines[0]) and selected_lines.len() == 3
   for ready in [first_ready, second_ready] {
@@ -966,7 +971,10 @@ test test_lslocks_exited_flock_acquirer { |ctx|
     ["-n", "-p", f"{pid}", "-o", "COMMAND,PID,PATH"],
   ] {
     let result = compared(s, args)?
-    assert result.stdout.is_empty() != visible
+    let shown = if args[0] == "-J" and ! result.stdout.is_empty() {
+      ! json.get(json.decode(result.stdout.utf8() ?? "")?, ["locks"])?.require(List[Any])?.is_empty()
+    } else { ! result.stdout.is_empty() }
+    assert shown == visible
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
