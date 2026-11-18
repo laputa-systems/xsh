@@ -267,6 +267,16 @@ test test_lsmem_sysroot_memory_symlink_escaping_the_root { |ctx|
   }
 }
 
+test test_lsmem_sysroot_sys_symlink_keeps_firmware_configuration { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "configured")?
+  uu.mkdir(s, "linked-config-root")?
+  uu.at(s, "linked-config-root/sys").symlink(to: uu.at(s, "sys"))?
+  for args in [[], ["--summary=only"], ["-o", "RANGE,STATE,CONFIGURED"]] {
+    compare_lsmem(s, ["-s", uu.at(s, "linked-config-root").display()].extend(args))?
+  }
+}
+
 test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "configured")?

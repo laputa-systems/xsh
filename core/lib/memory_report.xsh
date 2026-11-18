@@ -345,14 +345,19 @@ pure without_final_newline(text: Str) -> Str {
   if text.ends_with("\n") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
 }
 
+type Listing = {children: List[RelPath], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}
+
+proc rooted_listing(root: FsRoot, directory_path: RelPath) [fs, error] -> Result[Listing, Error] {
+  let listing = root.children(directory_path, max_entries: 65536)?
+  if listing.errno != 18 { return Ok(listing) }
+  let host = root.host_path()?
+  let target = fs.open_root(fp"{host}/{directory_path}")?
+  defer target.close()
+  target.children(p".", max_entries: 65536)
+}
+
 proc children(root: FsRoot, directory_path: RelPath, label: Str) [fs, process, env, error] -> List[RelPath] {
-  var listing = root.children(directory_path, max_entries: 65536)?
-  if listing.errno == 18 {
-    let host = root.host_path()?
-    let target = fs.open_root(fp"{host}/{directory_path}")?
-    defer target.close()
-    listing = target.children(p".", max_entries: 65536)?
-  }
+  let listing = rooted_listing(root, directory_path)?
   if listing.state != "complete" {
     let detail = if listing.error_kind == null { "" } else { f": {listing.error_kind}" }
     fail(f"Failed to read {label}{detail}")
@@ -568,7 +573,7 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
     let separator = if root_path.ends_with("/") { "" } else { "/" }
     fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: no numeric memory entries")
   }
-  let firmware_listing = root.children(p"sys/firmware/memory", max_entries: 65536)
+  let firmware_listing = rooted_listing(root, p"sys/firmware/memory")
   let firmware_root = root.host_path()?
   let config_zero = fp"{firmware_root}/sys/firmware/memory/memory0"
   let have_config = (config_zero.is_dir() ?? false) and (if let Ok(listing) = firmware_listing { listing.state == "complete" } else { false })

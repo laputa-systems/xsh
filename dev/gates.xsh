@@ -216,6 +216,7 @@ const lsmem_edit_test_ids = [
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference",
   "core/tests/test-lsmem.xsh::test_lsmem_sysroot_with_absolute_sys_symlink",
   "core/tests/test-lsmem.xsh::test_lsmem_sysroot_memory_symlink_escaping_the_root",
+  "core/tests/test-lsmem.xsh::test_lsmem_sysroot_sys_symlink_keeps_firmware_configuration",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_configured_memory_and_memmap_summary",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_malformed_block_attributes",
   "core/tests/test-lsmem.xsh::test_lsmem_rooted_numeric_and_state_parsing_matches_reference",
