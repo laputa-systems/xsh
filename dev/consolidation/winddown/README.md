@@ -87,12 +87,23 @@ files and their original manifest. Each input matched that manifest before
 archiving. These are historical finite observations, not current-source or
 universal correctness claims. The original receipt paths remain historical.
 
-The `gate-tools` directory preserves the ignored gate-tool source. It is a
-historical implementation, not an executable acceptance receipt. Its launch
-paths, manifests, source pins, and binary pins require preparation from the
-resumed source. Use the repository's current [testing owner](../../../docs/TESTING.md)
-and the campaign's existing gate requirements. Do not reuse old binaries or
+The `gate-tools` directory preserves the semantic route matrix generators and
+the W9 repository parity helper. They are historical implementations, not
+executable acceptance receipts. Their launch paths, manifests, source pins, and
+binary pins require preparation from the resumed source. Use the repository's
+current [testing owner](../../../docs/TESTING.md). Do not reuse old binaries or
 launch scripts as qualification for a changed source tree.
+
+XSH-19 removed the final correctness, final performance, scheduler comparison
+and infrastructure gate tools, together with the canonical replay, final
+replay and scheduler receipt bridge controllers in `dev/consolidation`. The
+owner-approved baseline in [Testing](../../../docs/TESTING.md#performance-baseline)
+replaced their timed stages. Their source is in Git history at `d03e90f45`;
+read it with `git show d03e90f45:PATH`. Their receipts under `evidence`
+remain historical records. The structural ratchet moved to `dev/ratchets.xsh`
+with a current baseline in `dev/ratchets.json`. No gate reads the campaign
+baselines, provenance records and envelopes in `dev/consolidation`; they record
+the campaign measurements.
 
 To admit the direct-IR selection proof, pass its receipt explicitly:
 
@@ -112,66 +123,6 @@ It requires the reviewed fixture and assertions in
 Build inputs must match, apart from the equivalent XSHT `from_mode(0)` to
 `from_mode(0o0)` spelling. This separate Rust proof credits only the normal
 `ExprIf` in-place route. It neither credits nor relabels XSH artifacts.
-
-The profile-cost and forced-frame commands require `--laputa-corpus PATH` to a
-clean Laputa checkout root. Both record its Git identity, mount that exact path
-read-only, and set `XSH_LAPUTA_CORPUS` to it; pass the same path to both gates.
-
-The pinned opt3 resource flow has two modes. `profile-cost.py --artifacts-only`
-builds only the release `xsh`, `xsht`, and `xsh-test-helper` binaries, probes
-their container limits, and writes an `artifact-qualified` receipt to a fresh
-output under the source tree's `.work/consolidation`. It takes the final
-performance and Cargo locks, but not the native-suite lock, and makes no timing
-claim. Pass that receipt to `final-observers.py --resources-only` to run the
-existing lint and single canonical gate batch while discarding timing even
-when readiness passes. Both Docker stages are bounded to the first 12 allowed
-host CPUs, 24 GiB of memory, no swap, and 12 Cargo jobs; the batch receipt
-validates its effective cgroup limits. Each nested resource receipt also keeps
-wall time null and marks timing discarded; resource acceptance depends on a
-successful command, no signal, valid resource samples, and resolved cleanup.
-The observer holds the performance and native-suite locks across both stages;
-the canonical gate batch acquires the Cargo lock itself. This mode writes a
-fresh observer output directly under
-`.work/final-review-evidence/final-performance-gates`; its receipt binds the
-profile tool path and hash as well as the selected binaries.
-Only this explicit observer mode accepts an `artifact-qualified` profile
-receipt. Timed profile, forced-frame, scheduler, comparative, and observer gates
-still require a `complete` profile-cost receipt.
-
-The observer and forced-frame gates refuse to start while any other container
-from the pinned native image runs, whatever the host load. Work that runs
-alongside a qualification must therefore not use that image. This includes
-Laputa package builds, which compile XSH inside it. Work that uses other images,
-or only edits files, can run beside the timed stages while `perf-gate-ready`
-still passes. The comparative gate and the scheduler pairs measure on one CPU
-and on all 32 CPUs respectively, so nothing else should run during them.
-The profile-cost receipt also binds the Laputa corpus checkout by path, commit,
-and tree. Forced frames refuses the receipt if that checkout moves, so do not
-merge or check out anything in it until forced frames has finished.
-
-### Correctness and timing gates
-
-One run gates correctness: the canonical replay's full native suite on the
-final commit, which must have no failed test. The three scheduler pairs and the
-forced-frame suite are measurements. A failed or timed-out test there does not
-fail the stage; its receipt lists it under `test_failures` (scheduler: round,
-arm, test ID, outcome; forced frames: test ID, outcome), and each entry must be
-ticketed. The stage still fails when any selected test lacks exactly one
-well-formed outcome, when a run is killed, cancelled, or crashes, when its exit
-code is not the one its outcomes imply (0 with no failures, 1 with failures),
-when `xsht` reports a runner or cleanup error, or when the scheduler arms differ
-in any pass or skip outcome. Readiness, foreign-CPU, cgroup, and cleanup
-checks are unchanged. `dev/performance/check.py` applies the same rules and
-requires the receipt to list every failure.
-
-Stray test output in a suite log is counted, not rejected; a result row whose
-start is prefixed by unterminated stray output is read by the ID before
-` ... `. Skip reasons are compared with the per-run scratch ID normalized.
-
-The final observer and profile-cost gates still fail on any native test
-failure. The observer's batch, `cargo dev gate --full`, stops at its first
-failing step, so a native failure leaves the repository and documentation
-checks unrun and the batch timing incomplete.
 
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are

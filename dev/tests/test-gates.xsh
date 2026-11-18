@@ -54,13 +54,6 @@ proc init_laputa_gate_repository(root: Path, repository: Path) [fs, process, env
       fp"{root}/dev/performance/{entry.name}".write(entry.path.read_bytes()?)
     }
   }
-  let tools = "dev/consolidation/winddown/gate-tools/final-performance-gates"
-  fp"{root}/{tools}".mkdir(parents: true)?
-  for entry in fs.children(fp"{repository}/{tools}")? {
-    if entry.name.ends_with(".py") and entry.kind == "file" {
-      fp"{root}/{tools}/{entry.name}".write(entry.path.read_bytes()?)
-    }
-  }
   fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
   fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?, mode: 0o755)
   fp"{root}/dev/util-linux".mkdir()
@@ -2251,30 +2244,6 @@ test test_internal_full_rejects_automatic_operation_identity_before_effects {
       Err(error) => assert error.message == "PlanError.Invalid"
     }
   }
-}
-
-test test_internal_full_validation_never_starts_verification_commands { |ctx|
-  test.timeout(ctx, 60s)
-  let repository = fs.cwd()?
-  let tools = test.temp_dir(ctx, name: "full-validation-forbidden-processes")?
-  let marker = fp"{tools}/started"
-  for name in ["cargo", "docker"] {
-    fp"{tools}/{name}".write(f"#!/bin/sh\ntouch '{marker}'\nexit 99\n", mode: 0o755)
-  }
-  let source = f"""
-proc main(...arguments: List[Str]) [process, error] {{
-  let command = process.command_argv(p"{ctx.xsh_bin}",
-    ["{ctx.xsh_bin}", "{repository}/dev/main.xsh", "--", "internal", "gate-validate-full", @arguments], cwd: p"{repository}")
-  let status = process.run(command)?
-  exit status.shell_code()?
-}}
-"""
-  let environment = {PATH: f"{tools}:{env.get_or("PATH", "")?}",
-    XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests", TARGET: "x86_64-unknown-linux-musl", DIST_PROFILE: "verification"}
-  let _ = test.expect(ctx, source, status: 0, args: [], env: environment)?
-  assert ! marker.exists()?
-  let _ = test.expect(ctx, source, status: 3, args: ["--full"], env: environment)?
-  assert ! marker.exists()?
 }
 
 test test_laputa_root_is_explicit_and_scoped {

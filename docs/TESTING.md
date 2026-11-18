@@ -206,13 +206,8 @@ source-bound record only after every step passes; until then status reports
 
 Only the sole `cargo dev gate --full` request enters comprehensive verification.
 The former `--batch` flag and `internal gate-batch` operation are removed.
-The canonical replay caller uses `internal gate-validate-full` before any Docker
-operation. This internal operation accepts no arguments and validates the live
-Full catalogue, dependencies, aliases and product closure without preparing or
-running them. It grants no Full execution authority. Replay rechecks source and
-bootstrap identity afterward; `internal gate-full` repeats closure validation
-inside the container before product preparation. Replay receipt names and their
-schema remain unchanged.
+`internal gate-full` validates the live Full catalogue, dependencies, aliases and
+product closure inside the container before product preparation.
 Aliases and prerequisites are resolved before commands start. A focused closure
 containing a manual case, a missing ID or a cycle fails with exit 2.
 Native-file IDs emitted by path plans replay with `--case ID`. Planning rejects

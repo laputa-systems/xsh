@@ -1,4 +1,4 @@
-"""Bounded cleanup for containers started by the final performance tools."""
+"""Bounded cleanup for containers started by the performance tools."""
 
 from __future__ import annotations
 

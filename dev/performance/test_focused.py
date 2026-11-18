@@ -289,10 +289,7 @@ class FocusedTests(unittest.TestCase):
                 patch.object(focused, '_gate_source_digest',
                              side_effect=gate_digests or [config.source_digest] * 2), \
                 patch.object(focused, '_verify_image_id', side_effect=lambda image_id: self.lease_calls.append(('image', image_id))), \
-                patch.object(check, 'load_canonical', side_effect=AssertionError('canonical owner must not be loaded')), \
-                patch.object(check, 'checked_docker', side_effect=launch), \
-                patch.object(check, 'qualify_products', side_effect=AssertionError('full product gate called')), \
-                patch.object(check, 'baseline_util_linux', side_effect=AssertionError('live CloseReport gate called')):
+                patch.object(check, 'checked_docker', side_effect=launch):
             with self.lease_owner.campaign_leases(config.source_root, native=True):
                 report = focused._qualify(config, 'json-n', self.lease_owner)
         return report, calls
@@ -827,7 +824,6 @@ class FocusedTests(unittest.TestCase):
                     patch.object(check, 'baseline_owner', return_value=fixtures), \
                     patch.object(focused, '_gate_source_digest', return_value=config.source_digest), \
                     patch.object(focused, '_verify_image_id', side_effect=lambda image_id: self.lease_calls.append(('image', image_id))), \
-                    patch.object(check, 'load_canonical', side_effect=AssertionError('canonical owner must not be loaded')), \
                     patch.object(check, 'checked_docker') as launch:
                 def docker(command, scratch, *, timeout_seconds, on_cleanup_verified):
                     row = {

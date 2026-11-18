@@ -2756,16 +2756,6 @@ export proc execute_request(ctx: context.Context, requested: List[Str]) [fs, pro
   }
 }
 
-## Validates the live Full closure without granting execution or preparing products.
-export proc validate_full(ctx: context.Context) [env, error, io] -> Result[Unit, Error] {
-  present(validate_full_closure(ctx))
-}
-
-proc validate_full_closure(ctx: context.Context) [env, error] -> Result[Unit, Error] {
-  let profile = tests.execution_profile()?
-  let _ = full_plan(ctx, profile)?
-}
-
 ## Internal focused execution validates the same request and closure before effects.
 export proc lane(ctx: context.Context, requested: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   present(lane_request(ctx, requested))
