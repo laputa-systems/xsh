@@ -96,16 +96,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** M
 
-### XSH-107 · P2 · Cover privileged archive extraction
-
-- **Area:** Archive and compression
-- **Where:** `crates/xsh-archive/`, `tests/xsh/stdlib/archive.xsh`, `docs/TESTING.md#archive-and-compression`
-- **Problem:** Root ownership application and device-node creation during extraction were never tested; only FIFO creation was. Laputa's privileged consumers depend on them.
-- **Recommendation:** Run extraction as root in the pinned container with owner preservation and character and block device members, against GNU tar and bsdtar as references.
-- **Acceptance:** Root extraction applies archived uid/gid and creates device nodes with the archived major/minor and mode, matching the reference tools; unprivileged extraction keeps its documented behavior.
-- **Fix with:** os-boundaries
-- **Effort:** M
-
 ### XSH-108 · P3 · Allow `match` over built-in enums
 
 - **Area:** Language
