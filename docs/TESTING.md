@@ -452,13 +452,16 @@ that spawn no binaries may use debug builds. Build only the packages needed.
 
 The Linux signal-storm test (`runtime::signal_storm` in the `integration`
 target) derives each run from a fixed seed: a scenario over process scopes,
-pipelines, `defer`/`errdefer`, live streams, a PTY redirection, or a signal
-hook; SIGINT/SIGTERM injection (optionally escalated by a second signal); and
+pipelines, `defer`/`errdefer`, live streams, a PTY redirection, a signal
+hook, or a loop of spawns and pipelines that signals interrupt mid-setup;
+SIGINT/SIGTERM injection (optionally escalated by a second signal); and
 an early-closed stdout. Seeds replay the plan, not the OS scheduling. The
 oracle checks bounded exit, no live process carrying the run's environment tag,
 one-time ordered cleanup, pipeline output, and an untouched bystander process.
 It treats death by an uncaught signal before the script is ready as
-non-cooperative. Terminal-mode restoration is covered separately, on Linux
+non-cooperative. A companion case SIGKILLs the runner after its children start
+and requires that no cleanup ran and that the owned process groups are still
+running, as the SPEC states. Terminal-mode restoration is covered separately, on Linux
 only, by the interactive storm in `crates/xshi/tests/cli.rs`
 (`terminal_storm::`): it starts the real `xshi` on a PTY that is the child's
 controlling terminal, waits for the shell's raw mode, and delivers a seeded

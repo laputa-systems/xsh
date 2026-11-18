@@ -4942,6 +4942,9 @@ An entry script may declare one hook per signal at its top level:
   with its own defers. A second handled signal escalates: no hook re-entry,
   immediate `SIGKILL` of owned process groups, and remaining cleanup may be
   skipped.
+- `SIGKILL` of the script process itself runs no hook, `defer` or `errdefer`.
+  Owned children run in their own process groups, so they outlive it; a
+  supervisor that must stop them signals those groups or their cgroup.
 - Shutdown during top-level initialization skips the automatic `main` call;
   bindings whose initializers did not run remain uninitialized.
 - `--pre-cancel` (default `150ms`) is how long the hook may delay forwarding

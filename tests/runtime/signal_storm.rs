@@ -91,6 +91,28 @@ const CLOSED_STDOUT: &str = r#"proc main(...argv: List[Str]) [fs, io, process, t
 }
 "#;
 
+const SPAWN_SETUP: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
+  let dir = Path(argv[0])
+  defer { mark(dir, "outer")? }
+  errdefer { mark(dir, "outer-err")? }
+  ready(dir)?
+  for i in range(60) {
+    let h = spawn run sleep 0.4 ?
+    run true | run cat
+  }
+}
+"#;
+
+const RUNNER_KILLED: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
+  let dir = Path(argv[0])
+  defer { mark(dir, "outer")? }
+  errdefer { mark(dir, "outer-err")? }
+  let a = spawn run sleep 30 ?
+  ready(dir)?
+  run sleep 30 | run cat
+}
+"#;
+
 const ESCAPED_DESCENDANT: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
   let dir = Path(argv[0])
   ready(dir)?
@@ -106,15 +128,17 @@ enum Scenario {
     PtyStdin,
     SignalHook,
     ClosedStdout,
+    SpawnSetup,
 }
 
-const SCENARIOS: [Scenario; 6] = [
+const SCENARIOS: [Scenario; 7] = [
     Scenario::HandlesAndPipeline,
     Scenario::LiveStream,
     Scenario::PipelineStatus,
     Scenario::PtyStdin,
     Scenario::SignalHook,
     Scenario::ClosedStdout,
+    Scenario::SpawnSetup,
 ];
 
 impl Scenario {
@@ -126,6 +150,7 @@ impl Scenario {
             Self::PtyStdin => PTY_STDIN,
             Self::SignalHook => SIGNAL_HOOK,
             Self::ClosedStdout => CLOSED_STDOUT,
+            Self::SpawnSetup => SPAWN_SETUP,
         }
     }
 
@@ -539,4 +564,68 @@ fn signal_storm_oracle_rejects_duplicated_and_reordered_cleanup() {
     assert!(check_cleanup_sequence(&plan, true, true, &owned(&["outer", "outer-err"])).is_err());
     assert!(check_cleanup_sequence(&plan, true, true, &owned(&["outer-err", "outer", "outer"])).is_err());
     assert!(check_cleanup_sequence(&plan, true, true, &owned(&["outer-err"])).is_err());
+}
+
+fn process_group(pid: i32) -> Option<i32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(2)?.parse().ok()
+}
+
+#[test]
+fn signal_storm_runner_sigkill_runs_no_cleanup_and_leaves_owned_groups_running() {
+    let dir = PathBuf::from(format!(".work/tmp/storm-{}-sigkill", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("marks")).expect("create marks");
+    let dir = dir.canonicalize().expect("canonical marker directory");
+    let markers_dir = dir.join("marks");
+    let script = dir.join("scenario.xsh");
+    fs::write(&script, format!("{PRELUDE}{RUNNER_KILLED}")).expect("write scenario");
+    let tag = format!("{}-sigkill", std::process::id());
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .arg(&markers_dir)
+        .env(TAG_VARIABLE, &tag)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .expect("start xsh");
+    let pid = child.id() as i32;
+    let started = Instant::now();
+    let mut owned = Vec::new();
+    while started.elapsed() < EXIT_BOUND {
+        owned = live_tagged_processes(&tag).into_iter().filter(|(found, _)| *found != pid).collect();
+        if markers_dir.join("ready").exists() && owned.len() == 3 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let groups: Vec<_> = owned.iter().map(|(found, _)| process_group(*found)).collect();
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+    }
+    let status = child.wait().expect("reap killed xsh");
+    std::thread::sleep(Duration::from_millis(200));
+    let survivors: Vec<_> = live_tagged_processes(&tag).into_iter().map(|(found, _)| found).collect();
+    let markers: Vec<_> = fs::read_dir(&markers_dir)
+        .expect("read marks")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    kill_tagged(&tag);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(owned.len(), 3, "spawned sleep and the two pipeline stages run before the kill: {owned:?}");
+    assert!(
+        groups.iter().all(|group| group.is_some_and(|group| group != pid)),
+        "owned children run outside the runner's process group: {groups:?}"
+    );
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    assert_eq!(markers, vec!["ready".to_owned()], "SIGKILL runs no defer or errdefer");
+    let mut expected: Vec<_> = owned.iter().map(|(found, _)| *found).collect();
+    expected.sort_unstable();
+    let mut survivors = survivors;
+    survivors.sort_unstable();
+    assert_eq!(survivors, expected, "owned process groups outlive a SIGKILLed runner");
 }
