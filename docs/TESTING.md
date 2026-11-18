@@ -506,15 +506,39 @@ test modules. `cargo dev gate PATH...` applies that mapping. The Full gate runs
 one full native suite at a time and includes repository and documentation
 checks.
 
-Changes to the current metrics scanner, its attestation, or either current metric
-test module select both current metric modules. Canonical bootstrap and execution
-reject stale scanner or ratchet hashes before starting a build. Reproduce the
-frozen baseline report and item inventory before updating an active observer pin.
-The current scanner's `SourceScan.modules` records both `directory` and
-`path_directory` so external `#[path]` owners resolve children using Rust's
-physical-directory rules. Missing, ambiguous, and conflicting owner-sensitive
-module targets fail the scan.
-The existing native checks still validate the historical proof.
+### Structural ratchets
+
+`dev/source_metrics.xsh` measures structural metrics of the production roots
+`src` and `crates/xsht/src`: blanket `dead_code` scopes, instruction, pattern and
+stage schema variants, manual payload and optional raw reads, wide arena
+wildcards, and the type-mapping, type-predicate, lowering-resolver and nested
+machine-factory definitions. `dev/ratchets.json` records the current value of
+each. The Full gate's `batch-ratchets` step runs the check:
+
+```sh
+xsh dev/ratchets.xsh check --root "$PWD" --report .work/gate/ratchets.json
+```
+
+The check fails when a metric rises above its recorded value, when a metric
+falls below it, when the metric inventory differs from the baseline, or when
+the source breaks the stage-schema contract: exactly 46 generated stage variants
+in `src/runtime/eval/indexed/full.rs` and no lowering type resolver. Source line
+totals are reported and never enforced. `--report` keeps the measured report
+with the evidence location of every counted occurrence.
+
+A change that lowers a metric records the lower value in the same change:
+
+```sh
+xsh dev/ratchets.xsh update --root "$PWD"
+```
+
+`update` rewrites the baseline with the measured values and refuses a rise.
+Raising a value means editing `dev/ratchets.json` by hand and explaining the rise
+in review. Changes to the scanner, the command, the baseline or their native
+tests select `dev/tests/test-source-metrics.xsh` and `dev/tests/test-ratchets.xsh`.
+The scanner records both `directory` and `path_directory` for each module, so
+external `#[path]` owners resolve children by Rust's physical-directory rules.
+Missing, ambiguous and conflicting owner-sensitive module targets fail the scan.
 
 ## Building and release smoke
 

@@ -518,9 +518,9 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   assert gates.areas_for("crates/xsht/tests/syntax.rs")? == [gates.Syntax]
   assert gates.areas_for("tests/grammar.rs")? == [gates.Syntax]
   assert gates.areas_for("docs/snippets/api/fs.xsh")? == [gates.Docs, gates.Api]
-  let source_policy = gates.select(["dev/consolidation/current_source_policy.xsh"])?
-  assert source_policy.areas.is_empty()
-  assert source_policy.native_files == ["dev/tests/test-consolidation-ratchets-current.xsh"]
+  let baseline = gates.select(["dev/ratchets.json"])?
+  assert baseline.areas.is_empty()
+  assert baseline.native_files == ["dev/tests/test-source-metrics.xsh", "dev/tests/test-ratchets.xsh"]
   match gates.select(["unowned-family/behavior.rs"]) {
     Ok(_) => test.fail("a changed path without a gate owner was accepted")
     Err(error) => assert error.message == "GateError.UnmappedPath"
@@ -590,14 +590,15 @@ test test_cargo_callers_select_their_exact_native_tests_and_products {
   assert "xshi" in broad_plan[0].argv
 }
 
-test test_current_metric_attestation_changes_select_both_native_contracts {
+test test_ratchet_changes_select_both_native_contracts {
   let files = [
-    "dev/tests/test-consolidation-metrics-current.xsh",
-    "dev/tests/test-consolidation-ratchets-current.xsh",
+    "dev/tests/test-source-metrics.xsh",
+    "dev/tests/test-ratchets.xsh",
   ]
   let paths = [
-    "dev/consolidation_metrics_current.xsh",
-    "dev/consolidation/metric-observer-successor.json",
+    "dev/source_metrics.xsh",
+    "dev/ratchets.xsh",
+    "dev/ratchets.json",
     @files,
   ]
   let ctx = fixtures.linux_context(p"/repo")?
@@ -608,8 +609,8 @@ test test_current_metric_attestation_changes_select_both_native_contracts {
     let plan = gates.lane_plan(ctx, tests.Verification, selected)?
     assert [spec.stage for spec in plan] == [
       "test-products",
-      "native-dev/tests/test-consolidation-metrics-current.xsh",
-      "native-dev/tests/test-consolidation-ratchets-current.xsh",
+      "native-dev/tests/test-source-metrics.xsh",
+      "native-dev/tests/test-ratchets.xsh",
     ]
   }
   let combined = gates.select([@paths, @paths])?
@@ -1080,10 +1081,8 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   let checks = gates.batch_checks(ctx, tests.Verification)
   assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
   let ratchets = checks[3]
-  assert ratchets.argv[1] == "dev/consolidation/metrics.xsh"
-  assert ratchets.argv[2] == "check-current"
-  assert ["--root", ctx.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src"] == ratchets.argv[3..9]
-  assert ["--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance-source-advisory.json", "--envelope", "dev/consolidation/envelope-upstream.json", "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"] == ratchets.argv[9..]
+  assert ratchets.argv[1..] == ["dev/ratchets.xsh", "check", "--root", ctx.root.display(), "--report", ".work/gate/ratchets.json"]
+  assert [arg for arg in ratchets.argv |> where .starts_with("dev/consolidation")].is_empty()
   for spec in checks {
     assert spec.executable != "python3"
     assert [arg for arg in spec.argv |> where .starts_with("dev/compat/")].is_empty()

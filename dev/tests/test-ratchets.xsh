@@ -1,10 +1,33 @@
-use consolidation_metrics as metrics
-
-type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
+use source_metrics as metrics
 
 pure value(scan: metrics.SourceScan, name: Str) -> Int {
   let rows = scan.metrics |> where .name == name |> collect
   rows[0].value
+}
+
+pure current_stage_evidence(source_path: Str, count: Int) -> List[metrics.Evidence] {
+  let evidence: List[metrics.Evidence] = collect {
+    var line = 1
+    while line <= count {
+      yield {path: source_path, line: line, detail: f"stage {line}"}
+      line += 1
+    }
+  }
+  evidence
+}
+pure current_source_report() -> metrics.Report {
+  metrics.Report(schema: 1, sources: [], metrics: [
+    {name: "lowering_type_resolver_definitions", value: 0, evidence: []},
+    {name: "stage_variants", value: 46, evidence: current_stage_evidence("src/runtime/eval/indexed/full.rs", 46)},
+  ])
+}
+
+pure source_contract_rejection(report: metrics.Report) -> Str {
+  match metrics.assert_source_contract(report) {
+    Ok(_) => "accepted"
+    Err(.Contract {detail}) => detail
+    Err(error) => error.message
+  }
 }
 
 proc rejection_at(source_path: Str, source: Str) [error] -> Str {
@@ -43,40 +66,6 @@ proc tree(ctx: TestContext) [fs, error] -> Result[Path] {
   fp"{root}/crates/xsht/src".mkdir()
   fp"{root}/crates/xsht/src/lib.rs".write("// tool root\n")
   root
-}
-
-proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: metrics.Report) [fs, error] -> Result[Path] {
-  fp"{root}/dev/consolidation".mkdir()
-  fp"{root}/dev/tests".mkdir()
-  fp"{root}/dev/consolidation_metrics.xsh".write("scanner fixture\n")
-  fp"{root}/dev/tests/test-consolidation-ratchets.xsh".write("ratchet fixture\n")
-  let original_path = fp"{root}/dev/consolidation/baseline.json"
-  let corrected_path = fp"{root}/dev/consolidation/baseline-blanket-scope.json"
-  json.write(original_path, original)
-  json.write(corrected_path, corrected)
-  let original_hash = hash.sha256(original_path)?.hex().lower()
-  let corrected_hash = hash.sha256(corrected_path)?.hex().lower()
-  let source_manifest_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  json.write(fp"{root}/dev/consolidation/baseline-metadata.json", {
-    start_commit: "fixture", source_manifest_sha256: source_manifest_hash, baseline_report_sha256: original_hash,
-  })
-  let blanket = corrected.metrics |> where .name == "blanket_dead_code_lines" |> collect
-  assert blanket.len() == 1
-  let provenance: metrics.BlanketBaselineProvenance = {
-    schema: 1,
-    start_commit: "fixture",
-    source_manifest_sha256: source_manifest_hash,
-    original_baseline_path: "dev/consolidation/baseline.json",
-    original_baseline_sha256: original_hash,
-    corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json",
-    corrected_baseline_sha256: corrected_hash,
-    corrected_blanket_lines: blanket[0].value,
-    scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(),
-    ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower(),
-  }
-  let provenance_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
-  json.write(provenance_path, provenance)
-  provenance_path
 }
 
 test test_literal_delimiters_comments_and_lifetimes_do_not_own_items {
@@ -192,11 +181,11 @@ test test_inner_blankets_and_inherited_module_scopes_cover_item_inventory { |ctx
   let root = tree(ctx)?
   fp"{root}/src/lib.rs".write("#[allow(dead_code)]\n#[path = \"external.rs\"]\nmod external;\n")
   fp"{root}/src/external.rs".write("#[allow(dead_code)]\nfn hidden() {}\n")
-  let measured = metrics.measure_with_allowances(root, ["src", "crates/xsht/src"])?
-  assert measured.item_allowances.entries.len() == 1
-  assert measured.item_allowances.entries[0].path == "src/external.rs"
-  assert measured.item_allowances.entries[0].inherited_module_scope
-  assert ! measured.item_allowances.entries[0].covered_by_local_scope
+  let allowance_report = metrics.measure_with_allowances(root, ["src", "crates/xsht/src"])?
+  assert allowance_report.item_allowances.entries.len() == 1
+  assert allowance_report.item_allowances.entries[0].path == "src/external.rs"
+  assert allowance_report.item_allowances.entries[0].inherited_module_scope
+  assert ! allowance_report.item_allowances.entries[0].covered_by_local_scope
 }
 
 test test_inner_cfg_and_braced_constant_initializers_have_exact_boundaries {
@@ -303,16 +292,13 @@ test test_lowering_type_resolver_metric_rejects_indirect_semantic_walkers {
   assert "unclassified type-expression tag walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
 }
 
-test test_current_lowering_tree_has_no_type_expr_resolvers {
-  let root = p".".resolve()?
-  var count = 0
-  for entry in fs.walk(p"src/runtime/eval/lower")? |> where .kind == "file" and .path.ext() == "rs" |> sort-by .path {
-    let source_path = entry.path.strip_prefix(root)?.display()
-    count += value(metrics.scan_file(source_path, entry.path.read_text()?)?, "lowering_type_resolver_definitions")
-  }
-  let root_source = p"src/runtime/eval/lower.rs".read_text()?
-  count += value(metrics.scan_file("src/runtime/eval/lower.rs", root_source)?, "lowering_type_resolver_definitions")
-  assert count == 0
+test test_current_report_requires_zero_lowering_type_resolvers {
+  let report = current_source_report()
+  metrics.assert_source_contract(report)
+  let nonzero = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "lowering_type_resolver_definitions" { {...row, value: 1} } else { row } }
+  } }
+  assert "lowering_type_resolver_definitions" in source_contract_rejection(nonzero)
 }
 
 test test_pipeline_stage_schema_counts_unit_tuple_and_struct_variants {
@@ -362,14 +348,35 @@ test test_pipeline_stage_schema_accepts_complete_borrowed_view_context_only {
   assert "malformed pipeline stage schema context" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload stage_view_context stage_view_input stage_view_value; One unit {}; }")
 }
 
-test test_generated_pipeline_stage_schema_counts_current_source {
-  let source_path = "src/runtime/eval/indexed/full.rs"
-  let scan = metrics.scan_file(source_path, p"src/runtime/eval/indexed/full.rs".read_text()?)?
-  let stages = scan.metrics |> where .name == "stage_variants" |> collect
-  assert stages.len() == 1
-  assert stages[0].value == 46
-  assert stages[0].evidence.len() == 46
-  assert (stages[0].evidence |> where .path != source_path |> count()) == 0
+test test_current_report_requires_generated_pipeline_stage_schema {
+  let report = current_source_report()
+  metrics.assert_source_contract(report)
+  let wrong_value = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, value: 45} } else { row } }
+  } }
+  let wrong_evidence_count = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, evidence: current_stage_evidence("src/runtime/eval/indexed/full.rs", 45)} } else { row } }
+  } }
+  let wrong_evidence_path = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, evidence: current_stage_evidence("src/runtime/eval/indexed/other.rs", 46)} } else { row } }
+  } }
+  assert "stage_variants" in source_contract_rejection(wrong_value)
+  assert "stage_variants" in source_contract_rejection(wrong_evidence_count)
+  assert "stage_variants" in source_contract_rejection(wrong_evidence_path)
+}
+
+test test_current_report_requires_unique_lowering_and_stage_metrics {
+  let report = current_source_report()
+  let without_lowering = { ...report, metrics: report.metrics |> where .name != "lowering_type_resolver_definitions" |> collect }
+  let without_stages = { ...report, metrics: report.metrics |> where .name != "stage_variants" |> collect }
+  let lowering = report.metrics |> where .name == "lowering_type_resolver_definitions" |> collect
+  let stages = report.metrics |> where .name == "stage_variants" |> collect
+  let duplicate_lowering = { ...report, metrics: report.metrics + [lowering[0]] }
+  let duplicate_stages = { ...report, metrics: report.metrics + [stages[0]] }
+  assert "lowering_type_resolver_definitions" in source_contract_rejection(without_lowering)
+  assert "stage_variants" in source_contract_rejection(without_stages)
+  assert "lowering_type_resolver_definitions" in source_contract_rejection(duplicate_lowering)
+  assert "stage_variants" in source_contract_rejection(duplicate_stages)
 }
 
 test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
@@ -384,286 +391,132 @@ test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
   assert "cfg not requires one" in rejection("#[cfg(not(test, unix))] fn f() {}")
 }
 
-test test_structural_rise_fails_with_the_metric_and_values { |ctx|
-  let baseline: metrics.Report = {schema: 1, sources: [], metrics: [
+
+pure ratchet_report(manual_payloads: Int, src_lines: Int) -> metrics.Report {
+  metrics.Report(schema: 1, sources: [], metrics: [
     {name: "blanket_dead_code_lines", value: 0, evidence: []},
-    {name: "manual_payload_calls", value: 1, evidence: []},
-    {name: "source_lines_src", value: 5, evidence: []},
+    {name: "manual_payload_calls", value: manual_payloads, evidence: []},
+    {name: "source_lines_src", value: src_lines, evidence: []},
     {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
-  let current: metrics.Report = {...baseline, metrics: collect {
-    for row in baseline.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 2} } else { row } }
-  }}
-  match metrics.assert_not_risen(current, baseline) {
-    Ok(_) => test.fail("rising structural metric passed")
-    Err(metrics.MetricError.Rise {name, before, after}) => assert name == "manual_payload_calls" and before == 1 and after == 2
+  ])
+}
+
+pure ratchet_baseline(manual_payloads: Int) -> metrics.Baseline {
+  metrics.Baseline(schema: 1, metrics: [
+    {name: "blanket_dead_code_lines", value: 0},
+    {name: "manual_payload_calls", value: manual_payloads},
+  ])
+}
+
+pure ratchet_rejection(report: metrics.Report, baseline: metrics.Baseline) -> Str {
+  match metrics.verify(report, baseline) {
+    Ok(_) => "accepted"
+    Err(.Rise {name, before, after}) => f"rise {name}: {before} -> {after}"
+    Err(.Contract {detail}) => detail
+    Err(error) => error.message
+  }
+}
+
+pure stage_table(count: Int) -> Str {
+  var rows = ""
+  var index = 0
+  while index < count {
+    rows = f"{rows} Stage{index} unit {{}};"
+    index += 1
+  }
+  f"macro_rules! pipeline_stage_schema {{ () => {{}}; }}\npipeline_stage_schema! {{ @context stage_builder stage_decoder stage_payload;{rows} }}\n"
+}
+
+proc ratchet_tree(ctx: TestContext, payload_calls: Int) [fs, error] -> Result[Path] {
+  let root = tree(ctx)?
+  fp"{root}/src/runtime/eval/indexed".mkdir(parents: true)
+  fp"{root}/src/runtime/eval/indexed/full.rs".write(stage_table(46))
+  var calls = ""
+  for _ in range(payload_calls) { calls = f"{calls} indexed_raw(x);" }
+  fp"{root}/src/extra.rs".write(f"fn live() {{{calls} }}\n")
+  fp"{root}/src/lib.rs".write("#[path = \"runtime/eval/indexed/full.rs\"] mod full;\nmod extra;\n")
+  fp"{root}/dev".mkdir()
+  root
+}
+
+test test_structural_rise_fails_with_the_metric_and_values {
+  assert ratchet_rejection(ratchet_report(1, 10), ratchet_baseline(1)) == "accepted"
+  assert ratchet_rejection(ratchet_report(2, 10), ratchet_baseline(1)) == "rise manual_payload_calls: 1 -> 2"
+  match metrics.lowered(ratchet_report(2, 10), ratchet_baseline(1)) {
+    Ok(_) => test.fail("a risen metric was recorded as lowered")
+    Err(.Rise {name, before, after}) => assert name == "manual_payload_calls" and before == 1 and after == 2
     Err(error) => test.fail(error.message)
   }
-  metrics.assert_not_risen(baseline, current)?
-  let root = tree(ctx)?; fp"{root}/dev/consolidation".mkdir()
-  json.write(fp"{root}/base.json", baseline); json.write(fp"{root}/current.json", current)
-  json.write(fp"{root}/dev/consolidation/baseline-metadata.json", {start_commit: "fixture"})
-  let driver = p"dev/consolidation/metrics.xsh".read_text()?
-  let flags = ["--root", root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", fp"{root}/current.json".display(), "--baseline", fp"{root}/base.json".display(), "--output", fp"{root}/saved.json".display(), "--audit", fp"{root}/audit.json".display()]
-  assert ! test.run_script(ctx, driver, ["check", @flags])?.success
-  let approved = {metric: "manual_payload_calls", ceiling: 2, approval: "fixture owner", reason: "bounded fixture", remove_when: "fixture ends"}
-  json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [approved]})
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
-  let rises = json.get(json.read(fp"{root}/audit.json")?, ["rises"])?.require(List[Any])?
-  assert rises.len() == 1
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
-  json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [{...approved, metric: "unknown"}]}); assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
 }
 
-test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_metric { |ctx|
-  let root = tree(ctx)?
-  let original: metrics.Report = {schema: 1, sources: [], metrics: [
-    {name: "blanket_dead_code_lines", value: 7, evidence: [{path: "src/lib.rs", line: 1, detail: "old blanket scope"}]},
-    {name: "manual_payload_calls", value: 1, evidence: []},
-    {name: "source_lines_src", value: 5, evidence: []},
-    {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
-  let corrected: metrics.Report = {...original, metrics: collect {
-    for row in original.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 3, evidence: []} } else { row } }
-  }}
-  let current: metrics.Report = {...corrected, metrics: collect {
-    for row in corrected.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 0} } else { row } }
-  }}
-  let current_path = fp"{root}/current.json"
-  json.write(current_path, current)
-  let provenance_path = install_blanket_baseline(root, original, corrected)?
-  let baseline_path = fp"{root}/dev/consolidation/baseline-blanket-scope.json"
-  let driver = p"dev/consolidation/metrics.xsh".read_text()?
-  let flags = ["--root", root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", current_path.display(), "--baseline", baseline_path.display(), "--output", fp"{root}/saved.json".display(), "--audit", fp"{root}/audit.json".display()]
-  assert ! test.run_script(ctx, driver, ["check", @flags])?.success
-  let valid_provenance = json.read(provenance_path)?.require(metrics.BlanketBaselineProvenance)?
-  assert test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
-
-  let unrelated_change: metrics.Report = {...corrected, metrics: collect {
-    for row in corrected.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 9} } else { row } }
-  }}
-  json.write(baseline_path, unrelated_change)
-  json.write(provenance_path, {...valid_provenance, corrected_baseline_sha256: hash.sha256(baseline_path)?.hex().lower()})
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
-
-  json.write(baseline_path, corrected)
-  json.write(provenance_path, valid_provenance)
-  fp"{root}/dev/consolidation_metrics.xsh".write("tampered scanner fixture\n")
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+test test_a_lowered_metric_must_be_recorded_in_the_baseline {
+  assert "manual_payload_calls fell from 2 to 1" in ratchet_rejection(ratchet_report(1, 10), ratchet_baseline(2))
+  let recorded = metrics.lowered(ratchet_report(1, 10), ratchet_baseline(2))?
+  assert recorded == ratchet_baseline(1)
+  assert ratchet_rejection(ratchet_report(1, 10), recorded) == "accepted"
 }
 
-type ReviewFixture = {root: Path, commit: Str, sources: List[metrics.ReviewSource], artifact: metrics.ReviewArtifact}
-
-const review_directory_paths = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests"]
-const review_source_paths = [@review_directory_paths, "dev/consolidation_metrics.xsh", "dev/consolidation/metrics.xsh"]
-
-proc git_output(root: Path, arguments: List[Str]) [process, error] -> Str {
-  let argv = ["git", "-C", root.display(), @arguments]
-  let output = run.capture --text --timeout=30s @argv
-  assert output.status.shell_code()? == 0
-  output.stdout.trim()
-}
-
-proc review_fixture(ctx: TestContext) [fs, process, error] -> Result[ReviewFixture] {
-  let root = test.temp_dir(ctx, name: "review-evidence")?
-  for source_path in review_directory_paths {
-    fp"{root}/{source_path}".mkdir()
-    fp"{root}/{source_path}/fixture.txt".write(f"fixture for {source_path}\n")
+test test_source_line_totals_stay_advisory {
+  for src_lines in [0, 10, 11, 100000] {
+    assert ratchet_rejection(ratchet_report(1, src_lines), ratchet_baseline(1)) == "accepted"
   }
-  fp"{root}/src/lib.rs".write("fn fixture() {}\n")
-  fp"{root}/crates/xsht/src".mkdir()
-  fp"{root}/crates/xsht/src/lib.rs".write("// xsht fixture\n")
-  fp"{root}/dev/consolidation".mkdir()
-  fp"{root}/dev/consolidation_metrics.xsh".write("# metrics fixture\n")
-  fp"{root}/dev/consolidation/metrics.xsh".write("# driver fixture\n")
-  fp"{root}/.work".mkdir()
-  fp"{root}/.work/proofs".mkdir()
-  let _ = git_output(root, ["init", "--quiet"])
-  let _ = git_output(root, ["add", "."])
-  let _ = git_output(root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "source fixture"])
-  let commit = git_output(root, ["rev-parse", "HEAD"])
-  let sources = collect {
-    for source_path in review_source_paths {
-      yield {path: source_path, oid: git_output(root, ["rev-parse", f"{commit}:{source_path}"])}
-    }
-  }
-  let artifact_path = ".work/proofs/review.txt"
-  fp"{root}/{artifact_path}".write("synthetic review evidence\n")
-  let artifact: metrics.ReviewArtifact = {
-    path: artifact_path,
-    sha256: hash.sha256(fp"{root}/{artifact_path}")?.hex(),
-    command: "xsht test dev/tests/test-consolidation-ratchets.xsh",
-    method: "native fixture assertion",
-    result: "verified",
-  }
-  {root: root, commit: commit, sources: sources, artifact: artifact}
+  let values = metrics.structural_values(ratchet_report(1, 10))? |> map .name
+  assert values == ["blanket_dead_code_lines", "manual_payload_calls"]
 }
 
-pure close_report(src_lines: Int, xsht_lines: Int, blanket_lines: Int) -> metrics.Report {
-  {
-    schema: 1,
-    sources: [],
-    metrics: [
-      {name: "source_lines_src", value: src_lines, evidence: []},
-      {name: "source_lines_xsht", value: xsht_lines, evidence: []},
-      {name: "blanket_dead_code_lines", value: blanket_lines, evidence: []},
-    ],
-    reviews: [],
+test test_changed_inventories_and_malformed_reports_fail {
+  let report = ratchet_report(1, 10)
+  let baseline = ratchet_baseline(1)
+  let malformed_reports = [
+    {...report, schema: 2},
+    {...report, metrics: report.metrics |> where .name != "blanket_dead_code_lines" |> collect},
+    {...report, metrics: report.metrics + [{name: "new_metric", value: 0, evidence: []}]},
+    {...report, metrics: report.metrics + [report.metrics[1]]},
+    {...report, metrics: report.metrics |> where .name != "source_lines_xsht" |> collect},
+    {...report, metrics: collect { for row in report.metrics { yield if row.name == "source_lines_src" { {...row, value: -1} } else { row } } }},
+    {...report, metrics: collect { for row in report.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: -1} } else { row } } }},
+  ]
+  for malformed in malformed_reports {
+    assert ratchet_rejection(malformed, baseline) != "accepted"
+  }
+  let malformed_baselines = [
+    {...baseline, schema: 2},
+    {...baseline, metrics: baseline.metrics + [baseline.metrics[0]]},
+    {...baseline, metrics: baseline.metrics |> where .name != "manual_payload_calls" |> collect},
+    {...baseline, metrics: baseline.metrics + [{name: "source_lines_src", value: 10}]},
+  ]
+  for malformed in malformed_baselines {
+    assert ratchet_rejection(report, malformed) != "accepted"
   }
 }
 
-proc final_close_failure(current: metrics.Report, baseline: metrics.Report) [error] -> Str {
-  match metrics.assert_final_close(current, baseline) {
-    Ok(_) => "accepted"
-    Err(metrics.MetricError.Contract {detail}) => detail
-    Err(metrics.MetricError.Rise {name, ..}) => name
-    Err(error) => error.message
-  }
-}
+test test_check_and_update_commands_measure_the_source_tree { |ctx|
+  let root = ratchet_tree(ctx, 1)?
+  let recorded = metrics.structural_values(measured(root)?)?
+  fp"{root}/dev/ratchets.json".write(json.encode(metrics.Baseline(schema: 1, metrics: recorded), pretty: true)? + "\n")
+  let driver = p"dev/ratchets.xsh".read_text()?
+  let report_path = fp"{root}/.work/gate/ratchets.json"
+  let passed = test.expect(ctx, driver, status: 0, args: ["check", "--root", root, "--report", report_path])?
+  assert "structural metrics match dev/ratchets.json" in passed.stdout, passed.stdout
+  let saved: metrics.Report = json.read(report_path)?.require()?
+  assert (saved.metrics |> where .name == "manual_payload_calls" |> map .value) == [1]
 
-pure report_metric(report: metrics.Report, name: Str) -> Int {
-  (report.metrics |> where .name == name |> collect)[0].value
-}
+  fp"{root}/src/extra.rs".write("fn live() { indexed_raw(x); indexed_raw(y); }\n")
+  let risen = test.expect(ctx, driver, status: 1, args: ["check", "--root", root])?
+  assert "ratchet rise manual_payload_calls: 1 -> 2" in risen.stderr, risen.stderr
+  let refused = test.expect(ctx, driver, status: 1, args: ["update", "--root", root])?
+  assert "ratchet rise manual_payload_calls: 1 -> 2" in refused.stderr, refused.stderr
 
-pure proof_bundle(report: metrics.Report, fixture: ReviewFixture) -> metrics.ReviewEvidenceBundle {
-  {
-    schema: 1,
-    source_commit: fixture.commit,
-    sources: fixture.sources,
-    rows: collect {
-      for review in report.reviews {
-        yield {
-          name: review.name,
-          status: "review_verified",
-          reviewer: "fixture agent reviewer",
-          evidence: [fixture.artifact],
-        }
-      }
-    },
-  }
-}
+  fp"{root}/src/extra.rs".write("fn live() {}\n")
+  let fell = test.expect(ctx, driver, status: 1, args: ["check", "--root", root])?
+  assert "manual_payload_calls fell from 1 to 0" in fell.stderr, fell.stderr
+  test.expect(ctx, driver, status: 0, args: ["update", "--root", root])?
+  let lowered: metrics.Baseline = json.read(fp"{root}/dev/ratchets.json")?.require()?
+  assert (lowered.metrics |> where .name == "manual_payload_calls" |> map .value) == [0]
+  assert fp"{root}/dev/ratchets.json".read_text()? == json.encode(lowered, pretty: true)? + "\n"
+  test.expect(ctx, driver, status: 0, args: ["check", "--root", root])?
 
-proc review_failure(report: metrics.Report, bundle: metrics.ReviewEvidenceBundle, root: Path) [fs, process, error] -> Str {
-  match metrics.verify_review_evidence(report, bundle, root) {
-    Ok(_) => "accepted"
-    Err(metrics.MetricError.Contract {detail}) => detail
-    Err(error) => error.message
-  }
-}
-
-test test_legacy_final_close_helper_requires_strict_source_reduction_and_zero_blankets {
-  let baseline = close_report(10, 8, 4)
-  let equal_src = close_report(10, 7, 0)
-  let equal_xsht = close_report(9, 8, 0)
-  let blanket_remains = close_report(9, 7, 1)
-  let closed = close_report(9, 7, 0)
-  assert "source_lines_src" in final_close_failure(equal_src, baseline)
-  assert "source_lines_xsht" in final_close_failure(equal_xsht, baseline)
-  assert "blanket_dead_code_lines" in final_close_failure(blanket_remains, baseline)
-  metrics.assert_final_close(closed, baseline)?
-}
-
-test test_review_evidence_requires_all_unique_verified_rows_and_hashed_workspace_artifacts { |ctx|
-  let fixture = review_fixture(ctx)?
-  let report = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
-  let valid = proof_bundle(report, fixture)
-  assert review_failure(report, valid, fixture.root) == "accepted"
-  let missing = {...valid, rows: valid.rows |> where .name != "timings" |> collect}
-  assert review_failure(report, missing, fixture.root) != "accepted"
-  let duplicate = {...valid, rows: valid.rows + [valid.rows[0]]}
-  assert review_failure(report, duplicate, fixture.root) != "accepted"
-  let unresolved = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, status: "open"} } else { row } } }}
-  assert review_failure(report, unresolved, fixture.root) != "accepted"
-  let human_only_status = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, status: "human_verified"} } else { row } } }}
-  assert review_failure(report, human_only_status, fixture.root) != "accepted"
-  let failed_result = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], result: "failed"}]} } else { row } } }}
-  assert review_failure(report, failed_result, fixture.root) != "accepted"
-  let bad_hash = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], sha256: "0000000000000000000000000000000000000000000000000000000000000000"}]} } else { row } } }}
-  assert review_failure(report, bad_hash, fixture.root) != "accepted"
-  let unreadable = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], path: ".work/proofs/missing.txt"}]} } else { row } } }}
-  assert review_failure(report, unreadable, fixture.root) != "accepted"
-  let outside = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], path: "../outside.txt"}]} } else { row } } }}
-  assert review_failure(report, outside, fixture.root) != "accepted"
-  let nonhex = {...valid, source_commit: "not-a-commit"}
-  assert review_failure(report, nonhex, fixture.root) != "accepted"
-  let stale_sources = {...valid, sources: collect { for source in valid.sources { yield if source.path == "src" { {...source, oid: "0000000000000000000000000000000000000000"} } else { source } } }}
-  assert review_failure(report, stale_sources, fixture.root) != "accepted"
-}
-
-test test_review_evidence_accepts_synthetic_commit_after_docs_only_commit { |ctx|
-  let fixture = review_fixture(ctx)?
-  let report = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
-  let proof = proof_bundle(report, fixture)
-  fp"{fixture.root}/README.md".write("docs-only update\n")
-  let _ = git_output(fixture.root, ["add", "README.md"])
-  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "documentation only"])
-  assert review_failure(report, proof, fixture.root) == "accepted"
-  fp"{fixture.root}/src/lib.rs".write("fn changed_fixture() {}\n")
-  let _ = git_output(fixture.root, ["add", "src/lib.rs"])
-  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "changed source"])
-  assert review_failure(report, proof, fixture.root) != "accepted"
-}
-
-test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates { |ctx|
-  let fixture = review_fixture(ctx)?
-  let report = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
-  let proof = proof_bundle(report, fixture)
-  let baseline: metrics.Report = {
-    ...report,
-    metrics: collect {
-      for row in report.metrics {
-        yield if row.name in ["source_lines_src", "source_lines_xsht", "blanket_dead_code_lines"] { {...row, value: row.value + 1} } else { row }
-      }
-    },
-  }
-  let driver = p"dev/consolidation/metrics.xsh".read_text()?
-  let proof_path = fp"{fixture.root}/.work/proofs/bundle.json"
-  json.write(proof_path, proof)
-  json.write(fp"{fixture.root}/current.json", report)
-  json.write(fp"{fixture.root}/baseline.json", baseline)
-  fp"{fixture.root}/dev/consolidation/baseline-metadata.json".write("{\"start_commit\":\"fixture\"}")
-  let flags = ["--root", fixture.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", fp"{fixture.root}/current.json".display(), "--baseline", fp"{fixture.root}/baseline.json".display(), "--output", fp"{fixture.root}/saved.json".display(), "--audit", fp"{fixture.root}/audit.json".display()]
-  assert ! test.run_script(ctx, driver, ["final-close", @flags])?.success
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
-  let unresolved = {...proof, rows: collect { for row in proof.rows { yield if row.name == "timings" { {...row, status: "open"} } else { row } } }}
-  json.write(proof_path, unresolved)
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
-  let equal_src: metrics.Report = {
-    ...report,
-    metrics: collect {
-      for row in report.metrics {
-        yield if row.name == "source_lines_src" { {...row, value: report_metric(baseline, row.name)} } else { row }
-      }
-    },
-  }
-  json.write(fp"{fixture.root}/current.json", equal_src)
-  json.write(proof_path, proof)
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
-  let source_growth: metrics.Report = {
-    ...report,
-    metrics: collect {
-      for row in report.metrics {
-        yield if row.name == "source_lines_src" { {...row, value: report_metric(baseline, row.name) + 1} } else { row }
-      }
-    },
-  }
-  json.write(fp"{fixture.root}/current.json", source_growth)
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
-  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require(metrics.Report)?
-  assert report_metric(saved, "source_lines_src") == report_metric(source_growth, "source_lines_src")
-  let rises = json.get(json.read(fp"{fixture.root}/audit.json")?, ["rises"])?.require(List[AuditRise])?
-  assert rises.len() == 1
-  assert rises[0].metric == "source_lines_src"
-  assert rises[0].baseline == report_metric(baseline, "source_lines_src")
-  assert rises[0].current == report_metric(source_growth, "source_lines_src")
-  let blanket_remaining: metrics.Report = {
-    ...source_growth,
-    metrics: collect {
-      for row in source_growth.metrics {
-        yield if row.name == "blanket_dead_code_lines" { {...row, value: 1} } else { row }
-      }
-    },
-  }
-  json.write(fp"{fixture.root}/current.json", blanket_remaining)
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  fp"{root}/src/runtime/eval/indexed/full.rs".write(stage_table(45))
+  let contract = test.expect(ctx, driver, status: 1, args: ["check", "--root", root])?
+  assert "requires 46 stage_variants" in contract.stderr, contract.stderr
 }

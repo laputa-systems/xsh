@@ -1,4 +1,4 @@
-##! Current schema-aware observer; the pattern row inventory follows its source table.
+##! Structural source metrics and their ratchet policy; the pattern row inventory follows its source table.
 
 ## A scanner or ratchet failure with source evidence.
 export error MetricError = Invalid(path: Str, line: Int, detail: Str) | Rise(name: Str, before: Int, after: Int) | Contract(detail: Str)
@@ -28,49 +28,17 @@ export type SourceCount = {path: Str, physical: Int, production: Int, retained_l
 export type Evidence = {path: Str, line: Int, detail: Str}
 ## A structural metric and the occurrences that determine its value.
 export type Metric = {name: Str, value: Int, evidence: List[Evidence]}
-## A row requiring measured or reviewed evidence beyond lexical source inventories.
-export type Review = {name: Str, requirement: Str}
-## A hashed artifact and the method and result that support a review claim.
-export type ReviewArtifact = {path: Str, sha256: Str, command: Str, method: Str, result: Str}
-## A canonical review row remains present until a reviewer records supporting evidence.
-export type ReviewProof = {name: Str, status: Str, reviewer: Str, evidence: List[ReviewArtifact]}
-## A tracked product, test, or verifier path captured at the commit used for review.
-export type ReviewSource = {path: Str, oid: Str}
-## Versioned semantic evidence, separate from the measured source report.
-export type ReviewEvidenceBundle = {schema: Int, source_commit: Str, sources: List[ReviewSource], rows: List[ReviewProof]}
-## Versioned report; semantic review rows cannot masquerade as measured structural metrics.
-export type Report = {schema: Int, sources: List[SourceCount], metrics: List[Metric], reviews: List[Review]}
-type MetricValue = {name: Str, value: Int}
-type ObserverBaselineProof = {report_path: Str, report_sha256: Str, legacy_report_sha256: Str, successor_report_sha256: Str, metric_values: List[MetricValue], source_count: Int, item_inventory_path: Str, item_inventory_sha256: Str, item_inventory_entries: Int}
-## Successor evidence keeps the original observer and report artifacts independently pinned.
-export type ObserverSuccessorProvenance = {schema: Int, original_scanner_path: Str, original_scanner_sha256: Str, successor_scanner_path: Str, successor_scanner_sha256: Str, original_baseline_path: Str, original_baseline_sha256: Str, corrected_baseline_path: Str, corrected_baseline_sha256: Str, metadata_sha256: Str, historical_provenance_sha256: Str, baseline_provenance_sha256: Str, historical_ratchet_tests_sha256: Str, baseline_ratchet_tests_sha256: Str, current_ratchet_tests_path: Str, current_ratchet_tests_sha256: Str, start_commit: Str, source_manifest_sha256: Str, same_baseline: ObserverBaselineProof}
+## Versioned structural report of the measured production source roots.
+export type Report = {schema: Int, sources: List[SourceCount], metrics: List[Metric]}
 ## Per-source inventory of narrow dead-code allowances, including inherited module coverage.
 export type AllowanceInventory = {schema: Int, entries: List[ItemAllowance]}
 ## A source measurement and its separate item-allowance inventory.
 export type Measurement = {report: Report, item_allowances: AllowanceInventory}
-## Proof that the scoped baseline changes only the blanket row and still names the original source tree.
-export type BlanketBaselineProvenance = {schema: Int, start_commit: Str, source_manifest_sha256: Str, original_baseline_path: Str, original_baseline_sha256: Str, corrected_baseline_path: Str, corrected_baseline_sha256: Str, corrected_blanket_lines: Int, scanner_sha256: Str, ratchet_tests_sha256: Str}
-type BlanketBaselineMetadata = {start_commit: Str, source_manifest_sha256: Str, baseline_report_sha256: Str}
 ## A lexically validated Rust file with module edges, structural occurrences, and item allowances.
 export type SourceScan = {count: SourceCount, modules: List[RustModule], metrics: List[Metric], item_allowances: List[ItemAllowance]}
 
-const REVIEW_REQUIREMENTS: List[Review] = [
-  {name: "operand_behavior_differences", requirement: "Verified per-instruction behavior comparison and retained oracle tests; source arm counts cannot establish equivalence."},
-  {name: "duplicated_per_item_stages", requirement: "Reviewed stage execution ownership, backed by verified generated stage tables and pipeline differential probes."},
-  {name: "nested_machine_bounds", requirement: "Review each entry call and constructor for native-stack nesting and the accepted counter bound; lexical calls alone do not prove scheduling."},
-  {name: "instruction_fallback_arms", requirement: "Verified generated instruction dispatch inventory identifying recursive fallback routes."},
-  {name: "name_resolution_authorities", requirement: "Reviewed authority boundaries and feature-touch evidence; source definitions do not prove semantic authority."},
-  {name: "lint_recursive_descents", requirement: "Verified traversal inventory and rule probes identifying independent recursive descents."},
-  {name: "module_checks_per_pass", requirement: "Measured single lint-pass module-check counts with the shared-import fixture."},
-  {name: "whole_program_stage_copies", requirement: "Reviewed stage-lowering ownership and allocation probes; arbitrary clone calls are not a semantic count."},
-  {name: "open_defects", requirement: "Reviewed TODO defect dispositions with retained regression coverage and recorded reasons."},
-  {name: "timings", requirement: "Isolated repository lint and full gate wall-clock measurements; timings are evidence without a rise ratchet."},
-]
 const PATTERN_SCHEMA_VARIANTS = ["Alias", "Alternation", "List", "TagType", "RecordTest", "ResultTest", "TagTest", "ErrorTest", "Wildcard", "Bind", "Type", "Literal", "ResultOk", "ResultErr", "Facet", "Tag", "Text"]
 const PATTERN_SCHEMA_ORDINALS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "17"]
-const REVIEW_SOURCE_PATHS = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests", "dev/consolidation_metrics.xsh", "dev/consolidation_metrics_current.xsh", "dev/consolidation/metrics.xsh"]
-const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
-const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
 const end_token: Token = Token(text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false)
 
 pure ident_start(value: Str) -> Bool {
@@ -1614,273 +1582,81 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
     }
   }
   let metrics = collect { for name in totals.keys() |> sort { yield {name: name, value: totals[name], evidence: occurrences[name]} } }
-  {report: {schema: 1, sources: sources, metrics: metrics, reviews: REVIEW_REQUIREMENTS}, item_allowances: {schema: 1, entries: item_allowances}}
+  {report: {schema: 1, sources: sources, metrics: metrics}, item_allowances: {schema: 1, entries: item_allowances}}
 }
 
-## Fails on a structural rise or a changed metric schema; baseline files decode through Report.
-export proc assert_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  guard current.schema == baseline.schema else { return Err(MetricError.Contract(detail: "metric schema changed")) }
-  let names = current.metrics |> map .name |> sort
-  let previous = baseline.metrics |> map .name |> sort
-  if names != previous { return Err(MetricError.Contract(detail: "metric inventory changed")) }
-  for row in current.metrics {
-    let old = baseline.metrics |> where .name == row.name |> collect
-    if old.len() != 1 { return Err(MetricError.Contract(detail: f"duplicate metric {row.name}")) }
-    if row.value < 0 or old[0].value < 0 { return Err(MetricError.Contract(detail: f"negative metric {row.name}")) }
-    if row.value > old[0].value { return Err(MetricError.Rise(name: row.name, before: old[0].value, after: row.value)) }
+## The repository-relative ratchet baseline.
+export const RATCHET_BASELINE = "dev/ratchets.json"
+## The production source roots the ratchets measure.
+export const RATCHET_SOURCE_ROOTS = ["src", "crates/xsht/src"]
+## Source line totals the ratchet reports without enforcing.
+export const ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
+const LOWERING_RESOLVER_METRIC = "lowering_type_resolver_definitions"
+const GENERATED_STAGE_METRIC = "stage_variants"
+const GENERATED_STAGE_COUNT = 46
+const GENERATED_STAGE_SOURCE = "src/runtime/eval/indexed/full.rs"
+
+## One recorded structural metric value.
+export type Ratchet = {name: Str, value: Int}
+## The recorded structural metric values of the current source.
+export type Baseline = {schema: Int, metrics: List[Ratchet]}
+
+## Requires the current source report to preserve the lowering and stage-schema contracts.
+export pure assert_source_contract(report: Report) -> Result[Unit, MetricError] {
+  guard report.schema == 1 else { fail .Contract(detail: "unsupported current source report schema") }
+  let lowering = report.metrics |> where .name == LOWERING_RESOLVER_METRIC |> collect
+  if lowering.len() != 1 { fail .Contract(detail: f"current source report requires exactly one {LOWERING_RESOLVER_METRIC} metric") }
+  if lowering[0].value != 0 { fail .Contract(detail: f"current source report requires zero {LOWERING_RESOLVER_METRIC}") }
+  let stages = report.metrics |> where .name == GENERATED_STAGE_METRIC |> collect
+  if stages.len() != 1 { fail .Contract(detail: f"current source report requires exactly one {GENERATED_STAGE_METRIC} metric") }
+  if stages[0].value != GENERATED_STAGE_COUNT { fail .Contract(detail: f"current source report requires {GENERATED_STAGE_COUNT} {GENERATED_STAGE_METRIC}") }
+  if stages[0].evidence.len() != GENERATED_STAGE_COUNT { fail .Contract(detail: f"current source report requires {GENERATED_STAGE_COUNT} {GENERATED_STAGE_METRIC} evidence rows") }
+  if (stages[0].evidence |> where .path != GENERATED_STAGE_SOURCE |> count()) != 0 {
+    fail .Contract(detail: f"current source report requires {GENERATED_STAGE_METRIC} evidence only from {GENERATED_STAGE_SOURCE}")
   }
+  Ok()
 }
 
-pure metric_value(report: Report, name: Str) -> Result[Int, Error] {
-  let rows = report.metrics |> where .name == name |> collect
-  if rows.len() != 1 { return Err(MetricError.Contract(detail: f"expected one {name} metric")) }
-  rows[0].value
-}
-
-# Source totals remain in reports and audits but do not participate in structural rise checks.
-proc validate_policy_report(report: Report) [error] {
-  guard report.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported consolidation metric schema")) }
-  assert_not_risen(report, report)
-  for name in SOURCE_ADVISORY_METRICS {
+## The structural metric values of a report; source line totals stay advisory.
+export pure structural_values(report: Report) -> Result[List[Ratchet], MetricError] {
+  guard report.schema == 1 else { fail .Contract(detail: "unsupported source metric report schema") }
+  for name in ADVISORY_METRICS {
     let rows = report.metrics |> where .name == name |> collect
-    if rows.len() != 1 { return Err(MetricError.Contract(detail: f"expected exactly one {name} metric")) }
+    if rows.len() != 1 { fail .Contract(detail: f"source metric report requires exactly one {name} metric") }
+    if rows[0].value < 0 { fail .Contract(detail: f"source metric report has negative metric {name}") }
   }
+  collect { for row in report.metrics { yield {name: row.name, value: row.value} when row.name not in ADVISORY_METRICS } }
 }
 
-pure structural_report(report: Report) -> Report {
-  {...report, metrics: collect { for row in report.metrics { yield row when row.name not in SOURCE_ADVISORY_METRICS } }}
-}
-
-## Intermediate and final acceptance use one structural ratchet while keeping source totals advisory.
-export proc assert_structural_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  validate_policy_report(current)
-  validate_policy_report(baseline)
-  assert_not_risen(structural_report(current), structural_report(baseline))
-}
-
-## Final close requires zero manual readers, optional raw reads, wide arena matches, and blanket scopes.
-export proc assert_final_close(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  for name in FINAL_ZERO_METRICS {
-    let _ = metric_value(current, name)?
-    let _ = metric_value(baseline, name)?
+pure inventory(rows: List[Ratchet], label: Str) -> Result[List[Str], MetricError] {
+  for row in rows {
+    if row.value < 0 { fail .Contract(detail: f"{label} has negative metric {row.name}") }
+    if (rows |> where .name == row.name |> count()) != 1 { fail .Contract(detail: f"{label} repeats metric {row.name}") }
   }
-  assert_structural_not_risen(current, baseline)
-  for name in FINAL_ZERO_METRICS {
-      guard metric_value(current, name)? == 0 else {
-      return Err(MetricError.Contract(detail: f"final close requires zero {name}"))
+  rows |> map .name |> sort
+}
+
+## Lowers the baseline to the current values; a changed metric inventory or any rise fails.
+export pure lowered(report: Report, baseline: Baseline) -> Result[Baseline, MetricError] {
+  guard baseline.schema == 1 else { fail .Contract(detail: "unsupported ratchet baseline schema") }
+  let current = structural_values(report)?
+  if inventory(current, "source metric report")? != inventory(baseline.metrics, "ratchet baseline")? {
+    fail .Contract(detail: f"structural metrics differ from the ratchet baseline in {RATCHET_BASELINE}")
+  }
+  for row in current {
+    let recorded = baseline.metrics |> where .name == row.name |> collect
+    if row.value > recorded[0].value { fail .Rise(name: row.name, before: recorded[0].value, after: row.value) }
+  }
+  Baseline(schema: 1, metrics: current)
+}
+
+## Requires every structural metric to equal its recorded value.
+export pure verify(report: Report, baseline: Baseline) -> Result[Unit, MetricError] {
+  for row in lowered(report, baseline)?.metrics {
+    let recorded = baseline.metrics |> where .name == row.name |> collect
+    if row.value != recorded[0].value {
+      fail .Contract(detail: f"ratchet {row.name} fell from {recorded[0].value} to {row.value}; record it with `xsh dev/ratchets.xsh update`")
     }
   }
-}
-
-## The active observer must retain the frozen baseline proof and attest its own byte-identical report.
-export proc verify_observer_successor(root: Path, baseline_path: Str, provenance_path: Str, baseline: Report) [fs, error] -> Result[Unit, Error] {
-  let provenance_file = fp"{root}/dev/consolidation/metric-observer-successor.json"
-  let provenance = json.read(provenance_file)?.require(ObserverSuccessorProvenance)?
-  if provenance.schema != 1 or provenance.original_scanner_path != "dev/consolidation_metrics.xsh" or provenance.successor_scanner_path != "dev/consolidation_metrics_current.xsh" or provenance.original_baseline_path != "dev/consolidation/baseline.json" or provenance.corrected_baseline_path != "dev/consolidation/baseline-blanket-scope.json" {
-    return Err(MetricError.Contract(detail: "unsupported or noncanonical current observer provenance"))
-  }
-  if provenance.same_baseline.item_inventory_path != "dev/consolidation/item-allowances-start.json" {
-    return Err(MetricError.Contract(detail: "current observer provenance names a noncanonical item inventory"))
-  }
-  if provenance.same_baseline.report_path != "dev/consolidation/blanket-metric-start-diagnostic.json" {
-    return Err(MetricError.Contract(detail: "current observer provenance names a noncanonical start report"))
-  }
-  let original_scanner_hash = hash.sha256(fp"{root}/{provenance.original_scanner_path}")?.hex().lower()
-  let successor_scanner_hash = hash.sha256(fp"{root}/{provenance.successor_scanner_path}")?.hex().lower()
-  let original_baseline_hash = hash.sha256(fp"{root}/{provenance.original_baseline_path}")?.hex().lower()
-  let corrected_baseline_hash = hash.sha256(fp"{root}/{provenance.corrected_baseline_path}")?.hex().lower()
-  let supplied_baseline_hash = hash.sha256(fp"{baseline_path}")?.hex().lower()
-  let metadata_path = fp"{root}/dev/consolidation/baseline-metadata.json"
-  let metadata_hash = hash.sha256(metadata_path)?.hex().lower()
-  let historical_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
-  let historical_hash = hash.sha256(historical_path)?.hex().lower()
-  let baseline_provenance_hash = hash.sha256(fp"{provenance_path}")?.hex().lower()
-  if provenance.current_ratchet_tests_path != "dev/tests/test-consolidation-ratchets-current.xsh" {
-    return Err(MetricError.Contract(detail: "current observer provenance names a noncanonical current ratchet fixture"))
-  }
-  let current_tests_hash = hash.sha256(fp"{root}/{provenance.current_ratchet_tests_path}")?.hex().lower()
-  if original_scanner_hash != provenance.original_scanner_sha256.lower() or successor_scanner_hash != provenance.successor_scanner_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance scanner hash mismatch"))
-  }
-  if original_baseline_hash != provenance.original_baseline_sha256.lower() or corrected_baseline_hash != provenance.corrected_baseline_sha256.lower() or supplied_baseline_hash != provenance.corrected_baseline_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance baseline hash mismatch"))
-  }
-  if metadata_hash != provenance.metadata_sha256.lower() or historical_hash != provenance.historical_provenance_sha256.lower() or baseline_provenance_hash != provenance.baseline_provenance_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance historical proof hash mismatch"))
-  }
-  let historical = json.read(historical_path)?.require(BlanketBaselineProvenance)?
-  let passed = json.read(fp"{provenance_path}")?.require(BlanketBaselineProvenance)?
-  let metadata = json.read(metadata_path)?.require(BlanketBaselineMetadata)?
-  if historical.scanner_sha256.lower() != provenance.original_scanner_sha256.lower() or passed.scanner_sha256.lower() != provenance.original_scanner_sha256.lower() or historical.ratchet_tests_sha256.lower() != provenance.historical_ratchet_tests_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance does not preserve the historical scanner attestation"))
-  }
-  if passed.ratchet_tests_sha256.lower() != provenance.baseline_ratchet_tests_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance does not preserve the source advisory ratchet attestation"))
-  }
-  if current_tests_hash != provenance.current_ratchet_tests_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance ratchet fixture hash mismatch"))
-  }
-  if metadata.start_commit != provenance.start_commit or metadata.source_manifest_sha256.lower() != provenance.source_manifest_sha256.lower() {
-    return Err(MetricError.Contract(detail: "current observer provenance source identity mismatch"))
-  }
-  let corrected = json.read(fp"{root}/{provenance.corrected_baseline_path}")?.require(Report)?
-  if baseline != corrected { return Err(MetricError.Contract(detail: "current observer was given a different corrected baseline")) }
-  let report_path = fp"{root}/{provenance.same_baseline.report_path}"
-  let report_hash = hash.sha256(report_path)?.hex().lower()
-  let measured_baseline = json.read(report_path)?.require(Report)?
-  if report_hash != provenance.same_baseline.report_sha256.lower() or provenance.same_baseline.legacy_report_sha256.lower() != report_hash or provenance.same_baseline.successor_report_sha256.lower() != report_hash {
-    return Err(MetricError.Contract(detail: "old and current observers did not produce the corrected baseline report"))
-  }
-  let metric_values = collect { for row in measured_baseline.metrics { yield {name: row.name, value: row.value} } }
-  if provenance.same_baseline.metric_values != metric_values {
-    return Err(MetricError.Contract(detail: "current observer baseline metric proof mismatch"))
-  }
-  if provenance.same_baseline.source_count != measured_baseline.sources.len() or provenance.same_baseline.source_count != baseline.sources.len() {
-    return Err(MetricError.Contract(detail: "current observer baseline source inventory proof mismatch"))
-  }
-  let item_inventory_path = fp"{root}/{provenance.same_baseline.item_inventory_path}"
-  let item_inventory_hash = hash.sha256(item_inventory_path)?.hex().lower()
-  let item_inventory = json.read(item_inventory_path)?.require(AllowanceInventory)?
-  if item_inventory_hash != provenance.same_baseline.item_inventory_sha256.lower() or item_inventory.entries.len() != provenance.same_baseline.item_inventory_entries {
-    return Err(MetricError.Contract(detail: "current observer baseline item inventory proof mismatch"))
-  }
-}
-
-## A companion ratchet baseline is accepted only when its original source identity and scanner inputs remain pinned.
-export proc verify_blanket_baseline(root: Path, baseline_path: Str, provenance_path: Str, baseline: Report) [fs, error] -> Result[Unit, Error] {
-  let provenance = json.read(fp"{provenance_path}")?.require(BlanketBaselineProvenance)?
-  if provenance.schema != 1 or provenance.original_baseline_path != "dev/consolidation/baseline.json" or provenance.corrected_baseline_path != "dev/consolidation/baseline-blanket-scope.json" {
-    return Err(MetricError.Contract(detail: "unsupported or noncanonical corrected blanket baseline provenance"))
-  }
-  let original_path = fp"{root}/{provenance.original_baseline_path}"
-  let corrected_path = fp"{root}/{provenance.corrected_baseline_path}"
-  let metadata_path = fp"{root}/dev/consolidation/baseline-metadata.json"
-  let original_hash = hash.sha256(original_path)?.hex().lower()
-  let corrected_hash = hash.sha256(fp"{baseline_path}")?.hex().lower()
-  let companion_hash = hash.sha256(corrected_path)?.hex().lower()
-  let scanner_hash = hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower()
-  if original_hash != provenance.original_baseline_sha256.lower() or corrected_hash != provenance.corrected_baseline_sha256.lower() or companion_hash != provenance.corrected_baseline_sha256.lower() {
-    return Err(MetricError.Contract(detail: "corrected blanket baseline or preserved original baseline hash mismatch"))
-  }
-  if scanner_hash != provenance.scanner_sha256.lower() {
-    return Err(MetricError.Contract(detail: "corrected blanket baseline scanner hash mismatch"))
-  }
-  let metadata = json.read(metadata_path)?.require(BlanketBaselineMetadata)?
-  if metadata.start_commit != provenance.start_commit or metadata.source_manifest_sha256.lower() != provenance.source_manifest_sha256.lower() or metadata.baseline_report_sha256.lower() != provenance.original_baseline_sha256.lower() {
-    return Err(MetricError.Contract(detail: "corrected blanket baseline no longer matches the original start-source identity"))
-  }
-  let original = json.read(original_path)?.require(Report)?
-  if original.schema != baseline.schema or original.sources != baseline.sources or original.reviews != baseline.reviews or original.metrics.len() != baseline.metrics.len() {
-    return Err(MetricError.Contract(detail: "corrected blanket baseline changes unrelated report structure"))
-  }
-  var blanket_rows = 0
-  for old in original.metrics {
-    let updated = baseline.metrics |> where .name == old.name |> collect
-    if updated.len() != 1 { return Err(MetricError.Contract(detail: f"corrected blanket baseline changes metric inventory at {old.name}")) }
-    if old.name == "blanket_dead_code_lines" {
-      blanket_rows += 1
-      if updated[0].value != provenance.corrected_blanket_lines { return Err(MetricError.Contract(detail: "corrected blanket baseline count does not match its provenance")) }
-    } else if updated[0] != old {
-      return Err(MetricError.Contract(detail: f"corrected blanket baseline changes unrelated metric {old.name}"))
-    }
-  }
-  if blanket_rows != 1 { return Err(MetricError.Contract(detail: "corrected blanket baseline must contain exactly one blanket metric")) }
-  verify_observer_successor(root, baseline_path, provenance_path, baseline)
-}
-
-pure valid_object_id(value: Str) -> Bool {
-  return false when value.byte_len() not in [40, 64]
-  for digit in value { guard digit.lower() in "0123456789abcdef" else { return false } }
-  true
-}
-
-proc git_output(root: Path, arguments: List[Str]) [process, error] -> Result[Str, Error] {
-  let argv = ["git", "-C", root.display(), @arguments]
-  let output = run.capture --text --timeout=30s @argv
-  let code = output.status.shell_code()?
-  if code != 0 { return Err(MetricError.Contract(detail: f"git {arguments.join(" ")} failed with {code}: {output.stderr.trim()}")) }
-  output.stdout.trim()
-}
-
-proc commit_source_oids(root: Path, commit: Str) [process, error] -> Result[List[ReviewSource], Error] {
-  collect {
-    for source_path in REVIEW_SOURCE_PATHS {
-      let oid = git_output(root, ["rev-parse", "--verify", f"{commit}:{source_path}"])?
-      yield {path: source_path, oid: oid}
-    }
-  }
-}
-
-proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] {
-  if artifact.path.trim() != artifact.path or artifact.path == "" or artifact.path.starts_with("/") or "\\" in artifact.path {
-    return Err(MetricError.Contract(detail: "review artifact path must be workspace-relative"))
-  }
-  for segment in artifact.path.split("/") {
-    if segment in ["", ".", ".."] { return Err(MetricError.Contract(detail: "review artifact path escapes or aliases the workspace")) }
-  }
-  if artifact.sha256.byte_len() != 64 { return Err(MetricError.Contract(detail: "review artifact SHA-256 must be 64 hexadecimal characters")) }
-  for digit in artifact.sha256 { guard digit.lower() in "0123456789abcdef" else { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
-  if artifact.command.trim() == "" or artifact.method.trim() == "" or artifact.result.trim() != "verified" {
-    return Err(MetricError.Contract(detail: "review artifact needs a command, method, and verified reviewer result"))
-  }
-  let base = root.resolve()?
-  let resolved = fp"{base}/{artifact.path}".resolve()?
-  let _ = resolved.strip_prefix(base)?
-  if hash.sha256(resolved)?.hex().lower() != artifact.sha256.lower() {
-    return Err(MetricError.Contract(detail: f"review artifact hash mismatch: {artifact.path}"))
-  }
-}
-
-## Functional review excludes timings; final review requires every canonical row.
-export enum ReviewScope { Functional, Final }
-
-## Evidence stays separate from the fixed requirements; code and test trees bind it to reviewed behavior.
-export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path, scope: ReviewScope = Final) [fs, process, error] -> Result[Unit, Error] {
-  guard bundle.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
-  let expected_names = REVIEW_REQUIREMENTS |> map .name |> sort
-  let current_names = current.reviews |> map .name |> sort
-  if current_names != expected_names { return Err(MetricError.Contract(detail: "current report does not contain the canonical review rows")) }
-  let required_names = match scope {
-    Functional => REVIEW_REQUIREMENTS |> where .name != "timings" |> map .name |> sort
-    Final => expected_names
-  }
-  let proof_names = bundle.rows |> map .name |> sort
-  if bundle.rows.len() != required_names.len() or proof_names != required_names {
-    return Err(MetricError.Contract(detail: "review evidence must contain each canonical row exactly once"))
-  }
-  if ! valid_object_id(bundle.source_commit) { return Err(MetricError.Contract(detail: "review source_commit must be a full hexadecimal Git object ID")) }
-  let base = root.resolve()?
-  let head = git_output(base, ["rev-parse", "--verify", "HEAD"])?
-  let source_commit = git_output(base, ["rev-parse", "--verify", bundle.source_commit])?
-  if source_commit.lower() != bundle.source_commit.lower() or git_output(base, ["cat-file", "-t", source_commit])? != "commit" {
-    return Err(MetricError.Contract(detail: "review source_commit is not an existing Git commit"))
-  }
-  let ancestry = ["git", "-C", base.display(), "merge-base", "--is-ancestor", source_commit, head]
-  let ancestry_output = run.capture --text --timeout=30s @ancestry
-  if ancestry_output.status.shell_code()? != 0 {
-    return Err(MetricError.Contract(detail: "review source_commit is not in the current history"))
-  }
-  let dirty_paths = git_output(base, ["status", "--porcelain", "--untracked-files=all", "--", @REVIEW_SOURCE_PATHS])?
-  if dirty_paths != "" { return Err(MetricError.Contract(detail: "reviewed source or test trees have uncommitted changes")) }
-  let required_source_paths = REVIEW_SOURCE_PATHS |> sort
-  let recorded_source_paths = bundle.sources |> map .path |> sort
-  if recorded_source_paths != required_source_paths or bundle.sources.len() != required_source_paths.len() {
-    return Err(MetricError.Contract(detail: "review evidence has missing or duplicate source identities"))
-  }
-  let source_oids = commit_source_oids(base, source_commit)?
-  let current_oids = commit_source_oids(base, head)?
-  for source_path in REVIEW_SOURCE_PATHS {
-    let recorded = bundle.sources |> where .path == source_path |> collect
-    let from_commit = source_oids |> where .path == source_path |> collect
-    let current_source = current_oids |> where .path == source_path |> collect
-    if recorded.len() != 1 or from_commit.len() != 1 or current_source.len() != 1 or ! valid_object_id(recorded[0].oid) or recorded[0].oid.lower() != from_commit[0].oid.lower() or recorded[0].oid.lower() != current_source[0].oid.lower() {
-      return Err(MetricError.Contract(detail: f"review evidence is stale for source {source_path}"))
-    }
-  }
-  for row in bundle.rows {
-    if row.status != "review_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
-      return Err(MetricError.Contract(detail: f"review row is not verified with evidence: {row.name}"))
-    }
-    for artifact in row.evidence { verify_artifact(base, artifact) }
-  }
+  Ok()
 }

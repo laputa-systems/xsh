@@ -418,9 +418,9 @@ const imported_inference_test_ids = [
   "tests/xsh/full-inference-callables.xsh::test_full_inference_private_module_callables_remain_inaccessible",
 ]
 
-const current_metric_native_files = [
-  "dev/tests/test-consolidation-metrics-current.xsh",
-  "dev/tests/test-consolidation-ratchets-current.xsh",
+const ratchet_native_files = [
+  "dev/tests/test-source-metrics.xsh",
+  "dev/tests/test-ratchets.xsh",
 ]
 
 pure cargo_caller_tests(changed_path: Str) -> List[Str] {
@@ -473,14 +473,10 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
   var native_files = []
   for changed_path in paths {
-    if changed_path == "dev/consolidation_metrics_current.xsh" or changed_path == "dev/consolidation/metric-observer-successor.json" or changed_path in current_metric_native_files {
-      for file in current_metric_native_files {
+    if changed_path in ["dev/source_metrics.xsh", "dev/ratchets.xsh", "dev/ratchets.json"] or changed_path in ratchet_native_files {
+      for file in ratchet_native_files {
         native_files += [file] when file not in native_files
       }
-      continue
-    }
-    if changed_path == "dev/consolidation/current_source_policy.xsh" {
-      native_files += ["dev/tests/test-consolidation-ratchets-current.xsh"] when "dev/tests/test-consolidation-ratchets-current.xsh" not in native_files
       continue
     }
     let caller_tests = cargo_caller_tests(changed_path)
@@ -728,7 +724,7 @@ proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, e
 }
 
 ## Automatic repository checks include the retained command contracts and
-## source-bound consolidation ratchets.
+## the structural source ratchets recorded in `dev/ratchets.json`.
 export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> List[contract.CommandSpec] {
   let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
   let xsh = tests.product_path(ctx, profile, tests.Xsh).display()
@@ -737,11 +733,7 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
     stages.command("batch-lint", ctx.target.triple, xsht, [xsht, "lint"], ctx.root, {}),
     stages.command("batch-diff", ctx.target.triple, "git", ["git", "diff", "--check"], ctx.root, {}),
     stages.command("batch-ratchets", ctx.target.triple, xsh,
-      [xsh, "dev/consolidation/metrics.xsh", "check-current", "--root", ctx.root.display(),
-        "--source-root", "src", "--xsht-source-root", "crates/xsht/src",
-        "--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance-source-advisory.json",
-        "--envelope", "dev/consolidation/envelope-upstream.json",
-        "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"], ctx.root, {}),
+      [xsh, "dev/ratchets.xsh", "check", "--root", ctx.root.display(), "--report", ".work/gate/ratchets.json"], ctx.root, {}),
   ]
 }
 

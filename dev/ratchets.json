@@ -1,0 +1,49 @@
+{
+  "metrics": [
+    {
+      "name": "blanket_dead_code_lines",
+      "value": 0
+    },
+    {
+      "name": "instruction_variants",
+      "value": 150
+    },
+    {
+      "name": "lowering_type_resolver_definitions",
+      "value": 0
+    },
+    {
+      "name": "manual_payload_calls",
+      "value": 0
+    },
+    {
+      "name": "nested_machine_factory_calls",
+      "value": 5
+    },
+    {
+      "name": "optional_raw_calls",
+      "value": 0
+    },
+    {
+      "name": "pattern_variants",
+      "value": 17
+    },
+    {
+      "name": "stage_variants",
+      "value": 46
+    },
+    {
+      "name": "static_type_predicate_definitions",
+      "value": 1
+    },
+    {
+      "name": "type_storage_mapping_definitions",
+      "value": 2
+    },
+    {
+      "name": "wide_arena_wildcards",
+      "value": 0
+    }
+  ],
+  "schema": 1
+}

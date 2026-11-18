@@ -1,4 +1,4 @@
-use consolidation_metrics_current as metrics
+use source_metrics as metrics
 
 pure value(scan: metrics.SourceScan, name: Str) -> Int {
   let rows = scan.metrics |> where .name == name |> collect
@@ -83,29 +83,11 @@ test test_generated_pattern_schema_counts_seventeen_rows_and_keeps_the_ordinal_h
   assert (rows[0].evidence |> where .detail == "pattern_schema::ErrorVariant" |> count()) == 0
 }
 
-test test_current_metrics_cli_measures_generated_pattern_rows { |ctx|
+test test_measurement_counts_generated_pattern_rows_through_module_paths { |ctx|
   let root = tree(ctx)?
   fp"{root}/src/lib.rs".write("#[path = \"patterns.rs\"] mod patterns;\n")
   fp"{root}/src/patterns.rs".write(pattern_table())
-  let output_path = fp"{root}/current.json"
-  let driver = p"dev/consolidation/metrics.xsh".read_text()?
-  test.expect(
-    ctx,
-    driver,
-    status: 0,
-    args: [
-      "measure",
-      "--root",
-      root,
-      "--source-root",
-      "src",
-      "--xsht-source-root",
-      "crates/xsht/src",
-      "--output",
-      output_path,
-    ],
-  )?
-  let report: metrics.Report = json.read(output_path)?.require()?
+  let report = metrics.measure(root, metrics.RATCHET_SOURCE_ROOTS)?
   assert report_value(report, "pattern_variants") == 17
 }
 
@@ -133,17 +115,6 @@ test test_pattern_schema_table_and_legacy_enum_cannot_double_count_across_module
   match metrics.measure(root, ["src", "crates/xsht/src"]) {
     Ok(_) => test.fail("generated and legacy pattern authorities were both counted")
     Err(metrics.MetricError.Invalid {detail, ..}) => assert "pattern schema overlaps the handwritten BuildPatternRow enum" in detail
-    Err(error) => test.fail(error.message)
-  }
-}
-
-test test_canonical_observer_provenance_pins_the_frozen_same_source_report {
-  let baseline_path = p"dev/consolidation/baseline-blanket-scope.json"
-  let provenance_path = p"dev/consolidation/blanket-metric-provenance-source-advisory.json"
-  let baseline: metrics.Report = json.read(baseline_path)?.require()?
-  match metrics.verify_observer_successor(p".", baseline_path.display(), provenance_path.display(), baseline) {
-    Ok(_) => {}
-    Err(metrics.MetricError.Contract {detail}) => test.fail(detail)
     Err(error) => test.fail(error.message)
   }
 }
