@@ -67,6 +67,36 @@ class ContainerTests(unittest.TestCase):
         self.stack[1].assert_called_once()
         self.assertTrue(self.scratch.exists())
 
+    def test_timeout_removes_a_container_the_daemon_creates_after_the_first_removal(self):
+        with patch("check.subprocess.run", side_effect=[
+            subprocess.TimeoutExpired(["docker", "run"], 30),
+            subprocess.CompletedProcess([], 1, b"", b"Error: No such container: x\n"),
+            subprocess.CompletedProcess([], 1, b"", b"Error: No such container: x\n"),
+            subprocess.CompletedProcess([], 0, b"[{}]", b""),
+            subprocess.CompletedProcess([], 0, b"x\n", b""),
+        ]) as run, patch("check.time.sleep"):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                check.container("true")
+        commands = [call.args[0][:3] for call in run.call_args_list[1:]]
+        self.assertEqual(commands, [
+            ["docker", "rm", "--force"],
+            ["docker", "container", "inspect"],
+            ["docker", "container", "inspect"],
+            ["docker", "rm", "--force"],
+        ])
+        self.stack[1].assert_not_called()
+        self.assertFalse(self.scratch.exists())
+
+    def test_timeout_without_a_late_container_still_cleans_up(self):
+        responses = [subprocess.TimeoutExpired(["docker", "run"], 30),
+                     subprocess.CompletedProcess([], 1, b"", b"Error: No such container: x\n")]
+        responses += [subprocess.CompletedProcess([], 1, b"", b"Error: No such container: x\n")] * 200
+        with patch("check.subprocess.run", side_effect=responses), patch("check.time.sleep"):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                check.container("true")
+        self.stack[1].assert_not_called()
+        self.assertFalse(self.scratch.exists())
+
     def test_cancellation_runs_cleanup_before_returning(self):
         with patch("check.subprocess.run", side_effect=[
             check.Cancelled(signal.SIGTERM),

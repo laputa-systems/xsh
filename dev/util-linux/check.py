@@ -65,6 +65,15 @@ def _container_vanished(name: str, attempts: int = 100) -> bool:
     return False
 
 
+def _remove_late_container(name: str, attempts: int = 150) -> subprocess.CompletedProcess | None:
+    for _ in range(attempts):
+        inspect = subprocess.run(["docker", "container", "inspect", name], capture_output=True, timeout=10)
+        if inspect.returncode == 0:
+            return subprocess.run(["docker", "rm", "--force", name], capture_output=True, timeout=10)
+        time.sleep(0.1)
+    return None
+
+
 @cancellation_scope()
 def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30, cpus: int = 1, memory_gib: int = 1) -> bytes:
     require_native_lease()
@@ -102,6 +111,9 @@ def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = 
             cleanup = subprocess.run(["docker", "rm", "--force", name], capture_output=True, timeout=10)
             if cleanup.returncode and b"is already in progress" in cleanup.stderr and _container_vanished(name):
                 cleanup = subprocess.CompletedProcess(cleanup.args, 0, b"", b"")
+            if (cleanup.returncode and b"No such container" in cleanup.stderr
+                    and isinstance(primary, (subprocess.TimeoutExpired, Cancelled))):
+                cleanup = _remove_late_container(name) or cleanup
             if cleanup.returncode and b"No such container" not in cleanup.stderr:
                 raise RuntimeError(f"container cleanup failed for {name}; retain {scratch}: {cleanup.stderr!r}")
             removed = True
