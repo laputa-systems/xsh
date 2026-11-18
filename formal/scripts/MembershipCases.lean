@@ -28,7 +28,12 @@ def types : List (String × T) := [
   ("map-str-int", .map (.primitive .string) (.primitive .integer)),
   ("map-int-int", .map (.primitive .integer) (.primitive .integer)),
   ("set-int", .set (.primitive .integer)), ("optional-int", .optional (.primitive .integer)),
-  ("record-x-int", .record (.rowField "x" (.primitive .integer) .rowEmpty))]
+  ("record-x-int", .record (.rowField "x" (.primitive .integer) .rowEmpty)),
+  ("union-int-str", .union (.primitive .integer) (.primitive .string) .membersEmpty),
+  ("result-int-str", .result (.primitive .integer) (.primitive .string)),
+  ("list-optional-int", .list (.optional (.primitive .integer))),
+  ("map-str-record", .map (.primitive .string) (.record (.rowField "x" (.primitive .integer) .rowEmpty))),
+  ("union-record-bool", .union (.record (.rowField "x" (.primitive .integer) .rowEmpty)) (.primitive .boolean) .membersEmpty)]
 
 def values : List (String × V) := [
   ("null", .scalar .null), ("bool", .scalar (.boolean true)),
@@ -46,7 +51,13 @@ def values : List (String × V) := [
   ("set-str", .set [.string "a"]), ("record-empty", .record []),
   ("record-x", .record [("x", .scalar (.integer intOne))]),
   ("record-wrong", .record [("x", .scalar (.string "a"))]),
-  ("record-extra", .record [("x", .scalar (.integer intOne)), ("y", .scalar (.integer intOne))])]
+  ("record-extra", .record [("x", .scalar (.integer intOne)), ("y", .scalar (.integer intOne))]),
+  ("ok-int", .ok (.scalar (.integer intOne))), ("ok-str", .ok (.scalar (.string "a"))),
+  ("err-str", .err (.scalar (.string "a"))), ("err-int", .err (.scalar (.integer intOne))),
+  ("list-optional", .list [.scalar .null, .scalar (.integer intOne)]),
+  ("list-optional-wrong", .list [.scalar .null, .scalar (.string "a")]),
+  ("map-record", .map [(.string "a", .record [("x", .scalar (.integer intOne))])]),
+  ("map-record-wrong", .map [(.string "a", .record [("x", .scalar (.string "a"))])])]
 
 def main : IO Unit := do
   let out ← IO.getStdout

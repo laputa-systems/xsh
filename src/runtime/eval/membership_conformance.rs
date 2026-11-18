@@ -1,5 +1,6 @@
+use super::lowered_ops::lowered_value_from_runtime_any;
 use super::type_view::{value_matches_static_type, ValueView};
-use super::{MapKey, Type, Value};
+use super::{MapKey, ResultValue, Type, Value};
 use crate::runtime::value::{DigestValue, DurationValue, FloatValue, PathValue, RecordMap, RegexValue};
 use crate::symbol::{Name, SymbolOwner};
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,6 +25,11 @@ fn production_matches_lean_membership() {
             ("set-int", Type::Set(Box::new(Type::Int))),
             ("optional-int", Type::Optional(Box::new(Type::Int))),
             ("record-x-int", Type::Record(BTreeMap::from([(x, Type::Int)]).into())),
+            ("union-int-str", Type::Union(vec![Type::Int, Type::Str])),
+            ("result-int-str", Type::Result(Box::new(Type::Int), Box::new(Type::Str))),
+            ("list-optional-int", Type::List(Box::new(Type::Optional(Box::new(Type::Int))))),
+            ("map-str-record", Type::Map(Box::new(Type::Str), Box::new(Type::Record(BTreeMap::from([(x, Type::Int)]).into())))),
+            ("union-record-bool", Type::Union(vec![Type::Record(BTreeMap::from([(x, Type::Int)]).into()), Type::Bool])),
         ];
         let key = || MapKey::Str(Arc::from("a"));
         let string = || Value::Str(Arc::from("a"));
@@ -47,9 +53,18 @@ fn production_matches_lean_membership() {
             ("record-x", Value::Record(RecordMap::from_name_values(vec![(x, Value::Int(1))]))),
             ("record-wrong", Value::Record(RecordMap::from_name_values(vec![(x, string())]))),
             ("record-extra", Value::Record(RecordMap::from_name_values(vec![(x, Value::Int(1)), (y, Value::Int(1))]))),
+            ("ok-int", Value::Result(ResultValue::Ok(Box::new(Value::Int(1))))),
+            ("ok-str", Value::Result(ResultValue::Ok(Box::new(string())))),
+            ("err-str", Value::Result(ResultValue::Err(Box::new(string())))),
+            ("err-int", Value::Result(ResultValue::Err(Box::new(Value::Int(1))))),
+            ("list-optional", Value::List(vec![Value::Null, Value::Int(1)])),
+            ("list-optional-wrong", Value::List(vec![Value::Null, string()])),
+            ("map-record", Value::Map(BTreeMap::from([(key(), Value::Record(RecordMap::from_name_values(vec![(x, Value::Int(1))])))]))),
+            ("map-record-wrong", Value::Map(BTreeMap::from([(key(), Value::Record(RecordMap::from_name_values(vec![(x, string())])))]))),
         ];
-        assert_eq!(types.len(), 20);
-        assert_eq!(values.len(), 26);
+        let lowered: Vec<_> = values.iter().map(|(_, value)| lowered_value_from_runtime_any(value).expect("fixture cannot be lowered")).collect();
+        assert_eq!(types.len(), 25);
+        assert_eq!(values.len(), 34);
         let path = std::env::var_os("XSH_MEMBERSHIP_CASES").expect("XSH_MEMBERSHIP_CASES is required");
         let mut lines = BufReader::new(std::fs::File::open(path).expect("cannot open membership corpus")).lines();
         assert_eq!(lines.next().expect("missing header").expect("invalid header"), "membership-v1");
@@ -57,7 +72,7 @@ fn production_matches_lean_membership() {
         let mut count = 0;
         for line in lines {
             let line = line.expect("invalid corpus input");
-            assert!(count < 520, "corpus exceeds bound");
+            assert!(count < 850, "corpus exceeds bound");
             let fields: Vec<_> = line.split(' ').collect();
             assert_eq!(fields.len(), 3, "malformed row {}: {line}", count + 2);
             let ty = types.iter().find(|(name, _)| *name == fields[0]).expect("out-of-domain type");
@@ -66,9 +81,12 @@ fn production_matches_lean_membership() {
             assert!(seen.insert((fields[0].to_owned(), fields[1].to_owned())), "duplicate input at row {}: {line}", count + 2);
             assert_eq!(value_matches_static_type(ValueView::Runtime(&value.1), &ty.1), expected,
                 "model/source disagreement at row {}: {line}", count + 2);
+            let index = values.iter().position(|(name, _)| *name == fields[1]).unwrap();
+            assert_eq!(value_matches_static_type(ValueView::Lowered(&lowered[index]), &ty.1), expected,
+                "model/source disagreement in lowered view at row {}: {line}", count + 2);
             count += 1;
         }
-        assert_eq!(count, 520, "incomplete corpus");
+        assert_eq!(count, 850, "incomplete corpus");
         println!("membership rows: {count}");
     });
 }

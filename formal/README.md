@@ -391,14 +391,19 @@ altered corpora reject with the expected diagnostics, including a wrong decision
 a missing input, duplicates, and invalid or unsupported fields. Ordinary Rust
 tests require neither Lean nor these generated corpora.
 
-The membership comparison uses the Cartesian product of 20 types and 26
-runtime value fixtures in `MembershipCases.lean` and `membership_conformance.rs`.
+The membership comparison uses the Cartesian product of 25 types and 34
+value fixtures in `MembershipCases.lean` and `membership_conformance.rs`.
 The types include Any, Null, Bool, Int, UInt, Float, Str, Bytes, Duration,
 Digest, Regex, Path, Unit, List[Int], NonEmpty[Int], Map[Str, Int],
-Map[Int, Int], Set[Int], Optional[Int], and a record requiring `x: Int`.
+Map[Int, Int], Set[Int], Optional[Int], a record requiring `x: Int`,
+Int | Str, Result[Int, Str], List[Optional[Int]], Map[Str, record{x: Int}],
+and record{x: Int} | Bool.
 Values include scalar representatives (including negative and zero integers),
 empty and populated containers, mismatched elements and keys, and records with
-missing, wrong, and extra fields. Records are open: extra fields are accepted.
+missing, wrong, and extra fields, both result arms with matching and mismatched
+payloads, and nested valid and invalid containers. The Result error payloads are
+raw Str and Int candidates, not claims that source execution constructs them.
+Records are open: extra fields are accepted.
 String-keyed maps also accept records whose field values match. Map and set keys
 are restricted to scalar key representations; this corpus exercises integer
 and string keys. The precise fixtures are the declared finite domain, not all
@@ -408,9 +413,9 @@ the same values and types on both sides; their preservation through execution
 and source type admissibility are assumptions, not established here.
 
 Nominal record identity is excluded: Rust has no runtime representation for it
-and relies on the checker. Tagged identities, bounded integer types, unions,
-results, modules, filesystem entries, other key kinds and other constructors are
-outside this corpus. Unknown and Invalid recovery types are excluded. Stream,
+and relies on the checker. Tagged identities, bounded integer types, other
+unions and results, modules, filesystem entries, other key kinds and other
+constructors are outside this corpus. Unknown and Invalid recovery types are excluded. Stream,
 callable, scheme, generic and environment-path contracts are also excluded;
 the Lean world sets retained predicates false and no admitted case consults
 them. Rust static validation recognizes environment-path snapshots, streams by
@@ -424,10 +429,11 @@ preservation of those retained facts remain assumptions and are not tested.
 ### Pilot 1A common domain and retained facts
 
 The admitted inputs are exactly the named Cartesian product above, interpreted
-as borrowed `ValueView::Runtime` values. A nested map or set key is borrowed
-as `ValueView::Key`; other view variants, including lowered and computed-field
-views, are not covered by this comparison. The closed types are exactly the 20
-listed above, with no type variables, `Unknown`, or `Invalid`. The fixture
+as borrowed `ValueView::Runtime` and `ValueView::Lowered` values. The latter
+are produced once per fixture by the production `lowered_value_from_runtime_any`
+conversion; all admitted fixtures convert. A nested map or set key is borrowed
+as `ValueView::Key`; computed-field views are not covered. The closed types are
+exactly the 25 listed above, with no type variables, `Unknown`, or `Invalid`. The fixture
 names and payloads in the Lean generator and Rust consumer define the finite
 domain; the names are an assumed correspondence, not a serialization proof.
 
@@ -445,8 +451,11 @@ key interface admits only Any, Bool, Int, UInt, Duration, Str, Bytes and Path
 as non-recovery key types; other key types reject each key. Optional[Int]
 accepts null or an Int. The record type requires an `x` field with an Int
 value, accepts extra fields, and rejects a missing or mismatched `x` and all
-non-record fixtures. Record and key names are unique. No nominal identity is
-admitted: Rust structural record membership does not authenticate it. All
+non-record fixtures. Unions accept either named arm; Result checks the payload
+against the corresponding success or failure type. Nested types apply those
+same decisions to each contained value. The Lean row ends in `rowEmpty` and
+Rust has no explicit open-row variable; both decisions accept extra fields.
+Record and key names are unique. No nominal identity is admitted: Rust structural record membership does not authenticate it. All
 other values, constructors and representations are unsupported by this finite
 claim, rather than inferred from the table.
 
@@ -504,12 +513,15 @@ lake --dir="$PWD/.work" --file="$PWD/formal/lakefile.toml" build
 python3 formal/scripts/check-inventory.py
 python3 formal/tests/inventory/test_check_inventory.py
 LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/MembershipCases.lean > "$TMPDIR/membership-cases.txt"
+wc -l "$TMPDIR/membership-cases.txt"
+sha256sum "$TMPDIR/membership-cases.txt"
 XSH_MEMBERSHIP_CASES="$TMPDIR/membership-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::membership_conformance::production_matches_lean_membership -- --ignored --exact
 cargo test --locked --profile verification -p xsh --lib runtime::eval::type_view
 ```
 
-Each exited 0: the build completed 268 jobs, inventory reported 77 obligations
-and its 72 tests passed, the corpus contained 520 rows, the comparison passed,
+Each exited 0: the build completed 290 jobs, inventory reported 77 obligations
+and its 72 tests passed, the corpus contained 850 rows plus its header (851
+lines), the comparison passed,
 and all five type-view tests passed. The following controls generate six altered
 corpora and run the same test against each:
 
@@ -537,12 +549,8 @@ done
 
 Each test exited 101 with, respectively, `model/source disagreement`,
 `incomplete corpus`, `duplicate input`, `out-of-domain type`, `malformed row`,
-and `corpus exceeds bound`. The loop itself exited 0. The same 520-row corpus
-(SHA-256 `582de72894fcde155202ff2e2de83e8ac4d3010da500a21ebedd6c34d13cdd2e`)
-also passes in the pinned `xsh-test` image
-`sha256:91543a3715e26dd59c26ad9112b69a22ef64cbf7cc4c26897a1a207ad36f5c75`
-with `--target x86_64-unknown-linux-musl`. A corpus with one flipped decision
-fails there with `model/source disagreement`.
+and `corpus exceeds bound`. The loop itself exited 0. The 850-row corpus has SHA-256
+`1ca98a1f0d3e5c601004ef780ef58030349b43dcdcbd9e83b48ce9b804619eca`.
 
 From `formal/`, run the [project axiom audit](scripts/audit-axioms.sh), its
 self-test, and the [fresh paranoid check](scripts/check-fresh.py):
