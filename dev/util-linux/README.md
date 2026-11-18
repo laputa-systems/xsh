@@ -167,8 +167,11 @@ resource checks. It also requires source-bound results from native, host,
 repository, documentation, review, and cleanup gates. An independent reviewer
 must provide a result bound to the frozen commit and tree through
 `independent_review(result)` during the same invocation. The adapter consumes
-the result once and does not save a review receipt. No accepted current-source
-baseline exists yet.
+the result once and does not save a review receipt.
+
+`close --check` passed on 2026-11-18 at `b5aa95e4a`, with an independent review of
+that commit and the release baseline built from `c21b814c1`: 227 parity
+selectors, 5 positive boundaries and 13 required gates.
 
 Timed operations use `perf-gate-ready` before and after each timing pair. A busy
 host defers timing and prevents closure. Docker work holds the shared

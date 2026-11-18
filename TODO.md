@@ -20,19 +20,9 @@ own pause/launch rules; this queue update resumes neither. The Deser
 codec cutover was functionally qualified on an earlier Linux source; current-source
 qualification is active. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
-which items block a release; XSH-1 has its own acceptance criteria. Do not make an unrelated full baseline an entry fee
+which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-
-### XSH-1 · P2 · Complete util-linux resource acceptance
-
-- **Area:** Performance
-- **Where:** `dev/util-linux/README.md`, `dev/util-linux/resources.py`
-- **Problem:** `resources --check` passed on `a51ad81f3` against an explicit release baseline from `12827bb0b`, after new-command RSS against C became a reported measurement (the interpreter alone exceeded the old max(10%, 8 MiB) allowance over C) and the serial full-suite bound grew to fit 15,500 tests. `close --check` has not yet passed; it also needs an independent review result supplied in the same invocation.
-- **Recommendation:** Run `close` on a clean commit with a fresh read-only review of the five cohort commands. Do not weaken its other checks.
-- **Acceptance:** `close` passes on a clean source with an explicit release baseline and readiness-qualified timing.
-- **Fix with:** benchmark-checklist
-- **Effort:** M
 
 ### XSH-35 · P2 · Qualify clock domains and deadline conversions
 
@@ -115,3 +105,12 @@ out of scope.
 - **Recommendation:** Reproduce each in a disposable root container (non-UTF-8 mount points, an overmount, a chroot without a root mount, `chmod 000 /proc/locks` in a private procfs, non-UTF-8 POSIX IPC names) against the host's util-linux 2.42.4, and fix the ones that differ with byte-exact regression tests.
 - **Fix with:** reference-parity
 - **Effort:** M
+
+### XSH-104 · P4 · Harden two util-linux close-gate edges found while closing XSH-1
+
+- **Area:** Test infrastructure
+- **Where:** `dev/util-linux/check.py` (`container`), `dev/util-linux/resources.py` (`_RUST_GATE_CASES`), `dev/util-linux/test_resources.py`
+- **Problem:** A `docker run` killed by its timeout while the daemon is still creating the container leaves a never-started `xsh-util-linux-*` container: the cleanup's `docker rm --force` runs first, reports no such container, and the container appears afterwards. The cleanup gate then refuses closure until it is removed by hand. It fails closed, so no evidence is wrong. Separately, no unit test pins the host gate's `xsh_signature` case to the dev profile the normal lane uses, so a regression to `--profile verification` would compile out the debug assertions those tests reach without any test failing.
+- **Recommendation:** After a timed-out `docker run`, wait for the named container to appear or for creation to fail before removing it. Add a test asserting that the `xsh_signature` case carries `--target` and no `--profile`.
+- **Fix with:** lifecycle-concurrency
+- **Effort:** S
