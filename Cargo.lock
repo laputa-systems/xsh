@@ -1171,6 +1171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "laputa-rustix"
+version = "1.1.6"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "6f8734624d8ab9eafb8e4e569a8ce0874834c83173c5998c59ec189535cd149d"
+dependencies = [
+ "bitflags 2.13.0",
+ "errno",
+ "libc",
+ "linux-raw-sys",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1190,9 +1202,9 @@ checksum = "34b357333733e8260735ba5894eb928c02ecc69c78715f01a8019e7fa7f2db4c"
 
 [[package]]
 name = "libc"
-version = "0.2.186"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libloading"
@@ -2339,6 +2351,7 @@ dependencies = [
  "ignore",
  "laputa-h2-futures-lite",
  "laputa-ptytest 0.1.1",
+ "laputa-rustix",
  "libc",
  "libmimalloc-sys",
  "md-5",
@@ -2348,7 +2361,6 @@ dependencies = [
  "proc-macro2",
  "regex-lite",
  "rustc-hash",
- "rustix",
  "rustls",
  "rustls-graviola",
  "sha1",
@@ -2386,10 +2398,10 @@ dependencies = [
 name = "xsh-fuzz"
 version = "0.0.1"
 dependencies = [
+ "laputa-rustix",
  "libc",
  "oxish-client",
  "rustc-hash",
- "rustix",
  "tempfile",
  "xsh",
  "xsh-registry",
@@ -2410,9 +2422,9 @@ dependencies = [
  "http",
  "http-body-util",
  "laputa-hyper-futures-lite",
+ "laputa-rustix",
  "libc",
  "rustc-hash",
- "rustix",
  "rustls",
  "rustls-graviola",
  "rustls-pemfile",
@@ -2428,8 +2440,8 @@ version = "0.0.1"
 name = "xsh-root"
 version = "0.0.1"
 dependencies = [
+ "laputa-rustix",
  "libc",
- "rustix",
  "tempfile",
 ]
 
@@ -2438,10 +2450,10 @@ name = "xshi"
 version = "0.0.1"
 dependencies = [
  "laputa-ptytest 0.4.0",
+ "laputa-rustix",
  "libc",
  "mimalloc",
  "rustc-hash",
- "rustix",
  "rustybench",
  "sha2",
  "tempfile",
@@ -2457,10 +2469,10 @@ dependencies = [
  "deser",
  "deser-json",
  "ignore",
+ "laputa-rustix",
  "libc",
  "mimalloc",
  "rustc-hash",
- "rustix",
  "sha2",
  "syscalls",
  "tempfile",

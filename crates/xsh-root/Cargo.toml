@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 libc = "0.2"
-rustix = { version = "1.1.4", features = ["fs", "process"] }
+rustix = { package = "laputa-rustix", version = "1.1.6", registry = "mycrates", features = ["fs", "process"] }
 
 [dev-dependencies]
 tempfile = "3"
