@@ -711,3 +711,48 @@ print (selected({action: Different}))
   assert ! rejected.success, rejected.stderr
   assert "check.inferred-variant" in rejected.stderr, rejected.stderr
 }
+
+test test_builtin_enum_match_patterns { |ctx|
+  let executed = test.expect(ctx, """pure describe_compression(c: archive.Compression) -> Str {
+  match c {
+    archive.Compression.Gzip => "gzip"
+    archive.Compression.Xz | .Zstd => "modern"
+    else => "other"
+  }
+}
+pure format(f: archive.Format) -> Str {
+  match f {
+    archive.Format.Tar => "tar"
+    archive.Format.Zip | .Cpio => "other"
+  }
+}
+let gzip: archive.Compression = .Gzip
+assert gzip is .Gzip
+assert describe_compression(gzip) == "gzip"
+assert describe_compression(.Xz) == "modern"
+assert describe_compression(.Zstd) == "modern"
+assert describe_compression(.Plain) == "other"
+assert format(.Tar) == "tar"
+assert format(.Zip) == "other"
+assert format(.Cpio) == "other"
+""", status: 0)?
+  assert executed.success, executed.stderr
+}
+
+test test_builtin_enum_match_diagnostics { |ctx|
+  for {source, code} in [
+    {source: """let c: archive.Compression = .Gzip
+let result = match c { archive.Compression.Gzip => 1 }
+""", code: "check.match-value-exhaustive"},
+    {source: """let c: archive.Compression = .Gzip
+match c { archive.Compression.Nope => print "no", else => print "other" }
+""", code: "check.pattern-constructor"},
+    {source: """let c: archive.Compression = .Gzip
+match c { .Gzip => print "yes", else => print "other" }
+""", code: "parse.inferred-variant-arm"},
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert ! rejected.success, source
+    assert code in rejected.stderr, rejected.stderr
+  }
+}

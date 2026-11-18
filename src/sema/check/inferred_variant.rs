@@ -346,7 +346,7 @@ impl Checker {
                     (spelling.contains('.'), spelling.to_string())
                 });
                 let constructor = *spellings.first()?;
-                let resolved = match (arg, constructor.as_str().split_once('.')) {
+                let resolved = match (arg, constructor.as_str().rsplit_once('.')) {
                     (Some(arg), _) => ArenaPatternKind::Constructor {
                         name: constructor,
                         arg,

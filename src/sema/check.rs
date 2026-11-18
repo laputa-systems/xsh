@@ -838,7 +838,7 @@ impl InferredVariantPattern {
                 }
             }
             (Self::Tag { constructor }, ArenaPatternKind::ErrorVariant { fields, .. }) => {
-                match constructor.as_str().split_once('.') {
+                match constructor.as_str().rsplit_once('.') {
                     Some((namespace, variant)) => ArenaPatternKind::ErrorVariant {
                         family: Name::intern(namespace),
                         variant: Name::intern(variant),

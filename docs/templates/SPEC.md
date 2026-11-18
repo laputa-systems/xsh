@@ -1087,10 +1087,11 @@ A standard module declares its closed option sets as built-in enums named under
 the module, such as `archive.Format` and `archive.Compression`. A built-in enum
 is nominal and payload-free, and it is a parameter, field, return or annotation
 type like any other (`let wrap: archive.Compression = .Gzip`). Its variants are
-selected only by the target-typed spelling (5.5): they are not bare names or
-module members, a `match` over a built-in enum value is not supported, and a
-value compares with `==` and `!=` against a `.Variant`. Two built-in enums may
-share a variant name.
+selected in expressions by the target-typed spelling (5.5), and a value compares
+with `==` and `!=` against a `.Variant`. In patterns, the qualified spelling
+`archive.Compression.Gzip` names a variant. A `match` over a built-in enum has
+the same exhaustiveness rules as an ordinary enum, including `else` as the
+catch-all. Two built-in enums may share a variant name.
 
 ### 4.9 Module contracts
 
@@ -1826,7 +1827,8 @@ families with the same name remain distinct for type and pattern matching.
 A `.Name` pattern is written only where it cannot begin a line: inside a
 constructor, list, or record pattern (`Err(.Usage {message})`), after `is` or
 `if let`, and as a later alternative (`kinds.File | .Binary`). The head of a
-`match` arm keeps its qualified spelling, because a line beginning with
+`match` arm keeps its qualified spelling (such as `File`, `E.Usage`, or
+`archive.Compression.Gzip`), because a line beginning with
 `.name` continues the line before it (2.5); an arm that begins with `.Name` is
 `parse.inferred-variant-arm`. The matched value's type must name one enum or
 error family: a `Result[T]` error is the broad `Error`, so `Err(.Name)` there is
