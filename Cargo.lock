@@ -471,7 +471,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -633,19 +633,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
-name = "globset"
-version = "0.4.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
-dependencies = [
- "aho-corasick",
- "bstr",
- "log",
- "regex-automata",
- "regex-syntax",
-]
-
-[[package]]
 name = "graviola"
 version = "0.4.1"
 dependencies = [
@@ -795,22 +782,6 @@ name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
-
-[[package]]
-name = "ignore"
-version = "0.4.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3d782a365a015e0f5c04902246139249abf769125006fbe7649e2ee88169b4a"
-dependencies = [
- "crossbeam-deque",
- "globset",
- "log",
- "memchr",
- "regex-automata",
- "same-file",
- "walkdir",
- "winapi-util",
-]
 
 [[package]]
 name = "indexmap"
@@ -1174,6 +1145,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "laputa-globset"
+version = "0.4.20"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "498baa0d84c4047a54e5beba90b9821b959ae88482e39c9d636bd1ab2d46965d"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "laputa-h2-futures-lite"
 version = "0.4.20-beta.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1213,6 +1197,21 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "want",
+]
+
+[[package]]
+name = "laputa-ignore"
+version = "0.4.33"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "cd860ba7f221e986f23a94840322e48f706a8e12789345c54a1c63c3890a8e56"
+dependencies = [
+ "crossbeam-deque",
+ "laputa-globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
 ]
 
 [[package]]
@@ -1692,9 +1691,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.14"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1767,7 +1766,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1841,7 +1840,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2138,7 +2137,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2415,7 +2414,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2626,7 +2625,6 @@ dependencies = [
  "getrandom 0.3.4",
  "graviola",
  "http",
- "ignore",
  "laputa-deser",
  "laputa-deser-csv",
  "laputa-deser-ini",
@@ -2635,6 +2633,7 @@ dependencies = [
  "laputa-deser-value",
  "laputa-deser-yaml",
  "laputa-h2-futures-lite",
+ "laputa-ignore",
  "laputa-ptytest",
  "laputa-rustix",
  "libc",
@@ -2751,9 +2750,9 @@ name = "xsht"
 version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
- "ignore",
  "laputa-deser",
  "laputa-deser-json",
+ "laputa-ignore",
  "laputa-rustix",
  "libc",
  "mimalloc",
