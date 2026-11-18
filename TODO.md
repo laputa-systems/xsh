@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 106
+Next: 112
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -17,8 +17,7 @@ The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
 own pause/launch rules; this queue update resumes neither. The Deser
-codec cutover was functionally qualified on an earlier Linux source; current-source
-qualification is active. Native macOS qualification
+codec cutover is adopted unconditionally. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
@@ -86,3 +85,62 @@ out of scope.
 - **Recommendation:** Keep framing and QMP policy in the XSH consumer. - **Acceptance:** The same properties hold on the macOS host path, which remains owner-deferred. Real-monitor corroboration is bounded to the recorded acknowledged stop/resume cycle, not every host framing-fault case. No futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
 - **Effort:** S
+
+### XSH-106 · P2 · Finish deadline boundary qualification
+
+- **Area:** Internal functional cores
+- **Where:** `src/runtime/eval.rs` (deadline selector and its checkpoints), native `within` tests, `formal/Xsh/` deadline policy, [roadmap pilot 1B](docs/ROADMAP.md#pilot-1b-supplied-time-deadline-selection)
+- **Problem:** Pilot 1B extracted a supplied-time deadline selector and compared it with Lean's `choose` on 2,925 small inputs, but the monotonic-time abstraction and state relation are not stated, the selection invariants are not stated in Lean against that abstraction, and deadline identity and order through rearming, cleanup shielding and restoration are not checked. The current-source Linux qualification gate has not run.
+- **Recommendation:** State the monotonic abstraction and invariants, add deterministic checks for rearming, shielding and restoration, and record whether Rust agreement is proved or conformance-only.
+- **Acceptance:** The roadmap's pilot 1B checks pass on current source on pinned Linux verification products; the native `within` cases still pass; the evidence class of each claim is recorded in `formal/README.md`.
+- **Fix with:** isolate-effects
+- **Effort:** M
+
+### XSH-107 · P2 · Cover privileged archive extraction
+
+- **Area:** Archive and compression
+- **Where:** `crates/xsh-archive/`, `tests/xsh/stdlib/archive.xsh`, `docs/TESTING.md#archive-and-compression`
+- **Problem:** Root ownership application and device-node creation during extraction were never tested; only FIFO creation was. Laputa's privileged consumers depend on them.
+- **Recommendation:** Run extraction as root in the pinned container with owner preservation and character and block device members, against GNU tar and bsdtar as references.
+- **Acceptance:** Root extraction applies archived uid/gid and creates device nodes with the archived major/minor and mode, matching the reference tools; unprivileged extraction keeps its documented behavior.
+- **Fix with:** os-boundaries
+- **Effort:** M
+
+### XSH-108 · P3 · Allow `match` over built-in enums
+
+- **Area:** Language
+- **Where:** `src/sema/check/`, `src/runtime/eval/`, `docs/templates/SPEC.md` (4.8)
+- **Problem:** Built-in enums such as `archive.Format` and `archive.Compression` compare only with `==` and `!=`; SPEC 4.8 says a `match` over one is not supported, so callers write if-chains without exhaustiveness checking.
+- **Recommendation:** Accept `.Variant` patterns over a built-in enum with the same exhaustiveness rules as ordinary enums.
+- **Acceptance:** A `match` over each standard built-in enum checks exhaustiveness, rejects unknown variants, and evaluates; the SPEC states it.
+- **Effort:** M
+
+### XSH-109 · P2 · Return from `exec_stream` when the caller's writer stalls
+
+- **Area:** Remote execution
+- **Where:** `crates/oxish-client` (fix upstream in ssh-build `client/`, then vendor), `src/modules/ssh.rs`
+- **Problem:** A caller's writer that never returns keeps `ssh.exec_stream` from returning, past its deadline and cancellation.
+- **Recommendation:** Bound writer calls by the operation deadline and interrupt, or hand output to the writer off the event loop with bounded buffering.
+- **Acceptance:** A test with a writer that blocks forever returns within the deadline and on cancellation, with a typed outcome and no leaked channel.
+- **Fix with:** lifecycle-concurrency
+- **Effort:** M
+
+### XSH-110 · P2 · Add an acknowledged remote cancellation action
+
+- **Area:** Remote execution
+- **Where:** `crates/oxish-client`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md` (Stage 1)
+- **Problem:** Closing a channel does not prove the remote command stopped, so a cancelled remote execution has an unknown outcome. The RFC's Stage 1 requires an acknowledged remote cancellation action.
+- **Recommendation:** Send the SSH `signal` request and wait for an exit status or exit signal within a bound; report unacknowledged cancellation as unknown.
+- **Acceptance:** Against disposable OpenSSH servers, cancellation of a running command reports an acknowledged stop when the server delivers one and an unknown outcome when it does not.
+- **Fix with:** error-model
+- **Effort:** M
+
+### XSH-111 · P2 · Independent protocol and security review of the SSH client
+
+- **Area:** Remote execution
+- **Where:** `crates/oxish-client`, ssh-build `client/`, `docs/rfc/XSH-55-native-ssh-client.md`
+- **Problem:** The client stays experimental until an independent protocol and security review covers key exchange, rekeying, authentication, channel handling and host verification.
+- **Recommendation:** Commission a reviewer outside the implementation lanes; record findings and fixes in the RFC.
+- **Acceptance:** The review report and the fixes for its findings are recorded; the experimental label is revisited with the owner.
+- **Fix with:** security
+- **Effort:** L
