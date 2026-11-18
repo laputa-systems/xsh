@@ -436,6 +436,14 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   row_for(selection, {values: values, raw_values: {}, elements: []}, "global")
 }
 
+proc limit_text(limit: ipc.Limit) [fs, io, error] -> Str {
+  try { ipc.read_limit_text(limit) } ?? { |failure| gnu.error(f"cannot read IPC limit: {failure.message}"); exit 1 }
+}
+
+proc semaphore_limits() [fs, io, error] -> ipc.SemaphoreLimits {
+  try { ipc.read_semaphore_limits() } ?? { |failure| gnu.error(f"cannot read IPC limit: {failure.message}"); exit 1 }
+}
+
 proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
   if ! ipc.system_v_available() {
     gnu.error("cannot read IPC limits: procfs is not mounted")
@@ -444,15 +452,15 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
     let records = ipc.collect_system_v(ipc.MessageQueues)
-    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), ipc.read_limit_text(ipc.MessageQueueCount), true, false)]
-    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, ipc.read_limit_text(ipc.MessageBytes), false, true)]
-    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, ipc.read_limit_text(ipc.QueueBytes), false, true)]
+    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), limit_text(ipc.MessageQueueCount), true, false)]
+    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, limit_text(ipc.MessageBytes), false, true)]
+    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, limit_text(ipc.QueueBytes), false, true)]
   }
   if "posix_mqueues" in selection.resources {
     let posix = posix_entries("posix_mqueues", selection, raw)
-    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), ipc.read_limit_text(ipc.PosixQueueCount), true, false)]
-    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, ipc.read_limit_text(ipc.PosixMessageBytes), false, true)]
-    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, ipc.read_limit_text(ipc.PosixQueueMessages), false, false)]
+    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), limit_text(ipc.PosixQueueCount), true, false)]
+    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, limit_text(ipc.PosixMessageBytes), false, true)]
+    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, limit_text(ipc.PosixQueueMessages), false, false)]
   }
   if "shmems" in selection.resources {
     let records = ipc.collect_system_v(ipc.MemorySegments)
@@ -468,9 +476,9 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
         remaining_bytes = remaining_bytes % page_size
       }, else => {} }
     }
-    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), ipc.read_limit_text(ipc.SharedMemoryCount), true, false)]
-    rows += [global_row(selection, "SHMALL", "Shared memory pages", pages_used, ipc.read_limit_text(ipc.SharedMemoryPages), true, false)]
-    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, ipc.read_limit_text(ipc.SharedMemoryBytes), false, true)]
+    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), limit_text(ipc.SharedMemoryCount), true, false)]
+    rows += [global_row(selection, "SHMALL", "Shared memory pages", pages_used, limit_text(ipc.SharedMemoryPages), true, false)]
+    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, limit_text(ipc.SharedMemoryBytes), false, true)]
     rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, "1", false, true)]
   }
   if "semaphores" in selection.resources {
@@ -479,7 +487,7 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
     for record in records {
       match record.details { ipc.SemaphoreSet(semaphores) => { elements_used += semaphores.elements ?? 0 }, else => {} }
     }
-    let limits = ipc.read_semaphore_limits()
+    let limits = semaphore_limits()
     let semmsl = limits.elements_per_set
     let semmns = limits.total_elements
     let semopm = limits.operations_per_call

@@ -158,7 +158,11 @@ export proc read_limit_text(limit: Limit, root: Path = p"/") [fs, error] -> Str 
     SharedMemoryPages => "kernel/shmall"
     SharedMemoryBytes => "kernel/shmmax"
   }
-  source_path(root, fp"proc/sys/{relative}").read_text()?.trim()
+  let limit_path = source_path(root, fp"proc/sys/{relative}")
+  let content = try { limit_path.read_text()? }
+  if let Ok(value) = content { return value.trim() }
+  if limit in [PosixQueueCount, PosixMessageBytes, PosixQueueMessages] and !limit_path.exists()? and source_path(root, p"proc/sys/kernel").exists()? { return "0" }
+  content?.trim()
 }
 
 ## Reads semaphore limits without folding them into command summary rows.

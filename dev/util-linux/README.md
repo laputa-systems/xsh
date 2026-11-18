@@ -97,7 +97,8 @@ recorded differences. A review reports them only if their behavior changes.
   table escaping prints plane noncharacters such as U+1FFFE raw.
 - Without procfs, `lsipc` lists no System V objects, and `lsipc -g` exits 1
   naming the missing procfs instead of reading limits through `shmctl`,
-  `msgctl` and `semctl` as util-linux does.
+  `msgctl` and `semctl` as util-linux does. When `/proc/sys` is masked,
+  `lsipc -g` exits 1 naming the unreadable limit instead of using those syscalls.
 
 ### Review standard
 

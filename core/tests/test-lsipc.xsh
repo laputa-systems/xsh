@@ -1875,3 +1875,26 @@ test test_lsipc_global_shared_memory_overflow { |ctx|
     ul.compare(pair.reference, pair.candidate)
   }
 }
+
+
+test test_lsipc_missing_global_limits { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/limits.out"
+  let err = fp"{s.root}/limits.err"
+  let script = "mount -t tmpfs none /proc/sys/fs/mqueue\n" +
+    "for args in '-g' '-g -Q'; do\n" +
+    "  LC_ALL=C /usr/bin/lsipc $args > \"$1/ref\"\n" +
+    "  LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- $args > \"$1/cand\"\n" +
+    "  cmp \"$1/ref\" \"$1/cand\"\n" +
+    "done\n" +
+    "mount -t tmpfs none /proc/sys\n" +
+    "for mode in -q -Q -m -s; do\n" +
+    "  status=0; LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- -g $mode > \"$1/cand\" 2> \"$1/canderr\" || status=$?\n" +
+    "  test \"$status\" = 1 && test ! -s \"$1/cand\"\n" +
+    "  grep -q '/proc/sys/' \"$1/canderr\" && ! grep -q 'err\\[runtime' \"$1/canderr\"\n" +
+    "done\n"
+  let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
+  let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 30s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+}
