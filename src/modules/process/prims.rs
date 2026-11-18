@@ -153,6 +153,7 @@ impl<'a> Args<'a> {
         }
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn path_opt(&self, index: usize) -> Result<Option<PathBuf>, RuntimeError> {
         match self.get(index) {
             Some(Value::Path(value)) => Ok(Some(path_buf(value))),

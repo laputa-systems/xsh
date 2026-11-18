@@ -889,6 +889,8 @@ fn copy_range(
     offload_error: &mut Option<std::io::Error>,
 ) -> std::io::Result<(&'static str, u64)> {
     let mut done = 0;
+    // Only the Linux offload below reassigns the method.
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
     let mut method = METHOD_USER;
     #[cfg(target_os = "linux")]
     {

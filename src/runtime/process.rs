@@ -842,6 +842,7 @@ pub struct ProcessInvocation {
 pub struct RootedExecutable(Arc<OwnedFd>);
 
 impl RootedExecutable {
+    #[cfg(target_os = "linux")]
     pub(crate) fn new(file: OwnedFd) -> Self {
         Self(Arc::new(file))
     }

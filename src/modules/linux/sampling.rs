@@ -1,16 +1,23 @@
 //! One counter snapshot for process, CPU, paging, memory and block-I/O tools.
 
-use crate::runtime::value::{RecordMap, RuntimeError, Value};
+use crate::runtime::value::{RuntimeError, Value};
+#[cfg(target_os = "linux")]
+use crate::runtime::value::RecordMap;
 use crate::source::Span;
+#[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
 use std::path::Path;
+#[cfg(target_os = "linux")]
 use std::io::Read;
+#[cfg(target_os = "linux")]
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
 fn error(message: impl Into<String>, span: Span) -> RuntimeError {
     RuntimeError::new("linux-sample", message).with_span(span)
 }
 
+#[cfg(target_os = "linux")]
 fn read(root: &Path, name: &str, span: Span) -> Result<String, RuntimeError> {
     let file = std::fs::File::open(root.join(name))
         .map_err(|failure| RuntimeError::host("linux-sample", &failure).with_span(span))?;
@@ -26,6 +33,7 @@ fn read(root: &Path, name: &str, span: Span) -> Result<String, RuntimeError> {
     Ok(text)
 }
 
+#[cfg(target_os = "linux")]
 fn counter(text: &str, span: Span) -> Result<i64, RuntimeError> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(error(format!("invalid decimal kernel counter `{text}`"), span));
@@ -34,6 +42,7 @@ fn counter(text: &str, span: Span) -> Result<i64, RuntimeError> {
         .ok_or_else(|| error(format!("invalid nonnegative kernel counter `{text}`"), span))
 }
 
+#[cfg(target_os = "linux")]
 fn rows(text: &str, span: Span) -> Result<BTreeMap<&str, Vec<&str>>, RuntimeError> {
     let mut rows = BTreeMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
@@ -46,15 +55,18 @@ fn rows(text: &str, span: Span) -> Result<BTreeMap<&str, Vec<&str>>, RuntimeErro
     Ok(rows)
 }
 
+#[cfg(target_os = "linux")]
 fn required(rows: &BTreeMap<&str, Vec<&str>>, name: &str, span: Span) -> Result<i64, RuntimeError> {
     let fields = rows.get(name).ok_or_else(|| error(format!("missing kernel counter `{name}`"), span))?;
     counter(fields.first().ok_or_else(|| error(format!("empty kernel counter `{name}`"), span))?, span)
 }
 
+#[cfg(target_os = "linux")]
 fn record(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
     Value::Record(RecordMap::from_iter(fields.into_iter().map(|(name, value)| (Arc::from(name), value))))
 }
 
+#[cfg(target_os = "linux")]
 fn uptime_ms(text: &str, span: Span) -> Result<i64, RuntimeError> {
     let uptime = text.split_whitespace().next().ok_or_else(|| error("empty uptime", span))?;
     let (seconds, fraction) = uptime.split_once('.').unwrap_or((uptime, ""));
@@ -67,6 +79,7 @@ fn uptime_ms(text: &str, span: Span) -> Result<i64, RuntimeError> {
         .ok_or_else(|| error("uptime does not fit in milliseconds", span))
 }
 
+#[cfg(target_os = "linux")]
 fn cpu(rows: &BTreeMap<&str, Vec<&str>>, span: Span) -> Result<Value, RuntimeError> {
     let fields = rows.get("cpu").ok_or_else(|| error("missing aggregate CPU counters", span))?;
     let names = ["user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal"];
@@ -78,6 +91,7 @@ fn cpu(rows: &BTreeMap<&str, Vec<&str>>, span: Span) -> Result<Value, RuntimeErr
     Ok(record(values))
 }
 
+#[cfg(target_os = "linux")]
 fn disks(text: &str, span: Span) -> Result<Value, RuntimeError> {
     let names = ["reads_completed", "reads_merged", "sectors_read", "read_ms", "writes_completed",
         "writes_merged", "sectors_written", "write_ms", "in_flight", "io_ms", "weighted_io_ms"];

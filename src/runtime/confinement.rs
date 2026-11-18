@@ -8,6 +8,7 @@
 //! and every descriptor above standard error is closed at exec. The ruleset
 //! is built in the parent, so the child only makes three system calls.
 
+#[cfg(target_os = "linux")]
 use crate::runtime::value::RunError;
 use std::fmt;
 use std::os::fd::OwnedFd;
@@ -54,17 +55,20 @@ pub enum TcpAccess {
     Allowed,
 }
 
+#[cfg(target_os = "linux")]
 pub const REQUIRED_LANDLOCK_ABI: i64 = 6;
 
 /// A failure to build the confinement, reported before any fork.
 pub const KIND: &str = "confinement";
 
+#[cfg(target_os = "linux")]
 fn failure(message: String) -> RunError {
     RunError::new(KIND, message)
 }
 
 /// Whether the result of probing the Landlock ABI version supports the
 /// profile: the version, or the raw errno the probe failed with.
+#[cfg(target_os = "linux")]
 pub fn check_landlock_abi(probe: Result<i64, i32>) -> Result<(), RunError> {
     match probe {
         Ok(abi) if abi >= REQUIRED_LANDLOCK_ABI => Ok(()),

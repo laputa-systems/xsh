@@ -8,7 +8,9 @@
 //! closes it with `unix.close_fd`) or closed before the primitive returns.
 
 use crate::modules::RuntimeOp;
-use crate::runtime::value::{RecordMap, RuntimeError, Value};
+use crate::runtime::value::{RuntimeError, Value};
+#[cfg(target_os = "linux")]
+use crate::runtime::value::RecordMap;
 use crate::source::Span;
 use std::sync::Arc;
 
@@ -74,12 +76,14 @@ fn operation_kind(op: RuntimeOp) -> Option<&'static str> {
 
 /// The arguments of one native call. A slot is `None` when the caller left
 /// the parameter to its default.
+#[cfg(target_os = "linux")]
 pub(super) struct Args<'a> {
     kind: &'static str,
     values: &'a [Option<Value>],
     span: Span,
 }
 
+#[cfg(target_os = "linux")]
 impl<'a> Args<'a> {
     fn get(&self, index: usize) -> Option<&'a Value> {
         match self.values.get(index) {
@@ -179,6 +183,7 @@ impl<'a> Args<'a> {
 
 /// A named constant of the shared table; the names used here are static, so a
 /// missing one is a programming error.
+#[cfg(target_os = "linux")]
 pub(super) fn constant(name: &str) -> i64 {
     xsh_registry::records::NET_CONSTANTS
         .iter()
@@ -190,10 +195,12 @@ pub(super) fn key(name: &str) -> Arc<str> {
     Arc::from(name)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
     Value::Record(RecordMap::from(fields.map(|(name, value)| (key(name), value))))
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn ok(value: Value) -> Result<Value, RuntimeError> {
     Ok(Value::ok(value))
 }

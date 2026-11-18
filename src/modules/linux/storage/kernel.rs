@@ -2,7 +2,9 @@
 //! the NVMe admin passthrough ioctl on controller and namespace nodes.
 //! Pointer fix-ups live here so scripts only handle plain bytes.
 
-use super::transport::{NvmeRequest, NvmeResponse, SgRequest, SgResponse, Transfer};
+use super::transport::{NvmeRequest, NvmeResponse, SgRequest, SgResponse};
+#[cfg(target_os = "linux")]
+use super::transport::Transfer;
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
 

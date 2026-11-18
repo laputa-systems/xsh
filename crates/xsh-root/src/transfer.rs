@@ -459,6 +459,7 @@ impl LiveProgress {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn advance(&self, before: &Progress, after: &Progress) {
         for (counter, before, after) in [
             (&self.discovered_files, before.discovered_files, after.discovered_files),
@@ -478,6 +479,7 @@ impl LiveProgress {
 }
 
 /// Adds what `after` counted beyond `before` to `live`, when there is one.
+#[cfg(target_os = "linux")]
 pub(crate) fn advance_live(live: Option<&LiveProgress>, before: &Progress, after: &Progress) {
     if let Some(live) = live {
         live.advance(before, after);
@@ -893,6 +895,8 @@ pub struct Ancestor {
 
 /// One entry to capture and remove under the journal.
 #[derive(Clone, Debug)]
+// Only the Linux journal reads the fields; other targets construct it unused.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct Retirement {
     parents: Vec<Ancestor>,
     name: OsString,
@@ -922,6 +926,8 @@ impl Retirement {
 
 /// The two objects named by an atomic replacement.
 #[derive(Clone, Debug)]
+// Only the Linux journal reads the fields; other targets construct it unused.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct Publication {
     source: EntryIdentity,
     destination_parent: EntryIdentity,

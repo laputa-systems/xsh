@@ -2144,7 +2144,12 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
 }
 
 fn file_identity(stat: &rfs::Stat) -> (u64, u64) {
-    (stat.st_dev, stat.st_ino)
+    #[cfg(target_os = "linux")]
+    let device = stat.st_dev;
+    // Darwin's dev_t is a signed 32-bit integer.
+    #[cfg(not(target_os = "linux"))]
+    let device = u64::from(stat.st_dev.cast_unsigned());
+    (device, stat.st_ino)
 }
 
 /// Empties the directory open as `root` without recursion and with a constant

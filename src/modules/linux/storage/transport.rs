@@ -34,6 +34,8 @@ impl Transfer<'_> {
 }
 
 #[derive(Debug)]
+// Only the Linux kernel backend reads the timeout.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(super) struct SgRequest<'a> {
     pub(super) cdb: &'a [u8],
     pub(super) transfer: Transfer<'a>,
@@ -53,6 +55,8 @@ pub(super) struct SgResponse {
 }
 
 #[derive(Debug)]
+// Only the Linux kernel backend reads the timeout.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(super) struct NvmeRequest<'a> {
     pub(super) opcode: u8,
     pub(super) nsid: u32,
