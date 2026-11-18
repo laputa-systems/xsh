@@ -67,6 +67,7 @@ test test_gnu_chmod_inaccessible_log { |ctx|
 
 # origin: gnu chmod/no-x.log
 test test_gnu_chmod_no_x_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d/no-x/y")
   uu.mkdir(s, "a/b")
@@ -93,6 +94,7 @@ test test_gnu_chmod_octal_log { |ctx|
 
 # origin: gnu chmod/only-op.log
 test test_gnu_chmod_only_op_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   assert fs.stat(p"/")?.uid == 0
   for operation in ["+", "-", "="] {

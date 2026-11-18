@@ -269,13 +269,18 @@ test test_gnu_misc_sync_log { |ctx|
   let r = uu.invoke(s, "sync", ["nofile1", "file", "nofile2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "sync: error opening 'nofile1': No such file or directory\nsync: error opening 'nofile2': No such file or directory\n")
+  uu.mkfifo(s, "fifo")
+  for args in [["fifo"], ["-d", "fifo"]] { assert uu.invoke(s, "sync", args, timeout: 10s) is Ok(_) }
+  if env.get("RUN_VERY_EXPENSIVE_TESTS") is Ok("yes") { assert uu.invoke(s, "sync", ["-f", "fifo"], timeout: 60s) is Ok(_) }
+}
+
+test test_gnu_misc_sync_inaccessible { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
   uu.mkdir(s, "norw"); uu.set_mode(s, "norw", 0)
   let inaccessible = uu.invoke(s, "sync", ["norw"])?
   uu.fails_with_code(inaccessible, 1)
   uu.stderr_is(inaccessible, "sync: error opening 'norw': Permission denied\n")
-  uu.mkfifo(s, "fifo")
-  for args in [["fifo"], ["-d", "fifo"]] { assert uu.invoke(s, "sync", args, timeout: 10s) is Ok(_) }
-  if env.get("RUN_VERY_EXPENSIVE_TESTS") is Ok("yes") { assert uu.invoke(s, "sync", ["-f", "fifo"], timeout: 60s) is Ok(_) }
 }
 
 # origin: gnu misc/realpath.log

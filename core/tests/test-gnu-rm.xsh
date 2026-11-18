@@ -19,6 +19,7 @@ proc shell_run(s: uu.Scene, args: List[Str], setup: Str, input = b"", timeout = 
 
 # origin: gnu rm/cycle.log
 test test_gnu_rm_cycle_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "a/b")
   uu.touch(s, "a/b/file")
@@ -167,6 +168,11 @@ test test_gnu_rm_empty_inacc_log { |ctx|
     uu.succeeds(uu.invoke(s, "rm", ["-d", item.name])?)
     removed(s, [item.name])
   }
+}
+
+test test_gnu_rm_empty_inaccessible_prompt { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
   uu.mkdir(s, "inacc3")
   uu.set_mode(s, "inacc3", 0o000)
   for answer in ["n", "y"] {
@@ -208,6 +214,7 @@ test test_gnu_rm_f_1_log { |ctx|
 
 # origin: gnu rm/fail-eacces.log
 test test_gnu_rm_fail_eacces_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d"); uu.touch(s, "d/f"); uu.symlink(s, "f", "d/slink"); uu.set_mode(s, "d", 0o555)
   uu.mkdir(s, "e"); uu.symlink(s, "f", "e/slink"); uu.set_mode(s, "e", 0o555)
@@ -274,6 +281,7 @@ test test_gnu_rm_ir_1_log { |ctx|
 
 # origin: gnu rm/isatty.log
 test test_gnu_rm_isatty_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.touch(s, "f"); uu.set_mode(s, "f", 0o000)
   let r = shell_run(s, ["---presume-input-tty", "f"], r"""mkfifo input || exit; exec 3<>input; "$@" <&3 >prompt 2>&1 & child=$!; trap 'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null' EXIT; sleep 1; test -f f || exit 1; kill "$child"; wait "$child"; cat prompt; printf 'x
@@ -353,6 +361,7 @@ test test_gnu_rm_readdir_bug_log { |ctx|
 
 # origin: gnu rm/rm1.log
 test test_gnu_rm_rm1_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   for name in ["b/a/p", "b/c", "b/d"] { uu.mkdir(s, name) }
   uu.set_mode(s, "b/a", 0o555)
@@ -364,6 +373,7 @@ test test_gnu_rm_rm1_log { |ctx|
 
 # origin: gnu rm/rm2.log
 test test_gnu_rm_rm2_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   for name in ["a/0", "a/1/2", "b/3", "a/2", "a/3"] { uu.mkdir(s, name) }
   uu.set_mode(s, "a/1", 0o655); uu.set_mode(s, "b", 0o655)
@@ -377,6 +387,7 @@ test test_gnu_rm_rm2_log { |ctx|
 
 # origin: gnu rm/rm3.log
 test test_gnu_rm_rm3_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "z/d"); uu.mkdir(s, "z/du")
   uu.touch(s, "z/empty"); uu.touch(s, "z/empty-u"); uu.write(s, "z/fu", "not-empty\n")
@@ -407,6 +418,7 @@ test test_gnu_rm_sunos_1_log { |ctx|
 
 # origin: gnu rm/unread2.log
 test test_gnu_rm_unread2_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "a/b"); uu.set_mode(s, "a", 0o355)
   let r = uu.invoke(s, "rm", ["-rf", "a"])?
@@ -432,6 +444,11 @@ test test_gnu_rm_unreadable_log { |ctx|
   uu.mkdir(s, "dir"); uu.set_mode(s, "dir", 0o100)
   let empty = uu.invoke(s, "rm", ["-rf", "dir"])?
   uu.succeeds(empty); uu.no_output(empty)
+}
+
+test test_gnu_rm_unreadable_nonempty { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
   uu.mkdir(s, "dir/x"); uu.set_mode(s, "dir", 0o100)
   let nonempty = uu.invoke(s, "rm", ["-rf", "dir"])?
   uu.fails_with_code(nonempty, 1)
@@ -474,11 +491,6 @@ test test_gnu_rm_interactive_once_log { |ctx|
   for name in ["file1-1", "file2-1", "file2-2", "file2-3", "file3-1", "file3-2", "file3-3", "file3-4"] { uu.touch(s, name) }
   let one = uu.invoke(s, "rm", ["-I", "file1-1"], stdin: b"n\n")?
   uu.succeeds(one); uu.no_output(one); removed(s, ["file1-1"])
-  uu.touch(s, "file1-1"); uu.set_mode(s, "file1-1", 0o444)
-  let protected = uu.invoke(s, "rm", ["---presume-input-tty", "-I", "file1-1"], stdin: b"n\n")?
-  uu.succeeds(protected)
-  uu.stderr_only(protected, "rm: remove write-protected regular empty file 'file1-1'? ")
-  present(s, ["file1-1"])
   let three = uu.invoke(s, "rm", ["-I", "file2-1", "file2-2", "file2-3"], stdin: b"n\n")?
   uu.succeeds(three); uu.no_output(three); removed(s, ["file2-1", "file2-2", "file2-3"])
   let four = ["file3-1", "file3-2", "file3-3", "file3-4"]
@@ -487,12 +499,6 @@ test test_gnu_rm_interactive_once_log { |ctx|
     uu.succeeds(r); uu.stderr_only(r, "rm: remove 4 arguments? ")
     if answer == "n" { present(s, four) } else { removed(s, four) }
   }
-  for name in four { uu.touch(s, name) }
-  uu.write(s, "file3-4", "non_empty\n"); uu.set_mode(s, "file3-4", 0o444)
-  let mixed = uu.invoke(s, "rm", ["---presume-input-tty", "-I"].extend(four), stdin: b"y\nn\n")?
-  uu.succeeds(mixed)
-  uu.stderr_only(mixed, "rm: remove 4 arguments? rm: remove write-protected regular file 'file3-4'? ")
-  removed(s, ["file3-1", "file3-2", "file3-3"]); present(s, ["file3-4"])
   for names in [["dir1-1"], ["dir2-1", "dir2-2"]] {
     for answer in ["n", "y"] {
       let r = uu.invoke(s, "rm", ["-I", "-R"].extend(names), stdin: bytes.from_text(answer + "\n"))?
@@ -502,4 +508,21 @@ test test_gnu_rm_interactive_once_log { |ctx|
       if answer == "n" { present(s, names) } else { removed(s, names) }
     }
   }
+}
+
+test test_gnu_rm_interactive_once_protected { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses write protection") }
+  let s = uu.scene(ctx)?
+  uu.touch(s, "file1-1"); uu.set_mode(s, "file1-1", 0o444)
+  let protected = uu.invoke(s, "rm", ["---presume-input-tty", "-I", "file1-1"], stdin: b"n\n")?
+  uu.succeeds(protected)
+  uu.stderr_only(protected, "rm: remove write-protected regular empty file 'file1-1'? ")
+  present(s, ["file1-1"])
+  let four = ["file3-1", "file3-2", "file3-3", "file3-4"]
+  for name in four { uu.touch(s, name) }
+  uu.write(s, "file3-4", "non_empty\n"); uu.set_mode(s, "file3-4", 0o444)
+  let mixed = uu.invoke(s, "rm", ["---presume-input-tty", "-I"].extend(four), stdin: b"y\nn\n")?
+  uu.succeeds(mixed)
+  uu.stderr_only(mixed, "rm: remove 4 arguments? rm: remove write-protected regular file 'file3-4'? ")
+  removed(s, ["file3-1", "file3-2", "file3-3"]); present(s, ["file3-4"])
 }

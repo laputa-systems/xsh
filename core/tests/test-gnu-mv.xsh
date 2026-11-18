@@ -170,6 +170,7 @@ test test_gnu_mv_hard_2_log { |ctx|
 
 # origin: gnu mv/hard-3.log
 test test_gnu_mv_hard_3_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   for name in ["x", "dst/x"] { uu.mkdir(s, name) }
   uu.touch(s, "dst/x/b")
@@ -456,6 +457,7 @@ test test_gnu_mv_no_target_dir_log { |ctx|
 
 # origin: gnu mv/part-fail.log
 test test_gnu_mv_part_fail_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -559,6 +561,7 @@ test test_gnu_mv_partition_perm_log { |ctx|
 
 # origin: gnu mv/perm-1.log
 test test_gnu_mv_perm_1_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "no-write/dir")
   uu.set_mode(s, "no-write", 0o555)

@@ -39,6 +39,7 @@ test test_hostname_default_short_and_domain_forms { |ctx|
 }
 
 test test_hostname_ip_address_lists_distinct_addresses { |ctx|
+  if let Err(_) = dns.resolve_host(system.hostname()?) { test.skip("system hostname does not resolve") }
   let result = applet_run(ctx, ["-i"])?
   assert result.status == 0
   assert result.stdout.trim() != ""

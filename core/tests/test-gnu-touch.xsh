@@ -121,6 +121,7 @@ test test_gnu_touch_no_rights_log { |ctx|
 
 # origin: gnu touch/not-owner.log
 test test_gnu_touch_not_owner_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   let root_meta = fs.stat(p"/")?
   assert root_meta.uid != user.current()?.uid and root_meta.gid != group.current()?.gid

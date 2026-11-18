@@ -262,6 +262,7 @@ test test_bb_cp_cp_dir_existing_dir_af0b2b6d { |ctx|
 
 # origin: busybox cp/cp-does-not-copy-unreadable-file
 test test_bb_cp_cp_does_not_copy_unreadable_file_b036d15e { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.touch(s, "foo")
   uu.set_mode(s, "foo", 0o222)

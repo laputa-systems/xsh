@@ -12,13 +12,18 @@ proc invoke(ctx: TestContext, args: List[Str], variables: Record, input = b"") [
 }
 
 test test_login_f_requires_actual_root_and_help_is_nonmutating { |ctx|
-  let result = invoke(ctx, ["-f", "root"], {})?
-  assert result.status == 1
-  assert result.stderr.find("requires real and effective UID 0") != null
   assert invoke(ctx, ["--help"], {})?.status == 0
 }
 
+test test_login_f_requires_unprivileged_caller { |ctx|
+  if unix.id()?.euid == 0 { test.skip("-f is permitted for root") }
+  let result = invoke(ctx, ["-f", "root"], {})?
+  assert result.status == 1
+  assert result.stderr.find("requires real and effective UID 0") != null
+}
+
 test test_login_fixture_cannot_select_another_uid { |ctx|
+  if unix.id()?.euid == 0 { test.skip("privileged login uses canonical account files") }
   let source = test.temp_file(ctx, name: "passwd-foreign", contents: b"foreign:x:0:0:Foreign:/root:/bin/sh\n")?
   let result = invoke(ctx, ["foreign"], {XSH_PASSWD_FILE: source.display()}, b"ignored\n")?
   assert result.status == 1
@@ -26,6 +31,7 @@ test test_login_fixture_cannot_select_another_uid { |ctx|
 }
 
 test test_login_uses_account_fixture_and_resets_environment { |ctx|
+  if unix.id()?.euid == 0 { test.skip("privileged login uses canonical account files") }
   let identity = unix.id()?
   let root = test.temp_dir(ctx, name: "login-account")?
   let shell = fp"{root}/shell"
@@ -48,6 +54,7 @@ if [ "${UNTRUSTED+x}" = x ]; then printf 'UNTRUSTED\n'; fi
 }
 
 test test_login_wrong_password_and_nologin_refuse_session { |ctx|
+  if unix.id()?.euid == 0 { test.skip("privileged login uses canonical account files") }
   let identity = unix.id()?
   let root = test.temp_dir(ctx, name: "login-denied")?
   let passwd = fp"{root}/passwd"

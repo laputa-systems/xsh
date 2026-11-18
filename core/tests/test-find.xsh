@@ -86,13 +86,29 @@ use core.lib.findutils_fixture as fixture
 # Every command line of the recorded GNU find corpus, in six shares that run
 # in parallel; the corpus and the fixture tree are described in
 # tests/data/findutils/regen.xsh.
-proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] {
+proc check_share(ctx: TestContext, part: Int, nonroot_cases = false) [fs, process, time, error] {
   let root = test.temp_dir(ctx, name: f"find-corpus-{part}")?
   let work = test.temp_dir(ctx, name: f"find-corpus-out-{part}")?
   fixture.build(root)
   fixture.build_hostile(root)
   defer fixture.restore(root)
-  let corpus = fp"{ctx.core_dir}/tests/data/findutils/find.jsonl"
+  var corpus = fp"{ctx.core_dir}/tests/data/findutils/find.jsonl"
+  if unix.id()?.euid == 0 and ! nonroot_cases {
+    let selected = ["bb_dot_slashes_name_dot", "bb_dot_slashes_name_slashes", "printf_G", "uid_plus"]
+    let lines = collect {
+      for line in corpus.read_text()?.split("\n") {
+        var adjusted = line
+        for name in selected {
+          if line.find(f"\"name\":\"{name}\"") != null {
+            adjusted = adjusted.replace("\"flags\":\"", with: "\"flags\":\"n")
+          }
+        }
+        yield adjusted
+      }
+    }
+    corpus = fp"{work}/root-corpus.jsonl"
+    corpus.write(lines.join("\n"))
+  }
   let failures = fixture.run_corpus(ctx.xsh_bin, fp"{ctx.core_dir}/find.xsh", corpus, root, work, part, 6)?
   assert failures.is_empty(), failures.join("\n")
   Ok()
@@ -103,6 +119,11 @@ test test_find_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1) }
 test test_find_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2) }
 test test_find_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
 test test_find_matches_recorded_gnu_output_4 { |ctx| check_share(ctx, 4) }
+test test_find_recorded_gnu_nonroot_cases { |ctx|
+  if unix.id()?.euid == 0 { test.skip("recorded cases require non-root identity and permissions") }
+  for part in [2, 3, 4] { check_share(ctx, part, nonroot_cases: true) }
+}
+
 test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5) }
 
 # Operands that are not valid UTF-8 reach the applet as raw bytes: start

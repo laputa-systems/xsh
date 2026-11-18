@@ -21,7 +21,7 @@ test test_bb_hostname_hostname_i_works_89c47685 { |ctx|
   let out = uu.at(s, "host-out")
   let err = uu.at(s, "host-err")
   let host = process.command_argv(p"/bin/hostname", ["/bin/hostname", "-i"], s.root, {LC_ALL: "C"}, b"", out, err, timeout: 5s)
-  assert process.run(host)?.exited_with(0)
+  if ! process.run(host)?.exited_with(0) { test.skip("system hostname does not resolve") }
   let r = uu.invoke(s, "hostname", ["-i"])?
   uu.succeeds(r)
   uu.no_stderr(r)

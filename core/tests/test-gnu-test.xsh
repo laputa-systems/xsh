@@ -39,10 +39,9 @@ test test_gnu_test_test_file_log { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "file")
   uu.set_mode(s, "file", 0)
-  assert uu.read(s, "file") is Err(is PermissionDenied)
   expression(s, ["-f", "file"], 0)
   expression(s, ["-f", "fail"], 1)
-  for option in ["-r", "-x", "-d", "-s", "-S", "-c", "-b", "-p"] {
+  for option in ["-x", "-d", "-s", "-S", "-c", "-b", "-p"] {
     expression(s, [option, "file"], 1)
   }
   for case in [
@@ -79,6 +78,15 @@ test test_gnu_test_test_file_log { |ctx|
     expression(s, [f"{link}1", "-ef", f"{link}2"], 1)
     expression(s, [f"{link}2", "-ef", f"{link}1"], 1)
   }
+}
+
+test test_gnu_test_unreadable_file { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
+  uu.touch(s, "file")
+  uu.set_mode(s, "file", 0)
+  assert uu.read(s, "file") is Err(is PermissionDenied)
+  expression(s, ["-r", "file"], 1)
 }
 
 # origin: gnu test/test.log

@@ -92,9 +92,6 @@ test test_gnu_tee_tee_log { |ctx|
   let idle = wrapped(s, r"""(for delay in 0.1 0.2 0.4 0.8 1.6 3.2 6.4; do sleep "$delay"; [ -f tee.exited ] && exit 0; done) | { "$@" && touch tee.exited; } | :; """, uu.argv(s, "tee", [p"-p"])?, timeout: 10s)
   assert line_count(idle.stderr) == 0
   assert uu.exists(s, "tee.exited")?
-  uu.touch(s, "file.ro")
-  uu.set_mode(s, "file.ro", 0o444)
-  uu.fails_with_code(uu.invoke(s, "tee", ["-p", "file.ro"])?, 1)
   uu.mkfifo(s, "fifo")
   let nonblocking = wrapped(s, r"""(sleep 0.1; dd of=/dev/null status=none) < fifo & reader=$!; dd count=20 bs=100K if=/dev/zero status=none | { dd count=0 oflag=nonblock status=none; "$@"; } > fifo; result=$?; wait "$reader"; exit "$result"; """, uu.argv(s, "tee", [])?, timeout: 10s)
   uu.succeeds(nonblocking)
@@ -112,4 +109,12 @@ test test_gnu_tee_tee_log { |ctx|
     uu.fails_with_code(r, row.status)
     assert line_count(r.stderr) == row.errors
   }
+}
+
+test test_gnu_tee_read_only { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
+  uu.touch(s, "file.ro")
+  uu.set_mode(s, "file.ro", 0o444)
+  uu.fails_with_code(uu.invoke(s, "tee", ["-p", "file.ro"])?, 1)
 }

@@ -2,6 +2,7 @@ use support.uu
 
 # origin: gnu rmdir/fail-perm.log
 test test_gnu_rmdir_fail_perm_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d/e/f")
   uu.set_mode(s, "d", 0o555)
@@ -20,7 +21,11 @@ test test_gnu_rmdir_ignore_log { |ctx|
   assert uu.dir_exists(s, "a/x")?
   assert ! uu.exists(s, "a/b")?
   assert ! uu.exists(s, "a/b/c")?
+}
 
+test test_gnu_rmdir_ignore_inaccessible { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
   uu.mkdir(s, "x/y")
   uu.set_mode(s, "x", 0o555)
   defer uu.set_mode(s, "x", 0o755)

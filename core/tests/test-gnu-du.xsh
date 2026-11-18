@@ -197,6 +197,7 @@ test test_gnu_du_hard_link_log { |ctx|
 
 # origin: gnu du/inacc-dest.log
 test test_gnu_du_inacc_dest_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let scene = uu.scene(ctx)?
   uu.mkdir(scene, "f")
   let s: uu.Scene = uu.Scene(ctx:, root: uu.at(scene, "f"))
@@ -213,6 +214,7 @@ test test_gnu_du_inacc_dest_log { |ctx|
 
 # origin: gnu du/inacc-dir.log
 test test_gnu_du_inacc_dir_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "a/sub")
   defer { uu.set_mode(s, "a/sub", 0o700) }
@@ -283,6 +285,7 @@ test test_gnu_du_no_deref_log { |ctx|
 
 # origin: gnu du/no-x.log
 test test_gnu_du_no_x_log { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d/no-x/y")
   defer { uu.set_mode(s, "d/no-x", 0o700) }

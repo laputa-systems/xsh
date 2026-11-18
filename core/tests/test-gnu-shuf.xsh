@@ -95,7 +95,6 @@ test test_gnu_shuf_shuf_log { |ctx|
   uu.touch(s, "unreadable")
   uu.set_mode(s, "unreadable", 0)
   uu.succeeds(uu.invoke(s, "shuf", ["-n0", "unreadable"])?)
-  uu.fails_with_code(uu.invoke(s, "shuf", ["-n1", "unreadable"])?, 1)
   let multiple_counts = uu.invoke(s, "shuf", ["-n10", "-i0-9", "-n3", "-n20"])?
   uu.succeeds(multiple_counts)
   assert multiple_counts.stdout.count_lines() == 3
@@ -145,4 +144,12 @@ test test_gnu_shuf_shuf_log { |ctx|
   let null_closed = wrapped(s, closed, ["/dev/null"])?
   uu.succeeds(null_closed)
   uu.no_stdout(null_closed)
+}
+
+test test_gnu_shuf_unreadable { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
+  let s = uu.scene(ctx)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0)
+  uu.fails_with_code(uu.invoke(s, "shuf", ["-n1", "unreadable"])?, 1)
 }
