@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 112
+Next: 116
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -95,3 +95,43 @@ out of scope.
 - **Acceptance:** The review report and the fixes for its findings are recorded; the experimental label is revisited with the owner.
 - **Fix with:** security
 - **Effort:** L
+
+### XSH-112 · P4 · Port buildlib's source locks to XSH
+
+- **Area:** Tooling
+- **Where:** `bench/consolidation/prepare.py`, [laputa-buildlib](https://github.com/laputa-systems/buildlib) `buildlib.locks`
+- **Problem:** `bench/consolidation/prepare.py` fetches its inputs without buildlib's verified source locks, and buildlib is Python-only, so XSH build scripts cannot use the contract natively.
+- **Recommendation:** Port `buildlib.locks` (source-input validation and verified downloads) and `buildlib.hashing` to an XSH library that follows the [build repository contract](https://github.com/laputa-systems/stuff/blob/main/docs/build-repos.md), then move the consolidation bench preparation onto it.
+- **Acceptance:** The XSH library reads `sources.lock.json`, rejects inputs whose SHA-256 or size differs, and the consolidation preparation fetches through it.
+- **Fix with:** reference-parity
+- **Effort:** M
+
+### XSH-113 · P4 · Stop locking unused Deser bridge crates
+
+- **Area:** Dependencies
+- **Where:** [laputa-systems/deser](https://github.com/laputa-systems/deser) `deser-core/Cargo.toml`, XSH `Cargo.lock`
+- **Problem:** `laputa-deser-core`'s `std` feature names its optional bridges through weak features (`rust_decimal?/std`, `bigdecimal?/std` and others). Cargo locks dependencies named that way even when nothing enables them ([rust-lang/cargo#10801](https://github.com/rust-lang/cargo/issues/10801)), so XSH's lockfile carries `rust_decimal`, `borsh`, `rand`, `wasm-bindgen` and `toml_edit`, none of which is built. `cargo fetch` and Laputa's vendoring still download them.
+- **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH.
+- **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-114 · P3 · Interactive gate cases rebuild the bound xshi product
+
+- **Area:** Automation
+- **Where:** `dev/gates.xsh` (`test-products` build and the `test-xshi-*` cases)
+- **Problem:** When a selection needs every product and includes the Interactive area, `test-products` builds `xshi` without `laputa-asterinas`, and the first `test-xshi-*` integration case rebuilds the same binary with that feature. The harness binding check then fails with `incomplete: test-xshi-cli product changed: xshi` (or `test-xshi-parity`). A change to `Cargo.toml` or `Cargo.lock` selects both, so no dependency change can pass the gate in one invocation.
+- **Recommendation:** Build the `xshi` product with the features its gate cases use, or give the feature build its own target directory or product identity.
+- **Acceptance:** `cargo dev gate Cargo.toml` runs the Interactive cases and the product cases in one invocation without a product-changed result.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-115 · P2 · xshi parity cannot pass: gate discovery and aging goldens
+
+- **Area:** Interactive
+- **Where:** `dev/gates.xsh` (`test-xshi-parity`), `crates/xshi/tests/parity.rs`, `tests/fixtures/interactive-parity/`
+- **Problem:** `cargo dev gate --case test-xshi-parity` reports `incomplete: test-xshi-parity raw_status=0` after discovery on master, although the binary lists 353 tests and `dev/performance/results.py --discover-cargo` accepts that listing. Run directly in the pinned image, 8 tests fail: the fixtures pin file mtimes to `1_700_000_000` (2023-11-14) and the goldens recorded the age as `2y`, which renders as `3y` since 2026-11-14 (`l_*`, `ll_shows_dotfiles`, `no_config_flag_skips_the_config_file`).
+- **Recommendation:** Find why the gate treats the parity discovery as incomplete; make fixture ages relative to the run time, or pin the clock the listing uses, so goldens do not expire.
+- **Acceptance:** `cargo dev gate --case test-xshi-parity` passes all 353 tests.
+- **Fix with:** root-cause
+- **Effort:** S
