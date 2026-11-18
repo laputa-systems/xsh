@@ -1,6 +1,9 @@
 # XSH-96: Reuse checked programs across processes
 
-Status: draft
+Status: declined. The prototype measured a 5.57-fold startup cut against the
+10-fold bar (open question 1), and verifying the decoded program dominates
+the cached start. Reopen only with a cheaper verifier for decoded programs
+that also checks transfer marks independently.
 
 ## Summary
 

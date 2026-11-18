@@ -141,16 +141,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-96 · P3 · Reuse checked programs across processes
-
-- **Area:** Performance
-- **Where:** `src/runtime/eval/indexed/full/`, `src/loader.rs`, `src/execution.rs`, [RFC](docs/rfc/XSH-96-checked-program-cache.md)
-- **Problem:** Every `xsh SCRIPT` run parses, loads, checks and lowers the whole import closure before executing. `xsh core/awk.xsh -- 'BEGIN{print 1}'` still costs 4.34 G user instructions, nearly all checking and lowering, and the 2026-11-17 suite audit found per-process startup is about 70% of each AWK case and dominates the awk, sed, find, patch, ls, expr and numfmt native corpora.
-- **Recommendation:** The test-only prototype (`src/runtime/eval/indexed/full/formal_bridge/raw_full/program_image.rs`) answered RFC open question 1 below the order-of-magnitude bar: a 1.13 MB image cut the AWK start from 4.41 G to 0.79 G user instructions (5.57-fold), and verifying the decoded program is 61.5% of the cached start. Do not build the cache on the current verifier. The owner decides between cheaper verification of decoded programs, a smaller accepted gain, or closing the item; any go first needs the verifier to check transfer marks independently, names that do not depend on interning order, and an image integrity argument.
-- **Design:** [docs/rfc/XSH-96-checked-program-cache.md](docs/rfc/XSH-96-checked-program-cache.md)
-- **Fix with:** make-it-fast
-- **Effort:** L
-
 ### XSH-103 · P3 · Qualify the util-linux cohort on non-UTF-8 and unreadable host state
 
 - **Area:** Core commands
