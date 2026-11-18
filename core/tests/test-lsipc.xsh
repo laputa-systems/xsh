@@ -1898,3 +1898,31 @@ test test_lsipc_missing_global_limits { |ctx|
   let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 30s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
 }
+
+
+test test_lsipc_global_page_sum_exceeds_int { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let code = "import ctypes, os, subprocess, sys\n" +
+    "libc = ctypes.CDLL(None, use_errno=True)\n" +
+    "libc.shmget.argtypes = [ctypes.c_int, ctypes.c_size_t, ctypes.c_int]\n" +
+    "ids = []\n" +
+    "try:\n" +
+    " for _ in range(4097):\n" +
+    "  ident = libc.shmget(0, 2**63-1, 0o11600)\n" +
+    "  assert ident >= 0, ctypes.get_errno()\n" +
+    "  ids.append(ident)\n" +
+    " result = subprocess.run([sys.argv[1], sys.argv[2] + '/lsipc.xsh', '--', '-g', '-m', '-b', '--raw', '-o', 'RESOURCE,USED'], text=True, capture_output=True)\n" +
+    " assert result.returncode == 0, result.stderr\n" +
+    " rows = dict(line.split() for line in result.stdout.splitlines()[1:])\n" +
+    " assert int(rows['SHMALL']) == 4097 * (2**63-1) // os.sysconf('SC_PAGE_SIZE'), rows\n" +
+    "finally:\n" +
+    " for ident in ids: assert libc.shmctl(ident, 0, None) == 0\n"
+  uu.write(s, "large-pages.py", code)?
+  let script = "echo 4097 > /proc/sys/kernel/shmmni\nexec python3 \"$1/large-pages.py\" \"$2\" \"$3\"\n"
+  let out = fp"{s.root}/pages.out"
+  let err = fp"{s.root}/pages.err"
+  let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
+  let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 120s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+}

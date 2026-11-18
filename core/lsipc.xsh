@@ -421,13 +421,13 @@ proc selected_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs,
   {rows: rows, diagnostic_failed: diagnostic_failed}
 }
 
-proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
+proc global_row(selection: report.Selection, resource: Str, description: Str, used: Str, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
   var values: Map[Str, Str] = {RESOURCE: resource, DESCRIPTION: description}
   values = values.set("LIMIT", if byte_unit and !selection.bytes { human_limit(limit) } else { limit })
   if usage {
-    values = values.set("USED", if byte_unit and !selection.bytes { human_size(used) } else { f"{used}" })
-    let percentage = used.float() / limit.parse_float()? * 100.0
-    let formatted = if limit == "0" { if used == 0 { "-nan" } else { "inf" } } else { percentage.format(precision: 2) }
+    values = values.set("USED", if byte_unit and !selection.bytes { human_limit(used) } else { used })
+    let percentage = used.parse_float()? / limit.parse_float()? * 100.0
+    let formatted = if limit == "0" { if used == "0" { "-nan" } else { "inf" } } else { percentage.format(precision: 2) }
     values = values.set("USE%", f"{formatted}%")
   } else {
     values = values.set("USED", "-")
@@ -452,34 +452,40 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
     let records = ipc.collect_system_v(ipc.MessageQueues)
-    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), limit_text(ipc.MessageQueueCount), true, false)]
-    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, limit_text(ipc.MessageBytes), false, true)]
-    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, limit_text(ipc.QueueBytes), false, true)]
+    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", f"{records.len()}", limit_text(ipc.MessageQueueCount), true, false)]
+    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", "0", limit_text(ipc.MessageBytes), false, true)]
+    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", "0", limit_text(ipc.QueueBytes), false, true)]
   }
   if "posix_mqueues" in selection.resources {
     let posix = posix_entries("posix_mqueues", selection, raw)
-    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), limit_text(ipc.PosixQueueCount), true, false)]
-    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, limit_text(ipc.PosixMessageBytes), false, true)]
-    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, limit_text(ipc.PosixQueueMessages), false, false)]
+    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", f"{posix.len()}", limit_text(ipc.PosixQueueCount), true, false)]
+    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", "0", limit_text(ipc.PosixMessageBytes), false, true)]
+    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", "0", limit_text(ipc.PosixQueueMessages), false, false)]
   }
   if "shmems" in selection.resources {
     let records = ipc.collect_system_v(ipc.MemorySegments)
     let page_size = system.execution_units()?.page_size_bytes
-    var pages_used = 0
+    var pages_high = 0
+    var pages_low = 0
     var remaining_bytes = 0
     for record in records {
       match record.details { ipc.SharedMemory(segment) => {
         let size = segment.size_bytes ?? 0
-        pages_used += size / page_size
+        let pages = size / page_size
+        pages_high += pages / 1000000000
+        pages_low += pages % 1000000000
         remaining_bytes += size % page_size
-        pages_used += remaining_bytes / page_size
+        pages_low += remaining_bytes / page_size
         remaining_bytes = remaining_bytes % page_size
+        pages_high += pages_low / 1000000000
+        pages_low = pages_low % 1000000000
       }, else => {} }
     }
-    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), limit_text(ipc.SharedMemoryCount), true, false)]
+    let pages_used = if pages_high == 0 { f"{pages_low}" } else { f"{pages_high}{pages_low:09}" }
+    rows += [global_row(selection, "SHMMNI", "Shared memory segments", f"{records.len()}", limit_text(ipc.SharedMemoryCount), true, false)]
     rows += [global_row(selection, "SHMALL", "Shared memory pages", pages_used, limit_text(ipc.SharedMemoryPages), true, false)]
-    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, limit_text(ipc.SharedMemoryBytes), false, true)]
-    rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, "1", false, true)]
+    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", "0", limit_text(ipc.SharedMemoryBytes), false, true)]
+    rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", "0", "1", false, true)]
   }
   if "semaphores" in selection.resources {
     let records = ipc.collect_system_v(ipc.SemaphoreSets)
@@ -492,11 +498,11 @@ proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, p
     let semmns = limits.total_elements
     let semopm = limits.operations_per_call
     let semmni = limits.sets
-    rows += [global_row(selection, "SEMMNI", "Number of semaphore identifiers", records.len(), f"{semmni}", true, false)]
-    rows += [global_row(selection, "SEMMNS", "Total number of semaphores", elements_used, f"{semmns}", true, false)]
-    rows += [global_row(selection, "SEMMSL", "Max semaphores per semaphore set.", 0, f"{semmsl}", false, false)]
-    rows += [global_row(selection, "SEMOPM", "Max number of operations per semop(2)", 0, f"{semopm}", false, false)]
-    rows += [global_row(selection, "SEMVMX", "Semaphore max value", 0, "32767", false, false)]
+    rows += [global_row(selection, "SEMMNI", "Number of semaphore identifiers", f"{records.len()}", f"{semmni}", true, false)]
+    rows += [global_row(selection, "SEMMNS", "Total number of semaphores", f"{elements_used}", f"{semmns}", true, false)]
+    rows += [global_row(selection, "SEMMSL", "Max semaphores per semaphore set.", "0", f"{semmsl}", false, false)]
+    rows += [global_row(selection, "SEMOPM", "Max number of operations per semop(2)", "0", f"{semopm}", false, false)]
+    rows += [global_row(selection, "SEMVMX", "Semaphore max value", "0", "32767", false, false)]
   }
   rows
 }

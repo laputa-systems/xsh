@@ -87,6 +87,8 @@ recorded differences. A review reports them only if their behavior changes.
 - `lslocks -Q` evaluates regular expressions in XSH's regex dialect, not POSIX
   ERE, with its own syntax-error text and number parsing. The BLOCKER column
   still names a holder whose row `-i` hides.
+- When shared-memory segment sizes total at least 2^64 bytes, `lsipc -g`
+  reports the full page count rather than wrapping the byte sum modulo 2^64.
 - `lsipc` clamps POSIX object times before 1677-09-21 and after 2262-04-11,
   the ends of the nanosecond `Int` range that `fs.stat` and the time formatter
   share.
