@@ -2146,7 +2146,7 @@ def _cargo_environment() -> str:
         "RUSTC_WRAPPER=/usr/local/bin/kache TARGET=" + TARGET + " "
         "XSH_LAPUTA_CORPUS=" + shlex.quote(str(laputa_corpus)) + " "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
-        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" + shlex.quote(RUSTFLAGS) + " "
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" + shlex.quote(RUSTFLAGS) + "; "
     )
 
 

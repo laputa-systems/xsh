@@ -1069,10 +1069,21 @@ class MeasurementProtocolTests(unittest.TestCase):
         self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf", environment)
         self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_strtol=strtol", environment)
 
+    def test_cargo_environment_runs_the_command_that_follows_it(self):
+        with laputa_corpus_scope() as corpus:
+            for command in ("cd / && printf ran", "printf ran"):
+                result = subprocess.run(
+                    ["sh", "-c", resources._cargo_environment() + command],
+                    capture_output=True,
+                    text=True,
+                )
+                with self.subTest(command=command):
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "ran", ""))
+
     def test_cargo_environment_roundtrips_a_corpus_path_with_spaces(self):
         with laputa_corpus_scope(prefix="resource laputa spaced-") as corpus:
             result = subprocess.run(
-                ["sh", "-c", resources._cargo_environment() + '; printf "%s" "$XSH_LAPUTA_CORPUS"'],
+                ["sh", "-c", resources._cargo_environment() + 'printf "%s" "$XSH_LAPUTA_CORPUS"'],
                 check=True,
                 capture_output=True,
                 text=True,
