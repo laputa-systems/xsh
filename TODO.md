@@ -63,7 +63,7 @@ out of scope.
 
 - **Area:** Remote execution
 - **Where:** `crates/oxish-client` (vendored from ssh-build `client/`, `scripts/vendor-ssh-client.sh`), `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** The Linux x86-64 musl client remains experimental. Native macOS qualification is owner-deferred, and the build-time gate remains deferred. Known limits remain: the vendored Graviola SHA-256 contexts are unwiped, the client's single implementation is ssh-build's `client/` (XSH vendors it and carries no divergent copy), and a caller's writer that never returns still keeps `exec_stream` from returning.
+- **Problem:** The Linux x86-64 musl client remains experimental. Native macOS qualification is owner-deferred, and the build-time gate remains deferred. Known limits remain: the vendored Graviola SHA-256 contexts are unwiped, and the client's single implementation is ssh-build's `client/` (XSH vendors it and carries no divergent copy).
 - **Recommendation:** Keep mandatory host verification, typed execution certainty, and the experimental label. Preserve the RFC's limits and qualify the remaining platform and build-time gates when resumed. - **Progress:** `7a3809eaa` bounds agent socket establishment and wipes growing private-key buffers. An independent review verified both fixes with 35 focused tests and the original backlog and allocator probes, with zero remaining findings in that scope. All 144 disposable OpenSSH fixtures and package clippy pass on Linux x86-64 musl. This closes the independent review of those fixes, not every protocol or cryptographic risk. - **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental. Native macOS qualification is deferred by the owner. - **Coordination:** Laputa R6 and XSH-56 consume the client.
 - **Fix with:** security
 - **Effort:** L
@@ -94,25 +94,6 @@ out of scope.
 - **Recommendation:** State the monotonic abstraction and invariants, add deterministic checks for rearming, shielding and restoration, and record whether Rust agreement is proved or conformance-only.
 - **Acceptance:** The roadmap's pilot 1B checks pass on current source on pinned Linux verification products; the native `within` cases still pass; the evidence class of each claim is recorded in `formal/README.md`.
 - **Fix with:** isolate-effects
-- **Effort:** M
-
-### XSH-108 · P3 · Allow `match` over built-in enums
-
-- **Area:** Language
-- **Where:** `src/sema/check/`, `src/runtime/eval/`, `docs/templates/SPEC.md` (4.8)
-- **Problem:** Built-in enums such as `archive.Format` and `archive.Compression` compare only with `==` and `!=`; SPEC 4.8 says a `match` over one is not supported, so callers write if-chains without exhaustiveness checking.
-- **Recommendation:** Accept `.Variant` patterns over a built-in enum with the same exhaustiveness rules as ordinary enums.
-- **Acceptance:** A `match` over each standard built-in enum checks exhaustiveness, rejects unknown variants, and evaluates; the SPEC states it.
-- **Effort:** M
-
-### XSH-109 · P2 · Return from `exec_stream` when the caller's writer stalls
-
-- **Area:** Remote execution
-- **Where:** `crates/oxish-client` (fix upstream in ssh-build `client/`, then vendor), `src/modules/ssh.rs`
-- **Problem:** A caller's writer that never returns keeps `ssh.exec_stream` from returning, past its deadline and cancellation.
-- **Recommendation:** Bound writer calls by the operation deadline and interrupt, or hand output to the writer off the event loop with bounded buffering.
-- **Acceptance:** A test with a writer that blocks forever returns within the deadline and on cancellation, with a typed outcome and no leaked channel.
-- **Fix with:** lifecycle-concurrency
 - **Effort:** M
 
 ### XSH-110 · P2 · Add an acknowledged remote cancellation action
