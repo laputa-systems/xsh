@@ -91,7 +91,7 @@ out of scope.
 - **Area:** Remote execution
 - **Where:** `crates/oxish-client`, ssh-build `client/`, `docs/rfc/XSH-55-native-ssh-client.md`
 - **Problem:** The client stays experimental until an independent protocol and security review covers key exchange, rekeying, authentication, channel handling and host verification.
-- **Recommendation:** Commission a reviewer outside the implementation lanes; record findings and fixes in the RFC.
+- **Recommendation:** Commission a reviewer outside the implementation lanes; record findings and fixes in the RFC. - **Progress:** The review ran on 2026-11-18 against ssh-build `c9733b5` ([report](docs/reviews/XSH-111-ssh-client-review.md)): one medium and five low findings, all fixed in ssh-build `6201a5a`, vendored, and recorded in the [RFC](docs/rfc/XSH-55-native-ssh-client.md#independent-review-xsh-111). - **Remainder:** the owner's decision on the experimental label.
 - **Acceptance:** The review report and the fixes for its findings are recorded; the experimental label is revisited with the owner.
 - **Fix with:** security
 - **Effort:** L

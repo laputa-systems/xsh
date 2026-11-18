@@ -122,7 +122,7 @@ its change.
 
 | Severity | Defect | Fix and test |
 |---|---|---|
-| Medium | A server could send channel data, extended data, EOF, close or a completion before its reply to the `exec` request, and the command failed as a protocol error after submission. RFC 4254 section 5.4 lets the sender continue without waiting for a reply, and section 6.5 orders neither the reply nor the command's traffic; OpenSSH and Dropbear reply first, but the RFC does not require it. | `Channel::exec` holds those messages, bounded by the receive window and 1024 packets, and delivers them in order once the reply succeeds. `output_and_completion_before_the_exec_reply_are_delivered` |
+| Medium | A server could send channel data, extended data, EOF, close or a completion before its reply to the `exec` request, and the command failed as a protocol error after submission. RFC 4254 section 5.4 lets the sender continue without waiting for a reply, and section 6.5 orders neither the reply nor the command's traffic; OpenSSH and Dropbear reply first, but the RFC does not require it. | `Channel::exec` holds those messages, bounded by 1024 packets and, since XSH-111, by a byte budget of the receive window plus 256 KiB across every held message, and delivers them in order once the reply succeeds. `output_and_completion_before_the_exec_reply_are_delivered` |
 | Medium | `Connection::exec_stream` called the caller's writers synchronously, so one that blocked stopped the connection from answering keepalives, key exchanges and other requests, as a stalled output file once did. | The connection runs on one bounded scoped thread with nonblocking pipes for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input source, feeds and drains them, holding at most the pipe capacity and the receive window. Since XSH-109 the writers are owned and run on their own threads, so a writer that never returns no longer keeps the call from returning either. `a_stalled_writer_does_not_stop_the_connection_from_being_served` |
 
 ### Agent establishment and private-key buffers
@@ -153,6 +153,28 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 `Transport::peer_closed`, replaces `Transport::recv_newkeys` with
 `Transport::accept_newkeys`, and changes `Packet::payload` to
 `Zeroizing<Vec<u8>>`.
+
+### Independent review (XSH-111)
+
+2026-11-18, Linux x86-64 musl, ssh-build `c9733b5`. A reviewer outside the
+implementation lanes covered key exchange, rekeying, authentication, channel
+handling and host verification in the client, `oxish-proto`, the
+`oxish-graviola` glue and `src/modules/ssh.rs`; Graviola's primitives were out
+of scope. It found no peer-reachable panic and no flaw in key exchange or trust
+decisions. [The report](../reviews/XSH-111-ssh-client-review.md) lists each
+finding and the areas it cleared. ssh-build `6201a5a` fixes findings 1 to 5;
+each probe failed before its fix and is kept in `tests/review_probes.rs`.
+
+| Severity | Defect | Fix |
+|---|---|---|
+| Medium | A TCP end after `exit-status` and before `CHANNEL_EOF` returned truncated output as a complete success, which an on-path attacker could force. | A transport end completes a command only after `CHANNEL_EOF`. |
+| Low | Requests held before the `exec` reply were bounded by count only; a hostile server made the client hold 64 MB. | Every held message counts against the byte budget above. |
+| Low | A client rekey that started during authentication dropped an in-flight `SERVICE_ACCEPT`. XSH's defaults cannot reach it. | The rekey queue holds every non-transport message. |
+| Low | A failure after submission became `SshError.Transport`, so a host key changed at a mid-command rekey read as a lost connection. | The client keeps the cause (`Error::AfterSubmission`); XSH reports its variant with `certainty = .Submitted`. |
+| Low | The client never closed a channel first, so a server waiting for it ended a finished command in `Timeout`. | The client sends `CHANNEL_CLOSE` once EOF was sent and received and held output drained. |
+| Low | `docs/ssh.md` said cancel sends no signal and that every failure ends the session. | Corrected. |
+
+Contract change: `oxish_client::Error` gains `AfterSubmission { cause }`.
 
 ### Checked and held
 
@@ -245,14 +267,12 @@ third round's tree passed the whole `oxish-client` suite for
 
 - Native macOS arm64 qualification, deferred by the owner; no macOS host exists.
   The code that already compiled there compiles by cross-check only.
-- An independent protocol and security review before any claim beyond
-  experimental. The [source review](#protocol-and-security-review) above found and
-  fixed five defects, a second round fixed seven more that it could only support
-  from the code, a third internal pass fixed four with failing-first tests, and
-  a fourth fixed two; the risks that remain are listed. None of them is the independent review, and
+- The [independent review](#independent-review-xsh-111) found six defects,
+  all fixed. Whether the client leaves its experimental label is the owner's
+  decision. The internal rounds above and the remaining listed risks stand;
   the tests, fuzz loops and fixtures are not formal verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
-  any failure; a timeout does not keep the transport reusable.
+  any failure once the request reached the connection; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
   are refused. Only Ed25519 host and user keys, no password or
   keyboard-interactive authentication, no PTY or forwarding.
