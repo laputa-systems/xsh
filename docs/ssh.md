@@ -124,9 +124,12 @@ value typed `SshError` exposes only `message` as a field.
 | `OutputLimit` | a captured stream passed `max_output` |
 | `Unusable`, `Busy`, `Session`, `Local` | an earlier failure poisoned the session; it is in use; the handle is closed or unknown; a local stdin or output file failed |
 
-After any failure the session is dead: `ssh.info(session).usable` is false and
-every later call fails with `SshError.Unusable` and `certainty = .NotSubmitted`,
-because a half-read channel cannot be reused. Close it and connect again.
+A failure after the request reached the connection leaves the session dead:
+`ssh.info(session).usable` is false and every later call fails with
+`SshError.Unusable` and `certainty = .NotSubmitted`, because a half-read channel
+cannot be reused. Close it and connect again. A failure found before that, such
+as invalid options, a NUL in the command, `Busy` or a `Local` file that cannot
+be opened, leaves the session usable.
 A failure that left the command possibly running (`certainty = .Submitted`) is
 reconciled through the new session; the old command may still be running.
 
@@ -207,9 +210,11 @@ command ends at its `timeout_ms` or on a signal. Opening such a file
 does not block: a `stdin_path` FIFO opens at once without a writer, and a
 `stdout_path` or `stderr_path` FIFO without a reader fails with `SshError.Local`.
 
-Closing a channel or connection does not prove that a remote process stopped,
-and the client sends no signal to it. A timed-out or cancelled command may
-still be running; reconcile through a separate session.
+Closing a channel or connection does not prove that a remote process stopped.
+A cancelled command is sent `signal TERM`, and the client waits up to two
+seconds for the server to report its exit; a timed-out command is sent no
+signal. Unless the server reported the exit, a timed-out or cancelled command
+may still be running; reconcile through a separate session.
 
 ## Examples
 
