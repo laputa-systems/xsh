@@ -2,10 +2,10 @@ import Xsh.Core.MembershipDecision
 
 open Xsh.Core Xsh.Values
 
-abbrev T := ValueType Unit
-abbrev V := Value Unit Unit Unit
+abbrev T := ValueType String
+abbrev V := Value String Unit Unit
 
-def world : MembershipWorld Unit Unit Unit where
+def world : MembershipWorld String Unit Unit where
   entryFields := fun _ => []
   stream := fun _ _ => False
   callable := fun _ _ => False
@@ -33,7 +33,11 @@ def types : List (String × T) := [
   ("result-int-str", .result (.primitive .integer) (.primitive .string)),
   ("list-optional-int", .list (.optional (.primitive .integer))),
   ("map-str-record", .map (.primitive .string) (.record (.rowField "x" (.primitive .integer) .rowEmpty))),
-  ("union-record-bool", .union (.record (.rowField "x" (.primitive .integer) .rowEmpty)) (.primitive .boolean) .membersEmpty)]
+  ("union-record-bool", .union (.record (.rowField "x" (.primitive .integer) .rowEmpty)) (.primitive .boolean) .membersEmpty),
+  ("erased-record", .primitive .erasedRecord), ("tag-a", .tagged "A"), ("tag-b", .tagged "B"),
+  ("error", .primitive .error), ("process-error", .primitive .processError),
+  ("family-a", .errorFamily "FamilyA"), ("variant-a", .errorVariant "FamilyA" "Bad"),
+  ("facet-io", .errorFacet "io")]
 
 def values : List (String × V) := [
   ("null", .scalar .null), ("bool", .scalar (.boolean true)),
@@ -57,7 +61,14 @@ def values : List (String × V) := [
   ("list-optional", .list [.scalar .null, .scalar (.integer intOne)]),
   ("list-optional-wrong", .list [.scalar .null, .scalar (.string "a")]),
   ("map-record", .map [(.string "a", .record [("x", .scalar (.integer intOne))])]),
-  ("map-record-wrong", .map [(.string "a", .record [("x", .scalar (.string "a"))])])]
+  ("map-record-wrong", .map [(.string "a", .record [("x", .scalar (.string "a"))])]),
+  ("tag-a-empty", .tagged "A" "One" []),
+  ("tag-a-fields", .tagged "A" "Two" [.scalar (.integer intOne)]),
+  ("tag-b-empty", .tagged "B" "One" []),
+  ("error-a", .error ⟨"FamilyA", "Bad", "FamilyA.Bad", "bad", [], ["io"], none, [], none, none⟩),
+  ("error-a-other", .error ⟨"FamilyA", "Other", "FamilyA.Other", "other", [], [], none, [], none, none⟩),
+  ("error-b", .error ⟨"FamilyB", "Bad", "FamilyB.Bad", "bad", [], [], none, [], none, none⟩),
+  ("run-error", .processError ⟨"failed", "failed", none, none, [], none⟩)]
 
 def main : IO Unit := do
   let out ← IO.getStdout

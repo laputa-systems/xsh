@@ -2,7 +2,7 @@ use super::lowered_ops::lowered_value_from_runtime_any;
 use super::type_view::{value_matches_static_type, ValueView};
 use super::{MapKey, ResultValue, Type, Value};
 use crate::map_key::MapKeyRef;
-use crate::runtime::value::{DigestValue, DurationValue, FloatValue, PathValue, RecordMap, RegexValue};
+use crate::runtime::value::{DigestValue, DurationValue, FloatValue, PathValue, RecordMap, RegexValue, RunError, RuntimeError};
 use crate::symbol::{Name, SymbolOwner};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
@@ -36,6 +36,12 @@ fn production_matches_lean_membership() {
             ("list-optional-int", Type::List(Box::new(Type::Optional(Box::new(Type::Int))))),
             ("map-str-record", Type::Map(Box::new(Type::Str), Box::new(Type::Record(BTreeMap::from([(x, Type::Int)]).into())))),
             ("union-record-bool", Type::Union(vec![Type::Record(BTreeMap::from([(x, Type::Int)]).into()), Type::Bool])),
+            ("erased-record", Type::ErasedRecord),
+            ("tag-a", Type::Tag(Name::intern("A"))), ("tag-b", Type::Tag(Name::intern("B"))),
+            ("error", Type::Error), ("process-error", Type::ProcessError),
+            ("family-a", Type::ErrorFamily(Name::intern("FamilyA"))),
+            ("variant-a", Type::ErrorVariant { family: Name::intern("FamilyA"), variant: Name::intern("Bad") }),
+            ("facet-io", Type::ErrorFacet(Name::intern("io"))),
         ];
         let key = || MapKey::Str(Arc::from("a"));
         let string = || Value::Str(Arc::from("a"));
@@ -67,10 +73,17 @@ fn production_matches_lean_membership() {
             ("list-optional-wrong", Value::List(vec![Value::Null, string()])),
             ("map-record", Value::Map(BTreeMap::from([(key(), Value::Record(RecordMap::from_name_values(vec![(x, Value::Int(1))])))]))),
             ("map-record-wrong", Value::Map(BTreeMap::from([(key(), Value::Record(RecordMap::from_name_values(vec![(x, string())])))]))),
+            ("tag-a-empty", Value::Tag { type_name: Name::intern("A"), name: Arc::from("One"), fields: vec![], wire: None }),
+            ("tag-a-fields", Value::Tag { type_name: Name::intern("A"), name: Arc::from("Two"), fields: vec![Value::Int(1)], wire: None }),
+            ("tag-b-empty", Value::Tag { type_name: Name::intern("B"), name: Arc::from("One"), fields: vec![], wire: None }),
+            ("error-a", Value::Error(Box::new(RuntimeError::structured("FamilyA", "Bad", RecordMap::new(), vec!["io".into()], "bad")))),
+            ("error-a-other", Value::Error(Box::new(RuntimeError::structured("FamilyA", "Other", RecordMap::new(), vec![], "other")))),
+            ("error-b", Value::Error(Box::new(RuntimeError::structured("FamilyB", "Bad", RecordMap::new(), vec![], "bad")))),
+            ("run-error", Value::RunError(Box::new(RunError::new("failed", "failed")))),
         ];
         let lowered: Vec<_> = values.iter().map(|(_, value)| lowered_value_from_runtime_any(value).expect("fixture cannot be lowered")).collect();
-        assert_eq!(types.len(), 25);
-        assert_eq!(values.len(), 34);
+        assert_eq!(types.len(), 33);
+        assert_eq!(values.len(), 41);
         let path = std::env::var_os("XSH_MEMBERSHIP_CASES").expect("XSH_MEMBERSHIP_CASES is required");
         let mut lines = BufReader::new(std::fs::File::open(path).expect("cannot open membership corpus")).lines();
         assert_eq!(lines.next().expect("missing header").expect("invalid header"), "membership-v1");
@@ -79,7 +92,7 @@ fn production_matches_lean_membership() {
         let mut key_rows = 0;
         for line in lines {
             let line = line.expect("invalid corpus input");
-            assert!(count < 850, "corpus exceeds bound");
+            assert!(count < 1353, "corpus exceeds bound");
             let fields: Vec<_> = line.split(' ').collect();
             assert_eq!(fields.len(), 3, "malformed row {}: {line}", count + 2);
             let ty = types.iter().find(|(name, _)| *name == fields[0]).expect("out-of-domain type");
@@ -100,7 +113,7 @@ fn production_matches_lean_membership() {
             }
             count += 1;
         }
-        assert_eq!(count, 850, "incomplete corpus");
+        assert_eq!(count, 1353, "incomplete corpus");
         assert_eq!(key_rows, KEY_ROWS, "key view rows changed");
         println!("membership rows: {count}");
     });
