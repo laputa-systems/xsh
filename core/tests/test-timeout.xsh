@@ -283,13 +283,16 @@ test timeout_without_foreground_signals_the_commands_group { |ctx|
   let result = invoke(ctx, [".3", "sh", "-c", r"sleep 30 & printf %s $! > $1; wait", "sh", grandchild.display()])?
   assert result.status == 124
   let pid = grandchild.read_text()?.parse_int() ?? -1
-  # The group signal is delivered before timeout exits, but the grandchild's
-  # exit is observable only once its new parent has reaped it.
   let started = time.now()
-  while time.now() - started < 15000 and alive(pid) {
+  let status = fp"/proc/{pid}/status"
+  while time.now() - started < 15000 and alive(pid) and !(status.exists() and "State:\tZ" in status.read_text()?) {
     time.sleep(10ms)
   }
-  test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+  if alive(pid) {
+    assert "State:\tZ" in status.read_text()?
+  } else {
+    test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+  }
 }
 
 test timeout_foreground_applies_kill_after_to_the_command { |ctx|

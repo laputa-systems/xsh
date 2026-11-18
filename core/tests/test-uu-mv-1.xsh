@@ -246,6 +246,7 @@ test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink { |ctx|
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_unlinks_dest_symlink_error_message
 test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink_error_message { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -293,6 +294,7 @@ test test_uu_mv_acl { |ctx|
 
 # origin: uutils test_mv::test_move_should_not_fallback_to_copy
 test test_uu_mv_move_should_not_fallback_to_copy { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "readonly_dir")
   uu.touch(s, "readonly_dir/a_file_is_locked")
@@ -795,6 +797,7 @@ test test_uu_mv_mv_cross_device_file_symlink_preserved { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_permission_denied
 test test_uu_mv_mv_cross_device_permission_denied { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)

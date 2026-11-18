@@ -119,6 +119,7 @@ test test_uu_chmod_chmod_hyper_recursive_directory_tree_does_not_fail { |ctx|
 
 # origin: uutils test_chmod::test_chmod_inaccessible_file_reports_permission_denied
 test test_uu_chmod_chmod_inaccessible_file_reports_permission_denied { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "locked")
   make_file(s, "locked/file", 0o100644)
@@ -870,6 +871,7 @@ test test_uu_chmod_mode_after_dash_dash { |ctx|
 
 # origin: uutils test_chmod::test_permission_denied
 test test_uu_chmod_permission_denied { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d/no-x/y")
   uu.succeeds(uu.invoke(s, "chmod", ["u=rw", "d/no-x"])?)

@@ -102,6 +102,7 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
 
 # origin: uutils test_tee::linux_only::test_permission_denied_clean
 test test_uu_tee_linux_only_permission_denied_clean { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "tee", ["/dev/mem"])?
   uu.fails_with_code(r, 1)
@@ -348,6 +349,7 @@ test test_uu_tee_output_error_presence_only_broken_pipe_unix { |ctx|
 
 # origin: uutils test_tee::test_readonly
 test test_uu_tee_readonly { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.write(s, "tee_file_out", "world")
   uu.set_mode(s, "tee_file_out", 0o444)

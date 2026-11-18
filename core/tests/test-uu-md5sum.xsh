@@ -245,6 +245,7 @@ test test_uu_md5sum_check_strict_error { |ctx|
 
 # origin: uutils test_md5sum::test_continue_after_directory_error
 test test_uu_md5sum_continue_after_directory_error { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d")
   uu.touch(s, "file")

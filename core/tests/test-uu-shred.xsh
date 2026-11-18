@@ -151,6 +151,7 @@ test test_uu_shred_shred_empty { |ctx|
 
 # origin: uutils test_shred::test_shred_fail_no_perm
 test test_uu_shred_shred_fail_no_perm { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir")
   uu.touch(s, "dir/test_shred_remove_a")
@@ -170,16 +171,26 @@ test test_uu_shred_shred_force { |ctx|
   assert file_exists(s, "test_shred_force")?
   let mode = uu.mode(s, "test_shred_force")?
   uu.set_mode(s, "test_shred_force", mode.bit_and(0o555))
-  let refused = uu.invoke(s, "shred", ["-u", "test_shred_force"])?
-  uu.fails(refused)
-  assert file_exists(s, "test_shred_force")?
   let forced = uu.invoke(s, "shred", ["-u", "-f", "test_shred_force"])?
   uu.succeeds(forced)
   assert !file_exists(s, "test_shred_force")?
 }
 
+test test_uu_shred_shred_force_refuses_without_force { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses file permission checks") }
+  let s = uu.scene(ctx)?
+  uu.touch(s, "test_shred_force")
+  let mode = uu.mode(s, "test_shred_force")?
+  uu.set_mode(s, "test_shred_force", mode.bit_and(0o555))
+  let refused = uu.invoke(s, "shred", ["-u", "test_shred_force"])?
+  uu.fails(refused)
+  assert file_exists(s, "test_shred_force")?
+}
+
+
 # origin: uutils test_shred::test_shred_inaccessible_file_reports_real_error
 test test_uu_shred_shred_inaccessible_file_reports_real_error { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "locked")
   uu.touch(s, "locked/file")

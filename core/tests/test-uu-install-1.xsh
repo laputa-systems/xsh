@@ -671,6 +671,7 @@ test test_uu_install_install_creating_leading_dirs_with_single_source_and_target
 
 # origin: uutils test_install::test_install_dev_full_as_dst
 test test_uu_install_install_dev_full_as_dst { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let r1 = uu.invoke(s, "install", ["/dev/null", "/dev/full"])?
   uu.fails(r1)

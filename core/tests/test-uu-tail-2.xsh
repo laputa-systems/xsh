@@ -299,6 +299,7 @@ test test_uu_tail_oversized_num { |ctx|
 
 # origin: uutils test_tail::test_permission_denied
 test test_uu_tail_permission_denied { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.touch(s, "unreadable")
   uu.set_mode(s, "unreadable", 0o000)
@@ -309,6 +310,7 @@ test test_uu_tail_permission_denied { |ctx|
 
 # origin: uutils test_tail::test_permission_denied_is_not_reported_as_not_found
 test test_uu_tail_permission_denied_is_not_reported_as_not_found { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.mkdir(s, "noexec")
   uu.touch(s, "noexec/file")
@@ -322,6 +324,7 @@ test test_uu_tail_permission_denied_is_not_reported_as_not_found { |ctx|
 
 # origin: uutils test_tail::test_permission_denied_multiple
 test test_uu_tail_permission_denied_multiple { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.touch(s, "file1")
   uu.touch(s, "file2")

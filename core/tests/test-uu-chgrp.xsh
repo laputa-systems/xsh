@@ -267,6 +267,7 @@ test test_uu_chgrp_chgrp_recursive_on_file { |ctx|
 
 # origin: uutils test_chgrp::test_chgrp_exit_code_not_being_overwritten_by_last_file
 test test_uu_chgrp_chgrp_exit_code_not_being_overwritten_by_last_file { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir")
   uu.mkdir(s, "dir/a")

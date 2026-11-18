@@ -315,6 +315,7 @@ test test_uu_touch_touch_non_utf8_paths { |ctx|
 
 # origin: uutils test_touch::test_touch_permission_denied_error_msg
 test test_uu_touch_touch_permission_denied_error_msg { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir_with_read_only_access")
   uu.set_mode(s, "dir_with_read_only_access", 0o555)
@@ -706,6 +707,7 @@ test test_uu_touch_touch_symlink_with_no_deref { |ctx|
 
 # origin: uutils test_touch::test_touch_system_fails
 test test_uu_touch_touch_system_fails { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "touch", ["/"])?
   uu.fails(r)

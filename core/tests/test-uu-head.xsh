@@ -562,6 +562,7 @@ test test_uu_head_directory_header_with_multiple_files_zero_output { |ctx|
 
 # origin: uutils test_head::test_unreadable_file_prints_no_header
 test test_uu_head_unreadable_file_prints_no_header { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.write(s, "unreadable", "secret\n")
   uu.write(s, "readable", "hello\n")

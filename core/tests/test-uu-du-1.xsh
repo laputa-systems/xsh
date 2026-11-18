@@ -242,6 +242,7 @@ test test_uu_du_du_hard_links_multiple_links_in_args { |ctx|
 
 # origin: uutils test_du::test_du_inaccessible_directory
 test test_uu_du_du_inaccessible_directory { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.mkdir(s, "d")
   uu.mkdir(s, "d/no-x")
@@ -853,6 +854,7 @@ test test_uu_du_du_no_dereference { |ctx|
 
 # origin: uutils test_du::test_du_no_exec_permission
 test test_uu_du_du_no_exec_permission { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.mkdir(s, "d/no-x/y")
   uu.set_mode(s, "d/no-x", 0o600)
@@ -864,6 +866,7 @@ test test_uu_du_du_no_exec_permission { |ctx|
 
 # origin: uutils test_du::test_du_no_permission
 test test_uu_du_du_no_permission { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   uu.mkdir(s, "subdir/links")
   uu.set_mode(s, "subdir/links", 0o311)

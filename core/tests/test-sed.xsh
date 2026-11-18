@@ -415,7 +415,7 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
 }
 
 # Run every row whose name starts with PREFIX and report the rows that differ.
-proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process, error] -> Result[List[Str]] {
+proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str], selected: List[Str] = [], only: Bool = false) [fs, process, error] -> Result[List[Str]] {
   let scratch = test.temp_dir(ctx, name: "sed-table")?
   let work = fp"{scratch}/work"
   var failures = []
@@ -424,6 +424,8 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
     continue unless line.starts_with(f"{{\"name\": \"{prefix}")
     let row = json.decode(line)?.require(CaseRow)?
     continue when row.skip != ""
+    continue when only and !(row.name in selected)
+    continue when !only and row.name in selected
     reset_work(work)
     let actual = transcript(ctx, row, work, scratch)?
     ran += 1
@@ -439,14 +441,24 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
 }
 
 # Each test runs a slice of the table; the slices only balance the run time.
-proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] {
+proc expect_groups(ctx: TestContext, prefixes: List[Str], selected: List[Str] = []) [fs, process, error] {
   test.timeout(ctx, 600s)
   let expected = expected_transcripts(ctx)?
   for prefix in prefixes {
-    let failures = check_group(ctx, prefix, expected)?
+    let failures = check_group(ctx, prefix, expected, selected)?
     assert failures.is_empty(), failures.join("\n")
   }
   Ok()
+}
+
+test sed_table_permission_cases { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses file and directory permission checks") }
+  test.timeout(ctx, 600s)
+  let expected = expected_transcripts(ctx)?
+  for prefix in ["io-", "ip-0", "syn-0", "corner-0", "cli-0"] {
+    let failures = check_group(ctx, prefix, expected, ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"], true)?
+    assert failures.is_empty(), failures.join("\n")
+  }
 }
 
 test sed_table_slice_01 { |ctx|
@@ -470,7 +482,7 @@ test sed_table_slice_05 { |ctx|
 }
 
 test sed_table_slice_06 { |ctx|
-  expect_groups(ctx, ["cmd-0", "io-", "exit-"])
+  expect_groups(ctx, ["cmd-0", "io-", "exit-"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"])
 }
 
 test sed_table_slice_07 { |ctx|
@@ -482,15 +494,15 @@ test sed_table_slice_08 { |ctx|
 }
 
 test sed_table_slice_09 { |ctx|
-  expect_groups(ctx, ["ip-0", "cli-0"])
+  expect_groups(ctx, ["ip-0", "cli-0"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"])
 }
 
 test sed_table_slice_10 { |ctx|
-  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])
+  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"])
 }
 
 test sed_table_slice_11 { |ctx|
-  expect_groups(ctx, ["opt-0", "corner-0"])
+  expect_groups(ctx, ["opt-0", "corner-0"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"])
 }
 
 test sed_table_slice_12 { |ctx|

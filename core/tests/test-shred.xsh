@@ -120,6 +120,7 @@ test test_shred_random_source_wipes_short_file_before_padding { |ctx|
 }
 
 test test_shred_remove_reports_unlink_permission_failure { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let root = test.temp_dir(ctx, name: "shred-remove-permission")?
   let directory = fp"{root}/dir"
   directory.mkdir()

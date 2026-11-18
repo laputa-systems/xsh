@@ -255,6 +255,7 @@ test test_uu_rm_inaccessible_dir { |ctx|
 
 # origin: uutils test_rm::test_inaccessible_dir_interactive
 test test_uu_rm_inaccessible_dir_interactive { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.mkdir(s, "dir")
   uu.set_mode(s, "dir", 0)
@@ -488,6 +489,7 @@ test test_uu_rm_one_file_system_same_device { |ctx|
 
 # origin: uutils test_rm::test_only_first_error_recursive
 test test_uu_rm_only_first_error_recursive { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.mkdir(s, "a")
   uu.mkdir(s, "a/b")
@@ -531,6 +533,7 @@ test test_uu_rm_preserve_root_symlink_removal_without_trailing_slash { |ctx|
 
 # origin: uutils test_rm::test_prompt_write_protected_no
 test test_uu_rm_prompt_write_protected_no { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.touch(s, "test_rm_prompt_write_protected_2")
   uu.succeeds(uu.invoke(s, "chmod", ["0", "test_rm_prompt_write_protected_2"])?)
@@ -542,6 +545,7 @@ test test_uu_rm_prompt_write_protected_no { |ctx|
 
 # origin: uutils test_rm::test_prompt_write_protected_yes
 test test_uu_rm_prompt_write_protected_yes { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.touch(s, "test_rm_prompt_write_protected_1")
   uu.succeeds(uu.invoke(s, "chmod", ["0", "test_rm_prompt_write_protected_1"])?)
@@ -553,6 +557,7 @@ test test_uu_rm_prompt_write_protected_yes { |ctx|
 
 # origin: uutils test_rm::test_prompts
 test test_uu_rm_prompts { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.mkdir(s, "a/")
   uu.touch(s, "a/empty")
@@ -656,6 +661,7 @@ test test_uu_rm_recursive_multiple { |ctx|
 
 # origin: uutils test_rm::test_recursive_remove_unreadable_subdir
 test test_uu_rm_recursive_remove_unreadable_subdir { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.mkdir_all(s, "foo/bar")
   uu.touch(s, "foo/bar/baz")
@@ -693,6 +699,7 @@ test test_uu_rm_remove_inaccessible_dir { |ctx|
 
 # origin: uutils test_rm::test_rm_directory_not_executable
 test test_uu_rm_rm_directory_not_executable { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   for name in ["a/0", "a/1/2", "a/2", "a/3", "b/3"] { uu.mkdir_all(s, name) }
   uu.succeeds(uu.invoke(s, "chmod", ["u-x", "a/1"])?)
@@ -712,6 +719,7 @@ test test_uu_rm_rm_directory_not_executable { |ctx|
 
 # origin: uutils test_rm::test_rm_directory_not_writable
 test test_uu_rm_rm_directory_not_writable { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   for name in ["b/a/p", "b/c", "b/d"] { uu.mkdir_all(s, name) }
   uu.succeeds(uu.invoke(s, "chmod", ["ug-w", "b/a"])?)
@@ -860,6 +868,7 @@ test test_uu_rm_uchild_when_run_no_wait_with_a_blocking_command { |ctx|
 
 # origin: uutils test_rm::test_unreadable_and_nonempty_dir
 test test_uu_rm_unreadable_and_nonempty_dir { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = safe_scene(ctx)?
   uu.mkdir_all(s, "a/b")
   uu.set_mode(s, "a", 0o0333)

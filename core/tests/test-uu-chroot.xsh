@@ -27,6 +27,7 @@ test test_uu_chroot_chroot_skip_chdir_nonexistent { |ctx|
 
 # origin: uutils test_chroot::test_preference_of_userspec
 test test_uu_chroot_preference_of_userspec { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root can enter the chroot") }
   let s = uu.scene(ctx)?
   let whoami = uu.invoke(s, "whoami", [])?
   let username = whoami.stdout.utf8()?.trim()

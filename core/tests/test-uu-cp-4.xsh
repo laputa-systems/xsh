@@ -487,6 +487,7 @@ test test_uu_cp_cp_readonly_dest_recursive { |ctx|
 
 # origin: uutils test_cp::test_cp_readonly_dest_with_existing_file
 test test_uu_cp_cp_readonly_dest_with_existing_file { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.write(s, "source.txt", "source content")
   uu.write(s, "readonly_dest.txt", "original content")
@@ -502,6 +503,7 @@ test test_uu_cp_cp_readonly_dest_with_existing_file { |ctx|
 
 # origin: uutils test_cp::test_cp_readonly_dest_with_reflink
 test test_uu_cp_cp_readonly_dest_with_reflink { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.write(s, "source.txt", "source content")
   for kind in ["auto", "always"] {
@@ -528,6 +530,7 @@ test test_uu_cp_cp_readonly_source { |ctx|
 
 # origin: uutils test_cp::test_cp_readonly_source_and_dest
 test test_uu_cp_cp_readonly_source_and_dest { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.write(s, "readonly_source.txt", "source content")
   uu.write(s, "readonly_dest.txt", "original content")
@@ -615,6 +618,7 @@ test test_uu_cp_cp_recursive_char_device_copy_contents { |ctx|
 
 # origin: uutils test_cp::test_cp_recursive_char_device_no_permission::case_1_recursive
 test test_uu_cp_test_cp_recursive_char_device_no_permission_case_1_recursive { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root can create device nodes") }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["-R", "/dev/null", "null2"])?
   uu.fails(r)
@@ -623,6 +627,7 @@ test test_uu_cp_test_cp_recursive_char_device_no_permission_case_1_recursive { |
 
 # origin: uutils test_cp::test_cp_recursive_char_device_no_permission::case_2_archive
 test test_uu_cp_test_cp_recursive_char_device_no_permission_case_2_archive { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root can create device nodes") }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["-a", "/dev/null", "null2"])?
   uu.fails(r)

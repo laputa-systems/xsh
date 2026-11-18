@@ -110,6 +110,7 @@ test test_uu_sync_sync_no_existing_files { |ctx|
 
 # origin: uutils test_sync::test_sync_no_permission_dir
 test test_uu_sync_sync_no_permission_dir { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir_all(s, "foo")
   uu.set_mode(s, "foo", 0o000)

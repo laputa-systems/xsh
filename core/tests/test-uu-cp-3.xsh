@@ -413,6 +413,7 @@ test test_uu_cp_cp_deref_folder_to_folder { |ctx|
 
 # origin: uutils test_cp::test_cp_dest_no_permissions
 test test_uu_cp_cp_dest_no_permissions { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.touch(s, "valid.txt")
   uu.touch(s, "invalid_perms.txt")

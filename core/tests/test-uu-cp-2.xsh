@@ -762,6 +762,7 @@ test test_uu_cp_cp_backup_simple_protect_source_regardless_of_spelling { |ctx|
 
 # origin: uutils test_cp::test_cp_block_device_no_permission
 test test_uu_cp_cp_block_device_no_permission { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root can create device nodes") }
   let s = scene(ctx)?
   match fs.mknod(uu.at(s, "sda"), "block", 0o600, major: 8, minor: 0) {
     Err(_) => return,

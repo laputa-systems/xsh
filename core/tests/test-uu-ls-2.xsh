@@ -1103,13 +1103,6 @@ test test_uu_ls_ls_io_errors { |ctx|
   uu.set_mode(s, "some-dir1", 0o000)
   defer uu.set_mode(s, "some-dir1", 0o700)
   {
-  let r = invoke(s, ["-1", "some-dir1"])?
-  uu.fails_with_code(r, 2)
-  uu.stderr_contains(r, "cannot open directory")
-  uu.stderr_contains(r, "Permission denied")
-  
-  }
-  {
   let r = invoke(s, ["-Li", "some-dir2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "cannot access")
@@ -1119,15 +1112,6 @@ test test_uu_ls_ls_io_errors { |ctx|
   }
   uu.set_mode(s, "some-dir3/some-dir4", 0o000)
   defer uu.set_mode(s, "some-dir3/some-dir4", 0o700)
-  {
-  let r = invoke(s, ["-laR", "some-dir3"])?
-  uu.fails_with_code(r, 1)
-  uu.stderr_contains(r, "some-dir4")
-  uu.stderr_contains(r, "cannot open directory")
-  uu.stderr_contains(r, "Permission denied")
-  uu.stdout_contains(r, "some-dir4")
-  
-  }
   {
   let r = invoke(s, ["-iRL", "some-dir2"])?
   uu.fails(r)
@@ -1141,6 +1125,32 @@ test test_uu_ls_ls_io_errors { |ctx|
     uu.succeeds(r)
   }
 }
+
+test test_uu_ls_ls_io_errors_permissions { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses directory permission checks") }
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "some-dir1")
+  uu.mkdir(s, "some-dir3/some-dir4")
+  uu.set_mode(s, "some-dir1", 0o000)
+  defer uu.set_mode(s, "some-dir1", 0o700)
+  uu.set_mode(s, "some-dir3/some-dir4", 0o000)
+  defer uu.set_mode(s, "some-dir3/some-dir4", 0o700)
+  {
+  let r = invoke(s, ["-1", "some-dir1"])?
+  uu.fails_with_code(r, 2)
+  uu.stderr_contains(r, "cannot open directory")
+  uu.stderr_contains(r, "Permission denied")
+  }
+  {
+  let r = invoke(s, ["-laR", "some-dir3"])?
+  uu.fails_with_code(r, 1)
+  uu.stderr_contains(r, "some-dir4")
+  uu.stderr_contains(r, "cannot open directory")
+  uu.stderr_contains(r, "Permission denied")
+  uu.stdout_contains(r, "some-dir4")
+  }
+}
+
 
 # origin: uutils test_ls::test_ls_long
 test test_uu_ls_ls_long { |ctx|
@@ -1297,6 +1307,7 @@ test test_uu_ls_ls_long_self_referential_dir_lists_contents { |ctx|
 
 # origin: uutils test_ls::test_ls_long_stat_failure_is_reported
 test test_uu_ls_ls_long_stat_failure_is_reported { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses directory permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir")
   uu.touch(s, "dir/file")
@@ -1559,6 +1570,7 @@ test test_uu_ls_ls_path { |ctx|
 
 # origin: uutils test_ls::test_ls_perm_io_errors
 test test_uu_ls_ls_perm_io_errors { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses directory permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d")
   uu.touch(s, "d/f")

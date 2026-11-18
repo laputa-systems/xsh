@@ -63,6 +63,7 @@ test test_uu_mkfifo_create_one_fifo_already_exists { |ctx|
 
 # origin: uutils test_mkfifo::test_create_fifo_permission_denied
 test test_uu_mkfifo_create_fifo_permission_denied { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "owner_no_exec_dir")
   uu.set_mode(s, "owner_no_exec_dir", 0o644)

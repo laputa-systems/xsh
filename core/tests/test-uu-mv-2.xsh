@@ -815,6 +815,7 @@ test test_uu_mv_mv_mixed_hardlinks_and_regular_files { |ctx|
 
 # origin: uutils test_mv::test_mv_permission_error
 test test_uu_mv_mv_permission_error { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = scene(ctx)?
   let first = uu.invoke(s, "mkdir", ["-m444", "bar"])?
   uu.succeeds(first)

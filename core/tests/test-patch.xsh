@@ -239,6 +239,7 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
     for index in range(ordered.len()) {
       continue when index % shards != shard
       let name = ordered[index]
+      continue when name in ["unreadable-target", "read-only-file-default", "output-file-in-unwritable-directory", "read-only-file-fail", "patch-file-unreadable", "reject-file-in-unwritable-directory", "read-only-file-quiet"]
       continue unless fp"{corpus}/{name}/out/status".exists()
       count += 1
       yield @check_case(ctx, fp"{corpus}/{name}")?
@@ -247,6 +248,15 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
   assert count > 0, "no recorded cases in this shard"
   assert problems.is_empty(), f"{problems.len()} differences in {count} cases:\n{problems.join("\n")}"
   Ok()
+}
+
+test test_patch_recorded_results_permissions { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses file and directory permission checks") }
+  let corpus = fp"{ctx.core_dir}/tests/data/patch"
+  let problems = collect {
+    for name in ["unreadable-target", "read-only-file-default", "output-file-in-unwritable-directory", "read-only-file-fail", "patch-file-unreadable", "reject-file-in-unwritable-directory", "read-only-file-quiet"] { yield @check_case(ctx, fp"{corpus}/{name}")? }
+  }
+  assert problems.is_empty(), problems.join("\n")
 }
 
 test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8) }

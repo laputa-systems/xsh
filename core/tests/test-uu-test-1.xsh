@@ -343,6 +343,7 @@ test test_uu_test_file_is_not_executable { |ctx|
 
 # origin: uutils test_test::test_file_is_not_readable
 test test_uu_test_file_is_not_readable { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.fixture(s, "test", "regular_file", "regular_file")
   uu.fixture(s, "test", "non_empty_file", "non_empty_file")
@@ -375,6 +376,7 @@ test test_uu_test_file_is_not_symlink { |ctx|
 
 # origin: uutils test_test::test_file_is_not_writable
 test test_uu_test_file_is_not_writable { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.fixture(s, "test", "regular_file", "regular_file")
   uu.fixture(s, "test", "non_empty_file", "non_empty_file")
@@ -417,6 +419,7 @@ test test_uu_test_file_is_writable { |ctx|
 
 # origin: uutils test_test::test_file_not_owned_by_egid
 test test_uu_test_file_not_owned_by_egid { |ctx|
+  if p"/bin/sh".metadata()?.gid == unix.id()?.egid { test.skip("/bin/sh has the invoking identity") }
   let s = uu.scene(ctx)?
   uu.fixture(s, "test", "regular_file", "regular_file")
   uu.fixture(s, "test", "non_empty_file", "non_empty_file")
@@ -426,6 +429,7 @@ test test_uu_test_file_not_owned_by_egid { |ctx|
 
 # origin: uutils test_test::test_file_not_owned_by_euid
 test test_uu_test_file_not_owned_by_euid { |ctx|
+  if p"/bin/sh".metadata()?.uid == unix.id()?.euid { test.skip("/bin/sh has the invoking identity") }
   let s = uu.scene(ctx)?
   uu.fixture(s, "test", "regular_file", "regular_file")
   uu.fixture(s, "test", "non_empty_file", "non_empty_file")

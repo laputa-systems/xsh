@@ -421,6 +421,7 @@ test test_uu_date_date_for_file_with_non_utf8_path { |ctx|
 
 # origin: uutils test_date::test_date_for_no_permission_file
 test test_uu_date_date_for_no_permission_file { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   uu.touch(s, "file-no-perm-1")
   uu.set_mode(s, "file-no-perm-1", 0o222)
