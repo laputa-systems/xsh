@@ -54,7 +54,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
 | Stage 1: streaming, exit status versus transport failure, backpressure, deadlines, owned cleanup | P | D | above |
 | Stage 1: safe staging, digest verification, no-replace publication, cleanup | M | D | Laputa drill; durability and authenticity are not claimed |
-| Stage 1: not submitted, completed and unknown outcomes; no replay; remote cancellation needs an acknowledged action | P | P outcomes and reconciliation are delivered; no remote cancellation action exists | `certainty`, `remote_staged` |
+| Stage 1: not submitted, completed and unknown outcomes; no replay; remote cancellation needs an acknowledged action | P | D outcomes and reconciliation are delivered; cancellation sends the `signal` request and reports `RemoteStop::Acknowledged` when the server reports the exit within 2 s, never past the deadline (XSH-110) | `certainty`, `remote_staged` |
 | Stage 1 acceptance: real client and server, host-key refusal, slow reader, cancellation, interrupted transfer, uncertain mutation, malformed and oversized requests, changed protocol version | M | D | Laputa `tests/integration/remote_admin.py` and `tests/system/remote_guest.xsh` |
 | First consumer: one headless Laputa VM | M | D Linux x86-64 under KVM | Laputa `docs/REMOTE-ADMIN.md` |
 | xsh-infra: typed errors carrying certainty | P message text | D `SshError` variants with a `certainty` field | `ssh_exec_timeout_carries_certainty`, `ssh_lost_connection_after_submission_is_a_submitted_transport_error` |
@@ -256,7 +256,8 @@ third round's tree passed the whole `oxish-client` suite for
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
   are refused. Only Ed25519 host and user keys, no password or
   keyboard-interactive authentication, no PTY or forwarding.
-- An acknowledged remote cancellation action; closing a channel does not prove
+- A remote command that ignores `TERM`, or a server without `signal` support,
+  leaves a cancelled outcome `Unacknowledged`; closing a channel does not prove
   that a remote process stopped. Laputa's `run` takes no environment or working
   directory and carries only UTF-8 paths. `ssh.exec` takes no working directory
   and no stream timeout separate from the whole-command timeout.
