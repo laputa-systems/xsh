@@ -2103,7 +2103,7 @@ def _rust_gate_script() -> str:
     cases = tuple((label, command, suffix) for label, command, suffix in _RUST_GATE_CASES)
     products = shlex.join(("cargo", "build", "--locked", "--profile", "verification", "--target", TARGET,
                            "-p", "xsh", "-p", "xsht", "--bin", "xsh", "--bin", "xsht"))
-    return products + " >&2; " + _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
+    return "cd /work; " + products + " >&2; " + _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
 
 
 def _cargo_mounts(
