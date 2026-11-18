@@ -1282,6 +1282,15 @@ test test_lsipc_bytes_and_numeric_permissions_match_reference { |ctx|
 }
 
 test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
+  ul.require_private_namespace()
+  if env.get_or("XSH_LSIPC_OUTPUT_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_LSIPC_OUTPUT_ISOLATED=1; exec \"$1\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_output_modes_and_table_controls_match_reference"
+    let source = "export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc) XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt) XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid); exec unshare --ipc --mount --pid --fork --kill-child=KILL --mount-proc --propagation private sh -ec \"$1\" test \"$2\""
+    let isolated = run.capture --text sh -ec $source test $inner $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)

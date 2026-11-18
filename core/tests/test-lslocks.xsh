@@ -946,7 +946,7 @@ test test_lslocks_empty_filtered_table_has_no_header { |ctx|
 test test_lslocks_exited_flock_acquirer { |ctx|
   let s = uu.scene(ctx)?
   let script = uu.at(s, "exited-acquirer.py")
-  script.write("import json, os, subprocess, sys\nfd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)\nos.dup2(fd, 17)\nos.dup2(fd, 18)\nsubprocess.run(['/usr/bin/flock', '17'], pass_fds=(17,), check=True)\nprint(json.dumps({'pid': os.getpid()}), flush=True)\nsys.stdin.readline()\n")
+  script.write("import fcntl, json, os, signal, subprocess, sys\nreader, writer = os.pipe()\nsentinel = os.fork()\nif sentinel == 0:\n os.close(reader)\n lock = os.open(sys.argv[2], os.O_CREAT | os.O_RDWR, 0o600)\n fcntl.lockf(lock, fcntl.LOCK_EX)\n os.write(writer, b'1')\n signal.pause()\n os._exit(0)\nos.close(writer)\ntry:\n assert os.read(reader, 1) == b'1'\n os.close(reader)\n fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)\n os.dup2(fd, 17)\n os.dup2(fd, 18)\n subprocess.run(['/usr/bin/flock', '17'], pass_fds=(17,), check=True)\n print(json.dumps({'pid': os.getpid()}), flush=True)\n sys.stdin.readline()\nfinally:\n os.kill(sentinel, signal.SIGTERM)\n os.waitpid(sentinel, 0)\n")
   let lock_path = uu.at(s, "exited-acquirer-lock")
   let input = uu.at(s, "input")
   let output = uu.at(s, "output")
@@ -957,7 +957,7 @@ test test_lslocks_exited_flock_acquirer { |ctx|
   defer unix.close_fd(input_fd)
   let output_fd = unix.open_fd(output, nonblock: true)?
   defer unix.close_fd(output_fd)
-  let words = [p"/usr/bin/python3", script, lock_path]
+  let words = [p"/usr/bin/python3", script, lock_path, uu.at(s, "sentinel-lock")]
   let plan = process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, output, stderr, timeout: 25s)
   let child = spawn plan?
   defer child.cancel(signal: "TERM", kill_after: 2s)
@@ -1239,6 +1239,13 @@ test test_lslocks_review6_filter_path_bytes { |ctx|
 
 test test_lslocks_unreadable_proc_locks { |ctx|
   ul.require_private_namespace()
+  if env.get_or("XSH_LSLOCKS_UNREADABLE_ISOLATED", "")? != "1" {
+    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private env XSH_LSLOCKS_UNREADABLE_ISOLATED=1 \"$1\" test --exact-id core/tests/test-lslocks.xsh::test_lslocks_unreadable_proc_locks"
+    let isolated = run.capture --text sh -ec $source test $xsht
+    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
+    return
+  }
   let s = uu.scene(ctx)?
   let source = fp"{s.root}/unreadable-locks"
   source.write("")
@@ -1340,8 +1347,9 @@ test test_lslocks_json_unresolved_path_is_null { |ctx|
 test test_lslocks_filter_non_utf8_outside_literal { |ctx|
   let s = uu.scene(ctx)?
   let script = uu.at(s, "filter.py")
-  script.write("import os,subprocess,sys\ne=dict(os.environ,LC_ALL='C')\na=[b'-Q',b'\\xff PID > 0']\nr=subprocess.run([b'/usr/bin/lslocks',*a],capture_output=True,env=e)\nc=subprocess.run([os.fsencode(sys.argv[1]),os.fsencode(sys.argv[2]),b'--',*a],capture_output=True,env=e)\nassert (r.returncode,r.stdout,r.stderr)==(c.returncode,c.stdout,c.stderr),repr((r.returncode,r.stdout,r.stderr,c.returncode,c.stdout,c.stderr))\n")
+  script.write("import fcntl,os,subprocess,sys\nf=open(sys.argv[3],'w')\nfcntl.lockf(f,fcntl.LOCK_EX)\ne=dict(os.environ,LC_ALL='C')\na=[b'-p',str(os.getpid()).encode(),b'-Q',b'\\xff PID > 0']\nr=subprocess.run([b'/usr/bin/lslocks',*a],capture_output=True,env=e)\nc=subprocess.run([os.fsencode(sys.argv[1]),os.fsencode(sys.argv[2]),b'--',*a],capture_output=True,env=e)\nassert (r.returncode,r.stdout,r.stderr)==(c.returncode,c.stdout,c.stderr),repr((r.returncode,r.stdout,r.stderr,c.returncode,c.stdout,c.stderr))\n")
   let applet_path = fp"{ctx.core_dir}/lslocks.xsh"
-  let result = run.capture --text python3 $script ${ctx.xsh_bin} $applet_path
+  let lock_path = uu.at(s, "non-utf8-filter")
+  let result = run.capture --text python3 $script ${ctx.xsh_bin} $applet_path $lock_path
   assert result.status.exited_with(0), result.stderr
 }

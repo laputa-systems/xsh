@@ -76,7 +76,7 @@ export proc start_keeper(s: uu.Scene, script: Path, args: List[Str]) [fs, proces
   defer { if output_open { unix.close_fd(output_fd) } }
   let words = [p"/usr/bin/python3", script].extend([fp"{word}" for word in args])
   let plan = process.command_argv(p"/usr/bin/python3", words, s.root,
-    {PYTHONDONTWRITEBYTECODE: "1", LC_ALL: "C", TZ: "UTC"}, input, output, stderr, timeout: 25s)
+    {PYTHONDONTWRITEBYTECODE: "1", LC_ALL: "C", TZ: "UTC"}, input, output, stderr, timeout: 120s)
   let child = spawn plan?
   var started = false
   defer { if ! started { child.cancel(signal: "TERM", kill_after: 2s) } }

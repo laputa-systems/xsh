@@ -354,6 +354,7 @@ test test_tempdir_result_tail_stays_nested { |ctx|
 # when the body succeeded it leaves the function as the failure of a deferred
 # action does, and when the body failed, the body's failure stays primary.
 test test_tempdir_removal_failure_on_exit { |ctx|
+  if unix.id()?.euid == 0 { test.skip("requires an unprivileged user for directory permissions") }
   let root = test.temp_dir(ctx, name: "tempdir-exit")?
   let script = f"""proc stage(fail: Bool) [fs, error] -> Result[Unit] {{
   let parent = p"{root}/locked"

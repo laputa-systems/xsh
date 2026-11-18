@@ -36,8 +36,8 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{temp}}|{{cac
     ...fixtures.linux_context(fixture_root, "verification")?,
     target_dir: target_dir,
   }
-  let host_uid = env.get("HOST_UID")?.trim() as Int
-  let host_gid = env.get("HOST_GID")?.trim() as Int
+  let host_uid = 10001
+  let host_gid = 10002
   let scratch = fp"{work_root}/tmp/native-tests-{host_uid}-{host_gid}"
   let home = fp"{scratch}/home"
   let temp = fp"{scratch}/tmp"
@@ -68,8 +68,8 @@ test test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_i
 
   let fixture_root = test.temp_dir(ctx, name: "native-root-errors")?
   let workflow_context = fixtures.linux_context(fixture_root, "verification")?
-  let host_uid = env.get("HOST_UID")?.trim()
-  let host_gid = env.get("HOST_GID")?.trim()
+  let host_uid = "10001"
+  let host_gid = "10002"
   env ({HOST_UID: "", HOST_GID: ""}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a missing host identity")

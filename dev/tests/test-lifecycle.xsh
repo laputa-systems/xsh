@@ -433,6 +433,7 @@ match internal.linux_ci_test(ctx) {{
 }
 
 test test_docker_image_and_container_failures_are_staged { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -786,6 +787,7 @@ match install.linux_install(ctx) {{
 }
 
 test test_a_gate_build_resolves_the_image_from_the_build_not_the_tag { |ctx|
+  if fs.tempdir_in(p".work/tmp") is Err(_) { test.skip("requires writable gate scratch") }
   let root = test.temp_dir(ctx, name: "docker-iidfile")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -828,6 +830,7 @@ print docker.resolve_image(ctx)?
 }
 
 test test_an_owned_container_that_outlives_its_client_is_removed_by_id_and_verified { |ctx|
+  if fs.tempdir_in(p".work/tmp") is Err(_) { test.skip("requires writable gate scratch") }
   let root = test.temp_dir(ctx, name: "docker-cidfile")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1021,6 +1024,7 @@ proc main() [fs, process, env, time, error, io] {{
 }
 
 test test_container_removal_is_verified_against_the_daemon_not_assumed { |ctx|
+  if fs.tempdir_in(p".work/tmp") is Err(_) { test.skip("requires writable gate scratch") }
   let root = test.temp_dir(ctx, name: "docker-verify")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1193,6 +1197,7 @@ match docker.remove_owned_containers(ctx) {{
 }
 
 test test_a_hung_daemon_cannot_hold_the_cleanup_past_its_query_timeout { |ctx|
+  if fs.tempdir_in(p".work/tmp") is Err(_) { test.skip("requires writable gate scratch") }
   let root = test.temp_dir(ctx, name: "docker-hung")?
   let tools = fp"{root}/tools"
   tools.mkdir()

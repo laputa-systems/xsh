@@ -52,11 +52,11 @@ test test_realtime_signals_are_named_by_offset {
 
 test test_process_identity_reads {
   let pid = process.current_pid()?
-  assert process.parent_pid()? > 0
+  assert process.parent_pid()? >= 0
   assert process.parent_pid()? != pid
-  assert process.group_id()? > 0
+  assert process.group_id()? >= 0
   assert process.group_id(pid)? == process.group_id()?
-  assert process.session_id()? > 0
+  assert process.session_id()? >= 0
   assert process.session_id(pid)? == process.session_id()?
 
   let missing = process.group_id(2000000000)

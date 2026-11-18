@@ -175,7 +175,7 @@ test test_terminals_without_a_session_have_no_foreground_group {
   # The pair is not this process's controlling terminal.
   assert errno_of(unix.foreground_group(pty.replica)) == 25
   assert errno_of(unix.tty_session(pty.replica)) == 25
-  assert errno_of(unix.set_foreground_group(process.group_id()?, fd: pty.replica)) == 25
+  assert errno_of(unix.set_foreground_group(process.current_pid()?, fd: pty.replica)) == 25
   test.error_kind(unix.set_foreground_group(0, fd: pty.replica), "invalid-argument")
 }
 

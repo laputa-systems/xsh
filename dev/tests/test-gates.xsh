@@ -223,6 +223,7 @@ main()?
 }
 
 test test_native_gate_reports_required_skips_as_incomplete { |ctx|
+  env ({HOST_UID: env.get_or("HOST_UID", "10001")?, HOST_GID: env.get_or("HOST_GID", "10002")?}) {
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-required-skip")?
   fp"{root}/dev".mkdir()
@@ -255,11 +256,11 @@ proc main() [fs, process, env, time, error, io] {{
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert (true) }\n")
   let invalid = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert "check.redundant-parens" in invalid.stdout or "check.redundant-parens" in invalid.stderr, f"stdout={invalid.stdout} stderr={invalid.stderr}"
   assert "tests/xsh/required.xsh:1:" in invalid.stdout or "tests/xsh/required.xsh:1:" in invalid.stderr, f"stdout={invalid.stdout} stderr={invalid.stderr}"
   fp"{root}/tests/xsh/line\nbreak.xsh".write("test required { assert true }\n")
@@ -273,19 +274,19 @@ proc main() [fs, process, env, time, error, io] {{
 """
   let _ = test.expect(ctx, newline_source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { test.skip(\"missing fixture\") }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "missing fixture"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert false }\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(r"""test required { |ctx|
   run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()}
   assert false
@@ -293,41 +294,41 @@ proc main() [fs, process, env, time, error, io] {{
 """)
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1", "cleanup_failure"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("pure nothing() { return }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let marker = fp"{root}/started"
   let runner = fp"{root}/target/x86_64-unknown-linux-musl/verification/xsht"
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 7; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 1, stdout: ["raw_status=7"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 130; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 130, stdout: ["raw_status=130"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then printf '\\377\\n'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "UTF-8"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/unrelated.xsh::other\"]'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; fi\nexit 0\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; exit 0; fi\nexit 1\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let many_ids = [f"tests/xsh/required.xsh::case_{index}_abcdefghijklmnopqrstuvwxyz0123456789" for index in range(2000)]
   let encoded_ids = json.encode(many_ids)?
   assert encoded_ids.byte_len() > 131072
@@ -336,11 +337,13 @@ proc main() [fs, process, env, time, error, io] {{
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then cat '{listing}'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert marker.exists()?
+  }
 }
 
 test test_native_gate_rejects_product_changes_during_execution { |ctx|
+  env ({HOST_UID: env.get_or("HOST_UID", "10001")?, HOST_GID: env.get_or("HOST_GID", "10002")?}) {
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-product-change")?
   fp"{root}/dev".mkdir()
@@ -373,31 +376,33 @@ proc main() [fs, process, env, time, error, io] {{
   let inherited = env.get_or("PATH", "")?
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert product.read_text()? == "changed"
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ run sh -c \"printf changed > '{product}'\"; assert false }}\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run rm \"{product}\" }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n", mode: 0o600)
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+  }
 }
 
 test test_native_gate_rejects_source_changes_during_execution { |ctx|
+  env ({HOST_UID: env.get_or("HOST_UID", "10001")?, HOST_GID: env.get_or("HOST_GID", "10002")?}) {
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-source-change")?
   fp"{root}/.gitignore".write(".work/\ntarget/\ntools/\n")
@@ -435,38 +440,38 @@ proc main() [fs, process, env, time, error, io] {{
   let inherited = env.get_or("PATH", "")?
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "source"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert input.read_text()? == "changed\n"
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run git -C \"{root}\" update-index --assume-unchanged input.txt }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let _ = run.capture --text git -C $root update-index --no-assume-unchanged input.txt
   let untracked = fp"{root}/untracked.txt"
   untracked.write("before\n", mode: 0o666)
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{untracked}\".write(\"after\\n\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"staged\\n\")?; run git -C \"{root}\" add input.txt }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"changed\\n\")?; assert false }}\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   fp"{root}/tools/cargo".write(f"#!/bin/sh\nprintf changed > '{input}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let link = fp"{root}/source-link"
   link.symlink(to: p"input.txt")?
@@ -474,18 +479,18 @@ proc main() [fs, process, env, time, error, io] {{
     f"test required {{ p\"{link}\".unlink()?; p\"{link}\".symlink(to: p\"missing\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".unlink()? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   link.unlink()?
   link.symlink(to: p"/")?
   let marker = fp"{root}/leaf-started"
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{marker}\".write(\"started\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "escapes"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   link.unlink()?
   let _ = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/opaque-\\xff', 'wb').close()" $root
@@ -493,12 +498,13 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m opaque
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable"], args: [],
     env: {PATH: fp"{root}/tools", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
+  }
 }
 
 # Combining owners preserves their required gates without scheduling a second
@@ -1123,6 +1129,7 @@ p"{observed}".write(args.join("|"))?
 }
 
 test test_docker_gate_evaluates_context_root_path_expression { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "docker-gate-tools")?
   let cargo_home = fp"{tools}/cargo"
@@ -1239,6 +1246,8 @@ test test_catalogue_plans_tokei_without_showcase_fallback_and_marks_unknown_scop
 test test_invalid_gate_dispatch_never_starts_docker_or_cargo { |ctx|
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "gate-invalid-repository")?
+  init_gate_repository(root, repository)?
   let tools = test.temp_dir(ctx, name: "gate-forbidden-processes")?
   let marker = fp"{tools}/started"
   for name in ["cargo", "docker"] {
@@ -1248,7 +1257,7 @@ exit 99
 """, mode: 0o755)
   }
   let inherited = env.get_or("PATH", "")?
-  let context = fixtures.linux_context(repository)?
+  let context = fixtures.linux_context(root)?
   env ({PATH: f"{tools}:{inherited}", XSH_TOKEI_REFERENCE: "", XSH_TOKEI_CORPUS_ROOT: ""}) {
     for arguments in [["--batch"], ["--full", "src/sema.rs"], ["--case", "full"], ["--tier", "full"], ["--from-plan", "plan.json"]] {
       match gates.execute_request(context, arguments) {
@@ -1437,7 +1446,7 @@ test test_a_partly_excluded_native_module_is_reported_with_counts_and_its_scenar
   var excluded: List[Str] = [@gate_lane.root_tests, @gate_lane.namespace_tests]
   for exclusion in gate_lane.lane_exclusions { excluded += exclusion.tests }
   let cases = [
-    {applet: "lslocks", scenarios: []},
+    {applet: "lslocks", scenarios: ["lane/namespace-native"]},
     {applet: "chroot", scenarios: ["lane/root-native"]},
     {applet: "lsns", scenarios: ["lane/namespace-native"]},
     {applet: "unshare", scenarios: ["lane/namespace-native"]},
@@ -1662,6 +1671,7 @@ test test_bounded_gate_execution_preserves_finished_failed_and_cancelled_statuse
 }
 
 test test_bounded_gate_timeout_consumes_leader_and_descendant_cleanup { |ctx|
+  if process.parent_pid()? <= 1 { test.skip("requires a supervisor to reap orphaned descendants") }
   test.timeout(ctx, 10s)
   let root = test.temp_dir(ctx, name: "gate-timeout-cleanup")?
   let leader_file = fp"{root}/leader"
@@ -1875,6 +1885,7 @@ main()?
 }
 
 test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
+  env ({HOST_UID: env.get_or("HOST_UID", "10001")?, HOST_GID: env.get_or("HOST_GID", "10002")?}) {
   test.timeout(ctx, 90s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-cancel-cleanup")?
@@ -1917,6 +1928,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   match process.kill(pid, signal: "0") {
     Err(_) => {}
     Ok(_) => test.fail(f"cancelled gate left descendant {pid} alive")
+  }
   }
 }
 
@@ -2017,6 +2029,7 @@ test test_container_status_returns_gate_errors {
 }
 
 test test_gate_container_preserves_selected_failure_incomplete_and_cancel_statuses { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-container-status")?
@@ -2634,6 +2647,7 @@ test test_performance_python_owners_select_contract_tests {
 }
 
 test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   test.timeout(ctx, 60s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-focused-json")?
@@ -2760,6 +2774,7 @@ main()?
 }
 
 test test_laputa_mixed_case_preserves_regular_child_status { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   test.timeout(ctx, 180s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "laputa-mixed")?
@@ -3312,6 +3327,7 @@ main()?
 }
 
 test test_gate_status_tracks_laputa_scenario_evidence_after_the_external_run { |ctx|
+  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-status-laputa")?
