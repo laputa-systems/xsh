@@ -98,7 +98,7 @@ recorded differences. A review reports them only if their behavior changes.
   emoji sequences and the few codepoints where they differ, and the shared
   table escaping prints plane noncharacters such as U+1FFFE raw.
 - Without System V procfs tables (when procfs is absent or mounted with
-  `subset=pid`), `lsipc` lists no System V objects, and `lsipc -g` exits 1
+  `subset=pid`, or a table file is missing), `lsipc` lists no System V objects, and `lsipc -g` exits 1
   naming the unavailable tables instead of reading limits through `shmctl`,
   `msgctl` and `semctl` as util-linux does. When `/proc/sys` is masked,
   `lsipc -g` exits 1 naming the unreadable limit instead of using those syscalls.

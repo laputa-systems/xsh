@@ -100,7 +100,10 @@ pure posix_directory(kind: PosixKind, root: Path) -> Path {
 
 ## Tests whether procfs exposes System V IPC tables beneath root.
 export proc system_v_available(root: Path = p"/") [fs, error] -> Bool {
-  source_path(root, p"proc/sysvipc").exists()?
+  for name in ["msg", "shm", "sem"] {
+    if !source_path(root, fp"proc/sysvipc/{name}").exists()? { return false }
+  }
+  true
 }
 
 ## Tests mount-directory availability without changing listing or error policy.
