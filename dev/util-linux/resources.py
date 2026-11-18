@@ -2279,7 +2279,7 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
     products = _qualified_candidate(runtime, source)
     target = products[0].parent.parent
     script = (
-        "cd /work; "
+        "trap 'rm -rf /t/cargo-target' EXIT; cd /work; "
         + _cargo_environment().replace("CARGO_TARGET_DIR=/cargo-target", "CARGO_TARGET_DIR=/t/cargo-target")
         + shlex.join(("cargo", "run", "--quiet", "--locked", "--target", TARGET, "-p", "xsh", "--bin", "xsh",
                       "--", "dev/main.xsh", "--", "docs", "check"))
