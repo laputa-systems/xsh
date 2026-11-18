@@ -123,6 +123,11 @@ recorded differences. A review reports them only if their behavior changes.
   its COMMAND and HOLDERS attribution (`(unknown)`, or `(undefined)` for an OFD
   row, with empty HOLDERS), and an OFD lock it held drops out of `--pid`
   output, where util-linux keeps the row.
+- `lslocks` names an OFD lock's file by the descriptor whose `fdinfo` lists
+  that lock, which identifies device and inode. util-linux matches the holder's
+  descriptors on inode number alone, so when the holder also has open a file on
+  another filesystem with the same inode number it can report that file's PATH
+  and SIZE instead.
 - Without a `/proc` directory, `lslocks` exits 255 without a diagnostic;
   util-linux reports `failed to open /proc` and exits 1.
 

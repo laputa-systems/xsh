@@ -1322,6 +1322,34 @@ test test_lslocks_descriptor_device_collision { |ctx|
   }
 }
 
+test test_lslocks_ofd_path_matches_device_when_inodes_collide { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let locked_mount = uu.at(s, "locked")
+  let decoy_mount = uu.at(s, "decoy")
+  locked_mount.mkdir()
+  decoy_mount.mkdir()
+  assert (run.capture --text mount -t tmpfs none $locked_mount).status.exited_with(0)
+  defer { run.status umount $locked_mount }
+  assert (run.capture --text mount -t tmpfs none $decoy_mount).status.exited_with(0)
+  defer { run.status umount $decoy_mount }
+  let locked = fp"{locked_mount}/file"
+  let decoy = fp"{decoy_mount}/file"
+  locked.write("aaaaa")
+  decoy.write("bbbbbbbbbbbb")
+  let locked_stat = fs.stat(locked)?
+  let decoy_stat = fs.stat(decoy)?
+  assert locked_stat.ino == decoy_stat.ino and locked_stat.dev != decoy_stat.dev
+  let script = uu.at(s, "ofd.py")
+  script.write("import fcntl,os,struct,sys,time\nd=os.open(sys.argv[2],os.O_RDONLY)\nf=os.open(sys.argv[1],os.O_RDWR)\nfcntl.fcntl(f,37,struct.pack('hhqqi',fcntl.F_WRLCK,0,0,0,0)+bytes(4))\nprint(os.getpid(),flush=True)\ntime.sleep(60)\n")
+  let keeper = ul.start_keeper(s, script, [locked.display(), decoy.display()])?
+  defer ul.stop_keeper(keeper)
+  let pid = keeper.ready.trim()
+  let result = uu.invoke(s, "lslocks", ["--noheadings", "--raw", "-p", pid, "-o", "TYPE,SIZE,PATH"], timeout: 5s)?
+  assert result.status == 0 and result.stderr == b""
+  assert result.stdout.utf8()? == f"OFDLCK 5B {locked.display()}\n"
+}
+
 test test_lslocks_json_unresolved_path_is_null { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?

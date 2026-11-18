@@ -96,16 +96,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** M
 
-### XSH-104 · P3 · Match lslocks OFD rows to the locked file when inodes collide
-
-- **Area:** util-linux cohort
-- **Where:** `core/lib/locks.xsh` (`file_path`, `live_lock_file`), `core/tests/test-lslocks.xsh`
-- **Problem:** The independent close review of `acf1ac973` found that, run as real root, `lslocks` reports a different PATH and SIZE from util-linux 2.42.4 for an OFD lock whose holder also has open a file on another filesystem with the same inode number (two tmpfs mounts, or tmpfs and devtmpfs). `file_path` matches a holder's descriptors on inode alone, as util-linux does, so either tool can name the wrong file, and the two choose differently for OFD rows. The same difference exists at `b5aa95e4a`; it is not recorded as an accepted divergence and has no regression test.
-- **Recommendation:** Reproduce it in a private namespace with two tmpfs mounts whose locked and decoy files share an inode number. Then either match descriptors on device and inode (`LinuxOpenFile.dev` against the `/proc/locks` major:minor), which is correct where util-linux is not, and record that as an accepted divergence, or match util-linux's choice exactly.
-- **Acceptance:** A native lslocks test with colliding inode numbers on two filesystems covers POSIX and OFD rows; the chosen behavior is either reference parity or a README accepted divergence; the cohort parity selectors still pass.
-- **Fix with:** reference-parity
-- **Effort:** S
-
 ### XSH-105 · P4 · Correct the per-file concurrency in `xsht test --help`
 
 - **Area:** Tooling
