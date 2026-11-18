@@ -82,6 +82,8 @@ const WRITE_NEW_FLAGS: OFlags = OFlags::RDWR
 
 fn observation_from_stat(stat: &fs::Stat) -> Observation {
     let mode = stat.st_mode;
+    #[allow(clippy::useless_conversion, reason = "nlink_t is u32 on aarch64 Linux")]
+    let links = u64::from(stat.st_nlink);
     Observation {
         identity: EntryIdentity {
             device: stat.st_dev,
@@ -91,7 +93,7 @@ fn observation_from_stat(stat: &fs::Stat) -> Observation {
         mode: mode & 0o7777,
         uid: stat.st_uid,
         gid: stat.st_gid,
-        links: u64::from(stat.st_nlink),
+        links,
         size: u64::try_from(stat.st_size).unwrap_or(0),
         atime: Timestamp {
             seconds: stat.st_atime,
