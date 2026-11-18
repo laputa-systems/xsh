@@ -88,15 +88,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
-
-- **Area:** Build
-- **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`
-- **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The ordinary baseline measurements are recorded in `docs/TESTING.md` and `docs/RELENG.md`.
-- **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
-- **Fix with:** dead-code-archaeology
-- **Effort:** M
-
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O

@@ -14,9 +14,12 @@ the archive before relying on an updated `Cargo.lock`.
 ## Performance baseline
 
 On 2026-11-16 the owner approved the recommendation to count the passing
-canonical replay as the correctness gate, replace the timed consolidation
-stages with ordinary readiness-checked interleaved measurements, and retire
-the pinned consolidation tools under XSH-19.
+canonical replay as the correctness gate and replace the timed consolidation
+stages with ordinary readiness-checked interleaved measurements. XSH-19 then
+retired the pinned consolidation tools. No everyday gate reads campaign
+receipts, baselines or source pins: the [structural ratchets](#structural-ratchets)
+and the [util-linux runtime products](../dev/util-linux/README.md#parity) use
+current inputs, and the records under `dev/consolidation` are historical.
 
 The canonical replay at `9ed42ed4af9a9367ff5be65699cb05302dd39cc0` passed
 with 15,503 passed, 0 failed and 174 skipped. The diff from that commit to the
