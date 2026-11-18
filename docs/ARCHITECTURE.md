@@ -1534,7 +1534,10 @@ responsibility, signal interaction, result shape, and trace evidence.
 
 ## Structured data boundary
 
-The vendored Deser packages under `crates/deser` own codec syntax and emission.
+The Deser packages own codec syntax and emission. XSH consumes the
+`laputa-deser*` packages that the
+[laputa-systems/deser](https://github.com/laputa-systems/deser) fork publishes
+to the `mycrates` registry; their tests run in that repository.
 Language decoding constructs runtime values directly; borrowed views emit runtime
 and lowered values without creating a second dynamic tree. The codec boundary
 owns representation checks, duplicate rejection and fixed resource budgets.
@@ -1545,11 +1548,11 @@ not include experimental inline or XZ work.
 
 | Responsibility | Before and after |
 |---|---|
-| Syntax and emission | JSON used `miniserde`; `src/modules/ini.rs` owned an INI parser, intermediate `IniData` and renderer. Those INI routines, JSON tree conversion and the custom JSON tree/text sinks were retired. Vendored `crates/deser` now owns codec syntax and emission: that library and its maintenance are moved responsibility, not deleted complexity. |
+| Syntax and emission | JSON used `miniserde`; `src/modules/ini.rs` owned an INI parser, intermediate `IniData` and renderer. Those INI routines, JSON tree conversion and the custom JSON tree/text sinks were retired. Deser, now consumed from the laputa-systems fork, owns codec syntax and emission: that library and its maintenance are moved responsibility, not deleted complexity. |
 | Runtime operations | Existing JSON and INI operations remain in `crates/xsh-registry/src/runtime_op.rs`; generic codec operations and CSV, YAML and TOML operations were added. `src/modules/codec.rs` and its `config`, `table` and `sequence` modules own dispatch, error attribution, resource limits and format-specific constraints. This is an expanded capability, not a one-for-one replacement. |
 | Values and conversions | JSON previously parsed a `miniserde::json::Value` tree and recursively converted it to XSH values; some encoding built a second tree. `DecodeValue` constructs runtime or lowered values directly, and `BorrowedValue` emits from either representation (`src/runtime/eval/json.rs`). The separate runtime and lowered representations remain for execution; the `deser_value::Value` host DOM remains for Rust tooling, not language values. |
 | Invariants | The codec adapters enforce XSH value compatibility, limits and format restrictions. Registry signatures and indexed verification still authenticate operations and checked schema obligations (`src/runtime/eval/indexed/full/verify_schemes.rs`). These checks protect different boundaries and are not candidates for deletion merely because they overlap. `tests/xsh/stdlib/config-codecs.xsh` exercises cross-format conversion and rejection. |
-| Dependencies | The root moved from `miniserde` to vendored `deser`, its JSON, YAML, TOML, INI, CSV and value crates, plus their transitive workspace crates; `crates/xsht` also consumes Deser. `Cargo.toml` and `Cargo.lock` own the complete graph. |
+| Dependencies | The root moved from `miniserde` to `deser` and its JSON, YAML, TOML, INI, CSV and value crates, published as `laputa-deser*` with their library names unchanged; `crates/xsht` also consumes Deser. `Cargo.toml` and `Cargo.lock` own the complete graph. |
 | Consumer | `core/lib/btop_replay.xsh` decodes JSON observations, validates `ReplayMountCapacity` with `require`, then checks frame order and sequence. `core/tests/test-btop-replay.xsh` covers replay and invalid ordering; codec parsing does not replace the consumer's domain checks. |
 | Product cost | No same-profile pre-cutover/current pair for product size and startup is established here. The `fcdae517e` x86_64 musl O2 distribution inventory in [Release engineering](RELENG.md#where-the-size-goes) attributes about 0.6 MB of code to Deser codecs, not an incremental cutover size. Current-source S6 size and startup qualification remain open. |
 

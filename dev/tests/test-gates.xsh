@@ -711,7 +711,6 @@ const harness_owner_paths = [
   "crates/xsht/src/sugar_expand.rs",
   "crates/xsh-registry/src/lib.rs",
   "crates/xsh-fuzz/src/driver.rs",
-  "crates/deser/deser-json/src/lib.rs",
   "crates/xshi/src/lib.rs",
 ]
 
@@ -730,18 +729,10 @@ const harnesses_run_outside_change_cases = [
   {package: "oxish-client", harness: "wipe"},
   {package: "oxish-client", harness: "private_key_wipe"},
   {package: "xsh-archive", harness: "interop"},
-  {package: "deser-csv", harness: "papaparse_test_suite"},
-  {package: "deser-ini", harness: "corpus"},
-  {package: "deser-toml", harness: "toml_test_suite"},
-  {package: "deser-yaml", harness: "yaml_test_suite"},
 ]
 
 const harnesses_without_tests = [
   {package: "xsh-archive", harness: "lib"},
-  {package: "deser", harness: "lib"},
-  {package: "deser-derive", harness: "lib"},
-  {package: "deser-path", harness: "lib"},
-  {package: "deser-value", harness: "lib"},
 ]
 
 pure planned_harnesses(plan: List[contract.CommandSpec]) -> List[RustHarness] {
@@ -814,8 +805,6 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     {path: "crates/xsh-registry/tests/api_reference.rs", stage: "test-registry-reference", words: ["-p", "xsh-registry", "--test", "api_reference"], debug: true},
     {path: "crates/xsh-fuzz/src/driver.rs", stage: "test-effect-oracle", words: ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true},
     {path: "crates/xsht/src/lint.rs", stage: "test-tooling-unit", words: ["-p", "xsht", "--lib", "--skip", "sugar_expansion_tests", "--skip", "desugar_tests"], debug: true},
-    {path: "crates/deser/deser-json/src/lib.rs", stage: "test-deser-json-integration", words: ["-p", "deser-json", "--test", "integration"], debug: true},
-    {path: "crates/deser/deser-yaml/src/lib.rs", stage: "test-deser-yaml-integration", words: ["-p", "deser-yaml", "--test", "integration"], debug: true},
     {path: "crates/xshi/src/lib.rs", stage: "test-xshi-unit", words: ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true},
     {path: "crates/xshi/src/lib.rs", stage: "test-xshi-cli", words: ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"], debug: false},
     {path: "crates/xshi/src/lib.rs", stage: "test-xshi-parity", words: ["-p", "xshi", "--features", "laputa-asterinas", "--test", "parity", "--test-threads=4"], debug: false},
@@ -830,12 +819,9 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     let profiled = "--profile" in matching[0].argv
     assert profiled != owner.debug
   }
-  assert gates.select(["crates/deser/deser-core/src/lib.rs"])?.areas == [gates.Deser]
   assert gates.select(["crates/xshi/src/lib.rs"])?.areas == [gates.Interactive]
   assert gates.select(["tests/sema_bundle_view.rs"])?.areas == [gates.Checker]
   assert gates.select(["tests/stdlib_port.rs"])?.areas == [gates.Stdlib, gates.Api]
-  let deser = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/deser/deser-core/src/lib.rs"])?)?
-  assert "test-products" not in [spec.stage for spec in deser]
 }
 
 test test_compile_residual_cases_skip_only_prefixes_another_case_runs {

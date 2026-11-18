@@ -1,6 +1,0 @@
-{
-  "tests": [
-    "ConfigFileTests.test_quoted_newlines_windows"
-  ],
-  "git": {"error": {"message": "bad config line 5 in file <file>", "line": 5}}
-}

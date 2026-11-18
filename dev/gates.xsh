@@ -10,7 +10,7 @@ use stage_contract as contract
 use test_workflows as tests
 
 ## Gate families owned by the repository's testing contract.
-export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Deser, Interactive }
+export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Interactive }
 
 ## A path that has no known verification owner.
 export error GateError = UnmappedPath(path: Str)
@@ -460,7 +460,6 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Showcase] when changed_path.starts_with("showcase/")
   return [Automation] when changed_path.starts_with("dev/") or changed_path.starts_with("tools/") or changed_path == "Makefile"
   return [Soundness] when changed_path.starts_with("crates/xsh-fuzz/")
-  return [Deser] when changed_path.starts_with("crates/deser/")
   return [Interactive] when changed_path.starts_with("crates/xshi/")
   return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path == "tests/linux_priv.rs"
   return [Compile, Api] when changed_path == "Cargo.toml" or changed_path == "Cargo.lock" or changed_path == "build.rs" or changed_path == "rust-toolchain.toml" or changed_path.starts_with(".cargo/")
@@ -544,7 +543,6 @@ pure requires_process_products(area: Area) -> Bool {
     Core => true
     Showcase => true
     Soundness => false
-    Deser => false
     Interactive => false
   }
 }
@@ -564,31 +562,6 @@ pure required_products(selection: Selection) -> List[tests.Product] {
   return [tests.Xsh, tests.Xsht] when Docs in selection.areas
   return [tests.Xsht] when Memory in selection.areas
   []
-}
-
-const deser_harnesses = [
-  {package: "deser", harness: "integration"},
-  {package: "deser-cbor", harness: "lib"},
-  {package: "deser-cbor", harness: "integration"},
-  {package: "deser-core", harness: "lib"},
-  {package: "deser-csv", harness: "lib"},
-  {package: "deser-csv", harness: "integration"},
-  {package: "deser-encoding", harness: "lib"},
-  {package: "deser-ini", harness: "lib"},
-  {package: "deser-ini", harness: "integration"},
-  {package: "deser-json", harness: "lib"},
-  {package: "deser-json", harness: "integration"},
-  {package: "deser-location", harness: "lib"},
-  {package: "deser-path", harness: "integration"},
-  {package: "deser-toml", harness: "lib"},
-  {package: "deser-toml", harness: "integration"},
-  {package: "deser-value", harness: "integration"},
-  {package: "deser-yaml", harness: "lib"},
-  {package: "deser-yaml", harness: "integration"},
-]
-
-pure harness_target(harness: Str) -> List[Str] {
-  if harness == "lib" { ["--lib"] } else { ["--test", harness] }
 }
 
 const manual_lean_conformance = "production_matches_lean_"
@@ -665,11 +638,6 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-xshi-preparation", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "stdlib_preparation"])?,
       rust_gate(ctx, profile, "test-xshi-stub", ["-p", "xshi", "--test", "stub_cli"], debug: true)?,
     ]
-    Deser => collect {
-      for entry in deser_harnesses {
-        yield rust_gate(ctx, profile, f"test-{entry.package}-{entry.harness}", ["-p", entry.package, @harness_target(entry.harness)], debug: true)?
-      }
-    }
     else => []
   }
 }
@@ -707,7 +675,6 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Core => plan += [native_gate(ctx, profile, "core/tests")],
       Showcase => plan += [native_gate(ctx, profile, "showcase/tests")],
       Soundness => plan += [rust_gate(ctx, profile, "test-soundness", ["-p", "xsh-fuzz", "--test", "soundness"]) ?],
-      Deser => {},
       Interactive => {},
     }
     plan += unit_gates(ctx, profile, area)?
@@ -1220,7 +1187,7 @@ export pure full_plan(ctx: context.Context, profile: tests.TestProfile) -> Resul
 }
 
 pure all_areas() -> List[Area] {
-  [Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Deser, Interactive]
+  [Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Interactive]
 }
 
 ## Plans known ownership, discovers owned native-file IDs, and records unknown scope.

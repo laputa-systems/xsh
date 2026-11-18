@@ -1,8 +1,0 @@
-{
-  "tests": [
-    "parse::newlines_with_spaces"
-  ],
-  "git": {
-    "entries": []
-  }
-}

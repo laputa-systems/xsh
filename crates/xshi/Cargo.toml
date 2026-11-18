@@ -22,7 +22,7 @@ laputa-asterinas = ["dep:libc", "dep:mimalloc", "dep:rustc-hash", "dep:rustix", 
 
 [dev-dependencies]
 laputa-ptytest = "0.4"
-rustybench = "0.1"
+rustybench = "0.6"
 tempfile = "3"
 
 [[bench]]

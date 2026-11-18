@@ -9,20 +9,6 @@ autotests = false
 
 [workspace]
 members = [
-    "crates/deser/deser",
-    "crates/deser/deser-core",
-    "crates/deser/deser-json",
-    "crates/deser/deser-yaml",
-    "crates/deser/deser-toml",
-    "crates/deser/deser-ini",
-    "crates/deser/deser-csv",
-    "crates/deser/deser-cbor",
-    "crates/deser/deser-path",
-    "crates/deser/deser-location",
-    "crates/deser/deser-value",
-    "crates/deser/deser-derive",
-    "crates/deser/deser-encoding",
-
     "crates/xsh-archive",
     "crates/xsh-fuzz",
     "crates/xsh-net",
@@ -101,13 +87,13 @@ graviola = "=0.4.1"
 ignore = "=0.4.25"
 md-5 = "0.11"
 memchr = "2"
-deser = { path = "crates/deser/deser", features = ["derive"] }
-deser-json = { path = "crates/deser/deser-json" }
-deser-yaml = { path = "crates/deser/deser-yaml" }
-deser-toml = { path = "crates/deser/deser-toml" }
-deser-ini = { path = "crates/deser/deser-ini" }
-deser-csv = { path = "crates/deser/deser-csv" }
-deser-value = { path = "crates/deser/deser-value" }
+deser = { package = "laputa-deser", version = "=0.10.2", registry = "mycrates", features = ["derive"] }
+deser-json = { package = "laputa-deser-json", version = "=0.10.2", registry = "mycrates" }
+deser-yaml = { package = "laputa-deser-yaml", version = "=0.10.2", registry = "mycrates" }
+deser-toml = { package = "laputa-deser-toml", version = "=0.10.2", registry = "mycrates" }
+deser-ini = { package = "laputa-deser-ini", version = "=0.10.2", registry = "mycrates" }
+deser-csv = { package = "laputa-deser-csv", version = "=0.10.2", registry = "mycrates" }
+deser-value = { package = "laputa-deser-value", version = "=0.10.2", registry = "mycrates" }
 regex-lite = "0.1.9"
 rustc-hash = "2.1.3"
 rustix = { package = "laputa-rustix", version = "1.1.6", registry = "mycrates", features = [
@@ -224,9 +210,12 @@ strip = true
 
 [patch.crates-io]
 graviola = { path = "crates/oxish-client/vendor/graviola" }
-rustybench = { path = "third_party/rustybench" }
 regex-lite = { path = "third_party/regex-lite" }
 
+laputa-deser-core = { version = "=0.10.2", registry = "mycrates" }
+laputa-deser-derive = { version = "=0.10.2", registry = "mycrates" }
+laputa-deser-json = { version = "=0.10.2", registry = "mycrates" }
+laputa-deser-value = { version = "=0.10.2", registry = "mycrates" }
 laputa-async-executor = { version = "=0.3.0", registry = "mycrates" }
 laputa-async-io = { version = "=0.3.0", registry = "mycrates" }
 laputa-async-net = { version = "=0.3.0", registry = "mycrates" }

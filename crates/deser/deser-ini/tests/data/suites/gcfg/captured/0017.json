@@ -1,6 +1,0 @@
-{
-  "tests": [
-    "TestReadFileIntoUnicode"
-  ],
-  "git": {"error": {"message": "bad config line 2 in file <file>", "line": 2}}
-}

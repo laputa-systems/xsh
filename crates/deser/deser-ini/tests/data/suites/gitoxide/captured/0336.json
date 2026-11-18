@@ -1,8 +1,0 @@
-{
-  "tests": [
-    "parse::consecutive_newlines"
-  ],
-  "git": {
-    "entries": []
-  }
-}

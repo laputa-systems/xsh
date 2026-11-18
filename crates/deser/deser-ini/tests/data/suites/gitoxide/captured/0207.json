@@ -1,8 +1,0 @@
-{
-  "tests": [
-    "file::init::from_str::whitespace_without_section_contains_front_matter"
-  ],
-  "git": {
-    "entries": []
-  }
-}
