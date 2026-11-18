@@ -432,7 +432,13 @@ The admitted inputs are exactly the named Cartesian product above, interpreted
 as borrowed `ValueView::Runtime` and `ValueView::Lowered` values. The latter
 are produced once per fixture by the production `lowered_value_from_runtime_any`
 conversion; all admitted fixtures convert. A nested map or set key is borrowed
-as `ValueView::Key`; computed-field views are not covered. The closed types are
+as `ValueView::Key`. Each fixture that is a key value (Str, Int, Bool, Bytes,
+Path or Duration) is also checked directly as `ValueView::Key`, borrowed by the
+production `MapKeyRef::from_value`, against each admitted key type (Any, Bool,
+Int, UInt, Str, Bytes, Duration, Path): 56 rows, each agreeing with the Lean
+decision. Key views are not compared against other types, which the checker
+rejects as key types (`check.map-key-type`, `check.set-element-type`); the
+production key interface rejects them. Computed-field views are not covered. The closed types are
 exactly the 25 listed above, with no type variables, `Unknown`, or `Invalid`. The fixture
 names and payloads in the Lean generator and Rust consumer define the finite
 domain; the names are an assumed correspondence, not a serialization proof.

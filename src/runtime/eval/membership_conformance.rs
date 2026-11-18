@@ -1,11 +1,17 @@
 use super::lowered_ops::lowered_value_from_runtime_any;
 use super::type_view::{value_matches_static_type, ValueView};
 use super::{MapKey, ResultValue, Type, Value};
+use crate::map_key::MapKeyRef;
 use crate::runtime::value::{DigestValue, DurationValue, FloatValue, PathValue, RecordMap, RegexValue};
 use crate::symbol::{Name, SymbolOwner};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
+
+/// Types a map key or set element may have (SPEC 4.5), plus `Any`; a key view
+/// is only checked against these.
+const KEY_TYPES: [&str; 8] = ["any", "bool", "int", "uint", "str", "bytes", "duration", "path"];
+const KEY_ROWS: usize = 56;
 
 #[test]
 #[ignore = "manual Lean-generated production/model differential check"]
@@ -70,6 +76,7 @@ fn production_matches_lean_membership() {
         assert_eq!(lines.next().expect("missing header").expect("invalid header"), "membership-v1");
         let mut seen = BTreeSet::new();
         let mut count = 0;
+        let mut key_rows = 0;
         for line in lines {
             let line = line.expect("invalid corpus input");
             assert!(count < 850, "corpus exceeds bound");
@@ -84,9 +91,17 @@ fn production_matches_lean_membership() {
             let index = values.iter().position(|(name, _)| *name == fields[1]).unwrap();
             assert_eq!(value_matches_static_type(ValueView::Lowered(&lowered[index]), &ty.1), expected,
                 "model/source disagreement in lowered view at row {}: {line}", count + 2);
+            if KEY_TYPES.contains(&fields[0])
+                && let Some(key) = MapKeyRef::from_value(&value.1)
+            {
+                assert_eq!(value_matches_static_type(ValueView::Key(key), &ty.1), expected,
+                    "model/source disagreement in key view at row {}: {line}", count + 2);
+                key_rows += 1;
+            }
             count += 1;
         }
         assert_eq!(count, 850, "incomplete corpus");
+        assert_eq!(key_rows, KEY_ROWS, "key view rows changed");
         println!("membership rows: {count}");
     });
 }
