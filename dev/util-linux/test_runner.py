@@ -378,5 +378,104 @@ class OwnedCleanupTests(unittest.TestCase):
                 check.owned_cleanup(self.source)
 
 
+class RuntimeProductTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name) / "checkout"
+        (self.root / "src").mkdir(parents=True)
+        (self.root / "core").mkdir()
+        self.git("init", "-q")
+        (self.root / "src/lib.rs").write_text("fn a() {}\n")
+        self.rust_source = self.commit("rust")
+        (self.root / "core/tool.xsh").write_text("print 1\n")
+        self.commit("core")
+        self.built = Path(self.directory.name) / "built"
+        self.built.mkdir()
+        for name in check.RUNTIME_PRODUCTS:
+            (self.built / name).write_bytes(f"{name} product\n".encode())
+            (self.built / name).chmod(0o755)
+        root_patch = patch("check.ROOT", new=self.root)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        self.destination = self.root / ".work/protected-products" / f"util-linux-runtime-{self.rust_source}"
+
+    def git(self, *arguments):
+        return subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", *arguments],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def test_qualified_products_bind_the_last_rust_input_commit_and_their_hashes(self):
+        self.assertEqual(check.runtime_source(), self.rust_source)
+        self.assertEqual(check.qualify_runtime(self.built), self.destination)
+        receipt = json.loads((self.destination / "receipt.json").read_text())
+        self.assertEqual(receipt["source"], self.rust_source)
+        self.assertEqual(set(receipt["products"]), set(check.RUNTIME_PRODUCTS))
+        self.assertEqual(check.protected_products(), self.destination)
+        self.assertEqual(check.qualify_runtime(self.built), self.destination)
+
+    def test_changed_or_untracked_rust_inputs_refuse_qualified_products(self):
+        check.qualify_runtime(self.built)
+        (self.root / "src/lib.rs").write_text("fn b() {}\n")
+        with self.assertRaisesRegex(ValueError, "changed Rust inputs"):
+            check.protected_products()
+        with self.assertRaisesRegex(ValueError, "changed Rust inputs"):
+            check.qualify_runtime(self.built)
+        self.git("checkout", "--", "src/lib.rs")
+        (self.root / "src/new.rs").write_text("fn c() {}\n")
+        with self.assertRaisesRegex(ValueError, "changed Rust inputs"):
+            check.protected_products()
+
+    def test_a_new_rust_commit_requires_new_products(self):
+        check.qualify_runtime(self.built)
+        (self.root / "src/lib.rs").write_text("fn b() {}\n")
+        self.commit("rust again")
+        with self.assertRaisesRegex(ValueError, "no qualified runtime products"):
+            check.protected_products()
+
+    def test_changed_product_or_receipt_cannot_qualify(self):
+        check.qualify_runtime(self.built)
+        receipt_path = self.destination / "receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        (self.destination / "xsh").write_bytes(b"changed\n")
+        with self.assertRaisesRegex(ValueError, "qualified product changed: xsh"):
+            check.protected_products()
+        for changed in ({**receipt, "source": "0" * 40}, {**receipt, "products": {"xsh": receipt["products"]["xsh"]}}, {**receipt, "schema": True}):
+            receipt_path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, "does not qualify"):
+                check.protected_products()
+        receipt_path.unlink()
+        with self.assertRaisesRegex(ValueError, "no qualified runtime products"):
+            check.protected_products()
+
+    def test_qualification_refuses_unsafe_products_and_replacement(self):
+        (self.built / "xsht").unlink()
+        (self.built / "xsht").symlink_to(self.built / "xsh")
+        with self.assertRaisesRegex(ValueError, "regular executable"):
+            check.qualify_runtime(self.built)
+        self.assertFalse(self.destination.exists())
+        (self.built / "xsht").unlink()
+        (self.built / "xsht").write_bytes(b"xsht product\n")
+        (self.built / "xsht").chmod(0o755)
+        check.qualify_runtime(self.built)
+        (self.built / "xsh").write_bytes(b"rebuilt\n")
+        with self.assertRaisesRegex(ValueError, "already qualifies other products"):
+            check.qualify_runtime(self.built)
+
+    def test_an_existing_product_directory_is_qualified_in_place(self):
+        self.destination.mkdir(parents=True)
+        for name in check.RUNTIME_PRODUCTS:
+            (self.destination / name).write_bytes((self.built / name).read_bytes())
+            (self.destination / name).chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "exists without a receipt"):
+            check.qualify_runtime(self.built)
+        self.assertEqual(check.qualify_runtime(self.destination), self.destination)
+        self.assertEqual(check.protected_products(), self.destination)
+
+
 if __name__ == "__main__":
     unittest.main()

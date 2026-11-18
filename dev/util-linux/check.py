@@ -23,8 +23,9 @@ from leases import campaign_leases, ensure_lease_files, LEASE_NAMES, LeaseBusy, 
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "dev/consolidation"))
-from native_image import IMAGE_ID
+IMAGE_ID = json.loads((ROOT / "bench/consolidation/versions.lock.json").read_text(encoding="utf-8"))["base_images"]["amd64"]
+if re.fullmatch(r"sha256:[0-9a-f]{64}", IMAGE_ID) is None:
+    raise ValueError("versions.lock.json must name a lowercase sha256 amd64 base image")
 
 IMAGE = IMAGE_ID
 COHORT = ("lslocks", "lsipc", "lsmem", "mountpoint", "namei")
@@ -32,13 +33,8 @@ PACKAGE_COMMIT = "087ea48145e24307010ba91f403c5ff8f402568c"
 PRODUCT_SOURCE = ""
 _BASELINE = None
 
-
-RUNTIME_SOURCE = "e3fe26dca3353a4a768e969bd439ad1e96b456a0"
-RUNTIME_HASHES = {
-    "xsh": "51f13ec27bb47d05f0cfd6a4e4f014e6667aa3ef74a12e527d066261bf99f857",
-    "xsht": "21e6cb3a8c2b3e3784de2b298fa7c380b2653bfadb850b760be6223ec2aa9c9e",
-    "xsh-test-helper": "86007235c2907f8925cc73ecc7a476e4abe8629c0668661213a18c412cd9d91b",
-}
+RUST_INPUTS = ("src", "crates", "third_party", "Cargo.toml", "Cargo.lock", "build.rs", "tests/helpers", "rust-toolchain.toml", ".cargo")
+RUNTIME_PRODUCTS = ("xsh", "xsht", "xsh-test-helper")
 
 
 class Cancelled(Exception):
@@ -182,14 +178,88 @@ def verify_product_hashes(directory: Path, expected_hashes: dict[str, str]) -> P
     return directory
 
 
-def protected_products() -> Path:
-    inputs = ["src", "crates", "third_party", "Cargo.toml", "Cargo.lock", "build.rs", "tests/helpers", "rust-toolchain.toml", ".cargo"]
-    changed = subprocess.check_output(["git", "diff", "--name-only", RUNTIME_SOURCE, "--", *inputs], cwd=ROOT)
-    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", *inputs], cwd=ROOT)
+def runtime_source() -> str:
+    source = subprocess.check_output(["git", "log", "-1", "--format=%H", "HEAD", "--", *RUST_INPUTS], cwd=ROOT, text=True).strip()
+    if re.fullmatch(r"[0-9a-f]{40}", source) is None:
+        raise ValueError("cannot identify the commit of the current Rust inputs")
+    changed = subprocess.check_output(["git", "diff", "--name-only", source, "--", *RUST_INPUTS], cwd=ROOT)
+    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", *RUST_INPUTS], cwd=ROOT)
     if changed or untracked:
         raise ValueError("qualified products cannot execute changed Rust inputs")
-    directory = original_root(ROOT) / ".work/protected-products" / f"util-linux-runtime-{RUNTIME_SOURCE}"
-    return verify_product_hashes(directory, RUNTIME_HASHES)
+    return source
+
+
+def runtime_directory(source: str) -> Path:
+    return original_root(ROOT) / ".work/protected-products" / f"util-linux-runtime-{source}"
+
+
+def runtime_receipt(directory: Path, source: str) -> dict[str, str]:
+    path = directory / "receipt.json"
+    if directory.is_symlink() or not directory.is_dir() or path.is_symlink() or not path.is_file():
+        raise ValueError(f"no qualified runtime products for Rust source {source}; run check.py qualify-runtime --products DIR")
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    products = receipt.get("products") if isinstance(receipt, dict) else None
+    if (not isinstance(receipt, dict) or set(receipt) != {"schema", "source", "products"}
+            or type(receipt["schema"]) is not int or receipt["schema"] != 1 or receipt["source"] != source
+            or not isinstance(products, dict) or set(products) != set(RUNTIME_PRODUCTS)
+            or not all(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in products.values())):
+        raise ValueError(f"runtime product receipt does not qualify Rust source {source}: {path}")
+    return products
+
+
+def protected_products() -> Path:
+    source = runtime_source()
+    directory = runtime_directory(source)
+    return verify_product_hashes(directory, runtime_receipt(directory, source))
+
+
+def _product_digest(path: Path) -> str:
+    if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
+        raise ValueError(f"runtime product must be a regular executable file: {path}")
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _write_receipt(directory: Path, receipt: dict) -> None:
+    staged = directory / ".receipt.json.tmp"
+    staged.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(staged, directory / "receipt.json")
+
+
+def qualify_runtime(products: Path) -> Path:
+    source = runtime_source()
+    destination = runtime_directory(source)
+    if products.is_symlink() or not products.is_dir():
+        raise ValueError(f"runtime products must be a non-symlink directory: {products}")
+    products = products.resolve(strict=True)
+    hashes = {name: _product_digest(products / name) for name in RUNTIME_PRODUCTS}
+    receipt = {"schema": 1, "source": source, "products": hashes}
+    if destination.exists() or destination.is_symlink():
+        if (destination / "receipt.json").exists() or (destination / "receipt.json").is_symlink():
+            if runtime_receipt(destination, source) != hashes:
+                raise ValueError(f"{destination} already qualifies other products; remove it to requalify")
+            verify_product_hashes(destination, hashes)
+        elif destination.is_symlink() or products != destination.resolve(strict=True):
+            raise ValueError(f"{destination} exists without a receipt; remove it or qualify it in place")
+        else:
+            _write_receipt(destination, receipt)
+        print(json.dumps(receipt, sort_keys=True))
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".util-linux-runtime-", dir=destination.parent))
+    try:
+        for name in RUNTIME_PRODUCTS:
+            shutil.copy2(products / name, staging / name)
+        verify_product_hashes(staging, hashes)
+        if {name: _product_digest(products / name) for name in RUNTIME_PRODUCTS} != hashes:
+            raise ValueError(f"runtime products changed while they were copied: {products}")
+        _write_receipt(staging, receipt)
+        os.rename(staging, destination)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    print(json.dumps(receipt, sort_keys=True))
+    return destination
 
 
 def candidate_products():
@@ -607,6 +677,7 @@ def main() -> int:
         if mode in {"resources", "close"}:
             mode_parser.add_argument("--laputa-corpus", type=Path, required=True)
             mode_parser.add_argument("--baseline-products", type=Path, required=True)
+    modes.add_parser("qualify-runtime").add_argument("--products", type=Path, required=True)
     prepare = modes.add_parser("prepare-baseline")
     prepare.add_argument("--output", type=Path, required=True)
     prepare.add_argument("--laputa-corpus", type=Path, required=True)
@@ -629,6 +700,8 @@ def main() -> int:
                 harness()
             elif args.mode == "baseline":
                 baseline()
+            elif args.mode == "qualify-runtime":
+                qualify_runtime(args.products)
             elif args.mode == "prepare-baseline":
                 import resources
                 with resources._laputa_corpus_scope(args.laputa_corpus):

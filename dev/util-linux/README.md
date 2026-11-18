@@ -63,15 +63,30 @@ inode IDs, mapped by fixture identity. The exceptions are:
   directory with no numeric entries.
 - The thirteen `lsipc` invocations that crash the reference.
 
-Parity runs pinned verification products from
-`.work/protected-products/util-linux-runtime-SOURCE`, named by
-`RUNTIME_SOURCE` and checked against `RUNTIME_HASHES` in `check.py`. A change
-to any Rust input makes parity refuse them. Requalify by building the musl
-verification products from the clean new source (`cargo build --locked
---profile verification --target x86_64-unknown-linux-musl -p xsh -p xsht --bin
-xsh --bin xsht --bin xsh-test-helper`), copying `xsh`, `xsht` and
-`xsh-test-helper` into a directory named for that commit, and updating both
-constants in the same change.
+Parity, source checks, the harness self-test and `baseline --check` run
+qualified verification products from
+`.work/protected-products/util-linux-runtime-SOURCE` in the original checkout.
+`SOURCE` is the latest commit that changed a Rust input (`src`, `crates`,
+`third_party`, `tests/helpers`, the Cargo manifests and `.cargo`). The
+directory's `receipt.json` records that commit and the SHA-256 of `xsh`, `xsht`
+and `xsh-test-helper`. These commands refuse to run when a Rust input differs
+from `SOURCE` or is untracked, when the receipt is missing or names another
+commit, or when a product's hash differs from the receipt.
+
+After a Rust change, build the musl verification products from the new source
+and qualify them:
+
+```sh
+cargo build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh -p xsht --bin xsh --bin xsht --bin xsh-test-helper
+python3 dev/util-linux/check.py qualify-runtime --products "$PWD/target/x86_64-unknown-linux-musl/verification"
+```
+
+`qualify-runtime` copies the three products into the directory for the current
+Rust source and writes the receipt. It does not replace a directory that
+already qualifies other products; remove that directory to requalify. A
+directory that holds the products but no receipt is qualified in place when it
+is passed as `--products`. The command does not build the products and cannot
+prove which source built them; build them from the checkout it names.
 
 ### Accepted divergences
 
