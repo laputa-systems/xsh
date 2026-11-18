@@ -2278,7 +2278,8 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
     script = (
         "cd /work; "
         + _cargo_environment().replace("CARGO_TARGET_DIR=/cargo-target", "CARGO_TARGET_DIR=/target")
-        + "cargo dev docs check"
+        + shlex.join(("cargo", "run", "--quiet", "--locked", "--target", TARGET, "-p", "xsh", "--bin", "xsh",
+                      "--", "dev/main.xsh", "--", "docs", "check"))
     )
     runtime.container(
         script,
