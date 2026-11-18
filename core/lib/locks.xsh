@@ -292,8 +292,7 @@ proc holders_for_lock(fallback: List[DescriptorLock], lock: KernelLock) [fs] -> 
   }
 }
 
-proc mount_fallback(lock: KernelLock) [fs] -> Bytes? {
-  let content = fp"/proc/self/mountinfo".read_bytes() ?? b""
+pure mount_fallback(lock: KernelLock, content: Bytes) -> Bytes? {
   let device = bytes.from_text(f"{lock.major}:{lock.minor}")
   var target: Bytes? = null
   for line in content.lines() {
@@ -332,6 +331,7 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
   for line in text.lines() {
     if let lock = parse_kernel_lock(line) { locks += [lock] }
   }
+  let mountinfo = if no_inaccessible or locks.is_empty() { b"" } else { fp"/proc/self/mountinfo".read_bytes() ?? b"" }
   let rows = collect {
     for lock in locks {
       let resolved = descriptor_for_lock(fallback, lock)
@@ -353,7 +353,7 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
         let metadata = fs.stat(fp"/proc/{pid}/fd/{path_file.fd}", follow_symlinks: true)
         if let Ok(value) = metadata { value.size } else { 0 }
       } else { 0 }
-      let visible_path: Bytes? = if lock_path != null { lock_path } else if no_inaccessible { null } else { mount_fallback(lock) }
+      let visible_path: Bytes? = if lock_path != null { lock_path } else if no_inaccessible { null } else { mount_fallback(lock, mountinfo) }
       continue when no_inaccessible and visible_path == null
       var blocker: Int? = null
       if lock.blocked {
@@ -713,7 +713,7 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
   if l.kind in ["empty", "empty_holder"] or r.kind in ["empty", "empty_holder"] {
     if l.kind == "empty_holder" and r.kind == "empty_holder" { return operator in ["==", "<=", ">="] }
     if l.kind in ["empty", "empty_holder"] and r.kind in ["empty", "empty_holder"] { return false }
-    if l.kind in ["empty", "empty_holder"] and r.kind in ["number", "float", "boolean"] or r.kind in ["empty", "empty_holder"] and l.kind in ["number", "float", "boolean"] { return false }
+    if (l.kind in ["empty", "empty_holder"] and r.kind in ["number", "float", "boolean"]) or (r.kind in ["empty", "empty_holder"] and l.kind in ["number", "float", "boolean"]) { return false }
     let left_empty = l.kind in ["empty", "empty_holder"]
     let empty_numeric = if left_empty { l.kind == "empty" } else { r.kind == "empty" }
     let other = if left_empty { r.value } else { l.value }
