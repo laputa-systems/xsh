@@ -248,6 +248,7 @@ def qualify_runtime(products: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".util-linux-runtime-", dir=destination.parent))
     try:
+        os.chmod(staging, 0o755)
         for name in RUNTIME_PRODUCTS:
             shutil.copy2(products / name, staging / name)
         verify_product_hashes(staging, hashes)

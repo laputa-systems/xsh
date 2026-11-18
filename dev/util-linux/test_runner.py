@@ -415,6 +415,7 @@ class RuntimeProductTests(unittest.TestCase):
         receipt = json.loads((self.destination / "receipt.json").read_text())
         self.assertEqual(receipt["source"], self.rust_source)
         self.assertEqual(set(receipt["products"]), set(check.RUNTIME_PRODUCTS))
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o755)
         self.assertEqual(check.protected_products(), self.destination)
         self.assertEqual(check.qualify_runtime(self.built), self.destination)
 
