@@ -134,7 +134,7 @@ that field.
 | `test_lslocks_default_and_selected_lock_rows`, `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd`, `test_lslocks_filter_errors` | Exact PID filtering for holders and queued waiters; absent PID; OFD negative-PID filter rejection. |
 | `test_lslocks_filter_values_and_hidden_columns` | Symbolic and word aliases for comparisons, decimal float and boolean comparisons, same-precedence left-associative `OR`/`AND`, string equality/inequality, numeric ordering with `K` suffixes, regex match/non-match, `AND`/`&&`, `OR`/`||`, `NOT`, including filter columns absent from output. |
 | `test_lslocks_filter_errors` | Missing operands and an incomplete regex retain libsmartcols' exact end-of-file diagnostic; unknown columns retain the two-line initialization error; a private lock makes the reference's valid `PID == -1` comparison and unmatched-minus output observable. |
-| `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks appear in default output in the `LC_ALL=C` reference order, `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. |
+| `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks, selected by a PID filter so other host locks stay out, appear in the `LC_ALL=C` reference order; `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. |
 | `test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing` | A real holder outside the private PID namespace is absent from its freshly mounted procfs and from both exact JSON listings. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
 | `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd` | Synchronized queued requests have `MODE` suffixed with `*`, the exact `BLOCKER` PID, and release cleanly after the owner exits. OFD waiter records retain kernel PID `-1`; select that row by `MODE` and assert its device/inode instead of filtering by the fixture process PID. |
@@ -146,7 +146,7 @@ that field.
 | `test_lslocks_reference_path_bytes` | Reference-only checks pin decoded JSON and escaped normal-table output for a control-character path, exact raw-mode `PATH` spelling for valid and invalid-UTF-8 names, raw invalid-UTF-8 bytes inside JSON, and nonempty POSIX `HOLDERS` entries for duplicated descriptors without assuming their multiplicity. |
 | `test_lslocks_terminal_path_minimum` | Default and all-column output retain the four-cell PATH minimum at widths 30, 80, and 120. |
 | `test_util_linux_context_terminal_lock_path_truncation` | Real holder paths containing tab and ESC or an invalid UTF-8 byte are compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
-| Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
+| `test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots` | An owner that exits after both commands have read `/proc/locks` and its descriptors yields the same JSON row in both, with the path no longer resolved to the fixture. Attribution for an owner that exits between those reads is a recorded divergence (see the README). |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing and invalid option values, invalid PID, unknown short and long options, ambiguous long prefixes, stray operands, and `-J -r`. |
 | `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact` retains the `locks` object and emits each compact row on its own line, including an empty array when no lock matches; `unknown` and unset values retain the pretty `locks` object and its empty-array whitespace; `lines` emits one standalone object per lock row with lowercase keys. |
@@ -193,5 +193,5 @@ private PID namespace has a matching procfs mount. The outside-namespace and
 cross-UID cases use dedicated context fixtures. The cross-UID case runs the
 command as UID 10001 with capabilities dropped while a UID 10002 owner holds
 the lock. Terminal truncation uses a captured PTY with selected widths. Owner
-disappearance during one collection still has no deterministic synchronization
-point; the corpus checks that an exited owner is absent from a later invocation.
+disappearance during one collection uses the race-boundary observer, which
+pauses both commands after their kernel snapshots.

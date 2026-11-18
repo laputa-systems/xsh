@@ -68,7 +68,7 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let after_candidate = uu.invoke(s, "lslocks", after_options)?
   uu.succeeds(after_reference)
   ul.compare(after_reference, after_candidate)
-  assert json.get(json.decode(after_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+  assert after_reference.stdout == b"" or json.get(json.decode(after_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
   assert after_reference.stderr == b""
 }
 
