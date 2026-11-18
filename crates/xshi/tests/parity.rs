@@ -387,11 +387,49 @@ fn prompt_width_at_home(host: &str) -> u16 {
     u16::try_from(USER.len() + 1 + host.len() + " ~ $ ".len()).expect("prompt width")
 }
 
+/// The instant fixture times are written relative to. Goldens render a fixture
+/// time as an age from the clock, so every fixture time is shifted by the
+/// distance from this instant to now; `1_700_000_000` then always reads as
+/// `2y`, as the goldens recorded it.
+const FIXTURE_CLOCK: i64 = 1_779_000_000;
+
+/// Seconds every fixture time is moved forward, fixed once per test process so
+/// equal fixture times stay equal.
+fn fixture_shift() -> i64 {
+    static SHIFT: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *SHIFT.get_or_init(|| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after the epoch")
+            .as_secs();
+        i64::try_from(now).expect("clock fits i64") - FIXTURE_CLOCK
+    })
+}
+
+/// Maps shifted file times a shell reports in a layout dump back to fixture time.
+fn unshift_dump_mtimes(transcript: &str) -> String {
+    let mut out = String::with_capacity(transcript.len());
+    let mut rest = transcript;
+    while let Some((before, after)) = rest.split_once("CompletionEntry { mtime: ") {
+        out.push_str(before);
+        out.push_str("CompletionEntry { mtime: ");
+        let digits = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        match after[..digits].parse::<i64>() {
+            Ok(mtime) => out.push_str(&(mtime - fixture_shift()).to_string()),
+            Err(_) => out.push_str(&after[..digits]),
+        }
+        rest = &after[digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn set_mtime(path: &Path, mtime: i64, follow: bool) {
     use std::os::unix::ffi::OsStrExt;
+    let shift = fixture_shift();
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path without NUL");
     let stamp = libc::timespec {
-        tv_sec: mtime,
+        tv_sec: mtime + shift,
         tv_nsec: 0,
     };
     let times = [stamp, stamp];
@@ -1707,7 +1745,7 @@ fn ish_binary() -> Option<PathBuf> {
 fn run_shell(kind: ShellKind, binary: &Path, fixture: &Fixture, script: fn(&mut Live)) -> String {
     let mut live = Live::spawn(kind, binary, fixture);
     script(&mut live);
-    live.finish().render()
+    unshift_dump_mtimes(&live.finish().render())
 }
 
 /// Runs `script` against `xshi` alone, for behavior the reference shell does
