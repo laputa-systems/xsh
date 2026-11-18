@@ -156,6 +156,25 @@ export proc candidate_as_user(s: uu.Scene, command: Str, args: List[Str], uid: I
   exited(observe(s, command, paths, under_uid(uu.argv(s, command, paths, vars)?, uid), vars, timeout)?)
 }
 
+## In a private util-linux context, reruns the calling test alone in fresh IPC, mount and PID namespaces with
+## their own /dev/shm and /dev/mqueue, so concurrent tests cannot change system-wide IPC state it observes.
+## Reruns hold one lock in turn: RLIMIT_MSGQUEUE counts every namespace's queues against the same user.
+## Returns true in the outer run, which must then return; returns false where the test should run in place.
+export proc rerun_ipc_isolated(ctx: TestContext) [fs, process, env, error] -> Result[Bool, Error] {
+  let names = [entry.name for entry in env.entries()?]
+  if ! (b"XSH_UTIL_LINUX_PRIVATE" in names) { return Ok(false) }
+  let selector = ctx.name
+  if env.get_or("XSH_UTIL_LINUX_IPC_ISOLATED", "")? == selector { return Ok(false) }
+  require_private_namespace()
+  let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_UTIL_LINUX_IPC_ISOLATED=\"$2\"; exec \"$1\" test --exact-id \"$2\""
+  let source = "export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc) XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt) XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid); exec /usr/bin/flock \"$4\" unshare --ipc --mount --pid --fork --kill-child=KILL --mount-proc --propagation private sh -ec \"$1\" isolated \"$2\" \"$3\""
+  let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+  let lock = fp"{ctx.core_dir}/tests/support/util_linux.xsh"
+  let isolated = run.capture --text sh -ec $source isolated $inner $xsht $selector $lock
+  assert isolated.status.exited_with(0), f"{selector} failed in isolated IPC namespaces:\n{isolated.stdout}\n{isolated.stderr}"
+  Ok(true)
+}
+
 ## Skips unconfigured native contexts and rejects invalid advertised private namespaces before fixture effects.
 export proc require_private_namespace() [fs, env, error] {
   let names = [entry.name for entry in env.entries()?]

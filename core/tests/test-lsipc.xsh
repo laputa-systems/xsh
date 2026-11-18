@@ -506,6 +506,7 @@ proc compare_option_alias(s: uu.Scene, prefix: List[Str], long: List[Str], short
 }
 
 test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--help"])?
   ul.compare(pair.reference, pair.candidate)
@@ -586,6 +587,7 @@ test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
 }
 
 test test_lsipc_version_preserves_xsh_provenance { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--version"])?
   ul.version_identity(pair.reference, pair.candidate)
@@ -601,6 +603,7 @@ test test_lsipc_version_preserves_xsh_provenance { |ctx|
 }
 
 test test_lsipc_short_option_aliases_match_long_options { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -633,6 +636,7 @@ test test_lsipc_short_option_aliases_match_long_options { |ctx|
 }
 
 test test_lsipc_long_option_abbreviations_match_reference { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, ["sysv_queue", "posix_mqueue"])?
   defer ul.stop_keeper(fixture.handle)
@@ -656,6 +660,7 @@ test test_lsipc_long_option_abbreviations_match_reference { |ctx|
 }
 
 test test_lsipc_rejects_unknown_time_format { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--time-format=invalid"])?
   ul.compare(pair.reference, pair.candidate)
@@ -665,6 +670,7 @@ test test_lsipc_rejects_unknown_time_format { |ctx|
 }
 
 test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let unknown = run_both(s, ["--queues", "--output", "NOT_A_COLUMN"])?
   ul.compare(unknown.reference, unknown.candidate)
@@ -716,6 +722,7 @@ test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
 }
 
 test test_lsipc_output_column_capacity_matches_reference { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   var columns: List[Str] = []
@@ -754,6 +761,7 @@ test test_lsipc_output_column_capacity_matches_reference { |ctx|
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let cases = [
     ["--not-a-real-option"],
@@ -788,15 +796,7 @@ proc parse_reference_json(output: Bytes) [error] -> Result[Unit] {
 }
 
 test test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference { |ctx|
-  ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_EXCLUSIVE_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_LSIPC_EXCLUSIVE_ISOLATED=1; exec \"$1\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference"
-    let source = "export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc) XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt) XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid); exec unshare --ipc --mount --pid --fork --kill-child=KILL --mount-proc --propagation private sh -ec \"$1\" test \"$2\""
-    let isolated = run.capture --text sh -ec $source test $inner $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -950,6 +950,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
 }
 
 test test_lsipc_rejects_id_and_name_without_matching_modes { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let id = run_both(s, ["--id", "1"])?
   ul.compare(id.reference, id.candidate)
@@ -965,6 +966,7 @@ test test_lsipc_rejects_id_and_name_without_matching_modes { |ctx|
 }
 
 test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1002,6 +1004,7 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
 }
 
 test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1052,6 +1055,7 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
 }
 
 test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1082,6 +1086,7 @@ test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
 }
 
 test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1134,6 +1139,7 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
 }
 
 test test_lsipc_id_and_name_select_registered_objects { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1183,6 +1189,7 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
 }
 
 test test_lsipc_id_option_order_controls_detail_columns { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, ["sysv_queue", "sysv_shmem", "sysv_semaphore"])?
   defer ul.stop_keeper(fixture.handle)
@@ -1208,6 +1215,7 @@ test test_lsipc_id_option_order_controls_detail_columns { |ctx|
 }
 
 test test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1230,6 +1238,7 @@ test test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics 
 }
 
 test test_lsipc_creator_and_time_options_report_live_metadata { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1272,6 +1281,7 @@ test test_lsipc_creator_and_time_options_report_live_metadata { |ctx|
 }
 
 test test_lsipc_bytes_and_numeric_permissions_match_reference { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1291,15 +1301,8 @@ test test_lsipc_bytes_and_numeric_permissions_match_reference { |ctx|
 }
 
 test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_OUTPUT_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_LSIPC_OUTPUT_ISOLATED=1; exec \"$1\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_output_modes_and_table_controls_match_reference"
-    let source = "export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc) XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt) XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid); exec unshare --ipc --mount --pid --fork --kill-child=KILL --mount-proc --propagation private sh -ec \"$1\" test \"$2\""
-    let isolated = run.capture --text sh -ec $source test $inner $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1373,6 +1376,7 @@ test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
 }
 
 test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1401,6 +1405,7 @@ test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
 }
 
 test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1435,6 +1440,7 @@ test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx
 }
 
 test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycle { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   let fixture = start_keeper(s, RESOURCE_KINDS)?
@@ -1501,6 +1507,7 @@ test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycl
 }
 
 test test_lsipc_global_shell_percent_heading { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   for mode in [[], ["-e"], ["-r"], ["-n"], ["-J"]] {
     let pair = run_both(s, ["-g", "-y"].extend(mode))?
@@ -1511,6 +1518,7 @@ test test_lsipc_global_shell_percent_heading { |ctx|
 }
 
 test test_lsipc_non_utf8_posix_name { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   let name = Path.parse_bytes(b"/a\xff")?
   for selector in [p"-M", p"-Q", p"-S"] {
@@ -1529,6 +1537,7 @@ test test_lsipc_non_utf8_posix_name { |ctx|
 }
 
 test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for args in [[p"-g", p"-o", b"LIMIT,\xff" as Path], [p"-g", b"-oLIMIT,\xff" as Path], [p"-g", b"--output=LIMIT,\xff" as Path]] {
@@ -1540,6 +1549,7 @@ test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
 }
 
 test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1569,14 +1579,8 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
 }
 
 test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_POSIX_NAME_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_POSIX_NAME_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_posix_name_preserves_and_escapes_bytes\" test \"$1\""
-    let isolated = run.capture --text sh -ec $source test $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
   let s = uu.scene(ctx)?
   let object_path = Path.parse_bytes(b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
   object_path.write(b"")
@@ -1597,6 +1601,7 @@ test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
 }
 
 test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "command-keeper.py")
@@ -1644,6 +1649,7 @@ test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
 }
 
 test test_lsipc_regression_unicode_short_options { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   for locale in ["C", "C.UTF-8"] {
     for option in ["-é", "-bé"] {
@@ -1654,6 +1660,7 @@ test test_lsipc_regression_unicode_short_options { |ctx|
 }
 
 test test_lsipc_regression_json_environment { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   for mode in ["compact", "lines", "other"] {
     let pair = run_both_with_vars(s, ["-g", "-J"], vars: {LC_ALL: "C", TZ: "UTC", LIBSMARTCOLS_JSON: mode})?
@@ -1662,6 +1669,7 @@ test test_lsipc_regression_json_environment { |ctx|
 }
 
 test test_lsipc_regression_repeated_selector_limit { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   let s = uu.scene(ctx)?
   for args in [["-m", "-m", "-m", "-m", "-m", "-m", "-m"], ["-qqqqqqqqqqqq", "-c", "-t"]] {
     let pair = run_both(s, args)?
@@ -1670,14 +1678,8 @@ test test_lsipc_regression_repeated_selector_limit { |ctx|
 }
 
 test test_lsipc_regression_unicode_table { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_UNICODE_TABLE_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_UNICODE_TABLE_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_regression_unicode_table\" test \"$1\""
-    let isolated = run.capture --text sh -ec $source test $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
   let s = uu.scene(ctx)?
   let names = ["n一x", "nAx", "x\u{200c}", "x\u{200f}", "x\u{202a}", "x\u{202e}", "x\u{205f}", "x\u{206f}", "x\u{feff}", "x\u{fff9}", "x\u{fffa}", "x\u{fffb}", "x\u{fffe}", "x\u{ffff}", "x\u{10ffff}"]
   for name in names { fp"/dev/shm/{name}".write(b"") }
@@ -1687,6 +1689,7 @@ test test_lsipc_regression_unicode_table { |ctx|
 }
 
 test test_lsipc_regression_detail_terminator { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1706,6 +1709,7 @@ test test_lsipc_regression_detail_terminator { |ctx|
 }
 
 test test_lsipc_regression_mixed_detail_and_missing_id { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1725,6 +1729,7 @@ test test_lsipc_regression_mixed_detail_and_missing_id { |ctx|
 }
 
 test test_lsipc_regression_terminal_width { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "terminal-keeper.py")
@@ -1742,14 +1747,8 @@ test test_lsipc_regression_terminal_width { |ctx|
 }
 
 test test_lsipc_regression_display_cell_padding { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_CELL_PADDING_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private sh -ec \"mount -t tmpfs -o size=32m tmpfs /dev/shm; exec env XSH_LSIPC_CELL_PADDING_ISOLATED=1 \\\"\\$1\\\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_regression_display_cell_padding\" test \"$1\""
-    let isolated = run.capture --text sh -ec $source test $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
   let s = uu.scene(ctx)?
   let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx", p"/dev/shm/\u{301}x", p"/dev/shm/n\u{601}x", p"/dev/shm/n\u{ad}x", p"/dev/shm/n\u{2065}x"]
   for target in paths { target.write(b"") }
@@ -1759,6 +1758,7 @@ test test_lsipc_regression_display_cell_padding { |ctx|
 }
 
 test test_lsipc_regression_missing_id_with_other_resource { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let target = p"/dev/shm/xsh-lsipc-missing"
@@ -1783,6 +1783,7 @@ test test_lsipc_regression_missing_id_with_other_resource { |ctx|
 }
 
 test test_lsipc_regression_negative_id_detail { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1805,6 +1806,7 @@ test test_lsipc_regression_negative_id_detail { |ctx|
 }
 
 test test_lsipc_regression_zero_limit { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/zero.out"
@@ -1829,6 +1831,7 @@ test test_lsipc_regression_zero_limit { |ctx|
 }
 
 test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "columns-keeper.py")
@@ -1845,6 +1848,7 @@ test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
 }
 
 test test_lsipc_without_procfs_empty_namespace { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/no-proc.out"
@@ -1859,6 +1863,7 @@ test test_lsipc_without_procfs_empty_namespace { |ctx|
 }
 
 test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/no-proc-global.out"
@@ -1874,14 +1879,8 @@ test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
 }
 
 test test_lsipc_posix_shmem_symlink_targets { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
-  if env.get_or("XSH_LSIPC_SHMEM_LINKS_ISOLATED", "")? != "1" {
-    let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-    let source = "export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt); exec unshare --mount --propagation private env XSH_LSIPC_SHMEM_LINKS_ISOLATED=1 \"$1\" test --exact-id core/tests/test-lsipc.xsh::test_lsipc_posix_shmem_symlink_targets"
-    let isolated = run.capture --text sh -ec $source test $xsht
-    assert isolated.status.exited_with(0), f"{isolated.stdout}\n{isolated.stderr}"
-    return
-  }
   let s = uu.scene(ctx)?
   assert (run.capture --text mount -t tmpfs none /dev/shm).status.exited_with(0)
   defer { run.status umount /dev/shm }
@@ -1894,6 +1893,7 @@ test test_lsipc_posix_shmem_symlink_targets { |ctx|
 }
 
 test test_lsipc_inaccessible_semaphore_elements { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let created = run.capture --text ipcmk -S 2 -p 000
@@ -1908,6 +1908,7 @@ test test_lsipc_inaccessible_semaphore_elements { |ctx|
 }
 
 test test_lsipc_global_shared_memory_overflow { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let code = "import ctypes\nl=ctypes.CDLL(None); l.shmget.argtypes=[ctypes.c_int,ctypes.c_size_t,ctypes.c_int]\nfor n in [2**62,2**62+2**61,2**62]:\n i=l.shmget(0,n,0o11600); assert i>=0; print(i)"
@@ -1924,6 +1925,7 @@ test test_lsipc_global_shared_memory_overflow { |ctx|
 
 
 test test_lsipc_missing_global_limits { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/limits.out"
@@ -1947,6 +1949,7 @@ test test_lsipc_missing_global_limits { |ctx|
 
 
 test test_lsipc_global_page_sum_exceeds_int { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let code = "import ctypes, os, subprocess, sys\n" +
@@ -1975,6 +1978,7 @@ test test_lsipc_global_page_sum_exceeds_int { |ctx|
 
 
 test test_lsipc_proc_subset_diagnostic { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/subset.out"
@@ -1992,6 +1996,7 @@ test test_lsipc_proc_subset_diagnostic { |ctx|
 
 
 test test_lsipc_missing_system_v_table { |ctx|
+  if ul.rerun_ipc_isolated(ctx)? { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/tables.out"
