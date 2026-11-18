@@ -1828,7 +1828,7 @@ test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
     "set +e\nLC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- -g > \"$1/cand\" 2> \"$1/canderr\"\nstatus=$?\nset -e\n" +
     "test \"$status\" = 1\n" +
     "test ! -s \"$1/cand\"\n" +
-    "printf 'lsipc: cannot read IPC limits: procfs is not mounted\\n' | cmp - \"$1/canderr\"\n"
+    "printf 'lsipc: cannot read IPC limits: System V IPC tables are unavailable\\n' | cmp - \"$1/canderr\"\n"
   let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
   let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 10s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
@@ -1924,5 +1924,22 @@ test test_lsipc_global_page_sum_exceeds_int { |ctx|
   let err = fp"{s.root}/pages.err"
   let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
   let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 120s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+}
+
+
+test test_lsipc_proc_subset_diagnostic { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let out = fp"{s.root}/subset.out"
+  let err = fp"{s.root}/subset.err"
+  let script = "mount -t proc -o subset=pid proc /proc\n" +
+    "LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- -m > \"$1/cand\" 2> \"$1/canderr\"\n" +
+    "test ! -s \"$1/cand\" && test ! -s \"$1/canderr\"\n" +
+    "status=0; LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- -g -m > \"$1/cand\" 2> \"$1/canderr\" || status=$?\n" +
+    "test \"$status\" = 1 && test ! -s \"$1/cand\"\n" +
+    "grep -q 'System V IPC tables are unavailable' \"$1/canderr\" && ! grep -q 'procfs is not mounted' \"$1/canderr\"\n"
+  let argv = [p"/usr/bin/unshare", p"-i", p"-m", p"-p", p"-f", p"--mount-proc", p"--propagation", p"private", p"/bin/sh", p"-ec", fp"{script}", p"test", s.root, s.ctx.xsh_bin, s.ctx.core_dir]
+  let plan = process.command_argv(p"/usr/bin/unshare", argv, s.root, {}, b"", out, err, timeout: 10s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
 }
