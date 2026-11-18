@@ -78,25 +78,29 @@ This finite comparison is separate from the frozen conformance ledger. General
 source binding, inference integration and execution correspondence remain open.
 These component proofs close no universal obligation.
 
-[`Core/DeadlinePolicy.lean`](Xsh/Core/DeadlinePolicy.lean) specifies deadline
-policy over arbitrary finite lists, supplied natural monotonic ticks, and
-generic identities and metadata. Its combined contract proves eligible,
-earliest selection with outermost tie breaking; delivery marks only the chosen
-scope. It specifies append, closing every matching identity, finishing the first
-match, rearming, and cleanup shielding and restoration. Duplicate identities
-are admitted. The nine model controls and six rejected semantic mutations
-exercise these distinctions. The production selector now receives borrowed
-deadlines and an explicit `Instant`; its evaluator adapter obtains the clock
-observation. A separate finite comparison calls that exact Rust function and
-Lean's `choose` on all 2,925 inputs with zero to three scopes, ticks zero through
-three, both delivery flags, and observation ticks zero through four. The Rust
-inputs embed ticks as nanoseconds after one common epoch and retain duplicate
-identities. Strict decoding and unique-input accounting reject unsupported,
-missing or repeated cases. This is implementation evidence for that finite
-domain, separate from the frozen conformance ledger. Other policy updates,
-universal Rust refinement, clock conversion, checked deadline addition, identity
-allocation, checkpoints, error construction and resource execution remain open.
-CTRL-DEADLINE stays planned.
+[`Core/DeadlinePolicy.lean`](Xsh/Core/DeadlinePolicy.lean) proves selection
+for arbitrary finite related states: a host-time order is represented by natural
+monotonic ticks preserving and reflecting order, and the state relation maps
+each host deadline in order, preserving identity, metadata and delivery state.
+Under that assumption the selected scope is undelivered and expired, has the
+earliest deadline, and precedes every equally early eligible scope; a selection
+exists exactly when an eligible scope exists. Eligibility persists as supplied
+ticks advance. The model also proves its delivery, close, finish, rearm, shield
+and restore equations. These are model proofs, conditional on the relation and
+clock abstraction; they do not prove that Rust or the host clock satisfies them.
+
+The production selector receives borrowed deadlines and an explicit `Instant`.
+A finite conformance comparison calls that function and Lean's `choose` for all
+2,925 inputs with zero to three scopes, ticks zero through three, both delivery
+flags, and observation ticks zero through four. Inputs embed ticks as nanoseconds
+after one common epoch and retain duplicate identities. Strict decoding and
+unique-input accounting reject unsupported, missing or repeated cases. Rust
+tests also check identity and order through rearming, cleanup shielding,
+restoration and closing with supplied instants. These are test evidence, not
+universal Rust refinement. Clock domain and unit correspondence, representable
+instants and checked deadline addition, identity allocation, checkpoints, error
+construction and resource execution remain host or implementation obligations.
+CTRL-DEADLINE stays planned; no universal obligation is closed.
 
 Shared type terms now carry an effect-parameter scope separately from type
 variables. Callable policies retain symbolic effect bounds and keep pure,

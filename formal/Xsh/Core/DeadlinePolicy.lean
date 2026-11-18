@@ -57,6 +57,32 @@ def shield (s : State Identity Metadata) : List (Deadline Identity Metadata) × 
 def restore (saved : List (Deadline Identity Metadata)) (s : State Identity Metadata) : State Identity Metadata :=
   { s with deadlines := saved }
 
+structure MonotonicTime (HostTime : Type) where
+  tick : HostTime → Nat
+  beforeOrEqual : HostTime → HostTime → Prop
+  order_preserved : ∀ a b, beforeOrEqual a b ↔ tick a ≤ tick b
+
+structure HostDeadline (HostTime Identity Metadata : Type) where
+  id : Identity
+  deadlineTime : HostTime
+  metadata : Metadata
+  delivered : Bool
+
+def abstractDeadline (clock : MonotonicTime HostTime)
+    (d : HostDeadline HostTime Identity Metadata) : Deadline Identity Metadata :=
+  ⟨d.id, clock.tick d.deadlineTime, d.metadata, d.delivered⟩
+
+def stateRel (clock : MonotonicTime HostTime)
+    (host : List (HostDeadline HostTime Identity Metadata))
+    (model : State Identity Metadata) : Prop :=
+  model.deadlines = host.map (abstractDeadline clock)
+
+theorem eligible_monotonic (d : Deadline Identity Metadata) (earlier later : Nat)
+    (time_order : earlier ≤ later) (due : eligible earlier d = true) :
+    eligible later d = true := by
+  simp only [eligible, Bool.and_eq_true, decide_eq_true_eq] at *
+  exact ⟨due.1, Nat.le_trans due.2 time_order⟩
+
 private theorem candidate_iff (now : Nat) (ds : List (Deadline Identity Metadata)) (i : Nat) :
     i ∈ candidates now ds ↔ ∃ h : i < ds.length, eligible now ds[i] = true := by
   simp only [candidates, List.mem_filter, List.mem_range]
@@ -106,6 +132,25 @@ private theorem choose_law (now : Nat) (ds : List (Deadline Identity Metadata)) 
     · intro heq
       rw [heq] at hmin
       omega
+
+theorem related_selection (clock : MonotonicTime HostTime)
+    (host : List (HostDeadline HostTime Identity Metadata))
+    (model : State Identity Metadata) (now : HostTime) (related : stateRel clock host model) :
+    ((choose (clock.tick now) model.deadlines).isSome ↔
+      ∃ i, ∃ h : i < host.length,
+        host[i].delivered = false ∧ clock.beforeOrEqual host[i].deadlineTime now) ∧
+    ∀ i, choose (clock.tick now) model.deadlines = some i →
+      ∃ h : i < host.length,
+        host[i].delivered = false ∧ clock.beforeOrEqual host[i].deadlineTime now ∧
+        ∀ j (hj : j < host.length),
+          host[j].delivered = false → clock.beforeOrEqual host[j].deadlineTime now →
+          clock.beforeOrEqual host[i].deadlineTime host[j].deadlineTime ∧
+            (clock.tick host[i].deadlineTime = clock.tick host[j].deadlineTime → i ≤ j) := by
+  rcases model with ⟨deadlines, stage⟩
+  simp only [stateRel] at related
+  subst deadlines
+  simpa [eligible, abstractDeadline, clock.order_preserved, and_assoc] using
+    (choose_law (clock.tick now) (host.map (abstractDeadline clock)))
 
 theorem policy_contract [DecidableEq Identity] (now : Nat) (s : State Identity Metadata)
     (id : Identity) (tick : Nat) (metadata : Metadata)

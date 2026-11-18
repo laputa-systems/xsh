@@ -117,34 +117,17 @@ judgment and does not by itself establish Rust correspondence or TYPE-MEMBER.
 
 ### Pilot 1B: supplied-time deadline selection
 
-The production selector now receives borrowed deadline state and a supplied
-`Instant`, removing its dependency on the evaluator and clock acquisition.
-The evaluator calls that same selector. A manual comparison covers all 2,925
-admitted small inputs against Lean's `choose`; it is finite implementation
-evidence, not universal Rust refinement. All twenty native `within` cases pass
-before and after extraction on pinned Linux verification products. The full
-current-source Linux and Asterinas qualification gates remain separate.
-
-The selection rule uses borrowed deadline state and supplied time.
-The evaluator retains clock acquisition, source-attributed timeout construction,
-and delivery through its existing checkpoints. Establish the monotonic-time
-abstraction and state relation explicitly. `BaseMachine`'s host-request/resume
-pattern is a template, not an existing proof of `Instant` deadline behavior.
-
-Require deterministic checks for unexpired scopes, earliest eligible expiry,
-outermost ordering on equal deadlines, delivered entries, and closed scopes.
-State the selection invariants in Lean against that abstraction, and identify
-whether Rust agreement is proved or covered only by conformance evidence.
-Preserve deadline identity and order through rearming and cleanup shielding and
-restoration. Keep clock-domain, unit, and representability boundaries explicit;
-coordinate their host qualification with [XSH-35](../TODO.md#xsh-35--p2--qualify-clock-domains-and-deadline-conversions).
-
-Retain native `within` tests for real sleeps, child cancellation, stream and
-worker checkpoints, swallowed interruptions, and cleanup. Those tests establish
-adapter behavior that supplied-time decision tests cannot. Expand into a full
-state/event transition component only when selection extraction simplifies the
-implementation. Do not add a universal request interpreter or serialized action
-object to ordinary synchronous operations.
+The production selector receives borrowed deadline state and a supplied
+`Instant`; the evaluator acquires time and calls that selector. Lean proves
+selection eligibility, earliest expiry and outermost tie order for arbitrary
+finite states related to an order-preserving natural-tick clock abstraction.
+It also proves the model's state update equations. Rust agreement is finite
+conformance evidence over 2,925 inputs, supplemented by deterministic state
+transition checks and the native `within` gate; it is not universal refinement.
+Clock domain, units, representability and host behavior remain assumptions to
+qualify under [XSH-35](../TODO.md#xsh-35--p2--qualify-clock-domains-and-deadline-conversions).
+No universal obligation is closed. See the [formal README](../formal/README.md)
+for the relation and proof limits.
 
 ### Follow-up boundaries
 

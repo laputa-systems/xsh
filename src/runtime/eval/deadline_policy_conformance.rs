@@ -64,3 +64,42 @@ fn production_matches_lean_deadline_policy() {
     assert_eq!(count, ROWS, "incomplete corpus");
     assert_eq!(seen.len(), ROWS, "incomplete input domain");
 }
+
+#[test]
+fn selection_and_scope_transitions_preserve_deadlines() {
+    let epoch = Instant::now();
+    let mut evaluator = super::Evaluator::new(Vec::new());
+    evaluator.within_deadlines = [(10, 5, false), (20, 3, true), (30, 3, false), (40, 8, false)]
+        .into_iter().map(|(id, tick, delivered)| WithinDeadline {
+            id, at: epoch + Duration::from_secs(tick), limit: Duration::from_secs(id),
+            span: zero_span(), delivered,
+        }).collect();
+    let snapshot = |deadlines: &[WithinDeadline]| deadlines.iter()
+        .map(|d| (d.id, d.at, d.limit, d.span, d.delivered)).collect::<Vec<_>>();
+    let original = snapshot(&evaluator.within_deadlines);
+    let select = |deadlines: &[WithinDeadline], tick| {
+        choose_due_within_deadline(deadlines, epoch + Duration::from_secs(tick))
+            .map(|i| deadlines[i].id)
+    };
+    assert_eq!(select(&evaluator.within_deadlines, 2), None);
+    assert_eq!(select(&evaluator.within_deadlines, 5), Some(30));
+    evaluator.rearm_swallowed_interruptions();
+    let rearmed = snapshot(&evaluator.within_deadlines);
+    assert_eq!(rearmed, original.iter().map(|&(id, at, limit, span, _)|
+        (id, at, limit, span, false)).collect::<Vec<_>>());
+    assert_eq!(select(&evaluator.within_deadlines, 5), Some(20));
+    let saved = evaluator.shield_within_deadlines();
+    assert_eq!(snapshot(&saved), rearmed);
+    assert_eq!(select(&evaluator.within_deadlines, 9), None);
+    evaluator.within_deadlines.push(WithinDeadline {
+        id: 50, at: epoch, limit: Duration::ZERO, span: zero_span(), delivered: false,
+    });
+    assert_eq!(select(&evaluator.within_deadlines, 9), Some(50));
+    evaluator.unshield_within_deadlines(saved);
+    assert_eq!(snapshot(&evaluator.within_deadlines), rearmed);
+    assert_eq!(select(&evaluator.within_deadlines, 5), Some(20));
+    evaluator.close_within_deadline(20);
+    assert_eq!(snapshot(&evaluator.within_deadlines), rearmed.into_iter()
+        .filter(|(id, _, _, _, _)| *id != 20).collect::<Vec<_>>());
+    assert_eq!(select(&evaluator.within_deadlines, 5), Some(30));
+}
