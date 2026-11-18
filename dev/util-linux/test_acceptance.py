@@ -297,6 +297,12 @@ class NativeSuiteParserTests(unittest.TestCase):
             ),
         )
 
+    def test_selector_list_accepts_test_names_without_the_test_prefix(self):
+        self.assertEqual(
+            acceptance._parse_native_selector_list("full-native", b"core/tests/test-nohup.xsh::nohup_ignores_hup\n"),
+            ("core/tests/test-nohup.xsh::nohup_ignores_hup",),
+        )
+
     def test_selector_list_accepts_the_bracket_applet_test_file(self):
         self.assertEqual(
             acceptance._parse_native_selector_list("full-native", b"core/tests/test-[.xsh::test_bracket\n"),
@@ -378,7 +384,8 @@ class NativeSuiteParserTests(unittest.TestCase):
             ("../tests/a.xsh::test_one", "malformed test identity"),
             ("tmp/a.xsh::test_one", "malformed test identity"),
             ("tests/../a.xsh::test_one", "unsafe source path"),
-            ("tests/a.xsh::helper", "malformed test identity"),
+            ("tests/a.xsh::two words", "malformed test identity"),
+            ("tests/a.xsh::9lives", "malformed test identity"),
         ):
             with self.subTest(selector=selector), self.assertRaisesRegex(ValueError, reason):
                 acceptance._parse_native_selector_list("full-native", (selector + "\n").encode())
@@ -390,11 +397,13 @@ class NativeSuiteParserTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text(
                 "test test_skips {\n  test.skip(\"conditional\")\n}\n"
-                "test test_passes {\n  return ()\n}\n",
+                "test test_passes {\n  return ()\n}\n"
+                "test plain_skips {\n  test.skip(\"conditional\")\n}\n",
                 encoding="utf-8",
             )
             self.assertTrue(acceptance.case_declares_skip(root, "tests/xsh/a.xsh::test_skips"))
             self.assertFalse(acceptance.case_declares_skip(root, "tests/xsh/a.xsh::test_passes"))
+            self.assertTrue(acceptance.case_declares_skip(root, "tests/xsh/a.xsh::plain_skips"))
 
     def test_stale_resource_source_is_rejected(self):
         current = acceptance.SourceIdentity("commit", "tree", True)

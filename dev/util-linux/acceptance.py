@@ -46,7 +46,7 @@ HOST_BOUNDARY_FILES = (
 _CASE_DECLARATION = re.compile(r"^test (test_[A-Za-z0-9_]+)\s*\{", re.MULTILINE)
 _NATIVE_SELECTOR = re.compile(
     r"^(?P<path>(?:core/tests|dev/tests|tests|showcase/tests)/[A-Za-z0-9_./\[-]+\.xsh)::"
-    r"(?P<name>test_[A-Za-z0-9_]+)$"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
 )
 _SUMMARY = re.compile(
     r"test result: (?P<result>ok|FAILED)\. (?P<passed>\d+) passed; "
@@ -248,7 +248,7 @@ def case_declares_skip(root: Path, selector: str) -> bool:
     )
     if declaration is None:
         raise ValueError(f"native skip selector is not declared by its source: {selector}")
-    following = re.search(r"^test test_[A-Za-z0-9_]+\s*\{", source[declaration.end():], re.MULTILINE)
+    following = re.search(r"^test [A-Za-z_][A-Za-z0-9_]*\s*\{", source[declaration.end():], re.MULTILINE)
     end = declaration.end() + following.start() if following is not None else len(source)
     return _DECLARED_SKIP.search(source[declaration.start():end]) is not None
 
