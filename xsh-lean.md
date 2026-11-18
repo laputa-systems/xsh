@@ -58,9 +58,6 @@ acceptance does not wait for this campaign.
   bits, IEEE value equality and the total order. BASE-ENV, BASE-NUM,
   BASE-STEP, BASE-PROGRESS and BASE-RUNNER close only when their theorems hold
   for the frozen core's syntax, values and host request families.
-- The record-update fragment models the checker's path-prefix overlap rule.
-  `docs/SPEC.md` does not state that rule. Add it to the SPEC template or
-  record an owner decision.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
   `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
   correspondence.

@@ -2026,8 +2026,10 @@ narrows it.
 - **Functional update.** `{...config, build.jobs: 8, build.flags.debug: true}`
   copies `config` and replaces existing nested fields. It requires exactly one
   leading spread of a known record, and every path must name an existing field
-  of the same type. The base evaluates once; replacements evaluate in order and
-  publish nothing on failure.
+  of the same type. Paths must be disjoint: none may repeat another or extend
+  it, so `build` and `build.jobs` in one update are
+  `check.record-update-overlap`. The base evaluates once; replacements evaluate
+  in order and publish nothing on failure.
 
 ### 6.5 Comprehensions
 
