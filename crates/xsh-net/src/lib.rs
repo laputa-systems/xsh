@@ -1874,12 +1874,6 @@ fn temp_download_path(dest: &Path) -> PathBuf {
     dest.with_file_name(name)
 }
 
-#[cfg(target_os = "macos")]
-fn load_ca_certs(path: &Path) -> NetResult<Vec<CertificateDer<'static>>> {
-    let pem = fs::read(path).map_err(|error| NetError::from_io("net-ca-certificate", error))?;
-    trust::parse_root_bundle(&pem)
-}
-
 /// Classifies an I/O failure while establishing a connection. Anything that is
 /// not a timeout, a name-resolution failure or a TLS problem is a failure to
 /// connect: refused, unreachable, or no route.
@@ -1928,17 +1922,6 @@ fn tls_config_for_key(key: &NetAgentKey, trust: Arc<trust::TrustGuard>) -> NetRe
     Ok(config)
 }
 
-#[cfg(target_os = "macos")]
-fn roots_from_file(path: &Path) -> NetResult<RootCertStore> {
-    let mut roots = RootCertStore::empty();
-    for cert in load_ca_certs(path)? {
-        roots
-            .add(cert)
-            .map_err(|error| NetError::new("net-ca-certificate", error.to_string()))?;
-    }
-    Ok(roots)
-}
-
 fn default_tls_verifier(
     system_ca_file: Option<&Path>,
     trust: Arc<trust::TrustGuard>,
@@ -1946,10 +1929,7 @@ fn default_tls_verifier(
     #[cfg(target_os = "macos")]
     {
         match system_ca_file {
-            Some(path) => {
-                roots_from_file(path)?;
-                Ok(Arc::new(LazyTrustRootsVerifier::new(Arc::new(default_provider()), trust)))
-            },
+            Some(_) => Ok(Arc::new(LazyTrustRootsVerifier::new(Arc::new(default_provider()), trust))),
             None => rustls_platform_verifier::Verifier::new(Arc::new(default_provider()))
                 .map(|verifier| Arc::new(verifier) as Arc<dyn ServerCertVerifier>)
                 .map_err(|error| NetError::new("net-tls", error.to_string())),
