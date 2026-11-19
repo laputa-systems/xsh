@@ -81,18 +81,6 @@ pure reversed_names(names: List[Str]) -> List[Str] {
   [names[names.len() - index - 1] for index in range(names.len())]
 }
 
-proc locale_available(s: uu.Scene, name: Str) [fs, process, error] -> Result[Bool, Error] {
-  let executable = process.which("locale")
-  if let Err(_) = executable { return Ok(false) }
-  let captures = test.temp_dir(s.ctx, name: "locale-check")?
-  let out = fp"{captures}/stdout"
-  let err = fp"{captures}/stderr"
-  let status = process.run(process.command_argv(executable?, ["locale", "-a"], s.root, stdout: out, stderr: err, timeout: 2s))?
-  return Ok(false) unless status.exited_with(0)
-  let wanted = name.replace("-", with: "").lower()
-  Ok(wanted in [line.replace("-", with: "").lower() for line in out.read_lines()?])
-}
-
 # origin: uutils test_ls::test_ls_deref_command_line_dir
 test test_uu_ls_ls_deref_command_line_dir { |ctx|
   let s = uu.scene(ctx)?
@@ -1504,7 +1492,7 @@ test test_uu_ls_ls_order_time { |ctx|
   }
 }
 
-# origin: uutils test_ls::test_ls_order_time_breaks_ties_by_name
+# origin: uutils test_ls::test_ls_order_time_breaks_ties_by_name, which expects glibc collation; XSH ls orders names bytewise in every locale
 test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
   let s = uu.scene(ctx)?
   let names = ["zulu", "alpha", "Mike", "bravo"]
@@ -1520,10 +1508,10 @@ test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
   uu.succeeds(r)
   uu.stdout_only(r, "zulu\nbravo\nalpha\nMike\n")
   }
-  if locale_available(s, "en_US.UTF-8") {
+  {
   let r = invoke(s, ["-t"], vars: {LC_ALL: "en_US.UTF-8"})?
   uu.succeeds(r)
-  uu.stdout_only(r, "alpha\nbravo\nMike\nzulu\n")
+  uu.stdout_only(r, "Mike\nalpha\nbravo\nzulu\n")
   }
 }
 

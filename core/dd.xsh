@@ -753,8 +753,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     }
   }
   let complete = [record for record in records if record.len() == opts.ibs].len()
-  let case_locale = (e"LC_ALL" ?? e"LC_CTYPE" ?? e"LANG" ?? "").lower().replace("-", with: "")
-  let latin1 = system.uname()?.sysname == "Darwin" and "iso88591" in case_locale
+  let named = [value for value in [e"LC_ALL" ?? "", e"LC_CTYPE" ?? "", e"LANG" ?? ""] if value != ""]
+  let latin1 = ! named.is_empty() and "iso88591" in named[0].lower().replace("-", with: "").replace("_", with: "")
   let converted = transform(records, opts, latin1)?
   var written = 0
   var write_failure = null
