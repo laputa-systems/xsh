@@ -23,7 +23,8 @@ proc tty_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resul
   let words = uu.argv(s, "chmod", [fp"{word}" for word in args])?
   let quoted = ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words]
   let command = quoted.join(" ") + " > '" + stdout.display().replace("'", with: "'\\''") + "'"
-  let status = process.run(process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root, {}, b"", stderr, outer_error))?
+  let script_args = if system.uname()?.sysname == "Linux" { ["script", "-q", "-e", "-c", command, "/dev/null"] } else { ["script", "-q", "-e", "/dev/null", "/bin/sh", "-c", command] }
+  let status = process.run(process.command_argv(p"/usr/bin/script", script_args, s.root, {}, b"", stderr, outer_error))?
   assert outer_error.read_bytes()? == b"", "PTY wrapper failed"
   Ok({util: "chmod", args: args, status: status.exit_code()?, stdout: stdout.read_bytes()?, stderr: stderr.read_bytes()?})
 }
@@ -172,11 +173,12 @@ test test_uu_chmod_chmod_no_dereference_symlink { |ctx|
   let s = uu.scene(ctx)?
   make_file(s, "file", 0o664)
   absolute_link(s, "file", "symlink")
+  let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode.bit_or(0o100) }
   let r = uu.invoke(s, "chmod", ["--no-dereference", "u+x", "symlink"])?
   uu.succeeds(r)
   uu.no_stderr(r)
   assert fs.stat(uu.at(s, "file"))?.mode == 0o100664
-  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == 0o120777
+  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == link_mode
 }
 
 # origin: uutils test_chmod::test_chmod_non_existing_file
@@ -507,10 +509,11 @@ test test_uu_chmod_chmod_symlink_non_existing_file_recursive { |ctx|
 test test_uu_chmod_chmod_symlink_recursive_final_traversal_flag { |ctx|
   let s = uu.scene(ctx)?
   absolute_link(s, "nonexistent_file", "symlink")
+  let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode }
   let r = uu.invoke(s, "chmod", ["755", "-R", "-H", "-L", "-H", "-L", "-P", "symlink"])?
   uu.succeeds(r)
   uu.no_output(r)
-  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == 0o120777
+  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == link_mode
 }
 
 # origin: uutils test_chmod::test_chmod_symlink_target_no_dereference
@@ -528,10 +531,11 @@ test test_uu_chmod_chmod_symlink_target_no_dereference { |ctx|
 test test_uu_chmod_chmod_symlink_to_dangling_recursive_no_traverse { |ctx|
   let s = uu.scene(ctx)?
   absolute_link(s, "nonexistent_file", "symlink")
+  let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode }
   let r = uu.invoke(s, "chmod", ["755", "-R", "-P", "symlink"])?
   uu.succeeds(r)
   uu.no_output(r)
-  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == 0o120777
+  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == link_mode
 }
 
 # origin: uutils test_chmod::test_chmod_symlink_to_dangling_target_dereference
@@ -568,11 +572,12 @@ test test_uu_chmod_chmod_traverse_symlink_combo { |ctx|
     uu.mkdir(s, "dir")
     make_file(s, "file", 0o664)
     absolute_link(s, "file", "dir/symlink")
+    let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "dir/symlink"), follow_symlinks: false)?.mode }
     let r = uu.invoke(s, "chmod", row.flags.extend(["u+x", "dir"]), umask: 0o022)?
     uu.succeeds(r)
     uu.no_stderr(r)
     assert fs.stat(uu.at(s, "file"))?.mode == row.after
-    assert fs.stat(uu.at(s, "dir/symlink"), follow_symlinks: false)?.mode == 0o120777
+    assert fs.stat(uu.at(s, "dir/symlink"), follow_symlinks: false)?.mode == link_mode
   }
 }
 

@@ -1,5 +1,6 @@
 ##! Native ports of the uutils timeout integration tests.
 use support.uu
+use support.requires
 
 # timeout may terminate itself with KILL when it signals the entire process group.
 # Shell status preserves that observable result as 128 plus the signal number.
@@ -195,6 +196,7 @@ test test_uu_timeout_preserve_status_even_when_send_signal { |ctx|
 
 # origin: uutils test_timeout::test_realtime_signal_names
 test test_uu_timeout_realtime_signal_names { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   for item in [{signal: "RTMAX", name: "RTMAX"}, {signal: "RTMIN", name: "RTMIN"}, {signal: "SIGRTMAX", name: "RTMAX"}] {
     let r = invoke(s, ["-v", "-s", item.signal, ".1", "sleep", "1"])?

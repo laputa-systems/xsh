@@ -65,6 +65,7 @@ test test_uu_cp_cp_sparse_never_empty { |ctx|
 
 # origin: uutils test_cp::test_cp_stream_to_full
 test test_uu_cp_cp_stream_to_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["/dev/zero", "/dev/full"], timeout: 10s)?
   uu.fails(r)
@@ -253,6 +254,7 @@ test test_uu_cp_cp_writable_special_file_permissions { |ctx|
 
 # origin: uutils test_cp::test_cp_zero_sized_virtual_file_contents
 test test_uu_cp_cp_zero_sized_virtual_file_contents { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs version file")
   let expected = p"/proc/version".read_text()?
   assert expected != ""
   for extra in [[], ["--sparse=never"], ["--sparse=always"], ["--sparse=auto"], ["--reflink=never"], ["--reflink=never", "--sparse=always"]] {
@@ -327,6 +329,7 @@ test test_uu_cp_non_utf8_src { |ctx|
 
 # origin: uutils test_cp::test_non_utf8_dest
 test test_uu_cp_non_utf8_dest { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
   let name = b"\xff\xffdest" as Path

@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_truncate.rs.
 
 use support.uu
+use support.requires
 
 # A bounded reader owns the pipe diagnostic bytes and reaps the child process.
 proc pipe_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -55,7 +56,8 @@ test test_uu_truncate_fifo_fifo_error_reference_and_size { |ctx|
   let r = uu.invoke(s, "truncate", ["-r", "reference_file", "-s", "+0", "fifo"])?
   uu.fails(r)
   uu.no_stdout(r)
-  uu.stderr_contains(r, "cannot open 'fifo' for writing: No such device or address")
+  let expected = if system.uname()?.sysname == "Linux" { "cannot open 'fifo' for writing: No such device or address" } else { "cannot open 'fifo' for writing: Device not configured" }
+  uu.stderr_contains(r, expected)
 }
 
 # origin: uutils test_truncate::fifo::test_fifo_error_reference_file_only
@@ -66,7 +68,8 @@ test test_uu_truncate_fifo_fifo_error_reference_file_only { |ctx|
   let r = uu.invoke(s, "truncate", ["-r", "reference_file", "fifo"])?
   uu.fails(r)
   uu.no_stdout(r)
-  uu.stderr_contains(r, "cannot open 'fifo' for writing: No such device or address")
+  let expected = if system.uname()?.sysname == "Linux" { "cannot open 'fifo' for writing: No such device or address" } else { "cannot open 'fifo' for writing: Device not configured" }
+  uu.stderr_contains(r, expected)
 }
 
 # origin: uutils test_truncate::fifo::test_fifo_error_size_only
@@ -76,7 +79,8 @@ test test_uu_truncate_fifo_fifo_error_size_only { |ctx|
   let r = uu.invoke(s, "truncate", ["-s", "0", "fifo"])?
   uu.fails(r)
   uu.no_stdout(r)
-  uu.stderr_contains(r, "cannot open 'fifo' for writing: No such device or address")
+  let expected = if system.uname()?.sysname == "Linux" { "cannot open 'fifo' for writing: No such device or address" } else { "cannot open 'fifo' for writing: Device not configured" }
+  uu.stderr_contains(r, expected)
 }
 
 # origin: uutils test_truncate::test_at_least_grows
@@ -382,6 +386,7 @@ test test_uu_truncate_reference_file_not_found { |ctx|
 
 # origin: uutils test_truncate::test_reference_non_utf8_path
 test test_uu_truncate_reference_non_utf8_path { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "truncate_test_2")
   let reference = b"test_\xff\xfe.txt" as Path
@@ -524,6 +529,7 @@ test test_uu_truncate_truncate_bytes_size { |ctx|
 
 # origin: uutils test_truncate::test_truncate_non_utf8_paths
 test test_uu_truncate_truncate_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.write(s, "test_��.txt", "test content")
   let filename = b"test_\xff\xfe.txt" as Path
