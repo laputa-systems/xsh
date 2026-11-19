@@ -224,9 +224,10 @@ test test_kill_list_prints_one_name_per_line_from_exit { |ctx|
   assert result.stdout.ends_with("\n")
   let names = result.stdout.trim().split("\n")
   assert names[0] == "EXIT"
-  for expected in ["HUP", "INT", "KILL", "TERM", "CHLD", "RTMIN", "RTMAX"] {
+  for expected in ["HUP", "INT", "KILL", "TERM", "CHLD"] {
     assert expected in names, expected
   }
+  if system.uname()?.sysname == "Linux" { assert "RTMIN" in names and "RTMAX" in names }
 
   assert names == [entry.name for entry in process.signals()]
   assert kill_run(ctx, ["--list"])?.stdout == result.stdout
@@ -249,13 +250,15 @@ test test_kill_list_converts_between_names_and_numbers { |ctx|
   assert kill_run(ctx, ["-l", "KiLl"])?.stdout == "9\n"
   assert kill_run(ctx, ["-l", "SIGTERM"])?.stdout == "15\n"
   assert kill_run(ctx, ["--list", "INT", "KILL"])?.stdout == "2\n9\n"
-  assert kill_run(ctx, ["-l", "IO"])?.stdout == "29\n"
-  assert kill_run(ctx, ["-l", "SIGIO"])?.stdout == "29\n"
+  let io_number = if system.uname()?.sysname == "Linux" { "29\n" } else { "23\n" }
+  assert kill_run(ctx, ["-l", "IO"])?.stdout == io_number
+  assert kill_run(ctx, ["-l", "SIGIO"])?.stdout == io_number
   assert kill_run(ctx, ["-l", "0"])?.stdout == "EXIT\n"
   assert kill_run(ctx, ["-l", "--", "KILL"])?.stdout == "9\n"
-  assert kill_run(ctx, ["-l", "RTMAX"])?.stdout == f"{last_signal()}\n"
-  # Numbers without a name print as themselves.
-  assert kill_run(ctx, ["-l", "32", "33"])?.stdout == "32\n33\n"
+  if system.uname()?.sysname == "Linux" {
+    assert kill_run(ctx, ["-l", "RTMAX"])?.stdout == f"{last_signal()}\n"
+    assert kill_run(ctx, ["-l", "32", "33"])?.stdout == "32\n33\n"
+  }
 }
 
 test test_kill_list_accepts_wait_statuses { |ctx|
@@ -316,6 +319,7 @@ test test_kill_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_kill_realtime_aliases_list_and_probe_the_same_signal { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no real-time signals"); return }
   let number = process.signal("RTMIN+1")?.number
   let listed = kill_run(ctx, ["-l", "SIGRTMIN+1", f"{number}"])?
   assert listed.status == 0
