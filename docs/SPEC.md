@@ -6997,7 +6997,9 @@ let text = notes.replace("DRAFT", with: "FINAL")
   (`defer` actions run), so a call never returns as if the wait had timed
   out. A signal that needs no handling does not end the wait. The timeout of
   `poll_fds` is a `Duration?`; `null` waits indefinitely, and an idle wait
-  makes no periodic wakeups. `unix.read_utmp`
+  makes no periodic wakeups. On macOS, a `poll` already waiting on a FIFO can
+  miss the readiness transition from a blocking write larger than the FIFO
+  buffer; a subsequent poll can observe the buffered bytes. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
 - `unix.connect_stream(path, timeout)` connects a filesystem Unix stream socket
