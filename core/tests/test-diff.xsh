@@ -159,10 +159,10 @@ proc check(ctx: TestContext, root: Path, entry: Recorded) [fs, process, error] -
 
 # Run every recorded case whose id starts with `prefix` and fail with the
 # differences of up to three of them.
-proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] {
+proc run_group(ctx: TestContext, prefix: Str, excluded: List[Str] = []) [fs, process, error] {
   let root = fixtures(ctx, f"diff-{prefix}")?
   let all = load(fp"{ctx.core_dir}/tests/data/diff/cases.txt")?
-  let chosen = [item for item in all if item.id.starts_with(prefix + "_")]
+  let chosen = [item for item in all if item.id.starts_with(prefix + "_") and !(item.id in excluded)]
   assert !chosen.is_empty(), f"no recorded cases for {prefix}"
   let verdicts = chosen |> par-map(jobs: 8) { |item| check(ctx, root, item) } |> collect()
   let failures = [text for text in verdicts if text != ""]
@@ -206,11 +206,23 @@ test test_diff_recorded_search_heuristics { |ctx|
 }
 
 test test_diff_recorded_directories_and_operands { |ctx|
-  run_group(ctx, "dir")
+  run_group(ctx, "dir", ["dir_173"])
   run_group(ctx, "opd")
   run_group(ctx, "exc")
   run_group(ctx, "stf")
   run_group(ctx, "srt")
+}
+
+test test_diff_recorded_case_distinct_directories { |ctx|
+  let probe = test.temp_dir(ctx, name: "diff-case-probe")?
+  fp"{probe}/Case".write("")
+  if fp"{probe}/case".exists()? { test.skip("the filesystem is case-insensitive"); return }
+  let root = fixtures(ctx, "diff-case-distinct")?
+  let all = load(fp"{ctx.core_dir}/tests/data/diff/cases.txt")?
+  let chosen = [item for item in all if item.id == "dir_173"]
+  assert chosen.len() == 1
+  let failure = check(ctx, root, chosen[0])
+  assert failure == "", failure
 }
 
 test test_diff_recorded_standard_input { |ctx|
