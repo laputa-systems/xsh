@@ -2708,6 +2708,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
 }
 
 test test_system_report_fixture_command_caches_nested_test_results { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("system report fixture runner requires Linux"); return }
   let scratch = fs.tempdir()?
   defer scratch.close()
   let tools = fs.tempdir()?

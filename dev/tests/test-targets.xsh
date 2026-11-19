@@ -845,6 +845,7 @@ printf '%s\\n' "$@" > "$XSH_LINKER_ARGS"
 }
 
 test test_gate_docker_uses_linked_worktree_common_dir_despite_git_overrides { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-linked-git")?
   let source = fp"{root}/source"
