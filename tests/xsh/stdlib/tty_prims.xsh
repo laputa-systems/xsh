@@ -268,7 +268,8 @@ test test_tty_modes_follow_stty_definitions {
   }
 
   assert cooked.control_chars[char_named(table, "eof").index] == 4
-  assert cooked.control_chars[char_named(table, "eol").index] == 0
+  let eol = char_named(table, "eol")
+  assert cooked.control_chars[eol.index] == eol.sane
   assert cooked.crnl
 
   let cbreak = unix.tty_mode(start, "cbreak")?

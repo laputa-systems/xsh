@@ -588,7 +588,9 @@ test test_copy_file_sparse_always_turns_zero_blocks_into_holes { |ctx|
     return
   }
 
-  assert kept.len() == 1
+  # APFS keeps the final partial block of a file as data.
+  let tail = if system.uname()?.sysname == "Darwin" { [{offset: 2097152, length: 4}] } else { [] }
+  assert kept[1..] == tail
   assert kept[0].offset >= 1048576 - 4096
   assert fs.stat(dest)?.blocks_512 * 512 < 1048576
 }
