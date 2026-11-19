@@ -55,6 +55,7 @@ proc cleanup_other(target: Path) [fs, error] {
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_dir_with_fifo_across_partitions
 test test_uu_mv_inter_partition_copying_mv_dir_with_fifo_across_partitions { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -69,6 +70,7 @@ test test_uu_mv_inter_partition_copying_mv_dir_with_fifo_across_partitions { |ct
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_inter_partition_keeps_setuid_when_ownership_preserved
 test test_uu_mv_inter_partition_copying_mv_inter_partition_keeps_setuid_when_ownership_preserved { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -80,6 +82,7 @@ test test_uu_mv_inter_partition_copying_mv_inter_partition_keeps_setuid_when_own
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_preserves_complex_hardlinks_across_nested_directories
 test test_uu_mv_inter_partition_copying_mv_preserves_complex_hardlinks_across_nested_directories { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -122,6 +125,7 @@ test test_uu_mv_inter_partition_copying_mv_preserves_complex_hardlinks_across_ne
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_preserves_hardlinks_across_partitions
 test test_uu_mv_inter_partition_copying_mv_preserves_hardlinks_across_partitions { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -143,6 +147,7 @@ test test_uu_mv_inter_partition_copying_mv_preserves_hardlinks_across_partitions
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_preserves_hardlinks_in_directories_across_partitions
 test test_uu_mv_inter_partition_copying_mv_preserves_hardlinks_in_directories_across_partitions { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
