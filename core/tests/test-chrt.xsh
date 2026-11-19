@@ -68,6 +68,7 @@ proc can_use_real_time() [process, error] -> Result[Bool] {
 }
 
 test test_chrt_max_lists_every_policys_priority_range { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let result = chrt_run(ctx, ["-m"])?
   assert result.status == 0, result.stderr
   assert result.stderr == ""
@@ -89,6 +90,7 @@ test test_chrt_max_lists_every_policys_priority_range { |ctx|
 }
 
 test test_chrt_reports_the_policy_of_a_process { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
@@ -111,6 +113,7 @@ test test_chrt_reports_the_policy_of_a_process { |ctx|
 }
 
 test test_chrt_changes_the_policy_of_another_process { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
@@ -151,6 +154,7 @@ test test_chrt_changes_the_policy_of_another_process { |ctx|
 }
 
 test test_chrt_runs_a_command_under_the_policy { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let command = reporter(ctx)?
 
   let batch = chrt_run(ctx, ["-b", "0"].extend(command))?
@@ -178,6 +182,7 @@ test test_chrt_runs_a_command_under_the_policy { |ctx|
 }
 
 test test_chrt_time_slice_reaches_the_fair_policies { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
@@ -200,6 +205,7 @@ test test_chrt_time_slice_reaches_the_fair_policies { |ctx|
 }
 
 test test_chrt_real_time_policies_need_privilege { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   if can_use_real_time() {
     test.skip("this process may use real-time policies")
   }
@@ -277,6 +283,7 @@ test test_chrt_operand_errors { |ctx|
   ]
 
   for case in errors {
+    if system.uname()?.sysname != "Linux" and case.args == ["-p", "2147483647"] { test.skip("chrt requires Linux process scheduling APIs"); return }
     let result = chrt_run(ctx, case.args)?
     assert result.status in [1, 127], case.args.join(" ")
     assert result.stdout == "", case.args.join(" ")
@@ -285,6 +292,7 @@ test test_chrt_operand_errors { |ctx|
 }
 
 test test_chrt_deadline_reservations_reach_the_kernel_unchanged { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   # A runtime below the kernel's minimum is refused whoever asks, so the
   # kernel's EINVAL shows that the three times were passed on.
   let refused = chrt_run(ctx, ["-d", "-T", "1", "-D", "2", "-P", "3", "true"])?
@@ -302,6 +310,7 @@ test test_chrt_deadline_reservations_reach_the_kernel_unchanged { |ctx|
 }
 
 test test_chrt_all_tasks_needs_the_process_to_exist { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   # A query of a missing process lists no tasks and reports nothing.
   let query = chrt_run(ctx, ["-a", "-p", "2147483647"])?
   assert query.status == 0
@@ -322,6 +331,7 @@ test test_chrt_all_tasks_needs_the_process_to_exist { |ctx|
 }
 
 test test_chrt_stops_reading_options_at_the_first_operand { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let missing = chrt_run(ctx, ["-o", "0", "-p", "1"])?
   assert missing.status == 127
   assert missing.stderr == "chrt: failed to execute -p: No such file or directory\n", missing.stderr
@@ -332,6 +342,7 @@ test test_chrt_stops_reading_options_at_the_first_operand { |ctx|
 }
 
 test test_chrt_command_arguments_and_status_pass_through { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   let echoed = chrt_run(ctx, ["-o", "0", "echo", "-p", "5", "-f"])?
   assert echoed.stdout == "-p 5 -f\n"
 
