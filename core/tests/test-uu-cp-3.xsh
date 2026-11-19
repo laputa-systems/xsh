@@ -186,7 +186,8 @@ test test_uu_cp_cp_debug_reflink_never_file_with_hole { |ctx|
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE" } else { "copy offload: avoided, reflink: no, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_reflink_never_less_than_512_bytes
@@ -347,7 +348,8 @@ test test_uu_cp_cp_debug_sparse_never_file_with_hole { |ctx|
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE" } else { "copy offload: avoided, reflink: no, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_sparse_never_less_than_512_bytes
