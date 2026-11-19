@@ -306,8 +306,9 @@ test test_env_ignored_signal_survives_xsh_startup { |ctx|
 }
 
 test test_env_lists_signal_actions_and_restores_defaults { |ctx|
-  let result = env_run(ctx, ["--ignore-signal=USR1,USR2", "--list-signal-handling", "/bin/true"])?
-  let restored = env_run(ctx, ["--ignore-signal=USR1,USR2", "--default-signal=USR1", "--list-signal-handling", "/bin/true"])?
+  let command = if system.uname()?.sysname == "Linux" { "/bin/true" } else { "/usr/bin/true" }
+  let result = env_run(ctx, ["--ignore-signal=USR1,USR2", "--list-signal-handling", command])?
+  let restored = env_run(ctx, ["--ignore-signal=USR1,USR2", "--default-signal=USR1", "--list-signal-handling", command])?
 
   assert result.status == 0, result.stderr
   assert "USR1" in result.stderr
@@ -319,8 +320,9 @@ test test_env_lists_signal_actions_and_restores_defaults { |ctx|
 }
 
 test test_env_resets_all_signal_actions { |ctx|
-  let ignored = env_run(ctx, ["--ignore-signal", "--list-signal-handling", "/bin/true"])?
-  let restored = env_run(ctx, ["--ignore-signal", "--default-signal", "--list-signal-handling", "/bin/true"])?
+  let command = if system.uname()?.sysname == "Linux" { "/bin/true" } else { "/usr/bin/true" }
+  let ignored = env_run(ctx, ["--ignore-signal", "--list-signal-handling", command])?
+  let restored = env_run(ctx, ["--ignore-signal", "--default-signal", "--list-signal-handling", command])?
 
   assert ignored.status == 0, ignored.stderr
   assert "IGNORE" in ignored.stderr
