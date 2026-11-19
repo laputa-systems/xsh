@@ -27,6 +27,7 @@ test test_procps_pid_lists_reject_bad_ids {
 }
 
 test test_procps_cli_selects_owned_child { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let ready = test.temp_path(ctx, name: "owned-child.ready")
   let release = test.temp_path(ctx, name: "owned-child.release")
   let fixture = test.temp_file(ctx, name: "owned-child.xsh", contents: bytes.from_text("""
@@ -74,6 +75,7 @@ test test_procps_cli_reports_no_matches { |ctx|
 }
 
 test test_free_renders_memory_units_and_bounded_samples { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("free requires Linux /proc/meminfo fields"); return }
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/free.xsh" -- -m
   assert "Mem:" in output and "Swap:" in output and "available" in output
   let samples = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/free.xsh" -- -h -s 0.01 -c 2
@@ -96,6 +98,7 @@ test test_procps_cpu_sampling_counts_ticks_and_rejects_reset {
 }
 
 test test_procps_sampling_tools_render_bounded_samples { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   for tool in ["vmstat", "iostat", "pidstat"] {
     let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/{tool}.xsh" -- 0.01 2
     assert ! output.trim().is_empty(), tool
@@ -108,6 +111,7 @@ test test_procps_sampling_tools_render_bounded_samples { |ctx|
 
 
 test test_procps_sampling_native_fixture_retains_units {
+  if system.uname()?.sysname != "Linux" { test.skip("linux.sample requires Linux /proc sampling"); return }
   let root = fs.tempdir()?
     root.write(p"stat", "cpu 20 5 10 50 5 4 4 2\nbtime 1000\nctxt 100\nprocesses 30\nprocs_running 2\nprocs_blocked 1\nintr 50 0 0\n")
   root.write(p"vmstat", "pgpgin 10\npgpgout 20\npswpin 3\npswpout 4\n")
@@ -123,6 +127,7 @@ test test_procps_sampling_native_fixture_retains_units {
 }
 
 test test_procps_inspection_finds_owned_directory_descriptor { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let root = fs.tempdir()?
     let directory = root.host_path()?
   let pid = process.current_pid()?
@@ -138,6 +143,7 @@ test test_procps_inspection_finds_owned_directory_descriptor { |ctx|
 
 
 test test_ps_orders_secondary_keys_within_primary_ties { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ps.xsh" -- -e -o uid=,pid= --sort uid,-pid
   var previous_uid = -1
   var previous_pid = 9223372036854775807
@@ -230,7 +236,7 @@ test test_pkill_signals_only_the_named_child { |ctx|
   let sent = pkill(ctx, ["-USR1", "-x", target.name])?
   assert sent.status.exited_with(0)
   let status = wait target.child?
-  assert status.signaled() and status.signal_number()? == 10
+  assert status.signaled() and status.signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   assert alive(bystander.pid)
 }
 
@@ -266,12 +272,12 @@ test test_pkill_counts_matches_and_selects_newest_or_oldest { |ctx|
   let counted = pkill(ctx, ["--signal", "0", "-c", "-x", first.name])?
   assert counted.status.exited_with(0) and counted.stdout.trim() == "2"
   assert pkill(ctx, ["-USR1", "-n", "-x", first.name])?.status.exited_with(0)
-  assert (wait second.child?).signal_number()? == 10
+  assert (wait second.child?).signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   assert alive(first.pid)
   let third = start_sleeper(ctx, "n")?
   defer stop(third)
   assert pkill(ctx, ["-USR1", "-o", "-x", first.name])?.status.exited_with(0)
-  assert (wait first.child?).signal_number()? == 10
+  assert (wait first.child?).signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   assert alive(third.pid)
 }
 
@@ -336,9 +342,10 @@ test test_killall_signals_exact_names_and_reports_the_signal_number { |ctx|
   assert alive(target.pid)
   let sent = killall(ctx, ["-v", "-s", "USR1", target.name])?
   assert sent.status.exited_with(0)
-  assert sent.stderr.trim() == f"Killed {target.name}({target.pid}) with signal 10"
+  let usr1 = if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number }
+  assert sent.stderr.trim() == f"Killed {target.name}({target.pid}) with signal {usr1}"
   let status = wait target.child?
-  assert status.signaled() and status.signal_number()? == 10
+  assert status.signaled() and status.signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   assert alive(bystander.pid)
 }
 
@@ -357,7 +364,7 @@ test test_killall_missing_names_fail_after_signaling_the_rest { |ctx|
   let mixed = killall(ctx, ["-s", "USR1", absent, target.name])?
   assert mixed.status.exited_with(1)
   assert f"{absent}: no process found" in mixed.stderr
-  assert (wait target.child?).signal_number()? == 10
+  assert (wait target.child?).signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   let quiet = killall(ctx, ["-q", absent])?
   assert quiet.status.exited_with(1) and quiet.stderr.is_empty()
   assert killall(ctx, [])?.status.exited_with(1)
@@ -391,6 +398,7 @@ proc fuser(ctx: TestContext, args: List[Str]) [process, error] -> Result[Capture
 }
 
 test test_fuser_lists_the_holders_of_a_file { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let held = test.temp_file(ctx, name: "held.txt", contents: bytes.from_text("held"))?
   let idle = test.temp_file(ctx, name: "idle.txt", contents: bytes.from_text("idle"))?
   let holder = start_sleeper(ctx, "h", reading: held)?
@@ -407,6 +415,7 @@ test test_fuser_lists_the_holders_of_a_file { |ctx|
 }
 
 test test_fuser_verbose_table_shows_user_pid_access_and_command { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let read_path = test.temp_file(ctx, name: "read.txt", contents: bytes.from_text("r"))?
   let write_path = test.temp_file(ctx, name: "write.txt", contents: bytes.from_text("w"))?
   let reader = start_sleeper(ctx, "r", reading: read_path)?
@@ -425,6 +434,7 @@ test test_fuser_verbose_table_shows_user_pid_access_and_command { |ctx|
 }
 
 test test_fuser_reports_executable_holders_with_access_letters { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let holder = start_sleeper(ctx, "e")?
   defer stop(holder)
   let table = fuser(ctx, ["-v", f"{ctx.xsh_bin}"])?
@@ -437,6 +447,7 @@ test test_fuser_reports_executable_holders_with_access_letters { |ctx|
 }
 
 test test_fuser_silent_all_and_usage_statuses { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let held = test.temp_file(ctx, name: "held.txt", contents: bytes.from_text("h"))?
   let idle = test.temp_file(ctx, name: "idle.txt", contents: bytes.from_text("i"))?
   let holder = start_sleeper(ctx, "h", reading: held)?
@@ -454,6 +465,7 @@ test test_fuser_silent_all_and_usage_statuses { |ctx|
 }
 
 test test_fuser_mount_lists_holders_of_the_whole_filesystem { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let held = test.temp_file(ctx, name: "held.txt", contents: bytes.from_text("h"))?
   let sibling = test.temp_file(ctx, name: "sibling.txt", contents: bytes.from_text("s"))?
   let holder = start_sleeper(ctx, "h", reading: held)?
@@ -466,6 +478,7 @@ test test_fuser_mount_lists_holders_of_the_whole_filesystem { |ctx|
 }
 
 test test_fuser_kill_sends_the_requested_signal_to_holders_only { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let first = test.temp_file(ctx, name: "first.txt", contents: bytes.from_text("1"))?
   let second = test.temp_file(ctx, name: "second.txt", contents: bytes.from_text("2"))?
   let target = start_sleeper(ctx, "t", reading: first)?
@@ -474,7 +487,7 @@ test test_fuser_kill_sends_the_requested_signal_to_holders_only { |ctx|
   defer stop(bystander)
   let sent = fuser(ctx, ["-k", "-USR1", f"{first}"])?
   assert sent.status.exited_with(0)
-  assert (wait target.child?).signal_number()? == 10
+  assert (wait target.child?).signal_number()? == (if system.uname()?.sysname == "Linux" { 10 } else { process.signal("USR1")?.number })
   assert fuser(ctx, ["-k", f"{second}"])?.status.exited_with(0)
   assert (wait default_target.child?).signal_number()? == 9, "SIGKILL is the default"
   assert alive(bystander.pid)
@@ -484,6 +497,7 @@ test test_fuser_kill_sends_the_requested_signal_to_holders_only { |ctx|
 # in the host TCP table. Descriptors of other kinds must not be matched to it,
 # so lsof still lists a held regular file as REG and never as sock.
 test test_lsof_lists_a_regular_file_as_reg_while_tcp_time_wait_rows_exist { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let c = linux.net_constants()
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
@@ -508,6 +522,7 @@ test test_lsof_lists_a_regular_file_as_reg_while_tcp_time_wait_rows_exist { |ctx
 }
 
 test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fuser requires Linux process open-file and socket observations"); return }
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
@@ -558,6 +573,7 @@ pure data_rows(text: Str) -> List[Str] {
 }
 
 test test_iostat_prints_cpu_and_device_blocks_for_each_report { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let output = sample_tool(ctx, "iostat", ["0.01", "2"])?
   assert output.status.exited_with(0)
   let lines = output.stdout.lines()
@@ -588,6 +604,7 @@ test test_iostat_prints_cpu_and_device_blocks_for_each_report { |ctx|
 }
 
 test test_iostat_selects_blocks_and_units_with_options { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let cpu_only = sample_tool(ctx, "iostat", ["-c", "0.01", "1"])?
   assert cpu_only.status.exited_with(0) and "avg-cpu:" in cpu_only.stdout and "Device" not in cpu_only.stdout
   let devices_only = sample_tool(ctx, "iostat", ["-d", "0.01", "1"])?
@@ -603,6 +620,7 @@ test test_iostat_selects_blocks_and_units_with_options { |ctx|
 }
 
 test test_pidstat_reports_one_row_per_selected_process_and_report { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let first = start_sleeper(ctx, "a")?
   let second = start_sleeper(ctx, "b")?
   defer stop(first)
@@ -627,6 +645,7 @@ test test_pidstat_reports_one_row_per_selected_process_and_report { |ctx|
 }
 
 test test_pidstat_command_filter_and_memory_columns { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("procps observation requires Linux /proc and socket APIs"); return }
   let target = start_sleeper(ctx, "m")?
   defer stop(target)
   let report = sample_tool(ctx, "pidstat", ["-r", "-C", f"^{target.name}$", "0.01", "1"])?
