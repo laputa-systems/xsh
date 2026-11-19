@@ -7012,7 +7012,9 @@ let text = notes.replace("DRAFT", with: "FINAL")
   `poll_fds` is a `Duration?`; `null` waits indefinitely, and an idle wait
   makes no periodic wakeups. On macOS a wait that includes a FIFO re-polls
   every 20 ms, because Darwin does not wake a FIFO reader for a write larger
-  than the FIFO's buffer. `unix.read_utmp`
+  than the FIFO's buffer, and reports end of file on a FIFO whose last writer
+  closed as `hangup`, as Linux does, although Darwin's `poll` omits it.
+  `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
 - `unix.connect_stream(path, timeout)` connects a filesystem Unix stream socket

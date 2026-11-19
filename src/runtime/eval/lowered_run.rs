@@ -4184,6 +4184,7 @@ impl Evaluator {
                 revent::PollFlags::IN,
             )];
             match revent::poll(&mut pollfds, Some(&timeout)) {
+                Ok(0) if crate::modules::unix::poll::fifo_readiness_missed_by_poll(stdin.as_fd()).is_some() => {}
                 Ok(0) | Err(rustix::io::Errno::INTR) => {
                     self.service_stdin_signal(span)?;
                     continue;

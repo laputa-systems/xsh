@@ -230,9 +230,7 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
     defer unix.close_fd(writer)
     assert unix.poll_fd(writer, ["writable"])? == ["writable"]
   }
-  if system.uname()?.sysname != "Darwin" {
-    assert "hangup" in unix.poll_fd(reader, ["readable"])?
-  }
+  assert "hangup" in unix.poll_fd(reader, ["readable"])?
   run sh -c "printf payload > \"$1\"" sh $fifo
   let ready = unix.poll_fd(reader, ["readable"])?
   if system.uname()?.sysname == "Darwin" {
@@ -272,6 +270,22 @@ test test_unix_poll_fd_wakes_for_a_fifo_write_larger_than_its_buffer { |ctx|
   let child = spawn writer?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   assert "readable" in unix.poll_fd(reader, ["readable"], timeout_ms: 5000)?
+}
+""", status: 0)?
+  assert result.stdout == "" and result.stderr == ""
+}
+
+test test_unix_poll_fd_hangs_up_once_the_last_writer_closes { |ctx|
+  let result = test.expect(ctx, r"""tempdir dir {
+  let fifo = fp"{dir}/pipe"
+  fs.mkfifo(fifo, mode: 384)
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+  assert unix.poll_fd(reader, ["readable"])? == []
+  unix.close_fd(writer)?
+  assert "hangup" in unix.poll_fd(reader, ["readable"], timeout_ms: 5000)?
+  assert unix.read_fd(reader, 1)? == b""
 }
 """, status: 0)?
   assert result.stdout == "" and result.stderr == ""

@@ -140,6 +140,13 @@ pub(crate) fn step(
             ready.push((index, PollFlags::NVAL));
         }
     }
+    for (index, interest) in interests.iter().enumerate() {
+        if interest.requested.contains(PollFlags::IN) && !ready.iter().any(|(seen, _)| *seen == index) {
+            if let Some(flags) = fifo_readiness_missed_by_poll(borrowed[index]) {
+                ready.push((index, flags));
+            }
+        }
+    }
     ready.sort_by_key(|(index, _)| *index);
     if !ready.is_empty() {
         return Ok(PollStep::Ready(ready));
@@ -163,6 +170,40 @@ fn fifo_slice(fds: &[BorrowedFd<'_>], interests: &[PollInterest]) -> Option<Dura
             rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Fifo
         }))
         .then_some(SLICE)
+}
+
+// Darwin's poll and kqueue report neither readable nor hangup on a FIFO whose
+// last writer has closed, while select reports it readable (seen on macOS
+// 27.2). A FIFO select sees as readable with nothing buffered is therefore at
+// end of file, which Linux reports as a hangup.
+#[cfg(target_os = "macos")]
+pub(crate) fn fifo_readiness_missed_by_poll(fd: BorrowedFd<'_>) -> Option<PollFlags> {
+    use std::os::fd::AsRawFd;
+    let raw = fd.as_raw_fd();
+    let fifo = rustix::fs::fstat(fd).is_ok_and(|stat| {
+        rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Fifo
+    });
+    if !fifo || raw >= libc::FD_SETSIZE as libc::c_int {
+        return None;
+    }
+    // SAFETY: the set is initialized by FD_ZERO before use, `raw` is below
+    // FD_SETSIZE, and the zero timeout outlives the call.
+    let selected = unsafe {
+        let mut readable: libc::fd_set = std::mem::zeroed();
+        libc::FD_ZERO(&mut readable);
+        libc::FD_SET(raw, &mut readable);
+        let mut zero = libc::timeval { tv_sec: 0, tv_usec: 0 };
+        libc::select(raw + 1, &mut readable, std::ptr::null_mut(), std::ptr::null_mut(), &mut zero) == 1
+    };
+    if !selected {
+        return None;
+    }
+    Some(if rustix::io::ioctl_fionread(fd).is_ok_and(|buffered| buffered > 0) { PollFlags::IN } else { PollFlags::HUP })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn fifo_readiness_missed_by_poll(_: BorrowedFd<'_>) -> Option<PollFlags> {
+    None
 }
 
 #[cfg(not(target_os = "macos"))]
