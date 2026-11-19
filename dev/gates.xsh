@@ -1895,7 +1895,7 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
   let me = process.current_pid()?
   let owned = [entry for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
   for entry in owned {
-    let group_id = entry.pgrp ?? (process.group_id(entry.pid) ?? 0)
+    let group_id = entry.pgrp ?? process.group_id(entry.pid) ?? 0
     let signalled = if group_id == entry.pid { process.kill_group(entry.pid, signal: signal) } else { process.kill(entry.pid, signal: signal) }
     match signalled {
       Ok(_) => {}

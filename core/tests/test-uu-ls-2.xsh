@@ -1492,7 +1492,7 @@ test test_uu_ls_ls_order_time { |ctx|
   }
 }
 
-# origin: uutils test_ls::test_ls_order_time_breaks_ties_by_name, which expects glibc collation; XSH ls orders names bytewise in every locale
+# origin: uutils test_ls::test_ls_order_time_breaks_ties_by_name
 test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
   let s = uu.scene(ctx)?
   let names = ["zulu", "alpha", "Mike", "bravo"]

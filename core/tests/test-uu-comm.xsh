@@ -338,7 +338,7 @@ test test_uu_comm_is_dir { |ctx|
   uu.stderr_only(r4, "comm: .: Is a directory\n")
 }
 
-# origin: uutils test_comm::test_locale_collation, which expects glibc collation; XSH comm orders bytewise in every locale
+# origin: uutils test_comm::test_locale_collation
 test test_uu_comm_locale_keeps_bytewise_order { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "f1", "a-b\na1\n")
