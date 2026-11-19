@@ -136,13 +136,13 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-119 · P3 · awk regular expressions follow the host libc
+### XSH-119 · P2 · awk, sed and grep regular expressions follow the host libc
 
 - **Area:** Core commands
-- **Where:** `src/modules/regex/posix.rs` (`PosixRegex` over `regcomp`/`regexec`), `core/lib/awk.xsh`, `core/tests/test-awk.xsh` (GNU matrix regex shards)
-- **Problem:** awk compiles its regular expressions with the host C library, so the same awk program matches differently on macOS (BSD regex) and on Linux (musl). On macOS arm64 (m1-max, 2026-11-19) the recorded GNU matrix differs in 18 regex and regexp-syntax shards; those shards skip there with this limitation.
-- **Recommendation:** Decide whether awk regex is part of XSH's portable contract. If it is, implement POSIX ERE matching in XSH (or a vendored portable engine) behind `PosixRegex` and drop the host dependency; if not, record the host dependency in the CORE awk contract.
-- **Acceptance:** Either the GNU matrix regex shards pass on macOS and Linux with one engine, or `docs/CORE.md` states that awk regex follows the host library and the macOS skips name it.
+- **Where:** `src/modules/regex/posix.rs` (`PosixRegex` over `regcomp`/`regexec`), `core/lib/awk.xsh`, `core/lib/sed.xsh`, `core/tests/test-awk.xsh` (GNU matrix regex shards), `core/tests/test-sed.xsh` (table slices), `core/tests/test-bb-sed-1.xsh` (`sed_OR_not_cfd133ba`), `core/tests/test-grep.xsh`
+- **Problem:** awk and sed compile their regular expressions with the host C library, so the same program matches differently on macOS (BSD regex) and on Linux (musl). BSD regex lacks GNU BRE extensions such as `\|` alternation and rejects some repeated quantifiers. On macOS arm64 (m1-max, 2026-11-19) the recorded GNU awk matrix differs in 18 regex and regexp-syntax shards, and sed table slices fail on the same extensions; those cases skip there with this limitation.
+- **Recommendation:** Decide whether awk and sed regex are part of XSH's portable contract. If it is, implement POSIX ERE matching in XSH (or a vendored portable engine) behind `PosixRegex` and drop the host dependency; if not, record the host dependency in the CORE awk contract.
+- **Acceptance:** Either the awk and sed regex cases pass on macOS and Linux with one engine, or `docs/CORE.md` states that their regex follows the host library and the macOS skips name it.
 - **Fix with:** reference-parity
 - **Effort:** L
 
