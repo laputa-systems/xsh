@@ -1178,6 +1178,7 @@ test test_uu_ls_acl_display { |ctx|
 
 # origin: uutils test_ls::test_acl_display_symlink
 test test_uu_ls_acl_display_symlink { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir")
   default_acl_fixture(uu.at(s, "dir"), named_bin: true)
@@ -1194,6 +1195,7 @@ test test_uu_ls_acl_display_symlink { |ctx|
 
 # origin: uutils test_ls::test_acl_display_symlink_without_dereference
 test test_uu_ls_acl_display_symlink_without_dereference { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir")
   default_acl_fixture(uu.at(s, "dir"), named_bin: true)

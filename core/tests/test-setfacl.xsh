@@ -29,6 +29,7 @@ proc acl_run(ctx: TestContext, root: Path, command: Str, args: List[Str]) [fs, p
 }
 
 test test_setfacl_kernel_masks_defaults_and_invalid_records_preserve_files { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let root = test.temp_dir(ctx, name: "acl-kernel")?
   let file = fp"{root}/file"; file.write("keep", mode: 0o640);  let probe = fs.xattr_set(file, "system.posix_acl_access", acl.encode(acl.calculate_mask(acl.parse("u::rw-,u:12345:r--,g::r--,o::---")?))?)
   if let Err(failure) = probe {
@@ -70,6 +71,7 @@ test test_setfacl_test_and_restore_prevalidate_without_mutation { |ctx|
 }
 
 test test_setfacl_preserved_masks_stripping_and_operand_scopes { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let root = test.temp_dir(ctx, name: "acl-scopes")?
   let first = fp"{root}/first"; let second = fp"{root}/second"
   first.write("one"); second.write("two"); first.chmod(0o660); second.chmod(0o660)
