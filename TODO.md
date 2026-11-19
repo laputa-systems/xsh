@@ -149,8 +149,9 @@ out of scope.
 ### XSH-120 · P2 · Shared-stream and parallel pipelines stall on macOS
 
 - **Area:** Runtime
-- **Where:** `core/lib/awk.xsh` (command `getline` on a shared stream), `core/tests/test-awk.xsh` (getline, streams-and-processes, grammar 9 and lexical-forms 6 matrix shards), `core/tests/test-gnu-factor.xsh` (`factor_parallel_log_1_to_31250`), `core/tests/test-gnu-od.xsh` (`big_w_log`)
+- **Where:** `core/lib/awk.xsh` (command `getline` on a shared stream), `core/tests/test-awk.xsh` (getline, streams-and-processes, grammar 9 and lexical-forms 6 matrix shards), `core/tests/test-gnu-factor.xsh` (`factor_parallel_log_1_to_31250`), `core/tests/test-gnu-od.xsh` (`big_w_log`), `core/tests/test-uu-seq-1.xsh` (eight `infinite_sequence` FIFO cases)
 - **Problem:** On macOS arm64 (m1-max, 2026-11-19) these tests exceed 160-300 s where Linux finishes in seconds; samples of the stuck processes show them waiting in `poll` with a blocked pipeline, so at least the awk and factor cases look like a lost wakeup or a pipe-capacity deadlock (macOS pipes hold 16 KiB, Linux 64 KiB), not slowness. `od -w` with a large width streams slowly. The tests still fail on macOS.
+- **Evidence:** In `test-uu-seq-1.xsh`, a single `unix.poll_fd(fd, ["readable"], timeout_ms: 5000)` on a FIFO with a live writer times out on macOS, while repeated 50 ms polls on the same descriptor see it readable, so the runtime's wait misses a readiness edge on Darwin.
 - **Recommendation:** Reproduce the awk shared-stream getline case with a small input, sample it, and check whether a producer blocks on a full pipe the consumer never drains, or a readiness wait misses an edge on macOS. Fix the runtime, then rerun the factor case; measure `od` separately.
 - **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
 - **Fix with:** root-cause
