@@ -85,7 +85,7 @@ theorem comparison_rows {scope : Scope} {slots : List (String × Nat)}
   obtain ⟨_, _, bl⟩ := atom_lowers (cs := []) al.wf hb
   obtain ⟨opLe, pooled, _, _, _, _, _⟩ := operation_index_run hop
   obtain ⟨rest, _, rfl⟩ := take_span_run hspan
-  have spanLe : StateLE s3 { s3 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
+  have spanLe : StateLE s3 { s3 with spans := rest } := StateLE.of_preserved rfl rfl rfl rfl rfl rfl
   intro F le
   have afterOp := spanLe.trans ((push_row_le push).trans le)
   have afterRight := opLe.trans afterOp
@@ -115,7 +115,7 @@ theorem value_block_rows {scope : Scope} {slots : List (String × Nat)} {value :
   obtain ⟨rest, _, rfl⟩ := take_span_run hspan
   have wf2 : BlocksIndexed s2 := BlocksIndexed.congr (push_row_blocks hs).1 vl.wf
   have blockLe := (push_block_le hb).1
-  have spanLe : StateLE s3 { s3 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
+  have spanLe : StateLE s3 { s3 with spans := rest } := StateLE.of_preserved rfl rfl rfl rfl rfl rfl
   intro F le
   have afterBlock := spanLe.trans ((push_row_le push).trans le)
   have afterStatement := blockLe.trans afterBlock
@@ -187,7 +187,7 @@ theorem expression_rows {callees : Callees} {scope : Scope} {slots : List (Strin
     obtain ⟨_, _, argsLe, argsWf, _, rowsLength, _, _, _⟩ := atoms_lower (cs := []) wf hrows
     obtain ⟨parts, joined, argumentsAt⟩ := arguments_rows wf argumentFacts hrows
     obtain ⟨rest, _, rfl⟩ := take_span_run hspan
-    have spanLe : StateLE s9 { s9 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
+    have spanLe : StateLE s9 { s9 with spans := rest } := StateLE.of_preserved rfl rfl rfl rfl rfl rfl
     intro F le
     have afterBlock := spanLe.trans ((push_row_le push).trans le)
     have afterArgs := (push_block_le htable).1.trans afterBlock
@@ -204,7 +204,7 @@ theorem expression_rows {callees : Callees} {scope : Scope} {slots : List (Strin
     have wf4 := push_block_indexed tl.wf htable
     obtain ⟨_, _, el⟩ := value_block_lowers (cs := []) wf4 helse
     obtain ⟨rest, _, rfl⟩ := take_span_run hspan
-    have spanLe : StateLE s5 { s5 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
+    have spanLe : StateLE s5 { s5 with spans := rest } := StateLE.of_preserved rfl rfl rfl rfl rfl rfl
     intro F le
     have afterElse := spanLe.trans ((push_row_le push).trans le)
     have afterTable := el.le.trans afterElse
@@ -264,18 +264,24 @@ theorem tail_rows {src : List (String × Option Callee)} {callees : Callees}
   obtain ⟨result, s1, hexpr, returned, s2, hret, count, s3, ⟨hcount, rfl⟩, body, s4, hbody,
     parameters, s5, ⟨hparams, rfl⟩, pStart, s6, ⟨hpstart, rfl⟩, fBefore, s7, ⟨hfb, rfl⟩,
     slotCount, s8, ⟨hslots, rfl⟩, rfl⟩ := run
-  obtain ⟨e, hsrc, lw⟩ := expression_lowers wf aligned hexpr
+  have noRecord : f.result.isRecordLocal = false := by
+    generalize same : f.result = expression at facts ⊢
+    cases facts <;> rfl
+  obtain ⟨e, hsrc, lw⟩ := expression_lowers wf aligned noRecord hexpr
   have retFrame := push_row_frame hret
   have wf2 := BlocksIndexed.congr (push_row_blocks hret).1 lw.wf
   have bodyFrame := push_block_frame hbody
   have bodyLe := (push_block_le hbody).1
   refine ⟨⟨owner, f.name, pStart, parameters, fBefore, 1, body, slotCount⟩, ?_, rfl,
     decode_val hparams, lw.le.trans ((push_row_le hret).trans
-      (bodyLe.trans (StateLE.of_eq rfl rfl rfl rfl))), ?_⟩
+      (bodyLe.trans ⟨List.prefix_refl _, List.prefix_refl _, List.prefix_refl _, List.prefix_refl _,
+        fun _ => add_source_strings_prefix s8.strings f, fun _ => List.prefix_refl _⟩)), ?_⟩
   · show _ ++ _ = _
     rw [bodyFrame.1, retFrame.1, lw.functions.1]
   · intro F le
-    have toF : StateLE s8 F := ⟨le.rows, le.extra, le.ops, le.blocks⟩
+    have toF : StateLE s8 F := ⟨le.rows, le.extra, le.ops, le.blocks,
+      fun present => (add_source_strings_prefix s8.strings f).trans (le.strings present),
+      le.names⟩
     exact ⟨result, returned, count,
       expression_rows wf names facts hexpr F ((push_row_le hret).trans (bodyLe.trans toF)),
       (push_row_at hret rfl).mono (bodyLe.trans toF), decode_val hcount,
@@ -362,6 +368,9 @@ theorem function_rows {src : List (String × Option Callee)} {callees : Callees}
     ∃ row, s'.functions = s.functions ++ [row] ∧ ∀ F, StateLE s' F → FunctionRows F f facts row := by
   obtain ⟨absent, scope, nodes, sourceScope, expressionFacts, rfl⟩ := holds
   obtain ⟨plain, _, _⟩ := expression_plain expressionFacts
+  have noRecord : f.result.isRecordLocal = false := by
+    generalize same : f.result = expression at expressionFacts ⊢
+    cases expressionFacts <;> rfl
   have computedNone : ∀ slots, Lower.computedLetStatements f slots = pure [] := by
     intro slots
     unfold Lower.computedLetStatements
@@ -369,8 +378,8 @@ theorem function_rows {src : List (String × Option Callee)} {callees : Callees}
     cases expressionFacts <;> rfl
   cases letsEq : f.lets with
   | nil =>
-    simp only [Lower.function, absent, letsEq, computedNone, run_bind, run_lift, run_get,
-      run_pure, run_require] at run
+    simp only [Lower.function, absent, letsEq, noRecord, Bool.false_eq_true, ↓reduceIte,
+      computedNone, run_bind, run_lift, run_get, run_pure, run_require] at run
     obtain ⟨slots, _, ⟨irScope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨_, rfl⟩, computed, _,
       ⟨rfl, rfl⟩, _, _, ⟨_, rfl⟩, tail⟩ := run
     simpa only [letsEq] using finish_rows wf aligned names expressionFacts sourceScope irScope
