@@ -2546,4 +2546,101 @@ theorem finish_record_function {src : List (String × Option Callee)} {s s6 s' :
   · simpa [functions] using fa
   · simpa [callable] using fb
 
+theorem record_function_run {name parameter target : String}
+    {fields : List (String × SourceValue)} {result : RecordValue} {s s' : LoweringState}
+    (h : Lower.function ⟨name, [parameter], [], none, .recordLocal target fields result⟩ s =
+      some ((), s')) :
+    ∃ scope owner binding s6,
+      (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction).scope? = some scope ∧
+      BridgeId.fromIndex? s.functions.length = some owner ∧
+      recordLocalAdmitted parameter target fields result = true ∧
+      Lower.recordLocal owner parameter fields
+        { s with strings := (addSourceStrings s.strings
+          (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction)) } =
+          some (binding, s6) ∧
+      Lower.functionTail ⟨name, [parameter], [], none, .recordLocal target fields result⟩
+        scope owner s.functions.length (s.functions.map (·.paramsLen.val)).sum 1 [binding] s6 =
+          some ((), s') := by
+  simp only [Lower.function, SourceExpression.isRecordLocal, ↓reduceIte, run_bind, run_lift,
+    run_get, run_require, run_modify] at h
+  obtain ⟨scope, s1, ⟨hscope, state1⟩, before, s2, ⟨beforeEq, state2⟩, owner, s3,
+    ⟨howner, state3⟩, unit, s4, ⟨admitted, state4⟩, modified, s5, hmodify,
+    binding, s6, hrecord, tail⟩ := h
+  subst s1
+  subst before
+  subst s2
+  subst s3
+  subst s4
+  subst s5
+  exact ⟨scope, owner, binding, s6, hscope, howner, admitted, hrecord, tail⟩
+
+theorem record_admitted_distinct {parameter target : String}
+    {fields : List (String × SourceValue)} {result : RecordValue}
+    (admitted : recordLocalAdmitted parameter target fields result = true) :
+    (fields.map Prod.fst).Nodup := by
+  simp only [recordLocalAdmitted, Bool.and_eq_true, decide_eq_true_eq] at admitted
+  exact admitted.1.1.2
+
+theorem record_local_with_presence {owner : BridgeId} {parameter : String}
+    {fields : List (String × SourceValue)} {s s' : LoweringState} {binding : Word32}
+    (wf : BlocksIndexed s) (distinct : (fields.map Prod.fst).Nodup)
+    (h : Lower.recordLocal owner parameter fields s = some (binding, s')) :
+    ∃ expressions recordRow blockId count entries,
+      fields.mapM (fun (name, value) => do
+        some (name, ← value.expression? [(parameter, 0)])) = some expressions ∧
+      count.val = fields.length ∧ StateLE s s' ∧ BlocksIndexed s' ∧
+      s'.functions = s.functions ∧ s'.callable = s.callable ∧
+      (s'.rows.any (fun row => row.tag == .exprRecord) = true) ∧
+      ∀ (F : LoweringState) (cs : List (Option Callee)), StateLE s' F →
+        F.RowAt binding.val .stmtLet [2, recordRow, 0] ∧
+        F.RowAt recordRow.val .exprRecord [blockId.raw] ∧
+        propagationOf? (F.context cs) binding = none ∧
+        recordLocalOf? (F.context cs) binding = some ⟨2, expressions⟩ ∧
+        F.RecordBlockAt blockId owner (count :: entries) := by
+  obtain ⟨expressions, recordRow, blockId, count, entries, projected, countValue, le, wf',
+    functions, callable, bound, reads⟩ := record_local_lowers wf distinct h
+  have present : s'.rows.any (fun row => row.tag == .exprRecord) = true := by
+    have recordAt := (reads s' [] (StateLE.refl s')).2.1
+    obtain ⟨found, located, tagged, _⟩ := recordAt
+    exact List.any_eq_true.mpr ⟨found, List.mem_of_getElem? located, by simp [tagged]⟩
+  exact ⟨expressions, recordRow, blockId, count, entries, projected, countValue, le, wf',
+    functions, callable, present, reads⟩
+
+theorem record_function_after_init {src : List (String × Option Callee)} {s s6 s' : LoweringState}
+    {name parameter target : String} {fields : List (String × SourceValue)} {result : RecordValue}
+    {scope : List (String × Nat)} {owner : BridgeId} {binding : Word32}
+    {functionsBefore parametersStart : Nat}
+    (wf : BlocksIndexed s)
+    (scopeIs : (⟨name, [parameter], [], none, .recordLocal target fields result⟩ :
+      SourceFunction).scope? = some scope)
+    (admitted : recordLocalAdmitted parameter target fields result = true)
+    (localRun : Lower.recordLocal owner parameter fields s = some (binding, s6))
+    (tailRun : Lower.functionTail ⟨name, [parameter], [], none, .recordLocal target fields result⟩
+      scope owner functionsBefore parametersStart 1 [binding] s6 = some ((), s')) :
+    ∃ program row, (⟨name, [parameter], [], none, .recordLocal target fields result⟩ :
+      SourceFunction).program? src = some program ∧
+      program.callee?.isSome = (⟨name, [parameter], [], none,
+        .recordLocal target fields result⟩ : SourceFunction).callable ∧
+      program.parameters = 1 ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [(⟨name, [parameter], [], none,
+        .recordLocal target fields result⟩ : SourceFunction).callable] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧ row.name = name ∧ row.paramsLen.val = 1 ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  have distinct := record_admitted_distinct admitted
+  obtain ⟨expressions, recordRow, blockId, count, entries, projected, countValue,
+    localLe, localWf, localFunctions, localCallable, present, localReads⟩ :=
+      record_local_with_presence wf distinct localRun
+  have bindingReads := fun (F : LoweringState) (le : StateLE s6 F) =>
+    localReads F (src.map (·.2)) le
+  have tailResult := function_tail_record_lowers (src := src)
+    (f := ⟨name, [parameter], [], none, .recordLocal target fields result⟩)
+    (scope := scope) (owner := owner) (s := s6) (s' := s')
+    (functionsBefore := functionsBefore) (parametersStart := parametersStart)
+    (binding := binding) (target := target) (value := result)
+    (blockId := blockId) (recordRow := recordRow)
+    (fields := fields) (expressions := expressions) (count := count) (entries := entries)
+    localWf rfl present bindingReads tailRun
+  exact finish_record_function scopeIs admitted projected localLe localFunctions localCallable tailResult
+
 end Xsh.Conformance.Vertical

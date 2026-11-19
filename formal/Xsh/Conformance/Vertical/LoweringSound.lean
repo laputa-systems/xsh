@@ -8,6 +8,72 @@ open Xsh.IR.Raw
 open Xsh.Semantics.BaseMachine
 open Xsh.Values
 
+set_option maxHeartbeats 800000 in
+theorem function_lowers_record_one {src : List (String × Option Callee)} {s s' : LoweringState}
+    {name parameter target : String} {fields : List (String × SourceValue)} {result : RecordValue}
+    (wf : BlocksIndexed s)
+    (h : Lower.function ⟨name, [parameter], [], none, .recordLocal target fields result⟩ s = some ((), s')) :
+    ∃ program row, (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction).program? src = some program ∧
+      program.callee?.isSome = (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction).callable ∧
+      program.parameters = 1 ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [(⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction).callable] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧ row.name = name ∧ row.paramsLen.val = 1 ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  obtain ⟨scope, owner, binding, s6, hscope, howner, admitted, hrecord, tail⟩ :=
+    record_function_run h
+  have initLe : StateLE s { s with strings := (addSourceStrings s.strings (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction)) } := by
+    exact ⟨List.prefix_refl _, List.prefix_refl _, List.prefix_refl _, List.prefix_refl _,
+      fun _ => add_source_strings_prefix _ _, fun _ => List.prefix_refl _⟩
+  have wf5 : BlocksIndexed { s with strings := (addSourceStrings s.strings (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction)) } := wf
+  obtain ⟨program, row, source, callable, parameters, fa, fb, le, finalWf,
+    hname, hparams, reads⟩ := record_function_after_init (src := src) wf5 hscope admitted hrecord tail
+  exact ⟨program, row, source, callable, parameters, by simpa using fa,
+    by simpa using fb, initLe.trans le, finalWf, hname, hparams, reads⟩
+
+
+theorem function_lowers_record {src : List (String × Option Callee)} {f : SourceFunction}
+    {s s' : LoweringState} {target : String} {fields : List (String × SourceValue)}
+    {result : RecordValue} (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (record : f.result = .recordLocal target fields result)
+    (h : Lower.function f s = some ((), s')) :
+    ∃ program row, f.program? src = some program ∧
+      program.callee?.isSome = (f.callable) ∧
+      program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [f.callable] ∧ StateLE s s' ∧ BlocksIndexed s' ∧
+      row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  obtain ⟨name, parameters, lets, propagation, sourceResult⟩ := f
+  dsimp only at record
+  subst sourceResult
+  cases propagation with
+  | some propagation =>
+    simp [Lower.function, SourceExpression.isRecordLocal, Lower.fail, run_bind,
+      run_lift, run_get, run_require] at h
+  | none =>
+    cases lets with
+    | cons first rest =>
+      cases rest with
+      | nil =>
+        simp [Lower.function, Lower.computedLetStatements, Lower.fail, run_bind,
+          run_lift, run_get] at h
+      | cons second more =>
+        simp [Lower.function, Lower.fail, run_bind, run_lift, run_get] at h
+    | nil =>
+      cases parameters with
+      | nil =>
+        simp [Lower.function, SourceExpression.isRecordLocal, Lower.fail, run_bind,
+          run_lift, run_get] at h
+      | cons parameter rest =>
+        cases rest with
+        | cons second more =>
+          simp [Lower.function, SourceExpression.isRecordLocal, Lower.fail, run_bind,
+            run_lift, run_get] at h
+        | nil =>
+          simpa using (function_lowers_record_one (src := src) wf h)
+
+
 theorem function_lowers {src : List (String × Option Callee)} {f : SourceFunction}
     {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
     (h : Lower.function f s = some ((), s')) :
@@ -19,39 +85,45 @@ theorem function_lowers {src : List (String × Option Callee)} {f : SourceFuncti
       row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
-  by_cases computed : ∃ (n : String) (v r : SourceValue), f.result = .computedLet n v r
-  · obtain ⟨n, v, r, same⟩ := computed
-    cases propagationCase : f.propagation with
-    | some propagation =>
-        simpa [Option.isNone, propagationCase] using
-          function_lowers_propagated wf aligned propagationCase h
-    | none =>
-        simpa [Option.isNone, propagationCase] using
-          function_lowers_computed wf aligned propagationCase same h
-  · by_cases sequenced : ∃ (bindings : List (String × SourceValue)) (r : SourceValue),
-        f.result = .computedLets bindings r
-    · obtain ⟨bindings, r, same⟩ := sequenced
+  by_cases isRecord : f.result.isRecordLocal = true
+  · cases form : f.result <;> simp only [form, SourceExpression.isRecordLocal, Bool.false_eq_true] at isRecord
+    case recordLocal target fields result =>
+      exact function_lowers_record wf aligned form h
+  · have noRecord : f.result.isRecordLocal = false := by
+      cases flag : f.result.isRecordLocal <;> simp_all
+    by_cases computed : ∃ (n : String) (v r : SourceValue), f.result = .computedLet n v r
+    · obtain ⟨n, v, r, same⟩ := computed
       cases propagationCase : f.propagation with
       | some propagation =>
           simpa [Option.isNone, propagationCase] using
             function_lowers_propagated wf aligned propagationCase h
       | none =>
           simpa [Option.isNone, propagationCase] using
-            function_lowers_computedLets wf aligned propagationCase same h
-    · cases propagationCase : f.propagation with
-      | some propagation =>
-          simpa [Option.isNone, propagationCase] using
-            function_lowers_propagated wf aligned propagationCase h
-      | none =>
-          cases hassigned : f.result.isAssigned with
-          | false =>
-              simpa [Option.isNone, propagationCase] using
-                function_lowers_plain wf aligned propagationCase
-                  (fun n v r same => computed ⟨n, v, r, same⟩)
-                  (fun bindings r same => sequenced ⟨bindings, r, same⟩) hassigned h
-          | true =>
-              simpa [Option.isNone, propagationCase] using
-                function_lowers_assigned wf aligned propagationCase hassigned h
+            function_lowers_computed wf aligned propagationCase same h
+    · by_cases sequenced : ∃ (bindings : List (String × SourceValue)) (r : SourceValue),
+          f.result = .computedLets bindings r
+      · obtain ⟨bindings, r, same⟩ := sequenced
+        cases propagationCase : f.propagation with
+        | some propagation =>
+            simpa [Option.isNone, propagationCase] using
+              function_lowers_propagated wf aligned propagationCase h
+        | none =>
+            simpa [Option.isNone, propagationCase] using
+              function_lowers_computedLets wf aligned propagationCase same h
+      · cases propagationCase : f.propagation with
+        | some propagation =>
+            simpa [Option.isNone, propagationCase] using
+              function_lowers_propagated wf aligned propagationCase h
+        | none =>
+            cases hassigned : f.result.isAssigned with
+            | false =>
+                simpa [Option.isNone, propagationCase] using
+                  function_lowers_plain wf aligned propagationCase
+                    (fun n v r same => computed ⟨n, v, r, same⟩)
+                    (fun bindings r same => sequenced ⟨bindings, r, same⟩) noRecord hassigned h
+            | true =>
+                simpa [Option.isNone, propagationCase] using
+                  function_lowers_assigned wf aligned propagationCase hassigned h
 
 
 theorem callee_parameters {program : FunctionProgram} {callee : Callee}
