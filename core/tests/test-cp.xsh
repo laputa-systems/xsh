@@ -880,7 +880,8 @@ test test_cp_debug_reports_copy_policy_statuses { |ctx|
   let automatic = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --reflink=auto $source fp"{root}/automatic"
   assert automatic.status.ok
   assert automatic.stdout.starts_with(f"'{source}' -> '{root}/automatic'\n")
-  assert automatic.stdout.find("copy offload: unknown, reflink: Operation not supported, sparse detection: no") != null
+  let automatic_debug = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  assert automatic.stdout.find(automatic_debug) != null, automatic.stdout
 
   let sparse = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --sparse=always --reflink=never $source fp"{root}/sparse"
   assert sparse.status.ok
@@ -894,7 +895,8 @@ test test_cp_debug_reports_copy_policy_statuses { |ctx|
   small_source.write("data")
   let small = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug $small_source fp"{root}/small-copy"
   assert small.status.ok
-  assert small.stdout.find("copy offload: yes, reflink: Operation not supported, sparse detection: no") != null
+  let small_debug = if system.uname()?.sysname == "Linux" { "copy offload: yes, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  assert small.stdout.find(small_debug) != null, small.stdout
 
   let holes_source = fp"{root}/holes"
   holes_source.write("")
