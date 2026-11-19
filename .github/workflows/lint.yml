@@ -28,7 +28,7 @@ jobs:
       - name: Build pinned Linux test image
         run: docker build --platform linux/arm64 -t xsh-test -f Dockerfile.test .
 
-      - name: Ensure lint passes cleanly
+      - name: Ensure XSH checks, lints and generated docs pass
         run: |
           docker run --rm --init --platform linux/arm64 \
             -v "$PWD:/work" -w /work \
@@ -37,11 +37,9 @@ jobs:
             -e TARGET=aarch64-unknown-linux-musl \
             -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
             xsh-test sh -ec '
-              rustup component add rustfmt clippy
-              mkdir -p target/debug
-              ln -sf ../aarch64-unknown-linux-musl/debug/xsht target/debug/xsht
-              cargo dev lint --fix
+              cargo build --release -p xsht --bin xsht
+              target/aarch64-unknown-linux-musl/release/xsht check
+              target/aarch64-unknown-linux-musl/release/xsht lint
+              cargo dev docs check
             '
 
-      - name: Check for lint modifications
-        run: git diff --exit-code
