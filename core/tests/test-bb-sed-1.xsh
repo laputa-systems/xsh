@@ -182,6 +182,7 @@ test test_bb_sed_sed_T_test_branch_7093ff38 { |ctx|
 
 # origin: busybox sed/sed ^ OR not^
 test test_bb_sed_sed_OR_not_cfd133ba { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("regex follows the host C library (XSH-119)"); return }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "sed", ["-e", "s/^a\\|b//g"], stdin: b"abca\n", timeout: 5s)?
   uu.succeeds(r)
