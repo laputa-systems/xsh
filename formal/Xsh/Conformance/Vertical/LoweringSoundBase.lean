@@ -2242,4 +2242,151 @@ theorem function_lowers_computedLets {src : List (String × Option Callee)} {f :
                     split <;> rfl
 
 
+def LoweringState.RecordBlockAt (s : LoweringState) (id : BridgeId) (owner : BridgeId)
+    (words : List Word32) : Prop :=
+  ∃ block, s.blocks.find? (fun found => found.id.raw == id.raw) = some block ∧
+    block.flags.val = 0 ∧ block.owner = ⟨some owner⟩ ∧
+      block.start.val + block.len.val ≤ s.extra.length ∧
+      slice s.extra block.start.val block.len.val = words
+
+theorem LoweringState.RecordBlockAt.mono {s F : LoweringState} (le : StateLE s F)
+    {id owner : BridgeId} {words : List Word32} (at_ : s.RecordBlockAt id owner words) :
+    F.RecordBlockAt id owner words := by
+  obtain ⟨block, found, flags, owner, within, same⟩ := at_
+  obtain ⟨blocksMore, blocksEq⟩ := le.blocks
+  obtain ⟨extraMore, extraEq⟩ := le.extra
+  refine ⟨block, ?_, flags, owner, ?_, ?_⟩
+  · rw [← blocksEq, List.find?_append, found]; rfl
+  · rw [← extraEq]; simp; omega
+  · rw [← extraEq, slice_append_left _ _ within]; exact same
+
+theorem push_record_block_at {owner : BridgeId} {words : List Word32}
+    {s s' : LoweringState} {id : BridgeId} (wf : BlocksIndexed s)
+    (h : Lower.pushBlock owner 0 words s = some (id, s')) :
+    s'.RecordBlockAt id owner words := by
+  obtain ⟨block, rfl, ownerIs, flags, hid, hraw, start, length⟩ := push_block_run h
+  refine ⟨block, ?_, by simpa using flags, ownerIs, ?_, ?_⟩
+  · have earlier : s.blocks.find? (fun b => b.id.raw == id.raw) = none := by
+      rw [List.find?_eq_none]
+      intro candidate member
+      obtain ⟨index, inBounds, rfl⟩ := List.getElem_of_mem member
+      have indexed := wf index _ (List.getElem?_eq_getElem inBounds)
+      have bound : index < s.blocks.length := inBounds
+      simp only [beq_iff_eq, Bool.not_eq_true]
+      intro same
+      have := congrArg Fin.val same
+      omega
+    simp [List.find?_append, earlier, hid]
+  · simp [start, length]
+  · simp only [slice, start, length]
+    simp
+
+theorem record_field_names (scope : List (String × Nat)) :
+    ∀ (fields : List (String × SourceValue)) {expressions : List (String × BaseExpr)},
+      fields.mapM (fun (name, value) => do some (name, ← value.expression? scope)) = some expressions →
+      expressions.map Prod.fst = fields.map Prod.fst := by
+  intro fields
+  induction fields with
+  | nil =>
+    intro expressions h
+    cases h
+    rfl
+  | cons field rest ih =>
+    obtain ⟨name, value⟩ := field
+    intro expressions h
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff,
+      Option.some.injEq] at h
+    obtain ⟨e, ⟨v, hv, rfl⟩, projected, hprojected, same⟩ := h
+    simp only [Option.pure_def, Option.some.injEq] at same
+    subst expressions
+    have names := ih (by simpa only [Option.bind_eq_bind] using hprojected)
+    simp [names]
+
+theorem record_local_lowers {owner : BridgeId} {parameter : String}
+    {fields : List (String × SourceValue)} {s s' : LoweringState} {binding : Word32}
+    (wf : BlocksIndexed s) (distinct : (fields.map Prod.fst).Nodup)
+    (h : Lower.recordLocal owner parameter fields s = some (binding, s')) :
+    ∃ expressions recordRow blockId count entries,
+      fields.mapM (fun (name, value) => do
+        some (name, ← value.expression? [(parameter, 0)])) = some expressions ∧
+      count.val = fields.length ∧ StateLE s s' ∧ BlocksIndexed s' ∧ s'.functions = s.functions ∧ s'.callable = s.callable ∧
+      binding.val < s'.rows.length ∧
+      ∀ (F : LoweringState) (cs : List (Option Callee)), StateLE s' F →
+        F.RowAt binding.val .stmtLet [2, recordRow, 0] ∧
+        propagationOf? (F.context cs) binding = none ∧
+        recordLocalOf? (F.context cs) binding = some ⟨2, expressions⟩ ∧
+        F.RecordBlockAt blockId owner (count :: entries) := by
+  simp only [Lower.recordLocal, run_bind, Lower.word, run_lift] at h
+  obtain ⟨entries, s1, hentries, count, sCount, ⟨countDecoded, countState⟩, blockId, s2, hblock,
+    recordRow, s3, hrecord, hbinding⟩ := h
+  subst sCount
+  obtain ⟨expressions, projected, entriesLength, entriesLe, wf1, namesPrefix, entriesFunctions,
+    entriesCallable, entriesRead⟩ := record_entries_lower [(parameter, 0)] fields wf hentries
+  have countValue := decode_val countDecoded
+  have blockLe := (push_block_le hblock).1
+  have blockWf := push_block_indexed wf1 hblock
+  have blockAt := push_record_block_at wf1 hblock
+  have recordLe := push_row_le hrecord
+  have bindingLe := push_row_le hbinding
+  have recordWf := BlocksIndexed.congr (push_row_blocks hrecord).1 blockWf
+  have bindingWf := BlocksIndexed.congr (push_row_blocks hbinding).1 recordWf
+  have recordFrame := push_row_frame hrecord
+  have bindingFrame := push_row_frame hbinding
+  have blockFrame := push_block_frame hblock
+  have recordAt := push_row_at hrecord rfl
+  have bindingAt := push_row_at hbinding rfl
+  obtain ⟨_, _, recordIndex, _⟩ := push_row_run hrecord
+  obtain ⟨_, _, bindingIndex, _⟩ := push_row_run hbinding
+  have blockRows := (push_block_le hblock).2
+  have recordBefore : recordRow.val < binding.val := by
+    have grown := (push_row_blocks hrecord).2.2
+    simp only [recordIndex, bindingIndex]
+    omega
+  have bindingBound : binding.val < s'.rows.length := by
+    have grown := (push_row_blocks hbinding).2.2
+    simp only [bindingIndex]
+    omega
+  have recordNames : s3.names = s1.names := by
+    obtain ⟨_, blockState, _⟩ := push_block_run hblock
+    obtain ⟨_, recordState, _⟩ := push_row_run hrecord
+    simp [recordState, blockState]
+  have bindingNames : s'.names = s3.names := by
+    obtain ⟨_, bindingState, _⟩ := push_row_run hbinding
+    simp [bindingState]
+  have present : s'.rows.any (fun row => row.tag == .exprRecord) = true := by
+    have atFinal := recordAt.mono bindingLe
+    obtain ⟨found, located, tagged, _⟩ := atFinal
+    exact List.any_eq_true.mpr ⟨found, List.mem_of_getElem? located, by simp [tagged]⟩
+  have labelDistinct : (expressions.map Prod.fst).Nodup := by
+    rw [record_field_names [(parameter, 0)] fields projected]
+    exact distinct
+  refine ⟨expressions, recordRow, blockId, count, entries, projected, countValue, entriesLe.trans (blockLe.trans
+    (recordLe.trans bindingLe)), bindingWf, ?_, ?_, bindingBound, ?_⟩
+  · rw [bindingFrame.1, recordFrame.1, blockFrame.1, entriesFunctions]
+  · rw [bindingFrame.2, recordFrame.2, blockFrame.2, entriesCallable]
+  · intro F cs le
+    have blockF := blockAt.mono (recordLe.trans (bindingLe.trans le))
+    have recordF := recordAt.mono (bindingLe.trans le)
+    have bindingF := bindingAt.mono le
+    obtain ⟨block, blockFound, flags, ownerFound, within, blockContents⟩ := blockF
+    have blockWords : blockWords? (F.context cs) blockId.raw = some (count :: entries) := by
+      apply blockWords_of_blockAt
+      exact ⟨block, blockFound, within, blockContents⟩
+    have namesF : s1.names <+: F.names := by
+      rw [← recordNames, ← bindingNames]
+      exact le.names present
+    have entriesF := entriesRead F cs recordRow (blockLe.trans (recordLe.trans
+      (bindingLe.trans le))) namesF (by rw [recordIndex, blockRows]; exact Nat.le_refl _)
+    have noPropagation : propagationOf? (F.context cs) binding = none := by
+      simp [propagationOf?, readInstruction_of_rowAt bindingF,
+        readInstruction_of_rowAt recordF, recordBefore]
+    have flagZero : block.flags = 0 := Fin.ext flags
+    have recordFound : recordLocalOf? (F.context cs) binding = some ⟨2, expressions⟩ := by
+      simp only [LoweringState.context] at blockWords entriesF
+      simp [recordLocalOf?, readInstruction_of_rowAt bindingF,
+        readInstruction_of_rowAt recordF, recordBefore, LoweringState.context, blockFound,
+        flagZero, blockWords, entriesLength, countValue, entriesF, labelDistinct]
+    exact ⟨bindingF, noPropagation, recordFound, block, blockFound, flags, ownerFound,
+      within, blockContents⟩
+
 end Xsh.Conformance.Vertical
