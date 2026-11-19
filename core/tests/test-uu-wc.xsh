@@ -238,6 +238,7 @@ test test_uu_wc_files0_stops_after_stdout_write_error { |ctx|
 
 # origin: uutils test_wc::test_files_from_pseudo_filesystem
 test test_uu_wc_files_from_pseudo_filesystem { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = wc_scene(ctx)?
   let r = uu.invoke(s, "wc", ["-c", "/proc/cpuinfo"])?
   uu.succeeds(r)
