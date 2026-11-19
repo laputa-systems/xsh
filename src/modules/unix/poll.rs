@@ -109,7 +109,11 @@ pub(crate) fn step(
         .filter(|(_, interest)| interest.requested.is_empty())
         .filter_map(|(index, _)| rustix::io::fcntl_getfd(borrowed[index]).is_err().then_some(index))
         .collect();
-    let deadline = if invalid.is_empty() { deadline } else { Some(Instant::now()) };
+    let orphaned: Vec<usize> = interests.iter().enumerate()
+        .filter(|(index, interest)| !interest.requested.contains(PollFlags::IN) && !invalid.contains(index))
+        .filter_map(|(index, _)| fifo_writer_without_reader(borrowed[index]).then_some(index))
+        .collect();
+    let deadline = if invalid.is_empty() && orphaned.is_empty() { deadline } else { Some(Instant::now()) };
     let mut descriptors: Vec<PollFd<'_>> = borrowed.iter().zip(interests)
         .map(|(fd, interest)| PollFd::new(fd, interest.requested)).collect();
     descriptors.push(PollFd::new(&wake, PollFlags::IN));
@@ -138,6 +142,12 @@ pub(crate) fn step(
     for index in invalid {
         if !ready.iter().any(|(seen, _)| *seen == index) {
             ready.push((index, PollFlags::NVAL));
+        }
+    }
+    for index in orphaned {
+        match ready.iter_mut().find(|(seen, _)| *seen == index) {
+            Some((_, flags)) => *flags |= PollFlags::ERR,
+            None => ready.push((index, PollFlags::ERR)),
         }
     }
     for (index, interest) in interests.iter().enumerate() {
@@ -199,6 +209,23 @@ pub(crate) fn fifo_readiness_missed_by_poll(fd: BorrowedFd<'_>) -> Option<PollFl
         return None;
     }
     Some(if rustix::io::ioctl_fionread(fd).is_ok_and(|buffered| buffered > 0) { PollFlags::IN } else { PollFlags::HUP })
+}
+
+// Darwin's poll reports a pipe or FIFO whose last reader has closed as
+// writable, or as nothing without interest, where Linux reports an error; a
+// zero-length write still fails with EPIPE there. The runtime ignores SIGPIPE, so the probe cannot
+// terminate the process.
+#[cfg(target_os = "macos")]
+fn fifo_writer_without_reader(fd: BorrowedFd<'_>) -> bool {
+    let fifo = rustix::fs::fstat(fd).is_ok_and(|stat| {
+        rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Fifo
+    });
+    fifo && matches!(rustix::io::write(fd, &[]), Err(Errno::PIPE))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fifo_writer_without_reader(_: BorrowedFd<'_>) -> bool {
+    false
 }
 
 #[cfg(not(target_os = "macos"))]

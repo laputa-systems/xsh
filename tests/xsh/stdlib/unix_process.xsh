@@ -248,11 +248,8 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   defer { if writer_open { unix.close_fd(100) } }
   unix.close_fd(error_reader)
   error_reader_open = false
-  if system.uname()?.sysname == "Darwin" {
-    assert "writable" in unix.poll_fd(100, ["writable"])?
-  } else {
-    assert "error" in unix.poll_fd(100, ["writable"])?
-  }
+  assert "error" in unix.poll_fd(100, ["writable"])?
+  assert "error" in unix.poll_fd(100, [])?
   unix.close_fd(100)
   writer_open = false
 }
