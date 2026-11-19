@@ -728,6 +728,7 @@ test test_lsmem_option_order_and_musl_diagnostics { |ctx|
 }
 
 test test_lsmem_zero_terminal_columns { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference requires Linux"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   let script = fp"{ctx.core_dir}/tests/data/lsmem-zero-columns.py"
