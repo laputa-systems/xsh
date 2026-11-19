@@ -634,7 +634,7 @@ proc load(kind, name: Str) [fs, io, process] {
   }
 }
 report("first", "ready")
-load("second", "/etc/hostname")
+load("second", "/etc/hosts")
 load("third", "/nonexistent-xsh-path")
 print "not reached"
 """,
@@ -697,7 +697,7 @@ test test_full_inference_result_bool_condition_propagates_in_a_generic_proc { |c
   0
 }
 let first = probe("here", p"/")?
-let second = probe(7, p"/etc/hostname")?
+let second = probe(7, p"/etc/hosts")?
 assert first == 1 and second == 0
 """,
   )?
