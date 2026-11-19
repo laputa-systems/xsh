@@ -91,6 +91,7 @@ test test_gnu_split_guard_input_log { |ctx|
 
 # origin: gnu split/split-io-err.log
 test test_gnu_split_split_io_err_log { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.symlink(s, "/dev/full", "xaa")
   let full = uu.invoke(s, "split", ["-b", "1"], stdin: b"1\n2\n")?

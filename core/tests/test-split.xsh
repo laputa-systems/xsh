@@ -211,6 +211,7 @@ test test_split_non_utf8_input_path { |ctx|
 }
 
 test test_split_non_utf8_prefix_and_additional_suffix { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "split-raw-names")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
