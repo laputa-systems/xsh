@@ -545,8 +545,13 @@ test test_stty_that_cannot_use_the_terminal_names_the_device { |ctx|
 
   let device = stty_plain(ctx, ["-F", "/dev/null", "-a"])?
   assert device.status == 1
-  assert device.stderr in ["stty: /dev/null: Inappropriate ioctl for device\n", "stty: /dev/null: Not a tty\n"], device.stderr
-  assert stty_plain(ctx, ["-F", "/dev/null", "echo"])?.stderr in ["stty: /dev/null: Inappropriate ioctl for device\n", "stty: /dev/null: Not a tty\n"]
+  let errors = if system.uname()?.sysname == "Linux" {
+    ["stty: /dev/null: Inappropriate ioctl for device\n", "stty: /dev/null: Not a tty\n"]
+  } else {
+    ["stty: /dev/null: Operation not supported by device\n"]
+  }
+  assert device.stderr in errors, device.stderr
+  assert stty_plain(ctx, ["-F", "/dev/null", "echo"])?.stderr in errors
 }
 
 test test_stty_help_and_version_go_to_stdout { |ctx|
