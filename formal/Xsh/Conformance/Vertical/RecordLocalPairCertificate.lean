@@ -37,4 +37,22 @@ theorem record_local_pair_certified :
     record_local_lowers_to_artifact record_pair_validates]
   exact record_pair_results
 
+def changedLowSourceText : String :=
+  "pure spans(value: Int) -> Int {\n" ++
+  "  let box = {low: value - 4, high: 60 / value, wide: value + 9223372036854775800}\n" ++
+  "  return box.high - box.low\n}\n"
+
+def renamedLabelSourceText : String :=
+  "pure spans(value: Int) -> Int {\n" ++
+  "  let box = {tiny: value - 3, high: 60 / value, wide: value + 9223372036854775800}\n" ++
+  "  return box.high - box.tiny\n}\n"
+
+set_option maxRecDepth 100000 in
+theorem substituted_record_sources_are_refused :
+    certifyDecoded { recordLocalSourceDocument with text := changedLowSourceText }
+        recordLocalArtifact = none ∧
+      certifyDecoded { recordLocalSourceDocument with text := renamedLabelSourceText }
+        recordLocalArtifact = none := by
+  constructor <;> decide +kernel
+
 end Xsh.Conformance.Vertical
