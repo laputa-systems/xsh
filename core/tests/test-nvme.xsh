@@ -353,7 +353,8 @@ test test_nvme_id_ns_uses_the_device_namespace_and_decodes_formats { |ctx|
   let forced = ran_ok(nvme(ctx, [identify_line(7, 17, ns_page()?)], ["id-ns", "-n", "7", "--force", "/dev/null"], log)?)
   assert forced.stdout.starts_with("NVME Identify Namespace 7:\n")
   let missing = nvme(ctx, [{op: "nvme_namespace_id", errno: 25}], ["id-ns", "/dev/null"], log)?
-  assert missing.stderr == "get-namespace-id: Not a tty\n"
+  let expected = if system.uname()?.sysname == "Linux" { "get-namespace-id: Not a tty\n" } else { "get-namespace-id: Inappropriate ioctl for device\n" }
+  assert missing.stderr == expected
 
   let human = ran_ok(nvme(ctx, [identify_line(7, 0, ns_page()?)], ["id-ns", "-n", "7", "-H", "/dev/null"], log)?)
   assert "  [1:1] : 0x1\tNamespace uses NAWUN, NAWUPF, and NACWU" in human.stdout.lines()
