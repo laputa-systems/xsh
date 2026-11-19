@@ -82,6 +82,10 @@ test test_util_linux_context_terminal_preserves_both_streams_width_and_exit { |c
 }
 
 test test_util_linux_context_terminal_reference_width_and_escaping { |ctx|
+  if ! p"/bin/mountpoint".exists()? or ! p"/usr/bin/namei".exists()? {
+    test.skip("util-linux mountpoint and namei reference executables are unavailable")
+    return
+  }
   let s = uu.scene(ctx)?
   let target = uu.at(s, "long-name-with-tab\tand-control-\x1b-tail")
   target.write("fixture")
