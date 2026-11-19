@@ -80,6 +80,78 @@ theorem intern_string_grows {name : String} {s s' : LoweringState} {word : Word3
       obtain ⟨rfl, rfl⟩ := run
       exact ⟨List.prefix_append _ _, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
+theorem intern_name_resolves {name : String} {s s' : LoweringState} {word : Word32}
+    (run : Lower.internName name s = some (word, s')) :
+    word.val ≠ 0 ∧ s'.names[word.val - 1]? = some name := by
+  unfold Lower.internName at run
+  cases found : s.names.findIdx? (· == name) with
+  | some index =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (index + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      have value : w.val = index + 1 := by
+        unfold Word32.decode? at decoded
+        split at decoded
+        · cases decoded; rfl
+        · simp at decoded
+      have ⟨within, same, _⟩ := List.findIdx?_eq_some_iff_getElem.mp found
+      refine ⟨by omega, ?_⟩
+      rw [value, Nat.add_sub_cancel, List.getElem?_eq_getElem within]
+      simpa using same
+  | none =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (s.names.length + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      have value : w.val = s.names.length + 1 := by
+        unfold Word32.decode? at decoded
+        split at decoded
+        · cases decoded; rfl
+        · simp at decoded
+      refine ⟨by omega, ?_⟩
+      simp [value]
+
+theorem intern_string_resolves {name : String} {s s' : LoweringState} {word : Word32}
+    (run : Lower.internString name s = some (word, s')) :
+    word.val ≠ 0 ∧ s'.strings[word.val - 1]? = some name := by
+  unfold Lower.internString at run
+  cases found : s.strings.findIdx? (· == name) with
+  | some index =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (index + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      have value : w.val = index + 1 := by
+        unfold Word32.decode? at decoded
+        split at decoded
+        · cases decoded; rfl
+        · simp at decoded
+      have ⟨within, same, _⟩ := List.findIdx?_eq_some_iff_getElem.mp found
+      refine ⟨by omega, ?_⟩
+      rw [value, Nat.add_sub_cancel, List.getElem?_eq_getElem within]
+      simpa using same
+  | none =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (s.strings.length + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      have value : w.val = s.strings.length + 1 := by
+        unfold Word32.decode? at decoded
+        split at decoded
+        · cases decoded; rfl
+        · simp at decoded
+      refine ⟨by omega, ?_⟩
+      simp [value]
+
 def LoweringState.tables (s : LoweringState) : Tables :=
   ⟨(s.rows.map fun row => row.tag.word).toArray,
     (s.rows.map fun row => (⟨row.lhs, row.rhs⟩ : RawData)).toArray, s.extra.toArray⟩
