@@ -203,7 +203,10 @@ Rust lanes with `cargo dev test macos --ci`. Keep `TMPDIR` outside the
 checkout: `xsht` ignores files under `.work/`, so a temporary root inside the
 repository makes fixture files invisible to the lint and test tools. A
 detached run must restore default SIGINT, SIGTERM, SIGQUIT and SIGHUP before
-starting the suite, for the reason given above.
+starting the suite, for the reason given above, and a launcher written in
+Python must also restore SIGPIPE and SIGXFSZ, which Python ignores: XSH passes
+an inherited ignored SIGPIPE on to every child, so writers then fail with
+EPIPE instead of dying by SIGPIPE.
 
 A test whose fixture needs a facility macOS lacks skips with the facility's
 name, through `core/tests/support/requires.xsh` or the
