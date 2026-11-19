@@ -170,7 +170,7 @@ out of scope.
 
 - **Area:** Core
 - **Where:** `core/timeout.xsh`, `core/tests/test-gnu-timeout.xsh` (`timeout_blocked_log`, `timeout_parameters_log`), `core/tests/test-timeout.xsh` (`timeout_accepts_hex_intervals_and_saturates_large_intervals`), `core/tests/test-uu-timeout.xsh` (`dont_underflow`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these cases print `timeout: failed to send signal: permission denied` and exit 125 where 124 is expected. The likely cause, not yet confirmed, is that Darwin returns `EPERM` from `kill(-pgid)` when the group holds a zombie, where Linux still delivers to the live members.
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these cases print `timeout: failed to send signal: permission denied` and exit 125 where 124 is expected. Instrumenting `core/timeout.xsh` showed the group `TERM` succeeds and the following `CONT` fails with errno 1 (EPERM); foreground mode exits 124. The likely cause, not yet confirmed, is that Darwin returns `EPERM` from `kill(-pgid)` when the group holds a zombie, where Linux still delivers to the live members.
 - **Recommendation:** Root-cause which member refuses the signal. If it is a reaped or exiting child, treat `EPERM` on a group whose leader has already exited as delivered, as GNU's Darwin build effectively does; otherwise fix the group setup.
 - **Acceptance:** The listed tests pass on native macOS with status 124 and still pass on Linux.
 - **Fix with:** root-cause
@@ -195,3 +195,23 @@ out of scope.
 - **Acceptance:** Each listed case passes on native macOS, or skips with a named platform limitation, and still passes on Linux.
 - **Fix with:** root-cause
 - **Effort:** M
+
+### XSH-125 · P3 · atomically publishes after a SIGKILL race on macOS
+
+- **Area:** Runtime
+- **Where:** `tests/xsh/atomically.xsh` (line 59 scenario), `src/runtime/eval/modules/unix.rs` (self-signal path near line 355)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the atomic-publication test fails intermittently: the child exits 137 and `out` is published, although a SIGKILL before commit must leave only the temporary file. A direct self-`SIGKILL` probe behaved correctly, so the cause is signal-delivery timing, not yet located.
+- **Recommendation:** Loop the exact test under `xsht test --exact-id` on macOS with a sample of the child at kill time, and check whether Darwin delivers the self-signal after the rename returns.
+- **Acceptance:** The test passes 200 consecutive runs on native macOS and still passes on Linux.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-126 · P3 · Gate workflow tests assume Linux fixture targets on macOS
+
+- **Area:** Dev tooling
+- **Where:** `dev/tests/test-gates.xsh` (`test_gate_cancel_consumes_owned_descendants_before_exit_130`, `test_gate_prepares_each_cargo_harness_once_and_runs_filters_without_cargo`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the fixtures populate `x86_64-unknown-linux-musl` products while the gate under test inspects `aarch64-apple-darwin`, so both tests fail there.
+- **Recommendation:** Build the fixture tree for the context's own target, or pin these tests to a Linux context the way `fixtures.linux_context` is used elsewhere.
+- **Acceptance:** Both tests pass on native macOS and Linux.
+- **Fix with:** root-cause
+- **Effort:** S
