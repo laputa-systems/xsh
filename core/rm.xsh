@@ -8,7 +8,8 @@ type RmArguments = {argv: List[Str], raw: List[RawArgument], presume_input_tty: 
 type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 
 # Operand names longer than this are removed natively; see `remove_target`.
-const DEEP_NAME_BYTES = 1024
+# One more component keeps the name below Darwin's 1024-byte PATH_MAX.
+const DEEP_NAME_BYTES = 512
 
 pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
   var text = []

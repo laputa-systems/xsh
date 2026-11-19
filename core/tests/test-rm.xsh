@@ -286,12 +286,15 @@ test test_rm_unreadable_empty_directory_and_first_failure { |ctx|
 # path to the bottom exists.
 test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
   let base = test.temp_dir(ctx, name: "rm-deep")?
-  let levels = ["a" for _ in range(1000)]
+  # Each step must fit the host's PATH_MAX (1024 bytes on Darwin, 4096 on Linux) while
+  # the whole chain exceeds it. Darwin's filesystem work grows with depth, so it gets a shallower chain.
+  let darwin = system.uname()?.sysname == "Darwin"
+  let levels = ["a" for _ in range(if darwin { 400 } else { 1000 })]
   let chain = fp"{levels.join("/")}".require(RelPath)?
   var top = fs.open_root(base)?
   top.mkdir(p"deep")
   var floor = top.open_root(p"deep")?
-  for _ in range(5) {
+  for _ in range(if darwin { 3 } else { 5 }) {
     floor.mkdir(chain, parents: true)
     floor = floor.open_root(chain)?
   }

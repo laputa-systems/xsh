@@ -292,6 +292,7 @@ pub(crate) fn rooted_children(
 
 enum RootDirectoryEntries {
     Rustix(rfs::Dir),
+    #[cfg(target_os = "linux")]
     Standard(std::fs::ReadDir),
 }
 
@@ -325,6 +326,7 @@ impl RootDirectoryEntries {
                     .map(|entry| OsString::from_vec(entry.file_name().to_bytes().to_vec()))
                     .map_err(Into::into)
             }),
+            #[cfg(target_os = "linux")]
             Self::Standard(entries) => entries
                 .next()
                 .map(|entry| entry.map(|entry| entry.file_name())),
