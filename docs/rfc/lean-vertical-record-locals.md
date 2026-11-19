@@ -630,9 +630,13 @@ Each mutant goes through `certifiesExactly` (`Certificate.lean:80-81`):
 6. Entry tag 1 (`Spread`), a wrong count, label index 0, label index past the
    table, and a repeated spelling: each malformed and refused.
 7. Wrong recorded outcomes, including the two failure kinds exchanged.
-8. A substituted source (a label renamed, a constant changed) and wrong
-   lowering trees (labels swapped in the tree, a field read changed), refused
-   by `lowersTo` and `sourceAgrees`.
+8. A substituted source or a wrong lowering tree is refused by `lowersTo`
+   when its rows or labels differ. A change to the `low` constant changes a
+   recorded outcome and is also refused by `sourceAgrees`. Changing the
+   unused `wide` constant from 9223372036854775800 to 9223372036854775799
+   leaves the recorded outcomes unchanged, so `sourceAgrees` accepts it;
+   the pair check refuses it through `lowersTo`. A changed field read that
+   changes a recorded outcome is refused by both checks.
 
 Reordering the entries, with their labels, is refused by `lowersTo` only,
 because it is not the lowerer's output. Its meaning is the same, since entry

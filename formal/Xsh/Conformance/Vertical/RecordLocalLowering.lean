@@ -38,4 +38,17 @@ theorem changed_wide_constant_is_observationally_equal_on_recorded_calls :
       sourceAgrees recordLocalArtifact changedWideRecordLocalFunctions = true := by
   constructor <;> decide +kernel
 
+def changedLowRecordLocalFunctions : List SourceFunction :=
+  [⟨"spans", ["value"], [], none,
+    .recordLocal "box" [("low", .binary .sub (.var "value") (.int 4)),
+      ("high", .binary .div (.int 60) (.var "value")),
+      ("wide", .binary .add (.var "value") (.int 9223372036854775800))]
+      (.binary .sub (.field "box" "high") (.field "box" "low"))⟩]
+
+set_option maxRecDepth 100000 in
+theorem changed_low_constant_disagrees_on_recorded_calls :
+    lowersTo recordLocalArtifact changedLowRecordLocalFunctions = false ∧
+      sourceAgrees recordLocalArtifact changedLowRecordLocalFunctions = false := by
+  constructor <;> decide +kernel
+
 end Xsh.Conformance.Vertical
