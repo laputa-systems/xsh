@@ -1934,8 +1934,8 @@ test test_lsipc_missing_global_limits { |ctx|
   let err = fp"{s.root}/limits.err"
   let script = "mount -t tmpfs none /proc/sys/fs/mqueue\n" +
     "for args in '-g' '-g -Q'; do\n" +
-    "  LC_ALL=C /usr/bin/lsipc $args > \"$1/ref\"\n" +
-    "  LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- $args > \"$1/cand\"\n" +
+    "  LC_ALL=C /usr/bin/lsipc \$args > \"$1/ref\"\n" +
+    "  LC_ALL=C \"$2\" \"$3/lsipc.xsh\" -- \$args > \"$1/cand\"\n" +
     "  cmp \"$1/ref\" \"$1/cand\"\n" +
     "done\n" +
     "mount -t tmpfs none /proc/sys\n" +

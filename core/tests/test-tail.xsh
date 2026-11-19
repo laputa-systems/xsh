@@ -782,7 +782,7 @@ test test_tail_redirected_initial_output_stays_buffered_during_terminal_read { |
   assert unix.write_fd(pty.master, b"terminal input\n")? == 15
   assert "readable" in unix.poll_fd(pty.replica, ["readable"], timeout_ms: 5000)?
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "-f", "data", "-"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, Path(pty.name), stdout, stderr)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, fp"{pty.name}", stdout, stderr)
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   var consumed = false

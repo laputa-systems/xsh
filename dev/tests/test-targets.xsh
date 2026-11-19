@@ -161,10 +161,10 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
 
 test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
   for profile in ["verification", "release"] {
-    let ctx = fixtures.linux_aarch64_context(p"/repo", profile)?
+    let linux_ctx = fixtures.linux_aarch64_context(p"/repo", profile)?
     for operation in ["test-linux-split", "test-linux-ci-split"] {
       let argv = docker_workflows.internal_argv(
-        ctx,
+        linux_ctx,
         "xsh-test",
         "linux/arm64",
         operation,
@@ -190,7 +190,7 @@ test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
       assert "--memory=1g" in docker_options_before_image
       assert "--memory-swap=1g" in docker_options_before_image
       assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
-      assert argv[-5] == f"/work/target/{ctx.target.triple}/{profile}/xsh"
+      assert argv[-5] == f"/work/target/{linux_ctx.target.triple}/{profile}/xsh"
       assert argv[-4..] == ["dev/main.xsh", "--", "internal", operation]
     }
   }
@@ -202,9 +202,9 @@ test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
   let container = fp"{root}/container"
   container.write("#!/bin/sh\nprintf '%s' fake-id > \"$1/id\"\n: > \"$1/ready\"\nwhile [ ! -e \"$1/go\" ]; do /bin/sleep 0.01; done\n", mode: 0o755)?
   let wrapper = fp"{fs.cwd()?}/dev/tests/split-docker.sh"
-  let status = process.run(process.command_argv(wrapper.display(),
-    [wrapper.display(), fp"{root}/id".display(), root.display(), container.display(), root.display()],
-    env: {PATH: f"{tools}:/bin:/usr/bin", DOCKER_LOG: log.display()}))?
+  let status = process.run(process.command_argv(wrapper,
+    [wrapper, fp"{root}/id", root, container, root],
+    env: {PATH: f"{tools}:/bin:/usr/bin", DOCKER_LOG: log}))?
   assert status.ok
   assert log.read_lines()? == ["update", "--cpus=0.01", "fake-id"]
   assert fp"{root}/go".exists()?

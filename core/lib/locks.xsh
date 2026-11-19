@@ -980,7 +980,7 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
           tui.cell_right_pad(shown, widths[index])
         }
         rendered_cells += [padded]
-        raw_cells += [if heading { bytes.from_text(row[index]) } else { scols.raw_table_text(byte_rows[row_index][index], byte_locale) }]
+        raw_cells += [if heading { bytes.from_text(row[index]) } else { scols.raw_table_text(byte_rows[row_index][index]) }]
       }
       if raw {
         var raw_line: Bytes = b""
@@ -1415,7 +1415,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
       }
       let rendered_rows = collect {
         for row in rows {
-          let description = if opts.raw { scols.raw_table_text(bytes.from_text(row[2]), false).utf8() ?? "" } else { row[2] }
+          let description = if opts.raw { scols.raw_table_text(bytes.from_text(row[2])).utf8() ?? "" } else { row[2] }
           yield (if opts.raw { row[0] } else { pad_left(row[0], holder_width) }) + " " +
             (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + description
         }
@@ -1432,7 +1432,6 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
       UnknownColumn(name) => { gnu.error(f"unknown column: {name}"); exit 1 }
       TooManyColumns => exit 1
     }
-    return
   }
   let chosen = selection ?? []
   let all = collect(opts.no_inaccessible)

@@ -511,7 +511,7 @@ export proc require_memory_root(root_path: Path) [fs, process, env, error] {
   }
   let rooted_directory = root.metadata(MEMORY_PATH)
   let directory = if let Err(failure) = rooted_directory {
-    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{MEMORY_PATH}".resolve() { Ok(target) => target.metadata(), Err(failure) => Err(failure) } } else { rooted_directory }
+    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{MEMORY_PATH}".resolve() { Ok(target) => target.metadata(), Err(resolve_failure) => Err(resolve_failure) } } else { rooted_directory }
   } else { rooted_directory }
   root.close()
   match directory {
@@ -534,7 +534,7 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   let memory_path = MEMORY_PATH
   let rooted_directory = root.metadata(memory_path)
   let memory_directory = if let Err(failure) = rooted_directory {
-    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{memory_path}".resolve() { Ok(target) => target.metadata(), Err(failure) => Err(failure) } } else { rooted_directory }
+    if gnu.strerror(failure) == "Invalid cross-device link" { match fp"{root_path}/{memory_path}".resolve() { Ok(target) => target.metadata(), Err(resolve_failure) => Err(resolve_failure) } } else { rooted_directory }
   } else { rooted_directory }
   let directory = match memory_directory {
     Ok(metadata) => metadata
@@ -569,9 +569,9 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   let memory_paths = children(root, memory_path, "/sys/devices/system/memory")
   let entries = memory_entries(memory_paths)
   if entries.is_empty() {
-    let root_path = root.host_path()?.display()
-    let separator = if root_path.ends_with("/") { "" } else { "/" }
-    fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: no numeric memory entries")
+    let host_root = root.host_path()?.display()
+    let separator = if host_root.ends_with("/") { "" } else { "/" }
+    fail(f"Failed to read {host_root}{separator}{MEMORY_PATH}: no numeric memory entries")
   }
   let firmware_listing = rooted_listing(root, p"sys/firmware/memory")
   let firmware_root = root.host_path()?

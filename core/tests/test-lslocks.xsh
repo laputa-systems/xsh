@@ -1176,7 +1176,7 @@ test test_lslocks_review6_zero_terminal_width { |ctx|
   let wrapper = [p"/bin/sh", p"-c", p"python3 -c 'import fcntl,struct; fcntl.ioctl(1,0x5414,struct.pack(\"HHHH\",24,0,0,0))'; exec \"$@\"", p"sh"]
   let reference = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @reference_words], 40, vars:)?
   let candidate = contexts.terminal_observe(s, "lslocks", args, [@wrapper, @candidate_words], 40, vars:)?
-  assert reference.stderr.is_empty(), f"{reference.stderr.base64()}"
+  assert reference.stderr.is_empty(), reference.stderr.base64()
   assert reference == candidate
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
@@ -1290,7 +1290,7 @@ test test_lslocks_overlay_descriptor_path { |ctx|
   let keeper = ul.start_keeper(s, script, [lock_path.display()])?
   defer ul.stop_keeper(keeper)
   let pid = keeper.ready.trim()
-  for args in [["-p", f"{pid}", "-o", "PATH,SIZE"], ["-J", "-p", f"{pid}", "-o", "PATH,SIZE"], ["-i", "-p", f"{pid}", "-o", "PATH"]] {
+  for args in [["-p", pid, "-o", "PATH,SIZE"], ["-J", "-p", pid, "-o", "PATH,SIZE"], ["-i", "-p", pid, "-o", "PATH"]] {
     let result = compared(s, args)?
     assert lock_path.display() in (result.stdout.utf8() ?? "")
   }

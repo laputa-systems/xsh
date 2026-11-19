@@ -155,7 +155,7 @@ pure display_width(value: Str) -> Int {
   }
   var extra = 0
   for character in measured { if character in ["\u{ad}", "\u{2065}"] { extra += 1 } }
-  tui.cell_width(measured) + extra - if leading_zero and !measured.is_empty() { 1 } else { 0 }
+  tui.cell_width(measured) + extra - (if leading_zero and !measured.is_empty() { 1 } else { 0 })
 }
 
 pure truncate_cells(text: Str, width: Int) -> Str {
@@ -326,7 +326,7 @@ pure render_raw(selection: Selection, rows: List[Row]) -> Str {
     out += [heading(selection, column) for column in selection.columns].join(" ") + "\n"
   }
   for row in rows {
-    out += [scols.raw_table_text(cell.text, true).utf8() ?? "" for cell in row.cells].join(" ") + "\n"
+    out += [scols.raw_table_text(cell.text).utf8() ?? "" for cell in row.cells].join(" ") + "\n"
   }
   out
 }

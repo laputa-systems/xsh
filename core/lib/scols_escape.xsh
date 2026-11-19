@@ -82,7 +82,7 @@ export pure safe_table_text(raw: Bytes, allow_newline: Bool, byte_locale: Bool) 
 }
 
 ## Applies libsmartcols raw output byte escaping.
-export pure raw_table_text(raw: Bytes, byte_locale: Bool) -> Bytes {
+export pure raw_table_text(raw: Bytes) -> Bytes {
   var output: List[Bytes] = []
   for index in range(raw.len()) {
     let byte = raw.byte_at(index) ?? 0
