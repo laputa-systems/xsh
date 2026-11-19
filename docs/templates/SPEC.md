@@ -4652,6 +4652,8 @@ statement position. `run.text`, `run.bytes`, and
 `run.stream` fail on an unsuccessful exit. `run.capture` yields its record
 even for a nonzero exit, and fails only on setup, timeout, cancellation,
 capture-limit, and decoding errors.
+An executable with an unrecognized format fails with `exec-format`; XSH does
+not invoke a shell to interpret it.
 
 Diagnostics for failed commands include the working directory and a quoted
 rendering of argv. Environment overlays are not shown.

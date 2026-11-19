@@ -2491,18 +2491,12 @@ fn group_contains_only_exited_child(group: ProcessGroup, pid: u32) -> bool {
     {
         return false;
     }
-    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PGRP, group.pgid];
-    let mut row = [0u8; 648];
-    let mut size = row.len();
-    // SAFETY: the MIB and output buffer are valid and their lengths are supplied to sysctl.
-    let result = unsafe {
-        libc::sysctl(mib.as_mut_ptr(), mib.len() as _, row.as_mut_ptr().cast(), &mut size,
-            std::ptr::null_mut(), 0)
+    let mut members = [0 as libc::c_int; 2];
+    // SAFETY: the buffer is valid for the byte length passed.
+    let count = unsafe {
+        libc::proc_listpgrppids(group.pgid, members.as_mut_ptr().cast(), std::mem::size_of_val(&members) as libc::c_int)
     };
-    result == 0 && size == row.len()
-        && i32::from_ne_bytes(row[40..44].try_into().unwrap()) == group.pgid
-        && row[36] == libc::SZOMB as u8
-        && matches!(process_exited_without_reaping(pid), Ok(ChildIdentityObservation::Exited))
+    count == 1 && members[0] == group.pgid
 }
 
 fn terminate_stream_child(
