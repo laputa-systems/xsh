@@ -2,6 +2,10 @@ use support.uu
 
 # origin: busybox taskset/taskset (get from pid 1)
 test test_bb_taskset_taskset_get_from_pid_1_ce4e9812 { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "taskset", ["-p", "1"], stdout: p"/dev/null", timeout: 5s)?
   uu.succeeds(r)
@@ -9,6 +13,10 @@ test test_bb_taskset_taskset_get_from_pid_1_ce4e9812 { |ctx|
 
 # origin: busybox taskset/taskset (set_aff, needs CAP_SYS_NICE)
 test test_bb_taskset_taskset_set_aff_needs_CAP_SYS_NICE_95ac36d5 { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let s = uu.scene(ctx)?
   let query = uu.argv(s, "taskset", [])?
   let args = ["0x1", "/bin/sh", "-c", "\"$@\" -p \"$$\"", "affinity-query"].extend([word.display() for word in query])
