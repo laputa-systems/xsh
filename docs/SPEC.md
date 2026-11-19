@@ -6633,7 +6633,9 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   follow_symlinks: B)`, which follows a final symlink by default.
   `follow_symlinks: false` changes the path itself: on anything but a symlink
   that is the same change, and on a symlink it changes the link's own mode
-  where the platform has one. Linux cannot change a symlink's mode, so there
+  where the platform has one. macOS applies the process umask to symlink mode
+  bits at creation; Linux symlinks report mode `0777`. Linux cannot change a
+  symlink's mode, so there
   the no-follow `chmod` of a symlink fails with `fs-chmod` and errno
   `EOPNOTSUPP`, and the link's target is left alone. `fs.mknod`
   creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).

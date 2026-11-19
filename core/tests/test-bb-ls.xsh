@@ -1,4 +1,5 @@
 use support.uu
+use lib.find_format as find_format
 
 # origin: busybox ls/ls-1-works
 test test_bb_ls_ls_1_works_568f2b96 { |ctx|
@@ -86,7 +87,7 @@ test test_bb_ls_ls_l_works_13141269 { |ctx|
     fs.set_times(entry_path, mtime_ns: 946771200000000000)
     let metadata = fs.stat(entry_path)?
     total_blocks += metadata.blocks_512
-    let mode = if metadata.kind == "dir" { "drwxr-xr-x" } else if metadata.kind == "symlink" { "lrwxrwxrwx" } else { "-rw-r--r--" }
+    let mode = if metadata.kind == "dir" { "drwxr-xr-x" } else if metadata.kind == "symlink" { if system.uname()?.sysname == "Linux" { "lrwxrwxrwx" } else { find_format.mode_text("symlink", metadata.mode) } } else { "-rw-r--r--" }
     let owner = user.by_uid(metadata.uid)?.name
     let group_name = group.by_gid(metadata.gid)?.name
     let suffix = if metadata.kind == "symlink" { f"{name}->{entry_path.readlink()?}" } else { name }
