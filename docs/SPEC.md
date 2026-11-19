@@ -852,6 +852,8 @@ failed conversions, NaNs, negative infinity, negative finite numbers, zero,
 positive finite numbers, positive infinity; signed zeros and NaNs each compare
 equal within their class. Formatting accepts one floating conversion and an
 optional nonnegative precision, retaining negative zero and native rounding.
+The core `printf` command uses this native `long double` precision and range
+for floating conversions, so rounding and hexadecimal representations vary by target.
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
