@@ -273,7 +273,11 @@ test test_install_accepts_non_utf8_target_directory { |ctx|
   let source = fp"{root}/source"
   let directory = bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]) as Path
   source.write("payload")
-  directory.mkdir()
+  let created = directory.mkdir()
+  if let Err(failure) = created {
+    if system.uname()?.sysname == "Darwin" and failure.errno == 92 { test.skip("filesystem rejects non-UTF-8 names with EILSEQ"); return }
+  }
+  created?
   let script = fp"{ctx.core_dir}/install.xsh"
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -289,7 +293,11 @@ test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
   let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/target_dir"
   let installed = bytes.concat([directory.bytes(), b"/source\xff\xfe"]) as Path
-  source.write("payload")
+  let written = source.write("payload")
+  if let Err(failure) = written {
+    if system.uname()?.sysname == "Darwin" and failure.errno == 92 { test.skip("filesystem rejects non-UTF-8 names with EILSEQ"); return }
+  }
+  written?
   directory.mkdir()
   let script = fp"{ctx.core_dir}/install.xsh"
   let out = fp"{root}/stdout"
