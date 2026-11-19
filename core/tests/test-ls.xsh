@@ -1,5 +1,6 @@
 use core.lib.acl
 use core.lib.capability
+use support.requires
 
 type Ran = {status: Int, out: Bytes, text: Str, err: Str}
 
@@ -42,6 +43,19 @@ proc sandbox(ctx: TestContext) [fs, error] -> Result[Path] {
   let work = fp"{root}/work"
   work.mkdir()
   Ok(work)
+}
+
+# Linux symlinks always report 0777; macOS gives them the creating umask, so
+# the expected column is read from the link itself there.
+proc link_mode_column(link: Path) [fs, env, error] -> Result[Str, Error] {
+  if system.uname()?.sysname == "Linux" { return Ok("lrwxrwxrwx") }
+  let mode = fs.stat(link, follow_symlinks: false)?.mode
+  var column = "l"
+  for bit in [0o400, 0o200, 0o100, 0o40, 0o20, 0o10, 0o4, 0o2, 0o1] {
+    let letter = if bit in [0o400, 0o40, 0o4] { "r" } else if bit in [0o200, 0o20, 0o2] { "w" } else { "x" }
+    column += if mode.bit_and(bit) != 0 { letter } else { "-" }
+  }
+  Ok(column)
 }
 
 test test_ls_lists_names_sorted_one_per_line { |ctx|
@@ -121,8 +135,9 @@ test test_ls_long_marks_default_acl { |ctx|
   let followed = ls_in(ctx, work, ["-lLd", "link"])?
   assert "drwxr-xr-x+" in followed.text, followed.text
   let not_followed = ls_in(ctx, work, ["-ld", "link"])?
-  assert "lrwxrwxrwx " in not_followed.text, not_followed.text
-  assert "lrwxrwxrwx+" not in not_followed.text, not_followed.text
+  let column = link_mode_column(link)?
+  assert f"{column} " in not_followed.text, not_followed.text
+  assert f"{column}+" not in not_followed.text, not_followed.text
 }
 
 test test_ls_long_keeps_columns_aligned_when_an_entry_has_an_acl { |ctx|
@@ -173,6 +188,7 @@ test test_ls_reports_missing_operands_with_status_2 { |ctx|
 }
 
 test test_ls_stats_proc_fd_entries_while_directory_is_open { |ctx|
+  requires.linux_kernel("no Linux /proc/self/fd")
   let work = sandbox(ctx)?
   if ! p"/proc/self/fd".is_dir() { test.skip("requires procfs") }
 
@@ -260,7 +276,8 @@ test test_ls_long_format_columns { |ctx|
   assert lines[0].starts_with("total "), lines[0]
   assert rx"^-rw-r--r-- 1 \S+ \S+ +7 T big$".matches(lines[1]), lines[1]
   assert rx"^drwx\S+ \d+ \S+ \S+ +\d+ T link$".matches(lines[2]), lines[2]
-  assert rx"^lrwxrwxrwx 1 \S+ \S+ +5 T ln -> small$".matches(lines[3]), lines[3]
+  assert lines[3].starts_with(f"{link_mode_column(fp"{work}/ln")?} 1 "), lines[3]
+  assert rx"^l\S{9} 1 \S+ \S+ +5 T ln -> small$".matches(lines[3]), lines[3]
   assert rx"^-rw-r--r-- 1 \S+ \S+ +2 T small$".matches(lines[4]), lines[4]
 
   let numeric = ls_in(ctx, work, ["-n", "--time-style=+T", "small"])?
@@ -389,7 +406,7 @@ test test_ls_symlink_dereference_options { |ctx|
   fp"{work}/dangling".symlink(to: p"missing")
 
   assert ls_in(ctx, work, ["ln"])?.text == "inside\n", "a symlink to a directory is followed on the command line"
-  assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "ln"])?.text == "lrwxrwxrwx 1 4 T ln -> real\n"
+  assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "ln"])?.text == f"{link_mode_column(fp"{work}/ln")?} 1 4 T ln -> real\n"
   assert "inside" in ls_in(ctx, work, ["-lH", "-og", "ln"])?.text
   assert ls_in(ctx, work, ["-d", "ln"])?.text == "ln\n"
   assert ls_in(ctx, work, ["-lLd", "-og", "--time-style=+T", "ln"])?.text.starts_with("drwx")
@@ -414,7 +431,7 @@ test test_ls_command_line_loop_is_listed_as_the_link { |ctx|
   # the explicit dereference options make it an error.
   let plain = ls_in(ctx, work, ["loop"])?
   assert plain.status == 0 and plain.text == "loop\n", plain.err
-  assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "loop"])?.text == "lrwxrwxrwx 1 4 T loop -> loop\n"
+  assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "loop"])?.text == f"{link_mode_column(fp"{work}/loop")?} 1 4 T loop -> loop\n"
   assert ls_in(ctx, work, ["-H", "loop"])?.status == 2
   assert ls_in(ctx, work, ["-L", "loop"])?.status == 2
   assert ls_in(ctx, work, ["-L"])?.text == "loop\n", "a listed loop needs no lookup when only names are shown"

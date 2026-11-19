@@ -75,6 +75,7 @@ test test_traceroute_default_udp_reaches_loopback_in_one_hop { |ctx|
 }
 
 test test_traceroute_prints_names_unless_numeric { |ctx|
+  requires.linux_kernel("traceroute socket options are Linux-only")
   let named = traceroute(ctx, ["-q1", "127.0.0.1"])?
   let hop = named.stdout.lines()[1]
 
@@ -423,6 +424,7 @@ test test_traceroute_refuses_unsupported_options_by_name { |ctx|
 }
 
 test test_traceroute_reports_socket_setup_failures_after_the_header { |ctx|
+  requires.linux_kernel("traceroute socket options are Linux-only")
   let device = traceroute(ctx, ["-n", "-i", "nosuch0", "127.0.0.1"])?
   assert device.status == 1
   assert device.stdout == "traceroute to 127.0.0.1 (127.0.0.1), 30 hops max, 60 byte packets"
@@ -439,6 +441,7 @@ test test_traceroute_reports_socket_setup_failures_after_the_header { |ctx|
 }
 
 test test_traceroute_socket_flags_are_applied_or_refused_by_the_kernel { |ctx|
+  requires.linux_kernel("traceroute socket options are Linux-only")
   let plain = traceroute(ctx, ["-n", "-q1", "-F", "-r", "127.0.0.1"])?
   assert plain.status == 0, plain.stderr
   assert_hop(plain.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)

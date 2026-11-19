@@ -2,6 +2,7 @@ use support.uu as uu
 use support.util_linux as ul
 use support.util_linux_contexts as contexts
 use core.lib.gnu as gnu
+use support.requires
 
 type LsipcPair = {reference: uu.Ran, candidate: uu.Ran}
 type IpcResource = {
@@ -303,6 +304,7 @@ proc run_both(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[
 }
 
 proc run_both_with_vars(s: uu.Scene, args: List[Str], vars: Record) [fs, process, env, error] -> Result[LsipcPair, Error] {
+  requires.host_path(p"/usr/bin/lsipc", "util-linux lsipc reference executable is unavailable")
   let reference = match ul.reference(s, "lsipc", args, timeout: 5s, vars: vars) {
     Ok(result) => result,
     Err(failure) => { return Err(error.failure(f"lsipc reference argv {args.join(" ")}: {failure.message}"), cause: failure) }

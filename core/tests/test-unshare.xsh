@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, signaled: Bool, stdout: Str, stderr: Str}
 
 proc invoke(ctx: TestContext, args: List[Str], stdin = b"") [fs, process, error] -> Result[Ran] {
@@ -205,6 +207,7 @@ test test_unshare_runs_the_login_shell_without_a_command { |ctx|
 }
 
 test test_unshare_without_namespace_flags_runs_the_command { |ctx|
+  requires.linux_kernel("namespaces are Linux-only")
   let probe = program(ctx, "plain.xsh", "print \"ran\"\n")
   let ran = invoke(ctx, [ctx.xsh_bin.display(), probe.display()])?
   assert ran.status == 0, ran.stderr

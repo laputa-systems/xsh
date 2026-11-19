@@ -1,4 +1,5 @@
 use core.lib.capability
+use support.requires
 
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
@@ -126,6 +127,7 @@ test test_setpriv_command_line_errors_use_getopt_wording { |ctx|
 }
 
 test test_setpriv_option_conflicts_and_duplicates_name_the_options { |ctx|
+  requires.linux_kernel("Linux process privileges and parent-death signals are Linux-only")
   let cases = [
     {args: ["--nnp", "--no-new-privs", "id"], text: "duplicate --no-new-privs option"},
     {args: ["--ruid=1", "--ruid=2", "id"], text: "duplicate ruid"},
@@ -158,6 +160,7 @@ test test_setpriv_option_conflicts_and_duplicates_name_the_options { |ctx|
 }
 
 test test_setpriv_values_are_validated_before_anything_changes { |ctx|
+  requires.linux_kernel("Linux process privileges and parent-death signals are Linux-only")
   let cases = [
     {args: ["--inh-caps=", "id"], text: "bad capability string"},
     {args: ["--inh-caps=chown", "id"], text: "bad capability string"},
@@ -232,6 +235,7 @@ test test_setpriv_dump_layout_matches_util_linux { |ctx|
 }
 
 test test_setpriv_sets_no_new_privs_and_the_parent_death_signal { |ctx|
+  requires.linux_kernel("Linux process privileges and parent-death signals are Linux-only")
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let plain = setpriv(ctx, [ctx.xsh_bin.display(), child])?
   assert plain.status == 0, plain.stderr
@@ -251,6 +255,7 @@ test test_setpriv_sets_no_new_privs_and_the_parent_death_signal { |ctx|
 }
 
 test test_setpriv_pdeathsig_keep_and_clear_act_on_an_inherited_signal { |ctx|
+  requires.linux_kernel("Linux process privileges and parent-death signals are Linux-only")
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let tail = [ctx.xsh_bin.display()].extend(applet_words(ctx)[1..])
   let inherited = setpriv(ctx, ["--pdeathsig=TERM", @tail, ctx.xsh_bin.display(), child])?
@@ -320,6 +325,7 @@ test test_setpriv_reset_env_rebuilds_the_environment_from_the_account { |ctx|
 }
 
 test test_setpriv_reports_the_kernel_refusal_in_its_own_words { |ctx|
+  requires.linux_kernel("Linux process privileges and parent-death signals are Linux-only")
   let me = unix.id()?
   if has_capability(8) or has_capability(7) or has_capability(6) { test.skip("the process holds CAP_SETPCAP, CAP_SETUID or CAP_SETGID") }
   let cases = [

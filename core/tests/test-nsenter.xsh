@@ -1,4 +1,5 @@
 use core.lib.proc_target as target_files
+use support.requires
 
 type Ran = {status: Int, signaled: Bool, stdout: Str, stderr: Str}
 
@@ -210,6 +211,7 @@ test test_nsenter_reports_commands_it_cannot_start { |ctx|
 }
 
 test test_target_files_name_the_namespaces_root_and_cwd_of_a_process {
+  requires.linux_kernel("process namespace files under /proc are Linux-only")
   let own = process.current_pid()?
   assert target_files.namespace_file(own, "net") == fp"/proc/{own}/ns/net"
   # The handle is the one the kernel exposes for this very process, so it
