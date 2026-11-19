@@ -14,18 +14,20 @@ proc wrapped(s: uu.Scene, words: List[Path], input = b"", stdin: Path? = null, t
 
 # origin: gnu od/big-w.log
 test test_gnu_od_big_w_log { |ctx|
-  test.timeout(ctx, 600s)
+  let darwin = system.uname()?.sysname == "Darwin"
+  test.timeout(ctx, if darwin { 7500s } else { 600s })
+  let command_timeout = if darwin { 3600s } else { 240s }
   let s = uu.scene(ctx)?
   for width in [46340, 46341, 3037000500, 3037000501] {
     let command_words = uu.argv(s, "od", [fp"-w{width}", p"-tcz"])?
     let normalized = [p"/bin/sh", p"-c", p"\"$@\" | tr -s ' ' ' '; ", p"od-wide"].extend(command_words)
-    let r = wrapped(s, normalized, input: b"x", timeout: 240s)
+    let r = wrapped(s, normalized, input: b"x", timeout: command_timeout)
     if ! r.stderr.is_empty() {
       uu.no_stdout(r)
     } else {
       uu.stdout_is(r, "0000000 x >x<\n0000001\n")
       let counted = [p"/bin/sh", p"-c", p"\"$@\" | wc -c; ", p"od-wide-count"].extend(command_words)
-      let count = wrapped(s, counted, input: b"x", timeout: 240s)
+      let count = wrapped(s, counted, input: b"x", timeout: command_timeout)
       assert count.stdout.utf8()?.trim() as Int == width * 4 + 21
     }
   }

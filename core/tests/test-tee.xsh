@@ -211,7 +211,7 @@ test test_tee_nopipe_mode_does_not_wait_for_idle_input_when_stdout_is_broken { |
   let input = fp"{root}/input"
   let output = fp"{root}/output"
   let script = fp"{ctx.core_dir}/tee.xsh"
-  let status = run.status timeout -s KILL 2 sh -c "mkfifo \"$2\" \"$3\"; exec 3<> \"$2\"; (exec 4< \"$3\") & reader=$!; exec 4> \"$3\"; wait \"\$reader\"; exec \"$0\" \"$1\" -p < \"$2\" >&4" ${ctx.xsh_bin} $script $input $output
+  let status = run.status timeout -s KILL 2 sh -c "mkfifo \"$2\" \"$3\"; exec 3<> \"$2\"; (exec 4< \"$3\"; read ready <&3) & reader=$!; exec 4> \"$3\"; printf 'ready\\n' >&3; wait \"\$reader\"; exec \"$0\" \"$1\" -p < \"$2\" >&4" ${ctx.xsh_bin} $script $input $output
   assert status.exited_with(0), "tee blocked on idle input after its only output pipe broke"
 }
 

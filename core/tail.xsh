@@ -366,6 +366,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
   var failed = false
   var last = after
   let poll_stdout = stdout_pollable()?
+  let darwin = system.uname()?.sysname == "Darwin"
 
   loop {
     var next: List[FollowFile] = []
@@ -441,8 +442,14 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
     break when ! alive and ! produced
     if ! produced {
       if poll_stdout {
-        let events = unix.poll_fd(1, [])?
-        break when "error" in events or "hangup" in events
+        if darwin {
+          if let Err(failure) = unix.write_fd(1, b"") {
+            break when gnu.errno(failure) == 32
+          }
+        } else {
+          let events = unix.poll_fd(1, [])?
+          break when "error" in events or "hangup" in events
+        }
       }
       io.flush_stderr()
       time.sleep(poll_pause(interval))
@@ -906,8 +913,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     } else if following and follow_mode == "name" and source.kind == 8 {
       let entry = fs.stat(source.path, follow_symlinks: true)?
       name_files += [{name: name, label: label, state: "tailing", symlink: is_link(name), dir_watched: ! parent_missing(name), dev: entry.dev, ino: entry.ino, offset: follow_offset}]
-    } else if following and follow_mode == "descriptor" and name == "-" and tio.standard_file(0) != "" {
-      follow_files += [{label: label, fd: 0, offset: tio.stdin_offset()?}]
+    } else if following and follow_mode == "descriptor" and name == "-" {
+      if system.uname()?.sysname == "Darwin" {
+        if fs.stat(p"/dev/fd/0", follow_symlinks: true)?.kind == "file" {
+          follow_files += [{label: label, fd: 0, offset: unix.seek_fd(0, 0, whence: "current")?}]
+        }
+      } else if tio.standard_file(0) != "" {
+        follow_files += [{label: label, fd: 0, offset: tio.stdin_offset()?}]
+      }
     }
   }
 

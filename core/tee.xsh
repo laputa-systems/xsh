@@ -140,6 +140,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   unix.dup_fd(1, original)
   var outputs: List[Output] = [{name: "standard output", fd: original, active: true, pollable: output_pollable(original)?}]
   var failed = false
+  let darwin = system.uname()?.sysname == "Darwin"
 
   for name in opts.files {
     let descriptor = unix.open_fd(p"/dev/null")?
@@ -158,6 +159,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       for index in range(outputs.len()) {
         let output = outputs[index]
         continue when ! output.active or ! output.pollable
+        if darwin {
+          if let Err(failure) = unix.write_fd(output.fd, b"") {
+            if gnu.errno(failure) == 32 {
+              outputs[index] = {...output, active: false}
+              if index > 0 { unix.close_fd(output.fd) }
+            }
+          }
+          continue
+        }
         let events = unix.poll_fd(output.fd, [])?
         if "invalid" in events {
           gnu.error(f"{gnu.quote(output.name)}: Bad file descriptor")

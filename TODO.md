@@ -145,6 +145,8 @@ out of scope.
 - **Root causes found (2026-11-19):**
   - Darwin implements FIFOs on socket buffers. It does not wake `poll` or `kqueue` readers when a writer blocks in one write larger than the buffer. `766929ab0` re-polls FIFO waits in 20 ms slices on macOS, which fixed the eight `test-uu-seq-1.xsh` cases.
   - After a FIFO's last writer closes, Darwin reports neither readable nor hangup to `poll` or `kqueue`, while Linux reports `POLLHUP`; only a nonblocking `read` returns EOF. awk's command readers (`open_command_reader` in `core/lib/awk.xsh`) read `sh -c` output through a FIFO and wait on readiness in `fill`, so `"printf ''" | getline` hangs on macOS. The getline cases fail for this reason.
+  - `test_uu_tee_tee_continues_after_short_read` waits for the same stdin FIFO EOF after the writer closes.
+  - `od`'s large-width test emits about 12 GB per large-width pipeline. A macOS sample shows the writer blocked in `write` while `tr` consumes CPU; 100 MB through `tr` took 8.86 s under shared-host load. The macOS test budget is 3600 s per pipeline and 7500 s overall; Linux retains its existing budget.
 - **Recommendation:** Give awk's command readers an anonymous pipe (Darwin reports EOF on pipes), or have `fill` check the command's job for exit before trusting an empty readiness result. Then rerun the factor and `od` cases, which may share the FIFO cause, and measure `od` separately.
 - **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
 - **Fix with:** root-cause
@@ -163,9 +165,9 @@ out of scope.
 ### XSH-123 · P3 · Terminal and FIFO observation differs on macOS
 
 - **Area:** Core
-- **Where:** `core/stty.xsh` (Linux-sized termios decoding), `core/tests/test-stty.xsh` (`all_lists_every_setting_in_gnu_order`, `combination_settings_follow_the_gnu_definitions`, `control_characters_take_every_spelling`, `delay_styles_replace_each_other`, `drain_alone_prints_and_otherwise_chooses_when_to_apply`), `core/tee.xsh` (zero-interest FIFO poll), `core/tests/test-tee.xsh` (`nopipe_mode_does_not_wait_for_idle_input_when_stdout_is_broken`, `nopipe_mode_stops_when_stdout_and_file_fifo_readers_are_gone`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) stty decodes termios with Linux field sizes and flag values, so its listings and combinations differ and `cooked` exits 1. tee's `--output-error` modes time out because Darwin keeps reporting a named FIFO writable after its last reader closes, so the zero-interest poll never sees the hangup.
-- **Recommendation:** Give stty a per-host termios table (Darwin `tcflag_t` is 64-bit and its flag set differs) and assert host-correct GNU output. For tee, detect reader loss by a zero-length or `EPIPE` probe write instead of poll readiness on Darwin.
+- **Where:** `core/stty.xsh` (Linux-sized termios decoding), `core/tests/test-stty.xsh` (`all_lists_every_setting_in_gnu_order`, `combination_settings_follow_the_gnu_definitions`, `control_characters_take_every_spelling`, `delay_styles_replace_each_other`, `drain_alone_prints_and_otherwise_chooses_when_to_apply`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) stty decodes termios with Linux field sizes and flag values, so its listings and combinations differ and `cooked` exits 1.
+- **Recommendation:** Give stty a per-host termios table (Darwin `tcflag_t` is 64-bit and its flag set differs) and assert host-correct GNU output.
 - **Acceptance:** The listed tests pass on native macOS with host-correct expectations and still pass on Linux.
 - **Fix with:** os-boundaries
 - **Effort:** M
@@ -222,8 +224,7 @@ out of scope.
   - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
   - `test-uu-cksum-1.xsh` (`debug_flag`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
   - `test-uu-du-2.xsh` (`du_time`: `--time=birth`) fails.
-  - `test-tail.xsh` (`follows_standard_input_redirected_from_a_regular_file`) and `test-uu-tail-1.xsh` (`follow_stdout_pipe_close`) time out.
-  - `test-uu-tee.xsh` (`tee_continues_after_short_read`, `linux_only_pipe_mode_broken_pipe_only`) fails.
+  - `test-uu-tee.xsh` (`tee_continues_after_short_read`) waits for runtime FIFO EOF; see XSH-120.
   - `test-lslocks.xsh` (`exited_flock_acquirer`, `filter_non_utf8_outside_literal`) fails.
   - `tests/xsh/wait-until.xsh` (`fails_with_timeout_when_the_limit_passes`) failed 1 of 3 isolated runs: a 10 ms sleep overran 60 ms on an idle host, which suggests Darwin timer coalescing. `test-split.xsh` (`filter_byte_chunks_keep_processing_until_timeout`) failed once under full-suite load and passed 3 of 3 alone.
 - **Recommendation:** Triage each with root-cause on m1-max. Split any that becomes a contract question into its own ticket, and fold descriptor-identity and FIFO-wakeup causes into XSH-121 and XSH-120 when they match.
