@@ -65,7 +65,8 @@ test test_bb_xargs_xargs_works_f2ed784c { |ctx|
   let paths = ["first-works", "second-works", "two words-works"]
   let reference = uu.invoke(s, "md5sum", paths, timeout: 5s)?
   uu.succeeds(reference)
-  let r = uu.invoke(s, "xargs", ["-0", "md5sum"], stdin: b"first-works\0second-works\0two words-works\0", timeout: 5s)?
+  let command = uu.argv(s, "md5sum", [])?
+  let r = uu.invoke(s, "xargs", ["-0"].extend([word.display() for word in command]), stdin: b"first-works\0second-works\0two words-works\0", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, reference.stdout)
 }
