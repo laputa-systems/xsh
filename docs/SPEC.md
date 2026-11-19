@@ -5396,6 +5396,8 @@ env ({LC_ALL: "C"}) {
   value that is not UTF-8; `env.entries()` returns the same variables in name
   order as `{name: Bytes, value: Bytes}` and never fails on encoding, for
   programs that must pass such values through.
+  On macOS, XSH startup may add `__CF_USER_TEXT_ENCODING` even when it was
+  absent from the environment passed to the process.
 - A `Str` lookup fails when the variable is missing (`env-missing`) or not
   valid UTF-8 (`invalid-utf8`); bytes are never decoded lossily. Child
   processes still inherit non-UTF-8 values unchanged.

@@ -201,7 +201,11 @@ test test_uu_support_child_umask_preserves_runner_and_launch_contract { |ctx|
   let environment = uu.invoke(s, "printenv", [], umask: 0o077)?
   uu.succeeds(environment)
   for line in environment.stdout.utf8()?.split("\n") {
-    if line != "" { assert line.split("=")[0] in ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"] }
+    if line != "" {
+      let name = line.split("=")[0]
+      let allowed = ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"]
+      assert name in allowed or (system.uname()?.sysname == "Darwin" and name == "__CF_USER_TEXT_ENCODING")
+    }
   }
 }
 
