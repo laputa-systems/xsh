@@ -2,8 +2,8 @@
 
 **Status:** active since the owner restarted the Lean lane on 2026-11-03. The
 connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,227 `SPEC_PROVED` fragment
-roots, eleven `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
+`formal/coverage.json` is the only inventory: 1,250 `SPEC_PROVED` fragment
+roots, thirteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
 at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and all 77
 universal obligations planned. `formal/README.md` describes each accepted
 fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
@@ -11,8 +11,8 @@ validates the inventory against this plan. Completed slices are recorded in
 Git history, not here.
 
 Fragment proofs hold for their models only. The certified source/IR vertical
-covers the Lean lowerer on admitted integer, Bool-comparison, `Result`, `?` and
-let-binding productions; Rust's parser, its lowering of other programs and its
+covers the Lean lowerer on admitted integer, Bool-comparison, `Result`, `?`,
+let-binding and record-local productions; Rust's parser, its lowering of other programs and its
 execution of IR rest on the recorded artifacts and runs. The shared `Xsh.Core`
 foundation (types, values, reference validity, store, contract substitution,
 effect predicates and membership) closes no universal obligation.
@@ -31,16 +31,25 @@ acceptance does not wait for this campaign.
   (`tests/fixtures/runtime/formal-bridge-*.xsh`) go through the test-only exporter
   and decoder in `src/runtime/eval/indexed/full/formal_bridge/arithmetic.rs`, and
   `Xsh.Conformance.Vertical.Certificate` and `...CallsCertificate` check their
-  bytes against an independent Lean grammar and lowerer. That grammar and
-  lowerer agree with Rust only on these artifacts; no source admission proof
-  connects them in general. Outside the admitted shape: loops, strings, records,
-  Bool-function calls, assigned callees with parameters, effectful computed
-  bindings, error producers and record locals. CERT-FACTS does not admit
-  assignments or computed lets, and no CERT-SOUND validator exists.
-- The next vertical widening is an error producer or a record local; each needs
-  a new row form, not another certificate-only check. The validation-error
-  sentinel omits structured Error identity, messages, paths and causes, so an
-  error-producer claim first needs their representation and proof.
+  bytes against an independent Lean grammar and lowerer. The Lean source
+  admission and lowering theorems cover the admitted shape; Rust agreement is
+  limited to the recorded artifacts and runs. A record-local function is pure,
+  has one `Int` parameter and an `Int` return, and contains exactly one
+  immutable `let` of a nonempty record followed by a return. Its distinct,
+  non-keyword fields contain integer atoms or one arithmetic operation over
+  parameter and literal atoms; the return uses such atoms or projections of
+  fields in that local. The local cannot shadow the parameter or escape.
+  Record updates, spreads, nesting, empty and punned records, quoted or keyword
+  labels, annotated or mutable record locals, callers of record-local functions,
+  and other statements beside the record local remain outside the shape.
+  Loops, strings, other record uses, Bool-function calls, assigned callees with
+  parameters, effectful computed bindings and error producers also remain out.
+  CERT-FACTS does not admit assignments, computed lets or record locals, and no
+  CERT-SOUND validator exists.
+- An error producer needs a new row form, not another certificate-only check.
+  The validation-error sentinel omits structured Error identity, messages,
+  paths and causes, so an error-producer claim first needs their representation
+  and proof.
 - The portable exchange omits semantic tables that Rust's clone-based decoder
   needs. Export them before claiming a foreign-IR validator.
 - The scoped fact artifact still needs its final matching-freeze replay.

@@ -14980,6 +14980,24 @@
       "status": "fragment",
       "scope": "Admitted direct calls do not name earlier record-local functions.",
       "boundary": "Only the Lean grammar is covered; Rust parser and checker agreement is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.function_lowers_record",
+      "module": "Xsh.Conformance.Vertical.LoweringSound",
+      "declaration": "Xsh.Conformance.Vertical.function_lowers_record",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record-local source function that the Lean lowerer accepts reads back as its source function program in every extension of the resulting lowering state.",
+      "boundary": "This is a theorem about the Lean lowerer and reader, not Rust parsing, lowering or execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.record_value_lowers",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
+      "declaration": "Xsh.Conformance.Vertical.record_value_lowers",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record result lowered after a record row reads as its source expression in later states.",
+      "boundary": "Only the Lean lowerer and reader are covered; no Rust behavior is proved."
     }
   ],
   "artifact_certificates": [
@@ -15393,15 +15411,18 @@
         "Xsh.Conformance.Vertical.record_pair_lowers",
         "Xsh.Conformance.Vertical.record_pair_source_agrees",
         "Xsh.Conformance.Vertical.record_pair_validates",
-        "Xsh.Conformance.Vertical.record_pair_results"
+        "Xsh.Conformance.Vertical.record_pair_results",
+        "Xsh.Conformance.Vertical.record_pair_means_source",
+        "Xsh.Conformance.Vertical.record_pair_admitted_meaning"
       ],
       "rejection_theorems": [
         "Xsh.Conformance.Vertical.substituted_record_sources_are_refused",
         "Xsh.Conformance.Vertical.record_pair_wrong_trees_refused",
         "Xsh.Conformance.Vertical.changed_wide_source_rejected_by_pair",
-        "Xsh.Conformance.Vertical.record_pair_changed_low_refused"
+        "Xsh.Conformance.Vertical.record_pair_changed_low_refused",
+        "Xsh.Conformance.Vertical.reordered_record_entries_refused_by_lowering"
       ],
-      "proposition": "The identified source and raw-IR documents decode; the source parses to a one-parameter function with an immutable integer-field record local; Lean lowering reproduces the recorded rows, blocks, operation pool, string pool and canonical label table with span words taken from the IR; the artifact validates and the four recorded calls produce 10, -8, division-by-zero and integer-overflow. Source and IR agree on those recorded calls. The listed changed sources and trees are refused by the applicable checks.",
+      "proposition": "The identified source and raw-IR documents decode; the source parses to a one-parameter function with an immutable integer-field record local; Lean lowering reproduces the recorded rows, blocks, operation pool, string pool and canonical label table with span words taken from the IR; the artifact validates and the four recorded calls produce 10, -8, division-by-zero and integer-overflow. Source and IR agree on those recorded calls, and the universal Lean lowering theorem equates their function programs. The listed changed sources and trees are refused by the applicable checks.",
       "boundary": "Only these two documents and four recorded calls are certified. The unread wide entry is evaluated, but a changed wide constant that preserves these outcomes is detected by exact lowering rather than observation agreement. The parser and lowerer are Lean definitions; this does not show that Rust parses other sources, emits other rows, or executes the IR. No Rust conformance or universal obligation follows."
     }
   ],

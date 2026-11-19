@@ -25,10 +25,15 @@ the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
 The vertical raw-IR exchange carries the string pool and canonical record-label
-table under `integer-calls-conditional-local-fixture-v4`. The record-local
-raw-IR document validates and is certified for four recorded calls, including faults
-from division by zero and an unread overflowing entry. This is IR-only evidence:
-the source is not yet admitted, and Rust execution is observed, not modelled.
+table under `integer-calls-conditional-local-fixture-v4`. The record-local source
+and raw-IR pair is certified for four recorded calls, including division by zero
+and an unread overflowing entry. The Lean admission and lowering theorems cover
+one immutable, nonempty integer-field record local in a one-parameter `Int`
+function, with entry values over the parameter and literals and a return over
+those atoms and fields of that local. Fields have distinct non-keyword names;
+spreads, updates, nested records, other statements, and calls of record-local
+functions are outside this shape. The pair certifies the identified documents;
+Rust execution is observed in finite bridge tests, not modelled.
 
 The independent base machine models integer-field record construction in source
 order and field reads through named bindings. Its proofs cover preservation,
