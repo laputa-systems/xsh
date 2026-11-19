@@ -172,12 +172,30 @@ fn set_terminal_canonical(fd: libc::c_int) {
     assert_eq!(unsafe { libc::tcsetattr(fd, libc::TCSANOW, &attrs) }, 0, "enable canonical input");
 }
 
+/// A path that opens a new description of the terminal `slave` names.
+#[cfg(target_os = "linux")]
+fn reopen_path(slave: &File) -> PathBuf {
+    PathBuf::from(format!("/proc/self/fd/{}", slave.as_raw_fd()))
+}
+
+/// macOS has no procfs, and opening `/dev/fd/N` only duplicates the descriptor.
+#[cfg(not(target_os = "linux"))]
+fn reopen_path(slave: &File) -> PathBuf {
+    // SAFETY: ttyname reads the open descriptor; the result is copied before
+    // any other call can reuse its static buffer.
+    let name = unsafe { libc::ttyname(slave.as_raw_fd()) };
+    assert!(!name.is_null(), "terminal name: {}", std::io::Error::last_os_error());
+    use std::os::unix::ffi::OsStrExt;
+    let name = unsafe { std::ffi::CStr::from_ptr(name) };
+    PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes()))
+}
+
 fn fill_pty_output_queue(slave: &File) {
     let mut writer = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
-        .open(format!("/proc/self/fd/{}", slave.as_raw_fd()))
+        .open(reopen_path(slave))
         .unwrap();
     let buffer = [b'x'; 4096];
     loop {
