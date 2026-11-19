@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 117
+Next: 118
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -125,3 +125,13 @@ out of scope.
 - **Acceptance:** A connected document with an `ExprRecord` row decodes its labels to the spellings Rust wrote, and a test fails if the reader uses the string pool.
 - **Fix with:** reference-parity
 - **Effort:** S
+
+### XSH-117 · P2 · A signal during a blocking FIFO script open is lost on macOS
+
+- **Area:** Runtime
+- **Where:** `src/runner.rs` (`try_prepare_program_observed`, `fs::read(&options.script)`), `src/runner.rs` (`on_preparation_stack`), `src/runtime/process.rs` (`install_cancellation_signal_handlers`)
+- **Problem:** `runtime::process::sigterm_during_script_source_read_is_not_lost_before_execution` fails about 3 times in 20 on macOS arm64 (m1-max, 2026-11-19); Linux passes. A sample of the stuck `xsh` shows it blocked in `open(2)` inside `std::fs::read`. On macOS a reader blocked opening a FIFO can miss a writer that opens, writes and closes before the reader wakes, and then waits for another writer. The SIGTERM that follows cannot end the wait: std's `File::open` retries `EINTR`, and preparation runs on its own thread, so a process-directed signal may be taken by another thread.
+- **Recommendation:** Open the script with an `EINTR`-aware loop that ends preparation as cancelled (status 3, no output) when a cancellation signal is recorded, and make sure the preparing thread receives SIGINT and SIGTERM (mask them in the other threads during preparation, or wake it through the signal wake descriptor).
+- **Acceptance:** The test passes 100 consecutive runs on native macOS and still passes on Linux; a SIGTERM during a FIFO source open ends `xsh` with status 3 and no output.
+- **Fix with:** lifecycle-concurrency
+- **Effort:** M
