@@ -16,6 +16,10 @@ def SourceExpression.isAssigned : SourceExpression → Bool
   | .assigned _ _ _ => true
   | _ => false
 
+def SourceExpression.isRecordLocal : SourceExpression → Bool
+  | .recordLocal _ _ _ => true
+  | _ => false
+
 /-- The slots a computed-let sequence binds: the parameter is slot 0 and the bindings take the
 slots after the exporter's reserved one, in source order. Every binding name is distinct from the
 parameter and from the other bindings. -/
@@ -45,6 +49,9 @@ def SourceFunction.scope? (function : SourceFunction) : Option (List (String × 
       else some [(parameter, 0), (name, 2)]
   | [parameter], [], none =>
       match function.result with
+      | .recordLocal name _ _ =>
+          if parameter == name then none
+          else some [(parameter, 0), (name, 2)]
       | .computedLet name _ _ =>
           if parameter == name then none
           else some [(parameter, 0), (name, 2)]
@@ -66,6 +73,19 @@ def SourceAtom.expression? (scope : List (String × Nat)) : SourceAtom → Optio
 
 def SourceValue.expression? (scope : List (String × Nat)) : SourceValue → Option BaseExpr
   | .atom single => single.expression? scope
+  | .binary op left right => do
+      if op.isComparison then none else pure ()
+      some (op.expression (← left.expression? scope) (← right.expression? scope))
+
+def RecordOperand.expression? (scope : List (String × Nat)) : RecordOperand → Option BaseExpr
+  | .atom value => value.expression? scope
+  | .field target label => do
+      let slot ← scope.lookup target
+      let word ← Word32.decode? slot
+      some (.fieldRead (NameId.mk word) label)
+
+def RecordValue.expression? (scope : List (String × Nat)) : RecordValue → Option BaseExpr
+  | .operand value => value.expression? scope
   | .binary op left right => do
       if op.isComparison then none else pure ()
       some (op.expression (← left.expression? scope) (← right.expression? scope))
@@ -96,6 +116,7 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
       some (constructorExpression isOk (← payload.expression? scope))
   | .computedLet _ _ result => result.expression? scope
   | .computedLets _ result => result.expression? scope
+  | .recordLocal _ _ result => result.expression? scope
 
 /-- The assignment a function's returned form carries, as the base machine would run it: it must
 assign the function's one let, and its value is read in the function's scope. -/
@@ -124,7 +145,9 @@ def propagationProgram? (callees : List (String × Option Callee))
 /-- A function the lowerer records as directly callable: it has no propagation binding. An
 admitted assignment evaluates its updated binding as a call argument. -/
 def SourceFunction.callable (function : SourceFunction) : Bool :=
-  function.propagation.isNone
+  function.propagation.isNone && match function.result with
+    | .recordLocal _ _ _ => false
+    | _ => true
 
 /-- The bindings a computed-let sequence declares, in source order: each value reads the
 parameter and the bindings before it, and each binding takes the next slot from the start the
@@ -178,7 +201,15 @@ def SourceFunction.program? (callees : List (String × Option Callee)) (function
     | none => some none
     | some found => (propagationProgram? callees scope found).map some
   let expression ← function.result.expression? callees scope
-  some ⟨function.parameters.length, bindings, assignment, propagation, expression, none⟩
+  let record ← match function.parameters, function.lets, function.propagation, function.result with
+    | [parameter], [], none, .recordLocal target fields result => do
+        check (recordLocalAdmitted parameter target fields result)
+        let values ← fields.mapM fun (label, value) => do
+          some (label, ← value.expression? [(parameter, 0)])
+        some (some ⟨2, values⟩)
+    | _, _, _, .recordLocal _ _ _ => none
+    | _, _, _, _ => some none
+  some ⟨function.parameters.length, bindings, assignment, propagation, expression, record⟩
 
 def sourceStep (state : List (String × Option Callee) × List (Option FunctionProgram))
     (function : SourceFunction) : List (String × Option Callee) × List (Option FunctionProgram) :=
@@ -196,6 +227,7 @@ structure LoweringState where
   blocks : List Block := []
   functions : List FunctionRow := []
   strings : List String := []
+  names : List String := []
   callable : List Bool := []
   spans : List Word32 := []
 
@@ -325,6 +357,39 @@ def Lower.pureCall (owner : BridgeId) (scope : List (String × Nat)) (callee : S
   let span ← Lower.takeSpan
   Lower.pushRow .exprDirectPureCall [← Lower.word (index + 1), table.raw, span]
 
+def Lower.internString (name : String) : Lower Word32 := fun state => do
+  let index := state.strings.findIdx? (· == name)
+  match index with
+  | some found => (Word32.decode? (found + 1)).map fun word => (word, state)
+  | none => (Word32.decode? (state.strings.length + 1)).map fun word =>
+      (word, { state with strings := state.strings ++ [name] })
+
+def Lower.internName (name : String) : Lower Word32 := fun state => do
+  let index := state.names.findIdx? (· == name)
+  match index with
+  | some found => (Word32.decode? (found + 1)).map fun word => (word, state)
+  | none => (Word32.decode? (state.names.length + 1)).map fun word =>
+      (word, { state with names := state.names ++ [name] })
+
+def Lower.recordOperand (scope : List (String × Nat)) : RecordOperand → Lower Word32
+  | .atom value => Lower.atom scope value
+  | .field target label => do
+      let slot ← Lower.lift (scope.lookup target)
+      let base ← Lower.pushRow .exprParam [← Lower.word slot]
+      let labelWord ← Lower.internString label
+      let span ← Lower.takeSpan
+      Lower.pushRow .exprField [base, labelWord, span]
+
+def Lower.recordValue (scope : List (String × Nat)) : RecordValue → Lower Word32
+  | .operand value => Lower.recordOperand scope value
+  | .binary op left right => do
+      Lower.require (!op.isComparison)
+      let lhs ← Lower.recordOperand scope left
+      let rhs ← Lower.recordOperand scope right
+      let operation ← Lower.operationIndex op
+      let span ← Lower.takeSpan
+      Lower.pushRow .exprBinary [operation, lhs, rhs, span]
+
 def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
     SourceExpression → Lower Word32
   | .value value => Lower.value scope value
@@ -348,6 +413,7 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
       pure row
   | .computedLet _ _ result => Lower.value scope result
   | .computedLets _ result => Lower.value scope result
+  | .recordLocal _ _ result => Lower.recordValue scope result
 
 def addSourceStrings (strings : List String) (function : SourceFunction) : List String :=
   (function.name :: function.parameters ++ ["args"]).foldl
@@ -402,6 +468,7 @@ def Lower.computedLetStatements (function : SourceFunction) (scope : List (Strin
             pure [binding]
         | _ => Lower.fail
       else Lower.fail
+  | .recordLocal _ _ _ => Lower.fail
   | .computedLets [] _ => Lower.fail
   | .computedLets bindings _ =>
       if function.lets.isEmpty then
@@ -410,6 +477,23 @@ def Lower.computedLetStatements (function : SourceFunction) (scope : List (Strin
         | _ => Lower.fail
       else Lower.fail
   | _ => pure []
+
+def Lower.recordEntries (scope : List (String × Nat)) :
+    List (String × SourceValue) → Lower (List Word32)
+  | [] => pure []
+  | (name, value) :: rest => do
+      let row ← Lower.value scope value
+      let label ← Lower.internName name
+      let others ← Lower.recordEntries scope rest
+      pure ([0, label, row] ++ others)
+
+def Lower.recordLocal (owner : BridgeId) (parameter : String)
+    (fields : List (String × SourceValue)) : Lower Word32 := do
+  let entries ← Lower.recordEntries [(parameter, 0)] fields
+  let count ← Lower.word fields.length
+  let block ← Lower.pushBlock owner 0 (count :: entries)
+  let record ← Lower.pushRow .exprRecord [block.raw]
+  Lower.pushRow .stmtLet [2, record, 0]
 
 /-- A propagation binding: the callee call row, the `?` row over it, and the `StmtLet` row that
 binds the payload to the target slot. -/
@@ -431,16 +515,24 @@ def Lower.function (function : SourceFunction) : Lower Unit := do
   let parametersStart := (before.functions.map (·.paramsLen.val)).sum
   match function.propagation with
   | some propagation => do
-      Lower.require (function.lets.isEmpty && !function.result.isAssigned)
+      Lower.require (function.lets.isEmpty && !function.result.isAssigned && !function.result.isRecordLocal)
       let statement ← Lower.propagation owner scope propagation
       Lower.functionTail function scope owner before.functions.length parametersStart 0 [statement]
   | none =>
     match function.lets with
-    | [] => do
-        let computed ← Lower.computedLetStatements function scope
-        Lower.require (!function.result.isAssigned)
-        Lower.functionTail function scope owner before.functions.length parametersStart
-          computed.length computed
+    | [] =>
+      match function.parameters, function.result with
+      | [parameter], .recordLocal target fields result => do
+          Lower.require (recordLocalAdmitted parameter target fields result)
+          modify fun state => { state with strings := addSourceStrings state.strings function }
+          let statement ← Lower.recordLocal owner parameter fields
+          Lower.functionTail function scope owner before.functions.length parametersStart 1 [statement]
+      | _, .recordLocal _ _ _ => Lower.fail
+      | _, _ => do
+          let computed ← Lower.computedLetStatements function scope
+          Lower.require (!function.result.isAssigned)
+          Lower.functionTail function scope owner before.functions.length parametersStart
+            computed.length computed
     | [(name, value)] => do
         let computed ← Lower.computedLetStatements function scope
         Lower.require computed.isEmpty
@@ -470,7 +562,7 @@ def lowerFunctions (spans : List Word32) (functions : List SourceFunction) :
 /-- The exchanged artifact a lowering state holds. -/
 def LoweringState.toArtifact (state : LoweringState) (sourceId : BridgeId)
     (observations : List Observation) : RawArtifact :=
-  ⟨sourceId, state.rows, state.extra, state.strings, [], state.ops, state.blocks, state.functions, observations⟩
+  ⟨sourceId, state.rows, state.extra, state.strings, state.names, state.ops, state.blocks, state.functions, observations⟩
 
 /-- The span word of each row that carries one, in table order. -/
 def spanWords (artifact : RawArtifact) : List Word32 :=
