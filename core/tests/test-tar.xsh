@@ -135,7 +135,8 @@ test test_tar_verbose_listing_shows_mode_size_time_and_link_target { |ctx|
   assert lines[0].starts_with("-rw")
   assert lines[0].ends_with(" data.txt")
   assert "        5 " in lines[0]
-  assert lines[1].starts_with("lrwxrwxrwx ")
+  let link_mode = if system.uname()?.sysname == "Linux" { "lrwxrwxrwx " } else { "lrwxr-xr-x " }
+  assert lines[1].starts_with(link_mode), lines[1]
   assert lines[1].ends_with(" link -> data.txt")
 }
 
