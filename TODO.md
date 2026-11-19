@@ -126,17 +126,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** S
 
-### XSH-125 · P3 · atomically publishes after a SIGKILL race on macOS
-
-- **Area:** Runtime
-- **Where:** `tests/xsh/atomically.xsh` (line 59 scenario), `src/runtime/eval/modules/unix.rs` (self-signal path near line 355)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the atomic-publication test fails intermittently: the child exits 137 and `out` is published, although a SIGKILL before commit must leave only the temporary file. A direct self-`SIGKILL` probe behaved correctly, so the cause is signal-delivery timing, not yet located.
-- **Recommendation:** Loop the exact test under `xsht test --exact-id` on macOS with a sample of the child at kill time, and check whether Darwin delivers the self-signal after the rename returns.
-- **Acceptance:** The test passes 200 consecutive runs on native macOS and still passes on Linux.
-- **Fix with:** root-cause
-- **Effort:** S
-
-
 ### XSH-129 · P2 · master CI is red on Lint and Test
 
 - **Area:** Tooling
