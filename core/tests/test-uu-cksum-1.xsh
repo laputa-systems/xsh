@@ -4,6 +4,8 @@ use support.uu
 
 # CRC reports each candidate it tries and stops at the first supported implementation.
 proc crc_debug(disabled = "") -> Str {
+  # GNU cksum probes vmull through getauxval, which Darwin lacks, so it tries no candidate there.
+  return "" when system.uname()?.machine == "arm64"
   let features = unix.cpu_features()
   var expected = ""
   for feature in ["avx512", "avx2", "pclmul"] {
