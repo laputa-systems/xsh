@@ -80,7 +80,8 @@ test test_id_named_users { |ctx|
 
   let groups = applet_run(ctx, ["root"])?
   assert groups.status == 0, groups.stderr
-  assert groups.stdout.starts_with("uid=0(root) gid=0(root) groups=0(root)"), groups.stdout
+  let root_group = if system.uname()?.sysname == "Linux" { "root" } else { group.by_gid(0)?.name }
+  assert groups.stdout.starts_with(f"uid=0(root) gid=0({root_group}) groups=0({root_group})"), groups.stdout
 }
 
 test test_id_option_combinations_are_validated_in_gnu_order { |ctx|

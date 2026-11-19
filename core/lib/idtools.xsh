@@ -15,13 +15,17 @@ export type Process = {ruid: Int, euid: Int, rgid: Int, egid: Int, groups: List[
 ## The ids of the calling process.
 export proc process_ids() [process, error] -> Result[Process, Error] {
   let me = unix.id()?
+  var groups: List[Int] = []
+  for gid in me.supplementary {
+    if gid != me.egid and gid not in groups { groups += [gid] }
+  }
 
   Ok({
     ruid: me.uid,
     euid: me.euid,
     rgid: me.gid,
     egid: me.egid,
-    groups: [entry.gid for entry in me.groups if entry.gid != me.egid],
+    groups,
   })
 }
 
