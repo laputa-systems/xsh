@@ -1,3 +1,5 @@
+use support.requires
+
 test sed_substitution_addresses_and_backreferences { |ctx|
   let file = test.temp_file(ctx, name: "input", contents: b"one one\ntwo two\nthree three\nfour four\n")?
   let app = fp"{ctx.core_dir}/sed.xsh"
@@ -482,7 +484,14 @@ test sed_table_slice_05 { |ctx|
 }
 
 test sed_table_slice_06 { |ctx|
-  expect_groups(ctx, ["cmd-0", "io-", "exit-"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033"])
+  expect_groups(ctx, ["cmd-0", "io-", "exit-"], ["io-022", "io-023", "ip-047", "ip-049", "syn-097", "corner-061", "corner-063", "cli-033", "exit-014", "exit-015"])
+}
+
+test sed_table_full_device_cases { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
+  let expected = expected_transcripts(ctx)?
+  let failures = check_group(ctx, "exit-", expected, ["exit-014", "exit-015"], true)?
+  assert failures.is_empty(), failures.join("\n")
 }
 
 test sed_table_slice_07 { |ctx|
