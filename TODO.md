@@ -192,16 +192,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-126 · P3 · Gate workflow tests assume Linux fixture targets on macOS
-
-- **Area:** Dev tooling
-- **Where:** `dev/tests/test-gates.xsh` (`test_gate_cancel_consumes_owned_descendants_before_exit_130`, `test_gate_prepares_each_cargo_harness_once_and_runs_filters_without_cargo`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the fixtures populate `x86_64-unknown-linux-musl` products while the gate under test inspects `aarch64-apple-darwin`, so both tests fail there.
-- **Recommendation:** Build the fixture tree for the context's own target, or pin these tests to a Linux context the way `fixtures.linux_context` is used elsewhere.
-- **Acceptance:** Both tests pass on native macOS and Linux.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-127 · P2 · FsRoot cannot list a directory without search permission on macOS
 
 - **Area:** Runtime
@@ -220,7 +210,6 @@ out of scope.
   - `test-rm.xsh` (`recursive_removes_hierarchy_deeper_than_path_max`) and `test-gnu-rm.xsh` (`deep_2_log`) fail on Darwin `ENAMETOOLONG` (63).
   - `test-dd.xsh` (`oflag_append_on_standard_output`: Permission denied) and `test-gnu-dd.xsh` (`sparse_log`) fail with `oflag=append`.
   - `test-curl.xsh` (`plain_http_needs_no_trust_store`) exits 77 loading trust anchors.
-  - `dev/tests/test-gates.xsh` fails in changed-path discovery and in source changes during execution (see also XSH-126).
   - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
   - `test-uu-cksum-1.xsh` (`debug_flag`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
   - `test-uu-du-2.xsh` (`du_time`: `--time=birth`) fails.

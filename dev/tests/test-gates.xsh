@@ -88,7 +88,10 @@ proc main() [fs, process, env, time, error, io] {{
     env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", GIT_DIR: f"{root}/missing"})?
   assert "docs/staged.md" in result.stdout, result.stdout
   assert "docs/line\\nbreak.md" in result.stdout, result.stdout
-  let _ = run.capture --text git -C $root update-index --assume-unchanged docs/staged.md
+  let update = run.capture --text git -C $root update-index --assume-unchanged docs/staged.md
+  assert update.status.shell_code()? == 0, update.stderr
+  let flags = run.capture --text git -C $root ls-files -v
+  assert flags.stdout.starts_with("h "), flags.stdout + flags.stderr
   let flagged = test.expect(ctx, source, status: 2, args: [],
     env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", GIT_DIR: f"{root}/missing"})?
   assert "assume-unchanged" in flagged.stderr, flagged.stderr
@@ -103,11 +106,16 @@ proc main() [fs, process, env, time, error, io] {{
     env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", GIT_DIR: f"{root}/missing"})?
   assert "verification/source" in explicit_plan.stdout
   let _ = run.capture --text git -C $root update-index --no-assume-unchanged docs/staged.md
-  let _ = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/docs/\\xff.md', 'wb').close()" $root
-  let invalid = test.expect(ctx, source, status: 2, args: [],
-    env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
-  assert "UTF-8" in invalid.stderr or "UTF-8" in invalid.stdout, f"stdout={invalid.stdout} stderr={invalid.stderr}"
-  let _ = run.capture --text python3 -c "import os,sys; os.unlink(os.fsencode(sys.argv[1]) + b'/docs/\\xff.md')" $root
+  let opaque = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/docs/\\xff.md', 'wb').close()" $root
+  if opaque.status.shell_code()? == 0 {
+    let invalid = test.expect(ctx, source, status: 2, args: [],
+      env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
+    assert "UTF-8" in invalid.stderr or "UTF-8" in invalid.stdout, f"stdout={invalid.stdout} stderr={invalid.stderr}"
+    let _ = run.capture --text python3 -c "import os,sys; os.unlink(os.fsencode(sys.argv[1]) + b'/docs/\\xff.md')" $root
+  } else {
+    assert system.uname()?.sysname == "Darwin" and "Illegal byte sequence" in opaque.stderr, opaque.stderr
+    print "non-UTF-8 filename check unavailable: APFS rejects non-UTF-8 names"
+  }
   let _ = run.capture --text git -C $root update-ref -d HEAD
   let unborn = test.expect(ctx, source, status: 0, args: [],
     env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
@@ -493,13 +501,18 @@ proc main() [fs, process, env, time, error, io] {{
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   link.unlink()?
-  let _ = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/opaque-\\xff', 'wb').close()" $root
-  let _ = run.capture --text git -C $root add -A
-  let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m opaque
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
-    env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
-  assert ! marker.exists()?
+  let opaque = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/opaque-\\xff', 'wb').close()" $root
+  if opaque.status.shell_code()? == 0 {
+    let _ = run.capture --text git -C $root add -A
+    let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m opaque
+    let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
+      env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
+        HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
+    assert ! marker.exists()?
+  } else {
+    assert system.uname()?.sysname == "Darwin" and "Illegal byte sequence" in opaque.stderr, opaque.stderr
+    print "non-UTF-8 filename check unavailable: APFS rejects non-UTF-8 names"
+  }
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable"], args: [],
     env: {PATH: fp"{root}/tools", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
@@ -1817,7 +1830,7 @@ if args[0] == "test" {{
   let stderr = fp"{root}/stderr"
   fp"{root}/dev/performance/results.py".write(f"import pathlib,time\npathlib.Path({json.encode(ready.display())?}).write_text('ready')\ntime.sleep(30)\n")
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, fp"{repository}/dev/main.xsh", "--", "internal", "gate-lane", "--case", "test-route-witness-unit"],
-    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
+    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {{
@@ -1936,7 +1949,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   let stderr = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
@@ -1950,7 +1963,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
     assert observed.status.shell_code()? == 130, stdout.read_text()? + stderr.read_text()?
   } else {
     handle.cancel(signal: "KILL", kill_after: 0ms)
-    test.fail("cancelled gate driver did not finish")
+    test.fail("cancelled gate driver did not finish: " + stdout.read_text()? + stderr.read_text()?)
   }
   let pid = child_file.read_text()?.trim() as Int
   match process.kill(pid, signal: "0") {
@@ -1983,7 +1996,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   let script = fp"{repository}/dev/main.xsh"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
