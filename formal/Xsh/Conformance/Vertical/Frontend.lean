@@ -93,6 +93,16 @@ inductive SourceValue where
   | binary (op : FragmentOp) (left right : SourceAtom)
   deriving DecidableEq, Repr
 
+inductive RecordOperand where
+  | atom (value : SourceAtom)
+  | field (target label : String)
+  deriving DecidableEq, Repr
+
+inductive RecordValue where
+  | operand (value : RecordOperand)
+  | binary (op : FragmentOp) (left right : RecordOperand)
+  deriving DecidableEq, Repr
+
 inductive SourceExpression where
   | value (value : SourceValue)
   | call (callee : String) (arguments : List SourceAtom)
@@ -103,6 +113,7 @@ inductive SourceExpression where
   | constructed (isOk : Bool) (value : SourceValue)
   | computedLet (target : String) (value : SourceValue) (result : SourceValue)
   | computedLets (bindings : List (String × SourceValue)) (result : SourceValue)
+  | recordLocal (target : String) (fields : List (String × SourceValue)) (result : RecordValue)
   deriving DecidableEq, Repr
 
 /-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
@@ -138,16 +149,6 @@ def parseValue (tokens : List Token) : Option (SourceValue × List Token) := do
         let (right, remaining) ← parseAtom more
         some (.binary op left right, remaining)
   | _ => some (.atom left, rest)
-
-inductive RecordOperand where
-  | atom (value : SourceAtom)
-  | field (target label : String)
-  deriving DecidableEq, Repr
-
-inductive RecordValue where
-  | operand (value : RecordOperand)
-  | binary (op : FragmentOp) (left right : RecordOperand)
-  deriving DecidableEq, Repr
 
 def parseRecordOperand : List Token → Option (RecordOperand × List Token)
   | .word target :: .dot :: .word label :: rest =>
@@ -407,7 +408,38 @@ def admitsResult : ResultShape → ExpressionShape → Bool
   | .result, .constructed => true
   | .result, .other => false
 
-def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
+def RecordOperand.admitted (parameter target : String) (labels : List String) : RecordOperand → Bool
+  | .atom value => value.isParameterOrLiteral [parameter]
+  | .field base label => base == target && labels.contains label
+
+def RecordValue.admitted (parameter target : String) (labels : List String) : RecordValue → Bool
+  | .operand value => value.admitted parameter target labels
+  | .binary op left right => !op.isComparison && left.admitted parameter target labels &&
+      right.admitted parameter target labels
+
+def recordLocalAdmitted (parameter target : String) (fields : List (String × SourceValue))
+    (result : RecordValue) : Bool :=
+  let labels := fields.map Prod.fst
+  target != parameter && !isKeyword target && !fields.isEmpty && decide labels.Nodup &&
+    fields.all (fun (label, value) => !isKeyword label &&
+      value.atoms.all (·.isParameterOrLiteral [parameter])) && result.admitted parameter target labels
+
+def parseRecordBody (shape : ResultShape) (name : String) (parameters : List String)
+    (tokens : List Token) : Option (SourceFunction × List Token) := do
+  let [parameter] := parameters | none
+  if shape == .integer then pure () else none
+  let ((target, fields), afterLet) ← parseRecordLet tokens
+  let .word "return" :: more := afterLet | none
+  let (result, afterResult) ← parseRecordValue more
+  if recordLocalAdmitted parameter target fields result then pure () else none
+  match afterResult with
+  | .newline :: .rightBrace :: [] =>
+      some (⟨name, parameters, [], none, .recordLocal target fields result⟩, [])
+  | .newline :: .rightBrace :: .newline :: tail =>
+      some (⟨name, parameters, [], none, .recordLocal target fields result⟩, tail)
+  | _ => none
+
+def parseOrdinaryFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
     (tokens : List Token) : Option (SourceFunction × List Token) := do
   let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
   let (computed, afterComputed) ← parseComputedLets (afterLets.length + 1) afterLets
@@ -443,6 +475,13 @@ def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List S
           some (⟨name, parameters, lets, propagation, result⟩, tail)
       | _ => none
   | _ => none
+
+def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
+    (tokens : List Token) : Option (SourceFunction × List Token) :=
+  match tokens with
+  | .word "let" :: .word _ :: .equals :: .leftBrace :: _ =>
+      parseRecordBody shape name parameters tokens
+  | _ => parseOrdinaryFunctionBody shape name parameters tokens
 
 /-- The declared return type, which admits only the result shape it names. -/
 def parseReturnType : List Token → Option (ResultShape × List Token)
@@ -511,6 +550,16 @@ def parseSourceCodes (codes : List Nat) : Option (List SourceFunction) := do
 /-- The admitted source productions, from exact source bytes. -/
 def parseSource (text : String) : Option (List SourceFunction) :=
   parseSourceCodes (text.toList.map Char.toNat)
+
+set_option maxRecDepth 10000 in
+theorem record_local_function_parses :
+    parseSource ("pure spans(value: Int) -> Int {\n  let box = {low: value - 3, " ++
+      "high: 60 / value}\n  return box.high - box.low\n}\n") =
+      some [⟨"spans", ["value"], [], none,
+        .recordLocal "box" [("low", .binary .sub (.var "value") (.int 3)),
+          ("high", .binary .div (.int 60) (.var "value"))]
+          (.binary .sub (.field "box" "high") (.field "box" "low"))⟩] := by
+  decide +kernel
 
 theorem the_admitted_productions_parse :
     parseSource "pure f() -> Int {\n  let a = 4\n  return a - 1\n}\n" =
