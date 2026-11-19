@@ -366,7 +366,6 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
   var failed = false
   var last = after
   let poll_stdout = stdout_pollable()?
-  let darwin = system.uname()?.sysname == "Darwin"
 
   loop {
     var next: List[FollowFile] = []
@@ -442,14 +441,8 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
     break when ! alive and ! produced
     if ! produced {
       if poll_stdout {
-        if darwin {
-          if let Err(failure) = unix.write_fd(1, b"") {
-            break when gnu.errno(failure) == 32
-          }
-        } else {
-          let events = unix.poll_fd(1, [])?
-          break when "error" in events or "hangup" in events
-        }
+        let events = unix.poll_fd(1, [])?
+        break when "error" in events or "hangup" in events
       }
       io.flush_stderr()
       time.sleep(poll_pause(interval))
