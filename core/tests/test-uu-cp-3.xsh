@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_cp.rs.
 
 use support.uu
+use support.requires
 
 proc fixture_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
@@ -83,6 +84,7 @@ test test_uu_cp_cp_debug_default_less_than_512_bytes { |ctx|
 
 # origin: uutils test_cp::test_cp_debug_default_sparse_virtual_file
 test test_uu_cp_cp_debug_default_sparse_virtual_file { |ctx|
+  requires.linux_kernel("macOS has no Linux sysfs profiling file")
   let s = uu.scene(ctx)?
   return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "/sys/kernel/profiling", "b"])?
@@ -108,11 +110,13 @@ test test_uu_cp_cp_debug_default_without_hole { |ctx|
   uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: yes, reflink: Operation not supported, sparse detection: no")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: yes, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_default_zero_sized_virtual_file
 test test_uu_cp_cp_debug_default_zero_sized_virtual_file { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs version file")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["--debug", "/proc/version", "b"])?
   uu.succeeds(r)
@@ -127,7 +131,8 @@ test test_uu_cp_cp_debug_multiple_default { |ctx|
   uu.mkdir(s, "dir")
   let r = uu.invoke(s, "cp", ["--debug", "a", "b", "dir"])?
   uu.succeeds(r)
-  assert r.stdout.utf8()?.split("copy offload: unknown, reflink: Operation not supported, sparse detection: no").len() == 3
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  assert r.stdout.utf8()?.split(expected).len() == 3
 }
 
 # origin: uutils test_cp::test_cp_debug_no_update
@@ -146,7 +151,8 @@ test test_uu_cp_cp_debug_reflink_auto { |ctx|
   uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_reflink_auto_sparse_always_non_sparse_file_with_long_zero_sequence
@@ -155,7 +161,8 @@ test test_uu_cp_cp_debug_reflink_auto_sparse_always_non_sparse_file_with_long_ze
   uu.write_bytes(s, "a", bytes.concat([bytes.zero(4096 * 4)?, b"hello"]))
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros" } else { "copy offload: avoided, reflink: unknown, sparse detection: zeros" }
+  uu.stdout_contains(r, expected)
   let dst = fs.stat(uu.at(s, "b"))?
   assert dst.blocks_512 == dst.blksize / 512
 }
@@ -280,11 +287,13 @@ test test_uu_cp_cp_debug_sparse_always_reflink_auto { |ctx|
   uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "--reflink=auto", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros" } else { "copy offload: avoided, reflink: unknown, sparse detection: zeros" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_sparse_always_sparse_virtual_file
 test test_uu_cp_cp_debug_sparse_always_sparse_virtual_file { |ctx|
+  requires.linux_kernel("macOS has no Linux sysfs profiling file")
   let s = uu.scene(ctx)?
   return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "/sys/kernel/profiling", "b"])?
@@ -298,7 +307,8 @@ test test_uu_cp_cp_debug_sparse_auto { |ctx|
   uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=auto", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_sparse_never
@@ -361,6 +371,7 @@ test test_uu_cp_cp_debug_sparse_never_without_hole { |ctx|
 
 # origin: uutils test_cp::test_cp_debug_sparse_never_zero_sized_virtual_file
 test test_uu_cp_cp_debug_sparse_never_zero_sized_virtual_file { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs version file")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=never", "/proc/version", "b"])?
   uu.succeeds(r)
@@ -378,6 +389,7 @@ test test_uu_cp_cp_debug_sparse_reflink { |ctx|
 
 # origin: uutils test_cp::test_cp_default_virtual_file
 test test_uu_cp_cp_default_virtual_file { |ctx|
+  requires.linux_kernel("macOS has no Linux sysfs profiling file")
   let s = uu.scene(ctx)?
   return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["/sys/kernel/profiling", "b"])?

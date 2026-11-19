@@ -176,6 +176,7 @@ test test_uu_mv_inter_partition_copying_mv_preserves_hardlinks_in_directories_ac
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_preserves_multiple_hardlink_groups_across_partitions
 test test_uu_mv_inter_partition_copying_mv_preserves_multiple_hardlink_groups_across_partitions { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -207,6 +208,7 @@ test test_uu_mv_inter_partition_copying_mv_preserves_multiple_hardlink_groups_ac
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_symlink_to_hardlinked_sibling_across_partitions
 test test_uu_mv_inter_partition_copying_mv_symlink_to_hardlinked_sibling_across_partitions { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -234,6 +236,7 @@ test test_uu_mv_inter_partition_copying_mv_symlink_to_hardlinked_sibling_across_
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_unlinks_dest_symlink
 test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -251,6 +254,7 @@ test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink { |ctx|
 
 # origin: uutils test_mv::inter_partition_copying::test_mv_unlinks_dest_symlink_error_message
 test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink_error_message { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
@@ -723,6 +727,7 @@ test test_uu_mv_mv_backup_simple_guard_ignores_spelling { |ctx|
 
 # origin: uutils test_mv::test_mv_broken_symlink_to_another_fs
 test test_uu_mv_mv_broken_symlink_to_another_fs { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -735,6 +740,7 @@ test test_uu_mv_mv_broken_symlink_to_another_fs { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_broken_symlink_preserved
 test test_uu_mv_mv_cross_device_broken_symlink_preserved { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -753,6 +759,7 @@ test test_uu_mv_mv_cross_device_broken_symlink_preserved { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_dir_refuses_symlink_at_recreated_dest
 test test_uu_mv_mv_cross_device_dir_refuses_symlink_at_recreated_dest { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -769,6 +776,7 @@ test test_uu_mv_mv_cross_device_dir_refuses_symlink_at_recreated_dest { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_dir_xattr_preserved
 test test_uu_mv_mv_cross_device_dir_xattr_preserved { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -783,6 +791,7 @@ test test_uu_mv_mv_cross_device_dir_xattr_preserved { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_file_symlink_preserved
 test test_uu_mv_mv_cross_device_file_symlink_preserved { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -802,6 +811,7 @@ test test_uu_mv_mv_cross_device_file_symlink_preserved { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_permission_denied
 test test_uu_mv_mv_cross_device_permission_denied { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
@@ -819,6 +829,7 @@ test test_uu_mv_mv_cross_device_permission_denied { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_preserves_ownership
 test test_uu_mv_mv_cross_device_preserves_ownership { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -840,6 +851,7 @@ test test_uu_mv_mv_cross_device_preserves_ownership { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_preserves_ownership_recursive
 test test_uu_mv_mv_cross_device_preserves_ownership_recursive { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -860,6 +872,7 @@ test test_uu_mv_mv_cross_device_preserves_ownership_recursive { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_refuses_planted_symlink_dest
 test test_uu_mv_mv_cross_device_refuses_planted_symlink_dest { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -874,6 +887,7 @@ test test_uu_mv_mv_cross_device_refuses_planted_symlink_dest { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_symlink_onto_existing
 test test_uu_mv_mv_cross_device_symlink_onto_existing { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -890,6 +904,7 @@ test test_uu_mv_mv_cross_device_symlink_onto_existing { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_symlink_onto_existing_dir
 test test_uu_mv_mv_cross_device_symlink_onto_existing_dir { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)
@@ -906,6 +921,7 @@ test test_uu_mv_mv_cross_device_symlink_onto_existing_dir { |ctx|
 
 # origin: uutils test_mv::test_mv_cross_device_symlink_preserved
 test test_uu_mv_mv_cross_device_symlink_preserved { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/shm".exists()? { test.skip("cross-filesystem fixture requires /dev/shm"); return }
   let s = uu.scene(ctx)?
   let other = other_fs(s)?
   defer cleanup_other(other)

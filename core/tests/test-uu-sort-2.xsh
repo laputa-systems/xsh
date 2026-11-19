@@ -385,6 +385,7 @@ test test_uu_sort_merge_unique { |ctx|
 }
 
 proc merge_write_error(ctx: TestContext) [fs, process, env, error] {
+  requires.host_path(p"/dev/full", "macOS has no /dev/full device")
   let s = uu.scene(ctx)?
   let input = [padded(line, 6) for line in range(10000)].join("\n") + "\n"
   assert input.byte_len() > 65536, "merge error input must cross one output chunk"

@@ -74,6 +74,7 @@ test test_uu_kill_kill_list_all_signals_as_table { |ctx|
 
 # origin: uutils test_kill::test_kill_list_contains_realtime_signals
 test test_uu_kill_kill_list_contains_realtime_signals { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "kill", ["-l"])?
   uu.succeeds(r)
@@ -84,6 +85,7 @@ test test_uu_kill_kill_list_contains_realtime_signals { |ctx|
 
 # origin: uutils test_kill::test_kill_table_contains_realtime_signals
 test test_uu_kill_kill_table_contains_realtime_signals { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "kill", ["-t"])?
   uu.succeeds(r)
@@ -146,6 +148,7 @@ test test_uu_kill_kill_list_one_signal_from_number { |ctx|
 
 # origin: uutils test_kill::test_kill_list_rtmax_from_name
 test test_uu_kill_kill_list_rtmax_from_name { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "kill", ["-l", "RTMAX"])?
   uu.succeeds(r)
@@ -155,12 +158,13 @@ test test_uu_kill_kill_list_rtmax_from_name { |ctx|
 # origin: uutils test_kill::test_kill_list_sigio_alias
 test test_uu_kill_kill_list_sigio_alias { |ctx|
   let s = uu.scene(ctx)?
+  let expected = if system.uname()?.sysname == "Linux" { "29\n" } else { "23\n" }
   let r0 = uu.invoke(s, "kill", ["-l", "IO"])?
   uu.succeeds(r0)
-  uu.stdout_only(r0, "29\n")
+  uu.stdout_only(r0, expected)
   let r1 = uu.invoke(s, "kill", ["-l", "SIGIO"])?
   uu.succeeds(r1)
-  uu.stdout_only(r1, "29\n")
+  uu.stdout_only(r1, expected)
 }
 
 # origin: uutils test_kill::test_kill_list_one_signal_from_name
@@ -413,6 +417,7 @@ test test_uu_kill_kill_with_list_lower_bits_unrecognized { |ctx|
 
 # origin: uutils test_kill::test_kill_with_list_unnamed_signal_numbers
 test test_uu_kill_kill_with_list_unnamed_signal_numbers { |ctx|
+  requires.linux_kernel("macOS does not define Linux signal numbers 32 and 33")
   let s = uu.scene(ctx)?
   let r32 = uu.invoke(s, "kill", ["-l", "32"])?
   uu.succeeds(r32)
@@ -518,6 +523,7 @@ test test_uu_kill_kill_signal_zero_current_process_group { |ctx|
 
 # origin: uutils test_kill::test_kill_realtime_signal
 test test_uu_kill_kill_realtime_signal { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let rtmin = realtime_bound("RTMIN")?
   if ignored(rtmin) { test.skip("the real-time signal is inherited as ignored") }
@@ -529,6 +535,7 @@ test test_uu_kill_kill_realtime_signal { |ctx|
 
 # origin: uutils test_kill::test_kill_with_rtmax_offset
 test test_uu_kill_kill_with_rtmax_offset { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let rtmax = realtime_bound("RTMAX")?
   let number = rtmax - 7
@@ -541,6 +548,7 @@ test test_uu_kill_kill_with_rtmax_offset { |ctx|
 
 # origin: uutils test_kill::test_kill_with_rtmin_offset
 test test_uu_kill_kill_with_rtmin_offset { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let rtmin = realtime_bound("RTMIN")?
   let number = rtmin + 7
