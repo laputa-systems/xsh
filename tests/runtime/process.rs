@@ -1031,6 +1031,20 @@ fn wait_for_pipeline_job_ready(paths: &[PathBuf]) {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait_for_exit_without_reaping(pid: libc::pid_t) {
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let status = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT,
+        )
+    };
+    assert_eq!(status, 0, "wait for stage {pid} to exit: {}", std::io::Error::last_os_error());
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn assert_pipeline_job_stages_exited(outcomes: &[ChildWaitOutcome]) {
     for outcome in outcomes {
         let ChildWaitOutcome::Exited(status) = outcome else {
@@ -1238,6 +1252,7 @@ fn pipeline_job_reports_exit_while_another_stage_stays_stopped() {
         std::io::Error::last_os_error()
     );
     wait_for_pipeline_job_ready(&[done_fast]);
+    wait_for_exit_without_reaping(pids[0] as libc::pid_t);
     let mixed = job.wait().expect("wait for the mixed job");
     assert_eq!(mixed.len(), 2);
     assert!(
