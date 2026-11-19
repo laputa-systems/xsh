@@ -48,6 +48,7 @@ test test_gnu_chown_preserve_root_log { |ctx|
 
 # origin: gnu chown/separator.log
 test test_gnu_chown_separator_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /usr/bin/getent group database tool"); return }
   let s = uu.scene(ctx)?
   let account = user.current()?
   let membership = group.current()?

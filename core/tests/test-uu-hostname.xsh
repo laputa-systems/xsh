@@ -50,6 +50,7 @@ test test_uu_hostname_hostname_full { |ctx|
 
 # origin: uutils test_hostname::test_hostname_ip
 test test_uu_hostname_hostname_ip { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no getent hosts reference utility"); return }
   let name = (run.text hostname).trim()
   let lookup = run.capture --text getent hosts $name
   if !lookup.status.exited_with(0) { test.skip("the local hostname does not resolve") }

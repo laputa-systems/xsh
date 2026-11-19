@@ -25,6 +25,7 @@ proc linked(left: Path, right: Path) [fs, error] -> Bool {
 
 # origin: gnu mv/atomic.log
 test test_gnu_mv_atomic_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "t1", "s1")
   uu.symlink(s, "t2", "s2")
@@ -37,6 +38,7 @@ test test_gnu_mv_atomic_log { |ctx|
 
 # origin: gnu mv/atomic2.log
 test test_gnu_mv_atomic2_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   uu.touch(s, "a")
   uu.touch(s, "b")
@@ -71,6 +73,7 @@ test test_gnu_mv_backup_dir_log { |ctx|
 
 # origin: gnu mv/backup-is-src.log
 test test_gnu_mv_backup_is_src_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()

@@ -320,6 +320,7 @@ test test_lsmem_rooted_numeric_and_state_parsing_matches_reference { |ctx|
 }
 
 test test_lsmem_attribute_bytes_after_value { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   uu.write_bytes(s, "sys/devices/system/memory/memory0/state", b"online\x00garbage")?
@@ -336,6 +337,7 @@ test test_lsmem_wrapped_attribute_integers { |ctx|
 }
 
 test test_lsmem_block_size_bare_prefix { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   for value in ["0x"] {
@@ -345,6 +347,7 @@ test test_lsmem_block_size_bare_prefix { |ctx|
 }
 
 test test_lsmem_empty_block_size_diagnostics { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   for value in ["", "\n"] {
@@ -585,6 +588,7 @@ test test_lsmem_sysroot_error_precedes_unknown_column { |ctx|
 }
 
 test test_lsmem_abbreviated_options_match_reference { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   for args in [["--js"], ["--summ"], ["--sum=only"], ["--summ=never"], ["--pai"], ["--ra"], ["--js", "--pai"], ["--al", "--split=STATE"]] {
@@ -610,6 +614,7 @@ test test_lsmem_validation_precedes_help_in_argument_order { |ctx|
 }
 
 test test_lsmem_column_list_errors_and_limits_match_reference { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   for value in ["FOO,SIZE", "SIZE,", ",SIZE", "SIZE,,NODE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE", "SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE,SIZE"] {
@@ -622,6 +627,7 @@ test test_lsmem_column_list_errors_and_limits_match_reference { |ctx|
 }
 
 test test_lsmem_empty_sysroot_matches_reference { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   let args = ["--sysroot=", "--summary=only", "--bytes"]
   let reference = ul.reference(s, "lsmem", args, timeout: 30s)?
@@ -663,6 +669,7 @@ test test_lsmem_noheadings_size_width { |ctx|
 }
 
 test test_lsmem_ascii_column_case { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the util-linux lsmem reference runs only in the Linux image"); return }
   let s = uu.scene(ctx)?
   compare_lsmem(s, ["-o", "sıze"])?
 }
