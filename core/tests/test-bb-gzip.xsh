@@ -19,8 +19,9 @@ test test_bb_gzip_gzip_accepts_single_minus_22f7f00f { |ctx|
 # origin: busybox gzip/gzip-compression-levels
 test test_bb_gzip_gzip_compression_levels_81785e0c { |ctx|
   let s = uu.scene(ctx)?
-  let fast = uu.invoke(s, "gzip", ["-c", "-1", "/bin/busybox"])?
-  let dense = uu.invoke(s, "gzip", ["-c", "-9", "/bin/busybox"])?
+  let input = if system.uname()?.sysname == "Linux" { "/bin/busybox" } else { "/bin/sh" }
+  let fast = uu.invoke(s, "gzip", ["-c", "-1", input])?
+  let dense = uu.invoke(s, "gzip", ["-c", "-9", input])?
   uu.succeeds(fast)
   uu.succeeds(dense)
   assert fast.stdout.len() > dense.stdout.len()
