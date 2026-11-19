@@ -58,6 +58,7 @@ test test_tee_write_errors_follow_the_output_error_mode { |ctx|
   assert exits.status == 1
   assert ! fp"{root}/late".exists()?, "exit mode stops at the first failure"
 
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let full = tee_run(ctx, root, ["-p", "/dev/full", "kept"], b"data")?
   assert full.status == 1
   assert full.stderr == "tee: /dev/full: No space left on device\n", full.stderr
@@ -159,7 +160,8 @@ test test_tee_broken_stdout_pipe_modes_keep_file_writes { |ctx|
   let code = fp"{root}/status"
   for mode in ["default", "pipe", "warn", "warn-nopipe", "exit", "exit-nopipe"] {
     let option = if mode == "default" { "--" } else if mode == "pipe" { "-p" } else { f"--output-error={mode}" }
-    let status = run.status sh -c "(\"$0\" \"$1\" \"$2\" \"$3\" < \"$4\" 2> \"$6\"; printf '%s' \"$?\" > \"$5\") | head -c 0" ${ctx.xsh_bin} $script $option $out $input $code $err
+    let reader = if system.uname()?.sysname == "Linux" { "head -c 0" } else { "sh -c 'exit 0'" }
+    let status = run.status sh -c f"(\"$0\" \"$1\" \"$2\" \"$3\" < \"$4\" 2> \"$6\"; printf '%s' \"$?\" > \"$5\") | {reader}" ${ctx.xsh_bin} $script $option $out $input $code $err
     assert status.exited_with(0)
     let tee_status = if mode == "default" { "141" } else if mode in ["warn", "exit"] { "1" } else { "0" }
     assert code.read_text()? == tee_status, code.read_text()?
