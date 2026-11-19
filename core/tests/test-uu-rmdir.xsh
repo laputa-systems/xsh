@@ -153,7 +153,8 @@ test test_uu_rmdir_rmdir_remove_symlink_dangling { |ctx|
   uu.symlink(s, uu.at(s, "dir").display(), "dl")
   let r = uu.invoke(s, "rmdir", ["dl/"])?
   uu.fails(r)
-  uu.stderr_is(r, "rmdir: failed to remove 'dl/': Symbolic link not followed\n")
+  let expected = if system.uname()?.sysname == "Linux" { "rmdir: failed to remove 'dl/': Symbolic link not followed\n" } else { "rmdir: failed to remove 'dl/': No such file or directory\n" }
+  uu.stderr_is(r, expected)
 }
 
 # origin: uutils test_rmdir::test_rmdir_remove_symlink_dir_with_trailing_slashes

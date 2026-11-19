@@ -73,7 +73,8 @@ test test_uu_nice_nice_adj_negative { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "nice", ["--adj", "-20", "true"])?
   uu.succeeds(r)
-  uu.stderr_is(r, "nice: cannot set niceness: Permission denied\n")
+  let expected = if system.uname()?.sysname == "Linux" { "nice: cannot set niceness: Permission denied\n" } else { "nice: cannot set niceness: Operation not permitted\n" }
+  uu.stderr_is(r, expected)
 }
 
 # origin: uutils test_nice::test_nice_huge

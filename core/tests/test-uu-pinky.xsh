@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for pinky.
 
 use support.uu
+use support.requires
 
 type Account = {name: Str, gecos: Str, directory: Str, shell: Str}
 
@@ -150,6 +151,7 @@ test test_uu_pinky_no_flag { |ctx|
 
 # origin: uutils test_pinky::test_short_format_i
 test test_uu_pinky_short_format_i { |ctx|
+  requires.linux_kernel("macOS does not provide the Linux utmp reader")
   let s = uu.scene(ctx)?
   let expected = short_fields("-i")?
   let r = uu.invoke(s, "pinky", ["-i"])?
@@ -159,6 +161,7 @@ test test_uu_pinky_short_format_i { |ctx|
 
 # origin: uutils test_pinky::test_short_format_q
 test test_uu_pinky_short_format_q { |ctx|
+  requires.linux_kernel("macOS does not provide the Linux utmp reader")
   let s = uu.scene(ctx)?
   let expected = short_fields("-q")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["-q"])?

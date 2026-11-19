@@ -93,7 +93,7 @@ test test_uu_chgrp_preserve_root { |ctx|
 # origin: uutils test_chgrp::test_preserve_root_symlink
 test test_uu_chgrp_preserve_root_symlink { |ctx|
   let s = uu.scene(ctx)?
-  let group_name = p"/etc/group".read_lines()?[0].split(":")[0]
+  let group_name = if system.uname()?.sysname == "Linux" { p"/etc/group".read_lines()?[0].split(":")[0] } else { "0" }
   uu.symlink(s, "/", "test_chgrp_symlink2root")
   let r0 = uu.invoke(s, "chgrp", ["--preserve-root", "-HR", group_name, "test_chgrp_symlink2root"], timeout: 5s)?
   uu.fails(r0)
@@ -158,10 +158,12 @@ test test_uu_chgrp_preserve_root_symlink_cwd_root { |ctx|
 test test_uu_chgrp_reference { |ctx|
   let s = uu.scene(ctx)?
   if unix.id()?.egid == 0 { test.skip("requires a non-root effective group") }
-  let r = uu.invoke(s, "chgrp", ["-v", "--reference=/etc/passwd", "/etc"])?
+  let target = if system.uname()?.sysname == "Linux" { "/etc" } else { "restricted" }
+  if target == "restricted" { uu.touch(s, target) }
+  let r = uu.invoke(s, "chgrp", ["-v", "--reference=/etc/passwd", target])?
   uu.fails(r)
-  uu.stderr_contains(r, "chgrp: changing group of '/etc': Operation not permitted\n")
-  uu.stdout_contains(r, "failed to change group of '/etc' from ")
+  uu.stderr_contains(r, f"chgrp: changing group of '{target}': Operation not permitted\n")
+  uu.stdout_contains(r, f"failed to change group of '{target}' from ")
 
 }
 

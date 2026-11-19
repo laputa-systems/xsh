@@ -62,14 +62,22 @@ test test_uu_sync_sync_fdatasync_error_handling { |ctx|
 test test_uu_sync_sync_fs { |ctx|
   let s = uu.scene(ctx)?
   let directory = test.temp_dir(ctx, name: "sync-fs")?
-  uu.succeeds(uu.invoke(s, "sync", ["--file-system", directory.display()], timeout: 30s)?)
+  let r = uu.invoke(s, "sync", ["--file-system", directory.display()], timeout: 30s)?
+  if system.uname()?.sysname == "Linux" { uu.succeeds(r) } else {
+    uu.fails_with_code(r, 1)
+    uu.stderr_contains(r, "Operation not supported")
+  }
 }
 
 # origin: uutils test_sync::test_sync_fs_nonblock_flag_reset
 test test_uu_sync_sync_fs_nonblock_flag_reset { |ctx|
   let s = uu.scene(ctx)?
   let directory = test.temp_dir(ctx, name: "sync-fs-flags")?
-  uu.succeeds(uu.invoke(s, "sync", ["--file-system", directory.display()], timeout: 30s)?)
+  let r = uu.invoke(s, "sync", ["--file-system", directory.display()], timeout: 30s)?
+  if system.uname()?.sysname == "Linux" { uu.succeeds(r) } else {
+    uu.fails_with_code(r, 1)
+    uu.stderr_contains(r, "Operation not supported")
+  }
 }
 
 # origin: uutils test_sync::test_sync_fs_without_files_falls_back_to_full_sync
@@ -92,7 +100,11 @@ test test_uu_sync_sync_multiple_files { |ctx|
   let file2 = fp"{directory}/file2.txt"
   file1.write("content1")
   file2.write("content2")
-  uu.succeeds(uu.invoke(s, "sync", ["--data", file1.display(), file2.display()], timeout: 30s)?)
+  let r = uu.invoke(s, "sync", ["--data", file1.display(), file2.display()], timeout: 30s)?
+  if system.uname()?.sysname == "Linux" { uu.succeeds(r) } else {
+    uu.fails_with_code(r, 1)
+    uu.stderr_contains(r, "Operation not supported")
+  }
 }
 
 # origin: uutils test_sync::test_sync_multiple_nonexistent_files

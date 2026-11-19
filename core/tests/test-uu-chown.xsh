@@ -107,7 +107,8 @@ test test_uu_chown_chown_owner_group_changing_to_root { |ctx|
   if unix.id()?.euid == 0 { test.skip("root can change ownership") }
   let s = uu.scene(ctx)?
   uu.touch(s, "test_chown_file1")
-  let root = uu.invoke(s, "chown", ["root:root", "--verbose", "test_chown_file1"])?
+  let owner_group = if system.uname()?.sysname == "Linux" { "root:root" } else { "root:wheel" }
+  let root = uu.invoke(s, "chown", [owner_group, "--verbose", "test_chown_file1"])?
   uu.fails(root)
   uu.stderr_is(root, "chown: changing ownership of 'test_chown_file1': Operation not permitted\n")
 }
@@ -135,8 +136,9 @@ test test_uu_chown_chown_only_group { |ctx|
   let r = uu.invoke(s, "chown", [f":{group_name}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   uu.succeeds(r)
-  if group_name != "root" {
-    let root = uu.invoke(s, "chown", [":root", "--verbose", "test_chown_file1"])?
+  let root_group = if system.uname()?.sysname == "Linux" { "root" } else { "wheel" }
+  if group_name != root_group {
+    let root = uu.invoke(s, "chown", [f":{root_group}", "--verbose", "test_chown_file1"])?
     uu.fails(root)
     uu.stderr_is(root, "chown: changing group of 'test_chown_file1': Operation not permitted\n")
   }
@@ -209,7 +211,8 @@ test test_uu_chown_chown_owner_group_mix_changing_to_root { |ctx|
   if unix.id()?.euid == 0 { test.skip("root can change ownership") }
   let s = uu.scene(ctx)?
   uu.touch(s, "test_chown_file1")
-  let root = uu.invoke(s, "chown", ["0:root", "--verbose", "test_chown_file1"])?
+  let owner_group = if system.uname()?.sysname == "Linux" { "0:root" } else { "0:wheel" }
+  let root = uu.invoke(s, "chown", [owner_group, "--verbose", "test_chown_file1"])?
   uu.fails(root)
   uu.stderr_is(root, "chown: changing ownership of 'test_chown_file1': Operation not permitted\n")
 }
