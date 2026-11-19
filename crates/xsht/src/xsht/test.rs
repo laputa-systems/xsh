@@ -753,6 +753,7 @@ fn allowed_physical_cores() -> Option<usize> {
     None
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn distinct_cores(allowed: &str, siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
     let mut cores = std::collections::BTreeSet::new();
     for range in allowed.split(',') {
