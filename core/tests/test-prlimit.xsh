@@ -315,6 +315,7 @@ test test_prlimit_shows_a_command_the_limits_it_will_run_with { |ctx|
 }
 
 test test_prlimit_limit_text_errors { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("prlimit limit checks require Linux /proc/sys/fs/nr_open"); return }
   let ceiling = fp"/proc/sys/fs/nr_open".read_text()?.trim()
 
   let cases = [
@@ -375,6 +376,7 @@ test test_prlimit_process_and_column_errors { |ctx|
   ]
 
   for case in cases {
+    if system.uname()?.sysname != "Linux" and case.args == ["-p", "2147483647"] { test.skip("prlimit requires Linux process resource-limit APIs"); return }
     let result = prlimit_run(ctx, case.args)?
     assert result.status in [1, 127], case.args.join(" ")
     assert result.stdout == "", case.args.join(" ")
