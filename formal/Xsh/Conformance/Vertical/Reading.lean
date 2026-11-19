@@ -152,6 +152,30 @@ theorem intern_string_resolves {name : String} {s s' : LoweringState} {word : Wo
       refine ⟨by omega, ?_⟩
       simp [value]
 
+theorem record_row_mono {s F : LoweringState} (le : StateLE s F)
+    (present : s.rows.any (fun row => row.tag == .exprRecord) = true) :
+    F.rows.any (fun row => row.tag == .exprRecord) = true := by
+  obtain ⟨row, member, tagged⟩ := List.any_eq_true.mp present
+  exact List.any_eq_true.mpr ⟨row, le.rows.subset member, tagged⟩
+
+theorem string_mono {s F : LoweringState} (le : StateLE s F)
+    (present : s.rows.any (fun row => row.tag == .exprRecord) = true)
+    {index : Nat} {name : String} (found : s.strings[index]? = some name) :
+    F.strings[index]? = some name := by
+  obtain ⟨more, same⟩ := le.strings present
+  have within := (List.getElem?_eq_some_iff.mp found).1
+  rw [← same, List.getElem?_append_left within]
+  exact found
+
+theorem name_mono {s F : LoweringState} (le : StateLE s F)
+    (present : s.rows.any (fun row => row.tag == .exprRecord) = true)
+    {index : Nat} {name : String} (found : s.names[index]? = some name) :
+    F.names[index]? = some name := by
+  obtain ⟨more, same⟩ := le.names present
+  have within := (List.getElem?_eq_some_iff.mp found).1
+  rw [← same, List.getElem?_append_left within]
+  exact found
+
 def LoweringState.tables (s : LoweringState) : Tables :=
   ⟨(s.rows.map fun row => row.tag.word).toArray,
     (s.rows.map fun row => (⟨row.lhs, row.rhs⟩ : RawData)).toArray, s.extra.toArray⟩
