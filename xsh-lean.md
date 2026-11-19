@@ -52,6 +52,9 @@ acceptance does not wait for this campaign.
 - G1's base theorems cover the base machine only: integer expressions,
   comparisons, conditionals and calls of let-free integer functions, scalar
   literals, identifiers and one host request family (`time.now`). The
+  [record-local widening](docs/rfc/lean-vertical-record-locals.md) adds an
+  integer-field record literal and a field read of a named local; until its
+  slice 2 lands, the domain above is the proved one. The
   machine has no assignment or declaration form, so typed store writes are
   proved on the environment API, not through machine steps. Float arithmetic
   and Float conversions are not modeled; the Float clauses state only exact

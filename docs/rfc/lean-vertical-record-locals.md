@@ -1,7 +1,14 @@
 # Admit record locals into the certified Lean source/IR vertical
 
-Status: design for the owner's review. Nothing here is implemented, and no
-claim in `formal/coverage.json` or `formal/README.md` changes.
+Status: approved by the owner on 2026-11-19 with every recommendation in
+section 8; implementation follows section 7. No claim in `formal/coverage.json`
+or `formal/README.md` changes until a slice lands its own evidence.
+
+Decisions (section 8): the base machine gains the record forms of section 3.2;
+every raw-IR document moves to one new projection scope; record labels cross as
+canonical label-table positions; `IntFieldSlot` reads and record facts wait for
+later slices; callers of record-local functions are the following widening;
+the connected reader's label mismatch is XSH-116.
 
 ## Summary
 
