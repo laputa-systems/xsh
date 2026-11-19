@@ -237,6 +237,7 @@ test test_uu_chown_root_preserve { |ctx|
 
 # origin: uutils test_chown::test_big_p
 test test_uu_chown_big_p { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/self/cwd fixture"); return }
   let s = uu.scene(ctx)?
   if unix.id()?.euid != 0 {
     let r = uu.invoke(s, "chown", ["-RP", "bin", "/proc/self/cwd"])?

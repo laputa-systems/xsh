@@ -380,6 +380,7 @@ proc replayed(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error
 }
 
 test test_a_fixed_replay_drives_observe_change_observe_without_the_host { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("network replay requires Linux netlink support"); return }
   let lines: List[Any] = [before_dump()?, address_change_reply(0)?, after_dump()?]
   let first = replayed(ctx, "replay-ok", lines)?
   assert first.success, first.stderr
