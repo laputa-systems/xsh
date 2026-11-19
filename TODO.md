@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 119
+Next: 120
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -135,3 +135,13 @@ out of scope.
 - **Acceptance:** `daemon_boundaries` passes on native macOS and Linux, or the SPEC records the macOS limit and the test pins it.
 - **Fix with:** root-cause
 - **Effort:** M
+
+### XSH-119 · P3 · awk regular expressions follow the host libc
+
+- **Area:** Core commands
+- **Where:** `src/modules/regex/posix.rs` (`PosixRegex` over `regcomp`/`regexec`), `core/lib/awk.xsh`, `core/tests/test-awk.xsh` (GNU matrix regex shards)
+- **Problem:** awk compiles its regular expressions with the host C library, so the same awk program matches differently on macOS (BSD regex) and on Linux (musl). On macOS arm64 (m1-max, 2026-11-19) the recorded GNU matrix differs in 18 regex and regexp-syntax shards; those shards skip there with this limitation.
+- **Recommendation:** Decide whether awk regex is part of XSH's portable contract. If it is, implement POSIX ERE matching in XSH (or a vendored portable engine) behind `PosixRegex` and drop the host dependency; if not, record the host dependency in the CORE awk contract.
+- **Acceptance:** Either the GNU matrix regex shards pass on macOS and Linux with one engine, or `docs/CORE.md` states that awk regex follows the host library and the macOS skips name it.
+- **Fix with:** reference-parity
+- **Effort:** L
