@@ -28,7 +28,7 @@ def LoweringState.tables (s : LoweringState) : Tables :=
 
 def LoweringState.context (s : LoweringState) (callees : List (Option Callee)) :
     MeaningContext :=
-  ⟨s.tables, s.ops, s.blocks, callees, s.strings, []⟩
+  ⟨s.tables, s.ops, s.blocks, callees, s.strings, s.names⟩
 
 @[simp] theorem context_tables (s : LoweringState) (callees : List (Option Callee)) :
     (s.context callees).tables = s.tables := rfl

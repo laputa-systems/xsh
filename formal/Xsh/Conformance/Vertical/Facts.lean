@@ -159,6 +159,7 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
   | .constructed _ _ => none
   | .computedLet _ _ _ => none
   | .computedLets _ _ => none
+  | .recordLocal _ _ _ => none
 
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
   check function.propagation.isNone
@@ -298,6 +299,7 @@ theorem expression_facts_iff {callees : Callees} {scope : Scope} {expression : S
     | constructed isOk payload => simp [expressionFacts] at found
     | computedLet target value result => simp [expressionFacts] at found
     | computedLets bindings result => simp [expressionFacts] at found
+    | recordLocal target fields result => simp [expressionFacts] at found
   · intro holds
     cases holds with
     | value valueHolds => exact value_facts_iff.mpr valueHolds
