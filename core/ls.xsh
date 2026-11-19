@@ -1675,7 +1675,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
       if ctx.deref == "cmdline_dir" {
         let need_lstat = match result {
           Ok(found) => found.kind != "dir",
-          Err(problem) => gnu.errno(problem) in [2, 40],
+          Err(problem) => gnu.errno(problem) in [2, 40] or (system.uname()?.sysname == "Darwin" and gnu.errno(problem) == 62),
         }
 
         if need_lstat {
