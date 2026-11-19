@@ -2484,6 +2484,27 @@ fn signal_process_checked(pid: u32, signal: i32) -> Result<(), RunError> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn group_contains_only_exited_child(group: ProcessGroup, pid: u32) -> bool {
+    if group.pgid != pid as i32
+        || !matches!(process_exited_without_reaping(pid), Ok(ChildIdentityObservation::Exited))
+    {
+        return false;
+    }
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PGRP, group.pgid];
+    let mut row = [0u8; 648];
+    let mut size = row.len();
+    // SAFETY: the MIB and output buffer are valid and their lengths are supplied to sysctl.
+    let result = unsafe {
+        libc::sysctl(mib.as_mut_ptr(), mib.len() as _, row.as_mut_ptr().cast(), &mut size,
+            std::ptr::null_mut(), 0)
+    };
+    result == 0 && size == row.len()
+        && i32::from_ne_bytes(row[40..44].try_into().unwrap()) == group.pgid
+        && row[36] == libc::SZOMB as u8
+        && matches!(process_exited_without_reaping(pid), Ok(ChildIdentityObservation::Exited))
+}
+
 fn terminate_stream_child(
     child: &mut Child,
     pid: u32,
@@ -2514,10 +2535,14 @@ fn terminate_stream_child(
             }
         }
     }
-    let group_signal = match identity {
+    #[cfg(target_os = "macos")]
+    let group_only_zombie = !*consumed && group_contains_only_exited_child(group, pid);
+    #[cfg(not(target_os = "macos"))]
+    let group_only_zombie = false;
+    let group_signal = if group_only_zombie { Ok(true) } else { match identity {
         Some(identity) => identity.signal_group_checked(group, libc::SIGKILL),
         None => signal_process_group_checked(group, libc::SIGKILL).map(|()| true),
-    };
+    }};
     match group_signal {
         Ok(true) => {}
         Ok(false) => {
@@ -3037,7 +3062,36 @@ fn open_child_exit_fd(pid: u32) -> Option<OwnedFd> {
     rprocess::pidfd_open(pid, rprocess::PidfdFlags::empty()).ok()
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn open_child_exit_fd(pid: u32) -> Option<OwnedFd> {
+    use std::os::fd::FromRawFd;
+
+    let raw = unsafe { libc::kqueue() };
+    if raw < 0 { return None; }
+    // SAFETY: kqueue returned a newly owned descriptor.
+    let queue = unsafe { OwnedFd::from_raw_fd(raw) };
+    rio::fcntl_setfd(&queue, rio::FdFlags::CLOEXEC).ok()?;
+    let event = libc::kevent {
+        ident: pid as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    // SAFETY: the queue and event are valid for the duration of the call.
+    if unsafe { libc::kevent(raw, &event, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == 0 {
+        return Some(queue);
+    }
+    if io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        let (reader, writer) = io::pipe().ok()?;
+        drop(writer);
+        return Some(reader.into());
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn open_child_exit_fd(_pid: u32) -> Option<OwnedFd> {
     None
 }

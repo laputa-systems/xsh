@@ -106,10 +106,7 @@ test test_unix_spawn_process_group_new_session_leads_its_own_session { |ctx|
     return
   }
   let script = r"""proc session_and_group(pid: Int) [process, error] -> Result[List[Int], Error] {
-  for entry in process.list()? {
-    if entry.pid == pid { return [entry.session ?? 0, entry.pgrp ?? 0] }
-  }
-  [0, 0]
+  [process.session_id(pid)?, process.group_id(pid)?]
 }
 let sleeper = process.command_argv("sleep", ["sleep", "30"])
 let leader = unix.spawn_process_group(sleeper, new_session: true)?
@@ -128,6 +125,10 @@ assert member_ids[0] == session_and_group(own)?[0]
 }
 
 test test_unix_shutdown_process_groups_preserves_other_exits_and_escalates_stubborn_groups { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("reaping an orphaned grandchild requires the Linux child subreaper facility")
+    return
+  }
   guard process_groups_are_supported() else {
     test.skip("unix process groups need Linux or macOS")
     return

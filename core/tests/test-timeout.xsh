@@ -105,7 +105,7 @@ test timeout_preserves_normal_exit_and_command_arguments { |ctx|
 
 test timeout_sends_selected_signal_and_preserves_status { |ctx|
   assert invoke(ctx, [".05", "sleep", "10"])?.status == 124
-  assert invoke(ctx, ["-p", "-s", "USR1", ".05", "sleep", "10"])?.status == 138
+  assert invoke(ctx, ["-p", "-s", "USR1", ".05", "sleep", "10"])?.status == 128 + process.signal("USR1")?.number
   assert invoke(ctx, ["-s", "KILL", ".05", "sleep", "10"])?.status == 137
 }
 

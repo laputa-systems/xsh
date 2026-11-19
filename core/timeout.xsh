@@ -124,10 +124,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if limit == 0ms { exit (wait_until_exit(child)?).shell_code()? }
   let completed = wait_for(child, limit)?
   if let finished = completed { exit finished.shell_code()? }
+  let resume = named.number != 0 and named.name != "KILL" and named.name != "CONT"
+  let stop_signal = named.name in ["STOP", "TSTP", "TTIN", "TTOU"]
+  let resume_first = resume and ! stop_signal and system.uname()?.sysname == "Darwin"
+  if resume_first { send(child, "CONT", false, opts.foreground, command[0]) }
   send(child, if named.number == 0 { "0" } else { named.name }, opts.verbose, opts.foreground, command[0])
   # A stopped command must resume to observe a pending signal; signal zero
   # only probes the process and leaves nothing pending.
-  if named.number != 0 and named.name != "KILL" and named.name != "CONT" {
+  if resume and ! resume_first {
     send(child, "CONT", false, opts.foreground, command[0])
   }
   if grace != 0ms {

@@ -160,16 +160,6 @@ out of scope.
 - **Fix with:** os-boundaries
 - **Effort:** M
 
-### XSH-122 · P2 · timeout cannot signal its child's group on macOS
-
-- **Area:** Core
-- **Where:** `core/timeout.xsh`, `core/tests/test-gnu-timeout.xsh` (`timeout_blocked_log`, `timeout_parameters_log`), `core/tests/test-timeout.xsh` (`timeout_accepts_hex_intervals_and_saturates_large_intervals`), `core/tests/test-uu-timeout.xsh` (`dont_underflow`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these cases print `timeout: failed to send signal: permission denied` and exit 125 where 124 is expected. Instrumenting `core/timeout.xsh` showed the group `TERM` succeeds and the following `CONT` fails with errno 1 (EPERM); foreground mode exits 124. The likely cause, not yet confirmed, is that Darwin returns `EPERM` from `kill(-pgid)` when the group holds a zombie, where Linux still delivers to the live members.
-- **Recommendation:** Root-cause which member refuses the signal. If it is a reaped or exiting child, treat `EPERM` on a group whose leader has already exited as delivered, as GNU's Darwin build effectively does; otherwise fix the group setup.
-- **Acceptance:** The listed tests pass on native macOS with status 124 and still pass on Linux.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-123 · P3 · Terminal and FIFO observation differs on macOS
 
 - **Area:** Core
@@ -229,8 +219,6 @@ out of scope.
   - `test-rm.xsh` (`recursive_removes_hierarchy_deeper_than_path_max`) and `test-gnu-rm.xsh` (`deep_2_log`) fail on Darwin `ENAMETOOLONG` (63).
   - `test-dd.xsh` (`oflag_append_on_standard_output`: Permission denied) and `test-gnu-dd.xsh` (`sparse_log`) fail with `oflag=append`.
   - `test-curl.xsh` (`plain_http_needs_no_trust_store`) exits 77 loading trust anchors.
-  - `tests/xsh/run.xsh` has four failures: inherited run and pipeline return timing (2.8 s versus 0.15 s), `Operation not permitted` in the foundation literals test, and run-target failure kinds.
-  - `tests/xsh/stdlib/unix.xsh` has two process-group and session-leader failures.
   - `dev/tests/test-gates.xsh` fails in changed-path discovery and in source changes during execution (see also XSH-126).
   - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
   - `test-uu-cksum-1.xsh` (`debug_flag`), `test-uu-stat.xsh` (`printf_atime_ctime_mtime_precision` on `/dev/ptmx`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.

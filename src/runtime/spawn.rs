@@ -151,6 +151,24 @@ impl Command {
         if self.spawns_directly() {
             return direct::spawn(self);
         }
+        #[cfg(target_os = "macos")]
+        let exec = {
+            use std::os::unix::ffi::OsStrExt;
+            let cstring = |bytes: &[u8]| std::ffi::CString::new(bytes)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "nul byte in command"));
+            let program = cstring(self.program.as_bytes())?;
+            let args = std::iter::once(&self.program).chain(&self.args)
+                .map(|arg| cstring(arg.as_bytes())).collect::<io::Result<Vec<_>>>()?;
+            let env = self.env.iter().map(|(name, value)| {
+                let mut entry = name.as_bytes().to_vec();
+                entry.push(b'=');
+                entry.extend_from_slice(value.as_bytes());
+                cstring(&entry)
+            }).collect::<io::Result<Vec<_>>>()?;
+            let argv = args.iter().map(|arg| arg.as_ptr() as usize).chain(std::iter::once(0)).collect::<Vec<_>>();
+            let envp = env.iter().map(|arg| arg.as_ptr() as usize).chain(std::iter::once(0)).collect::<Vec<_>>();
+            (program, args, env, argv, envp)
+        };
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if let Some(cwd) = &self.cwd {
@@ -184,6 +202,18 @@ impl Command {
             // SAFETY: `Command::pre_exec` requires the caller to uphold this.
             unsafe {
                 command.pre_exec(hook);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let (program, args, env, argv, envp) = exec;
+            // SAFETY: execve only reads the retained C strings and null-terminated pointer arrays.
+            unsafe {
+                command.pre_exec(move || {
+                    let _keep_alive = (&args, &env);
+                    libc::execve(program.as_ptr(), argv.as_ptr().cast(), envp.as_ptr().cast());
+                    Err(io::Error::last_os_error())
+                });
             }
         }
         command.spawn().map(Child::from_std)
