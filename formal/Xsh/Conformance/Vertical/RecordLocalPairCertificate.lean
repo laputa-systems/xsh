@@ -37,6 +37,20 @@ theorem record_local_pair_certified :
     record_local_lowers_to_artifact record_pair_validates]
   exact record_pair_results
 
+def changedWideSourceText : String :=
+  "pure spans(value: Int) -> Int {\n" ++
+  "  let box = {low: value - 3, high: 60 / value, wide: value + 9223372036854775799}\n" ++
+  "  return box.high - box.low\n}\n"
+
+set_option maxRecDepth 100000 in
+theorem changed_wide_source_rejected_by_pair :
+    parseSource changedWideSourceText = some changedWideRecordLocalFunctions ∧
+      sourceAgrees recordLocalArtifact changedWideRecordLocalFunctions = true ∧
+      certifyDecoded { recordLocalSourceDocument with text := changedWideSourceText }
+        recordLocalArtifact = none := by
+  refine ⟨?_, changed_wide_constant_is_observationally_equal_on_recorded_calls.2, ?_⟩ <;>
+    decide +kernel
+
 def changedLowSourceText : String :=
   "pure spans(value: Int) -> Int {\n" ++
   "  let box = {low: value - 4, high: 60 / value, wide: value + 9223372036854775800}\n" ++
