@@ -173,6 +173,22 @@ def SourceFunction.computedBindings? (function : SourceFunction)
       | _ => none
   | _ => some []
 
+def SourceFunction.recordProgram? (function : SourceFunction) : Option (Option RecordLocal) :=
+  match function.result with
+  | .recordLocal target fields result =>
+    match function.parameters, function.lets, function.propagation with
+    | [parameter], [], none => do
+        check (recordLocalAdmitted parameter target fields result)
+        let values ← fields.mapM fun (label, value) => do
+          some (label, ← value.expression? [(parameter, 0)])
+        some (some ⟨2, values⟩)
+    | _, _, _ => none
+  | _ => some none
+
+theorem SourceFunction.recordProgram_none (function : SourceFunction)
+    (notRecord : function.result.isRecordLocal = false) : function.recordProgram? = some none := by
+  cases result : function.result <;> simp_all [SourceFunction.recordProgram?, SourceExpression.isRecordLocal]
+
 /-- The base-machine program a source function denotes, straight from the parsed tree. A computed
 let binds its value expression, read in the parameters' scope, before the returned expression that
 reads it. -/
@@ -195,14 +211,7 @@ def SourceFunction.program? (callees : List (String × Option Callee)) (function
     | none => some none
     | some found => (propagationProgram? callees scope found).map some
   let expression ← function.result.expression? callees scope
-  let record ← match function.parameters, function.lets, function.propagation, function.result with
-    | [parameter], [], none, .recordLocal target fields result => do
-        check (recordLocalAdmitted parameter target fields result)
-        let values ← fields.mapM fun (label, value) => do
-          some (label, ← value.expression? [(parameter, 0)])
-        some (some ⟨2, values⟩)
-    | _, _, _, .recordLocal _ _ _ => none
-    | _, _, _, _ => some none
+  let record ← function.recordProgram?
   some ⟨function.parameters.length, bindings, assignment, propagation, expression, record⟩
 
 def sourceStep (state : List (String × Option Callee) × List (Option FunctionProgram))
