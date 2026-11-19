@@ -52,10 +52,11 @@ test test_uu_chmod_chmod_dangling_symlink_recursive_combos { |ctx|
   for flags in [["-R"], ["-R", "-H"], ["-R", "-L"]] {
     let s = uu.scene(ctx)?
     absolute_link(s, "nonexistent_file", "symlink")
+    let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode }
     let r = uu.invoke(s, "chmod", flags.extend(["u+x", "symlink"]), umask: 0o022)?
     uu.fails(r)
     uu.stderr_is(r, "chmod: cannot operate on dangling symlink 'symlink'\n")
-    assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == 0o120777
+    assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == link_mode
   }
 }
 
@@ -64,11 +65,12 @@ test test_uu_chmod_chmod_dereference_symlink { |ctx|
   let s = uu.scene(ctx)?
   make_file(s, "file", 0o664)
   absolute_link(s, "file", "symlink")
+  let link_mode = if system.uname()?.sysname == "Linux" { 0o120777 } else { fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode }
   let r = uu.invoke(s, "chmod", ["--dereference", "u+x", "symlink"])?
   uu.succeeds(r)
   uu.no_stderr(r)
   assert fs.stat(uu.at(s, "file"))?.mode == 0o100764
-  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == 0o120777
+  assert fs.stat(uu.at(s, "symlink"), follow_symlinks: false)?.mode == link_mode
 }
 
 # origin: uutils test_chmod::test_chmod_error_permissions
