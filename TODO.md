@@ -155,3 +155,43 @@ out of scope.
 - **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
 - **Fix with:** root-cause
 - **Effort:** M
+
+### XSH-121 · P2 · Descriptor identity relies on Linux /proc on macOS
+
+- **Area:** Core
+- **Where:** `core/lib/textio_a1.xsh` (`/proc/self/fdinfo` lookup), `core/tests/test-gnu-cat.xsh` (`cat_self_log`), `core/tests/test-gnu-head.xsh` (`head_pos_log`), `core/tests/test-gnu-split.xsh` (`guard_input_log`), `core/tests/test-gnu-wc.xsh` (`wc_files0_log`), `core/tests/test-head.xsh` (elided-stdin rewind), `core/tests/test-uu-cat.xsh` (self-copy)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the self-overwrite guards in cat and split, head's repositioning of a shared offset, and wc's redirected `--files0-from` detection all fail because they read descriptor offsets and identity through `/proc/self/fdinfo`, which macOS lacks. Split exits 0 where GNU exits 1, and wc pads nothing.
+- **Recommendation:** Derive descriptor identity from `fstat` (`st_dev`, `st_ino`) and the offset from `lseek(fd, 0, SEEK_CUR)` on every host, keeping `/proc` only where Linux needs it for flags `fstat` cannot provide.
+- **Acceptance:** The listed tests pass on native macOS and still pass on Linux.
+- **Fix with:** os-boundaries
+- **Effort:** M
+
+### XSH-122 · P2 · timeout cannot signal its child's group on macOS
+
+- **Area:** Core
+- **Where:** `core/timeout.xsh`, `core/tests/test-gnu-timeout.xsh` (`timeout_blocked_log`, `timeout_parameters_log`), `core/tests/test-timeout.xsh` (`timeout_accepts_hex_intervals_and_saturates_large_intervals`), `core/tests/test-uu-timeout.xsh` (`dont_underflow`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these cases print `timeout: failed to send signal: permission denied` and exit 125 where 124 is expected. The likely cause, not yet confirmed, is that Darwin returns `EPERM` from `kill(-pgid)` when the group holds a zombie, where Linux still delivers to the live members.
+- **Recommendation:** Root-cause which member refuses the signal. If it is a reaped or exiting child, treat `EPERM` on a group whose leader has already exited as delivered, as GNU's Darwin build effectively does; otherwise fix the group setup.
+- **Acceptance:** The listed tests pass on native macOS with status 124 and still pass on Linux.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-123 · P3 · Terminal and FIFO observation differs on macOS
+
+- **Area:** Core
+- **Where:** `core/stty.xsh` (Linux-sized termios decoding), `core/tests/test-stty.xsh` (`all_lists_every_setting_in_gnu_order`, `combination_settings_follow_the_gnu_definitions`, `control_characters_take_every_spelling`, `delay_styles_replace_each_other`, `drain_alone_prints_and_otherwise_chooses_when_to_apply`), `core/tee.xsh` (zero-interest FIFO poll), `core/tests/test-tee.xsh` (`nopipe_mode_does_not_wait_for_idle_input_when_stdout_is_broken`, `nopipe_mode_stops_when_stdout_and_file_fifo_readers_are_gone`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) stty decodes termios with Linux field sizes and flag values, so its listings and combinations differ and `cooked` exits 1. tee's `--output-error` modes time out because Darwin keeps reporting a named FIFO writable after its last reader closes, so the zero-interest poll never sees the hangup.
+- **Recommendation:** Give stty a per-host termios table (Darwin `tcflag_t` is 64-bit and its flag set differs) and assert host-correct GNU output. For tee, detect reader loss by a zero-length or `EPIPE` probe write instead of poll readiness on Darwin.
+- **Acceptance:** The listed tests pass on native macOS with host-correct expectations and still pass on Linux.
+- **Fix with:** os-boundaries
+- **Effort:** M
+
+### XSH-124 · P3 · Remaining single macOS native failures
+
+- **Area:** Core
+- **Where:** `core/tests/test-bb-pidof.xsh` (`pidof_this_48b653be`), `core/tests/test-bb-sed-1.xsh` (`sed_OR_not_cfd133ba`), `core/tests/test-gnu-dd.xsh` (`conv_case_log`), `core/tests/test-grep.xsh` (`differential_basic_selection_and_modes`), `core/tests/test-rmdir.xsh` (`trailing_slash_symlink_diagnostic`), `core/tests/test-sysctl.xsh` (`reads_writes_and_loads_configuration_through_native_keys`), `core/tests/test-uu-cp-5.xsh` (`cp_sparse_always_non_empty`), `dev/tests/test-lifecycle.xsh` (three container lifecycle cases), util-linux `lslocks`/`mountpoint`/`namei`/`syslog-libc` reference comparisons
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19), each fails for its own reason. pidof derives `argv0` from `ps` (`src/modules/process.rs`) and misses the child. A sed BRE alternation prints `abca` for `ca`. dd's ISO-8859-1 `conv=lcase` maps only ASCII, so it leaves byte 201 where 233 is expected. grep `-L` lists a matching file. On APFS, `rmdir` of `link/` succeeds where it must fail. sysctl `-p FILE` also reads the absent `/etc/sysctl.conf`. A sparse `always` copy allocates 136 blocks where Linux allocates 16. The lifecycle tests read `/proc/sys/kernel/hostname`. The util-linux references are absent, and the Linux planner rejects those files when they are selected with other cases.
+- **Recommendation:** Triage one at a time with root-cause. Split out a ticket for any that turns into a contract question, such as sysctl default loading or the sparse allocation bound.
+- **Acceptance:** Each listed case passes on native macOS, or skips with a named platform limitation, and still passes on Linux.
+- **Fix with:** root-cause
+- **Effort:** M
