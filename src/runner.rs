@@ -8,7 +8,7 @@ use crate::loader::{
 use crate::mem_track::{self, AllocTraffic, WorkerStageTraffic};
 use crate::runtime::eval::Evaluator;
 use crate::runtime_stats::{PhaseDurationSlot, RuntimePhaseTimes};
-use crate::runtime::process::path_bytes;
+use crate::runtime::process::{cancellation_requested_signal, path_bytes};
 use crate::sema::check::{CheckOptions, Checker, byte_argument_main};
 use crate::source::SourceMap;
 
@@ -144,13 +144,42 @@ pub fn on_preparation_stack<R: Send>(work: impl FnOnce() -> R + Send) -> R {
         return work();
     }
     std::thread::scope(|scope| {
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .stack_size(UNOPTIMIZED_STACK_BYTES)
             .spawn_scoped(scope, work)
-            .expect("spawn the preparation thread")
-            .join()
-            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+            .expect("spawn the preparation thread");
+        // The worker started with these signals unblocked; blocking them here
+        // makes the kernel interrupt the worker's blocking calls instead.
+        let _routed = CancellationSignalsBlocked::on_this_thread();
+        worker.join().unwrap_or_else(|payload| std::panic::resume_unwind(payload))
     })
+}
+
+struct CancellationSignalsBlocked(libc::sigset_t);
+
+impl CancellationSignalsBlocked {
+    fn on_this_thread() -> Self {
+        // SAFETY: both sets are initialized before use and the mask only
+        // changes for the calling thread.
+        unsafe {
+            let mut blocked: libc::sigset_t = std::mem::zeroed();
+            let mut previous: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut blocked);
+            libc::sigaddset(&mut blocked, libc::SIGINT);
+            libc::sigaddset(&mut blocked, libc::SIGTERM);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, &mut previous);
+            Self(previous)
+        }
+    }
+}
+
+impl Drop for CancellationSignalsBlocked {
+    fn drop(&mut self) {
+        // SAFETY: restores the mask saved by `on_this_thread` on the same thread.
+        unsafe {
+            libc::pthread_sigmask(libc::SIG_SETMASK, &self.0, std::ptr::null_mut());
+        }
+    }
 }
 
 pub fn run_script(options: RunOptions) -> ScriptOutput {
@@ -477,7 +506,13 @@ fn try_prepare_program_observed(
             Ok(context) => context,
             Err(message) => return Ok(Err(route_witness_error_attempt(message))),
         };
-    let bytes = fs::read(&options.script)?;
+    let Some(bytes) = read_script_source(Path::new(&options.script))? else {
+        return Ok(Err(RunAttempt::Output(ScriptOutput {
+            status: 3,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        })));
+    };
     let route_witness = match route_witness_context
         .map(|context| context.validate_source(&bytes))
         .transpose()
@@ -489,6 +524,33 @@ fn try_prepare_program_observed(
     };
     let entry_source = entry_source_from_bytes(&options.script, bytes);
     Ok(prepare_entry_source(options, entry_source, route_witness, phase_times))
+}
+
+/// Reads the script, or returns `None` when SIGINT or SIGTERM arrives first.
+/// A FIFO source can block in `open` or `read` until its writer acts, and the
+/// standard library retries an interrupted call, which would lose the signal.
+fn read_script_source(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    use rustix::fs::{Mode, OFlags};
+    use rustix::io::Errno;
+    let file = loop {
+        match rustix::fs::open(path, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty()) {
+            Ok(file) => break file,
+            Err(Errno::INTR) if cancellation_requested_signal().is_some() => return Ok(None),
+            Err(Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let mut bytes = Vec::new();
+    let mut chunk = vec![0; 64 * 1024];
+    loop {
+        match rustix::io::read(&file, &mut chunk) {
+            Ok(0) => return Ok(Some(bytes)),
+            Ok(count) => bytes.extend_from_slice(&chunk[..count]),
+            Err(Errno::INTR) if cancellation_requested_signal().is_some() => return Ok(None),
+            Err(Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 fn route_witness_error_attempt(message: String) -> RunAttempt {
