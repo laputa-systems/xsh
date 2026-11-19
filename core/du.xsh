@@ -304,7 +304,7 @@ proc disk_usage(root: FsRoot, entry: RelPath, name: Str, policy: Policy, depth: 
   seen[identity] = true
   var size = if policy.inodes { 1 } else if policy.apparent { if meta.kind in ["file", "symlink"] { meta.size } else { 0 } } else { meta.blocks_512 * 512 }
   var accounted = size
-  var latest = if policy.time == "atime" { meta.atime_ns } else if policy.time == "ctime" { meta.ctime_ns } else { meta.mtime_ns }
+  var latest = if policy.time == "atime" { meta.atime_ns } else if policy.time == "ctime" { meta.ctime_ns } else if policy.time == "birth" { meta.birth_ns ?? meta.mtime_ns } else { meta.mtime_ns }
   var failed = false
   if meta.kind == "dir" {
     let opened = if let host_path = found.external_target { fs.open_root(host_path) } else { root.open_root(entry) }
@@ -448,6 +448,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     for alias in ["mtime", "modification", "atime", "access", "use", "ctime", "status"] {
       if choice != "" and alias.starts_with(choice) { time_field = fields[alias] }
     }
+    if choice == "birth" and system.uname()?.sysname == "Darwin" { time_field = "birth" }
     if time_field == "" { gnu.usage_error(f"invalid argument {gnu.quote_value(choice)} for 'time'") }
   }
   var style = ""

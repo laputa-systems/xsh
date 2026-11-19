@@ -36,6 +36,23 @@ proc removal_reason(target: Path, failure: Error) [fs, error] -> Str {
   gnu.strerror(failure)
 }
 
+proc trailing_symlink_reason(name: Bytes) [fs, error] -> Str? {
+  var end = name.len()
+  return null when end == 0 or name.byte_at(end - 1) != 47
+  while end > 0 and name.byte_at(end - 1) == 47 { end -= 1 }
+  return null when end == 0
+  let target = name[..end] as Path
+  if let Ok(meta) = fs.stat(target) {
+    if meta.kind == "symlink" {
+      match fs.stat(target, follow_symlinks: true) {
+        Ok(referent) => { if referent.kind == "dir" { return "Symbolic link not followed" } }
+        Err(failure) => { return gnu.strerror(failure) }
+      }
+    }
+  }
+  null
+}
+
 # The next operand of the -p walk, computed on the operand text as GNU does
 # rather than with Path.parent(): trailing slashes are dropped, then the last
 # component and the slashes before it are cut. A name with no slash left ends
@@ -68,6 +85,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version { gnu.version("rmdir")
     return }
   if opts.targets.is_empty() { gnu.missing_operand() }
+  let darwin = system.uname()?.sysname == "Darwin"
   var failed = false
   for name in opts.targets {
     var current = bytes.from_text(name)
@@ -75,7 +93,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     loop {
       let directory = current as Path
       if opts.verbose { gnu.write_text(f"rmdir: removing directory, {gnu.quote_bytes(current)}\n") }
-      match directory.remove_dir() {
+      if darwin {
+        if let reason = trailing_symlink_reason(current) {
+          gnu.error(f"failed to remove {gnu.quote_bytes(current)}: {reason}")
+          failed = true
+          break
+        }
+      }
+      var remove_name = current
+      if darwin {
+        var end = remove_name.len()
+        while end > 1 and remove_name.byte_at(end - 1) == 47 { end -= 1 }
+        remove_name = remove_name[..end]
+      }
+      match (remove_name as Path).remove_dir() {
         Ok(_) => {}
         Err(failure) => {
           if ! (opts.ignore_nonempty and ignored_nonempty(directory, failure)) {

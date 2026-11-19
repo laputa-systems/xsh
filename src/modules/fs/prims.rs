@@ -138,6 +138,10 @@ pub(crate) fn stat_root(
 }
 
 fn stat_from_raw(stat: &rfs::Stat) -> Value {
+    #[cfg(target_os = "macos")]
+    let birth = time_ns(stat.st_birthtime, stat.st_birthtime_nsec as i64);
+    #[cfg(not(target_os = "macos"))]
+    let birth = Value::Null;
     #[cfg(target_os = "linux")]
     let mode = stat.st_mode;
     #[cfg(not(target_os = "linux"))]
@@ -190,7 +194,7 @@ fn stat_from_raw(stat: &rfs::Stat) -> Value {
         (key("atime_ns"), time_ns(stat.st_atime, stat.st_atime_nsec as i64)),
         (key("mtime_ns"), time_ns(stat.st_mtime, stat.st_mtime_nsec as i64)),
         (key("ctime_ns"), time_ns(stat.st_ctime, stat.st_ctime_nsec as i64)),
-        (key("birth_ns"), Value::Null),
+        (key("birth_ns"), birth),
     ]))
 }
 
