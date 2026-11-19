@@ -99,6 +99,7 @@ stranger                 ??? ?{w.stranger_line}  ?????  Nov 14 22:13
 }
 
 test test_pinky_column_options_drop_columns { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   assert pinky_run(ctx, ["-f"], w)?.stdout.starts_with("alice    Alice Liddell")
   let no_name = pinky_run(ctx, ["-w"], w)?.stdout
