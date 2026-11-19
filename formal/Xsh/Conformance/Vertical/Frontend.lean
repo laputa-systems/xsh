@@ -135,6 +135,12 @@ def isKeyword (name : String) : Bool :=
   name == "pure" || name == "let" || name == "var" || name == "return" || name == "if" ||
     name == "else"
 
+def isRecordKeyword (name : String) : Bool :=
+  isKeyword name || ["and", "assert", "atomically", "backoff", "break", "const", "continue",
+    "defer", "enum", "errdefer", "every", "export", "false", "for", "guard", "in", "loop",
+    "match", "not", "null", "or", "proc", "retry", "run", "spawn", "stream", "true", "try",
+    "type", "unless", "until", "use", "wait", "when", "while", "with", "within", "yield"].contains name
+
 def parseAtom : List Token → Option (SourceAtom × List Token)
   | .number value :: rest => some (.int value, rest)
   | .word name :: rest => if isKeyword name then none else some (.var name, rest)
@@ -152,7 +158,7 @@ def parseValue (tokens : List Token) : Option (SourceValue × List Token) := do
 
 def parseRecordOperand : List Token → Option (RecordOperand × List Token)
   | .word target :: .dot :: .word label :: rest =>
-      if isKeyword target || isKeyword label then none else some (.field target label, rest)
+      if isRecordKeyword target || isRecordKeyword label then none else some (.field target label, rest)
   | tokens => do
       let (atom, rest) ← parseAtom tokens
       some (.atom atom, rest)
@@ -170,7 +176,7 @@ def parseRecordValue (tokens : List Token) : Option (RecordValue × List Token) 
 def parseRecordFields : Nat → List Token → Option (List (String × SourceValue) × List Token)
   | 0, _ => none
   | fuel + 1, .word label :: .colon :: tokens => do
-      if isKeyword label then none else pure ()
+      if isRecordKeyword label then none else pure ()
       let (value, afterValue) ← parseValue tokens
       match afterValue with
       | .rightBrace :: rest => some ([(label, value)], rest)
@@ -182,12 +188,17 @@ def parseRecordFields : Nat → List Token → Option (List (String × SourceVal
 
 def parseRecordLet : List Token → Option ((String × List (String × SourceValue)) × List Token)
   | .word "let" :: .word target :: .equals :: .leftBrace :: rest => do
-      if isKeyword target then none else pure ()
+      if isRecordKeyword target then none else pure ()
       let (fields, afterFields) ← parseRecordFields (rest.length + 1) rest
       match afterFields with
       | .newline :: remaining => some ((target, fields), remaining)
       | _ => none
   | _ => none
+
+theorem record_reserved_labels_are_refused :
+    parseRecordLet [.word "let", .word "box", .equals, .leftBrace, .word "while", .colon,
+      .number 1, .rightBrace, .newline] = none := by
+  decide +kernel
 
 theorem record_parts_parse :
     parseRecordLet [.word "let", .word "box", .equals, .leftBrace,
@@ -420,8 +431,9 @@ def RecordValue.admitted (parameter target : String) (labels : List String) : Re
 def recordLocalAdmitted (parameter target : String) (fields : List (String × SourceValue))
     (result : RecordValue) : Bool :=
   let labels := fields.map Prod.fst
-  target != parameter && !isKeyword target && !fields.isEmpty && decide labels.Nodup &&
-    fields.all (fun (label, value) => !isKeyword label &&
+  target != parameter && !isRecordKeyword parameter && !isRecordKeyword target &&
+    !fields.isEmpty && decide labels.Nodup &&
+    fields.all (fun (label, value) => !isRecordKeyword label &&
       value.atoms.all (·.isParameterOrLiteral [parameter])) && result.admitted parameter target labels
 
 def parseRecordBody (shape : ResultShape) (name : String) (parameters : List String)
