@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 116
+Next: 117
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -114,4 +114,14 @@ out of scope.
 - **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH.
 - **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
 - **Fix with:** none
+- **Effort:** S
+
+### XSH-116 · P3 · Connected reader decodes record labels from the wrong table
+
+- **Area:** Formal verification
+- **Where:** `formal/Xsh/Conformance/Connected/RawExpression.lean` (`readRawValueFields`), `src/runtime/eval/indexed/full.rs` (`FullCodec for Name`)
+- **Problem:** Rust writes an `ExprRecord` entry's label as a process-interner symbol word, but the connected reader resolves that word as a string-pool ID through `readRawStringBytes`; the connected assignment-path decoder keeps labels as raw symbols. No connected document carries an `ExprRecord` row yet, so the mismatch is unexercised, and interner symbol words are not stable bytes in any case.
+- **Recommendation:** When the connected path first exchanges a record row, carry labels through the canonical label table in [the record-local design](docs/rfc/lean-vertical-record-locals.md) and read them from it in both connected decoders.
+- **Acceptance:** A connected document with an `ExprRecord` row decodes its labels to the spellings Rust wrote, and a test fails if the reader uses the string pool.
+- **Fix with:** reference-parity
 - **Effort:** S
