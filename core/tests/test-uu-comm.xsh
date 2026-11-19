@@ -338,17 +338,10 @@ test test_uu_comm_is_dir { |ctx|
   uu.stderr_only(r4, "comm: .: Is a directory\n")
 }
 
-# origin: uutils test_comm::test_locale_collation
-test test_uu_comm_locale_collation { |ctx|
-  if process.which("locale") is Err(_) {
-    test.skip("en_US.UTF-8 locale is unavailable")
-  }
-  let locales = run.capture --text locale -a
-  if !("en_US.utf8" in locales.stdout) and !("en_US.UTF-8" in locales.stdout) {
-    test.skip("en_US.UTF-8 locale is unavailable")
-  }
+# origin: uutils test_comm::test_locale_collation, which expects glibc collation; XSH comm orders bytewise in every locale
+test test_uu_comm_locale_keeps_bytewise_order { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f1", "a1\na-b\n")
+  uu.write(s, "f1", "a-b\na1\n")
   uu.write(s, "f2", "a-b\n")
   let r1 = uu.invoke(s, "comm", ["-12", "f1", "f2"], vars: {LC_ALL: "en_US.UTF-8"})?
   uu.succeeds(r1)
