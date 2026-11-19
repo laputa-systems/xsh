@@ -52,12 +52,23 @@ def readResolved? (config : Configuration) (use : ResolvedNameOccurrence) :
   (resolvedBinding? config use).bind fun binding =>
     (config.current.store (BindingId.toCell binding)).map StoreCell.contents
 
+private def decideIntegerField (field : String × CompositeValue) :
+    Decidable (∃ value, field.2 = .integer value) := by
+  cases field with
+  | mk label value =>
+    cases value <;> simp only [CompositeValue.noConfusion, exists_const, exists_eq'] <;>
+      first | exact isTrue ⟨_, rfl⟩ | exact isFalse (by rintro ⟨_, impossible⟩; cases impossible)
+
 def decideHasBaseType (typeTag : BaseType) (candidate : CompositeValue) :
     Decidable (hasBaseType typeTag candidate) := by
   cases typeTag <;> cases candidate <;> simp only [hasBaseType] <;>
     first
     | exact isTrue trivial
     | exact isFalse id
+    | rename_i labels fields
+      letI : ∀ field : String × CompositeValue,
+          Decidable (∃ value, field.2 = .integer value) := decideIntegerField
+      exact inferInstance
 
 /-- Write through the occurrence's resolved declaration and active typed cell. -/
 def writeResolved? (config : Configuration) (use : ResolvedNameOccurrence)

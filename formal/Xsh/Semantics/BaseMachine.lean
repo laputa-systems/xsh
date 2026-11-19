@@ -21,6 +21,7 @@ inductive BaseType where
   | string
   | bytes
   | result
+  | integerRecord (labels : List String)
   deriving DecidableEq
 
 /-- `time.now()` requests signed epoch milliseconds from the host. Clock accuracy and the
@@ -40,6 +41,8 @@ def hasBaseType : BaseType → CompositeValue → Prop
   | .string, .string _ => True
   | .bytes, .bytes _ => True
   | .result, .result _ _ => True
+  | .integerRecord labels, .record fields =>
+    fields.map (·.1) = labels ∧ ∀ field ∈ fields, ∃ value, field.2 = .integer value
   | _, _ => False
 
 abbrev BaseStore := TypedStore BaseType CompositeValue hasBaseType
@@ -100,6 +103,8 @@ inductive BaseExpr where
   | call (parameters : List Xsh.Syntax.RawName) (body : BaseExpr) (arguments : List BaseExpr)
   | resultOk (value : BaseExpr)
   | resultErr (value : BaseExpr)
+  | record (fields : List (String × BaseExpr))
+  | fieldRead (record : Xsh.Syntax.RawName) (label : String)
 
 /-- Failures are terminal outcomes of this fragment; exhaustion belongs to the runner. -/
 inductive BaseFault where
@@ -108,6 +113,8 @@ inductive BaseFault where
   | missingCell (cell : CellId)
   | unsupportedScalarLiteral
   | expectedInteger
+  | expectedRecord
+  | missingField (label : String)
   | hostResponseTypeMismatch
   | arithmetic (fault : IntegerFault)
   deriving DecidableEq
@@ -136,6 +143,16 @@ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnviron
   | .identifier name =>
     match lookupBaseValue names activations store name with
     | .ok value => some value.typeTag
+    | .error _ => none
+  | .record fields =>
+    if inferRecordInteger names activations store fields then
+      some (.integerRecord (fields.map Prod.fst)) else none
+  | .fieldRead name label =>
+    match lookupBaseValue names activations store name with
+    | .ok value =>
+      match value.typeTag with
+      | .integerRecord labels => if label ∈ labels then some .integer else none
+      | _ => none
     | .error _ => none
   | .negate operand =>
     match inferBaseType? names activations store operand with
@@ -173,6 +190,13 @@ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnviron
     | some .integer => some .result
     | _ => none
 
+def inferRecordInteger (names : LexicalEnvironment) (activations : ActivationEnvironment)
+    (store : BaseStore) : List (String × BaseExpr) → Bool
+  | [] => true
+  | (_, value) :: rest =>
+    inferBaseType? names activations store value == some .integer &&
+      inferRecordInteger names activations store rest
+
 def inferArgumentsInteger (names : LexicalEnvironment) (activations : ActivationEnvironment)
     (store : BaseStore) : List BaseExpr → Bool
   | [] => true
@@ -187,6 +211,7 @@ def staticType (parameters : List Xsh.Syntax.RawName) : BaseExpr → Option Base
   | .scalarLiteral value => (scalarTypedValue? value).map TypedValue.typeTag
   | .timeNow => some .integer
   | .identifier name => if name ∈ parameters then some .integer else none
+  | .record _ | .fieldRead _ _ => none
   | .negate operand =>
     match staticType parameters operand with
     | some .integer => some .integer
@@ -244,6 +269,8 @@ def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironm
   | expression@(.compare _ _ _) | expression@(.conditional _ _ _) | expression@(.call _ _ _) =>
     (inferBaseType? names activations store expression).isSome
   | .resultOk value | .resultErr value => checkIntegerExpr names activations store value
+  | expression@(.record _) | expression@(.fieldRead _ _) =>
+    (inferBaseType? names activations store expression).isSome
 
 inductive BaseControl where
   | evaluate (expression : BaseExpr)
@@ -262,6 +289,8 @@ inductive BaseFrame where
       (evaluated : List IntValue) (remaining : List BaseExpr)
   | resultOk
   | resultErr
+  | recordField (done : List (String × IntValue)) (label : String)
+      (rest : List (String × BaseExpr))
 
 structure MachineConfig where
   names : LexicalEnvironment
@@ -299,6 +328,27 @@ def integerPayload? (value : BaseTypedValue) : Option IntValue :=
   match value.typeTag, value.value with
   | .integer, .integer integer => some integer
   | _, _ => none
+
+def typedRecord (fields : List (String × IntValue)) : BaseTypedValue := {
+  typeTag := .integerRecord (fields.map Prod.fst)
+  value := .record (fields.map fun (label, value) => (label, .integer value))
+  wellTyped := by
+    simp only [hasBaseType, List.map_map]
+    constructor
+    · simp
+    · intro field member
+      obtain ⟨⟨label, value⟩, _, rfl⟩ := List.mem_map.mp member
+      exact ⟨value, rfl⟩
+}
+
+def readRecordField (value : BaseTypedValue) (label : String) : BaseControl :=
+  match value.typeTag, value.value with
+  | .integerRecord _, .record fields =>
+    match findRecordField? label fields with
+    | some (.integer integer) => .returned (typedInteger integer)
+    | none => .failed (.missingField label)
+    | _ => .failed .expectedRecord
+  | _, _ => .failed .expectedRecord
 
 def booleanPayload? (value : BaseTypedValue) : Option Bool :=
   match value.typeTag, value.value with
@@ -346,6 +396,8 @@ def substitute (bindings : List (Xsh.Syntax.RawName × IntValue)) : BaseExpr →
     .call parameters body (substituteArguments bindings arguments)
   | .resultOk value => .resultOk (substitute bindings value)
   | .resultErr value => .resultErr (substitute bindings value)
+  | .record fields => .record fields
+  | .fieldRead name label => .fieldRead name label
 
 def substituteArguments (bindings : List (Xsh.Syntax.RawName × IntValue)) :
     List BaseExpr → List BaseExpr
@@ -404,6 +456,16 @@ def step (config : MachineConfig) : Option MachineConfig :=
          | .ok value => .returned value
          | .error fault => .failed fault)
         config.continuation)
+    | .record fields =>
+      match fields with
+      | [] => some (updateState config (.returned (typedRecord [])) config.continuation)
+      | (label, value) :: rest =>
+        some (updateState config (.evaluate value) (.recordField [] label rest :: config.continuation))
+    | .fieldRead name label =>
+      some (updateState config
+        (match lookupBaseValue config.names config.activations config.store name with
+         | .ok value => readRecordField value label
+         | .error fault => .failed fault) config.continuation)
     | .negate operand =>
       some (updateState config (.evaluate operand) (.negate :: config.continuation))
     | .binary operator left right =>
@@ -473,6 +535,16 @@ def step (config : MachineConfig) : Option MachineConfig :=
               updateState config (.evaluate argument)
                 (.callArgument parameters body (evaluated ++ [integer]) more :: rest)
           | none => updateState config (.failed .expectedInteger) rest)
+      | .recordField done label remaining =>
+        some (match integerPayload? value with
+          | none => updateState config (.failed .expectedInteger) rest
+          | some integer =>
+            let completed := done ++ [(label, integer)]
+            match remaining with
+            | [] => updateState config (.returned (typedRecord completed)) rest
+            | (nextLabel, nextValue) :: more =>
+              updateState config (.evaluate nextValue)
+                (.recordField completed nextLabel more :: rest))
       | .resultOk =>
         some (match integerPayload? value with
           | some integer => updateState config (.returned (typedResult true integer)) rest
@@ -493,12 +565,14 @@ every other frame consumes an integer. -/
 def BaseFrame.consumes : BaseFrame → BaseType
   | .branch _ _ => .boolean
   | .negate | .binaryLeft _ _ | .binaryRight _ _ | .compareLeft _ _ | .compareRight _ _
-  | .callArgument _ _ _ _ | .resultOk | .resultErr => .integer
+  | .callArgument _ _ _ _ | .resultOk | .resultErr | .recordField _ _ _ => .integer
 
 /-- The type of the value a pending frame hands to the frame below it. -/
 def BaseFrame.produces : BaseFrame → BaseType
   | .compareLeft _ _ | .compareRight _ _ => .boolean
   | .resultOk | .resultErr => .result
+  | .recordField done label rest =>
+    .integerRecord (done.map Prod.fst ++ [label] ++ rest.map Prod.fst)
   | .negate | .binaryLeft _ _ | .binaryRight _ _ | .branch _ _ | .callArgument _ _ _ _ => .integer
 
 /-- A frame hands the type the frame below it consumes; the bottom frame hands anything. -/
@@ -535,6 +609,10 @@ def continuationChecked (names : LexicalEnvironment) (activations : ActivationEn
       decide (parameters.length = evaluated.length + 1 + remaining.length) &&
       inferArgumentsInteger names activations store remaining &&
       staticType parameters body == some .integer &&
+      continuationChecked names activations store rest
+  | .recordField done label remaining :: rest =>
+    producesWhatNextConsumes (.recordField done label remaining) rest &&
+      inferRecordInteger names activations store remaining &&
       continuationChecked names activations store rest
   | .resultOk :: rest =>
     producesWhatNextConsumes .resultOk rest && continuationChecked names activations store rest

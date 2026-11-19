@@ -20,6 +20,9 @@ theorem step_is_an_update {config next : MachineConfig} (takesStep : step config
       | call parameters body arguments =>
         cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
           (subst takesStep; exact ⟨_, _, rfl⟩)
+      | record fields =>
+        cases fields <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; exact ⟨_, _, rfl⟩)
       | _ =>
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
@@ -57,6 +60,8 @@ theorem exprWork_substitute (bindings : List (Xsh.Syntax.RawName × IntValue)) :
   | .integerLiteral _ => rfl
   | .scalarLiteral _ => rfl
   | .timeNow => rfl
+  | .record _ => rfl
+  | .fieldRead _ _ => rfl
   | .identifier name => by
       cases found : bindings.lookup name <;> simp [substitute, found, exprWork]
   | .negate operand => by simp [substitute, exprWork, exprWork_substitute bindings operand]
@@ -119,6 +124,28 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
         rw [work_update_without_control]
         · simp [work, controlWork, exprWork]
         · split <;> rfl
+      | record fields =>
+        cases fields with
+        | nil =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          simp [work, updateState, controlWork, exprWork, recordWork]
+        | cons field rest =>
+          obtain ⟨label, value⟩ := field
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          simp [work, updateState, controlWork, continuationWork, frameWork, exprWork, recordWork]
+          omega
+      | fieldRead name label =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        rw [work_update_without_control]
+        · simp [work, controlWork, exprWork]
+        · split
+          · unfold readRecordField
+            split <;> try rfl
+            split <;> rfl
+          · rfl
       | negate operand =>
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
@@ -225,6 +252,18 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
               omega
           · rw [work_update_without_control _ _ _ rfl]
             simp [work, controlWork, continuationWork, frameWork]
+        | recordField done label remaining =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found, work, updateState, controlWork, continuationWork, frameWork]
+          | some integer =>
+            cases remaining with
+            | nil => simp [found, work, updateState, controlWork, continuationWork, frameWork, recordWork]
+            | cons field more =>
+              obtain ⟨nextLabel, nextValue⟩ := field
+              simp [found, work, updateState, controlWork, continuationWork, frameWork, recordWork]
+              omega
         | resultOk =>
           simp only [step, Option.some.injEq] at takesStep
           subst takesStep
@@ -344,6 +383,23 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
         cases found : lookupBaseValue names activations store name with
         | error problem => simp [found, Except.isOk, Except.toBool] at accepted
         | ok typed => simp [updateState, found] at failed
+      | record fields =>
+        cases fields <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; simp [updateState] at failed)
+      | fieldRead name label =>
+        have accepted : (inferBaseType? names activations store (.fieldRead name label)).isSome = true := controlChecked
+        cases found : lookupBaseValue names activations store name with
+        | error problem => simp [inferBaseType?, found] at accepted
+        | ok value =>
+          cases tag : value.typeTag with
+          | integerRecord labels =>
+            by_cases member : label ∈ labels
+            · obtain ⟨integer, read⟩ := Xsh.Proofs.BaseMachine.typed_record_read tag member
+              simp only [step, found, read, Option.some.injEq] at takesStep
+              subst takesStep
+              simp [updateState] at failed
+            · simp [inferBaseType?, found, tag, member] at accepted
+          | _ => simp [inferBaseType?, found, tag] at accepted
       | negate operand =>
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
@@ -432,6 +488,13 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
           | none => simp [found] at payload
           | some integer =>
             cases remaining <;> simp [updateState, found] at failed
+        | recordField done label remaining =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer => cases remaining <;> simp [updateState, found] at failed
         | resultOk =>
           have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
           simp only [step, Option.some.injEq] at takesStep
@@ -485,6 +548,18 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
         subst takesStep
         simp only [updateState] at awaiting
         split at awaiting <;> simp at awaiting
+      | record fields =>
+        cases fields <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; simp [updateState] at awaiting)
+      | fieldRead name label =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp only [updateState] at awaiting
+        split at awaiting
+        · unfold readRecordField at awaiting
+          split at awaiting <;> try simp at awaiting
+          split at awaiting <;> simp at awaiting
+        · simp at awaiting
       | negate operand =>
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
@@ -554,6 +629,12 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
           split at awaiting
           · split at awaiting <;> simp [updateState] at awaiting
           · simp [updateState] at awaiting
+        | recordField done label remaining =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting
+          · simp [updateState] at awaiting
+          · split at awaiting <;> simp [updateState] at awaiting
         | resultOk =>
           simp only [step, Option.some.injEq] at takesStep
           subst takesStep

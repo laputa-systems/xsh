@@ -57,6 +57,8 @@ theorem checker_accepts_every_typed_expression
     all_goals
       rename_i leftTag rightTag
       cases leftTag <;> cases rightTag <;> simp_all
+  | record fields => simp [checkBaseExpr, typed]
+  | fieldRead name label => simp [checkBaseExpr, typed]
   | compare operator left right => simp [checkBaseExpr, typed]
   | conditional condition thenBranch elseBranch => simp [checkBaseExpr, typed]
   | call parameters body arguments => simp [checkBaseExpr, typed]
@@ -176,6 +178,8 @@ theorem infer_substitute (names : LexicalEnvironment) (activations : ActivationE
     (same : ps.length = vs.length) :
     ∀ (e : BaseExpr) (t : BaseType), staticType ps e = some t →
       inferBaseType? names activations store (substitute (ps.zip vs) e) = some t
+  | .record _, _, h => by simp [staticType] at h
+  | .fieldRead _ _, _, h => by simp [staticType] at h
   | .integerLiteral v, t, h => by simpa [staticType, substitute, inferBaseType?] using h
   | .scalarLiteral v, t, h => by simpa [staticType, substitute, inferBaseType?] using h
   | .timeNow, t, h => by simpa [staticType, substitute, inferBaseType?] using h
@@ -239,6 +243,7 @@ theorem machine_progress_fragment (config : MachineConfig) :
     | evaluate expression =>
       cases expression with
       | call parameters body arguments => cases arguments <;> simp [terminalOutcome, step]
+      | record fields => cases fields <;> simp [terminalOutcome, step]
       | _ => simp [terminalOutcome, step]
     | returned value =>
       cases continuation with
@@ -411,6 +416,46 @@ private theorem wf_integer_result {names : LexicalEnvironment}
   | value integer => exact wf_returned checked fits
   | fault fault => exact wf_failed checked
 
+theorem find_integer_record_field {fields : List (String × CompositeValue)} {label : String}
+    (integerFields : ∀ field ∈ fields, ∃ value, field.2 = .integer value)
+    (member : label ∈ fields.map Prod.fst) :
+    ∃ integer, findRecordField? label fields = some (.integer integer) := by
+  induction fields with
+  | nil => simp at member
+  | cons field rest ih =>
+    obtain ⟨name, value⟩ := field
+    simp only [List.map_cons, List.mem_cons] at member
+    have head := integerFields (name, value) (by simp)
+    have tail : ∀ field ∈ rest, ∃ integer, field.2 = .integer integer := by
+      intro field h
+      exact integerFields field (by simp [h])
+    obtain ⟨integer, same⟩ := head
+    simp only at same
+    subst value
+    by_cases equal : name = label
+    · subst name
+      exact ⟨integer, by simp [findRecordField?]⟩
+    · have inTail : label ∈ List.map Prod.fst rest := member.resolve_left (Ne.symm equal)
+      obtain ⟨found, proof⟩ := ih tail inTail
+      exact ⟨found, by simp [findRecordField?, equal, proof]⟩
+
+theorem typed_record_read {value : BaseTypedValue} {labels : List String} {label : String}
+    (tag : value.typeTag = .integerRecord labels) (member : label ∈ labels) :
+    ∃ integer, readRecordField value label = .returned (typedInteger integer) := by
+  cases value with
+  | mk typeTag payload wellTyped =>
+    cases typeTag <;> simp at tag
+    rename_i actualLabels
+    subst actualLabels
+    cases payload with
+    | record fields =>
+      simp only [hasBaseType] at wellTyped
+      obtain ⟨same, integerFields⟩ := wellTyped
+      have present : label ∈ fields.map Prod.fst := by simpa [same] using member
+      obtain ⟨integer, found⟩ := find_integer_record_field integerFields present
+      exact ⟨integer, by simp [readRecordField, found]⟩
+    | _ => simp [hasBaseType] at wellTyped
+
 theorem wellFormed_preserved_fragment {config next : MachineConfig}
     (wellFormedConfig : wellFormed config) (takesStep : step config = some next) :
     wellFormed next := by
@@ -570,6 +615,51 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           · intro frame rest eq
             cases eq
             simpa [BaseFrame.consumes] using argumentInteger
+      | record fields =>
+        obtain ⟨type, typed⟩ := typed_of_checked_composite (by simpa [checkBaseExpr] using accepted)
+        cases fields with
+        | nil =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          refine wf_returned continuationWellFormed fun frame rest eq => ?_
+          have expected := fitsFrame frame rest eq
+          simpa [inferBaseType?, inferRecordInteger, typedRecord] using expected
+        | cons field rest =>
+          obtain ⟨label, value⟩ := field
+          simp only [inferBaseType?, inferRecordInteger] at typed
+          by_cases integers : (inferBaseType? names activations store value == some .integer &&
+              inferRecordInteger names activations store rest) = true
+          · simp only [Bool.and_eq_true, beq_iff_eq] at integers
+            obtain ⟨valueTyped, restTyped⟩ := integers
+            simp only [step, Option.some.injEq] at takesStep
+            subst takesStep
+            refine wf_evaluate (checker_accepts_every_typed_expression valueTyped) ?_ ?_
+            · have produces : producesWhatNextConsumes (.recordField [] label rest) continuation = true := by
+                refine produces_of_type fun next remaining eq => ?_
+                have expected := fitsFrame next remaining eq
+                simpa [inferBaseType?, inferRecordInteger, valueTyped, restTyped,
+                  BaseFrame.produces] using expected
+              simp [continuationChecked, produces, restTyped, continuationWellFormed]
+            · intro frame remaining eq
+              cases eq
+              simpa [BaseFrame.consumes] using valueTyped
+          · simp [integers] at typed
+      | fieldRead name label =>
+        obtain ⟨type, typed⟩ := typed_of_checked_composite (by simpa [checkBaseExpr] using accepted)
+        cases found : lookupBaseValue names activations store name with
+        | error fault => simp [inferBaseType?, found] at typed
+        | ok value =>
+          cases tag : value.typeTag with
+          | integerRecord labels =>
+            by_cases member : label ∈ labels
+            · have ⟨integer, read⟩ := typed_record_read tag member
+              simp only [step, found, read, Option.some.injEq] at takesStep
+              subst takesStep
+              refine wf_returned continuationWellFormed fun frame rest eq => ?_
+              have expected := fitsFrame frame rest eq
+              simpa [inferBaseType?, found, tag, member, typedInteger] using expected
+            · simp [inferBaseType?, found, tag, member] at typed
+          | _ => simp [inferBaseType?, found, tag] at typed
       | resultOk value =>
         have innerInteger := infer_of_checked_integer (by simpa [checkBaseExpr] using accepted)
         simp only [step, Option.some.injEq] at takesStep
@@ -721,6 +811,31 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
               · intro frame remaining' eq
                 cases eq
                 simpa [BaseFrame.consumes] using argumentInteger
+        | recordField done label remaining =>
+          simp only [continuationChecked, Bool.and_eq_true] at continuationWellFormed
+          obtain ⟨⟨produces, remainingInteger⟩, restChecked⟩ := continuationWellFormed
+          have payload := typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer =>
+            cases remaining with
+            | nil =>
+              refine wf_returned restChecked (produces_fits produces ?_)
+              simp [typedRecord, BaseFrame.produces]
+            | cons field more =>
+              obtain ⟨nextLabel, nextValue⟩ := field
+              simp only [inferRecordInteger, Bool.and_eq_true, beq_iff_eq] at remainingInteger
+              obtain ⟨valueTyped, moreTyped⟩ := remainingInteger
+              refine wf_evaluate (checker_accepts_every_typed_expression valueTyped) ?_ ?_
+              · simp only [continuationChecked, Bool.and_eq_true]
+                refine ⟨⟨?_, moreTyped⟩, restChecked⟩
+                simpa [producesWhatNextConsumes, BaseFrame.produces, List.map_append,
+                  List.append_assoc] using produces
+              · intro frame rest' eq
+                cases eq
+                simpa [BaseFrame.consumes] using valueTyped
         | resultOk =>
           simp only [continuationChecked, Bool.and_eq_true] at continuationWellFormed
           obtain ⟨produces, restChecked⟩ := continuationWellFormed
@@ -1113,6 +1228,38 @@ theorem typed_identifier_reads_exact_scalar_from_store_fragment :
       runFuel 1 (initialConfig scalarNames scalarActivations scalarStore
         (.identifier scalarName)) = .completed (.value positiveZeroTypedValue) := by
   constructor <;> rfl
+
+private def recordStore : BaseStore := fun cell =>
+  if cell = scalarCellId then some ⟨typedRecord [("a", exampleTwo), ("b", exampleThree)], .immutable⟩
+  else none
+
+theorem record_construction_run_fragment :
+    runFuel 5 (initialConfig [] [] (fun _ => none)
+      (.record [("a", .integerLiteral 2), ("b", .integerLiteral 3)])) =
+      .completed (.value (typedRecord [("a", exampleTwo), ("b", exampleThree)])) := by
+  rfl
+
+theorem record_projection_run_fragment :
+    checkBaseExpr scalarNames scalarActivations recordStore (.fieldRead scalarName "b") = true ∧
+    runFuel 1 (initialConfig scalarNames scalarActivations recordStore (.fieldRead scalarName "b")) =
+      .completed (.value (typedInteger exampleThree)) := by
+  constructor <;> rfl
+
+theorem unread_record_entry_failure_fragment :
+    runFuel 8 (initialConfig [] [] (fun _ => none)
+      (.record [("a", .integerLiteral 2), ("unread", divisionByZeroExample)])) =
+      .completed (.fault (.arithmetic .divisionByZero)) := by
+  rfl
+
+theorem ill_typed_record_faults_fragment :
+    runFuel 1 (initialConfig scalarNames scalarActivations scalarStore (.fieldRead scalarName "a")) =
+      .completed (.fault .expectedRecord) ∧
+    runFuel 1 (initialConfig scalarNames scalarActivations recordStore (.fieldRead scalarName "absent")) =
+      .completed (.fault (.missingField "absent")) ∧
+    runFuel 3 (initialConfig [] [] (fun _ => none)
+      (.record [("a", .scalarLiteral (.boolean true))])) =
+      .completed (.fault .expectedInteger) := by
+  exact ⟨rfl, rfl, rfl⟩
 
 private def redirectedName : NameId := ⟨⟨7, by decide⟩⟩
 private def declaredBinder : BinderId := ⟨⟨11, by decide⟩⟩

@@ -24,6 +24,11 @@ suite, and replay runner have not been introduced. The ledger's bridge cases are
 the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
+The independent base machine models integer-field record construction in source
+order and field reads through named bindings. Its proofs cover preservation,
+termination, and exclusion of record shape faults for well-formed executions;
+these results do not establish source lowering or Rust correspondence.
+
 The shared data foundation in [`Core/Types.lean`](Xsh/Core/Types.lean) and
 [`Core/Values.lean`](Xsh/Core/Values.lean) represents the non-recovery type
 families and raw value candidates. It reuses the existing scalar and integer

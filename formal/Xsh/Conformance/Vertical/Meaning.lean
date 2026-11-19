@@ -94,6 +94,8 @@ def substituteExpressions (substitution : List (Xsh.Syntax.RawName × BaseExpr))
       .call parameters body (substituteExpressionArguments substitution arguments)
   | .resultOk value => .resultOk (substituteExpressions substitution value)
   | .resultErr value => .resultErr (substituteExpressions substitution value)
+  | .record fields => .record fields
+  | .fieldRead name label => .fieldRead name label
 
 def substituteExpressionArguments (substitution : List (Xsh.Syntax.RawName × BaseExpr)) :
     List BaseExpr → List BaseExpr

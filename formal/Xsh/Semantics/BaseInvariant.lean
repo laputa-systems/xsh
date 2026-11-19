@@ -23,7 +23,7 @@ def isSpecifiedFault : BaseFault → Bool
   | .inactiveBinder _ => false
   | .missingCell _ => false
   | .unsupportedScalarLiteral => false
-  | .expectedInteger => false
+  | .expectedInteger | .expectedRecord | .missingField _ => false
 
 /-- Failures that a program causes by its own arithmetic, with no host misbehavior. -/
 def isProgramFault : BaseFault → Bool
@@ -45,7 +45,8 @@ def exprWork : BaseExpr → Nat
   | .integerLiteral _ => 1
   | .scalarLiteral _ => 1
   | .timeNow => 1
-  | .identifier _ => 1
+  | .identifier _ | .fieldRead _ _ => 1
+  | .record fields => recordWork fields + 1
   | .negate operand => exprWork operand + 2
   | .binary _ left right => exprWork left + exprWork right + 3
   | .compare _ left right => exprWork left + exprWork right + 3
@@ -54,6 +55,10 @@ def exprWork : BaseExpr → Nat
   | .call _ body arguments => exprWork body + argumentsWork arguments + 1
   | .resultOk value => exprWork value + 2
   | .resultErr value => exprWork value + 2
+
+def recordWork : List (String × BaseExpr) → Nat
+  | [] => 0
+  | (_, value) :: rest => exprWork value + recordWork rest + 1
 
 def argumentsWork : List BaseExpr → Nat
   | [] => 0
@@ -69,6 +74,7 @@ def frameWork : BaseFrame → Nat
   | .branch thenBranch elseBranch => exprWork thenBranch + exprWork elseBranch + 1
   | .callArgument _ body _ remaining => exprWork body + argumentsWork remaining + 1
   | .resultOk | .resultErr => 1
+  | .recordField _ _ rest => recordWork rest + 1
 
 def continuationWork : List BaseFrame → Nat
   | [] => 0
