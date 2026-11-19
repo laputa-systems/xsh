@@ -263,6 +263,7 @@ test test_taskset_mask_and_list_syntax_errors_name_the_text { |ctx|
 }
 
 test test_taskset_refused_masks_report_the_kernels_error { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("taskset needs Linux CPU affinity"); return }
   for mask in ["0", "0x", "00"] {
     let result = taskset_run(ctx, [mask, "true"])?
     assert result.status == 1, mask
@@ -314,6 +315,7 @@ test test_taskset_pid_and_operand_errors { |ctx|
   assert bare.status == 1
   assert bare.stderr == "taskset: invalid PID argument: '-p'\n"
 
+  if system.uname()?.sysname != "Linux" { test.skip("taskset needs Linux CPU affinity"); return }
   let missing = taskset_run(ctx, ["-p", "2147483647"])?
   assert missing.status == 1
   assert missing.stderr == "taskset: failed to get pid 2147483647's affinity: No such process\n", missing.stderr
