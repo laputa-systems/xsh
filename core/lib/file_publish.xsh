@@ -60,7 +60,7 @@ export proc same_symlink_entry(source: Path, dest: Path) -> Result[Bool, Error] 
       return false when meta.kind == "symlink"
     }
     Err(failure) => {
-      return false when unresolved(failure)
+      return false when unresolved(failure) or (system.uname()?.sysname == "Darwin" and gnu.errno(failure) in [62, 63])
       return Err(failure)
     }
   }
