@@ -18,7 +18,7 @@ test test_sysctl_reads_writes_and_loads_configuration_through_native_keys { |ctx
   config.write("# comment\nnet.ipv4.ip_forward = 0\n; comment\n-kernel.pid_max = 32768\n")
   let load = run_applet(ctx, ["-p", config.display()], log)
   assert load.success, load.stderr
-  assert "net.ipv4.ip_forward = 0" in load.stdout
+  assert load.stdout == "net.ipv4.ip_forward = 0\nkernel.pid_max = 32768\n", load.stdout
   assert "\"op\":\"sysctl_set\"" in log.read_text()?
   assert "\"key\":\"kernel.pid_max\"" in log.read_text()?
 }

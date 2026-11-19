@@ -8,7 +8,7 @@ proc main(...argv: List[Str]) {
   let opts = cli.applet(argv, {
     gnu: {unsupported: {"-a": "sysctl enumeration is not available", "--all": "sysctl enumeration is not available", "-A": "sysctl enumeration is not available", "--system": "system configuration precedence and glob expansion are not available", "-r": "sysctl pattern enumeration is not available", "--pattern": "sysctl pattern enumeration is not available"}},
     write: {form: "-w --write", default: false}, values: {form: "-n --values", default: false}, names: {form: "-N --names", default: false}, quiet: {form: "-q --quiet", default: false}, binary: {form: "-b --binary", default: false}, ignore: {form: "-e --ignore", default: false},
-    load: {form: "-p --load[=FILE]", optional_default: "/etc/sysctl.conf"},
+    load: {form: "-p --load[=FILE]", optional_default: ""},
     help: {form: "-h --help", default: false, stop: true}, version: {form: "-V --version", default: false, stop: true}, operands: {form: "...KEY"},
   })?
   if opts.help { gnu.help("Usage: sysctl [-n|-N] [-q] [-e] [-w] KEY[=VALUE]... | -p[FILE]\nRead and write named kernel parameters."); return }
@@ -17,7 +17,8 @@ proc main(...argv: List[Str]) {
   if opts.binary and opts.names { gnu.usage_error("--binary and --names are mutually exclusive") }
   var operations: List[Operation] = []
   if opts.load != null {
-    let files = if opts.operands.is_empty() { [fp"{opts.load}"] } else { [fp"{opts.load}"].extend(collect { for name in opts.operands { yield fp"{name}" } }) }
+    let named = collect { for name in opts.operands { yield fp"{name}" } }
+    let files = if opts.load != "" { [fp"{opts.load}"].extend(named) } else if named.is_empty() { [p"/etc/sysctl.conf"] } else { named }
     for item in control.load_assignments(files)? { operations += [{key: item.key, value: item.value, ignore_failure: item.ignore_failure}] }
   } else {
     if opts.operands.is_empty() { gnu.usage_error("no variables specified") }
