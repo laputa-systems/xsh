@@ -70,7 +70,8 @@ test test_uu_yes_long_input { |ctx|
 test test_uu_yes_long_line_exceeds_pipe_capacity { |ctx|
   let s = uu.scene(ctx)?
   let word = repeat_text("a", 60000)
-  let args = [word for _ in range(20)]
+  let count = if system.uname()?.sysname == "Linux" { 20 } else { 2 }
+  let args = [word for _ in range(count)]
   let line = args.join(" ")
   yes_prefix(s, [fp"{arg}" for arg in args], bytes.from_text(line + "\n" + line + "\n"))
 }

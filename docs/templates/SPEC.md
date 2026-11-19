@@ -4873,6 +4873,8 @@ includes `argv[0]`. Named arguments set the plan's `cwd`, `env`, `stdin`
 (`Path` or `Bytes`), `stdout`, `stderr`, `stdout_append`, `stderr_append`,
 `timeout`, `cpu_max`, `accept`, `detach`, `new_session`, `ignore_hup`, and
 `same_group`; an unknown, duplicate, or invalid argument is a check-time error.
+At process start, host limits on the combined argument and environment size
+apply; an oversized launch fails to spawn.
 A `process.command { ... }` block is not a call argument and is rejected with
 `parse.builder-block`:
 
