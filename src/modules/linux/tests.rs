@@ -26,6 +26,7 @@ mod tests {
     use crate::source::{SourceId, Span};
     use std::fs::{self, File};
     use std::io::{Seek, SeekFrom, Write};
+    #[cfg(target_os = "linux")]
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -482,23 +483,27 @@ mod tests {
             str_field(record_value(&path_record), "description"),
             "Outside module"
         );
-        let raw_module_path = outside
-            .path()
-            .join(std::ffi::OsString::from_vec(b"raw-\xff-name.ko".to_vec()));
-        fs::write(
-            &raw_module_path,
-            module_bytes(&["description=Raw filename module", "license=BSD", "version=4"]),
-        )
-        .expect("write non-UTF-8 module path");
-        let raw_record =
-            modinfo_path_impl(&raw_module_path, span()).expect("non-UTF-8 module path");
-        let raw_record = record_value(&raw_record);
-        assert_eq!(str_field(raw_record, "name"), r#"b"raw_\xff_name""#);
-        match raw_record.get("filename") {
-            Some(Value::Path(filename)) => {
-                assert_eq!(filename.bytes, raw_module_path.as_os_str().as_bytes());
+        // APFS refuses file names that are not valid UTF-8.
+        #[cfg(target_os = "linux")]
+        {
+            let raw_module_path = outside
+                .path()
+                .join(std::ffi::OsString::from_vec(b"raw-\xff-name.ko".to_vec()));
+            fs::write(
+                &raw_module_path,
+                module_bytes(&["description=Raw filename module", "license=BSD", "version=4"]),
+            )
+            .expect("write non-UTF-8 module path");
+            let raw_record =
+                modinfo_path_impl(&raw_module_path, span()).expect("non-UTF-8 module path");
+            let raw_record = record_value(&raw_record);
+            assert_eq!(str_field(raw_record, "name"), r#"b"raw_\xff_name""#);
+            match raw_record.get("filename") {
+                Some(Value::Path(filename)) => {
+                    assert_eq!(filename.bytes, raw_module_path.as_os_str().as_bytes());
+                }
+                value => panic!("expected path filename, got {value:?}"),
             }
-            value => panic!("expected path filename, got {value:?}"),
         }
         let params = list_field(record, "params");
         let param = record_value(&params[0]);
