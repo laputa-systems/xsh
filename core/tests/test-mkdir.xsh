@@ -139,6 +139,7 @@ test test_mkdir_context_warning_precedes_help_and_is_not_reached_after_help { |c
 }
 
 test test_selinux_helpers_agree_with_the_kernel_filesystem_list {
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/filesystems list"); return }
   var listed = false
   for line in fp"/proc/filesystems".lines()? {
     if "selinuxfs" in line { listed = true }
