@@ -113,9 +113,28 @@ fn build_native_boundaries(root: &Path) {
         allocator_flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-I".into(),
             PathBuf::from(include).display().to_string(), "-c".into(),
             root.join("src/entrypoints/allocator_commit.c").display().to_string(), "-o".into(), out.join("allocator_commit.o").display().to_string()]);
-        run(compiler, allocator_flags);
+        run(compiler.clone(), allocator_flags);
         println!("cargo:rerun-if-changed=src/entrypoints/allocator_commit.c");
         println!("cargo:rustc-link-arg-bin=xsh={}", out.join("allocator_commit.o").display());
+    }
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("musl") {
+        let dir = root.join("third_party/musl-regex");
+        let mut objects = Vec::new();
+        for name in ["regcomp", "regexec", "regerror", "tre-mem", "locale"] {
+            let source = dir.join(format!("{name}.c"));
+            let object = out.join(format!("musl-{name}.o"));
+            let mut args = c_build_words(&setting("CFLAGS").unwrap_or_default());
+            args.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-I".into(), dir.display().to_string(),
+                "-include".into(), dir.join("shim.h").display().to_string(), "-c".into(), source.display().to_string(),
+                "-o".into(), object.display().to_string()]);
+            run(compiler.clone(), args);
+            objects.push(object.display().to_string());
+        }
+        let mut args = vec!["crs".into(), out.join("libxsh_musl_regex.a").display().to_string()];
+        args.extend(objects);
+        run(archiver.clone(), args);
+        println!("cargo:rerun-if-changed=third_party/musl-regex");
+        println!("cargo:rustc-link-lib=static=xsh_musl_regex");
     }
     run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string(), out.join("startup_stdio.o").display().to_string()]);
     println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");

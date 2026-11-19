@@ -366,13 +366,6 @@ pure normalized(data: Bytes, root: Str) -> Bytes {
 }
 
 proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] {
-  if system.uname()?.sysname != "Linux" and (
-    (family == "gnu_variables_and_field_modes" and shard == 7) or
-    (family == "grammar" and shard == 6) or
-    (family == "regex" and shard in [2, 6, 7, 9, 10]) or
-    (family == "regexp_syntax_first_half" and shard in [1, 3, 4, 5, 7, 10]) or
-    (family == "regexp_syntax_second_half" and shard in [1, 2, 4, 5, 6])
-  ) { test.skip("awk regex follows the host C library (XSH-119)"); return }
   let cases = matrix_cases(ctx, family)?
   let start = shard * 8
   assert start < cases.len(), f"empty AWK matrix shard {family}/{shard}"

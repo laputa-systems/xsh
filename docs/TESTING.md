@@ -215,8 +215,8 @@ name, through `core/tests/support/requires.xsh` or the
 The latest complete run on m1-max (2026-11-19, `1278debe8`) ran 15,802
 tests: 14,359 passed, 1,338 skipped with named limitations, and 105 failed.
 Every failure is tracked: XSH-118 to XSH-128 in [TODO](../TODO.md) group them
-by cause. The largest causes are host libc regex (XSH-119), lost FIFO and
-pipeline wakeups (XSH-120), descriptor identity through `/proc` (XSH-121), and
+by cause. The largest causes include lost FIFO and pipeline wakeups (XSH-120),
+descriptor identity through `/proc` (XSH-121), and
 Darwin termios decoding (XSH-123).
 
 A focused case that passes stores a record under the checkout's `.work/gate/`,

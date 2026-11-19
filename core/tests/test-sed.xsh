@@ -495,7 +495,6 @@ test sed_table_full_device_cases { |ctx|
 }
 
 test sed_table_slice_07 { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("regex follows the host C library (XSH-119)"); return }
   expect_groups(ctx, ["addr-0", "zero-", "rx-1"])
 }
 
