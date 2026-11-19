@@ -272,6 +272,7 @@ test test_prlimit_sets_limits_before_running_a_command { |ctx|
 }
 
 test test_prlimit_unlimited_values_and_verbose_reports { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("cross-process resource limits require Linux prlimit"); return }
   let handle = spawn run sleep 60 ?
   let child = handle.pid
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
@@ -300,6 +301,7 @@ test test_prlimit_unlimited_values_and_verbose_reports { |ctx|
 }
 
 test test_prlimit_shows_a_command_the_limits_it_will_run_with { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the complete resource limit table requires Linux resource types"); return }
   # With no limit named and a command, the full table is printed first.
   let result = prlimit_run(ctx, ["echo", "ran"])?
   assert result.status == 0, result.stderr
@@ -390,6 +392,7 @@ test test_prlimit_process_and_column_errors { |ctx|
 }
 
 test test_prlimit_raising_a_hard_limit_needs_privilege { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the NICE resource limit requires Linux"); return }
   if unix.id()?.euid == 0 {
     test.skip("root may raise hard limits")
   }
