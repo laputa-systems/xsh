@@ -38,6 +38,30 @@ print "ready"
   assert result.stderr == "worker stderr\n"
 }
 
+test test_daemon_start_forwards_startup_signals_the_worker_receives_after_setup { |ctx|
+  let root = test.temp_dir(ctx)?
+  let worker = fp"{root}/worker.xsh"
+  worker.write(r"""let parent = process.parent_pid()?
+process.kill(parent, signal: "HUP")?
+process.kill(parent, signal: "TERM")?
+time.sleep(200ms)?
+unix.signal_setup(["HUP", "TERM"])?
+var seen: List[Str] = []
+for _ in range(3000) {
+  seen = seen + unix.take_signals()?
+  break when seen.len() == 2
+  time.sleep(1ms)?
+}
+assert "HUP" in seen and "TERM" in seen, f"forwarded startup signals: {seen.join(",")}"
+let fd = (e"NOTIFY_FD" ?? "").parse_int()?
+assert unix.write_fd(fd, b"x")? == 1
+""")
+  let result = test.expect(ctx, r"""let command = process.command_argv(applet.current_exe()?, ["xsh", args[0]])
+assert unix.daemon_start(command, ["HUP", "TERM"])? == null
+""", status: 0, args: [worker])?
+  assert result.stderr == ""
+}
+
 test test_signal_capture_retains_distinct_names_and_drains { |ctx|
   let result = test.expect(ctx, r"""unix.signal_setup(["SIGHUP", "term"])?
 process.kill(process.current_pid()?, signal: "HUP")?

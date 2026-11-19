@@ -8798,6 +8798,22 @@ fn restore_parent_death_signal(signal: libc::c_int) {
 #[cfg(not(target_os = "linux"))]
 fn restore_parent_death_signal(_signal: libc::c_int) {}
 
+/// Darwin leaves a signal that arrives while every thread blocks it pending on
+/// the main thread, and unblocking it on another thread never delivers it. A
+/// daemon worker starts with its startup signals blocked and receives them that
+/// way, so on macOS the script runs on the main thread when that stack is large
+/// enough; the xsh executable links a main stack of that size.
+#[cfg(target_os = "macos")]
+fn main_thread_stack_holds(size: usize) -> bool {
+    // SAFETY: both calls only read attributes of the calling thread.
+    unsafe { libc::pthread_main_np() == 1 && libc::pthread_get_stacksize_np(libc::pthread_self()) >= size }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main_thread_stack_holds(_size: usize) -> bool {
+    false
+}
+
 fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
     let parent_death_signal = inherited_parent_death_signal();
@@ -8813,9 +8829,13 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
         crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());
         result
     };
+    let stack_size = debug_test_eval_stack_size(EVAL_STACK_SIZE);
+    if main_thread_stack_holds(stack_size) {
+        return execute();
+    }
     std::thread::scope(|scope| {
         match std::thread::Builder::new()
-            .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
+            .stack_size(stack_size)
             .spawn_scoped(scope, execute)
         {
             Ok(worker) => worker.join()

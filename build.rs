@@ -117,6 +117,9 @@ fn build_native_boundaries(root: &Path) {
         println!("cargo:rerun-if-changed=src/entrypoints/allocator_commit.c");
         println!("cargo:rustc-link-arg-bin=xsh={}", out.join("allocator_commit.o").display());
     }
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg-bin=xsh=-Wl,-stack_size,0x1000000");
+    }
     if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("musl") {
         let dir = root.join("third_party/musl-regex");
         let mut objects = Vec::new();

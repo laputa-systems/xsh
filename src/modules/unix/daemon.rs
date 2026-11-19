@@ -401,7 +401,12 @@ mod tests {
         worker.target = std::env::current_exe().unwrap().as_os_str().as_bytes().to_vec();
         worker.argv = ["--exact", "modules::unix::daemon::tests::daemon_boundaries", "--nocapture"].into_iter().map(|argument| argument.as_bytes().to_vec()).collect();
         worker.env.insert(b"XSH_DAEMON_WORKER_TEST".to_vec(), b"worker".to_vec());
-        assert!(daemon_start(&worker, &signals, span).unwrap().is_none());
+        // Darwin keeps a signal that arrives while every thread blocks it
+        // pending on the main thread, and libtest runs this worker on another
+        // thread, so the worker can neither observe nor receive it there.
+        if cfg!(not(target_os = "macos")) {
+            assert!(daemon_start(&worker, &signals, span).unwrap().is_none());
+        }
         assert!(!ACTIVE.load(Ordering::Acquire));
         // SAFETY: storage is writable and sigaction only queries the current process's disposition.
         let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
