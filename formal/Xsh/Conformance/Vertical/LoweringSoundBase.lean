@@ -2313,6 +2313,7 @@ theorem record_local_lowers {owner : BridgeId} {parameter : String}
       binding.val < s'.rows.length ∧
       ∀ (F : LoweringState) (cs : List (Option Callee)), StateLE s' F →
         F.RowAt binding.val .stmtLet [2, recordRow, 0] ∧
+        F.RowAt recordRow.val .exprRecord [blockId.raw] ∧
         propagationOf? (F.context cs) binding = none ∧
         recordLocalOf? (F.context cs) binding = some ⟨2, expressions⟩ ∧
         F.RecordBlockAt blockId owner (count :: entries) := by
@@ -2386,7 +2387,107 @@ theorem record_local_lowers {owner : BridgeId} {parameter : String}
       simp [recordLocalOf?, readInstruction_of_rowAt bindingF,
         readInstruction_of_rowAt recordF, recordBefore, LoweringState.context, blockFound,
         flagZero, blockWords, entriesLength, countValue, entriesF, labelDistinct]
-    exact ⟨bindingF, noPropagation, recordFound, block, blockFound, flags, ownerFound,
+    exact ⟨bindingF, recordF, noPropagation, recordFound, block, blockFound, flags, ownerFound,
       within, blockContents⟩
+
+theorem function_program_of_record {artifact : RawArtifact} {callees : List (Option Callee)}
+    {function : FunctionRow} {binding returned recordRow : Word32} {blockId : BridgeId}
+    {block : Block} {fields : List (String × BaseExpr)} {e : BaseExpr}
+    (rows : statementRows? artifact artifact.tables function = some [binding, returned])
+    (body : body? (artifact.context callees) [binding, returned] =
+      some ([], none, none, e, some ⟨2, fields⟩))
+    (bindingRead : readInstruction? artifact.tables binding = some (.stmtLet, [2, recordRow, 0]))
+    (recordRead : readInstruction? artifact.tables recordRow = some (.exprRecord, [blockId.raw]))
+    (blockRead : artifact.blocks.find? (fun found => found.id.raw == blockId.raw) = some block)
+    (owned : block.owner = ⟨some function.id⟩) :
+    functionProgram? artifact callees function =
+      some ⟨function.paramsLen.val, [], none, none, e, some ⟨2, fields⟩⟩ := by
+  simp [functionProgram?, rows, body, bindingRead, recordRead, blockRead, owned]
+
+theorem function_tail_record_lowers {src : List (String × Option Callee)} {f : SourceFunction}
+    {scope : List (String × Nat)} {owner : BridgeId} {s s' : LoweringState}
+    {functionsBefore parametersStart : Nat} {binding recordRow : Word32} {blockId : BridgeId}
+    {target : String} {fields : List (String × SourceValue)} {value : RecordValue}
+    {expressions : List (String × BaseExpr)} {count : Word32} {entries : List Word32}
+    (wf : BlocksIndexed s) (resultIs : f.result = .recordLocal target fields value)
+    (present : s.rows.any (fun row => row.tag == .exprRecord) = true)
+    (bindingReads : ∀ (F : LoweringState), StateLE s F →
+      F.RowAt binding.val .stmtLet [2, recordRow, 0] ∧
+      F.RowAt recordRow.val .exprRecord [blockId.raw] ∧
+      propagationOf? (F.context (src.map (·.2))) binding = none ∧
+      recordLocalOf? (F.context (src.map (·.2))) binding = some ⟨2, expressions⟩ ∧
+      F.RecordBlockAt blockId owner (count :: entries))
+    (h : Lower.functionTail f scope owner functionsBefore parametersStart 1 [binding] s = some ((), s')) :
+    ∃ e row, value.expression? scope = some e ∧
+      s'.functions = s.functions ++ [row] ∧ s'.callable = s.callable ++ [f.callable] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧ row.name = f.name ∧
+      row.paramsLen.val = f.parameters.length ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row =
+          some ⟨f.parameters.length, [], none, none, e, some ⟨2, expressions⟩⟩ := by
+  simp only [Lower.functionTail, run_bind, run_modify, run_pure, Lower.word, run_lift] at h
+  obtain ⟨result, s1, hexpr, returned, s2, hret, bodyCount, s3, ⟨hcount, rfl⟩, body, s4, hbody,
+    parameters, s5, ⟨hparams, rfl⟩, pStart, s6, ⟨hpstart, rfl⟩, fBefore, s7, ⟨hfb, rfl⟩, slots,
+    s8, ⟨hslots, rfl⟩, rfl⟩ := h
+  have recordExpr : Lower.recordValue scope value s = some (result, s1) := by
+    simpa [Lower.expression, resultIs] using hexpr
+  obtain ⟨e, hsrc, lw⟩ := record_value_lowers (cs := src.map (·.2)) wf present recordExpr
+  have retAt := push_row_at hret rfl
+  obtain ⟨_, _, retIndex, _⟩ := push_row_run hret
+  have retFrame := push_row_frame hret
+  have retBlocks := push_row_blocks hret
+  have wf2 := BlocksIndexed.congr retBlocks.1 lw.wf
+  have bodyOwned := push_block_owned wf2 hbody
+  have bodyFrame := push_block_frame hbody
+  have bodyLe := (push_block_le hbody).1
+  have retLe := push_row_le hret
+  have wf4 := push_block_indexed wf2 hbody
+  have chainLe := lw.le.trans (retLe.trans bodyLe)
+  have paramsValue := decode_val hparams
+  refine ⟨e, ⟨owner, f.name, pStart, parameters, fBefore, 1, body, slots⟩, hsrc, ?_, ?_,
+    chainLe.trans ⟨List.prefix_refl _, List.prefix_refl _, List.prefix_refl _, List.prefix_refl _,
+      fun _ => add_source_strings_prefix s8.strings f, fun _ => List.prefix_refl _⟩,
+    BlocksIndexed.congr rfl wf4, rfl, paramsValue, ?_⟩
+  · show _ ++ _ = _
+    rw [bodyFrame.1, retFrame.1, lw.functions.1]
+  · show _ ++ _ = _
+    rw [bodyFrame.2, retFrame.2, lw.functions.2]
+  · intro F le sourceId observations
+    have toF : StateLE s8 F := ⟨le.rows, le.extra, le.ops, le.blocks,
+      fun present => (add_source_strings_prefix s8.strings f).trans (le.strings present),
+      le.names⟩
+    obtain ⟨block, found, ownerIs, within, same⟩ := LoweringState.BlockOwned.mono toF bodyOwned
+    have atReturn := retAt.mono (bodyLe.trans toF)
+    have boundReturn : returned.val < F.rows.length := by
+      obtain ⟨row, located, _⟩ := atReturn
+      exact (List.getElem?_eq_some_iff.mp located).1
+    have resultBefore : result.val < returned.val := by
+      rw [retIndex]
+      exact lw.before
+    have rowsOk : statementRows? (F.toArtifact sourceId observations)
+        (F.toArtifact sourceId observations).tables
+        ⟨owner, f.name, pStart, parameters, fBefore, 1, body, slots⟩ = some [binding, returned] := by
+      refine statement_rows_of (count := bodyCount) found ownerIs ?_ ?_
+      · have payload := readPayload_eq F.tables block.start block.len
+          (by simpa [LoweringState.tables] using within)
+        simp only [toArtifact_tables]
+        rw [payload]
+        simp only [LoweringState.tables] at same ⊢
+        simp [same]
+      · simp [decode_val hcount]
+    obtain ⟨bindingAt, recordAt, noProp, recordRead, blockAt⟩ :=
+      bindingReads F (chainLe.trans toF)
+    have retRead := return_expression_of atReturn resultBefore boundReturn
+      (lw.reads (retLe.trans (bodyLe.trans toF)))
+    have bodyRead := body_record_return (readInstruction_of_rowAt bindingAt) noProp recordRead retRead
+    obtain ⟨recordBlock, blockFound, _, owned, _, _⟩ := blockAt
+    have program := function_program_of_record rowsOk (by simpa only [toArtifact_context] using bodyRead)
+      (by simpa only [toArtifact_tables] using readInstruction_of_rowAt bindingAt)
+      (by simpa only [toArtifact_tables] using readInstruction_of_rowAt recordAt)
+      (by simpa only [LoweringState.toArtifact] using blockFound)
+      (by simpa using owned)
+    dsimp only at program
+    rw [paramsValue] at program
+    exact program
 
 end Xsh.Conformance.Vertical
