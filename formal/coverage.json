@@ -11050,7 +11050,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.expression_lowers",
-      "module": "Xsh.Conformance.Vertical.LoweringSound",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
       "declaration": "Xsh.Conformance.Vertical.expression_lowers",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12499,7 +12499,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
-      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12508,7 +12508,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
-      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12517,7 +12517,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.check_sound",
-      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.check_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12526,7 +12526,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
-      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -14908,6 +14908,78 @@
       "status": "fragment",
       "scope": "If a record local produces an outcome, additional fuel preserves the completed record run and its completed continuation run.",
       "boundary": "A property of the Lean base machine and its record-local composition; it says nothing about Rust execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.record_local_source_agrees",
+      "module": "Xsh.Conformance.Vertical.RecordLocalLowering",
+      "declaration": "Xsh.Conformance.Vertical.record_local_source_agrees",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The record source tree and raw IR agree on the four recorded calls.",
+      "boundary": "This is a finite Lean observation about one artifact, not a universal lowering theorem or Rust execution evidence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.record_bytes_admitted",
+      "module": "Xsh.Conformance.Vertical.RecordLocalAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.record_bytes_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The identified record source bytes are admitted with the parameter at slot zero and record local at slot two.",
+      "boundary": "One Lean source witness; this does not establish general grammar completeness or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.field_operand_lowers",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
+      "declaration": "Xsh.Conformance.Vertical.field_operand_lowers",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record operand lowered after a record row reads as its source expression through later states.",
+      "boundary": "Only the Lean lowerer and reader are covered; this does not prove Rust lowering or execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.record_entries_lower",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
+      "declaration": "Xsh.Conformance.Vertical.record_entries_lower",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lowered record entries preserve their source-order expressions and canonical names in later tables.",
+      "boundary": "Only the Lean lowerer and reader are covered; this does not prove Rust lowering or execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.record_local_lowers",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
+      "declaration": "Xsh.Conformance.Vertical.record_local_lowers",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A lowered record local reads back as the same fields and slot with its owned entries block.",
+      "boundary": "Only the Lean lowerer and reader are covered; this does not prove Rust lowering or execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.function_tail_record_lowers",
+      "module": "Xsh.Conformance.Vertical.LoweringSoundBase",
+      "declaration": "Xsh.Conformance.Vertical.function_tail_record_lowers",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record-local function tail reads as the source result and its constructed record when its binding and block are supplied.",
+      "boundary": "Only the Lean lowerer and reader are covered; this does not prove Rust lowering or execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.record_body_syntax",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.record_body_syntax",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parsed record body has a derivation in the independent source grammar.",
+      "boundary": "One-way soundness of the Lean grammar; no Rust parser agreement or grammar completeness is shown."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.record_calls_in_order",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.record_calls_in_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Admitted direct calls do not name earlier record-local functions.",
+      "boundary": "Only the Lean grammar is covered; Rust parser and checker agreement is not shown."
     }
   ],
   "artifact_certificates": [
@@ -15302,6 +15374,35 @@
       ],
       "proposition": "The identified raw-IR document decodes and validates, and certify reports spans(5) = 10, spans(-4) = -8, spans(0) = division-by-zero, and spans(9) = integer-overflow. The record entries run in order including the unread wide entry. The listed mutants are refused.",
       "boundary": "IR-only certificate for the identified raw-IR document; the source document is decoded only to check its identifier, with no source admission or source-to-IR claim yet. Rust execution was observed in finite bridge tests, not modelled or proved. No claim is made for other documents or inputs."
+    },
+    {
+      "id": "artifact.integer-record-local-pair",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.recordLocalSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.recordLocalRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.RecordLocalPairCertificate",
+      "certificate": "Xsh.Conformance.Vertical.record_local_pair_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.record_pair_source_decodes",
+        "Xsh.Conformance.Vertical.record_pair_raw_decodes",
+        "Xsh.Conformance.Vertical.record_pair_source_parses",
+        "Xsh.Conformance.Vertical.record_pair_lowers",
+        "Xsh.Conformance.Vertical.record_pair_source_agrees",
+        "Xsh.Conformance.Vertical.record_pair_validates",
+        "Xsh.Conformance.Vertical.record_pair_results"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.substituted_record_sources_are_refused",
+        "Xsh.Conformance.Vertical.record_pair_wrong_trees_refused",
+        "Xsh.Conformance.Vertical.changed_wide_source_rejected_by_pair",
+        "Xsh.Conformance.Vertical.record_pair_changed_low_refused"
+      ],
+      "proposition": "The identified source and raw-IR documents decode; the source parses to a one-parameter function with an immutable integer-field record local; Lean lowering reproduces the recorded rows, blocks, operation pool, string pool and canonical label table with span words taken from the IR; the artifact validates and the four recorded calls produce 10, -8, division-by-zero and integer-overflow. Source and IR agree on those recorded calls. The listed changed sources and trees are refused by the applicable checks.",
+      "boundary": "Only these two documents and four recorded calls are certified. The unread wide entry is evaluated, but a changed wide constant that preserves these outcomes is detected by exact lowering rather than observation agreement. The parser and lowerer are Lean definitions; this does not show that Rust parses other sources, emits other rows, or executes the IR. No Rust conformance or universal obligation follows."
     }
   ],
   "source_identity": {

@@ -21,6 +21,24 @@ theorem record_pair_source_parses :
   simp only [recordLocalSourceDocument, parseSource, String.toList_ofList, codes,
     record_local_text_parses]
 
+theorem record_pair_lowers : lowersTo recordLocalArtifact recordLocalFunctions = true :=
+  record_local_lowers_to_artifact
+
+theorem record_pair_source_agrees : sourceAgrees recordLocalArtifact recordLocalFunctions = true :=
+  record_local_source_agrees
+
+theorem record_pair_wrong_trees_refused :
+    lowersTo recordLocalArtifact swappedLabelsRecordLocalFunctions = false ∧
+      sourceAgrees recordLocalArtifact swappedLabelsRecordLocalFunctions = false ∧
+      lowersTo recordLocalArtifact changedFieldRecordLocalFunctions = false ∧
+      sourceAgrees recordLocalArtifact changedFieldRecordLocalFunctions = false :=
+  record_wrong_trees_are_refused
+
+theorem record_pair_changed_low_refused :
+    lowersTo recordLocalArtifact changedLowRecordLocalFunctions = false ∧
+      sourceAgrees recordLocalArtifact changedLowRecordLocalFunctions = false :=
+  changed_low_constant_disagrees_on_recorded_calls
+
 set_option maxRecDepth 100000 in
 theorem record_pair_validates : validateArtifact recordLocalArtifact = true := by
   decide +kernel
