@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_env.rs.
 
 use support.uu
+use support.requires
 
 proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] {
   let command = uu.command(s, "env", args.extend(["sleep", "1000"]))?
@@ -270,6 +271,7 @@ test test_uu_env_env_block_signal_flag { |ctx|
 
 # origin: uutils test_env::test_env_block_realtime_signal
 test test_uu_env_env_block_realtime_signal { |ctx|
+  requires.linux_kernel("macOS has no POSIX real-time signals")
   let s = uu.scene(ctx)?
   let r1 = uu.invoke(s, "env", ["--block-signal=SIGRTMIN+7", "true"])?
   uu.succeeds(r1)
@@ -445,7 +447,8 @@ test test_uu_env_env_arg_ignore_signal_special_signals { |ctx|
   for pair in [{name: "stop", number: 19}, {name: "kill", number: 9}, {name: "SToP", number: 19}, {name: "SIGKILL", number: 9}] {
     let r = uu.invoke(s, "env", [f"--ignore-signal={pair.name}", "echo", "hello"])?
     uu.fails_with_code(r, 125)
-    uu.stderr_contains(r, f"env: failed to set signal action for signal {pair.number}: Invalid argument")
+    let number = if system.uname()?.sysname != "Linux" and pair.number == 19 { 17 } else { pair.number }
+    uu.stderr_contains(r, f"env: failed to set signal action for signal {number}: Invalid argument")
   }
 }
 

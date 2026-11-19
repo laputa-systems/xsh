@@ -249,11 +249,12 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
   }
 }
 
-proc list_signal_actions(blocked: List[Str]) [process, error, io] {
+proc list_signal_actions(blocked: List[Str]) [process, env, error, io] {
+  let is_darwin = system.uname()?.sysname == "Darwin"
   for signal in process.signals() {
     continue when signal.number == 0
     let is_blocked = signal.name in blocked
-    let is_ignored = process.signal_action(signal.name)? == "ignore"
+    let is_ignored = if is_darwin and signal.name in ["KILL", "STOP"] { false } else { process.signal_action(signal.name)? == "ignore" }
     continue when ! is_blocked and ! is_ignored
 
     var name_field = signal.name
