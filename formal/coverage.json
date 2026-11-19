@@ -14998,6 +14998,15 @@
       "status": "fragment",
       "scope": "A record result lowered after a record row reads as its source expression in later states.",
       "boundary": "Only the Lean lowerer and reader are covered; no Rust behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.record_calls_anywhere",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionBase",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.record_calls_anywhere",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Admitted source functions do not directly call a record-local function anywhere in the same module, including a later declaration.",
+      "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
     }
   ],
   "artifact_certificates": [

@@ -105,4 +105,10 @@ theorem record_caller_refused :
     parseSourceCodes ((witnessBytes "pure f(value: Int) -> Int {\n  let box = {low: value}\n  return box.low\n}\n\npure g(value: Int) -> Int {\n  return f(value)\n}\n").map UInt8.toNat) = none := by
   decide +kernel
 
+set_option maxRecDepth 10000 in
+theorem record_forward_caller_refused :
+    parseSourceCodes ((witnessBytes ("pure g(value: Int) -> Int {\n  return f(value)\n}\n\n" ++
+      "pure f(value: Int) -> Int {\n  let box = {low: value}\n  return box.low\n}\n")).map UInt8.toNat) = none := by
+  decide +kernel
+
 end Xsh.Conformance.Vertical.SourceAdmission

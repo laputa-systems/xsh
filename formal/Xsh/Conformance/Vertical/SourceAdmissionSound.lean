@@ -42,7 +42,7 @@ theorem admitted_bytes_are_ascii {bytes : List UInt8} {moduleInputs : List (List
     ∀ byte, byte ∈ bytes → byte.toNat < 128 := by
   have admission := (check_sound accepted).2.2.1
   cases admission with
-  | admitted tokens lexical productions earlier recordCalls =>
+  | admitted tokens lexical productions earlier recordCalls allRecordCalls =>
     intro byte member
     exact lexed_ascii lexical byte.toNat (List.mem_map.mpr ⟨byte, member, rfl⟩)
 

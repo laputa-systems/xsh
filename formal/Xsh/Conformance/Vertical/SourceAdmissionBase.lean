@@ -1078,9 +1078,23 @@ theorem record_calls_in_order {earlier functions : List SourceFunction}
     simp only [foundEarlier, Bool.not_eq_true] at admitted
     simpa using admitted.1
 
+def RecordCallsAnywhere (functions : List SourceFunction) : Prop :=
+  ∀ caller ∈ functions, ∀ callee arguments, caller.result = .call callee arguments →
+    ∀ found ∈ functions, found.name = callee → found.result.isRecordLocal = false
+
+theorem record_calls_anywhere {functions : List SourceFunction}
+    (admitted : functionsAvoidRecordCallsAnywhere functions = true) : RecordCallsAnywhere functions := by
+  intro caller callerMember callee arguments call found foundMember sameName
+  unfold functionsAvoidRecordCallsAnywhere at admitted
+  have callerAllowed := List.all_eq_true.mp admitted caller callerMember
+  rw [call] at callerAllowed
+  have foundAllowed := List.all_eq_true.mp callerAllowed found foundMember
+  simpa [sameName] using foundAllowed
+
 inductive AdmittedSource (codes : List Nat) (functions : List SourceFunction) : Prop where
   | admitted (tokens : List Token) : Lexed codes tokens → FunctionsSyntax tokens functions →
-      FunctionsInOrder [] functions → RecordCallsInOrder [] functions → AdmittedSource codes functions
+      FunctionsInOrder [] functions → RecordCallsInOrder [] functions →
+      RecordCallsAnywhere functions → AdmittedSource codes functions
 
 theorem parse_source_admitted {codes : List Nat} {functions : List SourceFunction}
     (parsed : parseSourceCodes codes = some functions) : AdmittedSource codes functions := by
@@ -1093,10 +1107,13 @@ theorem parse_source_admitted {codes : List Nat} {functions : List SourceFunctio
     exact ⟨tokens, tokenizer_syntax _ tokenized, functions_syntax _ parsedFunctions,
       functions_in_order (by
         simp only [Bool.and_eq_true] at admitted
-        simpa [functionsAdmitted] using admitted.1),
+        simpa [functionsAdmitted] using admitted.1.1),
       record_calls_in_order (by
         simp only [Bool.and_eq_true] at admitted
-        simpa [functionsAvoidRecordCalls] using admitted.2)⟩
+        simpa [functionsAvoidRecordCalls] using admitted.1.2),
+      record_calls_anywhere (by
+        simp only [Bool.and_eq_true] at admitted
+        exact admitted.2)⟩
   · cases parsed
 
 inductive ComputedScope (parameter : String) :

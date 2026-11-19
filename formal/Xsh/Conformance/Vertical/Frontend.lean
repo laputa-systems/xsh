@@ -570,11 +570,19 @@ def functionsAvoidRecordCalls (functions : List SourceFunction) : Bool :=
         allowed && go (earlier ++ [function]) rest
   go [] functions
 
+def functionsAvoidRecordCallsAnywhere (functions : List SourceFunction) : Bool :=
+  functions.all fun caller =>
+    match caller.result with
+    | .call callee _ =>
+        functions.all fun found => !(found.name == callee && found.result.isRecordLocal)
+    | _ => true
+
 /-- The admitted source productions, from the character codes of the source. -/
 def parseSourceCodes (codes : List Nat) : Option (List SourceFunction) := do
   let tokens ← tokenize (codes.length + 1) codes
   let functions ← parseFunctions (tokens.length + 1) tokens
-  if functionsAdmitted functions && functionsAvoidRecordCalls functions then some functions else none
+  if functionsAdmitted functions && functionsAvoidRecordCalls functions &&
+      functionsAvoidRecordCallsAnywhere functions then some functions else none
 
 /-- The admitted source productions, from exact source bytes. -/
 def parseSource (text : String) : Option (List SourceFunction) :=
