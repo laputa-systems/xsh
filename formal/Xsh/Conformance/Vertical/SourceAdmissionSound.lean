@@ -42,11 +42,9 @@ theorem admitted_bytes_are_ascii {bytes : List UInt8} {moduleInputs : List (List
     ∀ byte, byte ∈ bytes → byte.toNat < 128 := by
   have admission := (check_sound accepted).2.2.1
   cases admission with
-  | admitted tokens lexical productions earlier =>
+  | admitted tokens lexical productions earlier recordCalls =>
     intro byte member
     exact lexed_ascii lexical byte.toNat (List.mem_map.mpr ⟨byte, member, rfl⟩)
-
-def witnessBytes (text : String) : List UInt8 := text.toUTF8.toList
 
 def arithmeticTree : List SourceFunction :=
   [⟨"f", ["x"], [], none, .value (.binary .add (.var "x") (.int 1))⟩]

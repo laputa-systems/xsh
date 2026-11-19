@@ -1271,5 +1271,7 @@ theorem accepted_projection_unique {bytes : List UInt8} {moduleInputs : List (Li
     exact Option.some.inj (firstAccepted.2.2.symm.trans secondAccepted.2.2)
 
 
+def witnessBytes (text : String) : List UInt8 := text.toUTF8.toList
+
 end SourceAdmission
 end Xsh.Conformance.Vertical
