@@ -6699,6 +6699,8 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   widths and total output to 64 KiB. Human and relative date grammar belongs
   to the XSH `lib.date_parse` module used by `date` and `touch`; it can take an
   explicit baseline and does not have a whole-parser native API.
+  Relative calendar normalization follows libc for missing DST hours; `date`
+  uses the host clock resolution for the default width of `%-N`.
 - Three clocks never mix. `time.now()` is wall-clock epoch milliseconds and may
   step in either direction; use it for display and calendar decisions only.
   `time.monotonic()` is nanoseconds from a process-local origin; use it for

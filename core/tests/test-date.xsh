@@ -13,7 +13,16 @@ test test_date_format_modifiers_and_width_bounds { |ctx|
   let output = run.text ${ctx.xsh_bin} $script -- -u -d "1999-06-01 05:00:00" "+%10Y|%_5m|%-5d|%^B|%#P|%Om|%02j|%+6Y"
   assert output == "0000001999|    6|1|JUNE|am|06|152|+01999\n"
   let nanos = run.text ${ctx.xsh_bin} $script -- -u -d "@0" "+%_3N|%-N|%-3N|%10N"
-  assert nanos == "0  |000000000|0|0000000000\n"
+  if system.uname()?.sysname == "Linux" {
+    assert nanos == "0  |000000000|0|0000000000\n"
+  } else {
+    let resolution = time.clock_resolution()?
+    var width = 9
+    var threshold = 10
+    while threshold <= resolution { width -= 1; threshold *= 10 }
+    if width <= 0 { width = 9 }
+    assert nanos == f"0  |{["0" for _ in range(width)].join("")}|0|0000000000\n"
+  }
   let modifiers = run.text ${ctx.xsh_bin} $script -- -u -d "@0" "+%EN|%ON"
   assert modifiers == "%EN|000000000\n"
 
@@ -190,7 +199,8 @@ test test_date_grammar_relative_dst_gap_matches_host_calendar { |ctx|
   let source = "use lib.date_parse\nprint time.format(date_parse.parse(\"2024-03-09 02:30:00 1 day\")?, \"%F %T %z\")?\nprint time.format(date_parse.parse(\"2024-03-11 02:30:00 1 day ago\")?, \"%F %T %z\")?"
   let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0", XSH_MODULE_PATH: ctx.core_dir})?
   assert output.success, output.stderr
-  assert output.stdout == "2024-03-10 01:30:00 -0500\n2024-03-10 01:30:00 -0500\n"
+  let expected = if system.uname()?.sysname == "Linux" { "2024-03-10 01:30:00 -0500\n" } else { "2024-03-10 03:30:00 -0400\n" }
+  assert output.stdout == expected + expected
 }
 
 type RawRan = {status: Int, stdout: Bytes, stderr: Str}
