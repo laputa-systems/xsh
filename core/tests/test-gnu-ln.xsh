@@ -76,7 +76,11 @@ test test_gnu_ln_non_utf8_src_log { |ctx|
   let s = uu.scene(ctx)?
   let raw = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
   let source = uu.at_bytes(s, raw)?
-  source.write(b"a\n")
+  let written = source.write(b"a\n")
+  if let Err(failure) = written {
+    if system.uname()?.sysname == "Darwin" and failure.errno == 92 { test.skip("filesystem rejects non-UTF-8 names with EILSEQ"); return }
+  }
+  written?
   assert source.is_file()?
   uu.mkdir(s, "dst")
   let name = raw as Path
