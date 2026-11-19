@@ -113,7 +113,8 @@ test test_uu_pathchk_pathchk_non_utf8_paths { |ctx|
 # origin: uutils test_pathchk::test_not_a_directory_clean
 test test_uu_pathchk_not_a_directory_clean { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "pathchk", ["/dev/full/"])?
+  let operand = if system.uname()?.sysname == "Linux" { "/dev/full/" } else { "/dev/null/" }
+  let r = uu.invoke(s, "pathchk", [operand])?
   uu.fails(r)
-  uu.stderr_is(r, "pathchk: /dev/full/: Not a directory\n")
+  uu.stderr_is(r, f"pathchk: {operand}: Not a directory\n")
 }
