@@ -309,10 +309,11 @@ impl RootDirectoryEntries {
                 // descriptor path refers to the already-confined directory
                 // and lets std's fdopendir-based iterator use read permission.
                 #[cfg(target_os = "linux")]
-                let descriptor_path = format!("/proc/self/fd/{}", directory.as_raw_fd());
+                return std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd())).map(Self::Standard);
+                // Darwin's /dev/fd entries are not directories, so the
+                // listing reads a duplicate of this listing-only descriptor.
                 #[cfg(target_os = "macos")]
-                let descriptor_path = format!("/dev/fd/{}", directory.as_raw_fd());
-                std::fs::read_dir(descriptor_path).map(Self::Standard)
+                return rfs::Dir::new(std::os::fd::OwnedFd::from(directory.try_clone()?)).map(Self::Rustix).map_err(Into::into);
             }
         }
     }

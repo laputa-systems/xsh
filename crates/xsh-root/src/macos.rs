@@ -58,6 +58,20 @@ pub(crate) fn open_readable_dir(dirfd: BorrowedFd<'_>) -> io::Result<File> {
     file_from_fd(fd)
 }
 
+/// Opens a fresh description of a directory that denies search permission,
+/// which `openat(fd, ".")` needs. The reopen goes through the directory's
+/// current path, so it fails unless it reaches the same directory.
+pub(crate) fn reopen_unsearchable_dir(directory: BorrowedFd<'_>) -> io::Result<OwnedFd> {
+    use rustix::fs::{Mode, OFlags, fstat, getpath, open};
+    let path = getpath(directory)?;
+    let reopened = open(path.as_c_str(), OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())?;
+    let (expected, found) = (fstat(directory)?, fstat(&reopened)?);
+    if (expected.st_dev, expected.st_ino) != (found.st_dev, found.st_ino) {
+        return Err(io::Error::new(io::ErrorKind::Other, "directory moved while it was reopened for listing"));
+    }
+    Ok(reopened)
+}
+
 pub(crate) fn open_file(
     dirfd: BorrowedFd<'_>,
     path: &CStr,

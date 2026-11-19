@@ -44,6 +44,25 @@ impl Fixture {
 }
 
 #[test]
+fn lists_readable_directory_without_search_permission() -> io::Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.root_path.join("dir");
+    fs::create_dir(&path)?;
+    fs::write(path.join("child"), "")?;
+    let directory = fixture.root.open_dir("dir")?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    let first = directory.read_dir(".");
+    let second = directory.read_dir(".");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    for result in [first, second] {
+        let entries = result?;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "child");
+    }
+    Ok(())
+}
+
+#[test]
 fn creates_directories_links_and_renames_beneath_the_root() -> io::Result<()> {
     let fixture = Fixture::new()?;
     let root = &fixture.root;

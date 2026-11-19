@@ -335,14 +335,30 @@ impl Root {
 
     pub fn read_dir(&self, path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
         let path = path.as_ref();
-        let directory = if path.as_os_str() == "." {
-            self.open_readable_dir(".")?
-        } else {
-            self.open_dir_strict(path)?.open_readable_dir(".")?
+        #[cfg(target_os = "linux")]
+        let mut dir = {
+            let directory = if path.as_os_str() == "." {
+                self.open_readable_dir(".")?
+            } else {
+                self.open_dir_strict(path)?.open_readable_dir(".")?
+            };
+            Dir::new(OwnedFd::from(directory))?
         };
-        let owned: OwnedFd = directory.into();
+        // A macOS root holds a readable descriptor, so a strictly opened
+        // subdirectory is already a fresh description to enumerate; reopening
+        // it through "." would need search permission the directory may deny.
+        #[cfg(target_os = "macos")]
+        let mut dir = if path.as_os_str() == "." {
+            let directory = OwnedFd::from(self.open_readable_dir(".")?);
+            match Dir::read_from(&directory) {
+                Err(rustix::io::Errno::ACCESS) => Dir::new(crate::macos::reopen_unsearchable_dir(directory.as_fd())?)?,
+                opened => opened?,
+            }
+        } else {
+            Dir::new(self.open_dir_strict(path)?.fd)?
+        };
         let mut entries = Vec::new();
-        for entry in Dir::read_from(&owned)? {
+        while let Some(entry) = dir.read() {
             let entry = entry?;
             let name = entry.file_name().to_bytes();
             if name == b"." || name == b".." {
@@ -350,7 +366,7 @@ impl Root {
             }
             let kind = match entry.file_type() {
                 FileType::Unknown => {
-                    let stat = statat(&owned, entry.file_name(), AtFlags::SYMLINK_NOFOLLOW)?;
+                    let stat = statat(dir.fd()?, entry.file_name(), AtFlags::SYMLINK_NOFOLLOW)?;
                     file_kind(FileType::from_raw_mode(stat.st_mode))
                 }
                 known => file_kind(known),
