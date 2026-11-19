@@ -196,6 +196,26 @@ Start `cargo dev test macos --ci` from a session that does not ignore SIGINT
 or SIGTERM (not under `nohup … &`): XSH keeps an inherited ignored signal, so
 the signal-cancellation tests then cannot cancel and leak their fixtures.
 
+### Native macOS qualification
+
+Run the native corpus on a macOS arm64 host with `cargo dev test xsh`, and the
+Rust lanes with `cargo dev test macos --ci`. Keep `TMPDIR` outside the
+checkout: `xsht` ignores files under `.work/`, so a temporary root inside the
+repository makes fixture files invisible to the lint and test tools. A
+detached run must restore default SIGINT, SIGTERM, SIGQUIT and SIGHUP before
+starting the suite, for the reason given above.
+
+A test whose fixture needs a facility macOS lacks skips with the facility's
+name, through `core/tests/support/requires.xsh` or the
+`system.uname()?.sysname != "Linux"` idiom. Linux runs every such test.
+
+The first complete run on m1-max (2026-11-19, `7d721f904`) ran 15,801 tests:
+14,345 passed, 1,315 skipped with named limitations, and 141 failed. Every
+failure is tracked: XSH-118 to XSH-128 in [TODO](../TODO.md) group them by
+cause. The largest causes are host libc regex (XSH-119), lost FIFO and
+pipeline wakeups (XSH-120), descriptor identity through `/proc` (XSH-121), and
+Darwin termios decoding (XSH-123).
+
 A focused case that passes stores a record under the checkout's `.work/gate/`,
 bound to the source digest and the product digests and modes the run used. The
 record is disposable local evidence and is never committed. A case starts by

@@ -208,8 +208,10 @@ handles SSH protocol and I/O, XSH handles infrastructure policy.
 ### Sequence
 
 XSH-55 and xsh-infra have delivered Linux implementations. Qualification and
-review remain open in their RFCs. Native macOS qualification is deferred because
-no macOS host is available. Laputa's administration library
+review remain open in their RFCs. Native macOS qualification of the core
+corpus is under way on an arm64 host (see
+[Testing](TESTING.md#native-macos-qualification)); SSH-specific qualification
+on macOS has not started. Laputa's administration library
 ([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
 consumes the same client.
 
