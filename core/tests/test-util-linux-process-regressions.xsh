@@ -55,6 +55,7 @@ test test_util_linux_rev_reverses_utf8_split_across_read_chunks { |ctx|
 }
 
 test test_util_linux_chrt_preserves_signal_termination { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("chrt requires Linux scheduling policies"); return }
   test.expect(
     ctx,
     fp"{ctx.core_dir}/chrt.xsh".read_text()?,

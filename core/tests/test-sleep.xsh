@@ -114,12 +114,14 @@ proc sleep_signal_exit_status(ctx: TestContext, signal: Str) [fs, process, time,
 }
 
 test test_sleep_stops_on_default_signal_actions { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("signal disposition fixture requires Linux /proc process status"); return }
   assert sleep_signal_exit_status(ctx, "TERM")? == 128 + 15
   assert sleep_signal_exit_status(ctx, "BUS")? == 128 + 7
   assert sleep_signal_exit_status(ctx, "SEGV")? == 128 + 11
 }
 
 test test_sleep_preserves_an_inherited_ignored_signal { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("signal disposition fixture requires Linux /proc process status"); return }
   let env_script = fp"{ctx.core_dir}/env.xsh"
   let sleep_script = fp"{ctx.core_dir}/sleep.xsh"
   for signal in ["INT", "TERM"] {
