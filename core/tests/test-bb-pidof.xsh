@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 # origin: busybox pidof/pidof (exit with error)
 test test_bb_pidof_pidof_exit_with_error_503ff3da { |ctx|
@@ -10,6 +11,7 @@ test test_bb_pidof_pidof_exit_with_error_503ff3da { |ctx|
 
 # origin: busybox pidof/pidof this
 test test_bb_pidof_pidof_this_48b653be { |ctx|
+  requires.linux_kernel("only Linux names a script's process after the script; Darwin names it after the interpreter")
   let s = uu.scene(ctx)?
   uu.write(s, "pidof.tests", "#!/bin/sh\nprintf '%s\\n' \"$$\"\n\"$@\"\nresult=$?\nexit \"$result\"\n")
   uu.set_mode(s, "pidof.tests", 0o755)
