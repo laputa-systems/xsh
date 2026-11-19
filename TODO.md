@@ -152,15 +152,12 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-121 · P2 · Descriptor identity relies on Linux /proc on macOS
+### XSH-121 · P2 · Refresh the descriptor API surface fixture
 
-- **Area:** Core
-- **Where:** `core/lib/textio_a1.xsh` (`/proc/self/fdinfo` lookup), `core/tests/test-gnu-cat.xsh` (`cat_self_log`), `core/tests/test-gnu-head.xsh` (`head_pos_log`), `core/tests/test-gnu-split.xsh` (`guard_input_log`), `core/tests/test-gnu-wc.xsh` (`wc_files0_log`), `core/tests/test-head.xsh` (elided-stdin rewind), `core/tests/test-uu-cat.xsh` (self-copy)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) the self-overwrite guards in cat and split, head's repositioning of a shared offset, and wc's redirected `--files0-from` detection all fail because they read descriptor offsets and identity through `/proc/self/fdinfo`, which macOS lacks. Split exits 0 where GNU exits 1, and wc pads nothing.
-- **Recommendation:** Derive descriptor identity from `fstat` (`st_dev`, `st_ino`) and the offset from `lseek(fd, 0, SEEK_CUR)` on every host, keeping `/proc` only where Linux needs it for flags `fstat` cannot provide.
-- **Acceptance:** The listed tests pass on native macOS and still pass on Linux.
-- **Fix with:** os-boundaries
-- **Effort:** M
+- **Area:** Tooling
+- **Where:** `tests/fixtures/modules/standard-api-surface.jsonl`
+- **Problem:** The recorded API surface predates `unix.fd_info` and `unix.set_fd_flags`, so the API gate fails its snapshot comparison.
+- **Acceptance:** Regenerate the fixture for the intended API and pass the Rust/API gate. Run shared `textio_a1` coverage in native-core.
 
 ### XSH-123 · P3 · Terminal and FIFO observation differs on macOS
 

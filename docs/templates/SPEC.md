@@ -6039,7 +6039,11 @@ Contracts worth knowing without consulting the reference:
   and `status`, `sane` uses the host disabled value for `eol` and `eol2`,
   and `set_tty_attrs` changes `extproc` through `TIOCEXT`.
   `unix.open_fd` and `close_fd`
-  give a bare descriptor for a device path. `unix.seek_fd` defaults to an
+  give a bare descriptor for a device path. `unix.fd_info(fd)` returns
+  the descriptor's status flags in `flags` and access mode in `access`, plus its device and
+  inode from `fstat`. `unix.set_fd_flags(fd, flags)` uses `F_SETFL`;
+  the host determines which flags it can change. Flag names follow `open_fd`,
+  and access modes are `read`, `write`, and `read_write`. `unix.seek_fd` defaults to an
   absolute position; `whence: "current"` and `whence: "end"` accept signed
   offsets relative to the descriptor's position or file length, with invalid
   resulting positions rejected by the kernel. `unix.open_pty` gives a

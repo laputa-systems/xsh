@@ -650,6 +650,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
 - `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default, block_signals: List[Str] = default) -> Result[Unit, Error] (+1 overloads)` — Replaces the current process with an explicit environment and optional argv0.
 - `unix.fadvise(fd: Int, offset: Int, length: Int, advice: Str) -> Result[Unit, Error]` — Tells the kernel how a byte range of an open descriptor will be used.
+- `unix.fd_info(fd: Int) -> Result[{access: Str, dev: Int, flags: List[Str], ino: Int}, Error]` — Reads a descriptor's access mode, status flags and identity.
 - `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], supplementary: List[Int], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
 - `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
@@ -669,6 +670,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.redirect_fd(fd: Int, path: Path, write: Bool = default, append: Bool = default, mode: Int = default, exact_create_mode: Bool = default) -> Result[Unit, Error]` — Replaces a current process descriptor with an opened path.
 - `unix.seek_fd(fd: Int, offset: Int, whence: Str = default) -> Result[Int, Error]` — Moves a descriptor relative to its start, current position, or end.
 - `unix.set_credentials(uid: Int, gid: Int, groups: List[Int]) -> Result[Unit, Error]` — Changes current process credentials using explicit numeric UID, GID and supplementary groups.
+- `unix.set_fd_flags(fd: Int, flags: List[Str]) -> Result[Unit, Error]` — Sets descriptor status flags by name.
 - `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.set_gid(gid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
 - `unix.set_groups(groups: List[Int]) -> Result[Unit, Error]` — Replaces the current process supplementary groups with explicit numeric IDs.

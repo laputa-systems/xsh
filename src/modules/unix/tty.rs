@@ -21,6 +21,8 @@ pub(crate) fn handles(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixTtyname
             | RuntimeOp::UnixControllingTty
             | RuntimeOp::UnixOpenFd
+            | RuntimeOp::UnixFdInfo
+            | RuntimeOp::UnixSetFdFlags
             | RuntimeOp::UnixCloseFd
             | RuntimeOp::UnixOpenPty
             | RuntimeOp::UnixTtyTable
@@ -39,6 +41,8 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
         RuntimeOp::UnixTtyname => ttyname(args),
         RuntimeOp::UnixControllingTty => controlling_tty(args),
         RuntimeOp::UnixOpenFd => open_fd(args),
+        RuntimeOp::UnixFdInfo => fd_info(args),
+        RuntimeOp::UnixSetFdFlags => set_fd_flags(args),
         RuntimeOp::UnixCloseFd => close_fd(args),
         RuntimeOp::UnixOpenPty => open_pty(args),
         RuntimeOp::UnixTtyTable => Ok(tty_table()),
@@ -176,6 +180,39 @@ fn open_flag(name: &str, span: Span) -> Result<rustix::fs::OFlags, RuntimeError>
             ));
         }
     })
+}
+
+fn status_names(flags: rustix::fs::OFlags, span: Span) -> Vec<Value> {
+    let mut names = vec![];
+    for name in ["direct", "noatime", "nofollow", "directory", "dsync", "sync", "append", "nonblock", "noctty"] {
+        if let Ok(flag) = open_flag(name, span) {
+            if flags.contains(flag) { names.push(Value::Str(name.into())); }
+        }
+    }
+    names
+}
+
+fn fd_info(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    let fd = borrow(fd_arg(args, 0, 0)?);
+    let flags = rustix::fs::fcntl_getfl(fd).map_err(|e| host_error("unix-fd-info", e, args.span()))?;
+    let stat = rustix::fs::fstat(fd).map_err(|e| host_error("unix-fd-info", e, args.span()))?;
+    let mode = flags & rustix::fs::OFlags::ACCMODE;
+    ok(Value::Record(RecordMap::from([
+        (key("access"), Value::Str(if mode == rustix::fs::OFlags::WRONLY { "write" } else if mode == rustix::fs::OFlags::RDWR { "read_write" } else { "read" }.into())),
+        (key("flags"), Value::List(status_names(flags, args.span()))),
+        (key("dev"), Value::Int(stat.st_dev as i64)),
+        (key("ino"), Value::Int(stat.st_ino as i64)),
+    ])))
+}
+
+fn set_fd_flags(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    let fd = borrow(fd_arg(args, 0, 0)?);
+    let mut flags = rustix::fs::OFlags::empty();
+    for name in args.strs(1)? {
+        flags |= open_flag(&name, args.span())?;
+    }
+    rustix::fs::fcntl_setfl(fd, flags).map_err(|e| host_error("unix-set-fd-flags", e, args.span()))?;
+    ok(Value::Unit)
 }
 
 /// Closes a descriptor opened by `unix.open_fd` or `unix.open_pty`. The
@@ -777,4 +814,49 @@ pub(crate) fn derive(fields: &mut RecordMap, iflag: u64, lflag: u64) {
         ),
     );
     fields.insert(key("crnl"), Value::Bool(input(libc::ICRNL)));
+}
+
+#[cfg(test)]
+mod fd_status_tests {
+    use super::*;
+    use crate::runtime::value::ResultValue;
+    use crate::source::SourceId;
+    use std::os::fd::AsRawFd;
+
+    fn read(fd: i32) -> RecordMap {
+        let values = [Some(Value::Int(i64::from(fd)))];
+        let args = Args::new(RuntimeOp::UnixFdInfo, &values, Span::at(SourceId::new(0), 0));
+        match fd_info(&args).unwrap() {
+            Value::Result(ResultValue::Ok(value)) => match *value { Value::Record(record) => record, _ => panic!("expected record") },
+            _ => panic!("expected success"),
+        }
+    }
+
+    fn set(fd: i32, names: &[&str]) -> Result<Value, RuntimeError> {
+        let values = [Some(Value::Int(i64::from(fd))), Some(Value::List(names.iter().map(|name| Value::Str((*name).into())).collect()))];
+        let args = Args::new(RuntimeOp::UnixSetFdFlags, &values, Span::at(SourceId::new(0), 0));
+        set_fd_flags(&args)
+    }
+
+    #[test]
+    fn fd_status_round_trip_pipe_and_file() {
+        let (pipe, _) = rustix::pipe::pipe().unwrap();
+        let file = std::fs::File::open("Cargo.toml").unwrap();
+        for fd in [pipe.as_raw_fd(), file.as_raw_fd()] {
+            let before = read(fd);
+            assert!(matches!(before.get("access"), Some(Value::Str(s)) if s.as_ref() == "read"));
+            set(fd, &["nonblock"]).unwrap();
+            let after = read(fd);
+            assert!(matches!(after.get("flags"), Some(Value::List(flags)) if flags.iter().any(|v| matches!(v, Value::Str(s) if s.as_ref() == "nonblock"))));
+            assert_eq!(format!("{:?}", before.get("dev")), format!("{:?}", after.get("dev")));
+            assert_eq!(format!("{:?}", before.get("ino")), format!("{:?}", after.get("ino")));
+            set(fd, &[]).unwrap();
+            let cleared = read(fd);
+            assert!(matches!(cleared.get("flags"), Some(Value::List(flags)) if !flags.iter().any(|v| matches!(v, Value::Str(s) if s.as_ref() == "nonblock"))));
+            assert!(set(fd, &["unknown"]).is_err());
+            assert!(set(fd, &["read"]).is_err());
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            assert!(set(fd, &["direct"]).is_err());
+        }
+    }
 }

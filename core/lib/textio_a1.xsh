@@ -25,7 +25,7 @@ const DEVICE_LIMIT = 67108864
 export type Source = {name: Str, path: Path, mode: Str, kind: Int, size: Int}
 
 ## Position, append flag, and file identity of a standard descriptor.
-export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
+export type Fd = {pos: Int, append: Bool, ino: Int, dev: Int}
 
 ## Open an operand: resolve symlinks and classify the file. A failure is the
 ## operating-system error of the missing, looping, unreachable, or unreadable name.
@@ -110,49 +110,28 @@ export pure is_directory(failure: Error) -> Bool {
   gnu.errno(failure) == 21
 }
 
-proc fd_info(fd: Int) [fs, error] -> Result[Fd] {
-  var info = {pos: 0, append: false, ino: 0, mnt: 0}
-
-  for line in fp"/proc/self/fdinfo/{fd}".lines()? {
-    let parts = line.split(":")
-    let name = parts.get(0) ?? ""
-    let text = (parts.get(1) ?? "").trim()
-    let value = text.parse_int() ?? 0
-
-    if name == "pos" {
-      info = {...info, pos: value}
-    } else if name == "flags" {
-      let mode = if text.byte_len() >= 4 { text.byte_slice(text.byte_len() - 4, length: 1) } else { "0" }
-      info = {...info, append: mode in ["2", "3", "6", "7"]}
-    } else if name == "ino" {
-      info = {...info, ino: value}
-    } else if name == "mnt_id" {
-      info = {...info, mnt: value}
-    }
-  }
-
-  info
+proc fd_info(fd: Int) [fs, error, process] -> Result[Fd] {
+  let info = unix.fd_info(fd)?
+  let pos = unix.seek_fd(fd, 0, whence: "current")?
+  Ok({pos: pos, append: "append" in info.flags, ino: info.ino, dev: info.dev})
 }
 
-## The resolved path of standard input (0) or output (1) when it is a regular
+## The descriptor path of standard input (0) or output (1) when it is a regular
 ## file, else "".
 export proc standard_file(fd: Int) [fs, error] -> Str {
-  guard let target = fp"/dev/fd/{fd}".resolve() else {
+  let target = fp"/dev/fd/{fd}"
+  guard let entry = fs.stat(target, follow_symlinks: true) else {
     return ""
   }
 
-  guard let entry = target.metadata() else {
-    return ""
-  }
-
-  return "" when entry.mode / 4096 % 16 != 8
+  return "" when entry.kind != "file"
 
   target.display()
 }
 
 ## The byte offset of standard input, which each read advances. It is only
 ## meaningful when `standard_file(0)` is not empty.
-export proc stdin_offset() [fs, error] -> Result[Int, Error] {
+export proc stdin_offset() [fs, error, process] -> Result[Int, Error] {
   let info = fd_info(0)?
 
   Ok(info.pos)
@@ -161,17 +140,17 @@ export proc stdin_offset() [fs, error] -> Result[Int, Error] {
 ## GNU `cat` refuses to copy a nonempty regular file onto itself when reading
 ## would reach bytes the output wrote: the input offset is not past the output
 ## offset (or, for an appending output, not at the end of the file). Both
-## offsets come from `/proc/self/fdinfo`; a file operand starts at offset 0 and
+## offsets come from the descriptors; a file operand starts at offset 0 and
 ## `written` counts the bytes buffered for output so far. `out` is
 ## `standard_file(1)`.
-export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, error] -> Result[Bool, Error] {
+export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, error, process] -> Result[Bool, Error] {
   return Ok(false) when out == "" or (source.mode != "file" and source.mode != "stdin")
 
   guard let output = fd_info(1) else {
     return Ok(false)
   }
 
-  let size = fp"{out}".metadata()?.size
+  let size = fs.stat(fp"{out}", follow_symlinks: true)?.size
   var position = 0
 
   if source.mode == "stdin" {
@@ -179,11 +158,12 @@ export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, err
       return Ok(false)
     }
 
-    return Ok(false) when input.ino != output.ino or input.mnt != output.mnt or size == 0
+    return Ok(false) when input.ino != output.ino or input.dev != output.dev or size == 0
 
     position = input.pos
-  } else if source.path.display() != out or source.size == 0 {
-    return Ok(false)
+  } else {
+    let input = fs.stat(source.path, follow_symlinks: true)?
+    return Ok(false) when input.ino != output.ino or input.dev != output.dev or source.size == 0
   }
 
   Ok(if output.append { position < size } else { position < output.pos + written })

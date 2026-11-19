@@ -907,11 +907,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       let entry = fs.stat(source.path, follow_symlinks: true)?
       name_files += [{name: name, label: label, state: "tailing", symlink: is_link(name), dir_watched: ! parent_missing(name), dev: entry.dev, ino: entry.ino, offset: follow_offset}]
     } else if following and follow_mode == "descriptor" and name == "-" {
-      if system.uname()?.sysname == "Darwin" {
-        if fs.stat(p"/dev/fd/0", follow_symlinks: true)?.kind == "file" {
-          follow_files += [{label: label, fd: 0, offset: unix.seek_fd(0, 0, whence: "current")?}]
-        }
-      } else if tio.standard_file(0) != "" {
+      if tio.standard_file(0) != "" {
         follow_files += [{label: label, fd: 0, offset: tio.stdin_offset()?}]
       }
     }

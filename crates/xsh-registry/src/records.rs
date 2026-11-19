@@ -1095,6 +1095,15 @@ pub fn unix_window_size_type() -> Type {
     ]))
 }
 
+pub fn unix_fd_status_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("access", Type::Str),
+        ("flags", Type::List(Box::new(Type::Str))),
+        ("dev", Type::Int),
+        ("ino", Type::Int),
+    ]))
+}
+
 pub fn unix_pty_type() -> Type {
     Type::Record(name_type_map(vec![
         ("master".to_string(), Type::Int),

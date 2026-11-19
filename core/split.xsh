@@ -1310,7 +1310,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let stdin_file = tio.standard_file(0)
 
     if stdin_file != "" {
-      if let Ok(found) = fs.stat(fp"{stdin_file}", follow_symlinks: true) {
+      if let Ok(found) = unix.fd_info(0) {
         input_ino = found.ino
         input_dev = found.dev
       }

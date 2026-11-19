@@ -153,7 +153,7 @@ test test_gnu_head_head_pos_log { |ctx|
     uu.stdout_only_bytes(r, b"b\n")
   }
   uu.write(s, "input", [f"{n}\n" for n in range(1, 70001)].join(""))
-  let large = wrapped(s, ["-n-50000"], "exec 3<input; \"$@\" <&3 >/dev/null || exit; wc -l <&3")?
+  let large = wrapped(s, ["-n-50000"], "exec 3<input; \"$@\" <&3 >/dev/null || exit; wc -l <&3 | tr -d ' '")?
   uu.succeeds(large)
   uu.stdout_only_bytes(large, b"50000\n")
 }

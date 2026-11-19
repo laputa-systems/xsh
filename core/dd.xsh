@@ -428,10 +428,13 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
       if ! ("notrunc" in opts.conv) { dest.truncate(seek) }
       if let fd = output_fd { let _ = unix.seek_fd(fd, seek)? }
     }
-  } else if "append" in opts.output_flags {
-    # Standard output has no descriptor flags XSH can set, so an append
-    # transfer writes through a new descriptor for the same file.
-    output_fd = unix.open_fd(fp"/dev/stdout", write: true, nonblock: false, flags: opts.output_flags)?
+  } else if ! opts.output_flags.is_empty() {
+    let current = unix.fd_info(1)?
+    unix.set_fd_flags(1, current.flags + opts.output_flags)?
+    output_fd = 1
+    if let Ok(entry) = fs.stat(p"/dev/fd/1", follow_symlinks: true) {
+      if entry.kind == "file" { output_kind = 8 }
+    }
   }
   var source: tio.Source? = null
   if let input = opts.input { source = open_dd_source(input)? }
@@ -489,7 +492,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
   var output_position = 0
   # A NUL output block is skipped by seeking, which leaves existing bytes in place
   # under notrunc, so notrunc does not disable it.
-  let sparse_output = "sparse" in opts.conv and (output_kind == 8 or (opts.output == null and output_fd != null))
+  let sparse_output = "sparse" in opts.conv and output_kind == 8
   while failure == null {
     let finished_count = if large_input { total / opts.ibs >= opts.count } else { complete + partial >= opts.count }
     break when total >= limit or (opts.count >= 0 and ! opts.count_bytes and finished_count)
@@ -563,8 +566,13 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
       let tail_offset = seek + output_position - output_length
       var tail_fd = fd
       if "direct" in opts.output_flags and output_length % DIRECT_SECTOR != 0 {
-        tail_fd = reopen_without_direct(fd, dest, tail_offset, opts.output_flags)?
-        output_fd = tail_fd
+        if fd == 1 {
+          let current = unix.fd_info(fd)?
+          unix.set_fd_flags(fd, [flag for flag in current.flags if flag != "direct"])?
+        } else {
+          tail_fd = reopen_without_direct(fd, dest, tail_offset, opts.output_flags)?
+          output_fd = tail_fd
+        }
       }
       let outcome = write_output_chunk(tail_fd, output_chunk, tail_offset, sparse_output)?
       written += outcome.written
@@ -578,7 +586,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
     if dest.metadata()?.size < end { dest.truncate(end) }
   }
   if let fd = input_fd { unix.close_fd(fd) }
-  if let fd = output_fd { unix.close_fd(fd) }
+  if let fd = output_fd { if fd != 1 { unix.close_fd(fd) } }
   Ok({complete: complete, partial: partial, written: written, failure: failure, discard_failed: discard_caches(opts)})
 }
 
@@ -758,15 +766,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   let converted = transform(records, opts, latin1)?
   var written = 0
   var write_failure = null
-  if opts.output == null and "append" in opts.output_flags {
-    # Append mode belongs to the open file description, so standard output is
-    # written through /dev/stdout, as the plain path does.
-    let stdout_fd = unix.open_fd(fp"/dev/stdout", write: true, nonblock: false, flags: opts.output_flags)?
+  if opts.output == null and ! opts.output_flags.is_empty() {
+    let current = unix.fd_info(1)?
+    unix.set_fd_flags(1, current.flags + opts.output_flags)?
     let data = if converted.blocks.is_empty() { converted.data } else { joined_records(converted.blocks)? }
-    let outcome = write_fd_all(stdout_fd, data)
+    let outcome = write_fd_all(1, data)
     written = outcome.written
     write_failure = outcome.failure
-    unix.close_fd(stdout_fd)
   } else if opts.output == null {
     if converted.blocks.is_empty() {
       gnu.write_bytes(converted.data)

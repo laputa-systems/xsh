@@ -3415,6 +3415,14 @@ fn unix_module() -> ModuleSig {
             ),
         ),
         (
+            "fd_info",
+            sig(vec![param("fd", Type::Int)], result(crate::records::unix_fd_status_type()), false, RuntimeOp::UnixFdInfo),
+        ),
+        (
+            "set_fd_flags",
+            sig(vec![param("fd", Type::Int), param("flags", Type::List(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixSetFdFlags),
+        ),
+        (
             "close_fd",
             sig(
                 vec![param("fd", Type::Int)],
