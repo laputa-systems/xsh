@@ -1447,7 +1447,8 @@ whether a field was passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. A failed host operation also carries `.errno: Int?`,
-the raw OS error number (`null` for errors the kernel did not raise). Exact
+the raw OS error number (`null` for errors the kernel did not raise). Host
+error message wording can differ by platform. Exact
 variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
@@ -6647,7 +6648,8 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   (or `mode`), copies by `FICLONE`, `copy_file_range`, or read and write
   (`reflink: "auto"|"always"|"never"`, default `never`), and preserves holes
   (`sparse: "auto"|"always"|"never"`, default `auto`; `always` also turns
-  zero blocks into holes); it sets no other metadata, and `overwrite: false`
+  zero blocks into holes); physical allocation around holes remains dependent
+  on the filesystem. It sets no other metadata, and `overwrite: false`
   is `O_EXCL`. `fs.rename_noreplace` is `RENAME_NOREPLACE`; it never falls
   back to a racy check on a filesystem that lacks it. A facility the host
   or filesystem lacks fails with its errno (`failure.errno`), so callers

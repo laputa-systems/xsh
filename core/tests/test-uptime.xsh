@@ -124,6 +124,7 @@ test test_uptime_pretty_lists_units { |ctx|
   let pretty_units = rx"^up (?:\d+ weeks?(?:, \d+ days?)?(?:, \d+ hours?)?(?:, \d+ minutes?)?|\d+ days?(?:, \d+ hours?)?(?:, \d+ minutes?)?|\d+ hours?(?:, \d+ minutes?)?|\d+ minutes?)\n$"
   assert pretty_units.matches(result.stdout), result.stdout
 
+  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
   let now = time.now() / 1000
   let whole_hour = utmp_file(ctx, [utmp_record(BOOT, "~", "reboot", now - 9 * 86400 - 3600 - 5)?])?
   let whole_hour_result = uptime_run(ctx, ["--pretty", whole_hour.display()])?

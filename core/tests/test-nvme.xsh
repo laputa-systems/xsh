@@ -320,10 +320,11 @@ test test_nvme_device_failures_are_reported_as_nvme_cli_reports_them { |ctx|
   assert status.stderr == "NVMe status: Invalid Field in Command: A reserved coded value or an unsupported value in a defined field(0x4002)\n", status.stderr
   let errno = nvme(ctx, [admin_line(6, cdw10: 1, direction: "from_device", data_len: 4096, errno: 25)], ["id-ctrl", "/dev/null"], log)?
   assert errno.status == 1
-  assert errno.stderr == "identify controller: Not a tty\n"
+  let tty_error = if system.uname()?.sysname == "Linux" { "Not a tty" } else { "Inappropriate ioctl for device" }
+  assert errno.stderr == f"identify controller: {tty_error}\n"
   let printed = nvme(ctx, [admin_line(6, cdw10: 1, direction: "from_device", data_len: 4096, errno: 25)], ["id-ctrl", "-o", "json", "/dev/null"], log)?
   assert printed.status == 1
-  assert printed.stdout == "{\n  \"error\":\"identify controller: Not a tty\"\n}\n"
+  assert printed.stdout == f"{{\n  \"error\":\"identify controller: {tty_error}\"\n}}\n"
   # A command the fixture does not know is the fake's own refusal.
   let unmatched = nvme(ctx, [], ["id-ctrl", "/dev/null"], log)?
   assert unmatched.status == 1
