@@ -224,8 +224,9 @@ test test_uu_stat_normal_format { |ctx|
 # origin: uutils test_stat::test_char
 test test_uu_stat_char { |ctx|
   let s = uu.scene(ctx)?
-  let expected = normal_output(p"/dev/pts/ptmx", "/dev/pts/ptmx", device: true)?
-  let r = uu.invoke(s, "stat", ["-c", DEVICE, "/dev/pts/ptmx"])?
+  let device = if system.uname()?.sysname == "Linux" { "/dev/pts/ptmx" } else { "/dev/null" }
+  let expected = normal_output(fp"{device}", device, device: true)?
+  let r = uu.invoke(s, "stat", ["-c", DEVICE, device])?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
 }
