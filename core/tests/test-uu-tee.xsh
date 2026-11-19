@@ -5,15 +5,16 @@ pure numbered_input(count: Int) -> Bytes {
 }
 
 # Wait for the temporary reader to close before exec so stdout is already
-# broken. Shell status preserves signal deaths as well as ordinary exits.
+# broken. The reader exits only after the writer's open has returned, because
+# macOS sh does not restart a FIFO open interrupted by SIGCHLD. Shell status preserves signal deaths as well as ordinary exits.
 proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle = false) [fs, process, env, error] -> Result[uu.Ran] {
   uu.mkfifo(s, "broken-stdout")
   let words = uu.argv(s, "tee", [fp"{word}" for word in args])?
   let setup = if idle {
     uu.mkfifo(s, "idle-input")
-    r"""exec 3<>idle-input; (exec 4<broken-stdout) & reader=$!; exec 4>broken-stdout; wait "$reader"; exec "$@" <idle-input >&4 """
+    r"""exec 3<>idle-input; (exec 4<broken-stdout; read -r _ <&4) & reader=$!; exec 4>broken-stdout; echo >&4; wait "$reader"; exec "$@" <idle-input >&4 """
   } else {
-    r"""(exec 4<broken-stdout) & reader=$!; exec 4>broken-stdout; wait "$reader"; exec "$@" >&4 """
+    r"""(exec 4<broken-stdout; read -r _ <&4) & reader=$!; exec 4>broken-stdout; echo >&4; wait "$reader"; exec "$@" >&4 """
   }
   let out = uu.at(s, "capture-out")
   let err = uu.at(s, "capture-err")

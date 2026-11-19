@@ -14,6 +14,7 @@ proc compiled_client(ctx: TestContext, root: Path) [fs, process, env, error] -> 
 }
 
 proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str]) [fs, process, env, error] -> Result[Scene?] {
+  if system.uname()?.sysname != "Linux" { test.skip("the libc syslog scenario needs Linux user and mount namespaces") }
   let root = test.temp_dir(ctx, name: name)?
   let client = compiled_client(ctx, root)?
   let state = fp"{root}/state"

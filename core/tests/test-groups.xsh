@@ -22,7 +22,14 @@ proc applet_run(
 
 proc current_groups() [fs, process, error] -> Result[Str] {
   let me = unix.id()?
-  let names = [entry.name for entry in me.groups if entry.gid != me.gid]
+  var names: List[Str] = []
+  var seen: List[Int] = [me.gid]
+  for gid in me.supplementary {
+    if gid not in seen {
+      seen += [gid]
+      names += [group.by_gid(gid)?.name]
+    }
+  }
 
   Ok([group.by_gid(me.gid)?.name, @names].join(" "))
 }

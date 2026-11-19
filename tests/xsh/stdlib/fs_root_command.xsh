@@ -4,16 +4,12 @@ proc install_shell(base: Path) [fs, error] {
   fp"{base}/root/bin/sh".chmod(0o755)
 }
 
-proc linux_only() [env, error] -> Bool {
-  if system.uname()?.sysname != "Linux" {
-    test.skip("FsRoot.command is Linux only")
-    return false
-  }
-  true
+proc require_linux() [env, error] {
+  if system.uname()?.sysname != "Linux" { test.skip("FsRoot.command is Linux only") }
 }
 
 test fs_root_command_runs_with_argv_env_and_cwd { |ctx|
-  return unless linux_only()
+  require_linux()
   let base = test.temp_dir(ctx, name: "root-command-run")?
   install_shell(base)
   fp"{base}/work".mkdir()
@@ -32,7 +28,7 @@ test fs_root_command_runs_with_argv_env_and_cwd { |ctx|
 }
 
 test fs_root_command_takes_a_mixed_str_and_path_argv_beside_named_options { |ctx|
-  return unless linux_only()
+  require_linux()
   let base = test.temp_dir(ctx, name: "root-command-mixed-argv")?
   install_shell(base)
   let root = fs.open_root(fp"{base}/root")?
@@ -42,7 +38,7 @@ test fs_root_command_takes_a_mixed_str_and_path_argv_beside_named_options { |ctx
 }
 
 test fs_root_command_runs_the_opened_file_after_its_path_is_swapped { |ctx|
-  return unless linux_only()
+  require_linux()
   let base = test.temp_dir(ctx, name: "root-command-swap")?
   install_shell(base)
   fp"{base}/outside".mkdir()
@@ -64,7 +60,7 @@ test fs_root_command_runs_the_opened_file_after_its_path_is_swapped { |ctx|
 }
 
 test fs_root_command_refuses_interpreter_scripts_and_non_executables { |ctx|
-  return unless linux_only()
+  require_linux()
   let base = test.temp_dir(ctx, name: "root-command-refuse")?
   fp"{base}/root".mkdir()
   let root = fs.open_root(fp"{base}/root")?
@@ -80,7 +76,7 @@ test fs_root_command_refuses_interpreter_scripts_and_non_executables { |ctx|
 }
 
 test fs_root_command_fails_in_consumers_that_resolve_a_pathname { |ctx|
-  return unless linux_only()
+  require_linux()
   let base = test.temp_dir(ctx, name: "root-command-consumer")?
   install_shell(base)
   let root = fs.open_root(fp"{base}/root")?
