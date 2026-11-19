@@ -56,6 +56,7 @@ test test_uptime_line_has_time_uptime_users_and_load { |ctx|
 }
 
 test test_uptime_with_a_boot_record_counts_days_and_users { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
   let now = time.now() / 1000
   let file = utmp_file(
     ctx,
@@ -75,6 +76,7 @@ test test_uptime_with_a_boot_record_counts_days_and_users { |ctx|
 }
 
 test test_uptime_singular_day_and_user { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
   let now = time.now() / 1000
   let file = utmp_file(
     ctx,
@@ -143,6 +145,7 @@ test test_uptime_pretty_lists_units { |ctx|
 }
 
 test test_uptime_since_prints_the_boot_time_in_the_local_zone { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
   let file = utmp_file(ctx, [utmp_record(BOOT, "~", "reboot", 1700000000)?])?
   assert uptime_run(ctx, ["-s", file.display()])?.stdout == "2023-11-14 22:13:20\n"
   assert uptime_run(ctx, ["--since", file.display()])?.stdout == "2023-11-14 22:13:20\n"
