@@ -1719,9 +1719,10 @@ test test_sort_locale_month_abbreviations { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/sort.xsh"
+  let hungarian = if system.uname()?.sysname == "Linux" { {locale: "hu_HU.UTF-8", input: "jún\njan\nfebr\n", expected: "jan\nfebr\njún\n"} } else { {locale: "hu_HU.UTF-8", input: "jún.\njan.\nfebr.\n", expected: "jan.\nfebr.\njún.\n"} }
   for case in [
     {locale: "fr_FR.UTF-8", input: "juin\nav   ril\nmars\n", expected: "av   ril\nmars\njuin\n"},
-    {locale: "hu_HU.UTF-8", input: "jún\njan\nfebr\n", expected: "jan\nfebr\njún\n"},
+    hungarian,
     {locale: "ja_JP.UTF-8", input: "12月\n2月\n1月\n", expected: "1月\n2月\n12月\n"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
