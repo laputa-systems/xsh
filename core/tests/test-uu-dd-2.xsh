@@ -235,7 +235,8 @@ test test_uu_dd_random_73k_test_count_reads { |ctx|
 test test_uu_dd_random_73k_test_lazy_fullblock { |ctx|
   let s = uu.scene(ctx)?
   let data = fixture(s, "random-5828891cb1230748e146f34223bbd3b5.test")?
-  let r = fifo_copy(s, ["ibs=521", "obs=1031", "iflag=fullblock", "if=fifo", "status=noxfer"], data, 260, 10ms)?
+  let width = if system.uname()?.sysname == "Linux" { 260 } else { 520 }
+  let r = fifo_copy(s, ["ibs=521", "obs=1031", "iflag=fullblock", "if=fifo", "status=noxfer"], data, width, 10ms)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, data)
   uu.stderr_is(r, "142+1 records in\n72+1 records out\n")

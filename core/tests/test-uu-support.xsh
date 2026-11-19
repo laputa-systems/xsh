@@ -101,7 +101,9 @@ test test_uu_support_clears_environment_and_preserves_defaults { |ctx|
   assert "TMPDIR=" not in r.stdout as Str
   for line in r.stdout.utf8()?.split("\n") {
     if line != "" {
-      assert line.split("=")[0] in ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"]
+      let name = line.split("=")[0]
+      let allowed = ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"]
+      assert name in allowed or (system.uname()?.sysname == "Darwin" and name == "__CF_USER_TEXT_ENCODING")
     }
   }
   let inherited_path = uu.invoke(s, "printenv", ["PATH"])?
