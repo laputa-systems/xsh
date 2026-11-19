@@ -638,6 +638,7 @@ test test_uu_rm_recursive_long_filepath { |ctx|
   let mkdir = ["test_rm_recursive_directory/" for _ in range(35)].join("")
   let file = mkdir + "test_rm_recursive_file_a"
   assert file.byte_len() > 1000
+  if s.root.bytes().len() + file.byte_len() + 2 > fs.path_limits(s.root)?.path_max { test.skip("the filesystem path limit prevents this long-path fixture"); return }
   uu.mkdir_all(s, mkdir)
   uu.touch(s, file)
   let r = uu.invoke(s, "rm", ["-r", "test_rm_recursive_directory"])?
@@ -737,6 +738,9 @@ test test_uu_rm_rm_directory_not_writable { |ctx|
 # origin: uutils test_rm::test_rm_recursive_long_path_safe_traversal
 test test_uu_rm_rm_recursive_long_path_safe_traversal { |ctx|
   let s = safe_scene(ctx)?
+  let component = ["z" for _ in range(80)].join("")
+  let required = "rm_deep" + [f"/{component}{i}" for i in range(12)].join("") + "/test2.txt"
+  if s.root.bytes().len() + required.byte_len() + 2 > fs.path_limits(s.root)?.path_max { test.skip("the filesystem path limit prevents this long-path fixture"); return }
   var deep = "rm_deep"
   uu.mkdir(s, deep)
   for i in range(12) {
@@ -752,6 +756,7 @@ test test_uu_rm_rm_recursive_long_path_safe_traversal { |ctx|
 
 # origin: uutils test_rm::test_rm_recursive_very_deep_hierarchy
 test test_uu_rm_rm_recursive_very_deep_hierarchy { |ctx|
+  requires.linux_kernel("macOS lacks the Linux procfs descriptor paths used by this deep-tree fixture")
   test.timeout(ctx, 300s)
   let s = safe_scene(ctx)?
   uu.mkdir(s, "deep")

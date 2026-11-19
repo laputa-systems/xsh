@@ -358,6 +358,7 @@ test test_uu_tail_bytes_big { |ctx|
 
 # origin: uutils test_tail::test_bytes_for_funny_unix_files
 test test_uu_tail_bytes_for_funny_unix_files { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = uu.scene(ctx)?
   for file in [p"/proc/version", p"/sys/kernel/profiling"] {
     guard file.is_file() else { continue }

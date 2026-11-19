@@ -205,6 +205,7 @@ test test_uu_stat_fs_format { |ctx|
 
 # origin: uutils test_stat::test_terse_fs_format
 test test_uu_stat_terse_fs_format { |ctx|
+  requires.linux_kernel("macOS lacks Linux procfs and filesystem magic numbers")
   let s = uu.scene(ctx)?
   let data = fs.statvfs(p"/proc")?
   guard let magic = data.type_magic else { assert false; return }
@@ -249,7 +250,7 @@ test test_uu_stat_date { |ctx|
 # origin: uutils test_stat::test_multi_files
 test test_uu_stat_multi_files { |ctx|
   let s = uu.scene(ctx)?
-  let targets = ["/dev", "/usr/lib", "/etc/fstab", "/var"]
+  let targets = if system.uname()?.sysname == "Linux" { ["/dev", "/usr/lib", "/etc/fstab", "/var"] } else { ["/dev", "/usr/lib", "/etc/hosts", "/var"] }
   var expected = ""
   for name in targets { expected += normal_output(fp"{name}", name)? }
   let r = uu.invoke(s, "stat", ["-c", NORMAL].extend(targets))?
@@ -331,9 +332,10 @@ test test_uu_stat_format_created_seconds { |ctx|
 # origin: uutils test_stat::test_printf_atime_ctime_mtime_precision
 test test_uu_stat_printf_atime_ctime_mtime_precision { |ctx|
   let s = uu.scene(ctx)?
-  let meta = fs.stat(p"/dev/pts/ptmx")?
+  let terminal = if system.uname()?.sysname == "Linux" { "/dev/pts/ptmx" } else { "/dev/ptmx" }
+  let meta = fs.stat(fp"{terminal}")?
   let expected = f"{meta.mtime_ns / 1000000000} {meta.mtime_ns / 1000000000}.{time.format(meta.mtime_ns, "%1N", utc: true)?} {meta.atime_ns / 1000000000}.{time.format(meta.atime_ns, "%2N", utc: true)?} {meta.mtime_ns / 1000000000}.{time.format(meta.mtime_ns, "%2N", utc: true)?} {meta.ctime_ns / 1000000000}.{time.format(meta.ctime_ns, "%2N", utc: true)?}\n"
-  let r = uu.invoke(s, "stat", ["-c", "%.0Y %.1Y %.2X %.2Y %.2Z", "/dev/pts/ptmx"])?
+  let r = uu.invoke(s, "stat", ["-c", "%.0Y %.1Y %.2X %.2Y %.2Z", terminal])?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
 }

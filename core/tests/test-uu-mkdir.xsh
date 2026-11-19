@@ -407,6 +407,9 @@ test test_uu_mkdir_mkdir_parent_inherits_setgid { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "parent")
   uu.set_mode(s, "parent", 0o2755)
+  if fs.stat(uu.at(s, "parent"))?.mode.bit_and(0o2000) == 0 { test.skip("the filesystem does not retain setgid on directories"); return }
+  uu.mkdir(s, "parent/probe")
+  if fs.stat(uu.at(s, "parent/probe"))?.mode.bit_and(0o2000) == 0 { test.skip("the filesystem does not inherit setgid on directories"); return }
   let r = uu.invoke(s, "mkdir", ["-p", "parent/child/grandchild"])?
   uu.succeeds(r)
   uu.no_output(r)

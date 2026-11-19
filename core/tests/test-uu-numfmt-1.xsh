@@ -23,6 +23,12 @@ proc tty_stderr(s: uu.Scene, args: List[Str], stdin = b"") [fs, process, net, en
   var replica_open = true
   defer { if replica_open { unix.close_fd(pty.replica) } }
   let r = uu.invoke(s, "numfmt", args, stdin, stderr: fp"{pty.name}")?
+  if system.uname()?.sysname != "Linux" {
+    let captured = unix.read_fd(pty.master, 1024)?
+    unix.close_fd(pty.replica)
+    replica_open = false
+    return Ok({util: r.util, args: r.args, status: r.status, stdout: r.stdout, stderr: captured})
+  }
   unix.close_fd(pty.replica)
   replica_open = false
   var captured = b""

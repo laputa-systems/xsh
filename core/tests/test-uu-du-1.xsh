@@ -789,6 +789,9 @@ test test_uu_du_du_invalid_size { |ctx|
 # origin: uutils test_du::test_du_long_path_safe_traversal
 test test_uu_du_du_long_path_safe_traversal { |ctx|
   let s = scene(ctx)?
+  let component = ["a" for _ in range(100)].join("")
+  let required = "long_path_test" + [f"/{component}{i}" for i in range(15)].join("") + "/test.txt"
+  if s.root.bytes().len() + required.byte_len() + 2 > fs.path_limits(s.root)?.path_max { test.skip("the filesystem path limit prevents this long-path fixture"); return }
   var deep = "long_path_test"
   uu.mkdir(s, deep)
   let name = ["a" for _ in range(100)].join("")
