@@ -270,6 +270,11 @@ test test_dd_sparse_copy_writes_data_after_a_hole_at_the_right_offset { |ctx|
   assert result.status == 0, result.stderr
   assert output.read_bytes()? == data
   let meta = output.metadata()?
+  let probe = fp"{root}/sparse-probe"
+  probe.write(b"head")
+  let _ = bytes.write_at(probe, 1048580, b"tail")?
+  let probe_meta = probe.metadata()?
+  if probe_meta.blocks_512 * 512 >= probe_meta.size { test.skip("the filesystem materializes holes in closed data-bearing files"); return }
   assert meta.blocks_512 * 512 < meta.size, "zero blocks should remain unallocated"
 }
 

@@ -557,12 +557,18 @@ test test_cpio_sparse_extraction_and_symlink_targets { |ctx|
   let ran = cpio(ctx, out, ["-id", "--sparse", "--quiet"], packed_archive.stdout)?
   assert ran.status == 0
   assert fp"{out}/holey".read_bytes()? == fp"{root}/holey".read_bytes()?
-  assert fs.stat(fp"{out}/holey")?.blocks_512 < 100
+  let probe = fp"{out}/sparse-probe"
+  probe.write(b"head")
+  let _ = bytes.write_at(probe, 1048580, b"tail")?
+  let probe_meta = probe.metadata()?
+  let sparse_supported = probe_meta.blocks_512 * 512 < probe_meta.size
   # A leading "./" is dropped from a symbolic link target when archiving.
   assert fp"{out}/dotted".readlink()? == p"holey"
   let dereferenced = cpio(ctx, root, ["-o", "-L", "-H", "newc", "--quiet"], b"dotted\n")?
   let listed = cpio(ctx, root, ["-itvn", "--quiet"], dereferenced.stdout)?
   assert listed.stdout.utf8()?.starts_with("-rw")
+  if ! sparse_supported { test.skip("the filesystem materializes holes in closed data-bearing files"); return }
+  assert fs.stat(fp"{out}/holey")?.blocks_512 < 100
 }
 
 test test_cpio_name_lists_ignore_blank_lines_and_report_missing_files { |ctx|
