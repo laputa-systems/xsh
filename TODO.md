@@ -216,3 +216,13 @@ out of scope.
 - **Acceptance:** Both tests pass on native macOS and Linux.
 - **Fix with:** root-cause
 - **Effort:** S
+
+### XSH-127 · P2 · FsRoot cannot list a directory without search permission on macOS
+
+- **Area:** Runtime
+- **Where:** `crates/xsh-root/src/mutate.rs` (`read_dir`), `crates/xsh-root/src/macos.rs` (`open_readable_dir`), `core/du.xsh`; tests `core/tests/test-du.xsh` (`reports_children_blocked_by_directory_search_permissions`), `core/tests/test-gnu-du.xsh` (`inacc_dest_log`, `no_x_log`), `core/tests/test-uu-du-1.xsh` (`du_inaccessible_directory`, `du_no_exec_permission`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19), `fs.open_root` of a readable but unsearchable directory (mode 0600) succeeds, but `children(".")` reports `enumeration_succeeded: false` with errno 20. `read_dir` hands the descriptor to rustix `Dir::read_from`, which reopens it with `openat(fd, ".")`; that lookup needs search permission, which the directory denies. du therefore prints `cannot read directory 'd/no-x': Not a directory` where GNU lists the names and reports `cannot access 'd/no-x/y': Permission denied`.
+- **Recommendation:** Enumerate from an independent open file description without a path lookup inside the directory: on macOS, reopen the directory from its parent (the root already knows it) or use `fdopendir` on a fresh descriptor and `rewinddir` before reading, so the root's own offset is never shared. Keep Linux unchanged.
+- **Acceptance:** The listed du tests pass on native macOS, a new xsh-root test lists a mode-0600 directory on both platforms, and Linux results are unchanged.
+- **Fix with:** os-boundaries
+- **Effort:** M
