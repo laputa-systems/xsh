@@ -116,6 +116,10 @@ inductive SourceExpression where
   | recordLocal (target : String) (fields : List (String × SourceValue)) (result : RecordValue)
   deriving DecidableEq, Repr
 
+def SourceExpression.isRecordLocal : SourceExpression → Bool
+  | .recordLocal _ _ _ => true
+  | _ => false
+
 /-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
 structure SourcePropagation where
   target : String
@@ -553,15 +557,35 @@ def functionsAdmitted (functions : List SourceFunction) : Bool :=
         admitted && go (earlier ++ [function]) rest
   go [] functions
 
+def functionsAvoidRecordCalls (functions : List SourceFunction) : Bool :=
+  let rec go (earlier : List SourceFunction) : List SourceFunction → Bool
+    | [] => true
+    | function :: rest =>
+        let allowed := match function.result with
+          | .call callee _ =>
+              match earlier.find? (fun found => found.name == callee) with
+              | some found => !found.result.isRecordLocal
+              | none => true
+          | _ => true
+        allowed && go (earlier ++ [function]) rest
+  go [] functions
+
 /-- The admitted source productions, from the character codes of the source. -/
 def parseSourceCodes (codes : List Nat) : Option (List SourceFunction) := do
   let tokens ← tokenize (codes.length + 1) codes
   let functions ← parseFunctions (tokens.length + 1) tokens
-  if functionsAdmitted functions then some functions else none
+  if functionsAdmitted functions && functionsAvoidRecordCalls functions then some functions else none
 
 /-- The admitted source productions, from exact source bytes. -/
 def parseSource (text : String) : Option (List SourceFunction) :=
   parseSourceCodes (text.toList.map Char.toNat)
+
+set_option maxRecDepth 10000 in
+theorem a_record_local_function_cannot_be_called :
+    parseSource ("pure spans(value: Int) -> Int {\n  let box = {low: value - 3}\n" ++
+      "  return box.low\n}\n\npure calls(value: Int) -> Int {\n" ++
+      "  return spans(value)\n}\n") = none := by
+  decide +kernel
 
 set_option maxRecDepth 10000 in
 theorem record_local_function_parses :

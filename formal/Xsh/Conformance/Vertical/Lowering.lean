@@ -16,10 +16,6 @@ def SourceExpression.isAssigned : SourceExpression → Bool
   | .assigned _ _ _ => true
   | _ => false
 
-def SourceExpression.isRecordLocal : SourceExpression → Bool
-  | .recordLocal _ _ _ => true
-  | _ => false
-
 /-- The slots a computed-let sequence binds: the parameter is slot 0 and the bindings take the
 slots after the exporter's reserved one, in source order. Every binding name is distinct from the
 parameter and from the other bindings. -/
