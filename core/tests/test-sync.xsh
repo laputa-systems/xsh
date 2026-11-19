@@ -17,12 +17,14 @@ test test_sync_errors_continue_and_data_needs_files { |ctx|
   assert run_applet(ctx, root, ["--data"])?.status == 1
   fp"{root}/file".write("data")
   assert run_applet(ctx, root, ["file"])?.status == 0
+  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   assert run_applet(ctx, root, ["--data", "file"])?.status == 0
   assert run_applet(ctx, root, ["--file-system", "file"])?.status == 0
 }
 
 
 test test_sync_data_fifo_reports_invalid_argument { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   test.timeout(ctx, 2s)
   let root = test.temp_dir(ctx, name: "sync-fifo")?
   fs.mkfifo(fp"{root}/fifo", 0o600)
