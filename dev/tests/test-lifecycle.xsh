@@ -892,6 +892,7 @@ exit 0
 }
 
 test test_every_container_a_run_started_is_removed_by_id_from_its_registry { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-registry")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -927,6 +928,7 @@ print "removed"
 }
 
 test test_a_cancelled_gate_removes_its_containers_before_the_runtime_kills_the_client { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-cancel")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1051,6 +1053,7 @@ match docker.remove_owned_container(ctx, p"{cidfile}") {{
 }
 
 test test_a_gate_that_fails_before_launching_leaves_no_container_registry { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-no-launch")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1078,6 +1081,7 @@ match docker.run_internal_status(ctx, "gate-lane", false, []) {{
 }
 
 test test_a_cancelled_gate_removes_a_container_only_after_its_children_had_their_grace { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-order")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1167,6 +1171,7 @@ proc main() [fs, process, env, time, error, io] {{
 }
 
 test test_an_unverifiable_removal_is_reported_with_the_id_and_the_manual_command { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-unverified")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -1226,6 +1231,7 @@ match docker.remove_owned_container(ctx, p"{root}/container.cid", query_timeout_
 }
 
 test test_a_registry_of_a_dead_run_is_swept_and_a_live_one_is_kept { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("Docker gate registry requires Linux /proc"); return }
   let root = test.temp_dir(ctx, name: "docker-sweep")?
   let tools = fp"{root}/tools"
   tools.mkdir()
