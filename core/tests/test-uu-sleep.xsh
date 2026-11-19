@@ -2,6 +2,7 @@
 
 use support.sleep_signals
 use support.uu
+use support.requires
 
 # Process measurements use a monotonic elapsed counter and keep both streams.
 proc timed_sleep(s: uu.Scene, args: List[Str], minimum_ns: Int) [fs, process, env, time, error] {
@@ -123,24 +124,28 @@ test test_uu_sleep_sleep_when_multiple_input_some_with_error_then_shows_all_erro
 
 # origin: uutils test_sleep::test_sleep_stops_after_sigsegv
 test test_uu_sleep_sleep_stops_after_sigsegv { |ctx|
+  requires.linux_kernel("macOS lacks the Linux procfs signal-disposition readiness fixture")
   let s = uu.scene(ctx)?
   signaled_sleep(s, ["100"], "SEGV", 11)
 }
 
 # origin: uutils test_sleep::test_sleep_stops_after_sigbus
 test test_uu_sleep_sleep_stops_after_sigbus { |ctx|
+  requires.linux_kernel("macOS lacks the Linux procfs signal-disposition readiness fixture")
   let s = uu.scene(ctx)?
   signaled_sleep(s, ["100"], "BUS", 7)
 }
 
 # origin: uutils test_sleep::test_sleep_when_single_input_exceeds_max_duration_then_no_error
 test test_uu_sleep_sleep_when_single_input_exceeds_max_duration_then_no_error { |ctx|
+  requires.linux_kernel("macOS lacks the Linux procfs signal-disposition readiness fixture")
   let s = uu.scene(ctx)?
   signaled_sleep(s, ["18446744073709551616"], "KILL", 9)
 }
 
 # origin: uutils test_sleep::test_sleep_when_multiple_inputs_exceed_max_duration_then_no_error
 test test_uu_sleep_sleep_when_multiple_inputs_exceed_max_duration_then_no_error { |ctx|
+  requires.linux_kernel("macOS lacks the Linux procfs signal-disposition readiness fixture")
   let s = uu.scene(ctx)?
   signaled_sleep(s, ["18446744073709551615", "1"], "KILL", 9)
 }

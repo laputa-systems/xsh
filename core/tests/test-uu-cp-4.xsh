@@ -104,6 +104,7 @@ test test_uu_cp_cp_p_does_not_preserve_xattr_by_default { |ctx|
 
 # origin: uutils test_cp::test_cp_p_preserves_posix_acls
 test test_uu_cp_cp_p_preserves_posix_acls { |ctx|
+  requires.linux_kernel("Linux POSIX ACL xattr encoding is unavailable on macOS")
   let s = uu.scene(ctx)?
   uu.touch(s, "src")
   # Linux POSIX ACL encoding: owner, named user bin, group, mask, other.
@@ -820,6 +821,7 @@ test test_uu_cp_cp_reflink_always { |ctx|
 
 # origin: uutils test_cp::test_cp_reflink_always_failure
 test test_uu_cp_cp_reflink_always_failure { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "cp", ["--reflink=always", "/dev/null", "/dev/full"])?
   uu.fails(r)
@@ -856,6 +858,7 @@ test test_uu_cp_cp_reflink_auto { |ctx|
 
 # origin: uutils test_cp::test_cp_reflink_never
 test test_uu_cp_cp_reflink_never { |ctx|
+  if system.uname()?.sysname != "Linux" and process.which("filefrag") is Err(_) { test.skip("filefrag is unavailable"); return }
   let s = uu.scene(ctx)?
   fixtures(s)
   for argument in ["--reflink=never", "--reflink=neve", "--reflink=n"] {
@@ -924,6 +927,7 @@ test test_uu_cp_cp_single_file { |ctx|
 
 # origin: uutils test_cp::test_cp_socket
 test test_uu_cp_cp_socket { |ctx|
+  requires.linux_kernel("macOS mknod cannot create socket nodes")
   let s = uu.scene(ctx)?
   fs.mknod(uu.at(s, "socket"), "socket", 0o600)
   uu.set_mode(s, "socket", 0o731)

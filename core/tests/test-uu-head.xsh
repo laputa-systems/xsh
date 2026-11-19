@@ -447,6 +447,7 @@ test test_uu_head_all_but_last_lines_large_file { |ctx|
 
 # origin: uutils test_head::test_read_backwards_bytes_proc_fs_version
 test test_uu_head_read_backwards_bytes_proc_fs_version { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["-c", "-1", "/proc/version"], stdin: b"")?
   uu.succeeds(r)
@@ -455,6 +456,7 @@ test test_uu_head_read_backwards_bytes_proc_fs_version { |ctx|
 
 # origin: uutils test_head::test_read_backwards_bytes_proc_fs_modules
 test test_uu_head_read_backwards_bytes_proc_fs_modules { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["-c", "-1", "/proc/modules"], stdin: b"")?
   uu.succeeds(r)
@@ -463,6 +465,7 @@ test test_uu_head_read_backwards_bytes_proc_fs_modules { |ctx|
 
 # origin: uutils test_head::test_read_backwards_lines_proc_fs_modules
 test test_uu_head_read_backwards_lines_proc_fs_modules { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["--lines", "-1", "/proc/modules"], stdin: b"")?
   uu.succeeds(r)
@@ -471,6 +474,7 @@ test test_uu_head_read_backwards_lines_proc_fs_modules { |ctx|
 
 # origin: uutils test_head::test_read_backwards_bytes_sys_kernel_profiling
 test test_uu_head_read_backwards_bytes_sys_kernel_profiling { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs or sysfs virtual files")
   let s = uu.scene(ctx)?
   if p"/sys/kernel/profiling".is_file() {
   let r = uu.invoke(s, "head", ["-c", "-1", "/sys/kernel/profiling"], stdin: b"")?

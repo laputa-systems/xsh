@@ -87,9 +87,7 @@ proc start(s: uu.Scene, args: List[Str], held_stdin = false) [fs, process, env, 
 }
 
 proc alive(p: Live) [fs, process, error] {
-  process.kill(p.child.pid, signal: "0")
-  let stat = fp"/proc/{p.child.pid}/stat".read_text()?
-  assert ") Z " not in stat and ") X " not in stat, "tail must remain alive"
+  assert process.wait_timeout([p.child], 0ms)? == null, "tail must remain alive"
   Ok()
 }
 
