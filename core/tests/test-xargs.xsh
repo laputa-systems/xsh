@@ -126,6 +126,13 @@ test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
 # A command word and an -a file name that are not valid UTF-8 reach the
 # command unchanged.
 test test_xargs_accepts_non_utf8_command_and_file { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "xargs-raw-operands")?
   let list = bytes.concat([root.bytes(), b"/l\xff"]) as Path
   list.write("one two\n")

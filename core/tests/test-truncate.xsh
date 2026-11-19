@@ -81,6 +81,13 @@ test test_truncate_invalid_size_diagnostic_stays_plain { |ctx|
 }
 
 test test_truncate_non_utf8_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "truncate-invalid-utf8")?.resolve()?
   let target = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   target.write("test content")
@@ -94,6 +101,13 @@ test test_truncate_non_utf8_paths { |ctx|
 }
 
 test test_truncate_non_utf8_reference_path { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "truncate-reference-invalid-utf8")?.resolve()?
   let reference = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   let target = fp"{root}/target"

@@ -226,6 +226,13 @@ test test_gnu_ls_non_utf8_hidden_log { |ctx|
 
 # C name ordering must use filesystem bytes even when lossy UTF-8 keys collide.
 test test_gnu_ls_c_byte_order_sorts_invalid_utf8_names { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"aa\xfe")?.write(b"")
   uu.at_bytes(s, b"aa\xff")?.write(b"")

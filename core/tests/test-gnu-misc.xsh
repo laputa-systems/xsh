@@ -107,6 +107,10 @@ test test_gnu_misc_echo_log { |ctx|
 
 # origin: gnu misc/false-status.log
 test test_gnu_misc_false_status_log { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   for option in ["--version", "--help"] {
     uu.fails_with_code(uu.invoke(s, "false", [option], stdout: p"/dev/null")?, 1)
@@ -394,6 +398,10 @@ test test_gnu_misc_yes_log { |ctx|
 
 # origin: gnu misc/close-stdout.log
 test test_gnu_misc_close_stdout_log { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   uu.touch(s, "a")
   for entry in [

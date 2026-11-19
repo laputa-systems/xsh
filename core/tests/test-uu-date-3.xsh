@@ -77,6 +77,10 @@ test test_uu_date_single_dash_as_date_string { |ctx|
 
 # origin: uutils test_date::test_write_error
 test test_uu_date_write_error { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "date", [], stdout: p"/dev/full")?
   uu.fails_with_code(r, 1)

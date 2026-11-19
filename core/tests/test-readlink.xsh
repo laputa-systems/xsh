@@ -46,6 +46,13 @@ test test_readlink_without_a_file_reports_required_argument { |ctx|
 }
 
 test test_readlink_accepts_non_utf8_symlink_names { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "readlink-invalid-utf8")?.resolve()?
   let target = bytes.concat([root.bytes(), b"/target_file"]) as Path
   let link = bytes.concat([root.bytes(), b"/symlink_\xff\xfe"]) as Path

@@ -29,6 +29,10 @@ test test_uu_uniq_case2 { |ctx|
 
 # origin: uutils test_uniq::test_failed_write_is_reported
 test test_uu_uniq_failed_write_is_reported { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uniq", ["-z"], stdin: b"hello", stdout: p"/dev/full")?
   uu.fails(r)

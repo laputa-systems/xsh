@@ -135,6 +135,10 @@ test test_efibootmgr_reports_missing_boot_order_and_unparseable_entries { |ctx|
 }
 
 test test_efibootmgr_boot_order_writes_whole_variable_and_validates_entries { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = fixture(ctx, "efibootmgr-order")
   let written = invoke(ctx, dir, ["-o", "0002,0000"])
   assert written.status == 0, written.stderr
@@ -212,6 +216,10 @@ test test_efibootmgr_delete_by_label_removes_every_match { |ctx|
 }
 
 test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = fixture(ctx, "efibootmgr-active")
   let enabled = invoke(ctx, dir, ["-b", "0002", "-a"])
   assert enabled.status == 0, enabled.stderr
@@ -292,6 +300,10 @@ proc snapshot(dir: Path) [fs, error] -> Str {
 }
 
 test test_efibootmgr_create_builds_hard_drive_and_file_path_entry { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = fixture(ctx, "efibootmgr-create")
   let image = disk_image(ctx, "efibootmgr-create.img", "gpt")
   let created = invoke(ctx, dir, ["-c", "-d", image.display(), "-p", "1", "-L", "Test Entry", "-l", "/EFI/test/x.efi"])
@@ -304,6 +316,10 @@ test test_efibootmgr_create_builds_hard_drive_and_file_path_entry { |ctx|
 }
 
 test test_efibootmgr_create_honors_index_create_only_and_explicit_number { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = fixture(ctx, "efibootmgr-create-index")
   let image = disk_image(ctx, "efibootmgr-create-index.img", "gpt")
   let indexed = invoke(ctx, dir, ["-c", "-d", image.display(), "-I", "1", "-L", "Second"])
@@ -337,6 +353,10 @@ test test_efibootmgr_create_warns_about_duplicate_labels_and_fills_a_missing_ord
 }
 
 test test_efibootmgr_create_dos_table_uses_signature_node { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = test.temp_dir(ctx, name: "efibootmgr-create-dos")?
   let image = disk_image(ctx, "efibootmgr-create-dos.img", "dos")
   let created = invoke(ctx, dir, ["-c", "-d", image.display(), "-p", "2"])
@@ -345,6 +365,10 @@ test test_efibootmgr_create_dos_table_uses_signature_node { |ctx|
 }
 
 test test_efibootmgr_create_file_dev_path_and_optional_data { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("efibootmgr needs Linux EFI primitives")
+    return
+  }
   let dir = test.temp_dir(ctx, name: "efibootmgr-create-data")?
   let plain = invoke(ctx, dir, ["-c", "--file-dev-path", "-l", "\\shim.efi", "root=/dev/sda2", "quiet"])
   assert plain.status == 0, plain.stderr

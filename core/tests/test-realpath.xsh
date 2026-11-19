@@ -48,6 +48,13 @@ test test_realpath_empty_relative_options_fail { |ctx|
 }
 
 test test_realpath_accepts_non_utf8_existing_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "realpath-invalid-utf8")?.resolve()?
   let target = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   target.write("ok")

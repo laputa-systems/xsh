@@ -145,6 +145,10 @@ test test_taskset_reports_the_affinity_of_a_process_as_mask_and_list { |ctx|
 }
 
 test test_taskset_changes_the_affinity_of_another_process { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let cpus = process.affinity()?
 
   if cpus.len() < 2 {
@@ -192,6 +196,10 @@ test test_taskset_runs_a_command_under_a_mask_or_a_list { |ctx|
 }
 
 test test_taskset_list_output_uses_ranges_and_strides_as_util_linux_does { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let allowed = process.affinity()?
   var ran = 0
 
@@ -210,6 +218,10 @@ test test_taskset_list_output_uses_ranges_and_strides_as_util_linux_does { |ctx|
 }
 
 test test_taskset_mask_parsing_accepts_prefixes_commas_and_case { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let allowed = process.affinity()?
   let cases = [
     {mask: "5", cpus: [0, 2]},
@@ -314,6 +326,10 @@ test test_taskset_pid_and_operand_errors { |ctx|
 }
 
 test test_taskset_a_plus_sign_and_leading_zeros_are_pids { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let pid = process.current_pid()?
   let plus = taskset_run(ctx, ["-p", f"+{pid}"])?
   assert plus.status == 0, plus.stderr
@@ -341,6 +357,10 @@ test test_taskset_missing_and_unrunnable_commands { |ctx|
 }
 
 test test_taskset_command_status_is_the_exit_status { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("taskset needs Linux CPU affinity")
+    return
+  }
   let cpus = process.affinity()?
   assert taskset_run(ctx, ["-c", f"{cpus[0]}", "sh", "-c", "exit 7"])?.status == 7
   assert taskset_run(ctx, ["-c", f"{cpus[0]}", "false"])?.status == 1

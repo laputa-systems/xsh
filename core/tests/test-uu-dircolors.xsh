@@ -173,6 +173,13 @@ test test_uu_dircolors_invalid_term_glob { |ctx|
 
 # origin: uutils test_dircolors::test_dircolors_non_utf8_paths
 test test_uu_dircolors_dircolors_non_utf8_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"NORMAL 00\n*.txt 32\n")

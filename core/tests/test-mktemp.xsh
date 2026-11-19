@@ -59,6 +59,13 @@ test test_mktemp_option_terminator_keeps_dash_p_as_template { |ctx|
 }
 
 test test_mktemp_non_utf8_template_is_preserved { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "mktemp-template-bytes")?
   let pattern = b"template_\xff\xfe_XXXXXX" as Path
   let args: List[Union[Str, Path]] = [pattern]
@@ -71,6 +78,13 @@ test test_mktemp_non_utf8_template_is_preserved { |ctx|
 }
 
 test test_mktemp_non_utf8_tmpdir_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "mktemp-tmpdir-bytes")?
   let directory = bytes.concat([root.bytes(), b"/dir_\xff\xfe"]) as Path
   directory.mkdir(parents: false)
@@ -90,6 +104,13 @@ test test_mktemp_non_utf8_tmpdir_paths { |ctx|
 }
 
 test test_mktemp_non_utf8_suffix { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "mktemp-suffix-bytes")?
   let suffix = b"\xc3|\xed\xba\xad" as Path
   let args: List[Union[Str, Path]] = ["-p", root, "--suffix", suffix, "tmpXXXXXX"]
@@ -101,6 +122,13 @@ test test_mktemp_non_utf8_suffix { |ctx|
 }
 
 test test_mktemp_creates_directory_under_non_utf8_tmpdir { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "mktemp-dir-bytes")?
   let parent = bytes.concat([root.bytes(), b"/parent_\xff\xfe"]) as Path
   parent.mkdir(parents: false)

@@ -198,6 +198,10 @@ test test_nc_refuses_unimplemented_options_by_name { |ctx|
 }
 
 test test_nc_client_sends_stdin_and_prints_the_reply { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-client")?
@@ -401,6 +405,10 @@ test test_nc_interval_waits_between_ports { |ctx|
 # A listener whose accept queue is full drops further SYNs, which is how a
 # silent peer looks to connect(2) on loopback.
 test test_nc_connect_timeout_is_reported_by_name { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let c = linux.net_constants()
   let held = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(held)
@@ -491,6 +499,10 @@ test test_nc_receive_limit_ends_the_session { |ctx|
 }
 
 test test_nc_crlf_adds_a_carriage_return_before_bare_newlines { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-crlf")?
@@ -504,6 +516,10 @@ test test_nc_crlf_adds_a_carriage_return_before_bare_newlines { |ctx|
 }
 
 test test_nc_detached_stdin_is_not_sent { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-detached")?
@@ -553,6 +569,10 @@ test test_nc_idle_timeout_ends_a_quiet_session { |ctx|
 }
 
 test test_nc_answers_telnet_negotiation { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-telnet")?
@@ -583,6 +603,10 @@ test test_nc_answers_telnet_negotiation { |ctx|
 }
 
 test test_nc_binds_the_requested_source_port { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let source = closed_port()?

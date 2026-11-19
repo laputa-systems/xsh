@@ -57,6 +57,10 @@ proc assert_hop(line: Str, index: Int, address: Str, probes: Int) [error] {
 }
 
 test test_traceroute_default_udp_reaches_loopback_in_one_hop { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("traceroute needs Linux socket primitives")
+    return
+  }
   let ran = traceroute(ctx, ["-n", "127.0.0.1"])?
   let lines = ran.stdout.lines()
 
@@ -152,6 +156,10 @@ test test_traceroute_ipv6_loopback { |ctx|
 }
 
 test test_traceroute_address_family_flags_follow_the_literal { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("traceroute needs Linux socket primitives")
+    return
+  }
   let v6_only = traceroute(ctx, ["-4", "::1"])?
   assert v6_only.status == 2
   assert v6_only.stdout == ""
@@ -166,6 +174,10 @@ test test_traceroute_address_family_flags_follow_the_literal { |ctx|
 }
 
 test test_traceroute_hop_range_and_probe_count { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("traceroute needs Linux socket primitives")
+    return
+  }
   let ran = traceroute(ctx, ["-n", "-q1", "-m3", "-f2", "127.0.0.1"])?
   let lines = ran.stdout.lines()
 
@@ -239,6 +251,10 @@ test test_traceroute_udp_port_advances_per_probe_unless_fixed { |ctx|
 }
 
 test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("traceroute needs Linux socket primitives")
+    return
+  }
   let c = linux.net_constants()
   let listener = open_udp("inet", "127.0.0.1", 0)?
   defer unix.close_fd(listener)
@@ -267,6 +283,10 @@ test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
 }
 
 test test_traceroute_gateway_adds_a_source_route { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("traceroute needs Linux socket primitives")
+    return
+  }
   let ran = traceroute(ctx, ["-n", "-q1", "-m1", "-w", "0.2", "-g", "127.0.0.1", "127.0.0.1"])?
 
   if ran.status != 0 {

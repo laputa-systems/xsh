@@ -32,6 +32,10 @@ test test_uu_uptime_uptime_for_file_without_utmpx_records { |ctx|
 
 # origin: uutils test_uptime::test_uptime_with_dir
 test test_uu_uptime_uptime_with_dir { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("uptime needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "dir1")
   let r = uu.invoke(s, "uptime", ["dir1"])?
@@ -57,6 +61,10 @@ test test_uu_uptime_uptime_with_fifo { |ctx|
 
 # origin: uutils test_uptime::test_uptime_with_non_existent_file
 test test_uu_uptime_uptime_with_non_existent_file { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("uptime needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uptime", ["file1"])?
   uu.fails(r)

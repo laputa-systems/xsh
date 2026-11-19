@@ -314,6 +314,10 @@ test test_uu_cat_piped_to_dev_full { |ctx|
 
 # origin: uutils test_cat::test_domain_socket
 test test_uu_cat_domain_socket { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket primitives")
+    return
+  }
   let s = uu.scene(ctx)?
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
@@ -349,6 +353,13 @@ test test_uu_cat_exit_code_is_one_regardless_of_error_count { |ctx|
 
 # origin: uutils test_cat::test_cat_non_utf8_paths
 test test_uu_cat_cat_non_utf8_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   let input_path = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   input_path.write("Hello, non-UTF-8 world!\n")

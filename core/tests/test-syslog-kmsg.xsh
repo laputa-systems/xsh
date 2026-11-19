@@ -67,6 +67,10 @@ test test_a_message_with_arbitrary_bytes_is_kept_byte_for_byte {
 }
 
 test test_each_read_of_the_device_returns_one_whole_record_and_an_empty_queue_ends_the_drain {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket and kernel log primitives")
+    return
+  }
   let fd = bound_socket(f"kmsg-drain-{process.current_pid()?}")?
   defer unix.close_fd(fd)
   let name = f"kmsg-drain-{process.current_pid()?}"
@@ -81,6 +85,10 @@ test test_each_read_of_the_device_returns_one_whole_record_and_an_empty_queue_en
 }
 
 test test_the_drain_stops_at_its_limit_and_leaves_the_rest_queued {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket and kernel log primitives")
+    return
+  }
   let name = f"kmsg-limit-{process.current_pid()?}"
   let fd = bound_socket(name)?
   defer unix.close_fd(fd)
@@ -90,6 +98,10 @@ test test_the_drain_stops_at_its_limit_and_leaves_the_rest_queued {
 }
 
 test test_epipe_is_an_overrun_eagain_is_empty_and_other_errors_are_reported {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux socket and kernel log primitives")
+    return
+  }
   match kmsg.classify(failure_of(unix.write_fd(2147483647, b"x"))) {
     Ok(_) => assert false, "EBADF must not be swallowed"
     Err(failure) => assert failure.errno == 9

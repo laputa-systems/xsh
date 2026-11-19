@@ -21,6 +21,13 @@ proc wrapped(s: uu.Scene, args: List[Str], prefix: List[Path]) [fs, process, env
 
 # origin: gnu mktemp/bad-unicode.log
 test test_gnu_mktemp_bad_unicode_log { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   let bad = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
   uu.at_bytes(s, bad)?.write("a\n")
@@ -51,6 +58,10 @@ test test_gnu_mktemp_bad_unicode_log { |ctx|
 
 # origin: gnu mktemp/mktemp-misc.log
 test test_gnu_mktemp_mktemp_misc_log { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the test needs Linux setarch and strace")
+    return
+  }
   let s = uu.scene(ctx)?
   let prefix = [p"setarch", p"-R"]
   let first = wrapped(s, ["-u", "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"], prefix)?

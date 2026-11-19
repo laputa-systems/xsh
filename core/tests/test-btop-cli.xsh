@@ -96,6 +96,10 @@ test test_btop_headless_model_dump_encodes_wide_counters_as_decimal_strings { |c
 }
 
 test test_btop_headless_replay_syscall_trace_has_no_child_or_sleep { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("xsht trace --syscalls requires Linux")
+    return
+  }
   let bundle = fs.tempdir()?
   defer bundle.close()
   fixture.write_b3_bundle(
@@ -122,6 +126,10 @@ test test_btop_headless_replay_syscall_trace_has_no_child_or_sleep { |ctx|
 }
 
 test test_btop_live_source_syscall_trace_has_no_child_process { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("xsht trace --syscalls requires Linux")
+    return
+  }
   let source = """
 use core.lib.btop_source as source
 let root = fs.open_root(p"/")?

@@ -134,6 +134,10 @@ test test_unshare_rejects_invalid_arguments { |ctx|
 }
 
 test test_unshare_fails_when_the_kernel_refuses { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("unshare needs Linux namespaces")
+    return
+  }
   if user.current()?.uid == 0 { test.skip("a privileged caller is not refused"); return }
   # A mount namespace needs CAP_SYS_ADMIN unless a user namespace comes with it.
   let ran = invoke(ctx, ["-m", "true"])?

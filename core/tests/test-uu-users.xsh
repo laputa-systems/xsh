@@ -11,6 +11,10 @@ test test_uu_users_invalid_arg { |ctx|
 
 # origin: uutils test_users::test_users_no_arg
 test test_uu_users_users_no_arg { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("users needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "users", [])?
   uu.succeeds(r)

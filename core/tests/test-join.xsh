@@ -147,6 +147,13 @@ test test_join_non_utf8_separator { |ctx|
 }
 
 test test_join_non_utf8_file_names { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "join-raw-names")?
   Path.parse_bytes(bytes.concat([root.bytes(), b"/one-\xff\xfe.txt"]))?.write(b"a 1\n")
   Path.parse_bytes(bytes.concat([root.bytes(), b"/two-\xff\xfe.txt"]))?.write(b"a 2\n")

@@ -14,6 +14,13 @@ test test_unlink_removes_link_and_refuses_directory { |ctx|
 }
 
 test test_unlink_accepts_non_utf8_operand { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "unlink-raw-path")?
   let target = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   target.write("remove")
@@ -58,6 +65,13 @@ test test_unlink_extra_operand_reports_gnu_usage_error { |ctx|
 }
 
 test test_unlink_removes_non_utf8_operand { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx)?
   let target = bytes.concat([root.bytes(), b"/target\xff\xfe"]) as Path
   target.write("payload")

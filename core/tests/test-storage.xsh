@@ -396,6 +396,10 @@ pure disk_heading(image: Path, label: Str, identifier: Str) -> List[Str] {
 # heading, and every other field keeps util-linux's fixed alignment. Test image
 # names end in a digit, so their partition nodes carry the `p` separator.
 test test_storage_fdisk_list_reports_the_util_linux_layout_for_gpt_and_dos { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("fdisk needs Linux disk primitives")
+    return
+  }
   let gpt = partitioned_image(ctx, "gpt")
   let before = gpt.read_bytes()?
   let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}"])
@@ -410,6 +414,10 @@ test test_storage_fdisk_list_reports_the_util_linux_layout_for_gpt_and_dos { |ct
 }
 
 test test_storage_fdisk_list_selects_columns_and_names_the_ones_a_label_lacks { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("fdisk needs Linux disk primitives")
+    return
+  }
   let gpt = partitioned_image(ctx, "gpt")
   let identity = run_real(ctx, "fdisk", ["-l", "-o", "device,name,UUID,Type-UUID", f"{gpt}"])
   assert identity.success, identity.stderr
@@ -466,6 +474,10 @@ test test_storage_partition_listings_agree_on_extents { |ctx|
 }
 
 test test_storage_fdisk_lists_unpartitioned_image_without_rows { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("fdisk needs Linux disk primitives")
+    return
+  }
   let image = test.temp_file(ctx, name: "fdisk-blank.img", contents: b"")?
   image.truncate(1048576)
   let listed = run_real(ctx, "fdisk", ["-l", f"{image}"])
@@ -536,6 +548,10 @@ test test_storage_sfdisk_dump_refuses_an_image_without_a_partition_table { |ctx|
 }
 
 test test_storage_fdisk_refuses_editing_and_unsupported_listing_modes_without_writing { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("fdisk needs Linux disk primitives")
+    return
+  }
   let image = partitioned_image(ctx, "gpt")
   let before = image.read_bytes()?
   let session = run_real(ctx, "fdisk", [f"{image}"], b"d\n1\nw\n")

@@ -200,6 +200,13 @@ test test_md5sum_missing_check_path_keeps_original_name { |ctx|
 # A one-space record selects alternate format, whose later records allow
 # indentation while preserving a leading star as part of the filename.
 test test_md5sum_alternate_format_accepts_indented_records { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "indented-alternate-check")?
   let file = fp"{root}/a"
   let starred = fp"{root}/*c"

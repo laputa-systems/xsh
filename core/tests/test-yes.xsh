@@ -55,6 +55,10 @@ test test_yes_help_version_and_invalid_options { |ctx|
 }
 
 test test_yes_write_errors_name_standard_output { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let root = test.temp_dir(ctx, name: "yes-full")?
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/yes.xsh"

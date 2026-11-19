@@ -250,6 +250,10 @@ test test_ss_no_queues_and_oneline_layouts { |ctx|
 }
 
 test test_ss_extended_and_timer_text { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("ss needs Linux netlink sockets")
+    return
+  }
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -366,6 +370,10 @@ test test_ss_resolves_names_from_the_configured_databases { |ctx|
 }
 
 test test_ss_filter_expressions_combine_ports_and_prefixes { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("ss needs Linux netlink sockets")
+    return
+  }
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -500,6 +508,10 @@ test test_net_sockets_counter_text_follows_the_reference_tool {
 }
 
 test test_net_sockets_summary_counts_the_scene {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("ss needs Linux netlink sockets")
+    return
+  }
   let scene = build_scene()?
   defer close_scene(scene)
   let counts = sockets.summary()?
@@ -520,6 +532,10 @@ test test_net_sockets_resolve_cgroup_ids_through_the_unified_hierarchy {
 }
 
 test test_net_sockets_raw_dump_falls_back_to_procfs_only_without_a_handler { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("ss needs Linux netlink sockets")
+    return
+  }
   # A kernel without raw_diag ends the dump with ENOENT. Raw sockets then come
   # from procfs, while the same ending for any other protocol is an error.
   let fixture = test.temp_file(ctx, name: "diag.jsonl", contents: b"")?

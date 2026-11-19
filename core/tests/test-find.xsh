@@ -114,8 +114,26 @@ proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] {
   Ok()
 }
 
-test test_find_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0) }
-test test_find_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1) }
+test test_find_matches_recorded_gnu_output_0 { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
+  check_share(ctx, 0)
+}
+test test_find_matches_recorded_gnu_output_1 { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
+  check_share(ctx, 1)
+}
 test test_find_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2) }
 test test_find_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
 test test_find_matches_recorded_gnu_output_4 { |ctx| check_share(ctx, 4) }
@@ -124,6 +142,13 @@ test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5) }
 # Operands that are not valid UTF-8 reach the applet as raw bytes: start
 # points, name patterns and -exec arguments are matched and passed unchanged.
 test test_find_accepts_non_utf8_operands { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "find-raw-operands")?
   let dir = bytes.concat([root.bytes(), b"/d\xff"]) as Path
   dir.mkdir()

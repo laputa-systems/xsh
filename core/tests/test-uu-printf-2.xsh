@@ -391,6 +391,10 @@ test test_uu_printf_emoji_formatting { |ctx|
 
 # origin: uutils test_printf::test_empty_output_succeeds_on_full_device
 test test_uu_printf_empty_output_succeeds_on_full_device { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", [""], stdout: p"/dev/full")?
   uu.succeeds(r0)

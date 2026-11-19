@@ -170,6 +170,10 @@ test test_nsenter_relays_exit_status_and_signal { |ctx|
 }
 
 test test_nsenter_reports_what_it_cannot_do { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("nsenter needs Linux namespaces")
+    return
+  }
   let none = nsenter(ctx, ["-t", "1", "true"])?
   assert none.status == 1
   assert none.stderr == "nsenter: no namespace specified\n"

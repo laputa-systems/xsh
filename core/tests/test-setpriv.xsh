@@ -192,6 +192,10 @@ test test_setpriv_values_are_validated_before_anything_changes { |ctx|
 }
 
 test test_setpriv_dump_layout_matches_util_linux { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("setpriv needs Linux capabilities")
+    return
+  }
   # The layout util-linux prints, down to labels, "[none]" and comma lists.
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let me = unix.id()?
@@ -258,6 +262,10 @@ test test_setpriv_pdeathsig_keep_and_clear_act_on_an_inherited_signal { |ctx|
 }
 
 test test_setpriv_inheritable_and_ambient_edits_start_from_the_current_sets { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("setpriv needs Linux capabilities")
+    return
+  }
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let emptied = setpriv(ctx, ["--inh-caps=-all", "--ambient-caps=-all", ctx.xsh_bin.display(), child])?
   assert emptied.status == 0, emptied.stderr

@@ -24,6 +24,10 @@ test test_gnu_nice_nice_fail_log { |ctx|
 
 # origin: gnu nice/nice.log
 test test_gnu_nice_nice_log { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let s = uu.scene(ctx)?
   let baseline = uu.invoke(s, "nice", [])?
   uu.succeeds(baseline)

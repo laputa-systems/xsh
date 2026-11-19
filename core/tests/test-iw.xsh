@@ -288,6 +288,10 @@ test test_reg_reload_sends_one_request { |ctx|
 }
 
 test test_dev_lists_interfaces_under_their_phy { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let lines: List[Record] = [
     family_line(),
     dump_line(
@@ -324,6 +328,10 @@ test test_dev_lists_interfaces_under_their_phy { |ctx|
 }
 
 test test_dev_info_resolves_the_name_and_unknown_names_fail_like_iw { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let by_index = single_line(5, [nl.attr_u32(A_IFINDEX, 3)?], [wlan0_reply()?])?
   let lines: List[Record] = [
     family_line(),
@@ -406,6 +414,10 @@ proc phy_messages() [error] -> Result[List[Record], Error] {
 }
 
 test test_list_and_phy_info_merge_a_split_wiphy_dump { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let split = nl.attr_flag(A_SPLIT_WIPHY_DUMP)?
   let by_index = nl.attr_u32(A_WIPHY, 0)?
   let lines = [
@@ -706,6 +718,10 @@ test test_station_dump_and_get_print_every_decoded_field { |ctx|
 }
 
 test test_link_reports_connection_and_not_connected { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let ssid = ie(0, [77, 121, 78, 101, 116])?
   let associated = bss_reply(10, 1, ssid, null)?
   let neighbour = bss_reply(11, null, ssid, null)?
@@ -866,6 +882,10 @@ test test_phy_selectors_by_index_by_name_and_implicit_form { |ctx|
 }
 
 test test_event_prints_subscribed_events_until_the_stream_ends { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let lines: List[Record] = [
     family_line(),
     groups_line()?,
@@ -920,6 +940,10 @@ test test_event_prints_subscribed_events_until_the_stream_ends { |ctx|
 }
 
 test test_missing_nl80211_family_and_unrecorded_requests_fail_loudly { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("iw needs Linux nl80211 sockets")
+    return
+  }
   let absent: List[Record] = [{op: "genl_family", name: "nl80211", errno: 2}]
   let missing = run_iw(ctx, "no-family", absent, ["dev"])?
   assert missing.status == 1 and missing.stderr == "nl80211 not found.\n"

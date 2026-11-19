@@ -103,6 +103,13 @@ test test_cut_unicode_nobreak_spaces_are_not_blank_delimiters { |ctx|
 }
 
 test test_cut_accepts_non_utf8_path_and_delimiter_bytes { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "cut-raw-arguments")?
   let input = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   input.write(b"left\xadright\n")

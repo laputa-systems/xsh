@@ -47,6 +47,13 @@ test test_uu_cksum_check_encoding_check_non_utf8_comment { |ctx|
 
 # origin: uutils test_cksum::check_encoding::test_check_non_utf8_filename
 test test_uu_cksum_check_encoding_check_non_utf8_filename { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"funky\xffname")?
   name.write("")
@@ -69,6 +76,13 @@ test test_uu_cksum_check_encoding_check_non_utf8_filename { |ctx|
 
 # origin: uutils test_cksum::check_encoding::test_quoting_in_stderr
 test test_uu_cksum_check_encoding_quoting_in_stderr { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"FFF\xffDIR")?.mkdir()
   uu.write_bytes(s, "check", b"SHA256 (FFF\xffFFF) = 29953405eaa3dcc41c37d1621d55b6a47eee93e05613e439e73295029740b10c\nSHA256 (FFF\xffDIR) = 29953405eaa3dcc41c37d1621d55b6a47eee93e05613e439e73295029740b10c\n")

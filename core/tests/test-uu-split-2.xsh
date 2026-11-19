@@ -607,6 +607,13 @@ test test_uu_split_write_error_on_full_device { |ctx|
 
 # origin: uutils test_split::test_split_non_utf8_paths
 test test_uu_split_split_non_utf8_paths { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = split_scene(ctx)?
   let file = uu.at_bytes(s, b"\xff\xfe")?
   file.write(b"line1\nline2\nline3\nline4\nline5\n")
@@ -617,6 +624,13 @@ test test_uu_split_split_non_utf8_paths { |ctx|
 
 # origin: uutils test_split::test_split_non_utf8_argument_unix
 test test_uu_split_split_non_utf8_argument_unix { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = split_scene(ctx)?
   random_line_input(s, "test_split_non_utf8_argument", 2000)
   let r = uu.invoke_paths(s, "split", [p"--additional-suffix", b"fo\x80o" as Path, p"test_split_non_utf8_argument"])?
@@ -625,6 +639,13 @@ test test_uu_split_split_non_utf8_argument_unix { |ctx|
 
 # origin: uutils test_split::test_split_non_utf8_prefix_is_byte_preserving
 test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = split_scene(ctx)?
   uu.write(s, "input.txt", "AB")
   uu.write(s, "p�aa", "keep-aa")
@@ -638,6 +659,13 @@ test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
 
 # origin: uutils test_split::test_split_non_utf8_additional_suffix_is_byte_preserving
 test test_uu_split_split_non_utf8_additional_suffix_is_byte_preserving { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let s = split_scene(ctx)?
   uu.write(s, "input.txt", "AB")
   let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", p"--additional-suffix", b"\xff\xfe" as Path])?

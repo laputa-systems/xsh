@@ -1,6 +1,13 @@
 use core.lib.findutils_fixture as fixture
 
 test test_find_corpus_checks_live_directory_size { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "find-directory-size")?
   let work = test.temp_dir(ctx, name: "find-directory-size-output")?
   fixture.build(root)

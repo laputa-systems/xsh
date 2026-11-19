@@ -141,6 +141,13 @@ test test_more_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_more_non_utf8_operand_is_opened_by_its_bytes { |ctx|
+  let utf8_probe_dir = test.temp_dir(ctx, name: "utf8-probe")?
+  let utf8_probe = bytes.concat([utf8_probe_dir.bytes(), b"/probe-\xff"]) as Path
+  if let Err(failure) = utf8_probe.write(b"") {
+    assert (failure.errno ?? 0) in [84, 92], failure.message
+    test.skip("the filesystem refuses file names that are not valid UTF-8")
+    return
+  }
   let root = test.temp_dir(ctx, name: "more-non-utf8")?
   Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"\xff\xfe.txt"]))?.write(b"raw name\n")
 

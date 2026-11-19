@@ -44,6 +44,10 @@ proc boot_stdout() [fs, process, time, error] -> Result[Str, Error] {
 
 # origin: uutils test_who::test_arg1_arg2
 test test_uu_who_arg1_arg2 { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("who needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "who", ["am", "i"])?
   uu.succeeds(r)
@@ -52,6 +56,10 @@ test test_uu_who_arg1_arg2 { |ctx|
 
 # origin: uutils test_who::test_boot
 test test_uu_who_boot { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("who needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   for option in ["-b", "--boot", "--b"] {
     let expected = boot_stdout()?
@@ -63,6 +71,10 @@ test test_uu_who_boot { |ctx|
 
 # origin: uutils test_who::test_dead
 test test_uu_who_dead { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("who needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   for option in ["-d", "--dead", "--de"] {
     let expected = empty_selector("dead_process")?
@@ -80,6 +92,10 @@ test test_uu_who_invalid_arg { |ctx|
 
 # origin: uutils test_who::test_login
 test test_uu_who_login { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("who needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   for option in ["-l", "--login", "--log"] {
     let expected = empty_selector("login_process")?
@@ -91,6 +107,10 @@ test test_uu_who_login { |ctx|
 
 # origin: uutils test_who::test_m
 test test_uu_who_m { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("who needs Linux utmp support")
+    return
+  }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "who", ["-m"])?
   uu.succeeds(r)

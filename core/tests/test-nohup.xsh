@@ -64,6 +64,10 @@ test nohup_combines_input_and_error_redirection_notice { |ctx|
 }
 
 test nohup_full_advisory_output_prevents_command_execution { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("macOS has no /dev/full")
+    return
+  }
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
