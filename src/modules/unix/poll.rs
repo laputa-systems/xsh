@@ -113,10 +113,15 @@ pub(crate) fn step(
     let mut descriptors: Vec<PollFd<'_>> = borrowed.iter().zip(interests)
         .map(|(fd, interest)| PollFd::new(fd, interest.requested)).collect();
     descriptors.push(PollFd::new(&wake, PollFlags::IN));
-    let timeout = deadline.map(|deadline| {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        Timespec { tv_sec: remaining.as_secs() as i64, tv_nsec: i64::from(remaining.subsec_nanos()) }
-    });
+    let slice = fifo_slice(&borrowed, interests);
+    let timeout = match (deadline, slice) {
+        (Some(deadline), slice) => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            Some(slice.map_or(remaining, |slice| remaining.min(slice)))
+        }
+        (None, slice) => slice,
+    }
+    .map(|wait| Timespec { tv_sec: wait.as_secs() as i64, tv_nsec: i64::from(wait.subsec_nanos()) });
     match poll(&mut descriptors, timeout.as_ref()) {
         Ok(_) => {}
         Err(Errno::INTR) => return Ok(PollStep::Interrupted),
@@ -143,6 +148,26 @@ pub(crate) fn step(
         Some(deadline) if Instant::now() >= deadline => Ok(PollStep::TimedOut),
         _ => Ok(PollStep::Interrupted),
     }
+}
+
+// Darwin implements FIFOs on socket buffers and does not wake `poll` or
+// `kqueue` readers when a writer blocks in one write larger than the buffer
+// (seen on macOS 27.2); a new poll still reports the data. Waits that include
+// a FIFO therefore poll in short slices there.
+#[cfg(target_os = "macos")]
+fn fifo_slice(fds: &[BorrowedFd<'_>], interests: &[PollInterest]) -> Option<Duration> {
+    const SLICE: Duration = Duration::from_millis(20);
+    fds.iter().zip(interests)
+        .filter(|(_, interest)| !interest.requested.is_empty())
+        .any(|(fd, _)| rustix::fs::fstat(fd).is_ok_and(|stat| {
+            rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Fifo
+        }))
+        .then_some(SLICE)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fifo_slice(_: &[BorrowedFd<'_>], _: &[PollInterest]) -> Option<Duration> {
+    None
 }
 
 pub(crate) fn deadline(timeout: Option<Duration>, span: Span) -> Result<Option<Instant>, RuntimeError> {

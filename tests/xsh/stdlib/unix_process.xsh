@@ -262,6 +262,21 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   assert result.stdout == "" and result.stderr == ""
 }
 
+test test_unix_poll_fd_wakes_for_a_fifo_write_larger_than_its_buffer { |ctx|
+  let result = test.expect(ctx, r"""tempdir root {
+  let fifo = fp"{root}/pipe"
+  fs.mkfifo(fifo, mode: 384)
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  let writer = process.command_argv(p"/bin/sh", ["sh", "-c", "sleep 0.3; dd if=/dev/zero bs=65536 count=1 of=\"$1\" 2>/dev/null", "sh", fifo.display()], root, {PATH: "/usr/bin:/bin"}, b"", fp"{root}/out", fp"{root}/err")
+  let child = spawn writer?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  assert "readable" in unix.poll_fd(reader, ["readable"], timeout_ms: 5000)?
+}
+""", status: 0)?
+  assert result.stdout == "" and result.stderr == ""
+}
+
 test test_unix_poll_fd_hangs_up_after_inherited_writer_closes { |ctx|
   let result = test.expect(ctx, r"""tempdir dir {
   let fifo = fp"{dir}/pipe"
