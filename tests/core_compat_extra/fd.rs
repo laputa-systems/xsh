@@ -2,8 +2,11 @@ use super::{applet, Running};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
+#[cfg(not(target_vendor = "apple"))]
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+#[cfg(not(target_vendor = "apple"))]
+use std::process::Command;
+use std::process::Stdio;
 
 fn input_pipe(bytes: &[u8]) -> OwnedFd {
     let mut descriptors = [0; 2];

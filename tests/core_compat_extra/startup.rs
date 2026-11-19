@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::PermissionsExt;
 
 fn close_standard(command: &mut Command, fd: i32) {

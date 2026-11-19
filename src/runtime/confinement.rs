@@ -256,7 +256,7 @@ mod unsupported {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::{KIND, check_landlock_abi};
 
