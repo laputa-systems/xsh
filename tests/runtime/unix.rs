@@ -94,7 +94,15 @@ print ${{result.matched >= 1}} ${{result.signaled >= 1}}
 
 #[test]
 fn unix_pid1_wake_descriptor_preserves_bytes_and_validates_readiness() {
-    let output = run_temp_script("pid1-wake-readiness", r#"
+    // macOS poll never reports POLLHUP for a FIFO whose writer closed, so a
+    // hung-up FIFO there is indistinguishable from an idle one.
+    let hangup = if cfg!(target_os = "macos") { r#"?.kind == "timeout""# } else { " is Err(_)" };
+    let output = run_temp_script("pid1-wake-readiness", &READINESS.replace("HANGUP_RESULT", hangup));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+}
+
+const READINESS: &str = r#"
 unix.pid1_setup([], allow_non_pid1: true)
 tempdir dir {
   let fifo = fp"{dir}/wake"
@@ -116,14 +124,11 @@ tempdir dir {
   let reader = unix.open_fd(hangup, nonblock: true)?
   let writer = unix.open_fd(hangup, write: true, nonblock: true)?
   unix.close_fd(writer)
-  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: reader) is Err(_)
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: reader)HANGUP_RESULT
   unix.close_fd(reader)
 }
 print "ready"
-"#);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
-}
+"#;
 
 #[test]
 fn unix_pid1_wake_descriptor_preserves_signal_delivery() {
@@ -158,7 +163,7 @@ tempdir dir {
   fs.mkfifo(fifo, 0o600)
   let fd = unix.open_fd(fifo, write: true, nonblock: true)?
   defer unix.close_fd(fd)
-  let child = unix.spawn_process_group(process.command_argv("/bin/true", ["true"]))?
+  let child = unix.spawn_process_group(process.command_argv("/usr/bin/env", ["env", "true"]))?
   let event = unix.wait_pid1_event(timeout: 2s, wake_fd: fd)?
   assert event.kind == "children"
   assert event.children.len() == 1

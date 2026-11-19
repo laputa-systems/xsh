@@ -27,6 +27,8 @@ fn unix_connect_stream_exchanges_bytes_and_observes_disconnect() {
                 Err(error) => panic!("accept: {error}"),
             }
         };
+        // A macOS listener's nonblocking mode carries over to the accepted socket.
+        stream.set_nonblocking(false).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let mut request = [0; 4];
         stream.read_exact(&mut request).unwrap();
@@ -168,6 +170,8 @@ fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
                 Err(error) => return Err(error),
             }
         };
+        // A macOS listener's nonblocking mode carries over to the accepted socket.
+        stream.set_nonblocking(false).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         wait.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut received = Vec::new();
@@ -225,6 +229,8 @@ fn unix_stream_retries_short_writes_after_peer_drains() {
             }
             std::thread::yield_now();
         }
+        // A macOS listener's nonblocking mode carries over to the accepted socket.
+        stream.set_nonblocking(false).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         let mut received = Vec::new();
         stream.read_to_end(&mut received)?;
@@ -285,6 +291,8 @@ fn unix_stream_deadline_closes_socket_before_caller_returns() {
                     Err(error) => return Err(error),
                 }
             };
+            // A macOS listener's nonblocking mode carries over to the accepted socket.
+            stream.set_nonblocking(false).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(3)))?;
             stream.read(&mut [0; 1])
         })();
@@ -338,6 +346,8 @@ fn unix_stream_signal_during_deadline_wait_closes_peer() {
                 Err(error) => return Err(error),
             }
         };
+        // A macOS listener's nonblocking mode carries over to the accepted socket.
+        stream.set_nonblocking(false).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.read(&mut [0; 1])
     });

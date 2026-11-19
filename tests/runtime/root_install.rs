@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
@@ -26,7 +27,12 @@ fn open_feed(feed: &Path, child: &mut Child) -> File {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(feed) {
-            Ok(writer) => return writer,
+            Ok(writer) => {
+                // Writes block from here: a macOS FIFO holds less than the 64 KiB fed.
+                let flags = unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_GETFL) };
+                assert!(flags >= 0 && unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) } == 0);
+                return writer;
+            }
             Err(error) if error.raw_os_error() == Some(libc::ENXIO) => {
                 assert!(child.try_wait().unwrap().is_none(), "the script exited before reading the feed");
                 assert!(Instant::now() < deadline, "the script never opened the feed");

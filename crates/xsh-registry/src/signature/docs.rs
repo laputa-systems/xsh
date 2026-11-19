@@ -1792,7 +1792,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "wait_pid1_event") => Some((
             "Waits for Unix supervisor lifecycle events or a readable wake descriptor.",
-            "With wake_fd, readability returns kind poll without consuming data. The caller retains and closes the descriptor; closed, hung-up or errored descriptors fail. Pending children and signals are checked with the existing 100 ms lifecycle bound. Without wake_fd, existing timeout and one-poll behavior is preserved.",
+            "With wake_fd, readability returns kind poll without consuming data. The caller retains and closes the descriptor; closed, hung-up or errored descriptors fail, except that macOS never reports hangup for a FIFO, which there reads as idle. Pending children and signals are checked with the existing 100 ms lifecycle bound. Without wake_fd, existing timeout and one-poll behavior is preserved.",
             &["unix", "process", "lifecycle", "privileged"],
         )),
         ("unix", "pid1_setup" | "shutdown_process_groups") => Some((

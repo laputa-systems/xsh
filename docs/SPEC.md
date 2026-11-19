@@ -6897,7 +6897,9 @@ let text = notes.replace("DRAFT", with: "FINAL")
 - `unix.wait_pid1_event(timeout:, wake_fd: null)` waits for supervisor child
   exits and handled signals. A readable `wake_fd` returns `kind: "poll"`
   without reading the descriptor. The caller owns draining and closing it;
-  a closed descriptor, hangup or descriptor error fails the call. The existing
+  a closed descriptor, hangup or descriptor error fails the call. macOS never
+  reports hangup for a FIFO, so there a FIFO whose writers closed reads as idle
+  (`kind: "timeout"`); pipes and sockets still fail on hangup. The existing
   100 ms child/signal observation bound and timeout behavior are preserved.
   Omitting `wake_fd` keeps the existing one-poll behavior without a timeout.
 - Process-control primitives report the kernel's view and never emulate it;

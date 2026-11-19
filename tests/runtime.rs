@@ -43,6 +43,7 @@ mod stack_depth;
 mod streams;
 #[path = "runtime/syslog_boottime.rs"]
 mod syslog_boottime;
+#[cfg(target_os = "linux")]
 #[path = "runtime/syslog_recvfrom.rs"]
 mod syslog_recvfrom;
 #[path = "runtime/unix.rs"]

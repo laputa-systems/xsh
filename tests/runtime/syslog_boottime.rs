@@ -1,5 +1,6 @@
 use super::common::*;
 
+#[cfg(target_os = "linux")]
 const OFFSET_SECONDS: i64 = 1_000_000;
 
 #[cfg(target_os = "linux")]

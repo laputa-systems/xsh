@@ -192,6 +192,9 @@ harness needs the GNU tar and bsdtar oracle image built by
 test and the external-corpus tests that the XSHT runs skip by name are manual.
 `test-root-unit` is Linux-only because xsh-root's unit tests cover `openat2`;
 the macOS lane uses the security and mutation harnesses.
+Start `cargo dev test macos --ci` from a session that does not ignore SIGINT
+or SIGTERM (not under `nohup … &`): XSH keeps an inherited ignored signal, so
+the signal-cancellation tests then cannot cancel and leak their fixtures.
 
 A focused case that passes stores a record under the checkout's `.work/gate/`,
 bound to the source digest and the product digests and modes the run used. The
