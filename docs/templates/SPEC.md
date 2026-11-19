@@ -5691,7 +5691,9 @@ Contracts worth knowing without consulting the reference:
   bits at creation; Linux symlinks report mode `0777`. Linux cannot change a
   symlink's mode, so there
   the no-follow `chmod` of a symlink fails with `fs-chmod` and errno
-  `EOPNOTSUPP`, and the link's target is left alone. `fs.mknod`
+  `EOPNOTSUPP`, and the link's target is left alone. Hard-link attempts retain
+  host errno: for a directory source and an existing destination, Linux reports
+  `EEXIST` while macOS reports `EPERM`. `fs.mknod`
   creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).
   `fs.copy_file` creates the destination with the source's permission bits
   (or `mode`), copies by `FICLONE`, `copy_file_range`, or read and write

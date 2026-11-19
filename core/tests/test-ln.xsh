@@ -458,7 +458,8 @@ test test_ln_directory_option_keeps_existing_destination { |ctx|
   let script = fp"{ctx.core_dir}/ln.xsh"
   let existing = run.capture --text ${ctx.xsh_bin} $script -- -d $directory $dest
   assert existing.status.exited_with(1)
-  assert existing.stderr == f"ln: failed to create hard link '{dest}': File exists\n", existing.stderr
+  let existing_error = if system.uname()?.sysname == "Linux" { f"ln: failed to create hard link '{dest}': File exists\n" } else { f"ln: failed to create hard link '{dest}' => '{directory}': Operation not permitted\n" }
+  assert existing.stderr == existing_error, existing.stderr
 
   let forced = run.capture --text ${ctx.xsh_bin} $script -- -fd $directory $dest
   assert forced.status.exited_with(1)
@@ -502,7 +503,8 @@ test test_ln_directory_option_with_implicit_destination_reports_existing_name { 
   cd (root) {
     let plain = run.capture --text ${ctx.xsh_bin} $script -- -d dir
     assert plain.status.exited_with(1)
-    assert plain.stderr == "ln: failed to create hard link './dir': File exists\n", plain.stderr
+    let plain_error = if system.uname()?.sysname == "Linux" { "ln: failed to create hard link './dir': File exists\n" } else { "ln: failed to create hard link './dir' => 'dir': Operation not permitted\n" }
+    assert plain.stderr == plain_error, plain.stderr
 
     let forced = run.capture --text ${ctx.xsh_bin} $script -- -fd dir
     assert forced.status.exited_with(1)
