@@ -58,9 +58,13 @@ test test_gnu_truncate_truncate_overflow_log { |ctx|
   uu.write(s, "non-empty-file", "\n")
   uu.fails_with_code(uu.invoke(s, "truncate", ["-s9223372036854775808", "file"])?, 1)
   uu.fails_with_code(uu.invoke(s, "truncate", ["-s+9223372036854775807", "non-empty-file"])?, 1)
-  let stats = run.capture --text stat -f -c%s $s.root
-  assert stats.status.exited_with(0)
-  let block_size = stats.stdout.trim() as Int
+  let block_size = if system.uname()?.sysname == "Linux" {
+    let stats = run.capture --text stat -f -c%s $s.root
+    assert stats.status.exited_with(0)
+    stats.stdout.trim() as Int
+  } else {
+    fs.stat(s.root)?.blksize
+  }
   let overflow = 9223372036854775807 / block_size + 1
   uu.fails_with_code(uu.invoke(s, "truncate", ["--io-blocks", f"--size={overflow}", "file"])?, 1)
 }
