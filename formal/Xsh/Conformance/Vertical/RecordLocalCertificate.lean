@@ -1,4 +1,5 @@
 import Xsh.Conformance.Vertical.Certificate
+import Xsh.Conformance.Vertical.RecordLocalLowering
 
 namespace Xsh.Conformance.Vertical
 
@@ -6,10 +7,6 @@ open Xsh.Foundation
 open Xsh.Conformance.Transport
 open Xsh.Semantics.BaseMachine
 open Xsh.Semantics.Environments
-
-def recordLocalExpectedObservations : List ObservedResult :=
-  [⟨"spans", [5], .value 10⟩, ⟨"spans", [-4], .value (-8)⟩,
-    ⟨"spans", [0], .failure .divisionByZero⟩, ⟨"spans", [9], .failure .integerOverflow⟩]
 
 set_option maxRecDepth 100000 in
 theorem record_local_source_decodes :

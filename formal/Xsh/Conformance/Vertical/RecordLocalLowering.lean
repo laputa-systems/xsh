@@ -3,6 +3,10 @@ import Xsh.Conformance.Vertical.Fixture
 
 namespace Xsh.Conformance.Vertical
 
+def recordLocalExpectedObservations : List ObservedResult :=
+  [⟨"spans", [5], .value 10⟩, ⟨"spans", [-4], .value (-8)⟩,
+    ⟨"spans", [0], .failure .divisionByZero⟩, ⟨"spans", [9], .failure .integerOverflow⟩]
+
 def recordLocalFunctions : List SourceFunction :=
   [⟨"spans", ["value"], [], none,
     .recordLocal "box" [("low", .binary .sub (.var "value") (.int 3)),
