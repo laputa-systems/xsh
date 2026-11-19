@@ -712,6 +712,7 @@ proc short_socket_path(name: Str) [env, process, error] -> Result[Str] {
 }
 
 test test_nc_unix_stream_client_and_listener { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("nc Unix sockets use Linux socket primitives"); return }
   let socket = short_socket_path("stream")?
   if socket.byte_len() > 100 {
     test.skip("the temporary directory socket is too long for a Unix socket")
@@ -740,6 +741,7 @@ test test_nc_unix_stream_client_and_listener { |ctx|
 }
 
 test test_nc_unix_datagram_listener_answers_a_client { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("nc Unix sockets use Linux socket primitives"); return }
   let socket = short_socket_path("dgram")?
   if socket.byte_len() > 100 {
     test.skip("the temporary directory socket is too long for a Unix socket")
