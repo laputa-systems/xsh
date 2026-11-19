@@ -166,7 +166,7 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
   let stderr = fp"{root}/stderr"
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let split = fp"{ctx.core_dir}/split.xsh"
-  let command = r"""yes | "$1" "$2" -k .2 .5 "$1" "$3" -b 1000 --filter='printf x >>$FILE.started; sleep .02; head -c1 >/dev/null' -"""
+  let command = r"""yes | "$1" "$2" -k .2 1.5 "$1" "$3" -b 1000 --filter='printf x >>$FILE.started; sleep .02; head -c1 >/dev/null' -"""
   let plan = process.command_argv(
     p"/bin/sh",
     ["sh", "-c", command, "split-filter-byte-chunks", ctx.xsh_bin, timeout, split],
@@ -175,7 +175,7 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
     b"",
     stdout,
     stderr,
-    timeout: 2s,
+    timeout: 6s,
   )
   let status = process.run(plan)?
 

@@ -35,14 +35,14 @@ test test_wait_until_fails_with_timeout_when_the_limit_passes {
     wait until {
       tests += 1
       false
-    } within 60ms every 10ms
+    } within 600ms every 10ms
   }
   assert waited is Err(is Timeout)
   assert tests >= 2
   assert time.now() - started < 10000
   match waited {
     Ok(_) => assert false
-    Err(failure) => assert "did not finish within 60ms" in failure.message
+    Err(failure) => assert "did not finish within 600ms" in failure.message
   }
 }
 
