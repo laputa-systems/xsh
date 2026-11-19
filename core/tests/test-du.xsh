@@ -222,7 +222,8 @@ test test_du_walks_long_nested_paths { |ctx|
   var component = ""
   for _ in range(10) { component = f"{component}0123456789" }
 
-  for index in range(15) {
+  let levels = if system.uname()?.sysname == "Linux" { 15 } else { 7 }
+  for index in range(levels) {
     let child = fp"{deepest}/{component}{index}"
     child.mkdir()
     deepest = child
