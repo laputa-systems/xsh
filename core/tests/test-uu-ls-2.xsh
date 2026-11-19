@@ -201,7 +201,12 @@ test test_uu_ls_ls_devices { |ctx|
   {
   let r = invoke_pipe(s, ["-al", "/dev/null"])?
   uu.succeeds(r)
-  assert rx"[^ ] 1, 3 [^ ]".matches(r.stdout as Str)
+  if system.uname()?.sysname == "Linux" {
+    assert rx"[^ ] 1, 3 [^ ]".matches(r.stdout as Str)
+  } else {
+    let number = fs.stat(p"/dev/null")?.rdev
+    uu.stdout_contains(r, f"{fs.dev_major(number)}, {fs.dev_minor(number)}")
+  }
   
   }
   {
