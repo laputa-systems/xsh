@@ -2510,4 +2510,40 @@ theorem record_source_program {name parameter target : String}
     SourceFunction.computedBindings?, SourceFunction.assignment?, SourceExpression.expression?,
     hscope, admitted, projected, returned]
 
+theorem finish_record_function {src : List (String × Option Callee)} {s s6 s' : LoweringState}
+    {name parameter target : String} {fields : List (String × SourceValue)} {result : RecordValue}
+    {scope : List (String × Nat)} {expressions : List (String × BaseExpr)}
+    (scopeIs : (⟨name, [parameter], [], none, .recordLocal target fields result⟩ :
+      SourceFunction).scope? = some scope)
+    (admitted : recordLocalAdmitted parameter target fields result = true)
+    (projected : fields.mapM (fun (name, value) => do
+      some (name, ← value.expression? [(parameter, 0)])) = some expressions)
+    (before : StateLE s s6) (functions : s6.functions = s.functions)
+    (callable : s6.callable = s.callable)
+    (tail : ∃ e row, result.expression? scope = some e ∧
+      s'.functions = s6.functions ++ [row] ∧
+      s'.callable = s6.callable ++ [(⟨name, [parameter], [], none,
+        .recordLocal target fields result⟩ : SourceFunction).callable] ∧
+      StateLE s6 s' ∧ BlocksIndexed s' ∧ row.name = name ∧ row.paramsLen.val = 1 ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row =
+          some ⟨1, [], none, none, e, some ⟨2, expressions⟩⟩) :
+    ∃ program row, (⟨name, [parameter], [], none, .recordLocal target fields result⟩ :
+      SourceFunction).program? src = some program ∧
+      program.callee?.isSome = (⟨name, [parameter], [], none,
+        .recordLocal target fields result⟩ : SourceFunction).callable ∧
+      program.parameters = 1 ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [(⟨name, [parameter], [], none,
+        .recordLocal target fields result⟩ : SourceFunction).callable] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧ row.name = name ∧ row.paramsLen.val = 1 ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  obtain ⟨e, row, returned, fa, fb, tailLe, tailWf, hname, hparams, reads⟩ := tail
+  refine ⟨⟨1, [], none, none, e, some ⟨2, expressions⟩⟩, row,
+    record_source_program scopeIs admitted projected returned, ?_, rfl, ?_, ?_,
+    before.trans tailLe, tailWf, hname, hparams, reads⟩
+  · simp [FunctionProgram.callee?, SourceFunction.callable, SourceExpression.isRecordLocal]
+  · simpa [functions] using fa
+  · simpa [callable] using fb
+
 end Xsh.Conformance.Vertical
