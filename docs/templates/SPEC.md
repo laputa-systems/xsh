@@ -715,6 +715,9 @@ in January-to-December order. Neither changes process or thread locale. Names
 must be explicit and contain no NUL (`locale-name`); unavailable metadata
 returns `locale-unavailable`. Returned bytes retain the locale's encoding.
 These APIs provide numeric and month metadata, not collation or character classes.
+The core `sort` numeric modes follow GNU behavior and ignore a grouping mark
+whose locale encoding uses more than one byte, so host locale data can change
+the resulting order.
 
 On musl, metadata comes from an immutable byte projection of GNU libc 2.43
 locale facts, rather than musl's C-only numeric and time data. Supported names
