@@ -37,6 +37,7 @@ test test_gnu_cat_cat_E_log { |ctx|
 
 # origin: gnu cat/cat-proc.log
 test test_gnu_cat_cat_proc_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/cpuinfo"); return }
   guard p"/proc/cpuinfo".is_file() else { test.skip("requires /proc/cpuinfo"); return }
   let s = uu.scene(ctx)?
   let marked = uu.invoke(s, "cat", ["-E", "/proc/cpuinfo"])?
@@ -130,6 +131,7 @@ test test_gnu_cat_splice_log { |ctx|
   uu.fails_with_code(direct, 124)
   uu.no_output(direct)
 
+  if system.uname()?.sysname != "Linux" { test.skip("splice fault injection requires Linux strace"); return }
   let fallback = descriptor_run(s, ["/dev/zero"], r"""strace -f -o /dev/null -e inject=io_uring_setup,io_uring_enter,io_uring_register,memfd_create,sendfile,splice,tee,vmsplice:error=ENOSYS "$@" | head -c 2 | tr '\000' y""")?
   uu.succeeds(fallback)
   uu.stdout_only(fallback, "yy")
