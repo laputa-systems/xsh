@@ -178,6 +178,7 @@ test test_dd_direct_flags_transfer_whole_and_partial_blocks { |ctx|
 }
 
 test test_dd_nocache_drops_the_cache_and_reports_what_it_cannot { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no unix.fadvise cache-discard implementation"); return }
   let source = test.temp_file(ctx, name: "dd-nocache-in", contents: b"abcdef")?
   let out = test.temp_file(ctx, name: "dd-nocache-out", contents: b"")?
   let copied = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=nocache", "oflag=nocache,sync", "bs=4"])?
@@ -197,6 +198,7 @@ test test_dd_nocache_drops_the_cache_and_reports_what_it_cannot { |ctx|
 }
 
 test test_dd_noatime_flags_read_and_write { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no O_NOATIME open flag"); return }
   let source = test.temp_file(ctx, name: "dd-noatime-in", contents: b"abcdef")?
   let out = test.temp_file(ctx, name: "dd-noatime-out", contents: b"")?
   let result = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=noatime", "oflag=noatime", "bs=4"])?
@@ -292,6 +294,7 @@ test test_dd_rejects_an_unbounded_output_record_size_cleanly { |ctx|
 }
 
 test test_dd_large_cbs_pads_until_output_fails { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS shell cannot impose this virtual memory limit"); return }
   let root = test.temp_dir(ctx, name: "dd-large-cbs")?
   let input = fp"{root}/input"
   input.write("x\n")
@@ -312,8 +315,9 @@ test test_dd_reports_output_records_when_a_write_is_limited { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), f"if=/dev/zero", f"of={output}", "bs=512K", "count=3"]
+  let command = if system.uname()?.sysname == "Linux" { "trap '' XFSZ; ulimit -f 1536; exec \"$@\"" } else { "trap '' XFSZ; ulimit -f 768; exec \"$@\"" }
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "trap '' XFSZ; ulimit -f 1536; exec \"$@\"", "dd-write-limit"].extend(argv),
+    ["sh", "-c", command, "dd-write-limit"].extend(argv),
     root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(1)
   let message = stderr.read_text()?
@@ -557,6 +561,7 @@ test test_dd_warns_once_for_repeated_zero_multipliers { |ctx|
 }
 
 test test_dd_nocache_pipe_reports_illegal_seek { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no unix.fadvise cache-discard implementation"); return }
   let result = invoke(ctx, ["iflag=nocache", "count=0", "status=none"])?
   assert result.status == 1, result.stderr
   assert result.stderr == "dd: failed to discard cache for: 'standard input': Illegal seek\n", result.stderr
