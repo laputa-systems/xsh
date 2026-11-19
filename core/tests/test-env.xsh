@@ -330,7 +330,8 @@ test test_env_resets_all_signal_actions { |ctx|
 }
 
 test test_env_accepts_empty_optional_signal_list { |ctx|
-  let result = env_run(ctx, ["--ignore-signal=", "/bin/true"])?
+  let command = if system.uname()?.sysname == "Linux" { "/bin/true" } else { "/usr/bin/true" }
+  let result = env_run(ctx, ["--ignore-signal=", command])?
 
   assert result.status == 0, result.stderr
   assert result.stderr == ""
