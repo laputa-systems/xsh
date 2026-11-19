@@ -463,18 +463,24 @@ test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
 test test_uu_sort_month_sort_french_locale { |ctx|
   let s = uu.scene(ctx)?
   if system.locale_time_info("fr_FR.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
-  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("mai\ndéc.\njanv.\njuin\nfévr.\nmars\navril\njuil.\naoût\nsept.\noct.\nnov.\n"), vars: {LC_ALL: "fr_FR.UTF-8"})?
+  let is_linux = system.uname()?.sysname == "Linux"
+  let input = if is_linux { "mai\ndéc.\njanv.\njuin\nfévr.\nmars\navril\njuil.\naoût\nsept.\noct.\nnov.\n" } else { "mai\ndéc.\njanv.\njuin\nfévr.\nmars\navr.\njuil.\naoût\nsept.\noct.\nnov.\n" }
+  let expected = if is_linux { "janv.\nfévr.\nmars\navril\nmai\njuin\njuil.\naoût\nsept.\noct.\nnov.\ndéc.\n" } else { "janv.\nfévr.\nmars\navr.\nmai\njuin\njuil.\naoût\nsept.\noct.\nnov.\ndéc.\n" }
+  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text(input), vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(r)
-  uu.stdout_is(r, "janv.\nfévr.\nmars\navril\nmai\njuin\njuil.\naoût\nsept.\noct.\nnov.\ndéc.\n")
+  uu.stdout_is(r, expected)
 }
 
 # origin: uutils test_sort::test_month_sort_hungarian_locale
 test test_uu_sort_month_sort_hungarian_locale { |ctx|
   let s = uu.scene(ctx)?
   if system.locale_time_info("hu_HU.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
-  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("máj\ndec\njan\njún\nfebr\nmárc\nápr\njúl\naug\nszept\nokt\nnov\n"), vars: {LC_ALL: "hu_HU.UTF-8"})?
+  let is_linux = system.uname()?.sysname == "Linux"
+  let input = if is_linux { "máj\ndec\njan\njún\nfebr\nmárc\nápr\njúl\naug\nszept\nokt\nnov\n" } else { "máj.\ndec.\njan.\njún.\nfebr.\nmárc.\nápr.\njúl.\naug.\nszept.\nokt.\nnov.\n" }
+  let expected = if is_linux { "jan\nfebr\nmárc\nápr\nmáj\njún\njúl\naug\nszept\nokt\nnov\ndec\n" } else { "jan.\nfebr.\nmárc.\nápr.\nmáj.\njún.\njúl.\naug.\nszept.\nokt.\nnov.\ndec.\n" }
+  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text(input), vars: {LC_ALL: "hu_HU.UTF-8"})?
   uu.succeeds(r)
-  uu.stdout_is(r, "jan\nfebr\nmárc\nápr\nmáj\njún\njúl\naug\nszept\nokt\nnov\ndec\n")
+  uu.stdout_is(r, expected)
 }
 
 # origin: uutils test_sort::test_month_sort_japanese_locale

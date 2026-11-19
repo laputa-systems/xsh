@@ -1,6 +1,7 @@
 ##! Native ports of the uutils dd integration tests.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_dd::test_atoe_and_lcase_conv_spec_test
 test test_uu_dd_atoe_and_lcase_conv_spec_test { |ctx|
@@ -239,6 +240,7 @@ test test_uu_dd_huge_obs_reports_memory_error_instead_of_aborting { |ctx|
 
 # origin: uutils test_dd::test_huge_cbs_pads_without_allocating
 test test_uu_dd_huge_cbs_pads_without_allocating { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dd", ["conv=block", "cbs=1PB", "of=/dev/full"], stdin: b"x\x0a")?
   uu.fails_with_code(r, 1)
@@ -446,6 +448,7 @@ test test_uu_dd_ascii_521k_to_file { |ctx|
 
 # origin: uutils test_dd::test_iflag_direct_read_uses_aligned_buffer
 test test_uu_dd_iflag_direct_read_uses_aligned_buffer { |ctx|
+  requires.linux_kernel("macOS has no Linux O_DIRECT flag")
   let s = uu.scene(ctx)?
   let input = bytes.from_ints([i % 128 for i in range(8192)])?
   uu.write_bytes(s, "direct-in.bin", input)

@@ -1596,6 +1596,7 @@ test test_uu_ls_ls_perm_io_errors { |ctx|
 
 # origin: uutils test_ls::test_ls_proc_self_fd_no_errors
 test test_uu_ls_ls_proc_self_fd_no_errors { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs descriptor directory")
   let s = uu.scene(ctx)?
   {
   let r = invoke(s, ["-l", "/proc/self/fd"])?

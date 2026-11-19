@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_split.rs.
 
 use support.uu
+use support.requires
 
 proc split_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
@@ -591,6 +592,7 @@ test test_uu_split_split_to_non_seekable { |ctx|
 
 # origin: uutils test_split::test_write_error_on_full_device
 test test_uu_split_write_error_on_full_device { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = split_scene(ctx)?
   assert p"/dev/full".exists()?
   uu.symlink(s, "/dev/full", "xaa")

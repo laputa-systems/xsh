@@ -575,6 +575,7 @@ test test_uu_od_skip_bytes_prints_after_consuming_multiple_inputs { |ctx|
 
 # origin: uutils test_od::test_skip_bytes_proc_file_without_seeking
 test test_uu_od_skip_bytes_proc_file_without_seeking { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs version file")
   let s = od_scene(ctx)?
   let contents = p"/proc/version".read_bytes()?
   assert ! contents.is_empty()

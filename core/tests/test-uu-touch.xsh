@@ -1,6 +1,7 @@
 ##! Native ports of the uutils touch integration tests.
 
 use support.uu
+use support.requires
 
 # The read-only descriptor must remain fd 1 across exec; a writable capture
 # would miss the contract for an existing file opened without write permission.
@@ -145,7 +146,8 @@ test test_uu_touch_touch_default { |ctx|
 # origin: uutils test_touch::test_touch_device_files
 test test_uu_touch_touch_device_files { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "touch", ["/dev/null", "/dev/zero", "/dev/full", "/dev/random"])?
+  let devices = if system.uname()?.sysname == "Linux" { ["/dev/null", "/dev/zero", "/dev/full", "/dev/random"] } else { ["/dev/null", "/dev/zero", "/dev/random"] }
+  let r = uu.invoke(s, "touch", devices)?
   uu.succeeds(r)
   uu.no_output(r)
 }
@@ -305,6 +307,7 @@ test test_uu_touch_touch_no_such_file_error_msg { |ctx|
 
 # origin: uutils test_touch::test_touch_non_utf8_paths
 test test_uu_touch_touch_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   let r = uu.invoke_paths(s, "touch", [b"test_\xff\xfe.txt" as Path])?
@@ -747,7 +750,7 @@ test test_uu_touch_touch_trailing_slash_no_create { |ctx|
   uu.fails_with_code(uu.invoke(s, "touch", ["-c", "loop/"])?, 1)
   let loop_metadata = fs.stat(uu.at(s, "loop"), follow_symlinks: true)
   assert loop_metadata is Err(_)
-  if let Err(failure) = loop_metadata { assert failure.errno == 40 }
+  if let Err(failure) = loop_metadata { assert failure.errno == (if system.uname()?.sysname == "Linux" { 40 } else { 62 }) }
   uu.touch(s, "file2")
   uu.symlink(s, "file2", "link1")
   uu.fails_with_code(uu.invoke(s, "touch", ["-c", "link1/"])?, 1)

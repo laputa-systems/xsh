@@ -242,6 +242,7 @@ test test_uu_install_install_preserve_timestamps { |ctx|
 
 # origin: uutils test_install::test_install_proc_self_mem_as_dst
 test test_uu_install_install_proc_self_mem_as_dst { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs process memory file")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "install", ["-g", "0", "/dev/full", "/proc/self/mem"])?
   uu.fails(r)

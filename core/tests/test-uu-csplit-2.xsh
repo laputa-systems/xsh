@@ -1,6 +1,7 @@
 ##! Transcribed from the MIT-licensed uutils csplit integration tests.
 
 use support.uu
+use support.requires
 
 pure numbers(from: Int, to: Int) -> Str {
   [f"{number}\n" for number in range(from, to)].join("")
@@ -333,6 +334,7 @@ test test_uu_csplit_up_to_no_match7 { |ctx|
 
 # origin: uutils test_csplit::test_write_error_dev_full
 test test_uu_csplit_write_error_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = scene(ctx)?
   uu.symlink(s, "/dev/full", "xx01")
   let r = uu.invoke(s, "csplit", ["-", "2"], stdin: b"1\n2\n")?
@@ -343,6 +345,7 @@ test test_uu_csplit_write_error_dev_full { |ctx|
 
 # origin: uutils test_csplit::test_write_error_dev_full_keep_files
 test test_uu_csplit_write_error_dev_full_keep_files { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = scene(ctx)?
   uu.symlink(s, "/dev/full", "xx01")
   let r = uu.invoke(s, "csplit", ["-k", "-", "2"], stdin: b"1\n2\n")?

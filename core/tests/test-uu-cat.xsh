@@ -402,6 +402,7 @@ test test_uu_cat_write_to_self { |ctx|
 
 # origin: uutils test_cat::test_write_fast_fallthrough_uses_flush
 test test_uu_cat_write_fast_fallthrough_uses_flush { |ctx|
+  requires.linux_kernel("macOS has no Linux procfs process command line")
   let s = uu.scene(ctx)?
   uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   let cmdline = p"/proc/1/cmdline".read_bytes()?
