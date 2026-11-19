@@ -1,5 +1,7 @@
 import Xsh.Conformance.Vertical.RecordLocalLowering
 import Xsh.Conformance.Vertical.Documents
+import Xsh.Conformance.Vertical.SourceAdmissionSound
+import Xsh.Conformance.Vertical.RecordLocalAdmission
 
 namespace Xsh.Conformance.Vertical
 
@@ -26,6 +28,20 @@ theorem record_pair_lowers : lowersTo recordLocalArtifact recordLocalFunctions =
 
 theorem record_pair_source_agrees : sourceAgrees recordLocalArtifact recordLocalFunctions = true :=
   record_local_source_agrees
+
+theorem record_pair_means_source :
+    functionPrograms recordLocalArtifact = sourcePrograms recordLocalFunctions :=
+  lowers_to_means_the_source record_pair_lowers
+
+theorem record_pair_admitted_meaning :
+    SourceAdmission.AdmittedSource
+      ((SourceAdmission.witnessBytes recordLocalSourceDocument.text).map UInt8.toNat)
+      recordLocalFunctions ∧
+    SourceAdmission.ScopesProjection recordLocalFunctions [[("value", 0), ("box", 2)]] ∧
+    functionPrograms recordLocalArtifact = sourcePrograms recordLocalFunctions := by
+  have proved := SourceAdmission.admitted_lowering_means_source
+    SourceAdmission.record_bytes_admitted record_pair_lowers
+  exact ⟨proved.2.1, proved.2.2.1, proved.2.2.2⟩
 
 theorem record_pair_wrong_trees_refused :
     lowersTo recordLocalArtifact swappedLabelsRecordLocalFunctions = false ∧
@@ -54,6 +70,19 @@ theorem record_local_pair_certified :
   rw [certify_decoded_of_checks (by decide) record_pair_source_parses
     record_local_lowers_to_artifact record_pair_validates]
   exact record_pair_results
+
+def reorderedRecordLocalFunctions : List SourceFunction :=
+  [⟨"spans", ["value"], [], none,
+    .recordLocal "box" [("high", .binary .div (.int 60) (.var "value")),
+      ("low", .binary .sub (.var "value") (.int 3)),
+      ("wide", .binary .add (.var "value") (.int 9223372036854775800))]
+      (.binary .sub (.field "box" "high") (.field "box" "low"))⟩]
+
+set_option maxRecDepth 100000 in
+theorem reordered_record_entries_refused_by_lowering :
+    lowersTo recordLocalArtifact reorderedRecordLocalFunctions = false ∧
+      sourceAgrees recordLocalArtifact reorderedRecordLocalFunctions = true := by
+  constructor <;> decide +kernel
 
 def changedWideSourceText : String :=
   "pure spans(value: Int) -> Int {\n" ++

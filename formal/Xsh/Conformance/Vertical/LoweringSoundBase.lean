@@ -1486,6 +1486,12 @@ theorem computed_let_statements_none {function : SourceFunction} {scope : List (
   unfold Lower.computedLetStatements
   cases hres : function.result <;> simp_all [SourceExpression.isRecordLocal]
 
+theorem computed_let_statements_record {function : SourceFunction} {scope : List (String × Nat)}
+    {target : String} {fields : List (String × SourceValue)} {result : RecordValue}
+    (record : function.result = .recordLocal target fields result) :
+    Lower.computedLetStatements function scope = Lower.fail := by
+  simp [Lower.computedLetStatements, record]
+
 theorem computed_bindings_none {function : SourceFunction} {scope : List (String × Nat)}
     (notComputed : ∀ (name : String) (value result : SourceValue),
       function.result ≠ .computedLet name value result)
