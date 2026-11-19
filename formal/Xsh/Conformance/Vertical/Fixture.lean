@@ -24,6 +24,8 @@ def fixtureSourceDocument : SourceDocument :=
 
 def fixtureArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["divided", "args", "overflowed"]
+  names := []
   rows := [⟨bridgeId! 1, .intInt, 0, 2⟩, ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩, ⟨bridgeId! 3, .exprInt, 4, 2⟩,
     ⟨bridgeId! 4, .exprParam, 6, 1⟩, ⟨bridgeId! 5, .exprBinary, 7, 4⟩,
     ⟨bridgeId! 6, .stmtReturn, 11, 1⟩, ⟨bridgeId! 7, .intInt, 15, 2⟩,
@@ -55,6 +57,8 @@ def callsSourceDocument : SourceDocument :=
 
 def callsArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["excess", "value", "limit", "args", "surplus"]
+  names := []
   rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprParam, 1, 1⟩,
     ⟨bridgeId! 3, .exprBinary, 2, 4⟩, ⟨bridgeId! 4, .exprParam, 6, 1⟩,
     ⟨bridgeId! 5, .exprParam, 7, 1⟩, ⟨bridgeId! 6, .exprBinary, 8, 4⟩,
@@ -93,6 +97,8 @@ def assignmentsSourceDocument : SourceDocument :=
 
 def assignmentsArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["scaled", "args", "wrapped"]
+  names := []
   rows := [⟨bridgeId! 1, .intInt, 0, 2⟩,
     ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
     ⟨bridgeId! 3, .intSlot, 4, 1⟩,
@@ -135,6 +141,8 @@ def booleanSourceDocument : SourceDocument :=
 
 def booleanArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["exceeds", "value", "limit", "args", "below"]
+  names := []
   rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprParam, 1, 1⟩,
     ⟨bridgeId! 3, .exprBinary, 2, 4⟩, ⟨bridgeId! 4, .stmtReturn, 6, 1⟩,
     ⟨bridgeId! 5, .exprParam, 9, 1⟩, ⟨bridgeId! 6, .exprParam, 10, 1⟩,
@@ -154,6 +162,8 @@ def resultSourceDocument : SourceDocument :=
 
 def resultArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["keeps", "value", "args", "stops", "adds"]
+  names := []
   rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprOk, 1, 1⟩,
     ⟨bridgeId! 3, .stmtReturn, 2, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
     ⟨bridgeId! 5, .exprErr, 6, 2⟩, ⟨bridgeId! 6, .stmtReturn, 8, 1⟩,
@@ -177,6 +187,8 @@ def propagationSourceDocument : SourceDocument :=
 
 def propagationArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["keeps", "value", "args", "stops", "passes", "blocks"]
+  names := []
   rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprInt, 1, 2⟩,
     ⟨bridgeId! 3, .exprBinary, 3, 4⟩, ⟨bridgeId! 4, .exprOk, 7, 1⟩,
     ⟨bridgeId! 5, .stmtReturn, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 11, 1⟩,
@@ -212,6 +224,8 @@ def letCallSourceDocument : SourceDocument :=
 
 def letCallArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["bumps", "value", "args", "runs"]
+  names := []
   rows := [⟨bridgeId! 1, .intInt, 0, 2⟩, ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
     ⟨bridgeId! 3, .exprParam, 4, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
     ⟨bridgeId! 5, .exprBinary, 6, 4⟩, ⟨bridgeId! 6, .stmtReturn, 10, 1⟩,
@@ -235,6 +249,8 @@ def computedLetSourceDocument : SourceDocument :=
 
 def computedLetArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["scales", "value", "args", "runs"]
+  names := []
   rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
     ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
     ⟨bridgeId! 5, .exprParam, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 9, 1⟩,
@@ -259,6 +275,8 @@ def severalLetSourceDocument : SourceDocument :=
 
 def severalLetArtifact : RawArtifact where
   sourceId := bridgeId! 1
+  strings := ["scales", "value", "args", "runs"]
+  names := []
   rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
     ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
     ⟨bridgeId! 5, .intSlot, 8, 1⟩, ⟨bridgeId! 6, .intInt, 9, 2⟩,

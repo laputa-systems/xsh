@@ -5,6 +5,17 @@ import Xsh.Conformance.Vertical.Fixture
 
 namespace Xsh.Conformance.Vertical
 
+set_option maxRecDepth 10000 in
+theorem record_local_raw_ir_decodes :
+    (decodeRawDocument recordLocalRawIrDocumentCodes).isSome = true := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem record_local_raw_ir_not_validated :
+    (decodeRawDocument recordLocalRawIrDocumentCodes).any validateArtifact = false := by
+  decide +kernel
+
+
 open Xsh.Foundation
 open Xsh.Conformance.Transport
 

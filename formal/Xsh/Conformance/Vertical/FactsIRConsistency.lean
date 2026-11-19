@@ -275,7 +275,7 @@ theorem tail_rows {src : List (String × Option Callee)} {callees : Callees}
   · show _ ++ _ = _
     rw [bodyFrame.1, retFrame.1, lw.functions.1]
   · intro F le
-    have toF : StateLE s8 F := StateLE.of_update le
+    have toF : StateLE s8 F := ⟨le.rows, le.extra, le.ops, le.blocks⟩
     exact ⟨result, returned, count,
       expression_rows wf names facts hexpr F ((push_row_le hret).trans (bodyLe.trans toF)),
       (push_row_at hret rfl).mono (bodyLe.trans toF), decode_val hcount,

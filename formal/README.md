@@ -24,6 +24,10 @@ suite, and replay runner have not been introduced. The ledger's bridge cases are
 the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
+The vertical raw-IR exchange carries the string pool and canonical record-label
+table under `integer-calls-conditional-local-fixture-v4`. The record-local
+document decodes; its meaning is not yet admitted by the vertical validator.
+
 The independent base machine models integer-field record construction in source
 order and field reads through named bindings. Its proofs cover preservation,
 termination, and exclusion of record shape faults for well-formed executions;

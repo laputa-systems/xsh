@@ -20,7 +20,7 @@ def sourceSchema : String := "xsh-source-v1"
 
 def rawIrSchema : String := "xsh-raw-ir-v1"
 
-def arithmeticScope : String := "integer-calls-conditional-local-fixture-v3"
+def arithmeticScope : String := "integer-calls-conditional-local-fixture-v4"
 
 /-- The raw instruction tags of the integer fixture with parameters, conditionals and direct
 calls. Any other tag name is an unknown transport tag and fails the decoder. -/
@@ -42,6 +42,8 @@ inductive FragmentTag where
   | exprErr
   | exprTry
   | stmtLet
+  | exprRecord
+  | exprField
   deriving DecidableEq, Repr
 
 namespace FragmentTag
@@ -49,7 +51,7 @@ namespace FragmentTag
 def all : List FragmentTag :=
   [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn, stmtValue, exprValueBlock,
     exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt, exprOk, exprErr, exprTry,
-    stmtLet]
+    stmtLet, exprRecord, exprField]
 
 def name : FragmentTag → String
   | intInt => "IntInt"
@@ -69,6 +71,8 @@ def name : FragmentTag → String
   | exprErr => "ExprErr"
   | exprTry => "ExprTry"
   | stmtLet => "StmtLet"
+  | exprRecord => "ExprRecord"
+  | exprField => "ExprField"
 
 def word : FragmentTag → Word32
   | intInt => ⟨0, by decide⟩
@@ -88,11 +92,13 @@ def word : FragmentTag → Word32
   | exprErr => ⟨105, by decide⟩
   | exprTry => ⟨107, by decide⟩
   | stmtLet => ⟨115, by decide⟩
+  | exprRecord => ⟨44, by decide⟩
+  | exprField => ⟨56, by decide⟩
 
 def payloadWords : FragmentTag → Nat
   | intInt | stmtLetInt | exprInt | exprValueBlock | exprErr | exprTry => 2
-  | exprParam | stmtReturn | stmtValue | intSlot | exprOk => 1
-  | exprIf | exprDirectPureCall | intBinary | stmtLet => 3
+  | exprParam | stmtReturn | stmtValue | intSlot | exprOk | exprRecord => 1
+  | exprIf | exprDirectPureCall | intBinary | stmtLet | exprField => 3
   | exprBinary | stmtAssignInt => 4
 
 def ofName? (text : String) : Option FragmentTag := all.find? fun tag => tag.name == text
@@ -214,6 +220,8 @@ structure RawArtifact where
   sourceId : BridgeId
   rows : List Row
   extra : List Word32
+  strings : List String
+  names : List String
   ops : List FragmentOp
   blocks : List Block
   functions : List FunctionRow
@@ -313,11 +321,12 @@ def decodeRawDocument (text : ExchangeCodes) : Option RawArtifact := do
   let value ← parseCodes text
   let fields ← value.closedObject?
     ["schema", "sourceId", "scope", "instructions", "extra", "binaryOps", "blocks",
-      "functions", "observations"]
+      "functions", "observations", "strings", "names"]
   if textField fields "schema" == some rawIrSchema then pure () else none
   if textField fields "scope" == some arithmeticScope then pure () else none
   pure ⟨← idField fields "sourceId", ← listField fields "instructions" decodeRow,
-    ← listField fields "extra" decodeWordList, ← listField fields "binaryOps" decodeOp,
+    ← listField fields "extra" decodeWordList, ← listField fields "strings" WireValue.text?,
+    ← listField fields "names" WireValue.text?, ← listField fields "binaryOps" decodeOp,
     ← listField fields "blocks" decodeBlock, ← listField fields "functions" decodeFunction,
     ← listField fields "observations" decodeObservation⟩
 

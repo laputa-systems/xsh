@@ -195,6 +195,7 @@ structure LoweringState where
   ops : List FragmentOp := []
   blocks : List Block := []
   functions : List FunctionRow := []
+  strings : List String := []
   callable : List Bool := []
   spans : List Word32 := []
 
@@ -348,6 +349,10 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
   | .computedLet _ _ result => Lower.value scope result
   | .computedLets _ result => Lower.value scope result
 
+def addSourceStrings (strings : List String) (function : SourceFunction) : List String :=
+  (function.name :: function.parameters ++ ["args"]).foldl
+    (fun names name => if names.contains name then names else names ++ [name]) strings
+
 /-- The rows after a function's let statements: the rows of its returned expression, the
 return, its body block, and its function row. `extraSlots` counts bindings emitted as statements
 that are not in the function's literal lets. -/
@@ -366,6 +371,7 @@ def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat)
       (if function.propagation.isSome then 1 else 0) + extraSlots + 1)⟩
   modify fun state =>
     { state with functions := state.functions ++ [row],
+                 strings := addSourceStrings state.strings function,
                  callable := state.callable ++ [function.callable] }
 
 /-- The computed-let statements of a sequence, in source order: each value's integer-family rows
@@ -464,7 +470,7 @@ def lowerFunctions (spans : List Word32) (functions : List SourceFunction) :
 /-- The exchanged artifact a lowering state holds. -/
 def LoweringState.toArtifact (state : LoweringState) (sourceId : BridgeId)
     (observations : List Observation) : RawArtifact :=
-  ⟨sourceId, state.rows, state.extra, state.ops, state.blocks, state.functions, observations⟩
+  ⟨sourceId, state.rows, state.extra, state.strings, [], state.ops, state.blocks, state.functions, observations⟩
 
 /-- The span word of each row that carries one, in table order. -/
 def spanWords (artifact : RawArtifact) : List Word32 :=
@@ -476,9 +482,10 @@ def spanWords (artifact : RawArtifact) : List Word32 :=
     | .exprIf => word 2
     | .exprDirectPureCall => word 2
     | .exprTry => word 1
+    | .exprField => word 2
     | .stmtAssignInt => word 3
     | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue | .intSlot
-    | .intBinary | .exprOk | .exprErr | .stmtLet => none
+    | .intBinary | .exprOk | .exprErr | .stmtLet | .exprRecord => none
 
 /-- A source function agrees with the artifact on the given arguments when it and the function
 of that name have the same defined outcome there, under the source tree and under the IR. -/

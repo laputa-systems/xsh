@@ -529,22 +529,22 @@ new fixture. No production lowering, schema or runtime path changes.
 | `spans(9)` | 6, 6, then `9 + 9223372036854775800` fails | `integer-overflow`, although `wide` is never read |
 
 Every entry reads the parameter, so the record cannot be folded to a prepared
-constant (`lower_prepared_constant`, `lower.rs:8020`). The slice must observe
-whether an all-literal record folds. If it does, the grammar also refuses
-all-literal records.
+constant (`lower_prepared_constant`, `lower.rs:8020`). An observed all-literal
+`{low: 1, high: 2}` record in a local emitted `ExprRecord`; it did not fold
+to a prepared constant in that probe.
 
-### Expected rows, to be confirmed by observation
+### Observed rows
 
 A static reading of the lowerer gives the shape below. The `let` lowers to
 `BuildStmtRow::Let` because the binding is neither `Int` nor `Bool`
 (`lower.rs:7129-7165`). The literal lowers to `BuildExprRow::Record` with
 `LoweredRecordEntry::Field` entries (`lower/values.rs:451-478`). The field
-reads lower to `BuildExprRow::Field` (`lower.rs:9154`). The exact row order,
-block placement and the record slot are observations the first slice records.
-If Rust differs, the Lean lowerer follows Rust. If Rust contradicts the
-contract, for example by dropping the unused `wide` entry, the counterexample
-is retained and the implementation repaired, as the charter requires
-(`xsh-lean.md:88`).
+reads lower to `BuildExprRow::Field` (`lower.rs:9154`). The observed export
+confirms the row order and record slot below. The entries block is block 1 at
+extra offset 21; the body is block 2. The string pool is
+`[spans, value, args, high, low]`, and the canonical names table is
+`[low, high, wide]`.
+The Lean lowerer will follow these rows when it gains record support.
 
 | Row | Tag | Payload |
 |---|---|---|

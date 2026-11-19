@@ -1114,7 +1114,7 @@ theorem function_tail_lowers {src : List (String × Option Callee)} {f : SourceF
   · show _ ++ _ = _
     rw [bodyFrame.2, retFrame.2, lw.functions.2]
   · intro F le sourceId observations
-    have toF : StateLE s8 F := StateLE.of_update le
+    have toF : StateLE s8 F := ⟨le.rows, le.extra, le.ops, le.blocks⟩
     obtain ⟨block, found, ownerIs, within, same⟩ := LoweringState.BlockOwned.mono toF bodyOwned
     have atReturn := LoweringState.RowAt.mono (bodyLe.trans toF) retAt
     have boundReturn : returned.val < F.rows.length := by

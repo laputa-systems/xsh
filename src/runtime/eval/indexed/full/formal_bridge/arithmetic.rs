@@ -1,8 +1,9 @@
 use super::*;
 use crate::runtime::value::ResultValue;
 use crate::syntax::node::BinaryOp;
+use crate::symbol::Symbol;
 
-const ARITHMETIC_SCOPE: &str = "integer-calls-conditional-local-fixture-v3";
+const ARITHMETIC_SCOPE: &str = "integer-calls-conditional-local-fixture-v4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProjectedTag {
@@ -23,10 +24,12 @@ enum ProjectedTag {
     ExprErr,
     ExprTry,
     StmtLet,
+    ExprRecord,
+    ExprField,
 }
 
 impl ProjectedTag {
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 19] = [
         Self::IntInt,
         Self::StmtLetInt,
         Self::ExprInt,
@@ -44,6 +47,8 @@ impl ProjectedTag {
         Self::ExprErr,
         Self::ExprTry,
         Self::StmtLet,
+        Self::ExprRecord,
+        Self::ExprField,
     ];
 
     fn from_full_tag(tag: FullTag) -> Option<Self> {
@@ -69,6 +74,8 @@ impl ProjectedTag {
             Self::ExprErr => FullTag::ExprErr,
             Self::ExprTry => FullTag::ExprTry,
             Self::StmtLet => FullTag::StmtLet,
+            Self::ExprRecord => FullTag::ExprRecord,
+            Self::ExprField => FullTag::ExprField,
         }
     }
 
@@ -96,7 +103,8 @@ impl ProjectedTag {
             Self::ExprOk => 1,
             Self::ExprErr => 2,
             Self::ExprTry => 2,
-            Self::StmtLet => 3,
+            Self::StmtLet | Self::ExprField => 3,
+            Self::ExprRecord => 1,
         }
     }
 
@@ -109,15 +117,12 @@ impl ProjectedTag {
                 | Self::ExprValueBlock
                 | Self::ExprIf
                 | Self::ExprDirectPureCall
+                | Self::ExprField
         )
     }
 
     fn is_result(self) -> bool {
         matches!(self, Self::ExprOk | Self::ExprErr)
-    }
-
-    fn is_propagation(self) -> bool {
-        matches!(self, Self::ExprTry)
     }
 
     fn is_int_row(self) -> bool {
@@ -288,6 +293,8 @@ struct ArithmeticDocument {
     source_id: IrId,
     rows: Vec<ProjectedRow>,
     extra: Vec<u32>,
+    strings: Vec<String>,
+    names: Vec<String>,
     binary_ops: Vec<ProjectedOp>,
     blocks: Vec<ProjectedBlock>,
     functions: Vec<ProjectedFunction>,
@@ -319,6 +326,7 @@ enum BlockRole {
     ValueBlock(usize),
     Branches(usize),
     Arguments(usize),
+    RecordEntries(usize),
 }
 
 fn block_index(document: &ArithmeticDocument, raw: u32) -> Result<usize, String> {
@@ -356,6 +364,10 @@ fn block_words<'a>(
 }
 
 fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), String> {
+    for table in [&document.strings, &document.names] {
+        let unique: std::collections::HashSet<_> = table.iter().collect();
+        if unique.len() != table.len() { return Err("table has repeated spellings".to_string()); }
+    }
     for (index, row) in document.rows.iter().enumerate() {
         if row.id != IrId::from_index(index)? {
             return Err("instruction IDs must follow table order".to_string());
@@ -437,11 +449,23 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                     return Err("propagated value is not a direct call".to_string());
                 }
             }
+            ProjectedTag::ExprRecord => {
+                let used = document.rows.iter().skip(index + 1).any(|candidate| {
+                    candidate.tag == ProjectedTag::StmtLet &&
+                        document.payload(candidate).is_ok_and(|payload| payload.get(1) == Some(&(index as u32)))
+                });
+                if !used { return Err("record is not bound by a let".to_string()); }
+            }
+            ProjectedTag::ExprField => {
+                if document.row_before(words[0], index)?.tag != ProjectedTag::ExprParam || words[1] == 0 || words[1] as usize > document.strings.len() {
+                    return Err("invalid field base or label".to_string());
+                }
+            }
             ProjectedTag::StmtLet => {
                 if words[2] != 0 {
                     return Err("propagation binding carries a type annotation".to_string());
                 }
-                if !document.row_before(words[1], index)?.tag.is_propagation() {
+                if !matches!(document.row_before(words[1], index)?.tag, ProjectedTag::ExprTry | ProjectedTag::ExprRecord) {
                     return Err("bound value is not a propagation".to_string());
                 }
             }
@@ -455,6 +479,9 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
     for (index, row) in document.rows.iter().enumerate() {
         let words = document.payload(row)?;
         match row.tag {
+            ProjectedTag::ExprRecord => {
+                claim_block(document, &mut roles, words[0], BlockRole::RecordEntries(index))?
+            }
             ProjectedTag::ExprValueBlock => {
                 claim_block(document, &mut roles, words[0], BlockRole::ValueBlock(index))?
             }
@@ -521,6 +548,16 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                         if !document.row_before(*operand, user)?.tag.is_expression() {
                             return Err("branch table entry is not an expression row".to_string());
                         }
+                    }
+                }
+            }
+            BlockRole::RecordEntries(user) => {
+                if block.flags != 0 || count.checked_mul(3) != Some(entries.len()) {
+                    return Err("record entries count or flags invalid".to_string());
+                }
+                for entry in entries.chunks_exact(3) {
+                    if entry[0] != 0 || entry[1] == 0 || entry[1] as usize > document.names.len() || !document.row_before(entry[2], user)?.tag.is_expression() {
+                        return Err("invalid record entry".to_string());
                     }
                 }
             }
@@ -597,6 +634,8 @@ fn encode_arithmetic_document(document: &ArithmeticDocument) -> Result<String, S
             ("rhs", wire_string(hex_u32(row.rhs))),
         ])).collect())),
         ("extra", hex_array(&document.extra)),
+        ("strings", WireValue::Array(document.strings.iter().map(wire_string).collect())),
+        ("names", WireValue::Array(document.names.iter().map(wire_string).collect())),
         ("binaryOps", WireValue::Array(document.binary_ops.iter().map(|op| wire_object([
             ("name", wire_string(op.name())),
             ("ordinal", wire_string(hex_u32(op.ordinal()))),
@@ -653,6 +692,8 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
             "scope",
             "instructions",
             "extra",
+            "strings",
+            "names",
             "binaryOps",
             "blocks",
             "functions",
@@ -695,6 +736,14 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
             _ => Err("extra word is not a hex string".to_string()),
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let read_table = |fields: &mut BTreeMap<String, WireValue>, name| -> Result<Vec<String>, String> {
+        take_array(fields, name)?.into_iter().map(|value| match value {
+            WireValue::String(text) => Ok(text),
+            _ => Err("table entry is not a string".to_string()),
+        }).collect()
+    };
+    let strings = read_table(&mut fields, "strings")?;
+    let names = read_table(&mut fields, "names")?;
     let binary_ops = take_array(&mut fields, "binaryOps")?
         .into_iter()
         .map(|value| {
@@ -783,6 +832,8 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
         source_id,
         rows,
         extra,
+        strings,
+        names,
         binary_ops,
         blocks,
         functions,
@@ -941,10 +992,37 @@ fn export_arithmetic_document(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let strings = (1..=store.strings.len()).map(|index| {
+        store.string(index as u32).map(str::to_string).map_err(|error| error.message.clone())
+    }).collect::<Result<Vec<_>, _>>()?;
+    let mut extra = store.extra.clone();
+    let mut names = Vec::<String>::new();
+    let _symbols = program.symbol_owner().enter();
+    for row in &rows {
+        if row.tag != ProjectedTag::ExprRecord { continue; }
+        let raw = *extra.get(row.lhs as usize).ok_or("missing record block")?;
+        let block = blocks.get(raw.checked_sub(1).ok_or("missing record block")? as usize).ok_or("invalid record block")?;
+        let start = block.start as usize;
+        let end = start.checked_add(block.len as usize).ok_or("record range overflow")?;
+        let entries = extra.get_mut(start..end).ok_or("invalid record range")?;
+        let (count, entries) = entries.split_first_mut().ok_or("empty record block")?;
+        if (*count as usize).checked_mul(3) != Some(entries.len()) { return Err("invalid record count".to_string()); }
+        for entry in entries.chunks_exact_mut(3) {
+            let spelling = Name::from_symbol(Symbol::from_raw(entry[1])).as_str().to_string();
+            if spelling == "<invalid-symbol>" { return Err("record label has no spelling".to_string()); }
+            let index = match names.iter().position(|name| *name == spelling) {
+                Some(index) => index,
+                None => { names.push(spelling); names.len() - 1 }
+            };
+            entry[1] = u32::try_from(index + 1).map_err(|error| error.to_string())?;
+        }
+    }
     let document = ArithmeticDocument {
         source_id,
         rows,
-        extra: store.extra.clone(),
+        extra,
+        strings,
+        names,
         binary_ops,
         blocks,
         functions,
@@ -971,6 +1049,14 @@ fn check_artifact_against_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const RECORD_SOURCE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/formal-bridge-integer-record-local.xsh"));
+    const RECORD_SCHEDULE: [ScheduledCall; 4] = [
+        ScheduledCall { function: "spans", arguments: &[5] },
+        ScheduledCall { function: "spans", arguments: &[-4] },
+        ScheduledCall { function: "spans", arguments: &[0] },
+        ScheduledCall { function: "spans", arguments: &[9] },
+    ];
 
     const SCHEDULE: [ScheduledCall; 7] = [
         ScheduledCall { function: "shifted", arguments: &[] },
@@ -1140,7 +1226,85 @@ mod tests {
     }
 
     #[test]
+    fn record_local_labels_are_canonical_across_interner_states() {
+        let first = {
+            let fixture = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+            encode_arithmetic_document(&fixture.document).unwrap()
+        };
+        let owner = crate::symbol::SymbolOwner::new();
+        for index in 0..256 { owner.intern(&format!("unrelated-record-label-{index}")); }
+        let second = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+        assert_eq!(first, encode_arithmetic_document(&second.document).unwrap());
+    }
+
+    #[test]
+    fn exported_record_local_rows_are_the_record_family() {
+        use ProjectedTag::*;
+        let fixture = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+        let document = &fixture.document;
+        assert_eq!(document.rows.iter().map(|row| row.tag).collect::<Vec<_>>(),
+            [ExprParam, ExprInt, ExprBinary, ExprInt, ExprParam, ExprBinary,
+             ExprParam, ExprInt, ExprBinary, ExprRecord, StmtLet, ExprParam,
+             ExprField, ExprParam, ExprField, ExprBinary, StmtReturn]);
+        let record = document.payload(&document.rows[9]).unwrap();
+        let block = &document.blocks[record[0] as usize - 1];
+        assert_eq!(block_words(document, block).unwrap(), [3, 0, 1, 2, 0, 2, 5, 0, 3, 8]);
+        assert_eq!(document.names, ["low", "high", "wide"]);
+    }
+
+    #[test]
+    fn record_local_runs_evaluate_every_entry() {
+        let fixture = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+        assert_eq!(fixture.document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(10), Outcome::Value(-8_i64 as u64), Outcome::Failure(ProjectedFailure::DivisionByZero), Outcome::Failure(ProjectedFailure::IntegerOverflow)]);
+    }
+
+    #[test]
+    fn mutated_record_local_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+        let check = |program: &FullProgram| check_artifact_against_program(&fixture.document, program, &fixture.parsed.arena, &fixture.sources, &RECORD_SCHEDULE);
+        assert!(check(&fixture.program).is_ok());
+        let mut swapped = fixture.program.clone();
+        let record = payload_start(&swapped, FullTag::ExprRecord, 0);
+        let block = &swapped.store.blocks[swapped.store.extra[record] as usize - 1];
+        let start = block.instructions.start as usize;
+        swapped.store.extra.swap(start + 2, start + 5);
+        assert!(FullVerifier::verify(&swapped).is_err() || check(&swapped).is_err());
+        let mut wrong_field = fixture.program.clone();
+        let high = payload_start(&wrong_field, FullTag::ExprField, 0);
+        let low = payload_start(&wrong_field, FullTag::ExprField, 1);
+        wrong_field.store.extra[high + 1] = wrong_field.store.extra[low + 1];
+        assert!(FullVerifier::verify(&wrong_field).is_err() || check(&wrong_field).is_err());
+    }
+
+    #[test]
+    fn structurally_malformed_record_local_rows_are_rejected() {
+        let fixture = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
+        let reject = |mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err());
+        };
+        let record = fixture.document.rows.iter().position(|row| row.tag == ProjectedTag::ExprRecord).unwrap();
+        let field = fixture.document.rows.iter().position(|row| row.tag == ProjectedTag::ExprField).unwrap();
+        let binding = fixture.document.rows.iter().position(|row| row.tag == ProjectedTag::StmtLet).unwrap();
+        let block = fixture.document.payload(&fixture.document.rows[record]).unwrap()[0] as usize - 1;
+        let start = fixture.document.blocks[block].start as usize;
+        reject(&|d| d.extra[start + 1] = 1);
+        reject(&|d| d.extra[start] += 1);
+        reject(&|d| d.extra[start + 2] = 0);
+        reject(&|d| d.extra[start + 2] = d.names.len() as u32 + 1);
+        reject(&|d| d.extra[d.rows[field].lhs as usize] = 1);
+        reject(&|d| d.extra[d.rows[binding].lhs as usize + 1] = 0);
+        reject(&|d| d.names.push(d.names[0].clone()));
+        reject(&|d| d.strings.push(d.strings[0].clone()));
+        reject(&|d| d.extra[d.rows[field].lhs as usize + 1] = 0);
+        reject(&|d| d.extra[d.rows[field].lhs as usize + 1] = d.strings.len() as u32 + 1);
+    }
+
+    #[test]
     fn exported_documents_are_the_lean_certified_bytes() {
+        let record = fixture_of(RECORD_SOURCE.to_string(), &RECORD_SCHEDULE);
         let failures = fixture_of(FAILURES_SOURCE.to_string(), &FAILURES_SCHEDULE);
         let calls = fixture_of(CALLS_SOURCE.to_string(), &CALLS_SCHEDULE);
         let assignments = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
@@ -1154,6 +1318,7 @@ mod tests {
         let several_let = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
+            (&record, &RECORD_SCHEDULE[..], "recordLocalSourceDocumentCodes", "recordLocalRawIrDocumentCodes"),
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
             (&calls, &CALLS_SCHEDULE[..], "callsSourceDocumentCodes", "callsRawIrDocumentCodes"),
             (
