@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
 const BOOT = 2
@@ -86,6 +88,7 @@ test test_uptime_singular_day_and_user { |ctx|
 }
 
 test test_uptime_without_boot_record_names_the_problem_and_fails { |ctx|
+  requires.linux_kernel("utmp record decoding is Linux-only")
   let root = test.temp_dir(ctx, name: "uptime-bad")?
   let junk = fp"{root}/junk"
   junk.write("hello")
@@ -96,6 +99,7 @@ test test_uptime_without_boot_record_names_the_problem_and_fails { |ctx|
 }
 
 test test_uptime_unreadable_operands_are_named_by_errno { |ctx|
+  requires.linux_kernel("utmp record decoding is Linux-only")
   let root = test.temp_dir(ctx, name: "uptime-operand")?
   let missing = uptime_run(ctx, [fp"{root}/absent".display()])?
   assert missing.status == 1

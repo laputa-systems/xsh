@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 pure shell_words(words: List[Path]) -> Str {
   ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words].join(" ")
@@ -363,6 +364,7 @@ test test_gnu_misc_kill_log { |ctx|
 
 # origin: gnu misc/yes.log
 test test_gnu_misc_yes_log { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let head = uu.argv(s, "head", [p"-n", p"2"])?.require(NonEmpty[Path])?
   let plain = uu.argv(s, "yes", [])?.require(NonEmpty[Path])?

@@ -1,6 +1,7 @@
 ##! Transcribed random sampling tests from the uutils coreutils suite.
 
 use support.uu
+use support.requires
 
 proc numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], Error] {
   let result = collect {
@@ -226,6 +227,7 @@ test test_uu_shuf_echo_invalid_unicode_in_arguments { |ctx|
 
 # origin: uutils test_shuf::test_invalid_unicode_in_filename
 test test_uu_shuf_invalid_unicode_in_filename { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"a\xffb")?
   name.write("foo\n")

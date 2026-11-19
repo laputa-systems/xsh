@@ -1,5 +1,6 @@
 ##! Native ports of the uutils expand integration tests.
 use support.uu
+use support.requires
 
 # origin: uutils test_expand::test_invalid_arg
 test test_uu_expand_invalid_arg { |ctx|
@@ -377,6 +378,7 @@ test test_uu_expand_tabs_with_too_large_size { |ctx|
 
 # origin: uutils test_expand::test_expand_non_utf8_paths
 test test_uu_expand_expand_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"hello\tworld\ntest\tline\n")

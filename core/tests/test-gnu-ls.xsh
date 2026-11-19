@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 pure has_bytes(data: Bytes, needle: Bytes) -> Bool {
   let data_len = data.len()
@@ -208,6 +209,7 @@ test test_gnu_ls_time_style_diag_log { |ctx|
 
 # origin: gnu ls/non-utf8-hidden.log
 test test_gnu_ls_non_utf8_hidden_log { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d")
   uu.write(s, "d/visible", "content\n")

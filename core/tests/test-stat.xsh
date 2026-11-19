@@ -1,3 +1,5 @@
+use support.requires
+
 type TerminalRun = {status: Int, stdout: Str, stderr: Str}
 type RawTerminalRun = {status: Int, stdout: Bytes, stderr: Str}
 
@@ -223,6 +225,7 @@ test test_stat_reports_non_utf8_missing_names { |ctx|
 }
 
 test test_stat_preserves_non_utf8_names_in_output_bytes { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "stat-raw-name")?
   let name = bytes.concat([root.bytes(), b"/raw-\xff"]) as Path
   name.write("data")

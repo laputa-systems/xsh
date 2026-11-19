@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_dir.rs.
 
 use support.uu
+use support.requires
 
 # A FIFO preserves the upstream diagnostic's pipe descriptor while a bounded
 # reader owns the bytes; regular-file capture would change this boundary.
@@ -129,6 +130,7 @@ test test_uu_dir_quoting_defaults { |ctx|
 
 # origin: uutils test_dir::test_write_error
 test test_uu_dir_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.touch(s, "file")
   let r = uu.invoke(s, "dir", ["file"], stdout: p"/dev/full")?

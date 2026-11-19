@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils csplit integration tests.
 
 use support.uu
+use support.requires
 
 pure generate(from: Int, to: Int) -> Str {
   [f"{value}\n" for value in range(from, to)].join("")
@@ -1052,6 +1053,7 @@ test test_uu_csplit_directory_input_file { |ctx|
 
 # origin: uutils test_csplit::test_csplit_non_utf8_paths
 test test_uu_csplit_csplit_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"line1\nline2\nline3\nline4\nline5\n")

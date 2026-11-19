@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 pure reversed(items: List[Str]) -> List[Str] { [items[items.len() - index - 1] for index in range(items.len())] }
 
@@ -611,6 +612,7 @@ test test_gnu_sort_sort_float_log { |ctx|
 
 # origin: gnu sort/sort-locale.log
 test test_gnu_sort_sort_locale_log { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let failures = collect {
     for setting in ["LC_ALL", "LC_COLLATE"] {

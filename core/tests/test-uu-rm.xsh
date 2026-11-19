@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils rm integration tests.
 
 use support.uu
+use support.requires
 
 # Dot operands may name two ancestors. Keep both ancestors inside this test's
 # owned scratch tree even if a guard regresses.
@@ -427,6 +428,7 @@ test test_uu_rm_non_empty_directory { |ctx|
 
 # origin: uutils test_rm::test_non_utf8_paths
 test test_uu_rm_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = safe_scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xFF\xFE.txt")?
   file.write("")
@@ -906,6 +908,7 @@ test test_uu_rm_verbose_slash { |ctx|
 
 # origin: uutils test_rm::test_verbose_write_error_does_not_panic
 test test_uu_rm_verbose_write_error_does_not_panic { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = safe_scene(ctx)?
   uu.touch(s, "test_rm_verbose_write_error_file")
   let r1 = uu.invoke(s, "rm", ["-v", "test_rm_verbose_write_error_file"], stdout: p"/dev/full")?
@@ -918,6 +921,7 @@ test test_uu_rm_verbose_write_error_does_not_panic { |ctx|
 
 # origin: uutils test_rm::test_verbose_write_error_does_not_panic_dir
 test test_uu_rm_verbose_write_error_does_not_panic_dir { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = safe_scene(ctx)?
   uu.mkdir(s, "test_rm_verbose_write_error_dir")
   uu.touch(s, "test_rm_verbose_write_error_dir/a")
@@ -932,6 +936,7 @@ test test_uu_rm_verbose_write_error_does_not_panic_dir { |ctx|
 
 # origin: uutils test_rm::test_verbose_write_error_reported_once
 test test_uu_rm_verbose_write_error_reported_once { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = safe_scene(ctx)?
   let dir = "test_rm_verbose_write_error_once"
   uu.mkdir(s, dir)

@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str, elapsed_ms: Int}
 
 # Every probe stays on this host's loopback: the destination is 127.0.0.1 or
@@ -197,6 +199,7 @@ test test_traceroute_hop_range_and_probe_count { |ctx|
 }
 
 test test_traceroute_packet_length_sets_the_payload { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let listener = open_udp("inet", "127.0.0.1", 0)?
   defer unix.close_fd(listener)
   let port = local_port(listener)?
@@ -221,6 +224,7 @@ test test_traceroute_packet_length_sets_the_payload { |ctx|
 }
 
 test test_traceroute_udp_port_advances_per_probe_unless_fixed { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let first = open_udp("inet", "127.0.0.1", 0)?
   defer unix.close_fd(first)
   let port = local_port(first)?
@@ -313,6 +317,7 @@ test test_traceroute_gateway_option_validation { |ctx|
 }
 
 test test_traceroute_wait_and_sendwait_pace_the_probes { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let listener = open_udp("inet", "127.0.0.1", 0)?
   defer unix.close_fd(listener)
   let port = f"{local_port(listener)?}"
@@ -334,6 +339,7 @@ test test_traceroute_wait_and_sendwait_pace_the_probes { |ctx|
 }
 
 test test_traceroute_tcp_syn_reaches_open_and_closed_ports { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)

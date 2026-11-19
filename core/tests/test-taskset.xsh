@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
 type ListCase = {input: Str, cpus: List[Int], shown: Str}
 
@@ -112,6 +114,7 @@ pure has_all(allowed: List[Int], wanted: List[Int]) -> Bool {
 
 
 test test_taskset_reports_the_affinity_of_a_process_as_mask_and_list { |ctx|
+  requires.linux_kernel("CPU affinity is Linux-only")
   let cpus = process.affinity()?
   let pid = process.current_pid()?
 
@@ -176,6 +179,7 @@ test test_taskset_changes_the_affinity_of_another_process { |ctx|
 }
 
 test test_taskset_runs_a_command_under_a_mask_or_a_list { |ctx|
+  requires.linux_kernel("CPU affinity is Linux-only")
   let cpus = process.affinity()?
   let command = reporter(ctx)?
 
@@ -337,6 +341,7 @@ test test_taskset_a_plus_sign_and_leading_zeros_are_pids { |ctx|
 }
 
 test test_taskset_stops_reading_options_at_the_first_operand { |ctx|
+  requires.linux_kernel("CPU affinity is Linux-only")
   let cpus = process.affinity()?
   let mask = hex_mask([cpus[0]])
 
@@ -346,6 +351,7 @@ test test_taskset_stops_reading_options_at_the_first_operand { |ctx|
 }
 
 test test_taskset_missing_and_unrunnable_commands { |ctx|
+  requires.linux_kernel("CPU affinity is Linux-only")
   let cpus = process.affinity()?
   let missing = taskset_run(ctx, ["-c", f"{cpus[0]}", "/definitely/not/here"])?
   assert missing.status == 127

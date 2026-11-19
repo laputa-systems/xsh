@@ -1,5 +1,6 @@
 ##! Transcribed behavior from the MIT-licensed uutils sort integration tests.
 use support.uu
+use support.requires
 
 proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {
   Ok(fp"{ctx.core_dir}/tests/data/uutils/sort/{name}".read_bytes()?)
@@ -288,6 +289,7 @@ test test_uu_sort_merge_empty_input { |ctx|
 
 # origin: uutils test_sort::test_merge_flush_error_is_reported
 test test_uu_sort_merge_flush_error_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.write(s, "input.txt", "line\n")
   let r = uu.invoke(s, "sort", ["-m", "input.txt"], stdout: p"/dev/full")?

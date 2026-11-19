@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils cp integration tests.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_cp::test_cp_sparse_always_reflink_always
 test test_uu_cp_cp_sparse_always_reflink_always { |ctx|
@@ -193,6 +194,7 @@ test test_uu_cp_cp_verbose_preserved_link_to_dir { |ctx|
 
 # origin: uutils test_cp::test_cp_verbose_write_error_is_reported
 test test_uu_cp_cp_verbose_write_error_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.touch(s, "source_file")
   let r = uu.invoke(s, "cp", ["--verbose", "source_file", "dest_file"], stdout: p"/dev/full")?
@@ -313,6 +315,7 @@ test test_uu_cp_no_preserve_mode_with_later_preserve { |ctx|
 
 # origin: uutils test_cp::test_non_utf8_src
 test test_uu_cp_non_utf8_src { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let src = uu.at_bytes(s, b"\xff\xffsrc")?
   src.write("")
@@ -335,6 +338,7 @@ test test_uu_cp_non_utf8_dest { |ctx|
 
 # origin: uutils test_cp::test_non_utf8_target
 test test_uu_cp_non_utf8_target { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
   uu.at_bytes(s, b"\xff\xffdest")?.mkdir()

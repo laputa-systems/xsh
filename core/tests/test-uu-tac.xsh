@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tac.rs.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_tac::test_before_empty_file
 test test_uu_tac_before_empty_file { |ctx|
@@ -279,6 +280,7 @@ test test_uu_tac_tac_file_truncated_during_read_does_not_crash { |ctx|
 
 # origin: uutils test_tac::test_tac_non_utf8_paths
 test test_uu_tac_tac_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"\xff\xfe")?.write(b"line1\nline2\nline3\n")
   let r = uu.invoke_paths(s, "tac", [b"\xff\xfe" as Path])?

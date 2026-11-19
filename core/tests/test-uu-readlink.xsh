@@ -1,6 +1,7 @@
 ##! Native readlink cases transcribed from the uutils integration suite.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_readlink::test_no_args
 test test_uu_readlink_no_args { |ctx|
@@ -321,6 +322,7 @@ test test_uu_readlink_delimiters { |ctx|
 
 # origin: uutils test_readlink::test_readlink_non_utf8_paths
 test test_uu_readlink_readlink_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "target_file")
   let name = b"symlink_\xff\xfe"

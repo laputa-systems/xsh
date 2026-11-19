@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 test test_cp_file_and_recursive_dir { |ctx|
   let root = test.temp_dir(ctx, name: "cp")?
@@ -520,6 +521,7 @@ test test_cp_recursive_fifo_replaces_existing_destination_file { |ctx|
 }
 
 test test_cp_undecodable_operands_reach_the_kernel_unchanged { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "cp-raw-operands")?
   let source = bytes.concat([root.bytes(), b"/raw-\xff"]) as Path
   source.write("raw\n")
@@ -648,6 +650,7 @@ test test_cp_explicit_missing_security_context_fails { |ctx|
 }
 
 test test_cp_recursive_preserves_non_utf8_child_paths { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "cp-path-bytes")?
   let source = fp"{root}/source"
   source.mkdir()

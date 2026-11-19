@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 # origin: uutils test_head::test_stdin_default
 test test_uu_head_stdin_default { |ctx|
@@ -489,6 +490,7 @@ test test_uu_head_value_too_large { |ctx|
 
 # origin: uutils test_head::test_write_to_dev_full
 test test_uu_head_write_to_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.fixture(s, "head", "lorem_ipsum.txt", "lorem_ipsum.txt")
   for append in [true, false] {
@@ -500,6 +502,7 @@ test test_uu_head_write_to_dev_full { |ctx|
 
 # origin: uutils test_head::test_head_non_utf8_paths
 test test_uu_head_head_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file_path = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   file_path.write("line1\nline2\nline3\n")
@@ -577,6 +580,7 @@ test test_uu_head_unreadable_file_prints_no_header { |ctx|
 
 # origin: uutils test_head::test_verbose_header_write_error_long_filename
 test test_uu_head_verbose_header_write_error_long_filename { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let long = "/dev/" + ["./" for _ in range(512)].join("") + "null"
   let r = uu.invoke(s, "head", ["-v", long], stdout: p"/dev/full")?

@@ -1,5 +1,6 @@
 ##! Native ports of the uutils paste integration tests.
 use support.uu
+use support.requires
 
 # origin: uutils test_paste::test_invalid_arg
 test test_uu_paste_invalid_arg { |ctx|
@@ -366,6 +367,7 @@ test test_uu_paste_non_utf8_delimiter { |ctx|
 
 # origin: uutils test_paste::test_paste_non_utf8_paths
 test test_uu_paste_paste_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let first = uu.at_bytes(s, bytes.from_ints([255, 254])?)?
   let second = uu.at_bytes(s, bytes.from_ints([240, 144])?)?
@@ -378,6 +380,7 @@ test test_uu_paste_paste_non_utf8_paths { |ctx|
 
 # origin: uutils test_paste::test_dev_zero_write_error_dev_full
 test test_uu_paste_dev_zero_write_error_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "paste", ["/dev/zero"], stdout: p"/dev/full", timeout: 5s)?
   uu.fails_with_code(r, 1)

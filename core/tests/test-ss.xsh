@@ -3,6 +3,7 @@
 # Expected layouts were taken from the iproute2 `ss` on sockets created by an
 # identical setup, with the port numbers replaced by the live ones.
 use core.lib.net_sockets as sockets
+use support.requires
 
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
@@ -95,6 +96,7 @@ pure only(port: Int) -> Str {
 }
 
 test test_ss_lists_listeners_in_the_reference_layout { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -108,6 +110,7 @@ test test_ss_lists_listeners_in_the_reference_layout { |ctx|
 }
 
 test test_ss_shows_established_connections_with_their_queues { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -122,6 +125,7 @@ test test_ss_shows_established_connections_with_their_queues { |ctx|
 }
 
 test test_ss_header_suppression_and_ipv6_alignment { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -136,6 +140,7 @@ test test_ss_header_suppression_and_ipv6_alignment { |ctx|
 }
 
 test test_ss_udp_unconnected_and_connected { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -198,6 +203,7 @@ test test_ss_unix_sockets_print_inodes_as_ports { |ctx|
 }
 
 test test_ss_single_state_filters_drop_the_state_column { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -226,6 +232,7 @@ test test_ss_single_state_filters_drop_the_state_column { |ctx|
 }
 
 test test_ss_no_queues_and_oneline_layouts { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -275,6 +282,7 @@ test test_ss_extended_and_timer_text { |ctx|
 }
 
 test test_ss_tcp_info_text_follows_the_reference_order { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -295,6 +303,7 @@ test test_ss_tcp_info_text_follows_the_reference_order { |ctx|
 }
 
 test test_ss_process_column_names_the_owner { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -322,6 +331,7 @@ test test_ss_process_column_names_the_owner { |ctx|
 }
 
 test test_ss_summary_reports_the_kernel_counters { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   let ran = ss(ctx, ["-s"])?
@@ -347,6 +357,7 @@ test test_ss_summary_reports_the_kernel_counters { |ctx|
 }
 
 test test_ss_resolves_names_from_the_configured_databases { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
@@ -407,6 +418,7 @@ test test_ss_filter_expressions_combine_ports_and_prefixes { |ctx|
 }
 
 test test_ss_table_and_family_selection { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }

@@ -1,6 +1,7 @@
 ##! Transcribed ownership tests from the uutils coreutils integration suite.
 
 use support.uu
+use support.requires
 
 # Keep captures in the private scene while reproducing a child working at root.
 proc at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -291,6 +292,7 @@ test test_uu_chgrp_chgrp_exit_code_not_being_overwritten_by_last_file { |ctx|
 
 # origin: uutils test_chgrp::verbose_missing_file_write_error_is_reported_not_panic
 test test_uu_chgrp_verbose_missing_file_write_error_is_reported_not_panic { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let gid = unix.id()?.egid
   let r = uu.invoke(s, "chgrp", ["--verbose", f"{gid}", "does-not-exist"], stdout: p"/dev/full")?

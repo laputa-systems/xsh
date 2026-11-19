@@ -1,6 +1,7 @@
 ##! Transcribed signal listing and delivery tests from the uutils coreutils suite.
 
 use support.uu
+use support.requires
 
 # The owned handle kills and reaps a failed test's target; sleep's natural
 # thirty-second exit also bounds a missing delivery before the signal assertion.
@@ -439,6 +440,7 @@ test test_uu_kill_kill_with_list_all_signal_numbers_up_to_last_named_signal { |c
 
 # origin: uutils test_kill::test_kill_list_signals_write_error_is_reported
 test test_uu_kill_kill_list_signals_write_error_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "kill", ["-l"], stdout: p"/dev/full")?
   uu.fails(r0)

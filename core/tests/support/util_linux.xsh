@@ -103,9 +103,10 @@ proc observe(s: uu.Scene, command: Str, args: List[Path], words: List[Path], var
 }
 
 ## Builds lossless reference argv with the same isolated launcher policy as candidate fixtures.
-export proc reference_argv(s: uu.Scene, command: Str, args: List[Path], vars: Record = {}) [error] -> Result[List[Path], Error] {
+export proc reference_argv(s: uu.Scene, command: Str, args: List[Path], vars: Record = {}) [fs, error] -> Result[List[Path], Error] {
   assert command in ["lslocks", "lsipc", "lsmem", "mountpoint", "namei"]
   let executable = if command == "mountpoint" { p"/bin/mountpoint" } else { fp"/usr/bin/{command}" }
+  if ! executable.exists()? { test.skip(f"util-linux {command} reference executable is unavailable") }
   let metadata = json.encode({caller_keys: vars.keys(), umask: null})?
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
   Ok([s.ctx.xsh_bin, launcher, fp"{metadata}", executable].extend(args))

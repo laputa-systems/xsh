@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 proc copied(s: uu.Scene, args: List[Str], mask: Int? = null) [fs, process, env, error] {
   uu.succeeds(uu.invoke(s, "cp", args, umask: mask)?)
@@ -207,6 +208,7 @@ test test_gnu_cp_cp_mv_backup_log { |ctx|
 
 # origin: gnu cp/debug.log
 test test_gnu_cp_debug_log { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.touch(s, "file")
   let r = uu.invoke(s, "cp", ["--debug", "file", "file.cp"])?
@@ -643,6 +645,7 @@ test test_gnu_cp_readonly_dir_log { |ctx|
 
 # origin: gnu cp/reflink-auto.log
 test test_gnu_cp_reflink_auto_log { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = uu.scene(ctx)?
   let other_root = fs.tempdir_in(p"/dev/shm")?
     let other = other_root.host_path()?
@@ -754,6 +757,7 @@ test test_gnu_cp_sparse_extents_log { |ctx|
 
 # origin: gnu cp/sparse-perf.log
 test test_gnu_cp_sparse_perf_log { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = uu.scene(ctx)?
   let other_root = fs.tempdir_in(p"/dev/shm")?
     let other = other_root.host_path()?

@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_ls.rs.
 
 use support.uu
+use support.requires
 
 # A bounded reader owns the pipe diagnostic bytes without placing capture paths in the listing.
 proc pipe_listing_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -490,6 +491,7 @@ test test_uu_ls_ls_emoji_alignment { |ctx|
 
 # origin: uutils test_ls::test_invalid_utf8
 test test_uu_ls_invalid_utf8 { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"-\xe0-foo")?
   file.write(b"")
@@ -498,6 +500,7 @@ test test_uu_ls_invalid_utf8 { |ctx|
 }
 
 test test_uu_ls_invalid_utf8_operands_sort_by_raw_bytes { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"aa\xfe")?.write(b"")
   uu.at_bytes(s, b"aa\xff")?.write(b"")
@@ -509,6 +512,7 @@ test test_uu_ls_invalid_utf8_operands_sort_by_raw_bytes { |ctx|
 }
 
 test test_uu_ls_invalid_utf8_operand_after_double_dash { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"-\xff")?.write(b"")
   let operand = b"-\xff" as Path
@@ -518,6 +522,7 @@ test test_uu_ls_invalid_utf8_operand_after_double_dash { |ctx|
 }
 
 test test_uu_ls_invalid_utf8_operand_does_not_alias_marker_text { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "--xsh-raw-arg:4")
   uu.at_bytes(s, b"aa\xfe")?.write(b"")
@@ -533,6 +538,7 @@ test test_uu_ls_invalid_utf8_operand_does_not_alias_marker_text { |ctx|
 }
 
 test test_uu_ls_invalid_utf8_operand_after_posix_operand { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "first")
   uu.at_bytes(s, b"-\xff")?.write(b"")
@@ -863,6 +869,7 @@ test test_uu_ls_ls_block_size_si_file_size { |ctx|
 
 # origin: uutils test_ls::quoting::test_locale_aware_quoting
 test test_uu_ls_quoting_locale_aware_quoting { |ctx|
+  requires.raw_filenames(ctx)
   let _ = uu.scene(ctx)?
   let scene0 = uu.scene(ctx)?
   let file0 = uu.at_bytes(scene0, b"\xf0\x9f\x98\x81")?
@@ -940,6 +947,7 @@ test test_uu_ls_quoting_ls_quoting_locale_utf8 { |ctx|
 
 # origin: uutils test_ls::test_dired_write_error
 test test_uu_ls_dired_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = ls_run(s, ["--dired", "nonexistent"], stdout: p"/dev/full")?
   uu.fails_with_code(r, 2)

@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 # Calendar fields carry leading zeroes that the strict integer parser rejects.
 pure decimal_field(value: Str) -> Result[Int, Error] {
@@ -1087,6 +1088,7 @@ test test_uu_date_date_parse_from_format { |ctx|
 
 # origin: uutils test_date::test_date_reference_is_non_utf8_path
 test test_uu_date_date_reference_is_non_utf8_path { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"reference_\xff\xfe.txt")?
   file.write("")
@@ -1226,6 +1228,7 @@ test test_uu_date_date_utc_time { |ctx|
 
 # origin: uutils test_date::test_date_write_error_dev_full
 test test_uu_date_date_write_error_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "date", ["+%s"], stdout: p"/dev/full")?
   uu.fails(r)

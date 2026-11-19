@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils ls integration tests.
 
 use support.uu
+use support.requires
 
 # Capture files belong outside the listed directory, including hidden-file listings.
 proc ls_invoke(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -671,6 +672,7 @@ test test_uu_ls_time_style_ambiguous_and_invalid_prefixes { |ctx|
 
 # origin: uutils test_ls::test_write_error
 test test_uu_ls_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.touch(s, "dummy_file.txt")
   let r = ls_invoke(s, [], stdout: p"/dev/full")?

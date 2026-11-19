@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_yes.rs.
 
 use support.uu
+use support.requires
 
 pure repeat_text(word: Str, count: Int) -> Str {
   let width = if count < 1024 { count } else { 1024 }
@@ -98,6 +99,7 @@ test test_uu_yes_non_utf8 { |ctx|
 
 # origin: uutils test_yes::test_piped_to_dev_full
 test test_uu_yes_piped_to_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   for append in [true, false] {
     let s = uu.scene(ctx)?
     let r = uu.invoke(s, "yes", [], stdout: p"/dev/full", stdout_append: append, timeout: 60s)?

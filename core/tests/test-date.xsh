@@ -1,4 +1,5 @@
 use core.lib.date_parse
+use support.requires
 
 test test_date_format { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u +%Y
@@ -244,6 +245,7 @@ test test_date_format_passes_non_utf8_bytes_through { |ctx|
 }
 
 test test_date_file_and_reference_accept_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "date-raw-paths")?
   let dates = bytes.concat([root.bytes(), b"/dates\xff"]) as Path
   dates.write("2005-01-01\n")

@@ -1,4 +1,5 @@
 use core.lib.storage
+use support.requires
 
 type ListedPartition = {start: Int, size: Int}
 type ListedTable = {label: Str, partitions: List[ListedPartition]}
@@ -187,6 +188,7 @@ test test_storage_wipefs_selectively_erases_owned_signature_only { |ctx|
 # at offset 0 and the 0x55aa trailer. Erasing only the type string leaves the
 # trailer, which a probe then reports as a DOS partition table.
 test test_storage_wipefs_erases_every_magic_of_a_fat_filesystem { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = test.temp_file(ctx, name: "wipefs-fat.img", contents: b"")?
   image.truncate(2097152)
   let made = run_real(ctx, "mkfs.fat", ["-F", "12", "-n", "TESTFAT", f"{image}"])
@@ -223,6 +225,7 @@ test test_storage_wipefs_erases_every_magic_of_a_fat_filesystem { |ctx|
 }
 
 test test_storage_wipefs_lists_gpt_headers_before_the_protective_mbr { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = partitioned_image(ctx, "gpt")
   let listed = run_real(ctx, "wipefs", ["-O", "OFFSET,TYPE,LENGTH,USAGE", f"{image}"])
   assert listed.success, listed.stderr
@@ -442,6 +445,7 @@ test test_storage_fdisk_list_selects_columns_and_names_the_ones_a_label_lacks { 
 }
 
 test test_storage_fdisk_sizes_use_the_util_linux_unit_rounding { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = test.temp_file(ctx, name: "fdisk-sizes.img", contents: b"")?
   image.truncate(1048576)
   let written = run_real(ctx, "sfdisk", [f"{image}"], b"label: dos\nunit: sectors\nstart=1,size=1\nstart=10,size=5\nstart=20,size=6\nstart=100,size=1000\n")
@@ -454,6 +458,7 @@ test test_storage_fdisk_sizes_use_the_util_linux_unit_rounding { |ctx|
 }
 
 test test_storage_partition_listings_agree_on_extents { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   for label in ["gpt", "dos"] {
     let image = partitioned_image(ctx, label)
     let fdisk = run_real(ctx, "fdisk", ["-l", "-o", "START,SECTORS", f"{image}"])
@@ -486,6 +491,7 @@ test test_storage_fdisk_lists_unpartitioned_image_without_rows { |ctx|
 }
 
 test test_storage_fdisk_separates_several_devices_with_two_blank_lines { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let gpt = partitioned_image(ctx, "gpt")
   let dos = partitioned_image(ctx, "dos")
   let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}", f"{dos}"])
@@ -499,6 +505,7 @@ test test_storage_fdisk_separates_several_devices_with_two_blank_lines { |ctx|
 # only the headers a label has, start and size padded to twelve columns, and
 # only the per-partition fields that exist.
 test test_storage_sfdisk_dump_matches_the_util_linux_layout { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let gpt = partitioned_image(ctx, "gpt")
   let dump = run_real(ctx, "sfdisk", ["--dump", f"{gpt}"])
   assert dump.success, dump.stderr
@@ -515,6 +522,7 @@ test test_storage_sfdisk_dump_matches_the_util_linux_layout { |ctx|
 }
 
 test test_storage_sfdisk_dump_records_the_small_disk_grain { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = test.temp_file(ctx, name: "sfdisk-grain.img", contents: b"")?
   image.truncate(2097152)
   let written = run_real(ctx, "sfdisk", [f"{image}"], b"label: dos\nlabel-id: 0x00c0ffee\nunit: sectors\nstart=34,size=100,type=c\n")
@@ -530,6 +538,7 @@ test test_storage_sfdisk_dump_records_the_small_disk_grain { |ctx|
 }
 
 test test_storage_sfdisk_json_is_the_util_linux_machine_interface { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let gpt = partitioned_image(ctx, "gpt")
   let listed = run_real(ctx, "sfdisk", ["--json", f"{gpt}"])
   assert listed.success, listed.stderr
@@ -586,6 +595,7 @@ test test_storage_fdisk_names_the_operand_it_cannot_open { |ctx|
 }
 
 test test_storage_partx_lists_and_shows_the_same_reference_extents { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   for label in ["gpt", "dos"] {
     let image = partitioned_image(ctx, label)
     for mode in ["-l", "-s"] {
@@ -600,6 +610,7 @@ test test_storage_partx_lists_and_shows_the_same_reference_extents { |ctx|
 }
 
 test test_storage_partx_carries_gpt_partition_identity { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = partitioned_image(ctx, "gpt")
   let shown = run_real(ctx, "partx", ["-s", "--noheadings", "-o", "NR,NAME,UUID", f"{image}"])
   assert shown.success, shown.stderr
@@ -630,6 +641,7 @@ test test_storage_partx_requires_a_partition_table_and_names_the_operand { |ctx|
 }
 
 test test_storage_partx_refuses_kernel_update_modes_before_reading { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = partitioned_image(ctx, "gpt")
   for flag in ["-g", "-a", "-d", "-u", "-n"] {
     let refused = run_real(ctx, "partx", [flag, f"{image}"])
@@ -640,6 +652,7 @@ test test_storage_partx_refuses_kernel_update_modes_before_reading { |ctx|
 }
 
 test test_storage_partprobe_dry_run_summarizes_partition_numbers { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   for label in ["gpt", "dos"] {
     let image = partitioned_image(ctx, label)
     let before = image.read_bytes()?
@@ -654,6 +667,7 @@ test test_storage_partprobe_dry_run_summarizes_partition_numbers { |ctx|
 }
 
 test test_storage_partprobe_summary_of_unpartitioned_image_has_no_partition_numbers { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let blank = test.temp_file(ctx, name: "partprobe-blank.img", contents: b"")?
   blank.truncate(1048576)
   let summary = run_real(ctx, "partprobe", ["-d", "-s", f"{blank}"])
@@ -662,6 +676,7 @@ test test_storage_partprobe_summary_of_unpartitioned_image_has_no_partition_numb
 }
 
 test test_storage_partprobe_refuses_non_block_files_without_summary { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let image = partitioned_image(ctx, "gpt")
   let before = image.read_bytes()?
   let refused = run_real(ctx, "partprobe", ["-s", f"{image}"])

@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 proc pieces(s: uu.Scene) [fs, error] -> Result[List[Path], Error] {
   Ok(collect { for entry in fs.children(s.root, ordered: true)? { yield entry.path when entry.name.starts_with("x") } })
@@ -44,6 +45,7 @@ test test_gnu_split_lines_log { |ctx|
 
 # origin: gnu split/non-utf8.log
 test test_gnu_split_non_utf8_log { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let raw = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
   uu.at_bytes(s, raw)?.write(b"a\n")

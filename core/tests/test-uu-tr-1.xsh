@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tr.rs.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_tr::alnum_expands_number_uppercase_lowercase
 test test_uu_tr_alnum_expands_number_uppercase_lowercase { |ctx|
@@ -451,6 +452,7 @@ test test_uu_tr_delete_multi { |ctx|
 
 # origin: uutils test_tr::test_failed_write_is_reported
 test test_uu_tr_failed_write_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "tr", ["e", "a"], stdin: b"hello", stdout: p"/dev/full")?
   uu.fails(r)

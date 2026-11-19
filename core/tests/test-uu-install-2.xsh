@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils install integration tests.
 
 use support.uu
+use support.requires
 
 # Scene symlinks have absolute targets unless the original used a relative link.
 proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] {
@@ -138,6 +139,7 @@ test test_uu_install_install_no_target_multiple_sources_and_target_dir { |ctx|
 
 # origin: uutils test_install::test_install_non_utf8_dir
 test test_uu_install_install_non_utf8_dir { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "source")
   let dir = uu.at_bytes(s, b"target_dir_\xFF\xFE")?
@@ -151,6 +153,7 @@ test test_uu_install_install_non_utf8_dir { |ctx|
 
 # origin: uutils test_install::test_install_non_utf8_paths
 test test_uu_install_install_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   {
     let s = uu.scene(ctx)?
     let source = uu.at_bytes(s, b"\xFF\xFE")?

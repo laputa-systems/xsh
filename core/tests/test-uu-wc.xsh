@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_wc.rs.
 
 use support.uu
+use support.requires
 
 proc wc_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?
@@ -228,6 +229,7 @@ test test_uu_wc_files0_progressive_stream { |ctx|
 
 # origin: uutils test_wc::test_files0_stops_after_stdout_write_error
 test test_uu_wc_files0_stops_after_stdout_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = wc_scene(ctx)?
   let r = uu.invoke(s, "wc", ["--files0-from=-", "--total=never"], stdin: b"/dev/null\0/dev/null\0/dev/null\0", stdout: p"/dev/full")?
   uu.fails(r)

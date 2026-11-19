@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 test test_uu_support_append_creates_and_preserves_exact_bytes { |ctx|
   let s = uu.scene(ctx)?
@@ -43,6 +44,7 @@ test test_uu_support_directory_stdin { |ctx|
 }
 
 test test_uu_support_non_utf8_argv { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let name = b"file\xff" as Path
   let file = uu.at_bytes(s, b"file\xff")?

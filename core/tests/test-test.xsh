@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/test.xsh by its real path (so the invoked name is test and
@@ -394,6 +396,7 @@ proc raw_applet_run(ctx: TestContext, args: List[Path]) [fs, process, error] -> 
 }
 
 test test_test_undecodable_operands_keep_their_bytes { |ctx|
+  requires.raw_filenames(ctx)
   let bad = b"fo\x80o" as Path
 
   let result = raw_applet_run(ctx, [fp"123", fp"-ne", bad])?

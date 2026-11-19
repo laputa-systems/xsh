@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for unexpand.
 
 use support.uu
+use support.requires
 
 proc unexpand_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
@@ -100,6 +101,7 @@ test test_uu_unexpand_multiple_files { |ctx|
 
 # origin: uutils test_unexpand::test_non_utf8_filename
 test test_uu_unexpand_non_utf8_filename { |ctx|
+  requires.raw_filenames(ctx)
   let s = unexpand_scene(ctx)?
   let name = b"\xff\xfe" as Path
   uu.at_bytes(s, b"\xff\xfe")?.write(b"        a\n")

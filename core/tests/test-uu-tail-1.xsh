@@ -1,5 +1,6 @@
 ##! Transcribed behavior from the MIT-licensed uutils tail integration tests.
 use support.uu
+use support.requires
 type InputCase = {args: List[Str], input: Union[Bytes, Path], expected: Str}
 
 proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {
@@ -466,6 +467,7 @@ test test_uu_tail_dir_follow_retry { |ctx|
 
 # origin: uutils test_tail::test_failed_warning_write_is_reported
 test test_uu_tail_failed_warning_write_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "tail", ["--pid=0", "/dev/null"], stdin: b"", stderr: p"/dev/full")?
   uu.fails_with_code(r, 1)

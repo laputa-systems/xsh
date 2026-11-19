@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils fmt integration suite.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_fmt::fmt_reflow_unicode
 test test_uu_fmt_fmt_reflow_unicode { |ctx|
@@ -211,6 +212,7 @@ test test_uu_fmt_fmt_non_existent_file { |ctx|
 
 # origin: uutils test_fmt::test_fmt_non_utf8_paths
 test test_uu_fmt_fmt_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"hello world this is a test")

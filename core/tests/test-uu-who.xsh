@@ -1,6 +1,7 @@
 ##! Native ports of the uutils who integration tests.
 
 use support.uu
+use support.requires
 
 proc default_utmp() [process, error] -> Result[List[UnixUtmp], Error] {
   match unix.read_utmp() {
@@ -119,6 +120,7 @@ test test_uu_who_m { |ctx|
 
 # origin: uutils test_who::test_process
 test test_uu_who_process { |ctx|
+  requires.linux_kernel("utmp record decoding is Linux-only")
   let s = uu.scene(ctx)?
   for option in ["-p", "--process", "--p"] {
     let expected = empty_selector("init_process")?
@@ -130,6 +132,7 @@ test test_uu_who_process { |ctx|
 
 # origin: uutils test_who::test_runlevel
 test test_uu_who_runlevel { |ctx|
+  requires.linux_kernel("utmp record decoding is Linux-only")
   let s = uu.scene(ctx)?
   for option in ["-r", "--runlevel", "--r"] {
     let expected = empty_selector("run_level")?
@@ -141,6 +144,7 @@ test test_uu_who_runlevel { |ctx|
 
 # origin: uutils test_who::test_time
 test test_uu_who_time { |ctx|
+  requires.linux_kernel("utmp record decoding is Linux-only")
   let s = uu.scene(ctx)?
   for option in ["-t", "--time", "--t"] {
     let expected = empty_selector("new_time")?

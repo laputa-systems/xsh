@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/seq.xsh by its real path (so the invoked name is `seq` and
@@ -160,6 +162,7 @@ test test_seq_argument_errors_are_gnu_usage_errors { |ctx|
 }
 
 test test_seq_option_errors_and_infinite_sequences_stream { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let unknown = seq_run(ctx, ["--definitely-invalid"])?
   assert unknown.status == 1
   assert unknown.stderr == "seq: unrecognized option '--definitely-invalid'\nTry 'seq --help' for more information.\n", unknown.stderr
@@ -184,6 +187,7 @@ test test_seq_option_errors_and_infinite_sequences_stream { |ctx|
 }
 
 test test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let root = test.temp_dir(ctx, name: "seq-write-error")?
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/seq.xsh".display(), "1", "0.0001", "99999999"]

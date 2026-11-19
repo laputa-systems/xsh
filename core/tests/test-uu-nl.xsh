@@ -1,6 +1,7 @@
 ##! Transcribed line numbering tests from the uutils coreutils integration suite.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_nl::test_default_body_numbering
 test test_uu_nl_default_body_numbering { |ctx|
@@ -783,6 +784,7 @@ test test_uu_nl_number_separator_non_utf8 { |ctx|
 
 # origin: uutils test_nl::test_non_utf8_paths
 test test_uu_nl_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"line 1\nline 2\nline 3\n")

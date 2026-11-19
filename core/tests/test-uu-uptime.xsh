@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uptime.rs.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_uptime::test_invalid_arg
 test test_uu_uptime_invalid_arg { |ctx|
@@ -74,6 +75,7 @@ test test_uu_uptime_uptime_with_non_existent_file { |ctx|
 
 # origin: uutils test_uptime::test_write_error_handling
 test test_uu_uptime_write_error_handling { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uptime", [], stdout: p"/dev/full")?
   uu.fails(r)

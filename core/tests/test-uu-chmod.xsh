@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils chmod integration tests.
 
 use support.uu
+use support.requires
 
 proc make_file(s: uu.Scene, name: Str, mode: Int) [fs, error] {
   uu.touch(s, name)
@@ -200,6 +201,7 @@ test test_uu_chmod_chmod_non_existing_file_silent { |ctx|
 
 # origin: uutils test_chmod::test_chmod_non_utf8_paths
 test test_uu_chmod_chmod_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xFF\xFE.txt")?
   file.write("", mode: 0o644)

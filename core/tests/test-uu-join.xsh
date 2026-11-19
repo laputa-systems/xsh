@@ -1,6 +1,7 @@
 ##! Native join compatibility tests transcribed from the uutils integration suite.
 
 use support.uu
+use support.requires
 
 proc fixtures(s: uu.Scene) {
   for name in [
@@ -397,6 +398,7 @@ test test_uu_join_tab_multi_character { |ctx|
 
 # origin: uutils test_join::test_full
 test test_uu_join_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   fixtures(s)
   let r1 = uu.invoke(s, "join", ["fields_1.txt", "fields_2.txt"], stdout: p"/dev/full")?
@@ -466,6 +468,7 @@ test test_uu_join_non_unicode { |ctx|
 
 # origin: uutils test_join::test_join_non_utf8_paths
 test test_uu_join_join_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let first = uu.at_bytes(s, b"test_\xff\xfe_1.txt")?
   let second = uu.at_bytes(s, b"test_\xff\xfe_2.txt")?

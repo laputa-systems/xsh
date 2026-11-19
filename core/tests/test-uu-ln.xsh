@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_ln.rs.
 
 use support.uu
+use support.requires
 
 # Scene setup symlinks name absolute targets, including dangling targets.
 proc scene_symlink(s: uu.Scene, target: Str, name: Str) {
@@ -786,6 +787,7 @@ test test_uu_ln_force_replace_hard_link_in_symlinked_directory { |ctx|
 
 # origin: uutils test_ln::test_symlink_target_dir_non_utf8_source_name
 test test_uu_ln_symlink_target_dir_non_utf8_source_name { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let target_dir = "test_symlink_target_dir_non_utf8"
   let source_bytes = b"source_\xff\xfe"
@@ -806,6 +808,7 @@ test test_uu_ln_symlink_target_dir_non_utf8_source_name { |ctx|
 
 # origin: uutils test_ln::test_ln_non_utf8_paths
 test test_uu_ln_ln_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let name = b"test_\xff\xfe.txt"
   let link_name = b"link_\xff\xfe.txt"

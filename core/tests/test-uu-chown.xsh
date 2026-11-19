@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_chown.rs.
 
 use support.uu
+use support.requires
 
 proc identity(s: uu.Scene, util: Str, args: List[Str]) [fs, process, env, error] -> Result[Str, Error] {
   let r = uu.invoke(s, util, args)?
@@ -312,6 +313,7 @@ test test_uu_chown_chown_reference_file { |ctx|
 
 # origin: uutils test_chown::test_chown_reference_file_with_non_utf8_path
 test test_uu_chown_chown_reference_file_with_non_utf8_path { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.touch(s, "file")
   let reference = uu.at_bytes(s, b"reference_\xff\xfe")?
@@ -369,6 +371,7 @@ test test_uu_chown_chown_symlink_two_links_same_dir { |ctx|
 
 # origin: uutils test_chown::verbose_missing_file_write_error_is_reported_not_panic
 test test_uu_chown_verbose_missing_file_write_error_is_reported_not_panic { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let uid = unix.id()?.euid
   let r = uu.invoke(s, "chown", ["--verbose", f"{uid}", "does-not-exist"], stdout: p"/dev/full")?

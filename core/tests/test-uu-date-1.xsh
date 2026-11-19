@@ -1,6 +1,7 @@
 ##! Native ports of the frozen uutils date integration tests.
 
 use support.uu
+use support.requires
 
 # The upstream locale guard checks the host locale utility's UTF-8 charmap.
 proc locale_available(name: Str) -> Result[Bool] {
@@ -411,6 +412,7 @@ test test_uu_date_date_for_file_mtime { |ctx|
 
 # origin: uutils test_date::test_date_for_file_with_non_utf8_path
 test test_uu_date_date_for_file_with_non_utf8_path { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"file_\xff\xfe.txt")?
   file.write("")

@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_cut.rs.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_cut::diagnostics::test_plain_message_when_stderr_is_a_pipe
 test test_uu_cut_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
@@ -403,6 +404,7 @@ test test_uu_cut_cut_fields_single_byte_delimiter_in_mb_locale { |ctx|
 
 # origin: uutils test_cut::test_cut_non_utf8_paths
 test test_uu_cut_cut_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   file.write(b"a\tb\tc\n1\t2\t3\n")
@@ -532,6 +534,7 @@ test test_uu_cut_equal_as_delimiter { |ctx|
 
 # origin: uutils test_cut::test_failed_write_is_reported
 test test_uu_cut_failed_write_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   {
     let r = uu.invoke(s, "cut", ["-d=", "-f1"] , stdin: b"key=value", stdout: p"/dev/full")?

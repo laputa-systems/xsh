@@ -1,6 +1,7 @@
 ##! Native ports of the uutils cp integration tests.
 
 use support.uu
+use support.requires
 
 proc fixtures(s: uu.Scene) [fs, error] {
   for name in ["hello_world.txt", "how_are_you.txt", "existing_file.txt"] {
@@ -772,6 +773,7 @@ test test_uu_cp_cp_recursive_no_dereference_symlink_to_directory { |ctx|
 
 # origin: uutils test_cp::test_cp_recursive_non_utf8_source
 test test_uu_cp_cp_recursive_non_utf8_source { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"dir\x80")?.mkdir()
   uu.mkdir(s, "dir2")

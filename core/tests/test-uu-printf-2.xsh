@@ -1,6 +1,7 @@
 ##! Native ports of the uutils printf integration tests.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_printf::sub_float_hex_in
 test test_uu_printf_sub_float_hex_in { |ctx|
@@ -444,6 +445,7 @@ test test_uu_printf_q_string_control_chars_with_quotes { |ctx|
 
 # origin: uutils test_printf::test_unterminated_write_error_is_reported
 test test_uu_printf_unterminated_write_error_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", ["greeting"], stdout: p"/dev/full")?
   uu.fails(r0)
@@ -452,6 +454,7 @@ test test_uu_printf_unterminated_write_error_is_reported { |ctx|
 
 # origin: uutils test_printf::test_write_error_omits_errno
 test test_uu_printf_write_error_omits_errno { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", ["\n"], stdout: p"/dev/full")?
   uu.fails_with_code(r0, 1)

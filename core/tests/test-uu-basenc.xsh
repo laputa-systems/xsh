@@ -2,6 +2,7 @@
 ##! Each test names its origin; expected values are the original assertions.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_basenc::test_base16
 test test_uu_basenc_base16 { |ctx|
@@ -271,6 +272,7 @@ test test_uu_basenc_file { |ctx|
 
 # origin: uutils test_basenc::test_file_with_non_utf8_name
 test test_uu_basenc_file_with_non_utf8_name { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"\xff\xfe")?
   file.write(b"foo")

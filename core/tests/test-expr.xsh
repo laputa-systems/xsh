@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
 type RawRan = {status: Int, stdout: Bytes, stderr: Str}
 
@@ -221,6 +223,7 @@ test test_expr_syntax_and_operand_errors { |ctx|
 }
 
 test test_expr_stdout_write_error_uses_status_three { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let root = test.temp_dir(ctx, name: "expr-write-error")?
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/expr.xsh".display(), "2", "+", "2"]

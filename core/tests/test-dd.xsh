@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 proc invoke(ctx: TestContext, args: List[Str], input = b"", timeout = 3s) [fs, process, error] -> Result[Ran] {
@@ -46,6 +48,7 @@ test test_dd_forced_rich_diagnostics_point_at_operands { |ctx|
 }
 
 test test_dd_reads_and_writes_non_utf8_operand_paths { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "dd-non-utf8")?
   let input = bytes.concat([root.bytes(), b"/in-\xff\xfe"]) as Path
   let output = bytes.concat([root.bytes(), b"/out-\xff\xfe"]) as Path

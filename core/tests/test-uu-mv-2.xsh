@@ -1,5 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils mv integration tests.
 use support.uu
+use support.requires
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?
@@ -947,6 +948,7 @@ test test_uu_mv_mv_update_option { |ctx|
 
 # origin: uutils test_mv::test_mv_verbose_directory_recursive
 test test_uu_mv_mv_verbose_directory_recursive { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = scene(ctx)?
   for dir in ["mv-dir", "mv-dir/a", "mv-dir/a/b", "mv-dir/a/b/c", "mv-dir/d", "mv-dir/d/e", "mv-dir/d/e/f"] { uu.mkdir(s, dir) }
   uu.touch(s, "mv-dir/a/b/c/file1")
@@ -976,6 +978,7 @@ test test_uu_mv_mv_with_source_file_opened_and_target_file_exists { |ctx|
 
 # origin: uutils test_mv::test_mv_xattr_enotsup_silent
 test test_uu_mv_mv_xattr_enotsup_silent { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = scene(ctx)?
   uu.write(s, "src", "x")
   fs.xattr_set(uu.at(s, "src"), "user.t", b"v")

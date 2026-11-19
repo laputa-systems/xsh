@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_sum.rs.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_sum::test_bsd_multiple_files
 test test_uu_sum_bsd_multiple_files { |ctx|
@@ -113,6 +114,7 @@ test test_uu_sum_invalid_metadata { |ctx|
 
 # origin: uutils test_sum::test_sum_non_utf8_paths
 test test_uu_sum_sum_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"\xff\xfe")?.write(b"test content")
   let r = uu.invoke_paths(s, "sum", [b"\xff\xfe" as Path])?

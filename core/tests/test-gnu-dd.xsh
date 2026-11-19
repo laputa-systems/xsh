@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 proc shell(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, stderr: Path? = null) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
@@ -163,6 +164,7 @@ test test_gnu_dd_skip_seek2_log { |ctx|
 
 # origin: gnu dd/stderr.log
 test test_gnu_dd_stderr_log { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let help_words = uu.argv(s, "dd", [p"--help"])?
   let closing = [p"/bin/sh", p"-c", p"exec \"$@\" 2>&-; ", p"dd-stderr"]

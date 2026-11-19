@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils cat integration tests.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_cat::test_output_simple
 test test_uu_cat_output_simple { |ctx|
@@ -303,6 +304,7 @@ test test_uu_cat_piped_to_dev_null { |ctx|
 
 # origin: uutils test_cat::test_piped_to_dev_full
 test test_uu_cat_piped_to_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   for append in [true, false] {
@@ -429,6 +431,7 @@ test test_uu_cat_write_fast_read_error { |ctx|
 
 # origin: uutils test_cat::test_version_help_dev_full
 test test_uu_cat_version_help_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   for option in ["--version", "--help"] {
     let r = uu.invoke(s, "cat", [option], stdout: p"/dev/full")?

@@ -1,3 +1,5 @@
+use support.requires
+
 # Transcripts here were pinned against netcat-openbsd (Debian patchlevel
 # 1.234-1) on loopback. Every socket stays on 127.0.0.1 or ::1 or a path in
 # the test's own temporary directory; the peer of each `nc` under test is
@@ -222,6 +224,7 @@ test test_nc_client_sends_stdin_and_prints_the_reply { |ctx|
 }
 
 test test_nc_listener_receives_binary_stdin_and_replies { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-listener")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-n", "-l", "127.0.0.1", f"{port}"], b"srv-reply\n")?
@@ -243,6 +246,7 @@ test test_nc_listener_receives_binary_stdin_and_replies { |ctx|
 }
 
 test test_nc_talks_to_itself_and_half_closes { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-pair")?
   let server = spawn nc_command(ctx, root, "server", ["-v", "-n", "-l", "127.0.0.1", f"{port}"], b"from the listener\n")?
@@ -259,6 +263,7 @@ test test_nc_talks_to_itself_and_half_closes { |ctx|
 }
 
 test test_nc_listen_without_n_names_the_address { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   if let Ok(names) = dns.reverse("127.0.0.1") {
     guard names == ["localhost"] else {
       test.skip("127.0.0.1 does not reverse-resolve to localhost here")
@@ -281,6 +286,7 @@ test test_nc_listen_without_n_names_the_address { |ctx|
 }
 
 test test_nc_without_n_to_a_name_prints_the_address_it_used { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   if let Ok(rows) = dns.resolve_host("localhost") {
     if [r for r in rows if r.addr == "127.0.0.1"].is_empty() {
       test.skip("localhost has no IPv4 address here")
@@ -299,6 +305,7 @@ test test_nc_without_n_to_a_name_prints_the_address_it_used { |ctx|
 }
 
 test test_nc_scan_reports_open_and_closed_ports_in_order { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let open_a = tcp_listener()?
   defer unix.close_fd(open_a.fd)
   let open_b = tcp_listener()?
@@ -325,6 +332,7 @@ test test_nc_scan_reports_open_and_closed_ports_in_order { |ctx|
 }
 
 test test_nc_scans_ascending_ranges_even_when_given_backwards { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   # Three consecutive ports of which only the middle one listens.
   var base = 0
   var middle = -1
@@ -392,6 +400,7 @@ test test_nc_connects_over_ipv6_loopback { |ctx|
 }
 
 test test_nc_interval_waits_between_ports { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let first = tcp_listener()?
   defer unix.close_fd(first.fd)
   let second = tcp_listener()?
@@ -447,6 +456,7 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
 }
 
 test test_nc_listen_fails_when_the_address_is_taken { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let held = tcp_listener()?
   defer unix.close_fd(held.fd)
   let ran = run_nc(ctx, ["-l", "-n", "127.0.0.1", f"{held.port}"])?
@@ -455,6 +465,7 @@ test test_nc_listen_fails_when_the_address_is_taken { |ctx|
 }
 
 test test_nc_keep_open_serves_connections_in_turn { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-keep")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-n", "-k", "-l", "127.0.0.1", f"{port}"])?
@@ -477,6 +488,7 @@ test test_nc_keep_open_serves_connections_in_turn { |ctx|
 }
 
 test test_nc_receive_limit_ends_the_session { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-limit")?
   let handle = spawn nc_command(ctx, root, "server", ["-n", "-l", "-W", "1", "127.0.0.1", f"{port}"])?
@@ -538,6 +550,7 @@ test test_nc_detached_stdin_is_not_sent { |ctx|
 }
 
 test test_nc_quit_timer_ends_the_session_after_stdin_eof { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-quit")?
@@ -555,6 +568,7 @@ test test_nc_quit_timer_ends_the_session_after_stdin_eof { |ctx|
 }
 
 test test_nc_idle_timeout_ends_a_quiet_session { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-idle")?
@@ -629,6 +643,7 @@ test test_nc_binds_the_requested_source_port { |ctx|
 }
 
 test test_nc_udp_client_sends_a_datagram { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let receiver = udp_socket()?
   defer unix.close_fd(receiver.fd)
   let c = linux.net_constants()
@@ -648,6 +663,7 @@ test test_nc_udp_client_sends_a_datagram { |ctx|
 }
 
 test test_nc_udp_listener_pairs_with_its_first_sender { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let c = linux.net_constants()
   let held = udp_socket()?
   let port = held.port
@@ -671,6 +687,7 @@ test test_nc_udp_listener_pairs_with_its_first_sender { |ctx|
 }
 
 test test_nc_udp_scan_sends_four_probes_and_detects_closed_ports { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let open = udp_socket()?
   defer unix.close_fd(open.fd)
   let ran = run_nc(ctx, ["-vzu", "-n", "127.0.0.1", f"{open.port}"])?

@@ -1,3 +1,5 @@
+use support.requires
+
 type PermRan = {status: Int, stdout: Str, stderr: Str}
 
 proc perm_run(ctx: TestContext, args: List[Union[Str, Path]]) [fs, process, error] -> Result[PermRan] {
@@ -159,6 +161,7 @@ test test_chown_accepts_non_utf8_operand_bytes { |ctx|
 }
 
 test test_chown_reference_accepts_non_utf8_path_bytes { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "raw-reference")?
   let reference = bytes.concat([root.bytes(), b"/reference\xff"]) as Path
   let target = fp"{root}/target"

@@ -1,6 +1,7 @@
 ##! Transcribed file metadata and formatting tests from the uutils suite.
 
 use support.uu
+use support.requires
 
 const NORMAL = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s %u %U %x %X %y %Y %z %Z"
 const DEVICE = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s (%t/%T) %u %U %w %W %x %X %y %Y %z %Z"
@@ -194,6 +195,7 @@ test test_uu_stat_fs_default_format_quotes_name { |ctx|
 
 # origin: uutils test_stat::test_fs_format
 test test_uu_stat_fs_format { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = uu.scene(ctx)?
   let expected = filesystem_output(p"/dev/shm", "/dev/shm")?
   let r = uu.invoke(s, "stat", ["-f", "-c", FILESYSTEM, "/dev/shm"])?

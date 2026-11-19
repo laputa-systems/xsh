@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for shred.
 
 use support.uu
+use support.requires
 
 # A missing file answers false; other metadata errors keep their cause.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
@@ -217,6 +218,7 @@ test test_uu_shred_shred_nineteen_passes_first_and_last_are_random { |ctx|
 
 # origin: uutils test_shred::test_shred_non_utf8_paths
 test test_uu_shred_shred_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let name = b"test_\xff\xfe.txt" as Path
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?

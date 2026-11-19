@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/kill.xsh by its real path (so the invoked name is `kill` and
@@ -284,6 +286,7 @@ test test_kill_list_names_every_number_up_to_the_last_named_signal { |ctx|
 }
 
 test test_kill_list_write_errors_are_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   for args in [["-l"], ["-l", "TERM"], ["--list", "9"], ["--table"]] {
     let result = kill_run(ctx, args, out: p"/dev/full")?
     assert result.status == 1, args.join(" ")

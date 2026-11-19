@@ -1,5 +1,6 @@
 use support.uu
 use support.util_linux as ul
+use support.requires
 
 type LockReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int}
 type WaiterReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int, owner_pid: Int}
@@ -40,6 +41,7 @@ test test_util_linux_comparison_rejects_observable_mutants { |_|
 }
 
 test test_util_linux_reference_preserves_raw_path_arguments { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let operand = uu.at_bytes(s, b"raw-\xff")?
   operand.write("fixture")

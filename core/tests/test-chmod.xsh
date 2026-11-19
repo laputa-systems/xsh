@@ -1,3 +1,5 @@
+use support.requires
+
 type PermRan = {status: Int, stdout: Str, stderr: Str}
 
 proc perm_run(ctx: TestContext, args: List[Union[Str, Path]]) [fs, process, error] -> Result[PermRan] {
@@ -238,6 +240,7 @@ test test_chmod_recursive_reports_inaccessible_descendant { |ctx|
 }
 
 test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "raw-name")?
   let child = bytes.concat([root.bytes(), b"/child\xff"]) as Path
   child.write("x", mode: 0o644)

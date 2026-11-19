@@ -1,5 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils fold integration tests.
 use support.uu
+use support.requires
 
 # Unicode cases need a UTF-8 locale so fold measures decoded characters and columns.
 
@@ -669,6 +670,7 @@ test test_uu_fold_fold_preserves_invalid_utf8_sequences { |ctx|
 
 # origin: uutils test_fold::test_fold_reports_no_space_left_on_dev_full
 test test_uu_fold_fold_reports_no_space_left_on_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   for byte in [b"\n", b"\x00", b"\xc3"] {
     let input = bytes.concat([byte for _ in range(0, 1024)])

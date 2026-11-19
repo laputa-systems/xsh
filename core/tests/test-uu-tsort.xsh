@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for tsort.
 
 use support.uu
+use support.requires
 
 proc tsort_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
@@ -200,6 +201,7 @@ test test_uu_tsort_split_on_any_whitespace { |ctx|
 
 # origin: uutils test_tsort::test_tsort_non_utf8_paths
 test test_uu_tsort_tsort_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = tsort_scene(ctx)?
   let name = b"\xff\xfe" as Path
   uu.at_bytes(s, b"\xff\xfe")?.write(b"a b\nb c\n")
@@ -231,6 +233,7 @@ test test_uu_tsort_version_flag { |ctx|
 
 # origin: uutils test_tsort::test_write_error
 test test_uu_tsort_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = tsort_scene(ctx)?
   uu.write(s, "input", "a d\n")
   let r = uu.invoke(s, "tsort", ["input"], stdout: p"/dev/full")?

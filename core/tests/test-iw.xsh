@@ -1,4 +1,5 @@
 use core.lib.nl80211 as nl
+use support.requires
 
 type IwRun = {success: Bool, status: Int, stdout: Str, stderr: Str, calls: Str}
 
@@ -211,6 +212,7 @@ test test_version_unknown_commands_and_misplaced_arguments { |ctx|
 }
 
 test test_reg_get_prints_the_recorded_kernel_domain { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   # The reply is the kernel's own answer to GET_REG on a host without
   # wireless hardware, and the expected text is what iw 6.17 printed for it.
   let recorded = "HwEAAAcAIQAwMAAA5AEiADwAAAAIAAEAAAAAAAgAAgDQpiQACAADAEC4JQAIAAQAQJwAAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwAAQAIAAEAgAgAAAgAAgCofSUACAADAFDfJQAIAAQAIE4AAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwAAgAIAAEAgQAAAAgAAgAQwCUACAADADAOJgAIAAQAIE4AAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwAAwAIAAEAgAgAAAgAAgBQ404ACAADANAbUAAIAAQAgDgBAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwABAAIAAEAkAgAAAgAAgDQG1AACAADAFBUUQAIAAQAgDgBAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwABQAIAAEAkAAAAAgAAgBQxVMACAADANBuVwAIAAQAAHECAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwABgAIAAEAgAAAAAgAAgBYglcACAADAPgIWQAIAAQAgDgBAAgABQBYAgAACAAGANAHAAAIAAcAAAAAADwABwAIAAEAAAAAAAgAAgDAaWkDCAADAEBKzAMIAAQAgPUgAAgABQAAAAAACAAGAAAAAAAIAAcAAAAAAA=="
@@ -237,6 +239,7 @@ test test_reg_get_prints_the_recorded_kernel_domain { |ctx|
 }
 
 test test_reg_get_for_a_wiphy_names_it_and_a_self_managed_domain { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let rule = nl.attr_nested(
     1,
     [nl.attr_u32(1, 0)?, nl.attr_u32(2, 2402000)?, nl.attr_u32(3, 2472000)?, nl.attr_u32(4, 40000)?, nl.attr_u32(5, 300)?, nl.attr_u32(6, 1500)?],
@@ -262,6 +265,7 @@ test test_reg_get_for_a_wiphy_names_it_and_a_self_managed_domain { |ctx|
 }
 
 test test_reg_set_sends_the_alpha2_and_reports_a_kernel_refusal { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let alpha2 = nl.attr_str(A_REG_ALPHA2, "US")?
   let accepted: List[Record] = [family_line(), single_line(27, [alpha2], [])?]
   let ok = run_iw(ctx, "reg-set", accepted, ["reg", "set", "US"])?
@@ -281,6 +285,7 @@ test test_reg_set_sends_the_alpha2_and_reports_a_kernel_refusal { |ctx|
 }
 
 test test_reg_reload_sends_one_request { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let lines: List[Record] = [family_line(), single_line(126, [], [])?]
   let output = run_iw(ctx, "reg-reload", lines, ["reg", "reload"])?
   assert output.success and output.stdout == "", output.stderr
@@ -521,6 +526,7 @@ proc beacon_elements() [error] -> Result[Bytes, Error] {
 }
 
 test test_scan_dump_prints_bss_blocks_in_iw_layout { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let scan_request = nl.attr_u32(A_IFINDEX, 3)?
   let lines: List[Record] = [
     family_line(),
@@ -561,6 +567,7 @@ test test_scan_dump_prints_bss_blocks_in_iw_layout { |ctx|
 }
 
 test test_scan_dump_reports_both_element_sets_and_status { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let beacon = ie(0, [32, 66])?
   let response = bytes.concat([ie(0, [32, 66])?, ie(3, [11])?])
   let fields = [
@@ -589,6 +596,7 @@ test test_scan_dump_reports_both_element_sets_and_status { |ctx|
 }
 
 test test_scan_triggers_subscribes_waits_and_dumps { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let trigger = [
     nl.attr_u32(A_IFINDEX, 3)?,
     nl.attr_nested(A_SCAN_SSIDS, [nl.attr(0, bytes.from_text("MyNet"))?])?,
@@ -619,6 +627,7 @@ test test_scan_triggers_subscribes_waits_and_dumps { |ctx|
 }
 
 test test_scan_abort_event_and_abort_command { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let trigger = [nl.attr_u32(A_IFINDEX, 3)?, nl.attr_nested(A_SCAN_SSIDS, [nl.attr(0, b"")?])?]
   let lines: List[Record] = [
     family_line(),
@@ -668,6 +677,7 @@ proc sta_info_reply(last: Int) [error] -> Result[Record, Error] {
 }
 
 test test_station_dump_and_get_print_every_decoded_field { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let expected = [
     "Station 02:00:00:00:00:02 (on wlan0)",
     "\tinactive time:\t1520 ms",
@@ -760,6 +770,7 @@ test test_link_reports_connection_and_not_connected { |ctx|
 }
 
 test test_set_commands_send_one_request_each { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let device = nl.attr_u32(A_IFINDEX, 3)?
   let lines: List[Record] = [
     family_line(),
@@ -815,6 +826,7 @@ test test_set_commands_send_one_request_each { |ctx|
 }
 
 test test_scan_trigger_builds_the_request_from_every_option { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let request = [
     nl.attr_u32(A_IFINDEX, 3)?,
     nl.attr_nested(A_SCAN_FREQUENCIES, [nl.attr_u32(0, 2412)?])?,
@@ -841,6 +853,7 @@ test test_scan_trigger_builds_the_request_from_every_option { |ctx|
 }
 
 test test_scan_u_flag_reaches_the_results_of_a_waited_scan { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let trigger = [nl.attr_u32(A_IFINDEX, 3)?, nl.attr_nested(A_SCAN_SSIDS, [nl.attr(0, b"")?])?]
   let lines: List[Record] = [
     family_line(),
@@ -857,6 +870,7 @@ test test_scan_u_flag_reaches_the_results_of_a_waited_scan { |ctx|
 }
 
 test test_phy_selectors_by_index_by_name_and_implicit_form { |ctx|
+  requires.linux_kernel("nl80211 netlink is Linux-only")
   let split = nl.attr_flag(A_SPLIT_WIPHY_DUMP)?
   let by_index = nl.attr_u32(A_WIPHY, 0)?
   let domain = reply_of(

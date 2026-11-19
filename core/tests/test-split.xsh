@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/split.xsh by its real path inside `root`, capturing both streams.
@@ -184,6 +186,7 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
 }
 
 test test_split_non_utf8_input_path { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "split-raw-input")?
   let input_name = b"input-\xff"
   let input = bytes.concat([root.bytes(), b"/", input_name]) as Path

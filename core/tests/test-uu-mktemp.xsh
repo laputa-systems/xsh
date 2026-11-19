@@ -1,5 +1,6 @@
 ##! Transcribed from the uutils coreutils mktemp integration suite.
 use support.uu
+use support.requires
 
 # Only X characters are wildcards; every other byte and the length must match.
 proc matches_template(pattern: Str, filename: Str) {
@@ -463,6 +464,7 @@ test test_uu_mktemp_missing_short_tmpdir_flag { |ctx|
 
 # origin: uutils test_mktemp::test_non_utf8_tmpdir_path
 test test_uu_mktemp_non_utf8_tmpdir_path { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
   dir.mkdir()
@@ -471,6 +473,7 @@ test test_uu_mktemp_non_utf8_tmpdir_path { |ctx|
 
 # origin: uutils test_mktemp::test_non_utf8_tmpdir_long_option
 test test_uu_mktemp_non_utf8_tmpdir_long_option { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
   dir.mkdir()
@@ -479,6 +482,7 @@ test test_uu_mktemp_non_utf8_tmpdir_long_option { |ctx|
 
 # origin: uutils test_mktemp::test_non_utf8_tmpdir_directory_creation
 test test_uu_mktemp_non_utf8_tmpdir_directory_creation { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
   dir.mkdir()
@@ -506,6 +510,7 @@ test test_uu_mktemp_mktemp_hidden_file_single_dot { |ctx|
 
 # origin: uutils test_mktemp::test_write_error_removes_the_temporary_file
 test test_uu_mktemp_write_error_removes_the_temporary_file { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mktemp", ["keep-none-XXXX"], stdout: p"/dev/full")?
   uu.fails(r)
@@ -515,6 +520,7 @@ test test_uu_mktemp_write_error_removes_the_temporary_file { |ctx|
 
 # origin: uutils test_mktemp::test_write_error_removes_the_temporary_directory
 test test_uu_mktemp_write_error_removes_the_temporary_directory { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mktemp", ["-d", "keep-none-XXXX"], stdout: p"/dev/full")?
   uu.fails(r)

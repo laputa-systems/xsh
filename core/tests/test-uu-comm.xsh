@@ -1,5 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_comm.rs.
 use support.uu
+use support.requires
 
 # origin: uutils test_comm::a_empty
 test test_uu_comm_a_empty { |ctx|
@@ -269,6 +270,7 @@ test test_uu_comm_comm_eintr_handling { |ctx|
 
 # origin: uutils test_comm::test_comm_write_error_dev_full
 test test_uu_comm_comm_write_error_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.write(s, "a", "a\n")
   let r1 = uu.invoke(s, "comm", ["a", "a"], stdout: p"/dev/full")?

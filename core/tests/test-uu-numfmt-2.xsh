@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for numfmt.
 
 use support.uu
+use support.requires
 
 # origin: uutils test_numfmt::test_invalid_arg_number_with_warn_returns_status_0
 test test_uu_numfmt_invalid_arg_number_with_warn_returns_status_0 { |ctx|
@@ -790,6 +791,7 @@ test test_uu_numfmt_whitespace_mode_parses_custom_unit_separator_inputs { |ctx|
 
 # origin: uutils test_numfmt::test_write_error_is_reported_and_fatal
 test test_uu_numfmt_write_error_is_reported_and_fatal { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   for extra in [["--to=si"], ["--invalid=ignore"]] {
     let r = uu.invoke(s, "numfmt", extra, stdin: b"81920\n4096\n1024\n", stdout: p"/dev/full")?

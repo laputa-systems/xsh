@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils factor integration tests.
 
 use support.uu
+use support.requires
 
 const TEST_BIG_PRIMES_OUTPUT = [
   "18446744073709551557: 18446744073709551557\n",
@@ -2311,6 +2312,7 @@ test test_uu_factor_stdin_clean_error_message { |ctx|
 
 # origin: uutils test_factor::short_circuit_write_error
 test test_uu_factor_short_circuit_write_error { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "factor", ["12", "10"], stdout: p"/dev/full")?
   uu.fails(r)

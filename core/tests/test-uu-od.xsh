@@ -1,6 +1,7 @@
 ##! Transcribed from the uutils coreutils integration tests for od.
 
 use support.uu
+use support.requires
 
 const ALPHA_OUT = "0000000 061141 062143 063145 064147 065151 066153 067155 070157\n0000020 071161 072163 073165 074167 075171 000012\n0000033\n"
 
@@ -765,6 +766,7 @@ test test_uu_od_width_without_value { |ctx|
 
 # origin: uutils test_od::test_write_error_dev_full
 test test_uu_od_write_error_dev_full { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = od_scene(ctx)?
   let r1 = uu.invoke(s, "od", ["-An"], stdin: bytes.from_text("abcd"), stdout: p"/dev/full")?
   uu.fails(r1)

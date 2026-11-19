@@ -1,5 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils sort integration tests.
 use support.uu
+use support.requires
 
 # Apply both descriptor limits before the applet launcher starts; the oracle uses the same argv.
 proc limited(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran] {
@@ -392,6 +393,7 @@ test test_uu_sort_ext_sort_zero_terminated { |ctx|
 
 # origin: uutils test_sort::test_failed_write_is_reported
 test test_uu_sort_failed_write_is_reported { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   let r1 = uu.invoke(s, "sort", [], stdin: b"hello", stdout: p"/dev/full")?
   uu.fails(r1)
@@ -835,6 +837,7 @@ test test_uu_sort_buffer_size_limits_both_chunks { |ctx|
 
 # origin: uutils test_sort::test_buffer_sizes
 test test_uu_sort_buffer_sizes { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   test.timeout(ctx, 900s)
   let s = uu.scene(ctx)?
   for size in ["0", "50K", "50k", "1M", "100M", "0%", "10%", "1000G", "10T"] {
@@ -985,6 +988,7 @@ test test_uu_sort_fifo_without_trailing_newline { |ctx|
 
 # origin: uutils test_sort::test_files0_from_non_utf8_content
 test test_uu_sort_files0_from_non_utf8_content { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"a\xffb")?
   file.write(b"20\n10\n")

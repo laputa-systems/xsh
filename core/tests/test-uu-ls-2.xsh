@@ -1,6 +1,7 @@
 ##! Transcribed from the MIT-licensed uutils ls integration tests.
 
 use support.uu
+use support.requires
 
 # Captures live outside the listed scene, including when ls shows hidden files.
 proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal = false, stderr: Path? = null) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
@@ -907,6 +908,7 @@ test test_uu_ls_ls_ignore_negation { |ctx|
 
 # origin: uutils test_ls::test_ls_indicator_style
 test test_uu_ls_ls_indicator_style { |ctx|
+  requires.linux_kernel("Linux socket families are unavailable on this host")
   let s = uu.scene(ctx)?
   uu.mkdir(s, "directory")
   uu.touch(s, "link-src")
@@ -1088,6 +1090,7 @@ test test_uu_ls_ls_invalid_quoting_style_env_var_warns { |ctx|
 
 # origin: uutils test_ls::test_ls_invalid_quoting_style_env_var_with_unwritable_stderr
 test test_uu_ls_ls_invalid_quoting_style_env_var_with_unwritable_stderr { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let s = uu.scene(ctx)?
   uu.touch(s, "zeta")
   uu.touch(s, "alpha")
@@ -1396,6 +1399,7 @@ test test_uu_ls_ls_non_existing { |ctx|
 
 # origin: uutils test_ls::test_ls_non_utf8_hidden
 test test_uu_ls_ls_non_utf8_hidden { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b".hidden\x80")?.write("")
   let r = invoke(s, [])?

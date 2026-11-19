@@ -1,3 +1,5 @@
+use support.requires
+
 test test_rm_force_recursive { |ctx|
   let root = test.temp_dir(ctx, name: "rm")?
   let dir = fp"{root}/dir"
@@ -187,6 +189,7 @@ test test_rm_posix_operands_do_not_override_interactive_mode { |ctx|
 }
 
 test test_rm_relative_names_and_stdout_failure { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
   let root = test.temp_dir(ctx, name: "rm-output")?
   let directory = fp"{root}/directory"
   directory.mkdir()

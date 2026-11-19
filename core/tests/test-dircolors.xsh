@@ -1,3 +1,5 @@
+use support.requires
+
 test test_dircolors_database_and_parser { |ctx|
   let db = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -p
   assert "TERM screen*" in db
@@ -35,6 +37,7 @@ test test_dircolors_value_comment_without_space { |ctx|
 }
 
 test test_dircolors_non_utf8_file_operand { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "dircolors-non-utf8")?
   let database = bytes.concat([root.bytes(), b"/colors-\xff\xfe"]) as Path
   database.write(b"NORMAL 00\n*.txt 32\n")

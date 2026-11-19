@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 # origin: uutils test_realpath::test_realpath_current_directory
 test test_uu_realpath_realpath_current_directory { |ctx|
@@ -314,6 +315,7 @@ test test_uu_realpath_realpath_trailing_slash_unreadable_directory { |ctx|
 
 # origin: uutils test_realpath::test_realpath_non_utf8_paths
 test test_uu_realpath_realpath_non_utf8_paths { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   let name = b"test_\xff\xfe.txt"
   let file = uu.at_bytes(s, name)?

@@ -1,4 +1,5 @@
 use support.uu
+use support.requires
 
 proc paths(r: uu.Ran) [error] -> List[Str] {
   [line.split("\t")[1] for line in r.stdout.utf8()?.split("\n") if line != ""]
@@ -297,6 +298,7 @@ test test_gnu_du_no_x_log { |ctx|
 
 # origin: gnu du/one-file-system.log
 test test_gnu_du_one_file_system_log { |ctx|
+  requires.host_path(p"/dev/shm", "the cross-filesystem fixture needs a /dev/shm tmpfs")
   let s = uu.scene(ctx)?
   uu.mkdir(s, "b/c")
   uu.mkdir(s, "y/z")

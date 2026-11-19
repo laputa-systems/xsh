@@ -1,3 +1,5 @@
+use support.requires
+
 test test_ln_symbolic_force { |ctx|
   let root = test.temp_dir(ctx, name: "ln")?
   let src = fp"{root}/src.txt"
@@ -139,6 +141,7 @@ test test_ln_verbose_reports_backup_before_the_link { |ctx|
 }
 
 test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx)?
   let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let hard_link = bytes.concat([root.bytes(), b"/hard\xff\xfe"]) as Path
@@ -159,6 +162,7 @@ test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
 }
 
 test test_ln_target_directory_accepts_non_utf8_source_name { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx)?
   let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/links"

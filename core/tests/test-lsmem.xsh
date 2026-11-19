@@ -1,5 +1,6 @@
 use support.uu
 use support.util_linux as ul
+use support.requires
 
 proc install_lsmem_fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Unit, Error] {
   let source = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/memory/{name}"
@@ -232,6 +233,7 @@ test test_lsmem_separate_values_after_clusters_and_prefixes { |ctx|
 }
 
 test test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference { |ctx|
+  requires.raw_filenames(ctx)
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   let raw_root = uu.at_bytes(s, b"sysroot-\xff")?

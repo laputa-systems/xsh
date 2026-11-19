@@ -82,6 +82,7 @@ test test_find_symbolic_and_octal_permissions { |ctx|
 }
 
 use core.lib.findutils_fixture as fixture
+use support.requires
 
 # Every command line of the recorded GNU find corpus, in six shares that run
 # in parallel; the corpus and the fixture tree are described in
@@ -134,10 +135,22 @@ test test_find_matches_recorded_gnu_output_1 { |ctx|
   }
   check_share(ctx, 1)
 }
-test test_find_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2) }
-test test_find_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
-test test_find_matches_recorded_gnu_output_4 { |ctx| check_share(ctx, 4) }
-test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5) }
+test test_find_matches_recorded_gnu_output_2 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 2)
+}
+test test_find_matches_recorded_gnu_output_3 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 3)
+}
+test test_find_matches_recorded_gnu_output_4 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 4)
+}
+test test_find_matches_recorded_gnu_output_5 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 5)
+}
 
 # Operands that are not valid UTF-8 reach the applet as raw bytes: start
 # points, name patterns and -exec arguments are matched and passed unchanged.

@@ -102,6 +102,7 @@ test test_xargs_trailing_blanks_continue_logical_line { |ctx|
 }
 
 use core.lib.findutils_fixture as fixture
+use support.requires
 
 # Every command line of the recorded GNU xargs corpus, in four shares that run
 # in parallel; the corpus and the fixture tree are described in
@@ -118,10 +119,22 @@ proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] {
   Ok()
 }
 
-test test_xargs_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0) }
-test test_xargs_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1) }
-test test_xargs_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2) }
-test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
+test test_xargs_matches_recorded_gnu_output_0 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 0)
+}
+test test_xargs_matches_recorded_gnu_output_1 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 1)
+}
+test test_xargs_matches_recorded_gnu_output_2 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 2)
+}
+test test_xargs_matches_recorded_gnu_output_3 { |ctx|
+  requires.raw_filenames(ctx)
+  check_share(ctx, 3)
+}
 
 # A command word and an -a file name that are not valid UTF-8 reach the
 # command unchanged.

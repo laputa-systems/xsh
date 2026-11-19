@@ -1,3 +1,5 @@
+use support.requires
+
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 proc invoke(ctx: TestContext, args: List[Str], input = b"", sink: Path? = null) [fs, process, error] -> Result[Ran] {
@@ -42,6 +44,7 @@ test test_basenc_base16_reports_write_error { |ctx|
 }
 
 test test_basenc_reads_non_utf8_file_operand { |ctx|
+  requires.raw_filenames(ctx)
   let root = test.temp_dir(ctx, name: "basenc-raw-operand")?
   let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"foo")

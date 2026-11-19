@@ -1,4 +1,5 @@
 use core.lib.efivars as efi
+use support.requires
 
 type Run = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
@@ -158,6 +159,7 @@ test test_efibootmgr_boot_order_writes_whole_variable_and_validates_entries { |c
 }
 
 test test_efibootmgr_next_timeout_set_and_delete { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-next")
   let next = invoke(ctx, dir, ["-n", "0002", "-t", "30"])
   assert next.status == 0, next.stderr
@@ -188,6 +190,7 @@ test test_efibootmgr_timeout_wraps_to_sixteen_bits_and_rejects_text { |ctx|
 }
 
 test test_efibootmgr_delete_entry_removes_variable_and_order_entries { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-delete")
   let deleted = invoke(ctx, dir, ["-B", "-b", "0001"])
   assert deleted.status == 0, deleted.stderr
@@ -201,6 +204,7 @@ test test_efibootmgr_delete_entry_removes_variable_and_order_entries { |ctx|
 }
 
 test test_efibootmgr_delete_by_label_removes_every_match { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-delete-label")
   put(dir, "Boot0003", linux_entry("Linux", "\\EFI\\linux\\grub2.efi", b""))
   put(dir, "BootOrder", u16_list([3, 1, 0, 2]))
@@ -244,6 +248,7 @@ test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
 }
 
 test test_efibootmgr_remove_duplicates_keeps_first_occurrence { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-dups")
   put(dir, "BootOrder", u16_list([0, 1, 0, 2, 1]))
   let result = invoke(ctx, dir, ["-D"])
@@ -252,6 +257,7 @@ test test_efibootmgr_remove_duplicates_keeps_first_occurrence { |ctx|
 }
 
 test test_efibootmgr_driver_and_sysprep_use_their_own_variables { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-families")
   put(dir, "SysPrepOrder", u16_list([1, 0]))
   put(dir, "SysPrep0000", load_option(1, "Prep0", node(4, 4, utf16z("\\p0.efi")), b""))
@@ -340,6 +346,7 @@ test test_efibootmgr_create_honors_index_create_only_and_explicit_number { |ctx|
 }
 
 test test_efibootmgr_create_warns_about_duplicate_labels_and_fills_a_missing_order { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = test.temp_dir(ctx, name: "efibootmgr-create-empty")?
   let image = disk_image(ctx, "efibootmgr-create-empty.img", "gpt")
   let first = invoke(ctx, dir, ["-c", "-d", image.display()])
@@ -382,6 +389,7 @@ test test_efibootmgr_create_file_dev_path_and_optional_data { |ctx|
 }
 
 test test_efibootmgr_failed_create_leaves_the_directory_untouched { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-create-fail")
   let before = snapshot(dir)
   let image = disk_image(ctx, "efibootmgr-create-fail.img", "gpt")
@@ -395,6 +403,7 @@ test test_efibootmgr_failed_create_leaves_the_directory_untouched { |ctx|
 }
 
 test test_efibootmgr_refuses_directories_that_are_not_efivarfs_shaped { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-shape")
   fp"{dir}/notes.txt".write("keep me")
   let before = snapshot(dir)
@@ -414,6 +423,7 @@ test test_efibootmgr_refuses_directories_that_are_not_efivarfs_shaped { |ctx|
 }
 
 test test_efibootmgr_writes_only_named_variables_in_the_directory { |ctx|
+  requires.linux_kernel("real linux.* primitives are Linux-only")
   let dir = fixture(ctx, "efibootmgr-contained")
   let image = disk_image(ctx, "efibootmgr-contained.img", "gpt")
   let before = names_in(dir)
