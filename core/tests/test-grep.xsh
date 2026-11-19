@@ -218,8 +218,10 @@ proc expected_outcomes(ctx: TestContext) [fs, error] -> Result[Map[Outcome]] {
 proc run_case(ctx: TestContext, scratch: Path, c: Case) [fs, process, error] -> Outcome {
   let fixtures = fp"{ctx.core_dir}/tests/data/grep/fx"
   let script = fp"{ctx.core_dir}/{c.cmd}.xsh"
-  let out = fp"{scratch}/{c.id}.out"
-  let err = fp"{scratch}/{c.id}.err"
+  # Case IDs differ only in letter case (basic-L, basic-l), which a case-insensitive filesystem folds together.
+  let name = bytes.from_text(c.id).sha1().hex()
+  let out = fp"{scratch}/{name}.out"
+  let err = fp"{scratch}/{name}.err"
   let input = if c.stdin == "" { p"/dev/null" } else { fp"{fixtures}/{c.stdin}" }
   let argv = [ctx.xsh_bin.display(), script.display(), "--"].extend(c.args)
   let plan = if c.posixly {
