@@ -6690,6 +6690,8 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   fail. `fs.rename_exchange` swaps two entries atomically with no temporary-name
   fallback. `fs.path_limits` reports host limits, including the NUL byte in
   `path_max`, and fails when the host leaves a limit undefined.
+  `fs.statvfs` reports host filesystem counters, which can change between
+  calls as files and blocks are allocated or released.
 - Calendar conversion returns signed epoch nanoseconds, so dates outside that
   integer range fail. Local conversion follows the process's timezone; UTC is
   explicit. `time.from_calendar` rejects invalid civil dates and missing DST

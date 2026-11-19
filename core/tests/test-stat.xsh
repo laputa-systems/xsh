@@ -134,7 +134,15 @@ test test_stat_mount_point_quoted_name_and_filesystem_format { |ctx|
   let stats = fs.statvfs(target)?
   let filesystem = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -f -c "%b %c %i %l %n %s %S %t %T" $target
   assert filesystem.status.exited_with(0), filesystem.stderr
+  if system.uname()?.sysname == "Linux" {
   assert filesystem.stdout == f"{stats.blocks} {stats.files} {stat_filesystem_id(stats.fsid)} {stats.name_max} {target} {stats.block_size} {stats.fragment_size} {stat_hex(stats.type_magic ?? 0)} {mount.fstype}\n"
+  } else {
+    let prefix = f"{stats.blocks} "
+    assert filesystem.stdout.starts_with(prefix), filesystem.stdout
+    let parts = filesystem.stdout.byte_slice(prefix.byte_len()).split(" ", maxsplit: 1)
+    assert parts.len() == 2 and parts[0] as Int >= 0, filesystem.stdout
+    assert parts[1] == f"{stat_filesystem_id(stats.fsid)} {stats.name_max} {target} {stats.block_size} {stats.fragment_size} {stat_hex(stats.type_magic ?? 0)} {mount.fstype}\n", filesystem.stdout
+  }
 }
 
 test test_stat_terse_default_output_and_missing_operand_status { |ctx|
@@ -367,8 +375,18 @@ test test_stat_terse_formats_use_complete_metadata_layouts { |ctx|
   let normal = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -t $target
   assert normal.status.exited_with(0), normal.stderr
   assert normal.stdout == expected, normal.stdout
-  let stats = fs.statvfs(p"/proc")?
-  let filesystem = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -f -t p"/proc"
+  let filesystem_target = if system.uname()?.sysname == "Linux" { p"/proc" } else { p"/" }
+  let stats = fs.statvfs(filesystem_target)?
+  let filesystem = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -f -t $filesystem_target
   assert filesystem.status.exited_with(0), filesystem.stderr
-  assert filesystem.stdout == f"/proc {stat_filesystem_id(stats.fsid)} {stats.name_max} {stat_hex(stats.type_magic ?? 0)} {stats.block_size} {stats.fragment_size} {stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.files} {stats.files_free}\n", filesystem.stdout
+  if system.uname()?.sysname == "Linux" {
+    assert filesystem.stdout == f"/proc {stat_filesystem_id(stats.fsid)} {stats.name_max} {stat_hex(stats.type_magic ?? 0)} {stats.block_size} {stats.fragment_size} {stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.files} {stats.files_free}\n", filesystem.stdout
+  } else {
+    let fields = filesystem.stdout.words()
+    assert fields.len() == 11, filesystem.stdout
+    assert fields[0] == filesystem_target.display() and fields[1] == stat_filesystem_id(stats.fsid)
+    assert fields[2] == f"{stats.name_max}" and fields[3] == stat_hex(stats.type_magic ?? 0)
+    assert fields[4] == f"{stats.block_size}" and fields[5] == f"{stats.fragment_size}"
+    for field in fields[6..] { assert field as Int >= 0, filesystem.stdout }
+  }
 }
