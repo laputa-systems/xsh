@@ -182,7 +182,7 @@ builds that exist only on aarch64 Linux and macOS. The `oxish-client` connect, e
 stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
 OpenSSH servers: run them through `crates/oxish-client/fixture/ssh-fixture.sh exec
 COMMAND` (Docker, loopback only). The `authentication`, `descriptors`, `hostile`,
-`known_hosts` and `protocol` harnesses use a scripted peer but need `ssh-keygen`;
+`known_hosts`, `protocol` and `review_probes` harnesses use a scripted peer but need `ssh-keygen`;
 the `private_key_wipe` allocator probe also needs it. The gate image lacks
 `ssh-keygen`; run these harnesses with `cargo test -p oxish-client --test NAME` on
 a host with OpenSSH or through the fixture script. `xsh-archive`'s `interop`

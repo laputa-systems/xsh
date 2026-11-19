@@ -728,6 +728,7 @@ const harnesses_run_outside_change_cases = [
   {package: "oxish-client", harness: "protocol"},
   {package: "oxish-client", harness: "wipe"},
   {package: "oxish-client", harness: "private_key_wipe"},
+  {package: "oxish-client", harness: "review_probes"},
   {package: "xsh-archive", harness: "interop"},
 ]
 
