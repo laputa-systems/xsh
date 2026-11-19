@@ -41,6 +41,11 @@ test test_mkdir_continues_after_failure { |ctx|
 test test_mkdir_parent_inherits_setgid { |ctx|
   let root = test.temp_dir(ctx, name: "mkdir-setgid")?
   root.chmod(0o2770)
+  let probe = fp"{root}/probe"
+  probe.mkdir()
+  let inherits = probe.metadata()?.mode.bit_and(0o2000) == 0o2000
+  probe.remove()
+  if ! inherits { test.skip("the filesystem does not inherit the setgid directory bit"); return }
   let final = fp"{root}/parent/final"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mkdir.xsh" -- -p $final
   assert fp"{root}/parent".metadata()?.mode.bit_and(0o2000) == 0o2000
