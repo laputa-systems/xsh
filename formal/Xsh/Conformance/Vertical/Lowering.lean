@@ -145,9 +145,7 @@ def propagationProgram? (callees : List (String × Option Callee))
 /-- A function the lowerer records as directly callable: it has no propagation binding. An
 admitted assignment evaluates its updated binding as a call argument. -/
 def SourceFunction.callable (function : SourceFunction) : Bool :=
-  function.propagation.isNone && match function.result with
-    | .recordLocal _ _ _ => false
-    | _ => true
+  function.propagation.isNone && !function.result.isRecordLocal
 
 /-- The bindings a computed-let sequence declares, in source order: each value reads the
 parameter and the bindings before it, and each binding takes the next slot from the start the
