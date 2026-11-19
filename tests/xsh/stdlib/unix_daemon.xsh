@@ -48,7 +48,11 @@ for _ in range(1000) {
   break when seen.len() == 2
   time.sleep(1ms)?
 }
-assert seen == ["HUP", "TERM"]
+if system.uname()?.sysname == "Linux" {
+  assert seen == ["HUP", "TERM"]
+} else {
+  assert seen == ["HUP", "TERM"] or seen == ["TERM", "HUP"]
+}
 assert unix.take_signals()? == []
 """, status: 0)?
   assert result.stderr == ""
