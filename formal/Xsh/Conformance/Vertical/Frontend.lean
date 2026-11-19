@@ -139,6 +139,66 @@ def parseValue (tokens : List Token) : Option (SourceValue × List Token) := do
         some (.binary op left right, remaining)
   | _ => some (.atom left, rest)
 
+inductive RecordOperand where
+  | atom (value : SourceAtom)
+  | field (target label : String)
+  deriving DecidableEq, Repr
+
+inductive RecordValue where
+  | operand (value : RecordOperand)
+  | binary (op : FragmentOp) (left right : RecordOperand)
+  deriving DecidableEq, Repr
+
+def parseRecordOperand : List Token → Option (RecordOperand × List Token)
+  | .word target :: .dot :: .word label :: rest =>
+      if isKeyword target || isKeyword label then none else some (.field target label, rest)
+  | tokens => do
+      let (atom, rest) ← parseAtom tokens
+      some (.atom atom, rest)
+
+def parseRecordValue (tokens : List Token) : Option (RecordValue × List Token) := do
+  let (left, rest) ← parseRecordOperand tokens
+  match rest with
+  | .operator op :: more =>
+      if op.isComparison then none
+      else
+        let (right, remaining) ← parseRecordOperand more
+        some (.binary op left right, remaining)
+  | _ => some (.operand left, rest)
+
+def parseRecordFields : Nat → List Token → Option (List (String × SourceValue) × List Token)
+  | 0, _ => none
+  | fuel + 1, .word label :: .colon :: tokens => do
+      if isKeyword label then none else pure ()
+      let (value, afterValue) ← parseValue tokens
+      match afterValue with
+      | .rightBrace :: rest => some ([(label, value)], rest)
+      | .comma :: more => do
+          let (others, rest) ← parseRecordFields fuel more
+          some ((label, value) :: others, rest)
+      | _ => none
+  | _ + 1, _ => none
+
+def parseRecordLet : List Token → Option ((String × List (String × SourceValue)) × List Token)
+  | .word "let" :: .word target :: .equals :: .leftBrace :: rest => do
+      if isKeyword target then none else pure ()
+      let (fields, afterFields) ← parseRecordFields (rest.length + 1) rest
+      match afterFields with
+      | .newline :: remaining => some ((target, fields), remaining)
+      | _ => none
+  | _ => none
+
+theorem record_parts_parse :
+    parseRecordLet [.word "let", .word "box", .equals, .leftBrace,
+      .word "low", .colon, .word "value", .operator .sub, .number 3, .comma,
+      .word "high", .colon, .number 60, .operator .div, .word "value", .rightBrace,
+      .newline] = some (("box", [("low", .binary .sub (.var "value") (.int 3)),
+        ("high", .binary .div (.int 60) (.var "value"))]), []) ∧
+    parseRecordValue [.word "box", .dot, .word "high", .operator .sub,
+      .word "box", .dot, .word "low"] =
+        some (.binary .sub (.field "box" "high") (.field "box" "low"), []) := by
+  constructor <;> decide +kernel
+
 def parseArgumentList : Nat → List Token → Option (List SourceAtom × List Token)
   | 0, _ => none
   | fuel + 1, tokens => do
