@@ -49,6 +49,7 @@ test test_gnu_head_head_c_log { |ctx|
   let positioned = wrapped(s, ["-c-4"], "exec 3<input; dd bs=1 skip=1 count=0 <&3 2>/dev/null || exit; exec \"$@\" <&3")?
   uu.succeeds(positioned)
   uu.stdout_only_bytes(positioned, b"bc\n")
+  if system.uname()?.sysname != "Linux" { test.skip("macOS shell cannot impose this virtual memory limit"); return }
   let tail_storage_allowance_kib = 8000
   let tail_storage_limit_kib = startup_limit_kib(s)? + tail_storage_allowance_kib
   for count in ["9223372036854775807", "18446744073709551616000"] {
@@ -159,6 +160,7 @@ test test_gnu_head_head_pos_log { |ctx|
 
 # origin: gnu head/head-write-error.log
 test test_gnu_head_head_write_error_log { |ctx|
+  if system.uname()?.sysname != "Linux" and ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   uu.write_bytes(s, "bigseek", bytes.concat([b"y\n" for _ in range(0, 5 * 1024 * 1024)]))
   let diagnostic = "head: error writing 'standard output': No space left on device\n"
