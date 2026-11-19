@@ -43,10 +43,35 @@ test test_uu_groups_groups { |ctx|
   uu.stdout_only(r, expected)
 }
 
+proc assert_host_account_groups(s: uu.Scene, names: List[Str]) {
+  let actual = uu.invoke(s, "groups", names)?
+  let lines = actual.stdout.utf8()?.lines()
+  var index = 0
+  var errors = ""
+  for name in names {
+    let reference = run.capture --text /usr/bin/id -Gn $name
+    if reference.status.exited_with(0) {
+      assert index < lines.len(), name
+      let fields = lines[index].words()
+      assert fields.len() >= 2 and fields[0] == name and fields[1] == ":", lines[index]
+      let got = fields[2..] |> sort-by . |> collect
+      let want = reference.stdout.words() |> sort-by . |> collect
+      assert got == want, name
+      index += 1
+    } else {
+      errors += f"groups: '{name}': no such user\n"
+    }
+  }
+  assert index == lines.len()
+  assert actual.stderr.utf8()? == errors
+  assert actual.status == (if errors == "" { 0 } else { 1 })
+}
+
 # origin: uutils test_groups::test_groups_username
 test test_uu_groups_groups_username { |ctx|
   let s = uu.scene(ctx)?
   let name = test_username()
+  if system.uname()?.sysname != "Linux" { assert_host_account_groups(s, [name]); return }
   let expected = account_groups(name)
   let r = uu.invoke(s, "groups", [name])?
   uu.succeeds(r)
@@ -59,6 +84,7 @@ test test_uu_groups_groups_username { |ctx|
 test test_uu_groups_groups_username_multiple { |ctx|
   let s = uu.scene(ctx)?
   let names = ["root", "man", "postfix", "sshd", test_username()]
+  if system.uname()?.sysname != "Linux" { assert_host_account_groups(s, names); return }
   var stdout = ""
   var stderr = ""
   var status = 0
