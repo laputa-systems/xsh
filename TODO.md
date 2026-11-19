@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 118
+Next: 119
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -125,3 +125,13 @@ out of scope.
 - **Acceptance:** A connected document with an `ExprRecord` row decodes its labels to the spellings Rust wrote, and a test fails if the reader uses the string pool.
 - **Fix with:** reference-parity
 - **Effort:** S
+
+### XSH-118 · P2 · Daemon startup signals are not observed blocked on macOS
+
+- **Area:** Runtime
+- **Where:** `src/modules/unix/daemon.rs` (`daemon_start`, `wait_ready`, `SignalCapture::forward`; test `daemon_boundaries`, worker mode)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) `modules::unix::daemon::tests::daemon_boundaries` fails in its worker case: the worker sends SIGHUP and SIGTERM to its `daemon_start` parent, which forwards them while the worker blocks both, but within 3 s `sigpending` in the worker never reports them ("startup signals were not forwarded while blocked"), so `daemon_start` returns the worker's exit instead of readiness. Every earlier case in the test passes. Running the worker on libtest's main thread (`--test-threads=1`) does not change it, so per-thread pending sets alone do not explain it. The daemon readiness contract (SPEC `unix.daemon_start`) is unqualified on macOS until this is understood.
+- **Recommendation:** Instrument both sides on macOS: whether the parent's capture handler records the worker's signals (`PENDING`), whether `forward` sends them, and the worker's blocked mask after `exec`. Fix the implementation if forwarding is lost; record a platform limit in the SPEC if macOS delivery differs.
+- **Acceptance:** `daemon_boundaries` passes on native macOS and Linux, or the SPEC records the macOS limit and the test pins it.
+- **Fix with:** root-cause
+- **Effort:** M
