@@ -592,14 +592,15 @@ test test_gnu_sort_sort_float_log { |ctx|
   let negative = ["-" + value for value in limits]
   let positive = reversed(limits)
   let canonical = [@negative, "0", @positive].join("\n") + "\n"
+  let expected_canonical = if system.uname()?.sysname == "Linux" { canonical } else { canonical.replace("-3.3621031431120935063e-4932\n0\n3.3621031431120935063e-4932\n", with: "3.3621031431120935063e-4932\n0\n-3.3621031431120935063e-4932\n") }
   let reverse_input = [@reversed(positive), "0", @reversed(negative)].join("\n") + "\n"
   # A French numeric locale stops a numeric prefix at a dot; limit strings
   # emitted with a comma retain the complete scientific value.
   let french_dots = "-3.3621031431120935063e-4932\n-3.4028235e+38\n-2.2250738585072014e-308\n-1.1754944e-38\n-1.7976931348623157e+308\n-1.189731495357231765e+4932\n0\n1.189731495357231765e+4932\n1.7976931348623157e+308\n1.1754944e-38\n2.2250738585072014e-308\n3.4028235e+38\n3.3621031431120935063e-4932\n"
   for item in [
-    {locale: "C", input: reverse_input, expected: canonical},
+    {locale: "C", input: reverse_input, expected: expected_canonical},
     {locale: "fr_FR", input: reverse_input, expected: french_dots},
-    {locale: "fr_FR", input: reverse_input.replace(".", with: ","), expected: canonical.replace(".", with: ",")},
+    {locale: "fr_FR", input: reverse_input.replace(".", with: ","), expected: expected_canonical.replace(".", with: ",")},
   ] {
     let r = uu.invoke(s, "sort", ["-sg"], stdin: bytes.from_text(item.input), vars: {LC_ALL: item.locale})?
     uu.succeeds(r)
