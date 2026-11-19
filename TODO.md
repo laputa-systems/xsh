@@ -152,7 +152,10 @@ out of scope.
 - **Where:** `core/lib/awk.xsh` (command `getline` on a shared stream), `core/tests/test-awk.xsh` (getline, streams-and-processes, grammar 9 and lexical-forms 6 matrix shards), `core/tests/test-gnu-factor.xsh` (`factor_parallel_log_1_to_31250`), `core/tests/test-gnu-od.xsh` (`big_w_log`), `core/tests/test-uu-seq-1.xsh` (eight `infinite_sequence` FIFO cases)
 - **Problem:** On macOS arm64 (m1-max, 2026-11-19) these tests exceed 160-300 s where Linux finishes in seconds; samples of the stuck processes show them waiting in `poll` with a blocked pipeline, so at least the awk and factor cases look like a lost wakeup or a pipe-capacity deadlock (macOS pipes hold 16 KiB, Linux 64 KiB), not slowness. `od -w` with a large width streams slowly. The tests still fail on macOS.
 - **Evidence:** In `test-uu-seq-1.xsh`, a single `unix.poll_fd(fd, ["readable"], timeout_ms: 5000)` on a FIFO with a live writer times out on macOS, while repeated 50 ms polls on the same descriptor see it readable, so the runtime's wait misses a readiness edge on Darwin.
-- **Recommendation:** Reproduce the awk shared-stream getline case with a small input, sample it, and check whether a producer blocks on a full pipe the consumer never drains, or a readiness wait misses an edge on macOS. Fix the runtime, then rerun the factor case; measure `od` separately.
+- **Root causes found (2026-11-19):**
+  - Darwin implements FIFOs on socket buffers. It does not wake `poll` or `kqueue` readers when a writer blocks in one write larger than the buffer. `766929ab0` re-polls FIFO waits in 20 ms slices on macOS, which fixed the eight `test-uu-seq-1.xsh` cases.
+  - After a FIFO's last writer closes, Darwin reports neither readable nor hangup to `poll` or `kqueue`, while Linux reports `POLLHUP`; only a nonblocking `read` returns EOF. awk's command readers (`open_command_reader` in `core/lib/awk.xsh`) read `sh -c` output through a FIFO and wait on readiness in `fill`, so `"printf ''" | getline` hangs on macOS. The getline cases fail for this reason.
+- **Recommendation:** Give awk's command readers an anonymous pipe (Darwin reports EOF on pipes), or have `fill` check the command's job for exit before trusting an empty readiness result. Then rerun the factor and `od` cases, which may share the FIFO cause, and measure `od` separately.
 - **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
 - **Fix with:** root-cause
 - **Effort:** M
@@ -245,6 +248,7 @@ out of scope.
   - `test-tail.xsh` (`follows_standard_input_redirected_from_a_regular_file`) and `test-uu-tail-1.xsh` (`follow_stdout_pipe_close`) time out.
   - `test-uu-tee.xsh` (`tee_continues_after_short_read`, `linux_only_pipe_mode_broken_pipe_only`) fails.
   - `test-lslocks.xsh` (`exited_flock_acquirer`, `filter_non_utf8_outside_literal`) fails.
+  - `tests/xsh/wait-until.xsh` (`fails_with_timeout_when_the_limit_passes`) failed 1 of 3 isolated runs: a 10 ms sleep overran 60 ms on an idle host, which suggests Darwin timer coalescing. `test-split.xsh` (`filter_byte_chunks_keep_processing_until_timeout`) failed once under full-suite load and passed 3 of 3 alone.
 - **Recommendation:** Triage each with root-cause on m1-max. Split any that becomes a contract question into its own ticket, and fold descriptor-identity and FIFO-wakeup causes into XSH-121 and XSH-120 when they match.
 - **Acceptance:** Each case passes on native macOS or skips with a named platform limitation, and still passes on Linux.
 - **Fix with:** root-cause

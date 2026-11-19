@@ -212,10 +212,10 @@ A test whose fixture needs a facility macOS lacks skips with the facility's
 name, through `core/tests/support/requires.xsh` or the
 `system.uname()?.sysname != "Linux"` idiom. Linux runs every such test.
 
-The first complete run on m1-max (2026-11-19, `7d721f904`) ran 15,801 tests:
-14,345 passed, 1,315 skipped with named limitations, and 141 failed. Every
-failure is tracked: XSH-118 to XSH-128 in [TODO](../TODO.md) group them by
-cause. The largest causes are host libc regex (XSH-119), lost FIFO and
+The latest complete run on m1-max (2026-11-19, `1278debe8`) ran 15,802
+tests: 14,359 passed, 1,338 skipped with named limitations, and 105 failed.
+Every failure is tracked: XSH-118 to XSH-128 in [TODO](../TODO.md) group them
+by cause. The largest causes are host libc regex (XSH-119), lost FIFO and
 pipeline wakeups (XSH-120), descriptor identity through `/proc` (XSH-121), and
 Darwin termios decoding (XSH-123).
 
