@@ -193,7 +193,7 @@ proc main(...argv: List[Bytes]) {
       Err(failure) => {
         # A name that is too long or loops cannot be a directory; GNU links over it
         # anyway, and reports it only where a directory is required.
-        if gnu.errno(failure) in [36, 40] { is_dir = false } else {
+        if gnu.errno(failure) in [36, 40] or (system.uname()?.sysname == "Darwin" and gnu.errno(failure) in [62, 63]) { is_dir = false } else {
           gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
           exit 1
         }
