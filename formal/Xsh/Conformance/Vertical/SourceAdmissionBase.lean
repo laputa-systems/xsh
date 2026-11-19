@@ -1057,9 +1057,30 @@ theorem functions_in_order {earlier functions : List SourceFunction}
       simp only [found, Bool.and_eq_true, beq_iff_eq] at admitted
       exact ⟨callee, rfl, admitted.1.1, admitted.1.2⟩
 
+inductive RecordCallsInOrder : List SourceFunction → List SourceFunction → Prop where
+  | empty (earlier : List SourceFunction) : RecordCallsInOrder earlier []
+  | cons {earlier : List SourceFunction} {function : SourceFunction} {rest : List SourceFunction} :
+      (∀ callee arguments found, function.result = .call callee arguments →
+        earlier.find? (fun previous => previous.name == callee) = some found →
+        found.result.isRecordLocal = false) →
+      RecordCallsInOrder (earlier ++ [function]) rest → RecordCallsInOrder earlier (function :: rest)
+
+theorem record_calls_in_order {earlier functions : List SourceFunction}
+    (admitted : functionsAvoidRecordCalls.go earlier functions = true) :
+    RecordCallsInOrder earlier functions := by
+  induction functions generalizing earlier with
+  | nil => exact .empty _
+  | cons function rest ih =>
+    simp only [functionsAvoidRecordCalls.go, Bool.and_eq_true] at admitted
+    refine .cons ?_ (ih admitted.2)
+    intro callee arguments found call foundEarlier
+    rw [call] at admitted
+    simp only [foundEarlier, Bool.not_eq_true] at admitted
+    simpa using admitted.1
+
 inductive AdmittedSource (codes : List Nat) (functions : List SourceFunction) : Prop where
   | admitted (tokens : List Token) : Lexed codes tokens → FunctionsSyntax tokens functions →
-      FunctionsInOrder [] functions → AdmittedSource codes functions
+      FunctionsInOrder [] functions → RecordCallsInOrder [] functions → AdmittedSource codes functions
 
 theorem parse_source_admitted {codes : List Nat} {functions : List SourceFunction}
     (parsed : parseSourceCodes codes = some functions) : AdmittedSource codes functions := by
@@ -1072,7 +1093,10 @@ theorem parse_source_admitted {codes : List Nat} {functions : List SourceFunctio
     exact ⟨tokens, tokenizer_syntax _ tokenized, functions_syntax _ parsedFunctions,
       functions_in_order (by
         simp only [Bool.and_eq_true] at admitted
-        simpa [functionsAdmitted] using admitted.1)⟩
+        simpa [functionsAdmitted] using admitted.1),
+      record_calls_in_order (by
+        simp only [Bool.and_eq_true] at admitted
+        simpa [functionsAvoidRecordCalls] using admitted.2)⟩
   · cases parsed
 
 inductive ComputedScope (parameter : String) :
