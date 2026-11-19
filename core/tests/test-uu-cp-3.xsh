@@ -100,7 +100,8 @@ test test_uu_cp_cp_debug_default_with_hole { |ctx|
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: yes, reflink: Operation not supported, sparse detection: SEEK_HOLE")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: yes, reflink: Operation not supported, sparse detection: SEEK_HOLE" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
   assert fs.stat(uu.at(s, "a"))?.blocks_512 == fs.stat(uu.at(s, "b"))?.blocks_512
 }
 
@@ -279,7 +280,8 @@ test test_uu_cp_cp_debug_sparse_always { |ctx|
   uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros" } else { "copy offload: avoided, reflink: unknown, sparse detection: zeros" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_sparse_always_reflink_auto
