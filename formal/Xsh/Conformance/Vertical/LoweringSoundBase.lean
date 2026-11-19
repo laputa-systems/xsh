@@ -2490,4 +2490,24 @@ theorem function_tail_record_lowers {src : List (String × Option Callee)} {f : 
     rw [paramsValue] at program
     exact program
 
+theorem record_source_program {name parameter target : String}
+    {fields : List (String × SourceValue)} {result : RecordValue}
+    {scope : List (String × Nat)} {expressions : List (String × BaseExpr)}
+    {e : BaseExpr} {src : List (String × Option Callee)}
+    (hscope : (⟨name, [parameter], [], none, .recordLocal target fields result⟩ :
+      SourceFunction).scope? = some scope)
+    (admitted : recordLocalAdmitted parameter target fields result = true)
+    (projected : fields.mapM (fun (name, value) => do
+      some (name, ← value.expression? [(parameter, 0)])) = some expressions)
+    (returned : result.expression? scope = some e) :
+    (⟨name, [parameter], [], none, .recordLocal target fields result⟩ : SourceFunction).program? src =
+      some ⟨1, [], none, none, e, some ⟨2, expressions⟩⟩ := by
+  change List.mapM (fun pair : String × SourceValue => do
+    let expression ← pair.2.expression? [(parameter, 0)]
+    some (pair.1, expression)) fields = some expressions at projected
+  simp only [Option.bind_eq_bind] at projected
+  simp [SourceFunction.program?, SourceFunction.recordProgram?,
+    SourceFunction.computedBindings?, SourceFunction.assignment?, SourceExpression.expression?,
+    hscope, admitted, projected, returned]
+
 end Xsh.Conformance.Vertical
