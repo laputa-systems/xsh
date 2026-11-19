@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 120
+Next: 121
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -145,3 +145,13 @@ out of scope.
 - **Acceptance:** Either the GNU matrix regex shards pass on macOS and Linux with one engine, or `docs/CORE.md` states that awk regex follows the host library and the macOS skips name it.
 - **Fix with:** reference-parity
 - **Effort:** L
+
+### XSH-120 · P2 · Shared-stream and parallel pipelines stall on macOS
+
+- **Area:** Runtime
+- **Where:** `core/lib/awk.xsh` (command `getline` on a shared stream), `core/tests/test-awk.xsh` (getline, streams-and-processes, grammar 9 and lexical-forms 6 matrix shards), `core/tests/test-gnu-factor.xsh` (`factor_parallel_log_1_to_31250`), `core/tests/test-gnu-od.xsh` (`big_w_log`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these tests exceed 160-300 s where Linux finishes in seconds; samples of the stuck processes show them waiting in `poll` with a blocked pipeline, so at least the awk and factor cases look like a lost wakeup or a pipe-capacity deadlock (macOS pipes hold 16 KiB, Linux 64 KiB), not slowness. `od -w` with a large width streams slowly. The tests still fail on macOS.
+- **Recommendation:** Reproduce the awk shared-stream getline case with a small input, sample it, and check whether a producer blocks on a full pipe the consumer never drains, or a readiness wait misses an edge on macOS. Fix the runtime, then rerun the factor case; measure `od` separately.
+- **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
+- **Fix with:** root-cause
+- **Effort:** M
