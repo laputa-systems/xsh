@@ -220,6 +220,7 @@ test test_uu_tee_linux_only_pipe_mode_broken_pipe_only { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_default
 test test_uu_tee_linux_only_space_error_default { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = uu.invoke(s, "tee", ["tee_file_out_a", "/dev/full"], stdin: input)?
@@ -230,6 +231,7 @@ test test_uu_tee_linux_only_space_error_default { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_exit
 test test_uu_tee_linux_only_space_error_exit { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["--output-error=exit", "tee_file_out_a", "/dev/full"], input)?
@@ -241,6 +243,7 @@ test test_uu_tee_linux_only_space_error_exit { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_exit_nopipe
 test test_uu_tee_linux_only_space_error_exit_nopipe { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["--output-error=exit-nopipe", "tee_file_out_a", "/dev/full"], input)?
@@ -251,6 +254,7 @@ test test_uu_tee_linux_only_space_error_exit_nopipe { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_warn
 test test_uu_tee_linux_only_space_error_warn { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["--output-error=warn", "tee_file_out_a", "/dev/full"], input)?
@@ -261,6 +265,7 @@ test test_uu_tee_linux_only_space_error_warn { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_warn_nopipe_1
 test test_uu_tee_linux_only_space_error_warn_nopipe_1 { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["-p", "tee_file_out_a", "/dev/full"], input)?
@@ -271,6 +276,7 @@ test test_uu_tee_linux_only_space_error_warn_nopipe_1 { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_warn_nopipe_2
 test test_uu_tee_linux_only_space_error_warn_nopipe_2 { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["--output-error", "tee_file_out_a", "/dev/full"], input)?
@@ -281,6 +287,7 @@ test test_uu_tee_linux_only_space_error_warn_nopipe_2 { |ctx|
 
 # origin: uutils test_tee::linux_only::test_space_error_warn_nopipe_3
 test test_uu_tee_linux_only_space_error_warn_nopipe_3 { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(100000)
   let r = broken_stdout(s, ["--output-error=warn-nopipe", "tee_file_out_a", "/dev/full"], input)?
@@ -291,6 +298,7 @@ test test_uu_tee_linux_only_space_error_warn_nopipe_3 { |ctx|
 
 # origin: uutils test_tee::linux_only::test_tee_no_more_writeable_1
 test test_uu_tee_linux_only_tee_no_more_writeable_1 { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(10)
   let r = uu.invoke(s, "tee", ["/dev/full", "tee_file_out"], stdin: input)?
@@ -302,6 +310,7 @@ test test_uu_tee_linux_only_tee_no_more_writeable_1 { |ctx|
 
 # origin: uutils test_tee::linux_only::test_tee_no_more_writeable_2
 test test_uu_tee_linux_only_tee_no_more_writeable_2 { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   let input = numbered_input(10)
   let r = uu.invoke(s, "tee", ["tee_file_out_a", "tee_file_out_b"], stdin: input, stdout: p"/dev/full", stdout_append: true)?
