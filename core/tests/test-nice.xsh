@@ -177,7 +177,8 @@ test test_nice_refused_change_warns_and_still_runs_the_command { |ctx|
   let result = nice_run(ctx, ["-n", "-20", "echo", "ran"])?
   assert result.status == 0
   assert result.stdout == "ran\n"
-  assert result.stderr == "nice: cannot set niceness: Permission denied\n", result.stderr
+  let expected = if system.uname()?.sysname == "Linux" { "nice: cannot set niceness: Permission denied\n" } else { "nice: cannot set niceness: Operation not permitted\n" }
+  assert result.stderr == expected, result.stderr
 }
 
 test test_nice_help_and_version_go_to_stdout { |ctx|
