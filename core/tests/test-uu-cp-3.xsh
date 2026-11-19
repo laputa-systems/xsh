@@ -241,7 +241,12 @@ test test_uu_cp_cp_debug_reflink_never_sparse_always_without_hole { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: zeros")
   let dst = fs.stat(uu.at(s, "b"))?
-  assert dst.blocks_512 == dst.blksize / 512
+  if system.uname()?.sysname == "Linux" {
+    assert dst.blocks_512 == dst.blksize / 512
+  } else {
+    assert uu.read(s, "b")? == uu.read(s, "a")?
+    assert fs.data_ranges(uu.at(s, "b"))? == [{offset: 0, length: 4096}, {offset: 8192, length: 1813}]
+  }
 }
 
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_never_empty_file_with_hole

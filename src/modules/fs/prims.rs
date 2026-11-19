@@ -853,6 +853,8 @@ fn transfer(
     let mut method = METHOD_USER;
     let mut copied = 0;
     let mut bytes = len;
+    #[cfg(target_os = "macos")]
+    let mut holes = Vec::new();
     {
         // Allocated blocks below the length mean holes worth scanning for.
         let extents = if options.sparse == Policy::Auto && metadata.blocks() * 512 < len {
@@ -862,7 +864,14 @@ fn transfer(
         } else {
             vec![(0, len)]
         };
+        #[cfg(target_os = "macos")]
+        let mut previous = 0;
         for (offset, length) in extents {
+            #[cfg(target_os = "macos")]
+            {
+                if offset > previous { holes.push((previous, offset - previous)); }
+                previous = offset + length;
+            }
             let (used, count) = copy_range(input, output, offset, length, &mut attempts.offload).map_err(host)?;
             if used == METHOD_KERNEL {
                 method = METHOD_KERNEL;
@@ -873,9 +882,13 @@ fn transfer(
                 break;
             }
         }
+        #[cfg(target_os = "macos")]
+        if previous < bytes { holes.push((previous, bytes - previous)); }
     }
     // Trailing holes exist only once the length is set.
     output.set_len(bytes).map_err(host)?;
+    #[cfg(target_os = "macos")]
+    for (start, length) in holes { punch_hole(output, start, length).map_err(host)?; }
     Ok((method, bytes, bytes - copied))
 }
 
@@ -949,6 +962,8 @@ fn copy_stream(mut input: &File, output: &File, sparse: bool, prefix: u64) -> st
     const BLOCK: usize = 4096;
     let mut buffer = vec![0; 1 << 16];
     let (mut offset, mut written) = (prefix, prefix);
+    #[cfg(target_os = "macos")]
+    let mut holes: Vec<(u64, u64)> = Vec::new();
     loop {
         let read = match input.read(&mut buffer) {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -961,6 +976,16 @@ fn copy_stream(mut input: &File, output: &File, sparse: bool, prefix: u64) -> st
             if !sparse || block.iter().any(|byte| *byte != 0) {
                 output.write_all_at(block, offset + (index * BLOCK) as u64)?;
                 written += block.len() as u64;
+            } else {
+                #[cfg(target_os = "macos")]
+                {
+                    let start = offset + (index * BLOCK) as u64;
+                    if let Some(last) = holes.last_mut().filter(|last| last.0 + last.1 == start) {
+                        last.1 += block.len() as u64;
+                    } else {
+                        holes.push((start, block.len() as u64));
+                    }
+                }
             }
         }
         offset = offset.checked_add(read as u64).ok_or_else(|| {
@@ -968,7 +993,30 @@ fn copy_stream(mut input: &File, output: &File, sparse: bool, prefix: u64) -> st
         })?;
     }
     output.set_len(offset)?;
+    #[cfg(target_os = "macos")]
+    for (start, length) in holes {
+        punch_hole(output, start, length)?;
+    }
     Ok((offset, written))
+}
+
+#[cfg(target_os = "macos")]
+fn punch_hole(file: &File, start: u64, length: u64) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    #[repr(C)]
+    struct Punch { flags: u32, reserved: u32, offset: i64, length: i64 }
+    let end = start.saturating_add(length) & !4095;
+    let start = start.saturating_add(4095) & !4095;
+    if end <= start { return Ok(()); }
+    let mut range = Punch { flags: 0, reserved: 0, offset: start as i64, length: (end - start) as i64 };
+    // SAFETY: file owns a live descriptor and range has Darwin's fpunchhole_t layout.
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_PUNCHHOLE, &mut range) } == -1 {
+        let error = std::io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOTSUP | libc::EINVAL | libc::ENOTTY)) {
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 /// Devices and FIFOs receive every byte, including source holes and zero

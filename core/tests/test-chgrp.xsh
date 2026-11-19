@@ -96,9 +96,10 @@ test test_chgrp_verbose_permission_error_uses_separate_streams { |ctx|
   let target = test.temp_file(ctx, name: "reference-denied", contents: b"x")?
   let before = fs.stat(target)?
   let old_group = group.by_gid(before.gid)?.name
+  let reference_group = group.by_gid(fs.stat(p"/etc/passwd")?.gid)?.name
   let result = perm_run(ctx, ["-v", "--reference=/etc/passwd", target])?
   assert result.status == 1
-  assert result.stdout == f"failed to change group of '{target}' from {old_group} to root\n", result.stdout
+  assert result.stdout == f"failed to change group of '{target}' from {old_group} to {reference_group}\n", result.stdout
   assert result.stderr == f"chgrp: changing group of '{target}': Operation not permitted\n", result.stderr
   assert fs.stat(target)?.gid == before.gid
 }

@@ -205,12 +205,13 @@ test test_chown_verbose_failure_preserves_operand_names_and_streams { |ctx|
   let before = fs.stat(target)?
   let old_user = user.by_uid(before.uid)?.name
   let old_group = group.by_gid(before.gid)?.name
+  let root_group = group.by_gid(0)?.name
   for item in [
     {spec: "root", noun: "ownership", old: old_user, new: "root", error_noun: "ownership"},
     {spec: "0", noun: "ownership", old: old_user, new: "0", error_noun: "ownership"},
-    {spec: ":root", noun: "ownership", old: f"{old_user}:{old_group}", new: ":root", error_noun: "group"},
+    {spec: f":{root_group}", noun: "ownership", old: f"{old_user}:{old_group}", new: f":{root_group}", error_noun: "group"},
     {spec: ":0", noun: "group", old: old_group, new: "0", error_noun: "group"},
-    {spec: "0:root", noun: "ownership", old: f"{old_user}:{old_group}", new: ":root", error_noun: "ownership"},
+    {spec: f"0:{root_group}", noun: "ownership", old: f"{old_user}:{old_group}", new: f":{root_group}", error_noun: "ownership"},
   ] {
     let result = perm_run(ctx, ["-v", item.spec, target])?
     assert result.status == 1

@@ -181,7 +181,7 @@ pure encode_charset(data: Bytes, opts: Options) -> Result[Bytes] {
   bytes.from_ints([charset.character(data.byte_at(i) ?? 0, direction) for i in range(data.len())])
 }
 
-pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
+pure transform(records: List[Bytes], opts: Options, latin1: Bool) -> Result[Converted] {
   let pieces = collect {
     for block in records {
       var values = [block.byte_at(i) ?? 0 for i in range(block.len())]
@@ -196,8 +196,8 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
         }
       }
       if "ascii" in opts.conv { values = [charset.character(value, "ascii") for value in values] }
-      if "lcase" in opts.conv { values = [if value >= 65 and value <= 90 { value + 32 } else { value } for value in values] }
-      if "ucase" in opts.conv { values = [if value >= 97 and value <= 122 { value - 32 } else { value } for value in values] }
+      if "lcase" in opts.conv { values = [if (value >= 65 and value <= 90) or (latin1 and ((value >= 192 and value <= 214) or (value >= 216 and value <= 222))) { value + 32 } else { value } for value in values] }
+      if "ucase" in opts.conv { values = [if (value >= 97 and value <= 122) or (latin1 and ((value >= 224 and value <= 246) or (value >= 248 and value <= 254))) { value - 32 } else { value } for value in values] }
       yield bytes.from_ints(values)?
     }
   }
@@ -753,7 +753,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     }
   }
   let complete = [record for record in records if record.len() == opts.ibs].len()
-  let converted = transform(records, opts)?
+  let case_locale = (e"LC_ALL" ?? e"LC_CTYPE" ?? e"LANG" ?? "").lower().replace("-", with: "")
+  let latin1 = system.uname()?.sysname == "Darwin" and "iso88591" in case_locale
+  let converted = transform(records, opts, latin1)?
   var written = 0
   var write_failure = null
   if opts.output == null and "append" in opts.output_flags {

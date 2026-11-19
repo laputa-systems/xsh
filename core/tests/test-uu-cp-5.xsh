@@ -49,7 +49,11 @@ test test_uu_cp_cp_sparse_always_non_empty { |ctx|
   uu.succeeds(r)
   let metadata = fs.stat(uu.at(s, "dst_file_sparse"))?
   assert uu.read(s, "dst_file_sparse")? == buf
-  assert metadata.blocks_512 == 2 * metadata.blksize / 512
+  if system.uname()?.sysname == "Linux" {
+    assert metadata.blocks_512 == 2 * metadata.blksize / 512
+  } else {
+    assert fs.data_ranges(uu.at(s, "dst_file_sparse"))? == [{offset: 20480, length: 4096}, {offset: 40960, length: 4096}, {offset: 65536, length: 3}]
+  }
 }
 
 # origin: uutils test_cp::test_cp_sparse_never_empty

@@ -607,9 +607,10 @@ test test_uu_dd_iso8859_1_case_conversion { |ctx|
       let out = uu.at(s, "locales")
       let plan = process.command_argv(executable, ["locale", "-a"], s.root, {}, b"", out, uu.at(s, "locale-errors"))
       let _ = process.run(plan)?
-      if "fr_FR" in out.read_text()? {
+      let locale = if system.uname()?.sysname == "Darwin" { "fr_FR.ISO8859-1" } else { "fr_FR" }
+      if locale in out.read_text()? {
         for pair in [{input: 201, expected: 233, conv: "lcase"}, {input: 233, expected: 201, conv: "ucase"}] {
-          let r = uu.invoke(s, "dd", [f"conv={pair.conv}", "status=none"], stdin: bytes.from_ints([pair.input, 10])?, vars: {LC_ALL: "fr_FR"})?
+          let r = uu.invoke(s, "dd", [f"conv={pair.conv}", "status=none"], stdin: bytes.from_ints([pair.input, 10])?, vars: {LC_ALL: locale})?
           uu.succeeds(r)
           uu.stdout_is_bytes(r, bytes.from_ints([pair.expected, 10])?)
         }

@@ -173,9 +173,9 @@ out of scope.
 ### XSH-124 · P3 · Remaining single macOS native failures
 
 - **Area:** Core
-- **Where:** `core/tests/test-bb-pidof.xsh` (`pidof_this_48b653be`), `core/tests/test-bb-sed-1.xsh` (`sed_OR_not_cfd133ba`), `core/tests/test-gnu-dd.xsh` (`conv_case_log`), `core/tests/test-grep.xsh` (`differential_basic_selection_and_modes`), `core/tests/test-rmdir.xsh` (`trailing_slash_symlink_diagnostic`), `core/tests/test-sysctl.xsh` (`reads_writes_and_loads_configuration_through_native_keys`), `core/tests/test-uu-cp-5.xsh` (`cp_sparse_always_non_empty`), `dev/tests/test-lifecycle.xsh` (three container lifecycle cases), util-linux `lslocks`/`mountpoint`/`namei`/`syslog-libc` reference comparisons
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19), each fails for its own reason. pidof derives `argv0` from `ps` (`src/modules/process.rs`) and misses the child. A sed BRE alternation prints `abca` for `ca`. dd's ISO-8859-1 `conv=lcase` maps only ASCII, so it leaves byte 201 where 233 is expected. grep `-L` lists a matching file. On APFS, `rmdir` of `link/` succeeds where it must fail. sysctl `-p FILE` also reads the absent `/etc/sysctl.conf`. A sparse `always` copy allocates 136 blocks where Linux allocates 16. The lifecycle tests read `/proc/sys/kernel/hostname`. The util-linux references are absent, and the Linux planner rejects those files when they are selected with other cases.
-- **Recommendation:** Triage one at a time with root-cause. Split out a ticket for any that turns into a contract question, such as sysctl default loading or the sparse allocation bound.
+- **Where:** `core/tests/test-bb-pidof.xsh` (`pidof_this_48b653be`), `core/tests/test-bb-sed-1.xsh` (`sed_OR_not_cfd133ba`), `core/tests/test-grep.xsh` (`differential_basic_selection_and_modes`), `core/tests/test-rmdir.xsh` (`trailing_slash_symlink_diagnostic`), `core/tests/test-sysctl.xsh` (`reads_writes_and_loads_configuration_through_native_keys`), `dev/tests/test-lifecycle.xsh` (three container lifecycle cases), util-linux `lslocks`/`mountpoint`/`namei`/`syslog-libc` reference comparisons
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19), each fails for its own reason. pidof derives `argv0` from `ps` (`src/modules/process.rs`) and misses the child. A sed BRE alternation prints `abca` for `ca`. grep `-L` lists a matching file. On APFS, `rmdir` of `link/` succeeds where it must fail. sysctl `-p FILE` also reads the absent `/etc/sysctl.conf`. The lifecycle tests read `/proc/sys/kernel/hostname`. The util-linux references are absent, and the Linux planner rejects those files when they are selected with other cases.
+- **Recommendation:** Triage one at a time with root-cause. Split out a ticket for any that turns into a contract question, such as sysctl default loading.
 - **Acceptance:** Each listed case passes on native macOS, or skips with a named platform limitation, and still passes on Linux.
 - **Fix with:** root-cause
 - **Effort:** M
@@ -215,13 +215,12 @@ out of scope.
 - **Area:** Core
 - **Where:** each item names its test under `core/tests/` unless shown
 - **Problem:** After the three qualification lanes (m1-max, 2026-11-19), these still fail on native macOS with causes not yet established:
-  - `test-chown.xsh`/`test-chgrp.xsh` verbose permission failures print a different stdout line.
   - `test-rm.xsh` (`recursive_removes_hierarchy_deeper_than_path_max`) and `test-gnu-rm.xsh` (`deep_2_log`) fail on Darwin `ENAMETOOLONG` (63).
   - `test-dd.xsh` (`oflag_append_on_standard_output`: Permission denied) and `test-gnu-dd.xsh` (`sparse_log`) fail with `oflag=append`.
   - `test-curl.xsh` (`plain_http_needs_no_trust_store`) exits 77 loading trust anchors.
   - `dev/tests/test-gates.xsh` fails in changed-path discovery and in source changes during execution (see also XSH-126).
   - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
-  - `test-uu-cksum-1.xsh` (`debug_flag`), `test-uu-stat.xsh` (`printf_atime_ctime_mtime_precision` on `/dev/ptmx`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
+  - `test-uu-cksum-1.xsh` (`debug_flag`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
   - `test-uu-du-2.xsh` (`du_time`: `--time=birth`) fails.
   - `test-tail.xsh` (`follows_standard_input_redirected_from_a_regular_file`) and `test-uu-tail-1.xsh` (`follow_stdout_pipe_close`) time out.
   - `test-uu-tee.xsh` (`tee_continues_after_short_read`, `linux_only_pipe_mode_broken_pipe_only`) fails.
