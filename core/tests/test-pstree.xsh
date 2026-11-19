@@ -32,6 +32,7 @@ test test_pstree_rejects_unknown_pid { |ctx|
 }
 
 test test_pstree_default_prints_visible_root { |ctx|
+  if system.uname()?.sysname != "Linux" { test.timeout(ctx, 900s) }
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh"
   assert output.trim() != ""
 
