@@ -8,7 +8,8 @@ pure shell_words(words: List[Path]) -> Str {
 proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect = "", umask: Int? = null) -> Result[Int] {
   let words = uu.argv(s, util, args, umask:)?
   let command = shell_words(words) + redirect
-  let plan = process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root,
+  let args = if system.uname()?.sysname == "Linux" { ["script", "-q", "-e", "-c", command, "/dev/null"] } else { ["script", "-q", "/dev/null", "/bin/sh", "-c", command] }
+  let plan = process.command_argv(p"/usr/bin/script", args, s.root,
     stdout: uu.at(s, "terminal-output"), stderr: uu.at(s, "terminal-error"), timeout: 5s)
   Ok(process.run(plan)?.exit_code()?)
 }
@@ -247,9 +248,6 @@ test test_gnu_misc_nohup_log { |ctx|
   assert terminal_run(s, "nohup", [p"sh", p"-c", fp"{child}"], " >out")? == 0
   uu.file_is(s, "out", "stdout\nstderr\n")
   assert ! uu.exists(s, "nohup.out")?
-  assert terminal_run(s, "nohup", [p"echo", p"hi"], " 2>/dev/full")? == 125
-  uu.file_is(s, "nohup.out", "")
-  uu.remove(s, "nohup.out")
   assert terminal_run(s, "nohup", [p"no-such-command"], " 2>err")? == 127
   uu.file_is(s, "nohup.out", "")
   uu.remove(s, "nohup.out")
@@ -358,8 +356,19 @@ test test_gnu_misc_kill_log { |ctx|
   let numbers = [f"{i}" for i in range(last + 1)]
   for option in ["-l", "-t"] { uu.succeeds(uu.invoke(s, "kill", [option, "--"].extend(numbers))?) }
   uu.stdout_is(uu.invoke(s, "kill", ["-l", names[0]])?, "0\n")
-  assert names |> any { |name| name.starts_with("RTMIN") }
-  assert names |> any { |name| name.starts_with("RTMAX") }
+  if system.uname()?.sysname == "Linux" {
+    assert names |> any { |name| name.starts_with("RTMIN") }
+    assert names |> any { |name| name.starts_with("RTMAX") }
+  } else {
+    assert !(names |> any { |name| name.starts_with("RTMIN") or name.starts_with("RTMAX") })
+  }
+}
+
+test test_gnu_misc_nohup_full_device { |ctx|
+  requires.host_path(p"/dev/full", "the host has no /dev/full device")
+  let s = uu.scene(ctx)?
+  assert terminal_run(s, "nohup", [p"echo", p"hi"], " 2>/dev/full")? == 125
+  uu.file_is(s, "nohup.out", "")
 }
 
 # origin: gnu misc/yes.log
