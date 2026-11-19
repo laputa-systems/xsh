@@ -114,5 +114,6 @@ test test_bb_diff_diff_of_stdin_twice_3a25d51e { |ctx|
   let errors = uu.at(s, "stderr")
   let status = process.run(process.command_argv(p"/bin/sh", shell, s.root, {}, b"stdin", output, errors, timeout: 5s))?
   assert status.exit_code()? == 0
-  assert output.read_bytes()? == b"0\n5\n"
+  let expected = if system.uname()?.sysname == "Linux" { b"0\n5\n" } else { b"0\n       5\n" }
+  assert output.read_bytes()? == expected
 }
