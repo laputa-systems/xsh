@@ -226,3 +226,26 @@ out of scope.
 - **Acceptance:** The listed du tests pass on native macOS, a new xsh-root test lists a mode-0600 directory on both platforms, and Linux results are unchanged.
 - **Fix with:** os-boundaries
 - **Effort:** M
+
+### XSH-128 · P3 · Second set of single macOS native failures
+
+- **Area:** Core
+- **Where:** each item names its test under `core/tests/` unless shown
+- **Problem:** After the three qualification lanes (m1-max, 2026-11-19), these still fail on native macOS with causes not yet established:
+  - `test-chown.xsh`/`test-chgrp.xsh` verbose permission failures print a different stdout line.
+  - `test-rm.xsh` (`recursive_removes_hierarchy_deeper_than_path_max`) and `test-gnu-rm.xsh` (`deep_2_log`) fail on Darwin `ENAMETOOLONG` (63).
+  - `test-dd.xsh` (`oflag_append_on_standard_output`: Permission denied) and `test-gnu-dd.xsh` (`sparse_log`) fail with `oflag=append`.
+  - `test-curl.xsh` (`plain_http_needs_no_trust_store`) exits 77 loading trust anchors.
+  - `tests/xsh/run.xsh` has four failures: inherited run and pipeline return timing (2.8 s versus 0.15 s), `Operation not permitted` in the foundation literals test, and run-target failure kinds.
+  - `tests/xsh/stdlib/unix.xsh` has two process-group and session-leader failures.
+  - `dev/tests/test-gates.xsh` fails in changed-path discovery and in source changes during execution (see also XSH-126).
+  - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
+  - `test-uu-cksum-1.xsh` (`debug_flag`), `test-uu-stat.xsh` (`printf_atime_ctime_mtime_precision` on `/dev/ptmx`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
+  - `test-uu-du-2.xsh` (`du_time`: `--time=birth`) fails.
+  - `test-tail.xsh` (`follows_standard_input_redirected_from_a_regular_file`) and `test-uu-tail-1.xsh` (`follow_stdout_pipe_close`) time out.
+  - `test-uu-tee.xsh` (`tee_continues_after_short_read`, `linux_only_pipe_mode_broken_pipe_only`) fails.
+  - `test-lslocks.xsh` (`exited_flock_acquirer`, `filter_non_utf8_outside_literal`) fails.
+- **Recommendation:** Triage each with root-cause on m1-max. Split any that becomes a contract question into its own ticket, and fold descriptor-identity and FIFO-wakeup causes into XSH-121 and XSH-120 when they match.
+- **Acceptance:** Each case passes on native macOS or skips with a named platform limitation, and still passes on Linux.
+- **Fix with:** root-cause
+- **Effort:** L
