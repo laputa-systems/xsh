@@ -13,14 +13,72 @@ structure StateLE (s F : LoweringState) : Prop where
   extra : s.extra <+: F.extra
   ops : s.ops <+: F.ops
   blocks : s.blocks <+: F.blocks
+  strings : s.rows.any (fun row => row.tag == .exprRecord) = true → s.strings <+: F.strings
+  names : s.rows.any (fun row => row.tag == .exprRecord) = true → s.names <+: F.names
 
 theorem StateLE.refl (s : LoweringState) : StateLE s s :=
-  ⟨List.prefix_refl _, List.prefix_refl _, List.prefix_refl _, List.prefix_refl _⟩
+  ⟨List.prefix_refl _, List.prefix_refl _, List.prefix_refl _, List.prefix_refl _,
+    fun _ => List.prefix_refl _, fun _ => List.prefix_refl _⟩
 
 theorem StateLE.trans {a b c : LoweringState} (ab : StateLE a b) (bc : StateLE b c) :
-    StateLE a c :=
-  ⟨ab.rows.trans bc.rows, ab.extra.trans bc.extra, ab.ops.trans bc.ops,
-    ab.blocks.trans bc.blocks⟩
+    StateLE a c := by
+  refine ⟨ab.rows.trans bc.rows, ab.extra.trans bc.extra, ab.ops.trans bc.ops,
+    ab.blocks.trans bc.blocks, ?_, ?_⟩
+  all_goals
+    intro hasRecord
+    have later : b.rows.any (fun row => row.tag == .exprRecord) = true := by
+      obtain ⟨row, member, tagged⟩ := List.any_eq_true.mp hasRecord
+      exact List.any_eq_true.mpr ⟨row, ab.rows.subset member, tagged⟩
+    first | exact (ab.strings hasRecord).trans (bc.strings later)
+          | exact (ab.names hasRecord).trans (bc.names later)
+
+theorem intern_name_grows {name : String} {s s' : LoweringState} {word : Word32}
+    (run : Lower.internName name s = some (word, s')) :
+    s.names <+: s'.names ∧ s'.strings = s.strings ∧ s'.rows = s.rows ∧
+      s'.extra = s.extra ∧ s'.ops = s.ops ∧ s'.blocks = s.blocks ∧
+      s'.functions = s.functions ∧ s'.callable = s.callable := by
+  unfold Lower.internName at run
+  cases found : s.names.findIdx? (· == name) with
+  | some index =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (index + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      exact ⟨List.prefix_refl _, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  | none =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (s.names.length + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      exact ⟨List.prefix_append _ _, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem intern_string_grows {name : String} {s s' : LoweringState} {word : Word32}
+    (run : Lower.internString name s = some (word, s')) :
+    s.strings <+: s'.strings ∧ s'.names = s.names ∧ s'.rows = s.rows ∧
+      s'.extra = s.extra ∧ s'.ops = s.ops ∧ s'.blocks = s.blocks ∧
+      s'.functions = s.functions ∧ s'.callable = s.callable := by
+  unfold Lower.internString at run
+  cases found : s.strings.findIdx? (· == name) with
+  | some index =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (index + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      exact ⟨List.prefix_refl _, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  | none =>
+    simp only [found] at run
+    cases decoded : Word32.decode? (s.strings.length + 1) with
+    | none => simp [decoded] at run
+    | some w =>
+      simp only [decoded, Option.map_some, Option.some.injEq, Prod.mk.injEq] at run
+      obtain ⟨rfl, rfl⟩ := run
+      exact ⟨List.prefix_append _ _, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 def LoweringState.tables (s : LoweringState) : Tables :=
   ⟨(s.rows.map fun row => row.tag.word).toArray,
