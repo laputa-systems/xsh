@@ -306,6 +306,7 @@ test test_bb_sed_sed_backref_from_empty_s_uses_range_regex_with_newline_edde14d6
 
 # origin: busybox sed/sed beginning (^) matches only once
 test test_bb_sed_sed_beginning_matches_only_once_8885e36a { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("regex follows the host C library (XSH-119)"); return }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "sed", ["s,\\(^/\\|\\)[^/][^/]*,>\\0<,g"], stdin: b"/usr/lib\n", timeout: 5s)?
   uu.succeeds(r)
