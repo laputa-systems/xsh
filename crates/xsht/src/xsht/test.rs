@@ -1653,7 +1653,7 @@ fn remove_native_test_directory(root: &Path) -> std::io::Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
             remove_native_test_directory_by_handle(root)
         }
-        Err(error) if error.raw_os_error() == Some(libc::ENAMETOOLONG) => {
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENAMETOOLONG | libc::EMFILE)) => {
             remove_native_test_directory_by_handle(root)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1704,46 +1704,79 @@ fn remove_native_test_directory_by_handle(root: &Path) -> std::io::Result<()> {
         Err(error) => return Err(error.into()),
     };
     restore_native_directory_access_at(parent.as_fd(), name)?;
-    let mut root_dir = Dir::new(root_fd)?;
-    remove_native_directory_entries(&mut root_dir)?;
+    remove_native_directory_entries(root_fd)?;
     match rustix::fs::unlinkat(&parent, name, AtFlags::REMOVEDIR) {
         Err(error) if error == Errno::NOENT => Ok(()),
         result => result.map_err(Into::into),
     }
 }
 
-fn remove_native_directory_entries(directory: &mut Dir) -> std::io::Result<()> {
-    while let Some(entry) = directory.read() {
+// Descends one directory at a time and climbs back through `..`, so cleanup
+// holds a bounded number of descriptors however deep the test made its tree;
+// macOS starts processes with a soft limit of 256.
+fn remove_native_directory_entries(root: rustix::fd::OwnedFd) -> std::io::Result<()> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut current = root;
+    let mut ancestors = Vec::new();
+    loop {
+        match remove_native_files_until_subdirectory(current.as_fd())? {
+            Some((name, child)) => {
+                let parent = rustix::fs::fstat(&current)?;
+                ancestors.push((name, parent.st_dev, parent.st_ino));
+                current = child;
+            }
+            None => {
+                let Some((name, dev, ino)) = ancestors.pop() else { return Ok(()) };
+                let parent = rustix::fs::openat(&current, "..", flags, Mode::empty())?;
+                let identity = rustix::fs::fstat(&parent)?;
+                if (identity.st_dev, identity.st_ino) != (dev, ino) {
+                    return Err(std::io::Error::other("native test directory moved during cleanup"));
+                }
+                drop(current);
+                match rustix::fs::unlinkat(&parent, &name, AtFlags::REMOVEDIR) {
+                    Err(error) if error == Errno::NOENT => {}
+                    result => result?,
+                }
+                current = parent;
+            }
+        }
+    }
+}
+
+// Unlinks the non-directories of `directory` until it meets a subdirectory,
+// which it returns opened with owner access restored.
+fn remove_native_files_until_subdirectory(
+    directory: rustix::fd::BorrowedFd<'_>,
+) -> std::io::Result<Option<(OsString, rustix::fd::OwnedFd)>> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut entries = Dir::read_from(directory)?;
+    while let Some(entry) = entries.read() {
         let entry = entry?;
         let name = OsStr::from_bytes(entry.file_name().to_bytes());
         if name == OsStr::new(".") || name == OsStr::new("..") {
             continue;
         }
-        let parent = directory.fd()?;
-        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-        let child = match rustix::fs::openat(parent, name, flags, Mode::empty()) {
+        let child = match rustix::fs::openat(directory, name, flags, Mode::empty()) {
             Ok(child) => child,
             Err(error) if error == Errno::NOENT => continue,
             Err(error) if error == Errno::NOTDIR || error == Errno::LOOP => {
-                match rustix::fs::unlinkat(directory.fd()?, name, AtFlags::empty()) {
+                match rustix::fs::unlinkat(directory, name, AtFlags::empty()) {
                     Err(error) if error == Errno::NOENT => {}
                     result => result?,
                 }
                 continue;
             }
             Err(error) if error == Errno::ACCESS || error == Errno::PERM => {
-                restore_native_directory_access_at(parent, name)?;
-                rustix::fs::openat(parent, name, flags, Mode::empty())
+                restore_native_directory_access_at(directory, name)?;
+                rustix::fs::openat(directory, name, flags, Mode::empty())
                     .map_err(std::io::Error::from)?
             }
             Err(error) => return Err(error.into()),
         };
-        restore_native_directory_access_at(parent, name)?;
-        let mut child = Dir::new(child)?;
-        remove_native_directory_entries(&mut child)?;
-        rustix::fs::unlinkat(directory.fd()?, name, AtFlags::REMOVEDIR)?;
+        restore_native_directory_access_at(directory, name)?;
+        return Ok(Some((name.to_os_string(), child)));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn restore_native_directory_access_at(
@@ -2630,6 +2663,40 @@ mod tests {
         assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o7777, 0o500);
         std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(std::fs::read_to_string(outside.join("kept")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn native_test_directory_removal_holds_bounded_descriptors_for_deep_trees() {
+        const CHILD: &str = "XSHT_REMOVAL_DESCRIPTOR_LIMIT_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let module = module_path!().split_once("::").unwrap().1;
+            let name = format!("{module}::native_test_directory_removal_holds_bounded_descriptors_for_deep_trees");
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([name.as_str(), "--exact", "--test-threads=1"])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "{status}");
+            return;
+        }
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let sandbox = tempfile::TempDir::new_in(scratch).unwrap();
+        let root = sandbox.path().join("root");
+        let mut deepest = root.clone();
+        for _ in 0..100 {
+            deepest.push("a");
+        }
+        std::fs::create_dir_all(&deepest).unwrap();
+        std::fs::write(deepest.join("file"), "contents").unwrap();
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: both calls receive a valid, exclusively borrowed rlimit.
+        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) }, 0);
+        limit.rlim_cur = 32;
+        // SAFETY: as above; this child process runs only this test.
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
+        super::remove_native_test_directory(&root).unwrap();
+        assert!(!root.exists());
     }
 
     #[test]
