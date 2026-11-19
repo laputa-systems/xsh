@@ -521,18 +521,19 @@ def Lower.function (function : SourceFunction) : Lower Unit := do
   | none =>
     match function.lets with
     | [] =>
-      match function.parameters, function.result with
-      | [parameter], .recordLocal target fields result => do
-          Lower.require (recordLocalAdmitted parameter target fields result)
-          modify fun state => { state with strings := addSourceStrings state.strings function }
-          let statement ← Lower.recordLocal owner parameter fields
-          Lower.functionTail function scope owner before.functions.length parametersStart 1 [statement]
-      | _, .recordLocal _ _ _ => Lower.fail
-      | _, _ => do
-          let computed ← Lower.computedLetStatements function scope
-          Lower.require (!function.result.isAssigned)
-          Lower.functionTail function scope owner before.functions.length parametersStart
-            computed.length computed
+      if function.result.isRecordLocal then
+        match function.parameters, function.result with
+        | [parameter], .recordLocal target fields result => do
+            Lower.require (recordLocalAdmitted parameter target fields result)
+            modify fun state => { state with strings := addSourceStrings state.strings function }
+            let statement ← Lower.recordLocal owner parameter fields
+            Lower.functionTail function scope owner before.functions.length parametersStart 1 [statement]
+        | _, _ => Lower.fail
+      else do
+        let computed ← Lower.computedLetStatements function scope
+        Lower.require (!function.result.isAssigned)
+        Lower.functionTail function scope owner before.functions.length parametersStart
+          computed.length computed
     | [(name, value)] => do
         let computed ← Lower.computedLetStatements function scope
         Lower.require computed.isEmpty
