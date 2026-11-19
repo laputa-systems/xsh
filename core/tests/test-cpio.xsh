@@ -31,13 +31,14 @@ pure archive_of(format: Str) -> Bytes {
 # The tree the GNU fixtures were made from: a hard link, a symbolic link, an
 # empty file, a FIFO, an odd-sized binary file and a name with a space, all with
 # one modification time.
-proc build_tree(root: Path) [fs, error] {
+proc build_tree(root: Path) [fs, env, error] {
   fp"{root}/dir".mkdir()
   fp"{root}/dir/data.bin".write(b"\x00\x01\x02\xfe\xff\nabc\x00Z")
   fp"{root}/a.txt".write(b"hello\n")
   fp"{root}/a.txt".hardlink(at: fp"{root}/link.txt")
   fp"{root}/sp ace.txt".write(b"spaced\n")
   fp"{root}/sym".symlink(to: p"a.txt")
+  if system.uname()?.sysname != "Linux" { fp"{root}/sym".chmod(0o777, follow_symlinks: false) }
   fp"{root}/empty.txt".write(b"")
   fs.mkfifo(fp"{root}/pipe", 0o644)
   fp"{root}/dir".chmod(0o755)
