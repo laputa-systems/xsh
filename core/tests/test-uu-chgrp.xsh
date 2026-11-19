@@ -194,6 +194,7 @@ test test_uu_chgrp_reference_last { |ctx|
 
 # origin: uutils test_chgrp::test_big_p
 test test_uu_chgrp_big_p { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/self descriptor tree"); return }
   let s = uu.scene(ctx)?
   if unix.id()?.egid == 0 { test.skip("requires a non-root effective group") }
   let r = uu.invoke(s, "chgrp", ["-RP", "bin", "/proc/self/cwd"])?
@@ -204,6 +205,7 @@ test test_uu_chgrp_big_p { |ctx|
 
 # origin: uutils test_chgrp::test_big_h
 test test_uu_chgrp_big_h { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/self descriptor tree"); return }
   let s = uu.scene(ctx)?
   if unix.id()?.egid == 0 { test.skip("requires a non-root effective group") }
   let r = uu.invoke(s, "chgrp", ["-RH", "bin", "/proc/self/fd"])?
@@ -249,7 +251,11 @@ test test_uu_chgrp_verbosity_messages { |ctx|
 test test_uu_chgrp_chgrp_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"test content")
+  let written = filename.write(b"test content")
+  if let Err(failure) = written {
+    if system.uname()?.sysname == "Darwin" and failure.errno == 92 { test.skip("filesystem rejects non-UTF-8 names with EILSEQ"); return }
+  }
+  written?
   let gid = unix.id()?.egid
   let r = uu.invoke_paths(s, "chgrp", [fp"{gid}", b"\xff\xfe" as Path])?
   uu.succeeds(r)
