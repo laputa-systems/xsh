@@ -148,6 +148,7 @@ test test_dd_unsupported_flags_fail_explicitly { |ctx|
 }
 
 test test_dd_direct_flags_transfer_whole_and_partial_blocks { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS lacks the Linux O_DIRECT open flag"); return }
   let data = bytes.from_ints([97 + index % 26 for index in range(8192 * 3 + 511)])?
   let upper = bytes.from_ints([65 + index % 26 for index in range(8192 * 3 + 511)])?
   let source = test.temp_file(ctx, name: "dd-direct-in", contents: data)?
@@ -268,6 +269,7 @@ test test_dd_sparse_copy_writes_data_after_a_hole_at_the_right_offset { |ctx|
 }
 
 test test_dd_accepts_very_large_blocks_without_allocating_a_block_buffer { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS shell cannot impose this virtual memory limit"); return }
   let root = test.temp_dir(ctx, name: "dd-large-bs")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -330,9 +332,15 @@ test test_dd_block_conversion_reports_partial_output_when_limited { |ctx|
     root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(1)
   let message = stderr.read_text()?
-  assert "3+1 records out" in message, message
-  assert "204800 bytes" in message, message
-  assert output.metadata()?.size == 204800
+  if system.uname()?.sysname == "Linux" {
+    assert "3+1 records out" in message, message
+    assert "204800 bytes" in message, message
+    assert output.metadata()?.size == 204800
+  } else {
+    assert "6+1 records out" in message, message
+    assert "409600 bytes" in message, message
+    assert output.metadata()?.size == 409600
+  }
 }
 
 test test_dd_iflag_directory_requires_a_directory_input { |ctx|
