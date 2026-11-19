@@ -135,3 +135,13 @@ out of scope.
 - **Acceptance:** Both CI jobs pass on master, and `cargo dev test linux` passes `lint_format_invariance`.
 - **Fix with:** root-cause
 - **Effort:** S
+
+### XSH-130 · P3 · xsht cancellation and admission tests fail on macOS
+
+- **Area:** Tooling
+- **Where:** `crates/xsht/tests/cli.rs` (`fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file`, `lint_fix_cancellation_writes_no_file`, `test_runner_admits_another_file_while_one_file_is_at_its_active_limit`)
+- **Problem:** On macOS arm64 (m1-max, 2026-11-19), `cargo dev test macos --ci` fails these three tests, both at `1278debe8` and at `af762dbf4`. A SIGTERM sent during `xsht fmt` or `xsht lint --fix` kills xsht by the signal, where the tests expect exit 143 from the cancellation handler. In the admission test, the hot file's tests and the cold file's single test exceed their 10 s budget. Linux passes all three.
+- **Recommendation:** Check whether xsht installs its cancellation handlers before the work starts on macOS. Then check whether the admission test's 10 s budget holds on a shared Mac, or whether workers stall there.
+- **Acceptance:** The three tests pass in `cargo dev test macos --ci` on native macOS and still pass on Linux.
+- **Fix with:** root-cause
+- **Effort:** S
