@@ -54,7 +54,8 @@ test test_uu_cp_cp_debug_default { |ctx|
   uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_default_empty_file_with_hole
@@ -64,7 +65,8 @@ test test_uu_cp_cp_debug_default_empty_file_with_hole { |ctx|
   uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: SEEK_HOLE")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: unknown, reflink: Operation not supported, sparse detection: SEEK_HOLE" } else { "copy offload: unknown, reflink: unknown, sparse detection: SEEK_HOLE" }
+  uu.stdout_contains(r, expected)
   assert fs.stat(uu.at(s, "a"))?.blocks_512 == fs.stat(uu.at(s, "b"))?.blocks_512
 }
 
@@ -75,7 +77,8 @@ test test_uu_cp_cp_debug_default_less_than_512_bytes { |ctx|
   uu.truncate(s, "a", 400)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=auto", "a", "b"])?
   uu.succeeds(r)
-  uu.stdout_contains(r, "copy offload: yes, reflink: Operation not supported, sparse detection: no")
+  let expected = if system.uname()?.sysname == "Linux" { "copy offload: yes, reflink: Operation not supported, sparse detection: no" } else { "copy offload: unknown, reflink: unknown, sparse detection: no" }
+  uu.stdout_contains(r, expected)
 }
 
 # origin: uutils test_cp::test_cp_debug_default_sparse_virtual_file

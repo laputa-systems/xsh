@@ -6661,6 +6661,9 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   a failed automatic clone attempt as `reflink_error` and the first failed
   kernel copy attempt as `offload_error`, with their actual host errno. Both
   are nullable `Error` values; mechanisms with no failed attempt report null.
+  On macOS, automatic cloning and `copy_file_range` offloading are not
+  attempted, so these error fields are null. With default options, `cp --debug`
+  reports those two mechanisms as `unknown`.
 - `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;
   attribute names must be UTF-8. Following the final symlink is explicit and
   defaults to true. Set modes distinguish upsert, create-only, and
