@@ -20,6 +20,7 @@ inductive Token where
   | colon
   | comma
   | question
+  | dot
   | operator (op : FragmentOp)
   | newline
   deriving DecidableEq, Repr
@@ -72,6 +73,7 @@ def tokenize : Nat → List Nat → Option (List Token)
         match rest with
         | 62 :: remaining => continueWith .arrow remaining
         | _ => continueWith (.operator .sub) rest
+      else if code == 46 then continueWith .dot rest
       else if isDigitCode code then
         let (digits, remaining) := takeCodesWhile isDigitCode (code :: rest)
         continueWith (.number (digitsValue digits)) remaining

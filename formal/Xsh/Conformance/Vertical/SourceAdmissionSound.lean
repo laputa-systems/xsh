@@ -612,7 +612,7 @@ theorem functions_syntax (fuel : Nat) {tokens : List Token} {functions : List So
 def Punctuation (codes : List Nat) (token : Token) : Prop :=
   (codes, token) ∈ [([10], .newline), ([40], .leftParen), ([41], .rightParen),
     ([123], .leftBrace), ([125], .rightBrace), ([91], .leftBracket), ([93], .rightBracket),
-    ([61], .equals), ([58], .colon), ([44], .comma), ([63], .question),
+    ([61], .equals), ([58], .colon), ([44], .comma), ([63], .question), ([46], .dot),
     ([62], .operator .gt), ([60], .operator .lt), ([43], .operator .add),
     ([42], .operator .mul), ([47], .operator .div), ([37], .operator .rem),
     ([45], .operator .sub), ([45, 62], .arrow)]
@@ -805,28 +805,34 @@ theorem tokenizer_syntax (fuel : Nat) {codes : List Nat} {tokens : List Token}
                                                 subst head
                                                 simp_all
                                           · rw [ite_eq_right (by simpa using same)] at parsed
-                                            by_cases digit : isDigitCode code = true
-                                            · rw [ite_eq_left digit] at parsed
-                                              rcases trailing : takeCodesWhile isDigitCode rest with ⟨digits, remaining⟩
-                                              have taken : takeCodesWhile isDigitCode (code :: rest) = (code :: digits, remaining) := by
-                                                simp only [takeCodesWhile, digit, ↓reduceIte, trailing]
-                                              have spec := taken_codes isDigitCode (code :: rest)
-                                              simp only [taken] at spec parsed
-                                              rw [← spec.1]
-                                              exact lexed_from_token ih (.decimal (by simp) spec.2.1 spec.2.2) parsed
-                                            · rw [ite_eq_right digit] at parsed
-                                              by_cases word : isWordStartCode code = true
-                                              · rw [ite_eq_left word] at parsed
-                                                have part : isWordPartCode code = true := by simp [isWordPartCode, word]
-                                                rcases trailing : takeCodesWhile isWordPartCode rest with ⟨letters, remaining⟩
-                                                have taken : takeCodesWhile isWordPartCode (code :: rest) = (code :: letters, remaining) := by
-                                                  simp only [takeCodesWhile, part, ↓reduceIte, trailing]
-                                                have spec := taken_codes isWordPartCode (code :: rest)
+                                            by_cases same : code = 46
+                                            · subst code
+                                              change (tokenize fuel rest).map (fun tail => (.dot : Token) :: tail) = some tokens at parsed
+                                              change Lexed ([46] ++ rest) tokens
+                                              exact lexed_from_token ih (.punctuation (by unfold Punctuation; decide) (by intro impossible; cases impossible)) parsed
+                                            · rw [ite_eq_right (by simpa using same)] at parsed
+                                              by_cases digit : isDigitCode code = true
+                                              · rw [ite_eq_left digit] at parsed
+                                                rcases trailing : takeCodesWhile isDigitCode rest with ⟨digits, remaining⟩
+                                                have taken : takeCodesWhile isDigitCode (code :: rest) = (code :: digits, remaining) := by
+                                                  simp only [takeCodesWhile, digit, ↓reduceIte, trailing]
+                                                have spec := taken_codes isDigitCode (code :: rest)
                                                 simp only [taken] at spec parsed
                                                 rw [← spec.1]
-                                                exact lexed_from_token ih (.word word spec.2.1 spec.2.2) parsed
-                                              · rw [ite_eq_right word] at parsed
-                                                cases parsed
+                                                exact lexed_from_token ih (.decimal (by simp) spec.2.1 spec.2.2) parsed
+                                              · rw [ite_eq_right digit] at parsed
+                                                by_cases word : isWordStartCode code = true
+                                                · rw [ite_eq_left word] at parsed
+                                                  have part : isWordPartCode code = true := by simp [isWordPartCode, word]
+                                                  rcases trailing : takeCodesWhile isWordPartCode rest with ⟨letters, remaining⟩
+                                                  have taken : takeCodesWhile isWordPartCode (code :: rest) = (code :: letters, remaining) := by
+                                                    simp only [takeCodesWhile, part, ↓reduceIte, trailing]
+                                                  have spec := taken_codes isWordPartCode (code :: rest)
+                                                  simp only [taken] at spec parsed
+                                                  rw [← spec.1]
+                                                  exact lexed_from_token ih (.word word spec.2.1 spec.2.2) parsed
+                                                · rw [ite_eq_right word] at parsed
+                                                  cases parsed
 
 
 theorem lexeme_ascii {rest leading : List Nat} {token : Token}
@@ -834,7 +840,7 @@ theorem lexeme_ascii {rest leading : List Nat} {token : Token}
   cases lexeme with
   | punctuation punctuation maximal =>
     simp [Punctuation] at punctuation
-    rcases punctuation with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+    rcases punctuation with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
     all_goals
       rcases h with ⟨rfl, rfl⟩
       intro code member
