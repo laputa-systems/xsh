@@ -212,12 +212,36 @@ A test whose fixture needs a facility macOS lacks skips with the facility's
 name, through `core/tests/support/requires.xsh` or the
 `system.uname()?.sysname != "Linux"` idiom. Linux runs every such test.
 
-The latest complete run on m1-max (2026-11-19, `1278debe8`) ran 15,802
-tests: 14,359 passed, 1,338 skipped with named limitations, and 105 failed.
-Every failure is tracked: XSH-118 to XSH-128 in [TODO](../TODO.md) group them
-by cause. The largest causes include lost FIFO and pipeline wakeups (XSH-120),
-descriptor identity through `/proc` (XSH-121), and
-Darwin termios decoding (XSH-123).
+The latest complete run on m1-max (2026-11-19, `4704619ba`) ran 15,805
+tests: 14,479 passed, 1,320 skipped with named limitations, and 6 failed. The
+host was shared, with a load average above 20 throughout. The tty, sparse-copy,
+numfmt and sort cases were fixed or pass when rerun alone; rerun alone, the dhcp-client renewal
+and gates selection cases pass, since they timed out only under that load. The
+earlier run (`1278debe8`) had 105 failures. Their causes, and the fixes that
+removed them, were:
+
+- Darwin FIFOs live on socket buffers. `poll` and `kqueue` miss EOF after the
+  last writer closes, and a writer whose readers closed still polls writable.
+  `unix.poll_fd` and `unix.poll_fds` confirm both with `select`, `FIONREAD` and
+  a zero-length write (`src/modules/unix/poll.rs`).
+- Darwin keeps a signal that every thread blocks pending on the main thread,
+  so `xsh` evaluates scripts on the main thread there. It links that thread
+  with a 16 MiB stack.
+- `kill` on a process group that holds only a zombie returns `EPERM`, so
+  `timeout` sends `SIGCONT` first on Darwin. Child exit waits use kqueue
+  `EVFILT_PROC`.
+- Darwin's libc regex lacks the GNU BRE extensions musl provides. Non-musl
+  builds compile the vendored musl regex (`third_party/musl-regex`).
+- Without `/proc`, `unix.fd_info` and `unix.set_fd_flags` report and set
+  descriptor status flags and identity.
+- Darwin termios has its own control characters, speeds and disabled value
+  (`0xff`).
+- `F_PUNCHHOLE` makes sparse copies. APFS keeps a file's final partial block
+  as data.
+- A directory without search permission is listed from an independent open,
+  because `openat(fd, ".")` needs search permission.
+- APFS folds case and rejects names that are not UTF-8, and `PATH_MAX` is
+  1024. Tests name outputs and size deep trees accordingly.
 
 A focused case that passes stores a record under the checkout's `.work/gate/`,
 bound to the source digest and the product digests and modes the run used. The

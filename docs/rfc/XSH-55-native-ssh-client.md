@@ -265,12 +265,14 @@ third round's tree passed the whole `oxish-client` suite for
 
 ## Open
 
-- Native macOS arm64 qualification, deferred by the owner; no macOS host exists.
-  The code that already compiled there compiles by cross-check only.
+- Native macOS arm64 SSH qualification: the native suite now runs on an arm64
+  Mac, but no interop run against a real server has been recorded there.
 - The [independent review](#independent-review-xsh-111) found six defects,
-  all fixed. Whether the client leaves its experimental label is the owner's
-  decision. The internal rounds above and the remaining listed risks stand;
-  the tests, fuzz loops and fixtures are not formal verification.
+  all fixed. The client keeps its experimental label (decided 2026-11-19). The
+  label lifts after a review that also covers Graviola's primitives and a
+  recorded native macOS interop run. The internal rounds above and the
+  remaining listed risks stand; the tests, fuzz loops and fixtures are not
+  formal verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
   any failure once the request reached the connection; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries

@@ -86,13 +86,13 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** S
 
-### XSH-111 · P2 · Independent protocol and security review of the SSH client
+### XSH-111 · P3 · Lift the SSH client's experimental label
 
 - **Area:** Remote execution
-- **Where:** `crates/oxish-client`, ssh-build `client/`, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** The client stays experimental until an independent protocol and security review covers key exchange, rekeying, authentication, channel handling and host verification.
-- **Recommendation:** Commission a reviewer outside the implementation lanes; record findings and fixes in the RFC. - **Progress:** The review ran on 2026-11-18 against ssh-build `c9733b5` ([report](docs/reviews/XSH-111-ssh-client-review.md)): one medium and five low findings, all fixed in ssh-build `6201a5a`, vendored, and recorded in the [RFC](docs/rfc/XSH-55-native-ssh-client.md#independent-review-xsh-111). - **Remainder:** the owner's decision on the experimental label.
-- **Acceptance:** The review report and the fixes for its findings are recorded; the experimental label is revisited with the owner.
+- **Where:** `crates/oxish-client`, ssh-build `client/`, `crates/oxish-client/vendor/graviola`, `docs/rfc/XSH-55-native-ssh-client.md`
+- **Problem:** The independent review ([report](docs/reviews/XSH-111-ssh-client-review.md)) found six defects, all fixed in ssh-build `6201a5a`, but it excluded Graviola's primitives and ran on Linux only, so the client keeps its experimental label (decided 2026-11-19).
+- **Recommendation:** Commission a review of the Graviola primitives XSH uses, and record a native macOS arm64 interop run against OpenSSH.
+- **Acceptance:** Both are recorded in the [RFC](docs/rfc/XSH-55-native-ssh-client.md#open), and the label is removed from `docs/ssh.md` and the RFC.
 - **Fix with:** security
 - **Effort:** L
 
@@ -126,59 +126,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** S
 
-### XSH-118 · P2 · Daemon startup signals are not observed blocked on macOS
-
-- **Area:** Runtime
-- **Where:** `src/modules/unix/daemon.rs` (`daemon_start`, `wait_ready`, `SignalCapture::forward`; test `daemon_boundaries`, worker mode)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) `modules::unix::daemon::tests::daemon_boundaries` fails in its worker case: the worker sends SIGHUP and SIGTERM to its `daemon_start` parent, which forwards them while the worker blocks both, but within 3 s `sigpending` in the worker never reports them ("startup signals were not forwarded while blocked"), so `daemon_start` returns the worker's exit instead of readiness. Every earlier case in the test passes. Running the worker on libtest's main thread (`--test-threads=1`) does not change it, so per-thread pending sets alone do not explain it. The daemon readiness contract (SPEC `unix.daemon_start`) is unqualified on macOS until this is understood.
-- **Recommendation:** Instrument both sides on macOS: whether the parent's capture handler records the worker's signals (`PENDING`), whether `forward` sends them, and the worker's blocked mask after `exec`. Fix the implementation if forwarding is lost; record a platform limit in the SPEC if macOS delivery differs.
-- **Acceptance:** `daemon_boundaries` passes on native macOS and Linux, or the SPEC records the macOS limit and the test pins it.
-- **Fix with:** root-cause
-- **Effort:** M
-
-### XSH-120 · P2 · Shared-stream and parallel pipelines stall on macOS
-
-- **Area:** Runtime
-- **Where:** `core/lib/awk.xsh` (command `getline` on a shared stream), `core/tests/test-awk.xsh` (getline, streams-and-processes, grammar 9 and lexical-forms 6 matrix shards), `core/tests/test-gnu-factor.xsh` (`factor_parallel_log_1_to_31250`), `core/tests/test-gnu-od.xsh` (`big_w_log`), `core/tests/test-uu-seq-1.xsh` (eight `infinite_sequence` FIFO cases)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) these tests exceed 160-300 s where Linux finishes in seconds; samples of the stuck processes show them waiting in `poll` with a blocked pipeline, so at least the awk and factor cases look like a lost wakeup or a pipe-capacity deadlock (macOS pipes hold 16 KiB, Linux 64 KiB), not slowness. `od -w` with a large width streams slowly. The tests still fail on macOS.
-- **Evidence:** In `test-uu-seq-1.xsh`, a single `unix.poll_fd(fd, ["readable"], timeout_ms: 5000)` on a FIFO with a live writer times out on macOS, while repeated 50 ms polls on the same descriptor see it readable, so the runtime's wait misses a readiness edge on Darwin.
-- **Root causes found (2026-11-19):**
-  - Darwin implements FIFOs on socket buffers. It does not wake `poll` or `kqueue` readers when a writer blocks in one write larger than the buffer. `766929ab0` re-polls FIFO waits in 20 ms slices on macOS, which fixed the eight `test-uu-seq-1.xsh` cases.
-  - After a FIFO's last writer closes, Darwin reports neither readable nor hangup to `poll` or `kqueue`, while Linux reports `POLLHUP`; only a nonblocking `read` returns EOF. awk's command readers (`open_command_reader` in `core/lib/awk.xsh`) read `sh -c` output through a FIFO and wait on readiness in `fill`, so `"printf ''" | getline` hangs on macOS. The getline cases fail for this reason.
-  - `test_uu_tee_tee_continues_after_short_read` waits for the same stdin FIFO EOF after the writer closes.
-  - `od`'s large-width test emits about 12 GB per large-width pipeline. A macOS sample shows the writer blocked in `write` while `tr` consumes CPU; 100 MB through `tr` took 8.86 s under shared-host load. The macOS test budget is 3600 s per pipeline and 7500 s overall; Linux retains its existing budget.
-- **Recommendation:** Give awk's command readers an anonymous pipe (Darwin reports EOF on pipes), or have `fill` check the command's job for exit before trusting an empty readiness result. Then rerun the factor and `od` cases, which may share the FIFO cause, and measure `od` separately.
-- **Acceptance:** The listed tests pass on native macOS within their Linux bounds (or a documented platform budget for `od` only), and still pass on Linux.
-- **Fix with:** root-cause
-- **Effort:** M
-
-### XSH-121 · P2 · Refresh the descriptor API surface fixture
-
-- **Area:** Tooling
-- **Where:** `tests/fixtures/modules/standard-api-surface.jsonl`
-- **Problem:** The recorded API surface predates `unix.fd_info` and `unix.set_fd_flags`, so the API gate fails its snapshot comparison.
-- **Acceptance:** Regenerate the fixture for the intended API and pass the Rust/API gate. Run shared `textio_a1` coverage in native-core.
-
-### XSH-123 · P3 · Terminal and FIFO observation differs on macOS
-
-- **Area:** Core
-- **Where:** `core/stty.xsh` (Linux-sized termios decoding), `core/tests/test-stty.xsh` (`all_lists_every_setting_in_gnu_order`, `combination_settings_follow_the_gnu_definitions`, `control_characters_take_every_spelling`, `delay_styles_replace_each_other`, `drain_alone_prints_and_otherwise_chooses_when_to_apply`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19) stty decodes termios with Linux field sizes and flag values, so its listings and combinations differ and `cooked` exits 1.
-- **Recommendation:** Give stty a per-host termios table (Darwin `tcflag_t` is 64-bit and its flag set differs) and assert host-correct GNU output.
-- **Acceptance:** The listed tests pass on native macOS with host-correct expectations and still pass on Linux.
-- **Fix with:** os-boundaries
-- **Effort:** M
-
-### XSH-124 · P3 · Remaining single macOS native failures
-
-- **Area:** Core
-- **Where:** `core/tests/test-bb-pidof.xsh` (`pidof_this_48b653be`), `core/tests/test-bb-sed-1.xsh` (`sed_OR_not_cfd133ba`), `core/tests/test-grep.xsh` (`differential_basic_selection_and_modes`), `core/tests/test-rmdir.xsh` (`trailing_slash_symlink_diagnostic`), `core/tests/test-sysctl.xsh` (`reads_writes_and_loads_configuration_through_native_keys`), `dev/tests/test-lifecycle.xsh` (three container lifecycle cases), util-linux `lslocks`/`mountpoint`/`namei`/`syslog-libc` reference comparisons
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19), each fails for its own reason. pidof derives `argv0` from `ps` (`src/modules/process.rs`) and misses the child. A sed BRE alternation prints `abca` for `ca`. grep `-L` lists a matching file. On APFS, `rmdir` of `link/` succeeds where it must fail. sysctl `-p FILE` also reads the absent `/etc/sysctl.conf`. The lifecycle tests read `/proc/sys/kernel/hostname`. The util-linux references are absent, and the Linux planner rejects those files when they are selected with other cases.
-- **Recommendation:** Triage one at a time with root-cause. Split out a ticket for any that turns into a contract question, such as sysctl default loading.
-- **Acceptance:** Each listed case passes on native macOS, or skips with a named platform limitation, and still passes on Linux.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-125 · P3 · atomically publishes after a SIGKILL race on macOS
 
 - **Area:** Runtime
@@ -189,31 +136,13 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-127 · P2 · FsRoot cannot list a directory without search permission on macOS
 
-- **Area:** Runtime
-- **Where:** `crates/xsh-root/src/mutate.rs` (`read_dir`), `crates/xsh-root/src/macos.rs` (`open_readable_dir`), `core/du.xsh`; tests `core/tests/test-du.xsh` (`reports_children_blocked_by_directory_search_permissions`), `core/tests/test-gnu-du.xsh` (`inacc_dest_log`, `no_x_log`), `core/tests/test-uu-du-1.xsh` (`du_inaccessible_directory`, `du_no_exec_permission`)
-- **Problem:** On macOS arm64 (m1-max, 2026-11-19), `fs.open_root` of a readable but unsearchable directory (mode 0600) succeeds, but `children(".")` reports `enumeration_succeeded: false` with errno 20. `read_dir` hands the descriptor to rustix `Dir::read_from`, which reopens it with `openat(fd, ".")`; that lookup needs search permission, which the directory denies. du therefore prints `cannot read directory 'd/no-x': Not a directory` where GNU lists the names and reports `cannot access 'd/no-x/y': Permission denied`.
-- **Recommendation:** Enumerate from an independent open file description without a path lookup inside the directory: on macOS, reopen the directory from its parent (the root already knows it) or use `fdopendir` on a fresh descriptor and `rewinddir` before reading, so the root's own offset is never shared. Keep Linux unchanged.
-- **Acceptance:** The listed du tests pass on native macOS, a new xsh-root test lists a mode-0600 directory on both platforms, and Linux results are unchanged.
-- **Fix with:** os-boundaries
-- **Effort:** M
+### XSH-129 · P2 · master CI is red on Lint and Test
 
-### XSH-128 · P3 · Second set of single macOS native failures
-
-- **Area:** Core
-- **Where:** each item names its test under `core/tests/` unless shown
-- **Problem:** After the three qualification lanes (m1-max, 2026-11-19), these still fail on native macOS with causes not yet established:
-  - `test-rm.xsh` (`recursive_removes_hierarchy_deeper_than_path_max`) and `test-gnu-rm.xsh` (`deep_2_log`) fail on Darwin `ENAMETOOLONG` (63).
-  - `test-dd.xsh` (`oflag_append_on_standard_output`: Permission denied) and `test-gnu-dd.xsh` (`sparse_log`) fail with `oflag=append`.
-  - `test-curl.xsh` (`plain_http_needs_no_trust_store`) exits 77 loading trust anchors.
-  - `test-uu-comm.xsh` (`locale_collation`) and `test-uu-sort-2.xsh` (`merge_batch_size_with_limit`) fail.
-  - `test-uu-cksum-1.xsh` (`debug_flag`) and `test-uu-ls-2.xsh` (`ls_order_time_breaks_ties_by_name`) fail.
-  - `test-uu-du-2.xsh` (`du_time`: `--time=birth`) fails.
-  - `test-uu-tee.xsh` (`tee_continues_after_short_read`) waits for runtime FIFO EOF; see XSH-120.
-  - `test-lslocks.xsh` (`exited_flock_acquirer`, `filter_non_utf8_outside_literal`) fails.
-  - `tests/xsh/wait-until.xsh` (`fails_with_timeout_when_the_limit_passes`) failed 1 of 3 isolated runs: a 10 ms sleep overran 60 ms on an idle host, which suggests Darwin timer coalescing. `test-split.xsh` (`filter_byte_chunks_keep_processing_until_timeout`) failed once under full-suite load and passed 3 of 3 alone.
-- **Recommendation:** Triage each with root-cause on m1-max. Split any that becomes a contract question into its own ticket, and fold descriptor-identity and FIFO-wakeup causes into XSH-121 and XSH-120 when they match.
-- **Acceptance:** Each case passes on native macOS or skips with a named platform limitation, and still passes on Linux.
+- **Area:** Tooling
+- **Where:** `dev/test_workflows.xsh:259`, `crates/xsht/tests/lint_format_invariance.rs`; corpus files `core/lib/ipc_report.xsh`, `core/lib/locks.xsh`, `core/lib/memory_report.xsh`, `core/lib/scols_escape.xsh`, `core/tests/test-lsipc.xsh`, `core/tests/test-lslocks.xsh`, `core/tests/test-tail.xsh`, `dev/tests/test-targets.xsh`
+- **Problem:** Since at least `c4f2f0411` (2026-11-19), the CI Test job stops before any test because `HOST_UID` is unset when the job runs as root in the container. The Lint job, and locally `lint_format_invariance` in `cargo dev test linux`, fail on findings in the listed files: `lint.shadowing`, `check.ambiguous-grouping` in `ipc_report.xsh:158` after formatting, `check.redundant-parens`, and warnings. The linter's rules are newer than those files.
+- **Recommendation:** Pass `HOST_UID`/`HOST_GID` from the workflow, or skip the ownership repair when they are absent. Fix the listed findings at their sources.
+- **Acceptance:** Both CI jobs pass on master, and `cargo dev test linux` passes `lint_format_invariance`.
 - **Fix with:** root-cause
-- **Effort:** L
+- **Effort:** S

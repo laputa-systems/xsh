@@ -248,7 +248,7 @@ server (`tests/protocol.rs`, `tests/hostile.rs`, `tests/descriptors.rs`) use a s
 the OxiSH server state machine, which can send the malformed and out-of-order
 traffic a real server will not.
 
-Native macOS qualification is deferred: no macOS host is available, so macOS is
+No native macOS interop run against a real server has been recorded, so macOS is
 not claimed.
 
 ## Limits and threat model
