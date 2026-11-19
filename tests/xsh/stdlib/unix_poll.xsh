@@ -34,13 +34,9 @@ test test_unix_poll_fds_reports_hangup_and_invalid_descriptors { |ctx|
   }
   defer unix.close_fd(reader)
   let seen = unix.poll_fds([{fd: reader, events: ["readable"]}, {fd: 2147483647, events: ["readable", "writable"]}], 1s)?
-  if system.uname()?.sysname == "Darwin" {
-    assert seen == [{fd: 2147483647, events: ["invalid"]}]
-  } else {
-    assert seen[0].fd == reader and "hangup" in seen[0].events
-    assert seen[1] == {fd: 2147483647, events: ["invalid"]}
-    assert seen.len() == 2
-  }
+  assert seen[0].fd == reader and "hangup" in seen[0].events
+  assert seen[1] == {fd: 2147483647, events: ["invalid"]}
+  assert seen.len() == 2
 }
 """, status: 0)?
   assert result.stdout == "" and result.stderr == ""

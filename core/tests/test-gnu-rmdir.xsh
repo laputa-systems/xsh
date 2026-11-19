@@ -58,10 +58,11 @@ test test_gnu_rmdir_symlink_errors_log { |ctx|
   uu.stderr_is(ancestor, "rmdir: failed to remove 'sl': Not a directory\n")
   let probe = uu.invoke(s, "rmdir", ["sl/"], stderr: p"/dev/null")?
   if probe.status != 0 {
-    for name in ["sl/", "dl/"] {
+    let dangling = if system.uname()?.sysname == "Darwin" { "No such file or directory" } else { "Symbolic link not followed" }
+    for {name, reason} in [{name: "sl/", reason: "Symbolic link not followed"}, {name: "dl/", reason: dangling}] {
       let result = uu.invoke(s, "rmdir", [name])?
       uu.fails_with_code(result, 1)
-      uu.stderr_is(result, f"rmdir: failed to remove '{name}': Symbolic link not followed\n")
+      uu.stderr_is(result, f"rmdir: failed to remove '{name}': {reason}\n")
     }
   }
 }
