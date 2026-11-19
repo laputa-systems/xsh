@@ -212,6 +212,7 @@ test test_unrecorded_requests_and_bad_lines_fail_loudly { |ctx|
 }
 
 test test_request_arguments_are_bounded_before_anything_is_sent {
+  if system.uname()?.sysname != "Linux" { test.skip("netlink route requests require Linux"); return }
   test.error_kind(linux.netlink_route_request(3, 0, b"", 1000), "invalid-argument")
   test.error_kind(linux.netlink_route_request(70000, 0, b"", 1000), "invalid-argument")
   test.error_kind(linux.netlink_route_request(RTM_NEWADDR, 768, ADDRESS, 1000), "invalid-argument")
