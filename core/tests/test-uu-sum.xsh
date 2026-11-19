@@ -69,6 +69,7 @@ test test_uu_sum_filename_ends_with_slash { |ctx|
 
 # origin: uutils test_sum::test_filename_proc_self_mem
 test test_uu_sum_filename_proc_self_mem { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/self/mem"); return }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "sum", ["/proc/self/mem"], timeout: 5s)?
   uu.fails_with_code(r, 1)
