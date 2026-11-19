@@ -102,6 +102,7 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
 
 # origin: uutils test_tee::linux_only::test_permission_denied_clean
 test test_uu_tee_linux_only_permission_denied_clean { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /dev/mem device"); return }
   if unix.id()?.euid == 0 { test.skip("root bypasses permission checks") }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "tee", ["/dev/mem"])?
