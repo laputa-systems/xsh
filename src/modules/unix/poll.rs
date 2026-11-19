@@ -196,15 +196,13 @@ pub(crate) fn fifo_readiness_missed_by_poll(fd: BorrowedFd<'_>) -> Option<PollFl
     if !fifo || raw >= libc::FD_SETSIZE as libc::c_int {
         return None;
     }
-    // SAFETY: the set is initialized by FD_ZERO before use, `raw` is below
-    // FD_SETSIZE, and the zero timeout outlives the call.
-    let selected = unsafe {
-        let mut readable: libc::fd_set = std::mem::zeroed();
-        libc::FD_ZERO(&mut readable);
-        libc::FD_SET(raw, &mut readable);
-        let mut zero = libc::timeval { tv_sec: 0, tv_usec: 0 };
-        libc::select(raw + 1, &mut readable, std::ptr::null_mut(), std::ptr::null_mut(), &mut zero) == 1
-    };
+    let mut readable = vec![rustix::event::FdSetElement::default(); rustix::event::fd_set_num_elements(1, raw + 1)];
+    rustix::event::fd_set_insert(&mut readable, raw);
+    let zero = Timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `raw` is an open descriptor borrowed for the call, below
+    // FD_SETSIZE, and the set holds enough elements for `raw + 1` descriptors.
+    let selected = unsafe { rustix::event::select(raw + 1, Some(&mut readable), None, None, Some(&zero)) }
+        .is_ok_and(|ready| ready == 1);
     if !selected {
         return None;
     }

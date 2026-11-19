@@ -3058,31 +3058,24 @@ fn open_child_exit_fd(pid: u32) -> Option<OwnedFd> {
 
 #[cfg(target_os = "macos")]
 fn open_child_exit_fd(pid: u32) -> Option<OwnedFd> {
-    use std::os::fd::FromRawFd;
+    use rustix::event::kqueue::{Event, EventFilter, EventFlags, ProcessEvents, kevent, kqueue};
 
-    let raw = unsafe { libc::kqueue() };
-    if raw < 0 { return None; }
-    // SAFETY: kqueue returned a newly owned descriptor.
-    let queue = unsafe { OwnedFd::from_raw_fd(raw) };
+    let queue = kqueue().ok()?;
     rio::fcntl_setfd(&queue, rio::FdFlags::CLOEXEC).ok()?;
-    let event = libc::kevent {
-        ident: pid as libc::uintptr_t,
-        filter: libc::EVFILT_PROC,
-        flags: libc::EV_ADD | libc::EV_ONESHOT,
-        fflags: libc::NOTE_EXIT,
-        data: 0,
-        udata: std::ptr::null_mut(),
-    };
-    // SAFETY: the queue and event are valid for the duration of the call.
-    if unsafe { libc::kevent(raw, &event, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == 0 {
-        return Some(queue);
+    let pid = rprocess::Pid::from_raw(i32::try_from(pid).ok()?)?;
+    let exit = Event::new(EventFilter::Proc { pid, flags: ProcessEvents::EXIT }, EventFlags::ADD | EventFlags::ONESHOT, std::ptr::null_mut());
+    let mut received: Vec<Event> = Vec::new();
+    // SAFETY: the change list names a process, not a descriptor, so no
+    // descriptor must outlive the queue.
+    match unsafe { kevent(&queue, &[exit], &mut received, Some(Duration::ZERO)) } {
+        Ok(_) => Some(queue),
+        Err(rio::Errno::SRCH) => {
+            let (reader, writer) = io::pipe().ok()?;
+            drop(writer);
+            Some(reader.into())
+        }
+        Err(_) => None,
     }
-    if io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
-        let (reader, writer) = io::pipe().ok()?;
-        drop(writer);
-        return Some(reader.into());
-    }
-    None
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
