@@ -179,6 +179,7 @@ test test_efibootmgr_next_timeout_set_and_delete { |ctx|
 }
 
 test test_efibootmgr_timeout_wraps_to_sixteen_bits_and_rejects_text { |ctx|
+  requires.linux_kernel("EFI variable writes require Linux primitives")
   let dir = fixture(ctx, "efibootmgr-timeout")
   assert invoke(ctx, dir, ["-t", "-1"]).status == 0
   assert get(dir, "Timeout") == bytes.concat([b"\x07\x00\x00\x00", u16(65535)])
@@ -499,6 +500,7 @@ test test_efibootmgr_numeric_arguments_report_the_offending_column { |ctx|
   assert next.status == 35
   let version = invoke(ctx, dir, ["-V"])
   assert version.stdout == "version 18\n"
+  requires.linux_kernel("EFI variable writes require Linux primitives")
   let quiet = invoke(ctx, dir, ["-q", "-t", "8"])
   assert quiet.status == 0
   assert quiet.stdout == ""
