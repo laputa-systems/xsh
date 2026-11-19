@@ -188,6 +188,10 @@ test test_uu_stty_line { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "stty", ["line"])?
   uu.fails(r0)
+  if system.uname()?.sysname != "Linux" {
+    uu.stderr_contains(r0, "invalid argument 'line'")
+    return
+  }
   uu.stderr_contains(r0, "missing argument to 'line'")
   let r1 = uu.invoke(s, "stty", ["line", "-1"])?
   uu.fails(r1)
@@ -265,7 +269,7 @@ test test_uu_stty_missing_arg_line { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "stty", ["line"])?
   uu.fails(r0)
-  uu.stderr_contains(r0, "missing argument")
+  uu.stderr_contains(r0, if system.uname()?.sysname == "Linux" { "missing argument" } else { "invalid argument" })
   uu.stderr_contains(r0, "line")
 }
 
@@ -605,7 +609,7 @@ test test_uu_stty_saved_state_valid_formats { |ctx|
   let tty = unix.open_pty()?
   defer unix.close_fd(tty.master)
   defer unix.close_fd(tty.replica)
-  let saved = "500:5:f00bf:8a3b:3:1c:7f:15:4:0:1:0:11:13:1a:0:12:f:17:16:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0"
+  let saved = if system.uname()?.sysname == "Linux" { "500:5:f00bf:8a3b:3:1c:7f:15:4:0:1:0:11:13:1a:0:12:f:17:16:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0" } else { "2b02:3:4b00:5cb:4:ff:ff:7f:17:15:12:ff:3:1c:1a:19:11:13:16:f:1:0:14:ff:2580:2580" }
   let r = uu.invoke(s, "stty", ["--file", tty.name, saved])?
   uu.succeeds(r)
   uu.no_output(r)

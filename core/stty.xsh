@@ -274,10 +274,12 @@ const CHAR_NAMES = [
   "start",
   "stop",
   "susp",
+  "dsusp",
   "rprnt",
   "werase",
   "lnext",
   "discard",
+  "status",
 ]
 
 # Flags `sane` clears: shown by plain `stty` when they are set. The flags
@@ -454,12 +456,12 @@ proc integer_arg(text: Str, max: Int) [process, env] -> Int {
 
 # A control character argument: a literal character, `^C`, `^-` or `undef`,
 # or a number up to 255.
-proc char_value(text: Str) [process, env] -> Int {
+proc char_value(text: Str, disabled: Int) [process, env] -> Int {
   let total = text.byte_len()
 
   return text.byte_at(0) ?? 0 when total <= 1
 
-  return 0 when text == "^-" or text == "undef"
+  return disabled when text == "^-" or text == "undef"
 
   if text.byte_slice(0, length: 1) == "^" {
     let second = text.byte_at(1) ?? 0
@@ -527,8 +529,8 @@ pure speed_of_code(code: Int, speeds: List[Int]) -> Int {
   if index >= 0 and index < speeds.len() { speeds[index] } else { 0 }
 }
 
-pure visible(code: Int) -> Str {
-  return "<undef>" when code == 0
+pure visible(code: Int, disabled: Int) -> Str {
+  return "<undef>" when code == disabled
 
   var rest = code
   var prefix = ""
@@ -757,9 +759,9 @@ pure apply_saved(attrs: UnixTtyAttrs, state: List[Int], speeds: List[Int]) -> Un
   }
 
   let cflag = state[2]
-  let output = speed_of_code(cflag.bit_and(CBAUD_MASK), speeds)
+  let output = if chars.len() == 20 { if state.len() == 26 { state[25] } else { attrs.ospeed } } else { speed_of_code(cflag.bit_and(CBAUD_MASK), speeds) }
   let input_code = cflag.bit_and(CIBAUD_MASK) / CIBAUD_SHIFT
-  let input = if input_code == 0 { output } else { speed_of_code(input_code, speeds) }
+  let input = if chars.len() == 20 { if state.len() == 26 { state[24] } else { attrs.ispeed } } else if input_code == 0 { output } else { speed_of_code(input_code, speeds) }
 
   {
     ...attrs,
@@ -777,10 +779,12 @@ pure apply_saved(attrs: UnixTtyAttrs, state: List[Int], speeds: List[Int]) -> Un
 # blanks and `0x` allowed before the digits), the control characters no
 # larger than 255. As with GNU, text after the digits of the last field is
 # ignored. Returns the values or null.
-pure parse_saved(text: Str) -> List[Int]? {
+pure parse_saved(table: UnixTtyTable, text: Str) -> List[Int]? {
+  let nccs = if char_named(table, "swtch") == null { 20 } else { NCCS }
+  let separate = nccs == 20
   let parts = text.split(":")
 
-  return null when parts.len() != 4 + NCCS
+  return null when parts.len() != 4 + nccs and (! separate or parts.len() != 6 + nccs)
 
   let values: List[Int] = collect {
     for index in range(parts.len()) {
@@ -794,12 +798,13 @@ pure parse_saved(text: Str) -> List[Int]? {
       var value = 0
 
       for position in range(digits.byte_len()) {
-        value = value * 16 + hex_digit(digits.byte_at(position) ?? 0)
-
-        return null when value > 4294967295
+        let digit = hex_digit(digits.byte_at(position) ?? 0)
+        let max = if separate { 9223372036854775807 } else { 4294967295 }
+        return null when value > (max - digit) / 16
+        value = value * 16 + digit
       }
 
-      return null when index >= 4 and value > 255
+      return null when index >= 4 and index < 4 + nccs and value > 255
 
       yield value
     }
@@ -965,7 +970,7 @@ proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error]
       } else if ! reversed and char_named(table, word) != null and word != "min" and word != "time" {
         needs_argument(arg, texts, at)
         at += 1
-        yield {kind: "char", name: word, reversed: false, text: texts[at], number: char_value(texts[at])}
+        yield {kind: "char", name: word, reversed: false, text: texts[at], number: char_value(texts[at], if char_named(table, "swtch") == null { 255 } else { 0 })}
       } else if ! reversed and (word == "min" or word == "time") {
         needs_argument(arg, texts, at)
         at += 1
@@ -992,7 +997,7 @@ proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error]
           text: texts[at],
           number: 0,
         }
-      } else if ! reversed and word == "line" {
+      } else if ! reversed and word == "line" and char_named(table, "swtch") != null {
         needs_argument(arg, texts, at)
         at += 1
         let value = integer_arg(texts[at], 9223372036854775807)
@@ -1004,9 +1009,9 @@ proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error]
         yield {kind: "line", name: word, reversed: false, text: texts[at], number: value}
       } else if ! reversed and (word == "size" or word == "speed") {
         yield {kind: word, name: word, reversed: false, text: "", number: 0}
-      } else if word in COMBOS_PLAIN or word in COMBOS_NEGATABLE {
+      } else if (word in COMBOS_PLAIN or word in COMBOS_NEGATABLE) and (word not in ["lcase", "LCASE"] or flag_named(table, "xcase") != null) {
         yield {kind: "combo", name: word, reversed: reversed, text: "", number: 0}
-      } else if ! reversed and parse_saved(arg) != null {
+      } else if ! reversed and parse_saved(table, arg) != null {
         yield {kind: "saved", name: "saved", reversed: false, text: arg, number: 0}
       } else if baud_value(arg) >= 0 and ! reversed {
         yield {kind: "both", name: "speed", reversed: false, text: arg, number: baud_value(arg)}
@@ -1099,16 +1104,20 @@ proc display_settings(table: UnixTtyTable, attrs: UnixTtyAttrs, device: Device, 
     }
   }
 
-  head += [f"line = {attrs.line};"]
+  if attrs.control_chars.len() != 20 {
+    head += [f"line = {attrs.line};"]
+  }
 
   var chars = []
 
   for name in CHAR_NAMES {
-    let char = char_named(table, name) ?? {index: 0, name: name, sane: 0}
+    guard let char = char_named(table, name) else {
+      continue
+    }
     let value = attrs.control_chars[char.index]
 
     if everything or value != char.sane {
-      chars += [f"{name} = {visible(value)};"]
+      chars += [f"{name} = {visible(value, if attrs.control_chars.len() == 20 { 255 } else { 0 })};"]
     }
   }
 
@@ -1131,15 +1140,19 @@ proc display_settings(table: UnixTtyTable, attrs: UnixTtyAttrs, device: Device, 
 # The saved form of the state, with the input-speed bits dropped when both
 # speeds agree.
 pure save_text(attrs: UnixTtyAttrs) -> Str {
-  let cflag = if attrs.ispeed == attrs.ospeed or attrs.ispeed == 0 {
+  let cflag = if attrs.control_chars.len() != 20 and (attrs.ispeed == attrs.ospeed or attrs.ispeed == 0) {
     attrs.cflag.clear_bits(CIBAUD_MASK)
   } else {
     attrs.cflag
   }
   var fields = [hex(attrs.iflag), hex(attrs.oflag), hex(cflag), hex(attrs.lflag)]
 
-  for index in range(NCCS) {
+  let nccs = if attrs.control_chars.len() == 20 { 20 } else { NCCS }
+  for index in range(nccs) {
     fields += [hex(if index < attrs.control_chars.len() { attrs.control_chars[index] } else { 0 })]
+  }
+  if nccs == 20 {
+    fields += [hex(attrs.ispeed), hex(attrs.ospeed)]
   }
 
   fields.join(":")
@@ -1158,8 +1171,8 @@ proc apply_attrs(device: Device, wanted: UnixTtyAttrs, moment: Str) [process, en
   let actual = read_attrs(device)
   let expected_input = if input == 0 { wanted.ospeed } else { input }
   let same_speeds = actual.ispeed == expected_input and actual.ospeed == wanted.ospeed
-  let speed_bits = CBAUD_MASK + CIBAUD_MASK
-  let same_state = actual.iflag == wanted.iflag and actual.oflag == wanted.oflag and actual.lflag == wanted.lflag and actual.line == wanted.line and actual.cflag.clear_bits(
+  let speed_bits = if wanted.control_chars.len() == 20 { 0 } else { CBAUD_MASK + CIBAUD_MASK }
+  let same_state = actual.iflag == wanted.iflag and actual.oflag == wanted.oflag and (if wanted.control_chars.len() == 20 { actual.lflag.clear_bits(536870912) == wanted.lflag.clear_bits(536870912) } else { actual.lflag == wanted.lflag }) and actual.line == wanted.line and actual.cflag.clear_bits(
     speed_bits,
   ) == wanted.cflag.clear_bits(speed_bits) and actual.control_chars == wanted.control_chars
 
@@ -1262,13 +1275,13 @@ proc main(...argv: List[Str]) [process, env, error, io] {
         changed = true
         speed_set = true
       } else if setting.kind == "saved" {
-        let state = parse_saved(setting.text) ?? []
+        let state = parse_saved(table, setting.text) ?? []
         attrs = apply_saved(attrs, state, table.speeds)
         changed = true
 
         # The kernel keeps only its own control characters, so a saved
         # state that sets later ones cannot be fully applied.
-        for slot in range(KERNEL_CHARS, NCCS) {
+        for slot in range(if attrs.control_chars.len() == 20 { NCCS } else { KERNEL_CHARS }, NCCS) {
           if state[4 + slot] != 0 {
             unkept = true
           }
@@ -1306,14 +1319,18 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
     # Linux keeps one speed: setting either direction sets both, and two
     # different requested speeds cannot be honored.
-    if input_speed >= 0 and output_speed >= 0 and input_speed != output_speed {
+    if attrs.control_chars.len() != 20 and input_speed >= 0 and output_speed >= 0 and input_speed != output_speed {
       gnu.error(f"asymmetric input ({input_speed}), output ({output_speed}) speeds not supported")
       exit 1
     }
 
     if speed_set {
       let speed = if input_speed >= 0 { input_speed } else { output_speed }
-      attrs = {...attrs, ispeed: speed, ospeed: speed}
+      if attrs.control_chars.len() == 20 {
+        attrs = {...attrs, ispeed: if input_speed >= 0 { input_speed } else { attrs.ispeed }, ospeed: if output_speed >= 0 { output_speed } else { attrs.ospeed }}
+      } else {
+        attrs = {...attrs, ispeed: speed, ospeed: speed}
+      }
     }
 
     if changed {

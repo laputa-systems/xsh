@@ -461,6 +461,9 @@ struct Char {
     sane: u8,
 }
 
+/// The control-character value that disables a character (`_POSIX_VDISABLE`).
+const VDISABLE: u8 = if cfg!(target_vendor = "apple") { 0xff } else { 0 };
+
 const CHARS: &[Char] = &[
     Char {
         name: "intr",
@@ -490,12 +493,12 @@ const CHARS: &[Char] = &[
     Char {
         name: "eol",
         index: libc::VEOL,
-        sane: 0,
+        sane: VDISABLE,
     },
     Char {
         name: "eol2",
         index: libc::VEOL2,
-        sane: 0,
+        sane: VDISABLE,
     },
     #[cfg(any(target_os = "linux", target_os = "android"))]
     Char {
@@ -518,6 +521,10 @@ const CHARS: &[Char] = &[
         index: libc::VSUSP,
         sane: 26,
     },
+    #[cfg(target_vendor = "apple")]
+    Char { name: "dsusp", index: 11, sane: 25 },
+    #[cfg(target_vendor = "apple")]
+    Char { name: "status", index: 18, sane: 20 },
     Char {
         name: "rprnt",
         index: libc::VREPRINT,
@@ -551,10 +558,17 @@ const CHARS: &[Char] = &[
 ];
 
 /// The baud rates `stty` accepts by name; any of them can be a terminal speed.
+#[cfg(not(target_vendor = "apple"))]
 const SPEEDS: &[i64] = &[
     0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600,
     115200, 230400, 460800, 500000, 576000, 921600, 1000000, 1152000, 1500000, 2000000, 2500000,
     3000000, 3500000, 4000000,
+];
+
+#[cfg(target_vendor = "apple")]
+const SPEEDS: &[i64] = &[
+    0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 7200, 9600,
+    14400, 19200, 28800, 38400, 57600, 76800, 115200, 230400,
 ];
 
 fn tty_table() -> Value {
@@ -682,6 +696,8 @@ const COMBINATIONS: &[(&str, &[&str], &[(&str, i64)])] = &[
             ("start", 17),
             ("stop", 19),
             ("susp", 26),
+            ("dsusp", 25),
+            ("status", 20),
             ("rprnt", 18),
             ("werase", 23),
             ("lnext", 22),
@@ -731,7 +747,8 @@ fn tty_mode(args: &Args<'_>) -> Result<Value, RuntimeError> {
         modes.flag(flag);
     }
     for (name, value) in *chars {
-        modes.char(name, *value);
+        let value = if (*name == "eol" || *name == "eol2") && *value == 0 { i64::from(VDISABLE) } else { *value };
+        modes.char(name, value);
     }
     let mut fields = record.clone();
     fields.insert(key("iflag"), Value::Int(modes.iflag as i64));

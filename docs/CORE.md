@@ -79,6 +79,7 @@ behave as before.
 
 | Applet | Byte and error behavior |
 |---|---|
+| `stty` | Uses the host terminal vocabulary and control-character layout. Darwin saved states include separate input and output speeds, and omit the Linux line discipline field. |
 | `tee` | Copies input bytes to each output. Write failures are governed by `warn`, `warn-nopipe`, `exit`, or `exit-nopipe`; the default exits on pipe errors and reports other output errors. With `-p`, the default is `warn-nopipe`; `nopipe` modes exit once every output is a broken pipe. |
 | `wc` | `-l` counts LF line endings (a CRLF pair counts once) and `-c` counts bytes. Character, word, and display-width counts interpret text; byte counts do not depend on UTF-8 decoding. Read failures are reported and return failure. |
 | `more` | Paging requires terminal stdin, terminal stdout, and an accessible controlling terminal. Without that, it concatenates input; with no display transformations it preserves every byte, including an unterminated final line. |

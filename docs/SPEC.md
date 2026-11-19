@@ -6998,7 +6998,10 @@ let text = notes.replace("DRAFT", with: "FINAL")
   and value, control characters as slot indexes, baud rates) so a script edits
   the words of a `UnixTtyAttrs` by name; `unix.tty_mode(attrs, mode)` applies
   `stty`'s `raw`, `cooked`, `cbreak`, or `sane` to a copy that reaches the
-  terminal only through `set_tty_attrs`. `unix.open_fd` and `close_fd`
+  terminal only through `set_tty_attrs`. On Darwin the table includes `dsusp`
+  and `status`, `sane` uses the host disabled value for `eol` and `eol2`,
+  and `set_tty_attrs` changes `extproc` through `TIOCEXT`.
+  `unix.open_fd` and `close_fd`
   give a bare descriptor for a device path. `unix.seek_fd` defaults to an
   absolute position; `whence: "current"` and `whence: "end"` accept signed
   offsets relative to the descriptor's position or file length, with invalid

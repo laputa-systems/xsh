@@ -714,6 +714,8 @@ pub(crate) fn set_tty_attrs(
         Ok(a) => a,
         Err(e) => return Ok(io_error("unix-tty-attrs", io::Error::from(e), span)),
     };
+    #[cfg(target_vendor = "apple")]
+    let previous_extproc = attrs.local_modes.bits() & libc::EXTPROC as u64 != 0;
     attrs.input_modes =
         termios::InputModes::from_bits_retain(
             record_uint(record, "iflag", "unix-tty-attrs", span)? as _,
@@ -800,10 +802,21 @@ pub(crate) fn set_tty_attrs(
             span,
         ));
     }
-    match termios::tcsetattr(borrowed, when, &attrs) {
-        Ok(()) => Ok(ok_unit()),
-        Err(e) => Ok(io_error("unix-tty-attrs", io::Error::from(e), span)),
+    if let Err(e) = termios::tcsetattr(borrowed, when, &attrs) {
+        return Ok(io_error("unix-tty-attrs", io::Error::from(e), span));
     }
+    #[cfg(target_vendor = "apple")]
+    {
+        let enabled = attrs.local_modes.bits() & libc::EXTPROC as u64 != 0;
+        if enabled != previous_extproc {
+            let value: libc::c_int = enabled.into();
+            // SAFETY: fd is borrowed for this call and TIOCEXT reads one c_int.
+            if unsafe { libc::ioctl(fd, libc::TIOCEXT, &value) } == -1 {
+                return Ok(io_error("unix-tty-attrs", io::Error::last_os_error(), span));
+            }
+        }
+    }
+    Ok(ok_unit())
 }
 
 pub(crate) fn kill_all(name: &str, signal: &str, span: Span) -> Result<Value, RuntimeError> {

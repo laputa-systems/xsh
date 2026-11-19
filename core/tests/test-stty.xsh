@@ -49,7 +49,8 @@ test test_stty_prints_speed_line_and_deviations_from_sane { |ctx|
   let result = stty_run(ctx, pty, [])?
   assert result.status == 0
   assert result.stderr == ""
-  assert result.stdout == "speed 38400 baud; line = 0;\n-brkint -imaxbel\n", result.stdout
+  let expected = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\n-brkint -imaxbel\n" } else { "speed 9600 baud;\nixany\n-echok\n" }
+  assert result.stdout == expected, result.stdout
 }
 
 test test_stty_all_lists_every_setting_in_gnu_order { |ctx|
@@ -58,7 +59,7 @@ test test_stty_all_lists_every_setting_in_gnu_order { |ctx|
   defer unix.close_fd(pty.replica)
   let result = stty_run(ctx, pty, ["-a"])?
   assert result.status == 0
-  assert result.stdout == r"""speed 38400 baud; rows 0; columns 0; line = 0;
+  let expected = if system.uname()?.sysname == "Linux" { r"""speed 38400 baud; rows 0; columns 0; line = 0;
 intr = ^C; quit = ^\; erase = ^?; kill = ^U; eof = ^D; eol = <undef>;
 eol2 = <undef>; swtch = <undef>; start = ^Q; stop = ^S; susp = ^Z; rprnt = ^R;
 werase = ^W; lnext = ^V; discard = ^O; min = 1; time = 0;
@@ -68,7 +69,18 @@ werase = ^W; lnext = ^V; discard = ^O; min = 1; time = 0;
 opost -olcuc -ocrnl onlcr -onocr -onlret -ofill -ofdel nl0 cr0 tab0 bs0 vt0 ff0
 isig icanon iexten echo echoe echok -echonl -noflsh -xcase -tostop -echoprt
 echoctl echoke -flusho -extproc
-""", result.stdout
+""" } else { r"""speed 9600 baud; rows 0; columns 0;
+intr = ^C; quit = ^\; erase = ^?; kill = ^U; eof = ^D; eol = <undef>;
+eol2 = <undef>; start = ^Q; stop = ^S; susp = ^Z; dsusp = ^Y; rprnt = ^R;
+werase = ^W; lnext = ^V; discard = ^O; status = ^T; min = 1; time = 0;
+-parenb -parodd cs8 hupcl -cstopb cread -clocal -crtscts
+-ignbrk brkint -ignpar -parmrk -inpck -istrip -inlcr -igncr icrnl ixon -ixoff
+ixany imaxbel -iutf8
+opost -ocrnl onlcr -onocr -onlret -ofill -ofdel nl0 cr0 tab0 bs0 vt0 ff0
+isig icanon iexten echo echoe -echok -echonl -noflsh -tostop -echoprt echoctl
+echoke -flusho -extproc
+""" }
+  assert result.stdout == expected, result.stdout
   assert stty_run(ctx, pty, ["--all"])?.stdout == result.stdout
 }
 
@@ -77,13 +89,15 @@ test test_stty_flags_set_and_clear_and_show_when_they_differ_from_sane { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
   assert stty_run(ctx, pty, ["-echo", "-icanon", "ixany", "tostop"])?.status == 0
-  assert show(ctx, pty)? == "speed 38400 baud; line = 0;\nmin = 1; time = 0;\n-brkint ixany -imaxbel\n-icanon -echo tostop\n"
+  let changed = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\nmin = 1; time = 0;\n-brkint ixany -imaxbel\n-icanon -echo tostop\n" } else { "speed 9600 baud;\nmin = 1; time = 0;\nixany\n-icanon -echo -echok tostop\n" }
+  assert show(ctx, pty)? == changed
 
   let all = show(ctx, pty, ["-a"])?
   assert has(all, "ixany") and has(all, "-icanon") and has(all, "-echo") and has(all, "tostop")
 
   assert stty_run(ctx, pty, ["echo", "icanon", "-ixany", "-tostop"])?.status == 0
-  assert show(ctx, pty)? == "speed 38400 baud; line = 0;\n-brkint -imaxbel\n"
+  let fresh = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\n-brkint -imaxbel\n" } else { "speed 9600 baud;\n-echok\n" }
+  assert show(ctx, pty)? == fresh
 }
 
 test test_stty_flag_aliases_name_the_same_bits { |ctx|
@@ -110,7 +124,7 @@ test test_stty_control_characters_take_every_spelling { |ctx|
     ["quit", "^?", "quit = ^?;"],
     ["erase", "^-", "erase = <undef>;"],
     ["kill", "undef", "kill = <undef>;"],
-    ["eof", "", "eof = <undef>;"],
+    ["eof", "", if system.uname()?.sysname == "Linux" { "eof = <undef>;" } else { "eof = ^@;" }],
     ["eol", "0xe1", "eol = M-a;"],
     ["eol2", "0x81", "eol2 = M-^A;"],
     ["susp", "^Zjunk", "susp = ^Z;"],
@@ -121,7 +135,8 @@ test test_stty_control_characters_take_every_spelling { |ctx|
   }
 
   assert stty_run(ctx, pty, ["sane"])?.status == 0
-  assert show(ctx, pty)? == "speed 38400 baud; line = 0;\n", "sane restores the characters and the flags it owns"
+  let sane_output = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\n" } else { "speed 9600 baud;\n" }
+  assert show(ctx, pty)? == sane_output, "sane restores the characters and the flags it owns"
 }
 
 test test_stty_min_and_time_show_under_non_canonical_input { |ctx|
@@ -130,9 +145,22 @@ test test_stty_min_and_time_show_under_non_canonical_input { |ctx|
   defer unix.close_fd(pty.replica)
   assert stty_run(ctx, pty, ["-icanon", "min", "5", "time", "7"])?.status == 0
   let plain = show(ctx, pty)?
-  assert plain.starts_with("speed 38400 baud; line = 0;\nmin = 5; time = 7;\n"), plain
+  assert plain.starts_with(if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\nmin = 5; time = 7;\n" } else { "speed 9600 baud;\nmin = 5; time = 7;\n" }), plain
   assert stty_run(ctx, pty, ["min", "255", "time", "0"])?.status == 0
   assert "min = 255; time = 0;" in show(ctx, pty)?
+}
+
+test test_stty_extproc_and_sane { |ctx|
+  let pty = with_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  assert stty_run(ctx, pty, ["extproc"])?.status == 0
+  assert has(show(ctx, pty, ["-a"])?, "extproc")
+  assert stty_run(ctx, pty, ["-extproc"])?.status == 0
+  assert has(show(ctx, pty, ["-a"])?, "-extproc")
+  assert stty_run(ctx, pty, ["extproc"])?.status == 0
+  assert stty_run(ctx, pty, ["sane"])?.status == 0
+  assert has(show(ctx, pty, ["-a"])?, "-extproc")
 }
 
 test test_stty_combination_settings_follow_the_gnu_definitions { |ctx|
@@ -182,12 +210,16 @@ test test_stty_combination_settings_follow_the_gnu_definitions { |ctx|
   let crt = show(ctx, pty, ["-a"])?
   assert has(crt, "echoe") and has(crt, "echoctl") and has(crt, "echoke"), crt
 
-  assert stty_run(ctx, pty, ["lcase"])?.status == 0
-  let lcase = show(ctx, pty, ["-a"])?
-  assert has(lcase, "xcase") and has(lcase, "iuclc") and has(lcase, "olcuc"), lcase
-  assert stty_run(ctx, pty, ["-LCASE"])?.status == 0
-  let plain = show(ctx, pty, ["-a"])?
-  assert has(plain, "-xcase") and has(plain, "-iuclc") and has(plain, "-olcuc"), plain
+  if system.uname()?.sysname == "Linux" {
+    assert stty_run(ctx, pty, ["lcase"])?.status == 0
+    let lcase = show(ctx, pty, ["-a"])?
+    assert has(lcase, "xcase") and has(lcase, "iuclc") and has(lcase, "olcuc"), lcase
+    assert stty_run(ctx, pty, ["-LCASE"])?.status == 0
+    let plain = show(ctx, pty, ["-a"])?
+    assert has(plain, "-xcase") and has(plain, "-iuclc") and has(plain, "-olcuc"), plain
+  } else {
+    assert stty_run(ctx, pty, ["lcase"])?.status == 1, "Darwin lacks XCASE, IUCLC, and OLCUC"
+  }
 
   assert stty_run(ctx, pty, ["-tabs"])?.status == 0
   assert " tab3 " in show(ctx, pty, ["-a"])?
@@ -197,7 +229,7 @@ test test_stty_combination_settings_follow_the_gnu_definitions { |ctx|
   assert stty_run(ctx, pty, ["decctlq"])?.status == 0
   assert "-ixany" in show(ctx, pty, ["-a"])?, "GNU applies decctlq as -ixany"
   assert stty_run(ctx, pty, ["-decctlq"])?.status == 0
-  assert " ixany " in show(ctx, pty, ["-a"])?
+  assert has(show(ctx, pty, ["-a"])?, "ixany")
 }
 
 test test_stty_delay_styles_replace_each_other { |ctx|
@@ -205,7 +237,8 @@ test test_stty_delay_styles_replace_each_other { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
   assert stty_run(ctx, pty, ["tab3", "nl1", "cr2", "bs1", "vt1", "ff1"])?.status == 0
-  assert show(ctx, pty)? == "speed 38400 baud; line = 0;\n-brkint -imaxbel\nnl1 cr2 tab3 bs1 vt1 ff1\n"
+  let expected = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\n-brkint -imaxbel\nnl1 cr2 tab3 bs1 vt1 ff1\n" } else { "speed 9600 baud;\nixany\nnl1 cr2 tab3 bs1 vt1 ff1\n-echok\n" }
+  assert show(ctx, pty)? == expected
   assert stty_run(ctx, pty, ["tab1", "cr0"])?.status == 0
   let all = show(ctx, pty, ["-a"])?
   assert has(all, "tab1") and has(all, "cr0") and "tab3" not in all and "cr2" not in all, all
@@ -216,6 +249,8 @@ test test_stty_sets_and_reports_speeds { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
 
+  let is_linux = system.uname()?.sysname == "Linux"
+  var last_output = "9600"
   for case in [
     ["9600", "9600"],
     ["115200", "115200"],
@@ -233,14 +268,21 @@ test test_stty_sets_and_reports_speeds { |ctx|
     let speed = case[-1]
     let words = case[0..case.len() - 1]
     assert stty_run(ctx, pty, words)?.status == 0, words.join(" ")
-    assert stty_run(ctx, pty, ["speed"])?.stdout == f"{speed}\n", words.join(" ")
+    let expected = if ! is_linux and words[0] == "ispeed" { last_output } else { speed }
+    assert stty_run(ctx, pty, ["speed"])?.stdout == f"{expected}\n", words.join(" ")
+    last_output = expected
   }
 
   assert stty_run(ctx, pty, ["38400"])?.status == 0
   let mixed = stty_run(ctx, pty, ["ispeed", "9600", "ospeed", "4800"])?
-  assert mixed.status == 1
-  assert mixed.stderr == "stty: asymmetric input (9600), output (4800) speeds not supported\n", mixed.stderr
-  assert stty_run(ctx, pty, ["speed"])?.stdout == "38400\n", "nothing was applied"
+  if is_linux {
+    assert mixed.status == 1
+    assert mixed.stderr == "stty: asymmetric input (9600), output (4800) speeds not supported\n", mixed.stderr
+    assert stty_run(ctx, pty, ["speed"])?.stdout == "38400\n", "nothing was applied"
+  } else {
+    assert mixed.status == 0, mixed.stderr
+    assert stty_run(ctx, pty, ["speed"])?.stdout == "4800\n"
+  }
   assert stty_run(ctx, pty, ["ispeed", "9600", "ospeed", "9600"])?.status == 0
 }
 
@@ -309,6 +351,10 @@ test test_stty_line_discipline_number { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
+  if system.uname()?.sysname != "Linux" {
+    assert stty_run(ctx, pty, ["line", "0"])?.status == 1, "Darwin termios has no line discipline field"
+    return
+  }
   assert stty_run(ctx, pty, ["line", "0"])?.status == 0
   assert "line = 0;" in show(ctx, pty)?
   let overflow = stty_run(ctx, pty, ["line", "256"])?
@@ -322,15 +368,30 @@ test test_stty_save_round_trips_the_whole_state { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
   let saved = stty_run(ctx, pty, ["--save"])?.stdout
-  assert rx"^[0-9a-f]+(:[0-9a-f]+){35}\n$".matches(saved), saved
+  let is_linux = system.uname()?.sysname == "Linux"
+  let valid = if is_linux { rx"^[0-9a-f]+(:[0-9a-f]+){35}\n$".matches(saved) } else { rx"^[0-9a-f]+(:[0-9a-f]+){25}\n$".matches(saved) }
+  assert valid, saved
   assert stty_run(ctx, pty, ["-g"])?.stdout == saved
-  assert saved.starts_with("500:5:bf:"), f"no input-speed bits in a terminal that never had them: {saved}"
+  if is_linux {
+    assert saved.starts_with("500:5:bf:"), f"no input-speed bits in a terminal that never had them: {saved}"
+  } else {
+    assert saved.ends_with(":2580:2580\n"), saved
+  }
 
   assert stty_run(ctx, pty, ["raw", "-echo", "intr", "^A", "9600"])?.status == 0
   assert stty_run(ctx, pty, ["-g"])?.stdout != saved
   assert stty_run(ctx, pty, [saved.trim()])?.status == 0
-  assert stty_run(ctx, pty, ["-g"])?.stdout == saved
-  assert stty_run(ctx, pty, ["speed"])?.stdout == "38400\n"
+  let restored = stty_run(ctx, pty, ["-g"])?.stdout
+  if is_linux {
+    assert restored == saved
+  } else {
+    let before = saved.trim().split(":")
+    let after = restored.trim().split(":")
+    assert after[0..3] == before[0..3] and after[4..26] == before[4..26]
+    assert after[3] in [before[3], "200005cb"], "Darwin sets PENDIN when canonical mode is restored"
+  }
+  let expected_speed = if is_linux { "38400\n" } else { "9600\n" }
+  assert stty_run(ctx, pty, ["speed"])?.stdout == expected_speed
 }
 
 test test_stty_malformed_saved_states_are_invalid_arguments { |ctx|
@@ -367,6 +428,11 @@ test test_stty_saved_state_with_kernel_unknown_characters_is_not_fully_applied {
   defer unix.close_fd(pty.replica)
   let saved = stty_run(ctx, pty, ["-g"])?.stdout.trim()
   let fields = saved.split(":")
+  if system.uname()?.sysname != "Linux" {
+    let result = stty_run(ctx, pty, [saved + ":1c"])?
+    assert result.status == 1, "Darwin has no kernel-unknown control-character slots"
+    return
+  }
   let changed = fields[0..35].join(":") + ":1c"
   let result = stty_run(ctx, pty, [changed])?
   assert result.status == 1
@@ -399,6 +465,10 @@ test test_stty_usage_errors_use_the_gnu_wording { |ctx|
     {args: ["-F"], text: "invalid argument '-F'"},
     {args: ["-"], text: "invalid argument '-'"},
   ] {
+    if case.args == ["line"] and system.uname()?.sysname != "Linux" {
+      assert stty_run(ctx, pty, case.args)?.status == 1, "Darwin termios has no line discipline field"
+      continue
+    }
     let result = stty_run(ctx, pty, case.args)?
     assert result.status == 1, case.text
     assert result.stdout == ""
@@ -431,6 +501,10 @@ test test_stty_integer_arguments_name_what_is_wrong { |ctx|
     ["rows", "08", "stty: invalid integer argument: '08'\n"],
   ] {
     let words = case[0..case.len() - 1]
+    if words[0] == "line" and system.uname()?.sysname != "Linux" {
+      assert stty_run(ctx, pty, words)?.status == 1, "Darwin termios has no line discipline field"
+      continue
+    }
     let result = stty_run(ctx, pty, words)?
     assert result.status == 1, words.join(" ")
     assert result.stdout == ""
@@ -480,24 +554,28 @@ test test_stty_options_are_recognized_only_as_whole_elements { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
-  assert stty_run(ctx, pty, ["--al"])?.stdout.starts_with("speed 38400 baud; rows 0; columns 0; line = 0;")
-  assert stty_run(ctx, pty, ["--sav"])?.stdout.starts_with("500:5:")
-  assert stty_run(ctx, pty, ["-aa"])?.stdout.starts_with("speed 38400 baud; rows 0")
-  assert stty_run(ctx, pty, ["-gg"])?.stdout.starts_with("500:5:")
+  let is_linux = system.uname()?.sysname == "Linux"
+  let header = if is_linux { "speed 38400" } else { "speed 9600" }
+  let saved_prefix = if is_linux { "500:5:" } else { "2b02:3:" }
+  assert stty_run(ctx, pty, ["--al"])?.stdout.starts_with(if is_linux { "speed 38400 baud; rows 0; columns 0; line = 0;" } else { "speed 9600 baud; rows 0; columns 0;" })
+  assert stty_run(ctx, pty, ["--sav"])?.stdout.starts_with(saved_prefix)
+  assert stty_run(ctx, pty, ["-aa"])?.stdout.starts_with(header + " baud; rows 0")
+  assert stty_run(ctx, pty, ["-gg"])?.stdout.starts_with(saved_prefix)
   assert stty_run(ctx, pty, ["-icanon"])?.status == 0, "-icanon is a setting although it contains an a"
   assert stty_run(ctx, pty, ["icanon"])?.status == 0
-  assert stty_plain(ctx, ["-F" + pty.name, "-g"])?.stdout.starts_with("500:5:")
-  assert stty_plain(ctx, ["-gF", pty.name])?.stdout.starts_with("500:5:")
-  assert stty_plain(ctx, ["--file=" + pty.name, "-a"])?.stdout.starts_with("speed 38400")
-  assert stty_plain(ctx, ["--fi", pty.name])?.stdout.starts_with("speed 38400")
+  assert stty_plain(ctx, ["-F" + pty.name, "-g"])?.stdout.starts_with(saved_prefix)
+  assert stty_plain(ctx, ["-gF", pty.name])?.stdout.starts_with(saved_prefix)
+  assert stty_plain(ctx, ["--file=" + pty.name, "-a"])?.stdout.starts_with(header)
+  assert stty_plain(ctx, ["--fi", pty.name])?.stdout.starts_with(header)
 }
 
 test test_stty_drain_alone_prints_and_otherwise_chooses_when_to_apply { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
-  assert show(ctx, pty, ["drain"])? == "speed 38400 baud; line = 0;\n-brkint -imaxbel\n"
-  assert show(ctx, pty, ["-drain"])? == "speed 38400 baud; line = 0;\n-brkint -imaxbel\n"
+  let expected = if system.uname()?.sysname == "Linux" { "speed 38400 baud; line = 0;\n-brkint -imaxbel\n" } else { "speed 9600 baud;\nixany\n-echok\n" }
+  assert show(ctx, pty, ["drain"])? == expected
+  assert show(ctx, pty, ["-drain"])? == expected
   assert stty_run(ctx, pty, ["-drain", "-echo"])?.status == 0
   assert stty_run(ctx, pty, ["drain", "echo"])?.status == 0
   assert stty_run(ctx, pty, ["size", "drain"])?.stdout == "0 0\n"
@@ -588,6 +666,10 @@ test test_stty_checks_terminal_before_window_sizes_and_numeric_speeds { |ctx|
 }
 
 test test_stty_line_overflow_warns_in_both_setting_passes { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    assert stty_plain(ctx, ["line", "256"])?.status == 1, "Darwin termios has no line discipline field"
+    return
+  }
   let diagnostic = "stty: invalid line discipline '256': Value too large for defined data type\n"
   let plain = stty_plain(ctx, ["line", "256"])?
   assert plain.status == 1
