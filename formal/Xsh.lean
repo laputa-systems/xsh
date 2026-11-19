@@ -119,6 +119,7 @@ import Xsh.Conformance.Vertical.BooleanCertificate
 import Xsh.Conformance.Vertical.ResultCertificate
 import Xsh.Conformance.Vertical.PropagationCertificate
 import Xsh.Conformance.Vertical.LetCallCertificate
+import Xsh.Conformance.Vertical.RecordLocalCertificate
 import Xsh.Conformance.Vertical.ComputedLetCertificate
 import Xsh.Conformance.Vertical.SeveralLetCertificate
 import Xsh.Conformance.Vertical.Facts

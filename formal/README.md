@@ -26,7 +26,9 @@ are not conformance cases.
 
 The vertical raw-IR exchange carries the string pool and canonical record-label
 table under `integer-calls-conditional-local-fixture-v4`. The record-local
-document decodes; its meaning is not yet admitted by the vertical validator.
+raw-IR document validates and is certified for four recorded calls, including faults
+from division by zero and an unread overflowing entry. This is IR-only evidence:
+the source is not yet admitted, and Rust execution is observed, not modelled.
 
 The independent base machine models integer-field record construction in source
 order and field reads through named bindings. Its proofs cover preservation,

@@ -591,8 +591,11 @@ text as code points (`recordLocalTextCodes`) so the kernel never decodes the
 string, and it decodes each document once. Labels stay `String`, like
 `FunctionRow.name`. If the fresh check approaches the cap, switch the tables
 to byte lists, as `Connected.readRawStringBytes` does
-(`Connected/RawRows.lean:98-101`). Record the peak of each kernel when the
-certificate lands.
+(`Connected/RawRows.lean:98-101`). The landed IR-only certificate passed the
+fresh check under the 8 GiB address-space limit. Sampled `/proc` peak virtual
+sizes in KiB were: Lean paranoid 3,357,476; lean4lean 3,371,908; nanoda
+2,435,044; con-leche 4,931,508; con-ron 5,383,760; and Lean default
+3,548,704. Sampling gives observed peaks; the fresh check enforces the cap.
 
 ## 5. Evidence plan
 
@@ -716,7 +719,7 @@ lines.
 |---|---|---|---|
 | 1. Exchange | Rust exporter and decoder rows, tables and canonical labels. Lean `FragmentTag`, `RawArtifact` and decoder. The record fixture is exported and recorded, and the rows of section 4 are confirmed. The new document decodes in Lean. `validateArtifact` refuses it, which is the honest intermediate. The hand-written artifacts in `Fixture.lean` gain the two tables, and the nine existing certificates still pass. | decode theorems, Rust byte-identity and canonical-label tests | Rust 350, Lean 150, about 300 lines of new document codes, and, if open question 2 goes as recommended, regenerated raw-IR codes for most of the 1,632 lines of `Documents.lean` |
 | 2. Base machine records | Section 3.2 and its proofs in `Proofs/BaseMachine.lean`, `Proofs/BaseInvariant.lean` and `Proofs/Base/*`. Independent of the vertical. | fragment theorems and witnesses | Lean 500 to 900 |
-| 3. IR meaning | Sections 3.4 and 3.5, then an IR-only certificate through `certify` (`Meaning.lean:686-691`) with mutants 1 to 7 in their IR-only form. | `ARTIFACT_CERTIFIED` for the raw-IR document | Lean 400 |
+| 3. IR meaning | Sections 3.4 and 3.5, then an IR-only certificate through `certify` with mutants 1 to 7 in their IR-only form. | Landed: `ARTIFACT_CERTIFIED` for the raw-IR document | Lean 400 |
 | 4. Source vertical | Sections 3.3, 3.6 and 3.7 together, then the source/IR pair certificate, the remaining mutants and the admission witnesses. | `ARTIFACT_CERTIFIED` for the pair, extended universal theorems | Lean 1,200 to 1,600 |
 | 5. Facts (deferred) | Section 3.8, plus the Rust facts exporter (`facts.rs`) publishing the record binding type and field-read types. | extended `accepted_facts_match_ir` | Lean 500, Rust 300 |
 | 6. Inventory | README paragraph, `coverage.json` roots and record, `check-inventory.py` run. Integrator-owned. | inventory checks | small |

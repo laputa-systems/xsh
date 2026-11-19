@@ -214,7 +214,7 @@ theorem assigned_calls_reject_wrong_arity_and_forward_calls :
 def unusedAssignmentProgram : FunctionProgram :=
   ⟨0, [⟨1, .integerLiteral 0⟩],
     some ⟨1, .binary .divide (.integerLiteral 1) (.identifier (NameId.mk 1))⟩,
-    none, .integerLiteral 7⟩
+    none, .integerLiteral 7, none⟩
 
 theorem unused_assignment_failure_survives_normalization :
     ∃ callee, unusedAssignmentProgram.callee? = some callee ∧
@@ -239,7 +239,7 @@ theorem unused_assignment_failure_survives_normalization :
 
 theorem erasing_the_unused_assignment_changes_the_observation :
     unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) ∧
-      (⟨0, [], none, none, .integerLiteral 7⟩ : FunctionProgram).outcome? [] = some (.value 7) := by
+      (⟨0, [], none, none, .integerLiteral 7, none⟩ : FunctionProgram).outcome? [] = some (.value 7) := by
   constructor <;> rfl
 
 end Xsh.Conformance.Vertical

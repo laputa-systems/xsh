@@ -298,4 +298,35 @@ def severalLetArtifact : RawArtifact where
     ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
       .value ⟨18446744073709551615, by decide⟩⟩]
 
+def recordLocalTextCodes : List Nat :=
+  [112, 117, 114, 101, 32, 115, 112, 97, 110, 115, 40, 118, 97, 108, 117, 101, 58, 32, 73, 110, 116, 41, 32, 45, 62, 32, 73, 110, 116, 32, 123, 10, 32, 32, 108, 101, 116, 32, 98, 111, 120, 32, 61, 32, 123, 108, 111, 119, 58, 32, 118, 97, 108, 117, 101, 32, 45, 32, 51, 44, 32, 104, 105, 103, 104, 58, 32, 54, 48, 32, 47, 32, 118, 97, 108, 117, 101, 44, 32, 119, 105, 100, 101, 58, 32, 118, 97, 108, 117, 101, 32, 43, 32, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 48, 125, 10, 32, 32, 114, 101, 116, 117, 114, 110, 32, 98, 111, 120, 46, 104, 105, 103, 104, 32, 45, 32, 98, 111, 120, 46, 108, 111, 119, 10, 125, 10]
+
+def recordLocalSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1, String.ofList (recordLocalTextCodes.map Char.ofNat)⟩
+
+def recordLocalArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  strings := ["spans", "value", "args", "high", "low"]
+  names := ["low", "high", "wide"]
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprInt, 1, 2⟩,
+    ⟨bridgeId! 3, .exprBinary, 3, 4⟩, ⟨bridgeId! 4, .exprInt, 7, 2⟩,
+    ⟨bridgeId! 5, .exprParam, 9, 1⟩, ⟨bridgeId! 6, .exprBinary, 10, 4⟩,
+    ⟨bridgeId! 7, .exprParam, 14, 1⟩, ⟨bridgeId! 8, .exprInt, 15, 2⟩,
+    ⟨bridgeId! 9, .exprBinary, 17, 4⟩, ⟨bridgeId! 10, .exprRecord, 31, 1⟩,
+    ⟨bridgeId! 11, .stmtLet, 32, 3⟩, ⟨bridgeId! 12, .exprParam, 35, 1⟩,
+    ⟨bridgeId! 13, .exprField, 36, 3⟩, ⟨bridgeId! 14, .exprParam, 39, 1⟩,
+    ⟨bridgeId! 15, .exprField, 40, 3⟩, ⟨bridgeId! 16, .exprBinary, 43, 4⟩,
+    ⟨bridgeId! 17, .stmtReturn, 47, 1⟩]
+  extra := [0, 3, 0, 0, 0, 1, 2, 60, 0, 0, 1, 3, 4, 3, 0, 4294967288, 2147483647,
+    2, 6, 7, 4, 3, 0, 1, 2, 0, 2, 5, 0, 3, 8, 1, 2, 9, 0, 2, 11, 4, 5, 2, 13,
+    5, 6, 0, 12, 14, 7, 15, 2, 10, 16]
+  ops := [.sub, .div, .add]
+  blocks := [⟨bridgeId! 1, 21, 10, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 0⟩,
+    ⟨bridgeId! 2, 48, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "spans", 0, 1, 0, 1, bridgeId! 2, 3⟩]
+  observations := [⟨bridgeId! 1, [5], .value 10⟩,
+    ⟨bridgeId! 1, [18446744073709551612], .value 18446744073709551608⟩,
+    ⟨bridgeId! 1, [0], .failure .divisionByZero⟩,
+    ⟨bridgeId! 1, [9], .failure .integerOverflow⟩]
+
 end Xsh.Conformance.Vertical

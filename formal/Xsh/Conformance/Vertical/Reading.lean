@@ -28,7 +28,7 @@ def LoweringState.tables (s : LoweringState) : Tables :=
 
 def LoweringState.context (s : LoweringState) (callees : List (Option Callee)) :
     MeaningContext :=
-  ⟨s.tables, s.ops, s.blocks, callees⟩
+  ⟨s.tables, s.ops, s.blocks, callees, s.strings, []⟩
 
 @[simp] theorem context_tables (s : LoweringState) (callees : List (Option Callee)) :
     (s.context callees).tables = s.tables := rfl
@@ -186,6 +186,30 @@ theorem reads_param {F : LoweringState} {callees : List (Option Callee)} {row sl
   | zero => omega
   | succ fuel =>
     simp [expression?, readInstruction_of_rowAt at_]
+
+theorem reads_field {F : LoweringState} {callees : List (Option Callee)}
+    {row base label span slot : Word32} {name : String}
+    (at_ : F.RowAt row.val .exprField [base, label, span])
+    (before : base.val < row.val) (named : label.val ≠ 0)
+    (baseAt : F.RowAt base.val .exprParam [slot])
+    (found : F.strings[label.val - 1]? = some name) :
+    Reads F callees row (.fieldRead (NameId.mk slot) name) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    have nonzero : label ≠ 0 := fun h => named (by simp [h])
+    simp [expression?, readInstruction_of_rowAt at_, before, nonzero,
+      readInstruction_of_rowAt baseAt, LoweringState.context, found]
+
+theorem body_record_return {context : MeaningContext} {binding returned slot value annotation : Word32}
+    {record : RecordLocal} {expression : BaseExpr}
+    (bindingAt : readInstruction? context.tables binding = some (.stmtLet, [slot, value, annotation]))
+    (noPropagation : propagationOf? context binding = none)
+    (recordRead : recordLocalOf? context binding = some record)
+    (returnRead : returnExpression? context returned = some expression) :
+    body? context [binding, returned] = some ([], none, none, expression, some record) := by
+  simp [body?, bodyStep, bindingAt, noPropagation, recordRead, returnRead]
 
 theorem reads_binary {F : LoweringState} {callees : List (Option Callee)}
     {row op left right span : Word32} {operation : FragmentOp} {first second : BaseExpr}

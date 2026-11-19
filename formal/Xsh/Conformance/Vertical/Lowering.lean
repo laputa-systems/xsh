@@ -178,7 +178,7 @@ def SourceFunction.program? (callees : List (String × Option Callee)) (function
     | none => some none
     | some found => (propagationProgram? callees scope found).map some
   let expression ← function.result.expression? callees scope
-  some ⟨function.parameters.length, bindings, assignment, propagation, expression⟩
+  some ⟨function.parameters.length, bindings, assignment, propagation, expression, none⟩
 
 def sourceStep (state : List (String × Option Callee) × List (Option FunctionProgram))
     (function : SourceFunction) : List (String × Option Callee) × List (Option FunctionProgram) :=

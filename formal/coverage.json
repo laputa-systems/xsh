@@ -10865,7 +10865,7 @@
       "declaration": "Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation. These statements also require that the program has no record local.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. A propagation is two runs: the callee call completes with `Ok` and the returned expression runs with the payload bound to its slot, or the callee completes with `Err` and that payload is the function's outcome; a specified arithmetic fault of the callee or its arguments ends the function with that failure. `?` is admitted only as one `let target = callee(argument)?` binding of a one-parameter `Result[Int, Int]` function calling an earlier callable function with a constructor result. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
@@ -10883,7 +10883,7 @@
       "declaration": "Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation. These statements also require that the program has no record local.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. A propagation is two runs: the callee call completes with `Ok` and the returned expression runs with the payload bound to its slot, or the callee completes with `Err` and that payload is the function's outcome; a specified arithmetic fault of the callee or its arguments ends the function with that failure. `?` is admitted only as one `let target = callee(argument)?` binding of a one-parameter `Result[Int, Int]` function calling an earlier callable function with a constructor result. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
@@ -13307,7 +13307,7 @@
       "scope": "Deadline selection and policy updates over arbitrary finite scope lists, generic identities and metadata, and supplied natural monotonic ticks, including duplicate identities. Selection is eligible, earliest by deadline and outermost on ties; delivery, close, first-match finish, rearming and cleanup shielding retain their stated data.",
       "boundary": "The supplied-time production selector has a separate finite comparison against choose: all 2925 inputs with zero to three scopes, ticks zero through three, delivered flags, and observation ticks zero through four. This is not universal Rust refinement or a frozen-ledger conformance claim. Other policy updates remain model-only; clock observations and conversion, Instant checked addition, scope-ID allocation, checkpoint coverage, resource execution, error construction and absent-ID fallback remain open. CTRL-DEADLINE remains planned."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.actual_scoped_function_certified",
       "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
       "declaration": "Xsh.Semantics.Connected.actual_scoped_function_certified",
@@ -13316,7 +13316,7 @@
       "scope": "Lean theorem actual_scoped_function_certified connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
       "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_typed",
       "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
       "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_typed",
@@ -13325,7 +13325,7 @@
       "scope": "Lean theorem actual_scoped_invocation_typed connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
       "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.scoped_fixture_source_argument",
       "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
       "declaration": "Xsh.Semantics.Connected.scoped_fixture_source_argument",
@@ -13334,7 +13334,7 @@
       "scope": "Lean theorem scoped_fixture_source_argument connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
       "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
       "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
       "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
@@ -13343,7 +13343,7 @@
       "scope": "Lean theorem actual_scoped_invocation_execution_safe connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
       "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.select_invocation_sound",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
       "declaration": "Xsh.Semantics.Connected.select_invocation_sound",
@@ -13352,7 +13352,7 @@
       "scope": "An accepted invocation selection takes its declaration and type arguments as given, reads its arguments from integer and Bool source literals, instantiates the scheme at the captured identity solution, and has arguments that fit the instantiated parameter types in number and type.",
       "boundary": "Only integer and Bool literal arguments are selected; string, named, spread, and non-literal arguments make selection fail closed."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.invocation_machine_typed",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
       "declaration": "Xsh.Semantics.Connected.invocation_machine_typed",
@@ -13361,7 +13361,7 @@
       "scope": "A machine that invokes an instantiated function over fitting literal arguments satisfies the connected typing invariant whenever the function body is certified for every sorted instantiation.",
       "boundary": "The function body certificate, store and function-table premises are inputs here; the machine holds one function and no globals."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derive_selected_invocation_sound",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
       "declaration": "Xsh.Semantics.Connected.derive_selected_invocation_sound",
@@ -13370,7 +13370,7 @@
       "scope": "An accepted derivation names a call fact and a body fact at the requested indices, a published scheme, a type-argument list from the call fact, a target whose source identity equals the body site, a top-level call expression at the call site that resolves to that target, a binder decoded from the target definition, and arguments read from that call's source literals.",
       "boundary": "The call and body facts are Rust test-only export evidence; supported callers are the scoped fixture's top-level assertion calls only. Source parsing equivalence with Rust and the declaration-to-function-table correspondence remain open."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_invocation_machine_typed",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
       "declaration": "Xsh.Semantics.Connected.derived_invocation_machine_typed",
@@ -13379,7 +13379,7 @@
       "scope": "A machine invoking the derived call is typed whenever its function carries the Rust-published scheme of the selected body and its body is certified for that machine.",
       "boundary": "The function-table entry and its body certificate are not derived from source here."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_invocation_execution_safe",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
       "declaration": "Xsh.Semantics.Connected.derived_invocation_execution_safe",
@@ -13388,7 +13388,7 @@
       "scope": "Every finite execution of the derived invocation machine preserves typing, any fault is an integer fault, and every reachable state is terminal or steps to a permitted control.",
       "boundary": "Lean-model execution only; no Rust execution correspondence or raw-IR simulation."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_is_derived",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.actual_scoped_call_is_derived",
@@ -13397,7 +13397,7 @@
       "scope": "The admitted scoped source and the decoded Rust call fact derive the invocation of declaration 0 with parameter type Int, result type Int, type argument Int, and the single argument 7.",
       "boundary": "One exported fixture."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
@@ -13406,7 +13406,7 @@
       "scope": "The machine built from the derived invocation equals the hand-written scoped invocation machine, so earlier scoped execution theorems apply to the derived one.",
       "boundary": "One exported fixture."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
@@ -13415,7 +13415,7 @@
       "scope": "For the scoped fixture, the call is derived from admitted source and the decoded Rust call fact, the body candidate validates, and the derived invocation machine is typed with integer-only faults and safe progress.",
       "boundary": "The candidate body, ordered constraints and function-table entry are still written by hand and validated; Rust execution correspondence and raw-IR simulation remain open."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
@@ -13424,7 +13424,7 @@
       "scope": "Changing the source argument literal changes the derived argument value and nothing else.",
       "boundary": "The mutated unit replaces one expression of the admitted unit and is not itself parsed from text."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
@@ -13433,7 +13433,7 @@
       "scope": "Derivation is refused for a Bool, identifier, string, out-of-range, or named source argument, a Bool type argument against an Int literal, a missing type argument, a value role, a call site that is not a call, a shifted target body, a forged target name, an undecodable definition, an empty function list, a call target that differs from the listed target, and out-of-range call and body indices.",
       "boundary": "Rejection shows these corruptions are caught, not that every corruption is."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
@@ -13442,7 +13442,7 @@
       "scope": "A different consistent selected target changes only the derived declaration.",
       "boundary": "One exported fixture with a synthetic target definition."
     },
-{
+    {
       "id": "fragment.Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
       "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
       "declaration": "Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
@@ -14854,6 +14854,60 @@
       "status": "fragment",
       "scope": "The callee's return check is rejected when its parameter row names another string or sets a default flag.",
       "boundary": "Finite mutations of the exported Result call fixture's parameter table."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.Reading.reads_field",
+      "module": "Xsh.Conformance.Vertical.Reading",
+      "declaration": "Xsh.Conformance.Vertical.reads_field",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A field row over an earlier parameter row reads as the named record field from the string table.",
+      "boundary": "The Lean IR reading and base machine only; no source admission, Rust lowering, or Rust execution is modelled."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.Reading.body_record_return",
+      "module": "Xsh.Conformance.Vertical.Reading",
+      "declaration": "Xsh.Conformance.Vertical.body_record_return",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record local followed by a return is read as a record-local body.",
+      "boundary": "The Lean IR reading and base machine only; no source admission, Rust lowering, or Rust execution is modelled."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.Meaning.record_run_is_a_machine_run",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.record_run_is_a_machine_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record local runs its closed entries in order and either faults or runs the return with the resulting typed record.",
+      "boundary": "The Lean IR reading and base machine only; no source admission, Rust lowering, or Rust execution is modelled."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.Meaning.record_continuation_is_a_completed_machine_run",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.record_continuation_is_a_completed_machine_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record continuation outcome is a completed return-expression run against the typed record cell.",
+      "boundary": "The Lean IR reading and base machine only; no source admission, Rust lowering, or Rust execution is modelled."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.Meaning.program_outcome_with_record_is_a_completed_machine_run",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.program_outcome_with_record_is_a_completed_machine_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A non-propagating program outcome comes from the existing return or assignment cases or the record construction and continuation runs.",
+      "boundary": "The Lean IR reading and base machine only; no source admission, Rust lowering, or Rust execution is modelled."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.record_runs_are_independent_of_extra_fuel",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.record_runs_are_independent_of_extra_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "If a record local produces an outcome, additional fuel preserves the completed record run and its completed continuation run.",
+      "boundary": "A property of the Lean base machine and its record-local composition; it says nothing about Rust execution."
     }
   ],
   "artifact_certificates": [
@@ -15215,6 +15269,39 @@
       ],
       "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `scales` has two computed integer lets `a = value + 4` and `b = a * 2` and returns the difference of the second binding and the parameter; `runs` calls `scales` on its parameter); each later binding value may read the parameter and the earlier bindings; the parameter takes slot 0 and the bindings slots 2 and 3, where the exporter places them; lowering the parsed functions emits the first value's integer-family `IntSlot`, `IntInt` and `IntBinary` rows and `StmtLetInt [2, valueRow]`, the second value's rows reading the first binding at slot 2 and `StmtLetInt [3, valueRow]`, then the parameter and binding reads, `ExprBinary` and `StmtReturn` of the callee, and for the caller the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`, `Mul`, `Sub`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 13 for `scales` on 5, 13 for `runs` on 5 and -1 for `runs` on -9, in the recorded order. A callee's computed bindings are part of its callee form in source order; a call applies the parameters and each binding value, replacing each earlier binding slot inside a later value by that earlier binding's applied value, so the call's arguments are the parameter expressions followed by the binding values. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee whose second binding read is replaced by the parameter, reordered binding statements, a swapped first operator, wrong recorded outcomes, malformed rows, a substituted source, a wrong lowering and a source tree with the two bindings reordered are all refused; the swapped-operator mutant validates once its own outcomes are recorded, so it is well formed, and computes 35 for `scales` on 5 where 13 is recorded, while the reordered statements read slot 2 before it is bound and leave every recorded call without an outcome.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v4` scope string. The admitted domain covers a call of a function with one integer parameter and a sequence of computed integer lets whose values read the parameter, integer literals and earlier bindings, from a function of one integer parameter; a callee with an assigned binding, an error producer and a record local are outside it. The substitution of an earlier binding's applied value into a later binding value is observable-equivalent only because the admitted values are pure; an effectful binding value is outside this domain. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
+    },
+    {
+      "id": "artifact.integer-record-local-ir",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "raw-ir-document",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.recordLocalRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.RecordLocalCertificate",
+      "certificate": "Xsh.Conformance.Vertical.recordLocal_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.record_local_source_decodes",
+        "Xsh.Conformance.Vertical.record_local_artifact_decodes",
+        "Xsh.Conformance.Vertical.record_local_artifact_validates",
+        "Xsh.Conformance.Vertical.record_local_artifact_results",
+        "Xsh.Conformance.Vertical.record_wrong_field_has_different_meaning",
+        "Xsh.Conformance.Vertical.record_dropped_entry_has_different_meaning",
+        "Xsh.Conformance.Vertical.record_swapped_names_has_different_meaning",
+        "Xsh.Conformance.Vertical.record_parameter_base_faults",
+        "Xsh.Conformance.Vertical.record_wrong_binding_faults"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.record_swapped_names_rejected",
+        "Xsh.Conformance.Vertical.record_wrong_field_rejected",
+        "Xsh.Conformance.Vertical.record_dropped_entry_rejected",
+        "Xsh.Conformance.Vertical.record_parameter_base_rejected",
+        "Xsh.Conformance.Vertical.record_wrong_binding_rejected",
+        "Xsh.Conformance.Vertical.record_malformed_entries_rejected",
+        "Xsh.Conformance.Vertical.record_wrong_outcomes_rejected"
+      ],
+      "proposition": "The identified raw-IR document decodes and validates, and certify reports spans(5) = 10, spans(-4) = -8, spans(0) = division-by-zero, and spans(9) = integer-overflow. The record entries run in order including the unread wide entry. The listed mutants are refused.",
+      "boundary": "IR-only certificate for the identified raw-IR document; the source document is decoded only to check its identifier, with no source admission or source-to-IR claim yet. Rust execution was observed in finite bridge tests, not modelled or proved. No claim is made for other documents or inputs."
     }
   ],
   "source_identity": {

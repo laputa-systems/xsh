@@ -160,6 +160,8 @@ structure MeaningContext where
   ops : List FragmentOp
   blocks : List Block
   callees : List (Option Callee)
+  strings : List String := []
+  names : List String := []
 
 def blockWords? (context : MeaningContext) (id : Word32) : Option (List Word32) := do
   let block ← context.blocks.find? fun block => block.id.raw == id
@@ -186,6 +188,12 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
       match tag, payload with
       | .exprInt, [low, high] => some (.integerLiteral (signedOfWords low high))
       | .exprParam, [slot] => some (.identifier (NameId.mk slot))
+      | .exprField, [base, label, _] => do
+          check (decide (base.val < index.val) && label.val != 0)
+          let name ← context.strings[label.val - 1]?
+          match ← readInstruction? context.tables base with
+          | (.exprParam, [slot]) => some (.fieldRead (NameId.mk slot) name)
+          | _ => none
       | .exprBinary, [op, left, right, _] => do
           check (decide (left.val < index.val) && decide (right.val < index.val))
           let operation ← context.ops[op.val]?
@@ -271,6 +279,40 @@ structure Propagation where
   body : BaseExpr
   arguments : List BaseExpr
 
+structure RecordLocal where
+  slot : Word32
+  fields : List (String × BaseExpr)
+
+def recordEntries? (context : MeaningContext) (recordRow : Word32) :
+    List Word32 → Option (List (String × BaseExpr))
+  | [] => some []
+  | tag :: label :: value :: rest => do
+      check (tag.val == 0 && label.val != 0 && decide (value.val < recordRow.val))
+      let name ← context.names[label.val - 1]?
+      let expression ← expression? context (context.tables.tags.size + 1) value
+      let entries ← recordEntries? context recordRow rest
+      some ((name, expression) :: entries)
+  | _ => none
+
+def recordLocalOf? (context : MeaningContext) (row : Word32) : Option RecordLocal := do
+  match ← readInstruction? context.tables row with
+  | (.stmtLet, [slot, recordRow, annotation]) => do
+      check (annotation.val == 0 && decide (recordRow.val < row.val))
+      match ← readInstruction? context.tables recordRow with
+      | (.exprRecord, [blockId]) => do
+          let block ← context.blocks.find? fun block => block.id.raw == blockId
+          check (block.flags.val == 0)
+          let words ← blockWords? context blockId
+          match words with
+          | count :: entries => do
+              check (entries.length == 3 * count.val)
+              let fields ← recordEntries? context recordRow entries
+              check (decide ((fields.map Prod.fst).Nodup))
+              some ⟨slot, fields⟩
+          | [] => none
+      | _ => none
+  | _ => none
+
 /-- The expression a `StmtReturn` row returns, which must come from an earlier row. -/
 def returnExpression? (context : MeaningContext) (statement : Word32) : Option BaseExpr := do
   match ← readInstruction? context.tables statement with
@@ -299,38 +341,41 @@ def propagationOf? (context : MeaningContext) (row : Word32) : Option Propagatio
 
 /-- One statement of a function body, given the meaning of the statements after it. -/
 def bodyStep (context : MeaningContext) (statement : Word32) (rest : List Word32)
-    (deeper : Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr)) :
-    Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr) :=
+    (deeper : Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr × Option RecordLocal)) :
+    Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr × Option RecordLocal) :=
   match readInstruction? context.tables statement with
   | none => none
   | some (tag, payload) =>
       match tag, payload, rest with
       | .stmtReturn, [_], [] => do
           let result ← returnExpression? context statement
-          some ([], none, none, result)
+          some ([], none, none, result, none)
       | .stmtLet, _, [returned] => do
-          let propagation ← propagationOf? context statement
           let result ← returnExpression? context returned
-          some ([], none, some propagation, result)
+          match propagationOf? context statement with
+          | some propagation => some ([], none, some propagation, result, none)
+          | none => do
+              let record ← recordLocalOf? context statement
+              some ([], none, none, result, some record)
       | .stmtAssignInt, [slot, kind, valueRow, _], [returned] => do
           check (kind.val == 0 && decide (valueRow.val < statement.val))
           let value ← intExpression? context (context.tables.tags.size + 1) valueRow
           let result ← returnExpression? context returned
-          some ([], some ⟨slot, value⟩, none, result)
+          some ([], some ⟨slot, value⟩, none, result, none)
       | .stmtLetInt, [slot, valueRow], _ :: _ => do
           check (decide (valueRow.val < statement.val))
           let value ← intExpression? context (context.tables.tags.size + 1) valueRow
-          let (bindings, assignment, propagation, result) ← deeper
-          check (!bindings.any fun binding => binding.slot.val == slot.val)
-          some (⟨slot, value⟩ :: bindings, assignment, propagation, result)
+          let (bindings, assignment, propagation, result, record) ← deeper
+          check (record.isNone && !bindings.any fun binding => binding.slot.val == slot.val)
+          some (⟨slot, value⟩ :: bindings, assignment, propagation, result, record)
       | _, _, _ => none
 
 /-- A function body is zero or more `StmtLetInt` bindings of an integer-family value on distinct
 slots, at most one `StmtAssignInt` of a plain integer value, then one `StmtReturn` of an
-expression; or one propagation binding of a call under `?` followed by the return. Every statement
+expression; or one propagation binding of a call under `?` or one record local, followed by the return. Every statement
 refers only to earlier rows. -/
 def body? (context : MeaningContext) :
-    List Word32 → Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr)
+    List Word32 → Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr × Option RecordLocal)
   | [] => none
   | statement :: rest => bodyStep context statement rest (body? context rest)
 
@@ -348,7 +393,7 @@ def statementRows? (artifact : RawArtifact) (tables : Tables) (function : Functi
   | [] => none
 
 /-- A function as the base machine runs it: its parameter count, its let bindings, at most one
-assignment or one propagation binding, and its returned expression. Parameters take the first
+assignment, one propagation binding, or one record local, and its returned expression. Parameters take the first
 slots, and bindings use the slots recorded in their declaration rows. -/
 structure FunctionProgram where
   parameters : Nat
@@ -356,16 +401,23 @@ structure FunctionProgram where
   assignment : Option Assignment
   propagation : Option Propagation
   expression : BaseExpr
+  record : Option RecordLocal := none
 
 def RawArtifact.context (artifact : RawArtifact) (callees : List (Option Callee)) :
     MeaningContext :=
-  ⟨artifact.tables, artifact.ops, artifact.blocks, callees⟩
+  ⟨artifact.tables, artifact.ops, artifact.blocks, callees, artifact.strings, artifact.names⟩
 
 def functionProgram? (artifact : RawArtifact) (callees : List (Option Callee))
     (function : FunctionRow) : Option FunctionProgram := do
   let statements ← statementRows? artifact artifact.tables function
-  let (bindings, assignment, propagation, expression) ← body? (artifact.context callees) statements
-  pure ⟨function.paramsLen.val, bindings, assignment, propagation, expression⟩
+  let (bindings, assignment, propagation, expression, record) ← body? (artifact.context callees) statements
+  if record.isSome then
+    let row ← statements.head?
+    let (_, [_, recordRow, _]) ← readInstruction? artifact.tables row | none
+    let (_, [blockId]) ← readInstruction? artifact.tables recordRow | none
+    let block ← artifact.blocks.find? fun block => block.id.raw == blockId
+    check (block.owner == OptionalBridgeId.mk (some function.id))
+  pure ⟨function.paramsLen.val, bindings, assignment, propagation, expression, record⟩
 
 /-- An assigned literal binding is evaluated as a call argument before the returned expression.
 The initial literal is substituted in the assigned value; the assigned value itself remains an
@@ -386,7 +438,7 @@ def assignedCallee? (program : FunctionProgram) (assignment : Assignment) : Opti
 bindings are carried as call arguments, and a nullary function assigning its one literal binding
 carries the assigned value as its call argument. -/
 def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
-  if program.propagation.isNone then
+  if program.record.isNone && program.propagation.isNone then
     match program.assignment with
     | some assignment => assignedCallee? program assignment
     | none =>
@@ -403,7 +455,7 @@ theorem assigned_literal_function_is_callable (slot : Word32) (initial : IntValu
     (assigned returned : BaseExpr)
     (valid : (⟨slot, .integerLiteral initial.val⟩ : LetBinding).literalInt? = some initial) :
     (⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none,
-      returned⟩ : FunctionProgram).callee? =
+      returned, none⟩ : FunctionProgram).callee? =
       some ⟨0, returned, [⟨slot, substitute [(NameId.mk slot, initial)] assigned⟩]⟩ := by
   simp [FunctionProgram.callee?, assignedCallee?, valid]
 
@@ -542,6 +594,62 @@ def FunctionProgram.continuationOutcome? (program : FunctionProgram)
   | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
   | _ => none
 
+def recordParameterBindings (program : FunctionProgram) (arguments : List Int) : List LetBinding :=
+  ((parameterNames program.parameters).zip arguments).map fun (name, value) =>
+    ⟨name.word, .integerLiteral value⟩
+
+def recordMachine (slot : Word32) (value : BaseTypedValue) (expression : BaseExpr)
+    (bindings : List LetBinding) : MachineConfig :=
+  let base := machineOf bindings expression
+  let cell := ⟨0, BinderId.mk slot⟩
+  { base with
+    names := bind base.names (NameId.mk slot) (BinderId.mk slot)
+    activations := bindCell base.activations (BinderId.mk slot) cell
+    store := fun candidate =>
+      if candidate = cell then some ⟨value, .immutable⟩ else base.store candidate }
+
+def RecordLocal.closedFields (record : RecordLocal) (program : FunctionProgram)
+    (arguments : List Int) : List (String × BaseExpr) :=
+  let substitution := (parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)
+  record.fields.map fun (label, expression) => (label, substituteExpressions substitution expression)
+
+def RecordLocal.continuation? (record : RecordLocal) (program : FunctionProgram)
+    (arguments : List Int) (value : BaseTypedValue) : Option FunctionOutcome :=
+  let substitution := (parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)
+  let expression := substituteExpressions substitution program.expression
+  match runFuel runBudget (recordMachine record.slot value expression (recordParameterBindings program arguments)) with
+  | .completed (.value value) =>
+      match integerPayload? value with
+      | some result => some (.value result.val)
+      | none =>
+          match booleanPayload? value with
+          | some truth => some (.truth truth)
+          | none => (resultPayload? value).map fun payload =>
+              FunctionOutcome.constructed payload.1 payload.2.val
+  | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
+  | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
+  | _ => none
+
+def RecordLocal.run? (record : RecordLocal) (program : FunctionProgram)
+    (arguments : List Int) : Option FunctionOutcome :=
+  match runFuel runBudget (machineOf [] (.record (record.closedFields program arguments))) with
+  | .completed (.value value) => record.continuation? program arguments value
+  | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
+  | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
+  | _ => none
+
+theorem record_run_is_a_machine_run {record : RecordLocal} {program : FunctionProgram}
+    {arguments : List Int} {outcome : FunctionOutcome}
+    (result : record.run? program arguments = some outcome) :
+    (∃ value, runFuel runBudget (machineOf [] (.record (record.closedFields program arguments))) =
+      .completed (.value value) ∧ record.continuation? program arguments value = some outcome) ∨
+    (∃ kind, runFuel runBudget (machineOf [] (.record (record.closedFields program arguments))) =
+      .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) := by
+  unfold RecordLocal.run? at result
+  split at result <;> simp_all [FragmentFailure.fault]
+  · exact ⟨.divisionByZero, rfl, result.symm⟩
+  · exact ⟨.integerOverflow, rfl, result.symm⟩
+
 /-- The outcome the base machine completes with: an integer, a boolean, a `Result` constructor, or
 one of the two specified arithmetic failures, raised by the assignment, by a propagation's callee,
 or by the returned expression. A propagation whose callee completes with `Ok` continues with the
@@ -554,7 +662,10 @@ def FunctionProgram.outcome? (program : FunctionProgram) (arguments : List Int) 
     match program.settled? with
     | some (.ok bindings) =>
         match program.propagation with
-        | none => program.continuationOutcome? bindings arguments
+        | none =>
+            match program.record with
+            | none => program.continuationOutcome? bindings arguments
+            | some record => record.run? program arguments
         | some propagation =>
             match propagation.run? program bindings arguments with
             | some (.continued extended) => program.continuationOutcome? extended arguments
@@ -601,6 +712,13 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | .intInt, _ => true
           | .exprInt, _ => true
           | .exprParam, _ => true
+          | .exprField, _ => expressionAt word
+          | .exprRecord, [block] =>
+              (artifact.blocks.any fun b => b.id.raw == block) &&
+              (List.range artifact.rows.length).any fun user =>
+                match (Word32.decode? user).bind (readInstruction? tables) with
+                | some (.stmtLet, [_, value, _]) => value == word
+                | _ => false
           | .exprBinary, _ => expressionAt word
           | .exprValueBlock, _ => expressionAt word
           | .exprIf, _ => expressionAt word
@@ -622,7 +740,7 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
                 match readInstruction? tables value with
                 | some (.exprDirectPureCall, _) => true
                 | _ => false
-          | .stmtLet, _ => (propagationOf? context word).isSome
+          | .stmtLet, _ => (propagationOf? context word).isSome || (recordLocalOf? context word).isSome
           | _, _ => false
 
 /-- The blocks the rows and function bodies name: a body, a value block, a branch table or an
@@ -631,6 +749,7 @@ def blockReferences (artifact : RawArtifact) : List Word32 :=
   artifact.functions.map (fun function => function.body.raw) ++
     (List.range artifact.rows.length).flatMap fun index =>
       match (Word32.decode? index).bind (readInstruction? artifact.tables) with
+      | some (.exprRecord, [block]) => [block]
       | some (.exprValueBlock, [block, _]) => [block]
       | some (.exprIf, [block, _, _]) => [block]
       | some (.exprDirectPureCall, [_, block, _]) => [block]
@@ -654,6 +773,7 @@ and owned by a function, every function with a program (and, without parameters,
 outcome), and every recorded observation, in order, equal to the outcome of the function it
 names on the arguments it records. -/
 def validateArtifact (artifact : RawArtifact) : Bool :=
+  decide artifact.strings.Nodup && decide artifact.names.Nodup &&
   idsInOrder (artifact.rows.map (·.id)) &&
   idsInOrder (artifact.blocks.map (·.id)) &&
   idsInOrder (artifact.functions.map (·.id)) &&
@@ -794,6 +914,104 @@ theorem continuation_outcome_is_a_completed_machine_run {program : FunctionProgr
   | outOfFuel => rw [run] at result; simp at result
   | internalStuck => rw [run] at result; simp at result
 
+theorem record_continuation_is_a_completed_machine_run {record : RecordLocal}
+    {program : FunctionProgram} {arguments : List Int} {stored : BaseTypedValue}
+    {outcome : FunctionOutcome}
+    (result : record.continuation? program arguments stored = some outcome) :
+    (∃ final value,
+      runFuel runBudget (recordMachine record.slot stored (substituteExpressions
+        ((parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) = .completed (.value final) ∧
+      integerPayload? final = some value ∧ outcome = .value value.val) ∨
+    (∃ final truth,
+      runFuel runBudget (recordMachine record.slot stored (substituteExpressions
+        ((parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) = .completed (.value final) ∧
+      booleanPayload? final = some truth ∧ outcome = .truth truth) ∨
+    (∃ final isOk payload,
+      runFuel runBudget (recordMachine record.slot stored (substituteExpressions
+        ((parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) = .completed (.value final) ∧
+      resultPayload? final = some (isOk, payload) ∧
+      outcome = .constructed isOk payload.val) ∨
+    (∃ kind,
+      runFuel runBudget (recordMachine record.slot stored (substituteExpressions
+        ((parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) =
+        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) := by
+  unfold RecordLocal.continuation? at result
+  dsimp only at result
+  cases run : runFuel runBudget (recordMachine record.slot stored (substituteExpressions
+        ((parameterNames program.parameters).zip (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) with
+  | completed completed =>
+      rw [run] at result
+      cases completed with
+      | value final =>
+          cases payload : integerPayload? final with
+          | some value =>
+              simp only [payload, Option.map_some, Option.some.injEq] at result
+              exact .inl ⟨final, value, rfl, payload, result.symm⟩
+          | none =>
+              cases truth : booleanPayload? final with
+              | some value =>
+                  simp only [payload, truth, Option.map_some, Option.some.injEq] at result
+                  exact .inr (.inl ⟨final, value, rfl, truth, result.symm⟩)
+              | none =>
+                  cases constructed : resultPayload? final with
+                  | none => simp [payload, truth, constructed] at result
+                  | some pair =>
+                      obtain ⟨isOk, value⟩ := pair
+                      simp only [payload, truth, constructed, Option.map_some,
+                        Option.some.injEq] at result
+                      exact .inr (.inr (.inl ⟨final, isOk, value, rfl, constructed, result.symm⟩))
+      | fault fault =>
+          cases fault <;> try (simp at result; done)
+          rename_i arithmetic
+          cases arithmetic with
+          | overflow =>
+              simp only [Option.some.injEq] at result
+              exact .inr (.inr (.inr ⟨.integerOverflow, rfl, result.symm⟩))
+          | divisionByZero =>
+              simp only [Option.some.injEq] at result
+              exact .inr (.inr (.inr ⟨.divisionByZero, rfl, result.symm⟩))
+  | hostRequest waiting => rw [run] at result; simp at result
+  | outOfFuel => rw [run] at result; simp at result
+  | internalStuck => rw [run] at result; simp at result
+
+theorem record_runs_are_independent_of_extra_fuel {record : RecordLocal}
+    {program : FunctionProgram} {arguments : List Int} {outcome : FunctionOutcome}
+    (result : record.run? program arguments = some outcome) (extra : Nat) :
+    let initial := machineOf [] (.record (record.closedFields program arguments))
+    runFuel (runBudget + extra) initial = runFuel runBudget initial ∧
+    ∀ value, runFuel runBudget initial = .completed (.value value) →
+      let continuation := recordMachine record.slot value
+        (substituteExpressions ((parameterNames program.parameters).zip
+          (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)
+      runFuel (runBudget + extra) continuation = runFuel runBudget continuation := by
+  dsimp only
+  have cases := record_run_is_a_machine_run result
+  have firstSettled : runFuel runBudget
+      (machineOf [] (.record (record.closedFields program arguments))) ≠ .outOfFuel := by
+    rcases cases with ⟨value, run, continuation⟩ | ⟨kind, run, outcomeIs⟩ <;> simp [run]
+  constructor
+  · exact Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget _ firstSettled extra
+  · intro value initialRun
+    have continued : record.continuation? program arguments value = some outcome := by
+      unfold RecordLocal.run? at result
+      rw [initialRun] at result
+      exact result
+    have continuationCases := record_continuation_is_a_completed_machine_run continued
+    have continuationSettled : runFuel runBudget (recordMachine record.slot value
+        (substituteExpressions ((parameterNames program.parameters).zip
+          (arguments.map BaseExpr.integerLiteral)) program.expression)
+        (recordParameterBindings program arguments)) ≠ .outOfFuel := by
+      rcases continuationCases with ⟨final, integer, run, payload, eq⟩ |
+        ⟨final, truth, run, payload, eq⟩ | ⟨final, isOk, payload, run, found, eq⟩ |
+        ⟨kind, run, eq⟩ <;> simp [run]
+    exact Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget _ continuationSettled extra
+
 /-- The three ways a propagation can end: the callee completes with `Ok` and the payload is bound
 to its slot, completes with `Err` and that payload ends the function, or raises one of the two
 specified arithmetic faults. -/
@@ -854,13 +1072,14 @@ theorem propagation_run_cases {propagation : Propagation} {program : FunctionPro
     | outOfFuel => simp [Propagation.run?, guardFalse, h] at run
     | internalStuck => simp [Propagation.run?, guardFalse, h] at run
 
-/-- A program without propagation has exactly a completed base machine run as its outcome: an
+/-- A program without propagation or a record local has exactly a completed base machine run as its outcome: an
 integer, boolean or `Result` value, or one of the two specified arithmetic faults of the returned
 expression, run against the settled bindings, or the same fault raised by the assignment's
 right-hand side. -/
 theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
     {arguments : List Int} {outcome : FunctionOutcome}
     (plain : program.propagation = none)
+    (noRecord : program.record = none)
     (result : program.outcome? arguments = some outcome) :
     (∃ bindings, program.settled? = some (.ok bindings) ∧
       ((∃ final value,
@@ -901,10 +1120,68 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
       | ok bindings =>
           rw [settled] at result
           dsimp only at result
-          rw [plain] at result
+          rw [plain, noRecord] at result
           exact .inl ⟨bindings, rfl,
             continuation_outcome_is_a_completed_machine_run result⟩
   · simp at result
+
+theorem program_outcome_with_record_is_a_completed_machine_run {program : FunctionProgram}
+    {arguments : List Int} {outcome : FunctionOutcome}
+    (plain : program.propagation = none)
+    (result : program.outcome? arguments = some outcome) :
+    ((∃ bindings, program.settled? = some (.ok bindings) ∧
+      ((∃ final value,
+          runFuel runBudget (program.machineWith bindings arguments) =
+            .completed (.value final) ∧
+          integerPayload? final = some value ∧ outcome = .value value.val) ∨
+       (∃ final truth,
+          runFuel runBudget (program.machineWith bindings arguments) =
+            .completed (.value final) ∧
+          booleanPayload? final = some truth ∧ outcome = .truth truth) ∨
+       (∃ final isOk payload,
+          runFuel runBudget (program.machineWith bindings arguments) =
+            .completed (.value final) ∧
+          resultPayload? final = some (isOk, payload) ∧
+          outcome = .constructed isOk payload.val) ∨
+       (∃ kind,
+          runFuel runBudget (program.machineWith bindings arguments) =
+            .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind))) ∨
+    (∃ assignment kind, program.assignment = some assignment ∧
+      runFuel runBudget (machineOf program.bindings assignment.expression) =
+        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind)) ∨
+    (∃ record, program.record = some record ∧
+      ((∃ value, runFuel runBudget
+          (machineOf [] (.record (record.closedFields program arguments))) =
+            .completed (.value value) ∧
+          record.continuation? program arguments value = some outcome) ∨
+       (∃ kind, runFuel runBudget
+          (machineOf [] (.record (record.closedFields program arguments))) =
+            .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind))) := by
+  cases recordCase : program.record with
+  | none => exact .inl (program_outcome_is_a_completed_machine_run plain recordCase result)
+  | some record =>
+      unfold FunctionProgram.outcome? at result
+      split at result
+      · cases settled : program.settled? with
+        | none => simp [settled] at result
+        | some value =>
+          cases value with
+          | error kind =>
+              rw [settled] at result
+              dsimp only at result
+              have outcomeIs : outcome = .failure kind := by simpa using result.symm
+              cases assignmentCase : program.assignment with
+              | none => simp [FunctionProgram.settled?, assignmentCase] at settled
+              | some assignment =>
+                  have faultRun := settle_error_is_a_machine_fault (by
+                    simpa [FunctionProgram.settled?, assignmentCase] using settled)
+                  exact .inl (.inr ⟨assignment, kind, rfl, faultRun, outcomeIs⟩)
+          | ok bindings =>
+              rw [settled] at result
+              dsimp only at result
+              rw [plain, recordCase] at result
+              exact .inr ⟨record, rfl, record_run_is_a_machine_run result⟩
+      · simp at result
 
 /-- A program with a propagation has exactly one of its runs as its outcome: the callee completes
 with `Err` and that payload ends the function, the callee raises a specified arithmetic fault, or
@@ -998,11 +1275,12 @@ theorem validated_observation_is_a_machine_run {artifact : RawArtifact}
 /-- A recorded outcome does not depend on the fuel budget: a run of the returned expression that
 settles within the budget gives the same answer under any larger budget, failures included. A
 propagation runs the returned expression only after its callee, so this statement covers the
-programs without one. -/
+programs without propagation or a record local. -/
 theorem machine_run_outcome_is_independent_of_extra_fuel
     {program : FunctionProgram} {arguments : List Int} {outcome : FunctionOutcome}
     {bindings : List LetBinding}
     (plain : program.propagation = none)
+    (noRecord : program.record = none)
     (settledBindings : program.settled? = some (.ok bindings))
     (settled : program.outcome? arguments = some outcome) (extra : Nat) :
     runFuel (runBudget + extra) (program.machineWith bindings arguments) =
@@ -1011,7 +1289,7 @@ theorem machine_run_outcome_is_independent_of_extra_fuel
     intro exhausted
     unfold FunctionProgram.outcome? at settled
     split at settled
-    · rw [settledBindings, plain] at settled
+    · rw [settledBindings, plain, noRecord] at settled
       dsimp only at settled
       unfold FunctionProgram.continuationOutcome? at settled
       rw [exhausted] at settled
@@ -1276,7 +1554,7 @@ theorem assigned_literal_normalization_operationally_correct (slot : Word32) (in
     (assignedBudget : pureIntegerCost assigned ≤ runBudget)
     (returnedBudget : pureIntegerCost returned + 3 ≤ runBudget) :
     let program : FunctionProgram :=
-      ⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none, returned⟩
+      ⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none, returned, none⟩
     let callee : Callee :=
       ⟨0, returned, [⟨slot, substitute [(NameId.mk slot, initial)] assigned⟩]⟩
     program.callee? = some callee ∧ ∃ result,
@@ -1308,7 +1586,7 @@ theorem assigned_literal_normalization_operationally_correct (slot : Word32) (in
       have directRun := pure_integer_argument_value (NameId.mk slot) argumentRuns bodyRuns
         (fuel := runBudget) (by simp only [pureIntegerCost]; omega)
       have outcome : (⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none,
-          returned⟩ : FunctionProgram).outcome? [] = some (integerFunctionOutcome result) := by
+          returned, none⟩ : FunctionProgram).outcome? [] = some (integerFunctionOutcome result) := by
         cases result with
         | value final =>
             simp [FunctionProgram.outcome?, FunctionProgram.settled?, settled, integerSettled,
