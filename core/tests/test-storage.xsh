@@ -150,6 +150,7 @@ test test_storage_findmnt_rooted_json_filters_type_and_source { |ctx|
 }
 
 test test_storage_wipefs_selectively_erases_owned_signature_only { |ctx|
+  requires.linux_kernel("storage probing requires Linux primitives")
   let image = test.temp_file(ctx, name: "wipefs.img", contents: b"XFSBpayload-preserved")?
   let source = fp"{ctx.core_dir}/wipefs.xsh".read_text()?
   test.expect(
@@ -283,6 +284,7 @@ test test_storage_fsfreeze_rejects_conflicting_modes_before_controller { |ctx|
 }
 
 test test_storage_sfdisk_roundtrips_owned_gpt_and_dos_images { |ctx|
+  requires.linux_kernel("partition table operations require Linux primitives")
   let source = fp"{ctx.core_dir}/sfdisk.xsh".read_text()?
   for label in ["gpt", "dos"] {
     let image = test.temp_file(ctx, name: f"sfdisk-{label}.img", contents: b"")?
@@ -329,6 +331,7 @@ test test_storage_sfdisk_roundtrips_owned_gpt_and_dos_images { |ctx|
 }
 
 test test_storage_mkswap_initializes_owned_file_and_rejects_fifo { |ctx|
+  requires.linux_kernel("swap initialization requires Linux primitives")
   let image = test.temp_file(ctx, name: "owned-swap.img", contents: b"")?
   image.truncate(1048576)
   let source = fp"{ctx.core_dir}/mkswap.xsh".read_text()?
@@ -546,6 +549,7 @@ test test_storage_sfdisk_json_is_the_util_linux_machine_interface { |ctx|
 }
 
 test test_storage_sfdisk_dump_refuses_an_image_without_a_partition_table { |ctx|
+  requires.linux_kernel("partition table operations require Linux primitives")
   let image = test.temp_file(ctx, name: "sfdisk-blank.img", contents: b"")?
   image.truncate(1048576)
   for flag in ["-d", "-J"] {
@@ -620,6 +624,7 @@ test test_storage_partx_carries_gpt_partition_identity { |ctx|
 }
 
 test test_storage_partx_requires_a_partition_table_and_names_the_operand { |ctx|
+  requires.linux_kernel("partition table operations require Linux primitives")
   let blank = test.temp_file(ctx, name: "partx-blank.img", contents: b"")?
   blank.truncate(1048576)
   let unpartitioned = run_real(ctx, "partx", ["-l", f"{blank}"])
@@ -700,6 +705,7 @@ test test_storage_partprobe_refuses_non_block_files_without_summary { |ctx|
 }
 
 test test_storage_fstrim_names_missing_mountpoint_with_kernel_wording { |ctx|
+  requires.linux_kernel("FITRIM requires Linux primitives")
   let dir = test.temp_dir(ctx, name: "fstrim-operands")?
   let missing = fp"{dir}/missing"
   let result = run_real(ctx, "fstrim", ["-v", f"{missing}"])
@@ -741,6 +747,7 @@ test test_storage_fstrim_rejects_bad_operands_before_the_kernel { |ctx|
 }
 
 test test_storage_umount_names_every_operand_that_is_not_a_mount_point { |ctx|
+  requires.linux_kernel("unmount diagnostics require Linux primitives")
   let dir = test.temp_dir(ctx, name: "umount-operands")?
   let file = test.temp_file(ctx, name: "umount-file", contents: b"retained")?
   let missing = fp"{dir}/missing"
