@@ -284,9 +284,11 @@ test test_gnu_cp_existing_perm_dir_log { |ctx|
 test test_gnu_cp_file_perm_race_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkfifo(s, "fifo")
-  let r = wrapped(s, ["-p", "--copy-contents", "fifo", "fifo-copy"], r"""
+  let stat_format = if system.uname()?.sysname == "Linux" { "-c %A" } else { "-f %Sp" }
+  let body = r"""
 timeout 60 "$@" & worker=$!; trap 'kill "$worker" 2>/dev/null; wait "$worker" 2>/dev/null' EXIT; { until test -f fifo-copy; do printf 'foo\n'; done; stat -c %A fifo-copy > observed; printf 'foo\n'; } > fifo; wait "$worker"; result=$?; trap - EXIT; exit "$result"
-""", 0o022)?
+""".replace("-c %A", with: stat_format)
+  let r = wrapped(s, ["-p", "--copy-contents", "fifo", "fifo-copy"], body, 0o022)?
   uu.succeeds(r)
   let mode = uu.read_text(s, "observed")?
   assert regex.compile("^-...------")?.matches(mode), f"destination exposed mode {mode} before preservation"
@@ -601,6 +603,7 @@ test test_gnu_cp_preserve_slink_time_log { |ctx|
 
 # origin: gnu cp/proc-short-read.log
 test test_gnu_cp_proc_short_read_log { |ctx|
+  requires.host_path(p"/proc/cpuinfo", "the test requires Linux procfs /proc/cpuinfo")
   let s = uu.scene(ctx)?
   copied(s, ["/proc/cpuinfo", "1"])
   let reference = p"/proc/cpuinfo".read_text()?
@@ -612,6 +615,7 @@ test test_gnu_cp_proc_short_read_log { |ctx|
 
 # origin: gnu cp/proc-zero-len.log
 test test_gnu_cp_proc_zero_len_log { |ctx|
+  requires.host_path(p"/proc/cpuinfo", "the test requires Linux procfs /proc/cpuinfo")
   let s = uu.scene(ctx)?
   let reference = p"/proc/cpuinfo".read_bytes()?
   copied(s, ["/proc/cpuinfo", "exp"])
@@ -740,6 +744,7 @@ test test_gnu_cp_sparse_extents_2_log { |ctx|
 
 # origin: gnu cp/sparse-extents.log
 test test_gnu_cp_sparse_extents_log { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("the extent fixture requires Linux fallocate"); return }
   let s = uu.scene(ctx)?
   for sparse in ["always", "auto", "never"] {
     for allocation in [["-l", "4194304"], ["-l", "1048576", "-o", "4194304"], ["-l", "1"]] {
