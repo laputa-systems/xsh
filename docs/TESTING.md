@@ -731,7 +731,13 @@ Python tar and zip, Info-ZIP and cpio archives; BusyBox tar, Python tar and
 cpio read archives made by XSH. These historical results do not qualify later
 source.
 
-Rooted extraction was cross-compiled for macOS but not run there. On Linux,
+On macOS arm64 (m1-max, 2026-11-20) the `xsh-archive` extract, rooted,
+publication and interrupted suites, `xsh-root`'s security and mutation suites
+and `runtime::root_install` pass natively. That run found that a FIFO extracted
+with exact modes lost its group and other write bits to the umask, and the
+mode is now applied after creation as on Linux. Tree transfer (`xsh-root`'s
+`transfer` module and its journal) needs Linux and fails with `Unsupported`
+elsewhere. On Linux,
 root extraction applies non-zero uid and gid and creates character and block
 devices and FIFOs with their archived modes, including set-id bits; the device
 numbers, kinds, ownership and modes match GNU tar and bsdtar. Unprivileged
