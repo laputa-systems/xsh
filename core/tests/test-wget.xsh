@@ -506,18 +506,17 @@ test test_wget_version_and_help { |ctx|
 type TlsFixture = {url: Str, ca: Path, handle: ProcessHandle}
 
 proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[TlsFixture?] {
-  let openssl = try run.text openssl version
-  let perl = try run.text perl -e "print 1"
-  guard openssl is Ok(_) and perl is Ok(_) else { return Ok(null) }
+  if process.which("openssl") is Err(_) { test.skip("requires openssl for the TLS fixture"); return Ok(null) }
+  if process.which("perl") is Err(_) { test.skip("requires perl for the TLS fixture"); return Ok(null) }
 
   let root = test.temp_dir(ctx, name: "wget-tls")?
   let authority = run.capture --text openssl req -x509 -newkey rsa:2048 -nodes -keyout ${root}/ca.key -out ${root}/ca.pem -days 2 -subj "/CN=Fixture CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
-  guard authority.status.ok else { return Ok(null) }
+  assert authority.status.ok, f"openssl CA generation failed: {authority.stderr}"
   let leaf = run.capture --text openssl req -newkey rsa:2048 -nodes -keyout ${root}/leaf.key -out ${root}/leaf.csr -subj "/CN=localhost"
-  guard leaf.status.ok else { return Ok(null) }
+  assert leaf.status.ok, f"openssl leaf generation failed: {leaf.stderr}"
   fp"{root}/ext.cnf".write("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
   let signed = run.capture --text openssl x509 -req -in ${root}/leaf.csr -CA ${root}/ca.pem -CAkey ${root}/ca.key -CAcreateserial -out ${root}/leaf.pem -days 2 -extfile ${root}/ext.cnf
-  guard signed.status.ok else { return Ok(null) }
+  assert signed.status.ok, f"openssl certificate signing failed: {signed.stderr}"
 
   let number = run.text perl -MIO::Socket::INET -e r"my $s = IO::Socket::INET->new(Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0) or die; print $s->sockport"
   let accept = f"127.0.0.1:{number.trim()}"
@@ -529,7 +528,7 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
     time.sleep(100ms)
   }
   handle.cancel(signal: "KILL", kill_after: 0ms)
-  Ok(null)
+  Err(error.failure(f"openssl s_server readiness timed out after 30s at {accept}"))
 }
 
 test test_wget_tls_verification { |ctx|
