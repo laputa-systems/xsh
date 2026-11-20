@@ -1125,10 +1125,9 @@ parity precedes each timed sample. Their process CPU and peak RSS are charged to
 the waited leader, not a simultaneous process-tree peak. The standard-library
 runner interleaves its sides. Its delta is the median of paired round-median
 differences; spread is the sum of the reference and candidate round MADs. The
-existing budget is unchanged. With fewer than five rounds, a delta whose
-absolute value is at most the spread, or a positive delta above budget but no
-more than budget plus spread, the verdict is inconclusive. A delta above budget
-plus spread is a regression; other resolved deltas pass. Here k = 1 and N = 5:
+existing budget is unchanged. A delta more than one spread above the budget
+is a regression, and a delta at least one spread below it passes. Anything
+between, or fewer than five rounds, is inconclusive. Here k = 1 and N = 5:
 one combined MAD avoids claiming differences within the observed variation,
 and five rounds give a minimally useful robust spread estimate. This is a
 heuristic, not a confidence interval. Host contention can still invalidate a

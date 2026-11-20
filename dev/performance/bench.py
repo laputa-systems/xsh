@@ -13,6 +13,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 TIERS = ('edit', 'change', 'scenario', 'full')
+TEST_IMAGE = os.environ.get('XSH_TEST_IMAGE') or (ROOT / 'dev/images.lock').read_text().splitlines()[0]
 BINARY = Path(os.environ.get('XSH_BENCH_BINARY', ROOT / 'target/bench-linux/x86_64-unknown-linux-musl/release/xsh'))
 FIXTURES = ROOT / '.work/consolidation/comparative-fixtures'
 IMAGE = 'xsh-comparative:consolidation'
@@ -84,7 +85,7 @@ def command(name, out):
             if name == 'consolidation-startup': argv += ['--rounds', '1', '--samples', '3']
         return argv
     if name in ('stdlib-cold', 'stdlib-full'):
-        argv = ['docker', 'run', '--rm', '--network', 'none', '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{ROOT}:{ROOT}', '-w', str(ROOT), '-e', f'TMPDIR={out}', 'xsh-test', *python, 'bench/stdlib-port/run.py', '--reference', str(BINARY), '--candidate', str(BINARY), '--observe', '--out', str(out / 'result.json')]
+        argv = ['docker', 'run', '--rm', '--network', 'none', '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{ROOT}:{ROOT}', '-w', str(ROOT), '-e', f'TMPDIR={out}', TEST_IMAGE, *python, 'bench/stdlib-port/run.py', '--reference', str(BINARY), '--candidate', str(BINARY), '--observe', '--out', str(out / 'result.json')]
         if name == 'stdlib-cold': argv += ['--workload', 'cold_trivial', '--samples', '3']
         else: argv += ['--rounds', '3']
         return argv
@@ -98,9 +99,9 @@ def command(name, out):
 
 
 def requirements(name):
-    if name in QUALIFIED: return 'python3, git, docker, xsh-test image, release products, cgroup v2 memory.peak'
+    if name in QUALIFIED: return 'python3, git, docker, pinned test image, release products, cgroup v2 memory.peak'
     if name.startswith('consolidation-'): return 'python3, git, docker, comparative image, release xsh, pinned fixtures, 1 GiB free'
-    if name in ('stdlib-cold', 'stdlib-full'): return 'python3, git, docker, xsh-test image, release xsh, fixtures, 1 GiB free'
+    if name in ('stdlib-cold', 'stdlib-full'): return 'python3, git, docker, pinned test image, release xsh, fixtures, 1 GiB free'
     if name.startswith('legacy-'): return 'cargo, rustybench, 1 GiB free'
     return 'python3, git, 1 GiB free'
 
@@ -142,8 +143,8 @@ def preflight(selected):
                     image = json.loads(inspection.stdout)[0]
                     base = image.get('Config', {}).get('Labels', {}).get('org.xsh.comparative.base')
                     if not base or not base.startswith('sha256:'): failures.append(f'{name}: overlay has no pinned base identity; prepare it again')
-    if any(row[0] in ('stdlib-cold', 'stdlib-full') for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', 'xsh-test'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
-        failures.append('stdlib-cold: missing xsh-test image; build Dockerfile.test and retry')
+    if any(row[0] in ('stdlib-cold', 'stdlib-full') for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', TEST_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        failures.append(f'stdlib-cold: missing test image {TEST_IMAGE}; run docker pull {TEST_IMAGE} and retry')
     if any(row[0] in QUALIFIED for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', PINNED_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         failures.append('qualified workloads: missing pinned test image; prepare dev/images.lock image')
     if Path('/proc').is_dir():

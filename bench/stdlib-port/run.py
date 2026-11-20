@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+from pathlib import Path
 import statistics
 import subprocess
 import sys
@@ -193,7 +194,7 @@ def measure(reference, candidate, name, samples, round_index, env=None):
 def measure_linux_round(reference, candidate, workloads, round_index, fixtures):
     """Time Linux children inside one pinned container, outside Docker startup."""
     root = os.path.abspath(os.path.join(HERE, "../.."))
-    image = os.environ.get("XSH_TEST_IMAGE", "xsh-test")
+    image = os.environ.get("XSH_TEST_IMAGE") or (Path(__file__).resolve().parents[2] / "dev/images.lock").read_text().splitlines()[0]
     shell = (
         "mount --bind /work/bench/stdlib-port/fixtures/modules-200.txt /proc/modules "
         "&& mount --bind /work/bench/stdlib-port/fixtures/meminfo.txt /proc/meminfo "
@@ -309,12 +310,14 @@ def summarize_rounds(kind, rounds):
     deltas = [candidate - reference for reference, candidate in zip(reference_rounds, candidate_rounds)]
     delta = statistics.median(deltas)
     spread = reference_mad + candidate_mad if reference_mad is not None else None
-    if len(rounds) < 5 or abs(delta) <= spread or budget < delta <= budget + spread:
+    if len(rounds) < 5:
         verdict = "inconclusive"
-    elif delta > budget + spread:
+    elif delta - spread > budget:
         verdict = "regression"
-    else:
+    elif delta + spread <= budget:
         verdict = "pass"
+    else:
+        verdict = "inconclusive"
     return {
         "reference_rounds": reference_rounds,
         "candidate_rounds": candidate_rounds,
@@ -392,7 +395,7 @@ def self_test():
         ([10, 10, 10, 10], [13, 13, 13, 13], "inconclusive"),
         ([10, 10, 10, 10, 10], [11, 11, 11, 11, 11], "pass"),
         ([10, 8, 12, 6, 14], [11, 9, 13, 7, 15], "inconclusive"),
-        ([10, 10, 10, 10, 20], [10, 10, 10, 20, 20], "inconclusive"),
+        ([10, 10, 10, 10, 20], [10, 10, 10, 20, 20], "pass"),
     ]
     for references, candidates, expected in spread_cases:
         rows = [
@@ -485,7 +488,7 @@ def main():
         "workloads": {},
     }
     if args.linux:
-        image = os.environ.get("XSH_TEST_IMAGE", "xsh-test")
+        image = os.environ.get("XSH_TEST_IMAGE") or (Path(__file__).resolve().parents[2] / "dev/images.lock").read_text().splitlines()[0]
         image_id = subprocess.check_output(
             ["docker", "image", "inspect", "--format", "{{.Id}}", image],
             text=True,

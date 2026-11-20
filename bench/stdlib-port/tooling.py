@@ -5,6 +5,7 @@ import argparse
 import base64
 import json
 import os
+from pathlib import Path
 import statistics
 import subprocess
 import sys
@@ -181,7 +182,7 @@ def main():
         parser.error("--linux requires an existing absolute --candidate-xsh path")
     image = None
     if args.linux:
-        image = os.environ.get("XSH_TEST_IMAGE", "xsh-test")
+        image = os.environ.get("XSH_TEST_IMAGE") or (Path(__file__).resolve().parents[2] / "dev/images.lock").read_text().splitlines()[0]
         image_id = subprocess.check_output(
             ["docker", "image", "inspect", "--format", "{{.Id}}", image], text=True
         ).strip()
