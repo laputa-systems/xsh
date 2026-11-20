@@ -276,7 +276,9 @@ cross-checked only (`cargo check -p oxish-client`).
   all fixed. The [Graviola review](../reviews/XSH-111-graviola-review.md)
   (2026-11-20) found no blocking defect. ssh-build `789d4cd` fixes G-1 and the
   client's half of G-3, and `143f500` fixes G-4 and G-5 with Graviola 0.4.5.
-  XSH-141 tracks the rest. With the native
+  The remaining Graviola findings are reported upstream
+  ([ctz/graviola#250](https://github.com/ctz/graviola/issues/250),
+  [#252](https://github.com/ctz/graviola/issues/252)). With the native
   macOS arm64 interop run recorded in [Native SSH](../ssh.md#qualification),
   the experimental label is lifted. The remaining listed risks stand; the
   tests, fuzz loops and fixtures are not formal verification.

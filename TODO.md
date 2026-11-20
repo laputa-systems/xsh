@@ -41,15 +41,6 @@ out of scope.
 - **Fix with:** refactor-benchmarks
 - **Effort:** L
 
-### XSH-141 · P3 · Report Graviola's remaining register and temporary wiping gaps upstream
-
-- **Area:** Cryptography
-- **Where:** `crates/xsh-net/src/{lib.rs,trust.rs}`, `src/modules/crypto.rs`, ssh-build `patches/graviola/0001-ssh-chacha20-poly1305.patch`, `crates/oxish-client/vendor/graviola/src/low/x86_64/cpu.rs`
-- **Problem:** XSH's TLS setup, SPKI digest and `crypto.ed25519_verify` now return a typed hardware error (`NetError.Hardware`, `crypto-ed25519-hardware`) through `crates/graviola-cpu` before Graviola runs on a CPU without its features, and the stdlib reference states that `crypto.ed25519_verify` accepts small-order public keys. The SSH patch's Poly1305 key is now zeroised (ssh-build `4552fe0`). Two review findings remain inside upstream Graviola ([review](docs/reviews/XSH-111-graviola-review.md)): G-2, the AVX-512 AES-GCM path leaves round keys in zmm16 to zmm31 because `leave_cpu_state` clears only with `vzeroall`; and the rest of G-7, unwiped Poly1305 state, per-call ChaCha20 key copies, the ML-KEM generation seed, SHA-3 contexts and `Blockwise`/padding copies. Graviola's own bmi1/bmi2 entry check (G-3) also needs an upstream report.
-- **Recommendation:** File these upstream with ctz/graviola (an owner decision, since it publishes to a third-party tracker), or patch them in ssh-build's Graviola patch set if upstream declines. Acceptance: each finding has an upstream issue or a local patch with a test, recorded in the review.
-- **Fix with:** security
-- **Effort:** M
-
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
 
 - **Area:** Tooling
