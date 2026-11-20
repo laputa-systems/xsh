@@ -2,6 +2,7 @@ import argparse
 import datetime
 import json
 import os
+import platform
 from pathlib import Path
 import shlex
 import shutil
@@ -10,14 +11,23 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 TIERS = ('edit', 'change', 'scenario', 'full')
 BINARY = Path(os.environ.get('XSH_BENCH_BINARY', ROOT / 'target/bench-linux/x86_64-unknown-linux-musl/release/xsh'))
 FIXTURES = ROOT / '.work/consolidation/comparative-fixtures'
 IMAGE = 'xsh-comparative:consolidation'
+PINNED_IMAGE = (ROOT / 'dev/images.lock').read_text().splitlines()[0]
+PRODUCTS = BINARY.parent
+QUALIFIED = ('tree-memory', 'tooling-check', 'tooling-lint', 'artifact-size')
+ANCHORS = ROOT / 'dev/performance/anchors.json'
 REGISTRY = (
     ('harness-tests', 'edit', 'harness', 'benchmark accounting and parity contracts', 'estimated 30s'),
     ('consolidation-startup', 'change', 'startup', 'fresh process startup and output parity', 'estimated 1m'),
     ('stdlib-cold', 'change', 'stdlib', 'cold script and reference parity', 'estimated 1m'),
+    ('tree-memory', 'scenario', 'memory', 'pipeline tree peak and exact output', 'estimated 1m'),
+    ('tooling-check', 'scenario', 'tooling', 'fixed corpus check throughput and findings', 'estimated 5m'),
+    ('tooling-lint', 'scenario', 'tooling', 'fixed corpus lint throughput and findings', 'estimated 5m'),
+    ('artifact-size', 'scenario', 'artifacts', 'release product bytes and ELF completeness', 'estimated 1m'),
     ('consolidation-pipeline', 'scenario', 'pipeline', 'stream transformation and output parity', 'estimated 10m'),
     ('consolidation-spawn', 'scenario', 'process', 'sequential process creation and output parity', 'estimated 10m'),
     ('consolidation-directory', 'scenario', 'filesystem', 'directory traversal and output parity', 'estimated 10m'),
@@ -64,7 +74,9 @@ def select(args):
 def command(name, out):
     python = ['python3', '-B']
     if name == 'harness-tests':
-        return python + ['-m', 'unittest', 'discover', '-s', 'bench/consolidation', '-p', 'test_harness.py']
+        return python + ['dev/performance/harness_tests.py']
+    if name in QUALIFIED:
+        return ['docker', 'run', '--rm', '--network', 'none', '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{ROOT}:{ROOT}', '-w', str(ROOT), PINNED_IMAGE, *python, 'dev/performance/qualified_bench.py', name, str(PRODUCTS), str(out / 'result.json')]
     if name.startswith('consolidation-'):
         argv = python + ['bench/consolidation/run.py', '--image', IMAGE, '--xsh', str(BINARY), '--fixtures', str(FIXTURES), '--output', str(out / 'result.json'), '--scratch', str(out / 'scratch'), '--source-commit', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), '--source-dirty', 'dirty' if subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip() else 'clean', '--measure']
         if name != 'consolidation-full':
@@ -86,6 +98,7 @@ def command(name, out):
 
 
 def requirements(name):
+    if name in QUALIFIED: return 'python3, git, docker, xsh-test image, release products, cgroup v2 memory.peak'
     if name.startswith('consolidation-'): return 'python3, git, docker, comparative image, release xsh, pinned fixtures, 1 GiB free'
     if name in ('stdlib-cold', 'stdlib-full'): return 'python3, git, docker, xsh-test image, release xsh, fixtures, 1 GiB free'
     if name.startswith('legacy-'): return 'cargo, rustybench, 1 GiB free'
@@ -97,7 +110,11 @@ def preflight(selected):
     for row in selected:
         name = row[0]
         tools = ['python3', 'git']
-        if name.startswith('consolidation-') or name in ('stdlib-cold', 'stdlib-full'): tools += ['docker']
+        if name.startswith('consolidation-') or name in ('stdlib-cold', 'stdlib-full') or name in QUALIFIED: tools += ['docker']
+        if name in QUALIFIED:
+            needed = ('xsh', 'xsht', 'xshi') if name == 'artifact-size' else ('xsh',) if name == 'tree-memory' else ('xsht',)
+            for product in needed:
+                if not (PRODUCTS / product).is_file(): failures.append(f'{name}: missing release product {PRODUCTS / product}')
         if name.startswith('legacy-'):
             tools += ['cargo']
             configured = shlex.split(os.environ.get('RUSTYBENCH', ''))
@@ -127,6 +144,8 @@ def preflight(selected):
                     if not base or not base.startswith('sha256:'): failures.append(f'{name}: overlay has no pinned base identity; prepare it again')
     if any(row[0] in ('stdlib-cold', 'stdlib-full') for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', 'xsh-test'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         failures.append('stdlib-cold: missing xsh-test image; build Dockerfile.test and retry')
+    if any(row[0] in QUALIFIED for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', PINNED_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        failures.append('qualified workloads: missing pinned test image; prepare dev/images.lock image')
     if Path('/proc').is_dir():
         for process in Path('/proc').iterdir():
             if not process.name.isdigit() or int(process.name) == os.getpid(): continue
@@ -146,12 +165,17 @@ def ready(result):
     return result is not None and result.returncode == 0 and 'hot process tree' not in result.stdout
 
 
+def ready_result(record):
+    return record['timing_validity'] == 'valid'
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--full', action='store_true')
+    parser.add_argument('--write-anchors', action='store_true')
     parser.add_argument('--tier', choices=TIERS)
     parser.add_argument('--workload', action='append')
     parser.add_argument('--area')
@@ -180,6 +204,8 @@ def main():
         print('host readiness: ' + ('ready' if ready(host_ready) else 'inconclusive'))
         print('preflight passed; nothing ran')
         return 0
+    if args.write_anchors and any(row[0] not in QUALIFIED for row in selected):
+        parser.error('--write-anchors requires only qualified workloads')
     run = ROOT / '.work/bench' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     run.mkdir(parents=True)
     records = []
@@ -194,8 +220,25 @@ def main():
         duration = time.monotonic() - start
         after = subprocess.run(['perf-gate-ready', '-1'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if before else None
         valid = name == 'harness-tests' or (ready(before) and ready(after))
-        records.append({'workload': name, 'exit': result.returncode, 'duration_seconds': duration, 'timing_validity': 'valid' if valid else 'inconclusive: host contention or readiness check failed', 'readiness_before': before.stdout if before else None, 'readiness_after': after.stdout if after else None, 'verdict': 'inconclusive' if not valid or name in ('stdlib-cold', 'stdlib-full') else 'completion is not a performance verdict'})
+        record = {'workload': name, 'exit': result.returncode, 'duration_seconds': duration, 'timing_validity': 'valid' if valid else 'inconclusive: host contention or readiness check failed', 'readiness_before': before.stdout if before else None, 'readiness_after': after.stdout if after else None, 'verdict': 'inconclusive' if not valid or name in ('stdlib-cold', 'stdlib-full') else 'completion is not a performance verdict'}
+        if name in QUALIFIED and result.returncode == 0:
+            from dev.performance.qualified_bench import verdict
+            measurement = json.loads((out / 'result.json').read_text())
+            anchors = json.loads(ANCHORS.read_text()) if ANCHORS.exists() else {}
+            measurement['verdict'], measurement['reason'] = verdict(measurement['value'], anchors.get(name), valid, platform.node())
+            record.update(measurement)
+            record['image'] = PINNED_IMAGE
+            print(f"{name}: {measurement['value']} {measurement['unit']}: {measurement['verdict']}" + (f" ({measurement['reason']})" if measurement['reason'] else ''))
+        records.append(record)
     summary = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip()), 'workloads': records, 'exclusions': dict(excluded)}
+    if args.write_anchors:
+        if any(row['exit'] or not ready_result(row) for row in records) or summary['dirty']:
+            print('anchors not written: host not ready, workload failed, or source dirty', file=sys.stderr)
+            return 1
+        anchors = json.loads(ANCHORS.read_text()) if ANCHORS.exists() else {}
+        for row in records:
+            anchors[row['workload']] = {'value': row['value'], 'tolerance': 0.05, 'commit': summary['commit'], 'host': platform.node(), 'date': datetime.date.today().isoformat()}
+        ANCHORS.write_text(json.dumps(anchors, indent=2) + '\n')
     (run / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(f'summary: {run / "summary.json"}')
     return int(any(row['exit'] for row in records))
