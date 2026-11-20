@@ -48,12 +48,12 @@ out of scope.
 
 
 
-### XSH-138 · P2 · Qualify benchmark resource and tooling outcomes
+### XSH-138 · P2 · Capture benchmark anchors for tree memory, tooling throughput and artifact size
 
 - **Area:** Performance
 - **Where:** docs/TESTING.md#benchmarking; dev/performance/workloads.py; bench/stdlib-port/run.py
-- **Problem:** Unproven: current fixed synthetic workloads do not establish workload-tree peak memory, representative xsht check and lint throughput, or retained artifact size budgets, so resource regressions can escape comparison.
-- **Recommendation:** Add representative completed-work oracles and scoped resource measurements with accepted anchors for those outcomes.
+- **Problem:** `cargo dev bench` now has `tree-memory` (cgroup v2 `memory.peak` of a fresh pinned container), `tooling-check` and `tooling-lint` (a fixed six-file corpus with a zero-finding oracle), and `artifact-size` (unstripped release `xsh`, `xsht`, `xshi`). Each records its inputs and host readiness, and reports within budget, regression or inconclusive against an anchor. No anchors are committed: on 2026-11-20 `perf-gate-ready` reported this host busy (other users' QEMU guest and Chromium build), so every run is `inconclusive: host readiness check failed; anchor missing`. The memory workload is a small pipeline and the tooling corpus is six files, which bounds what they can detect.
+- **Recommendation:** On a quiet host, capture anchors with the command in docs/TESTING.md#benchmarking and commit them with their provenance; widen the memory workload to a representative script if its peak proves too small to resolve a regression. Acceptance: each of the four workloads reports within budget against a committed anchor on a ready host.
 - **Fix with:** refactor-benchmarks
 - **Effort:** L
 
