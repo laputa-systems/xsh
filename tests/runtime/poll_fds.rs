@@ -89,6 +89,7 @@ let _ = unix.poll_fds([{{fd: 0, events: [\"readable\"]}}])?
     let _ = std::fs::remove_file(ready);
 }
 
+// Darwin waits on pipes and FIFOs in 20 ms slices (see `fifo_slice` in src/modules/unix/poll.rs).
 #[cfg(target_os = "linux")]
 #[test]
 fn poll_fds_idle_wait_makes_no_wakeups() {
@@ -103,24 +104,10 @@ fn poll_fds_idle_wait_makes_no_wakeups() {
         .spawn()
         .expect("spawn script");
     wait_for_path(&ready, Duration::from_secs(3), &mut child);
-    let switches = |pid: u32| -> u64 {
-        std::fs::read_dir(format!("/proc/{pid}/task"))
-            .expect("list threads")
-            .map(|task| {
-                let status = std::fs::read_to_string(task.expect("task").path().join("status"))
-                    .unwrap_or_default();
-                status
-                    .lines()
-                    .find_map(|line| line.strip_prefix("voluntary_ctxt_switches:"))
-                    .and_then(|count| count.trim().parse().ok())
-                    .unwrap_or(0)
-            })
-            .sum()
-    };
     std::thread::sleep(Duration::from_millis(200));
-    let before = switches(child.id());
+    let before = context_switches(child.id());
     std::thread::sleep(Duration::from_secs(2));
-    let after = switches(child.id());
+    let after = context_switches(child.id());
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_file(path);
