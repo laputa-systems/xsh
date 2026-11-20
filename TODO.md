@@ -105,14 +105,6 @@ out of scope.
 - **Fix with:** refactor-benchmarks
 - **Effort:** L
 
-### XSH-140 · P2 · Restore the interactive benchmark command
-
-- **Area:** Performance
-- **Where:** dev/bench.xsh; crates/xshi/Cargo.toml; crates/xshi/benches/bench.rs
-- **Problem:** The existing benchmark alias passes only the benchmark feature, but the xshi bench target also requires laputa-asterinas; cargo bench -p xshi --bench bench --features benchmark --no-run exits before building, so the interactive baseline cannot run through that command.
-- **Recommendation:** Enable the required feature for the interactive benchmark command and verify its existing baseline and fast modes against the supported product configuration.
-- **Fix with:** root-cause
-- **Effort:** S
 
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
