@@ -329,15 +329,8 @@ test test_signal_recorded_while_its_hook_is_armed_takes_the_unhooked_path { |ctx
   let marker = fp"{root}/marker"
   let hook_marker = fp"{root}/hook"
   let continued = fp"{root}/continued"
-  # `on TERM` arms by installing the handler and then reading the pending
-  # signal. A TERM recorded in that span arrived while no hook existed, so it
-  # must shut the script down without running the hook; dropping it would let
-  # the script continue, and running the hook would touch `hook`.
-  #
-  # Arming materializes one slot per referenced top-level binding, and each
-  # lookup scans the driver's slot list, so the 8192 bindings below widen that
-  # span to roughly 30 ms and the helper's 8 ms delay lands inside it on every
-  # run.
+  # Arming captures one slot per referenced top-level binding, so 8192 bindings
+  # widen the arming span to about 30 ms and the helper's 8 ms TERM lands in it.
   let bindings = [f"let top_{index} = {index}" for index in range(8192)].join("\n")
   let hook_slots = [f"  let used_{index} = top_{index}" for index in range(8192)].join("\n")
   let started = time.now()

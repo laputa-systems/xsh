@@ -4208,9 +4208,6 @@ impl Evaluator {
         if self.signal_state.hook_started || self.signal_state.shutdown_complete {
             return Ok(());
         }
-        // A signal recorded before its own hook was armed arrived while no hook
-        // existed for it, so it takes the unhooked path: it still shuts the
-        // script down, and only the hook is skipped.
         let hook = self
             .signal_hooks
             .get(&primary.name)
