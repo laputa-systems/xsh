@@ -310,14 +310,25 @@ test test_gnu_ls_selinux_segfault_log { |ctx|
   uu.succeeds(uu.invoke(s, "ls", ["-Z", "."])?)
 }
 
+proc dtype_kinds(dir: Path) [fs, error] -> Result[List[Str], Error] {
+  Ok([entry.kind for entry in fs.children(dir, stat: false)?])
+}
+
 # origin: gnu ls/stat-dtype.log
 test test_gnu_ls_stat_dtype_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "c/d")
+  let expected_kind = fs.stat(uu.at(s, "c/d"))?.kind
   uu.set_mode(s, "c", 0o644)
   defer { uu.set_mode(s, "c", 0o755) }
+  let entries = dtype_kinds(uu.at(s, "c"))
+  match entries {
+    Ok(children) => { if children.len() != 1 or children[0] != expected_kind { test.skip("directory entry types unavailable"); return } }
+    Err(_) => { test.skip("directory entry types unavailable"); return }
+  }
   let probe = uu.invoke(s, "ls", ["-p", "c"])?
-  if bytes.concat([probe.stdout, probe.stderr]) != b"d/\n" { test.skip("directory entry types unavailable") }
+  uu.succeeds(probe)
+  uu.stdout_only(probe, "d/\n")
   uu.mkdir(s, "d")
   uu.symlink(s, "/", "d/s")
   uu.set_mode(s, "d", 0o600)
