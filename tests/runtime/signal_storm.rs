@@ -293,14 +293,14 @@ fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
 }
 
 #[cfg(target_os = "macos")]
-#[path = "../../crates/xshi/tests/cli/mac_storm.rs"]
-mod mac_storm;
+#[path = "mac_processes.rs"]
+mod mac_processes;
 
 #[cfg(target_os = "macos")]
 fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
     let dir = PathBuf::from(format!(".work/tmp/storm-{tag}"));
     let dir = dir.canonicalize().expect("canonical storm directory");
-    mac_storm::live_processes(&dir)
+    mac_processes::live_processes(&dir)
 }
 
 fn kill_tagged(tag: &str) {

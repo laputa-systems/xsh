@@ -1,13 +1,17 @@
 use std::ffi::CStr;
 use std::path::Path;
 
+/// Live processes whose working directory is `dir`. macOS does not expose
+/// another process's environment, so an inherited working directory is the tag.
 pub fn live_processes(dir: &Path) -> Vec<(i32, String)> {
+    // SAFETY: a null buffer of size 0 asks only for the number of processes.
     let reported = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     assert!(reported >= 0, "proc_listallpids: {}", std::io::Error::last_os_error());
     let mut capacity = (reported as usize).max(1);
     let pids = loop {
         let mut pids = vec![0i32; capacity];
         let bytes = capacity.checked_mul(std::mem::size_of::<i32>()).unwrap();
+        // SAFETY: `pids` is valid for `bytes` bytes.
         let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes.try_into().unwrap()) };
         assert!(count >= 0, "proc_listallpids: {}", std::io::Error::last_os_error());
         if (count as usize) < capacity {
@@ -18,6 +22,8 @@ pub fn live_processes(dir: &Path) -> Vec<(i32, String)> {
     };
     let mut found = Vec::new();
     for pid in pids {
+        // SAFETY: the info structs are plain old data; proc_pidinfo writes at most `size` bytes,
+        // and the path fields it fills are NUL-terminated.
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of_val(&info);
         if unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size as i32) } != size as i32 || info.pbi_status == libc::SZOMB {
