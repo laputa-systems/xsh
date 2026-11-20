@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 from pathlib import Path
 import unittest
@@ -36,6 +37,17 @@ class SelectionTests(unittest.TestCase):
             failures = bench.preflight(rows)
         self.assertTrue(any('consolidation-startup: missing executable' in failure for failure in failures))
         self.assertTrue(any('stdlib-cold: missing executable' in failure for failure in failures))
+
+    def test_legacy_bench_commands_enable_required_features(self):
+        with patch.dict(os.environ, {'RUSTYBENCH': 'rustybench'}):
+            fast = bench.command('legacy-fast', Path('/output'))
+            baseline = bench.command('legacy-baseline', Path('/output'))
+
+        self.assertEqual(fast[:2], ['rustybench', 'baseline'])
+        self.assertIn('--fast', fast)
+        self.assertEqual(baseline[:2], ['rustybench', 'baseline'])
+        for argv in (fast, baseline):
+            self.assertEqual(argv[argv.index('--features') + 1], 'benchmark,laputa-asterinas')
 
 
 if __name__ == '__main__': unittest.main()

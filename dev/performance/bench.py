@@ -76,9 +76,12 @@ def command(name, out):
         if name == 'stdlib-cold': argv += ['--workload', 'cold_trivial', '--samples', '3']
         else: argv += ['--rounds', '3']
         return argv
-    if name == 'legacy-baseline':
+    if name in ('legacy-fast', 'legacy-baseline'):
         prefix = shlex.split(os.environ.get('RUSTYBENCH', '')) or ['cargo', 'run', '--quiet', '--manifest-path', str(ROOT / '../../rustybench/Cargo.toml'), '--']
-        return prefix + ['baseline', '--root', str(ROOT), '--baseline', str(ROOT / 'crates/xshi/benches/baseline.json'), '--', 'cargo', 'bench', '-p', 'xshi', '--bench', 'bench', '--features', 'benchmark']
+        baseline = 'fast-baseline.json' if name == 'legacy-fast' else 'baseline.json'
+        argv = prefix + ['baseline', '--root', str(ROOT), '--baseline', str(ROOT / 'crates/xshi/benches' / baseline)]
+        if name == 'legacy-fast': argv += ['--fast']
+        return argv + ['--', 'cargo', 'bench', '-p', 'xshi', '--bench', 'bench', '--features', 'benchmark,laputa-asterinas']
     return ['cargo', 'dev', 'bench', {'legacy-fast': '--fast', 'legacy-syscalls': '--syscalls'}[name]]
 
 
