@@ -85,6 +85,13 @@ const ALLOW: &[(&str, &str)] = &[
         "ioctl",
         "raw ioctl request codes — rustix's typed ioctl is not a drop-in",
     ),
+    // `fcntl(F_GETFD)` on a raw number checks that a caller-supplied
+    // descriptor is open before `BorrowedFd::borrow_raw`, whose contract
+    // requires an open descriptor; rustix's `fcntl_getfd` already takes one.
+    (
+        "F_GETFD",
+        "probe a raw descriptor number before borrowing it — rustix needs a BorrowedFd",
+    ),
     // The STD*_FILENO are integer fd *constants* used as raw fd numbers (struct
     // fields, `raw_fd <= STDERR_FILENO`); rustix's `stdio::{stdin,stdout,stderr}`
     // — which carry these as doc aliases — return a `BorrowedFd`, not the number.
