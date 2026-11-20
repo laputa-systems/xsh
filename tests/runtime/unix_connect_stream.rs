@@ -153,7 +153,6 @@ let _ = unix.connect_stream(Path({}), 20s)?
     std::fs::remove_dir_all(root).unwrap();
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
     let root = tempfile::Builder::new().prefix("w").tempdir_in(".work/tmp").unwrap();
@@ -205,7 +204,6 @@ fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
     root.close().unwrap();
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn unix_stream_retries_short_writes_after_peer_drains() {
     let root = tempfile::Builder::new().prefix("r").tempdir_in(".work/tmp").unwrap();
@@ -273,7 +271,6 @@ fn unix_stream_retries_short_writes_after_peer_drains() {
     root.close().unwrap();
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn unix_stream_deadline_closes_socket_before_caller_returns() {
     let root = tempfile::Builder::new().prefix("d").tempdir_in(".work/tmp").unwrap();

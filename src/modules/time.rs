@@ -338,12 +338,16 @@ mod tests {
         assert!((before..=after).contains(&reading));
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn boottime_is_host_clock_nanoseconds() {
-        let before = rustix::time::clock_gettime(rustix::time::ClockId::Boottime);
+        #[cfg(target_os = "linux")]
+        let clock = rustix::time::ClockId::Boottime;
+        #[cfg(target_os = "macos")]
+        let clock = rustix::time::ClockId::Monotonic;
+        let before = rustix::time::clock_gettime(clock);
         let reading = super::boottime_ns().unwrap();
-        let after = rustix::time::clock_gettime(rustix::time::ClockId::Boottime);
+        let after = rustix::time::clock_gettime(clock);
         let nanoseconds = |value: rustix::time::Timespec| value.tv_sec * 1_000_000_000 + value.tv_nsec;
         assert!((nanoseconds(before)..=nanoseconds(after)).contains(&reading));
     }
