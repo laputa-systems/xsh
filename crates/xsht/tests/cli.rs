@@ -886,13 +886,13 @@ fn test_runner_admits_another_file_while_one_file_is_at_its_active_limit() {
     let mut hot_tests = String::new();
     for index in 1..=12 {
         hot_tests.push_str(&format!(
-            "test hot_{index:02} [fs, time, error] {{\n  p\"markers/hot-{index:02}\".write(\"\")?\n  var checks = 0\n  while checks < 500 and ! p\"markers/release\".exists()? {{\n    time.sleep(10ms)?\n    checks += 1\n  }}\n  assert p\"markers/release\".exists()?, \"the cold file must release hot tests\"\n}}\n"
+            "test hot_{index:02} [fs, time, error] {{\n  p\"markers/hot-{index:02}\".write(\"\")?\n  wait until p\"markers/release\".exists()? within 5s every 10ms\n}}\n"
         ));
     }
     fs::write(tests.join("hot.xsh"), hot_tests).expect("write hot test file");
     fs::write(
         tests.join("cold.xsh"),
-        "test cold_file_progresses_while_hot_file_runs [fs, time, error] {\n  var checks = 0\n  while checks < 500 and ! p\"markers/hot-08\".exists()? {\n    time.sleep(10ms)?\n    checks += 1\n  }\n  assert p\"markers/hot-08\".exists()?, \"the hot file must reach its eighth active test\"\n  checks = 0\n  while checks < 200 and ! p\"markers/hot-09\".exists()? {\n    time.sleep(10ms)?\n    checks += 1\n  }\n  let exceeded_active_limit = p\"markers/hot-09\".exists()?\n  p\"markers/release\".write(\"\")?\n  assert ! exceeded_active_limit, \"the hot file must not exceed its active limit\"\n}\n",
+        "test cold_file_progresses_while_hot_file_runs [fs, time, error] {\n  wait until p\"markers/hot-08\".exists()? within 5s every 10ms\n  let ninth = try {\n    wait until p\"markers/hot-09\".exists()? within 2s every 10ms\n  }\n  p\"markers/release\".write(\"\")?\n  assert ninth is Err(_), \"the hot file must not exceed its active limit\"\n}\n",
     )
     .expect("write cold test file");
 
@@ -1055,6 +1055,19 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
     }
 }
 
+/// macOS assesses a newly linked executable on its first launch, which can
+/// take seconds, so a signal sent a fixed delay after that launch can land
+/// before xsht has installed its handlers.
+fn launch_once() {
+    let status = Command::new(test_bin!("xsht"))
+        .arg("help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("launch xsht once");
+    assert!(status.success(), "{status:?}");
+}
+
 /// A signal during a long `xsht lint --fix` ends the run between files or
 /// fix rounds. Fixed files are written only after every file is done, so an
 /// interrupted run leaves each file exactly as it was.
@@ -1078,6 +1091,7 @@ fn lint_fix_cancellation_writes_no_file() {
             fs::write(root.path().join(format!("module_{file}.xsh")), &functions)
                 .expect("write lint fixture");
         }
+        launch_once();
         let mut lint = Command::new(test_bin!("xsht"))
             .args(["lint", "--fix", "."])
             .current_dir(root.path())
@@ -1152,6 +1166,7 @@ fn fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file() {
         let root = TempDir::new().expect("temporary format fixture");
         let file = root.path().join("large.xsh");
         fs::write(&file, &functions).expect("write format fixture");
+        launch_once();
         let mut format = Command::new(test_bin!("xsht"))
             .args(["fmt", "large.xsh"])
             .current_dir(root.path())
