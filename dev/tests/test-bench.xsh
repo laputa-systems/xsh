@@ -1,4 +1,4 @@
-test test_bench_selectors_reject_empty_unknown_and_full { |ctx|
+test test_bench_selectors_reject_empty_unknown_and_full {
   let unknown = run.capture --text python3 -B dev/performance/bench.py --workload no-such-workload --dry-run
   assert unknown.status.shell_code()? != 0
   assert "unknown workload" in unknown.stderr
@@ -10,7 +10,7 @@ test test_bench_selectors_reject_empty_unknown_and_full { |ctx|
   assert "full requires --full" in full.stderr
 }
 
-test test_bench_ceiling_area_and_exclusions { |ctx|
+test test_bench_ceiling_area_and_exclusions {
   let selected = run.capture --text python3 -B dev/performance/bench.py --tier change --area startup --dry-run
   assert selected.status.shell_code()? == 0, selected.stderr
   assert "consolidation-startup" in selected.stdout
