@@ -5,8 +5,7 @@
 - 2026-11-20, an independent expert-tier agent review outside the
   implementation lanes. The owner ruled that such a review satisfies XSH-111's
   Graviola condition.
-- Graviola 0.4.1, crates.io checksum `e8596c4f…` (as in
-  `crates/oxish-client/vendor/ORIGIN.md`), plus ssh-build
+- Graviola 0.4.1, crates.io checksum `e8596c4f…`, plus ssh-build
   `patches/graviola/0001-ssh-chacha20-poly1305.patch`. The pristine crate with
   the patch applied is byte-identical to the vendored `src/`.
 - Covered: every Graviola primitive the SSH client reaches. These are X25519,
@@ -36,8 +35,8 @@ blocks lifting the client's experimental label. Seven findings are Low or Info.
 | G-1 | `oxish-graviola`'s `Sha256Context::finish` moved the context out of its box, so the freed box kept the pre-finish state: the hybrid exchange secrets, fragments of K, and KDF chaining state. This contradicted the wipe claim in `docs/ssh.md`. Only a local memory disclosure could read it. | Low | fixed in ssh-build `789d4cd`; `hash_wipe.rs` probes finish and fork |
 | G-2 | The AVX-512 AES-GCM path leaves round keys and data in zmm16 to zmm31; `leave_cpu_state` clears only with `vzeroall`. Graviola 0.4.5 still does this. | Low | open, [XSH-141](../../TODO.md) |
 | G-3 | The CPU gate omitted BMI2 (`mulx` in the curve and bignum code) and POPCNT (ML-KEM rejection sampling). XSH's TLS, `crypto` module and SPKI digest never call the gate. | Low | client and server gates fixed in ssh-build `789d4cd`; XSH's other entry points are [XSH-141](../../TODO.md) |
-| G-4 | TLS only: RSA verification accepts e=1, even exponents and short signatures. A certificate for such a key is still needed, from a trusted or user-added CA. | Low | open, [XSH-142](../../TODO.md): fixed in Graviola 0.4.3 |
-| G-5 | TLS only: P-256 and P-384 accept public coordinates of at least p. This gives a point a second encoding but enables no forgery. | Info | open, [XSH-142](../../TODO.md) |
+| G-4 | TLS only: RSA verification accepts e=1, even exponents and short signatures. A certificate for such a key is still needed, from a trusted or user-added CA. | Low | fixed: ssh-build `143f500` vendors Graviola 0.4.5 |
+| G-5 | TLS only: P-256 and P-384 accept public coordinates of at least p. This gives a point a second encoding but enables no forgery. | Info | fixed: ssh-build `143f500` vendors Graviola 0.4.5 |
 | G-6 | Ed25519 verification accepts small-order public keys, as OpenSSH does. A host key must already be trusted, so SSH is unaffected. `crypto.ed25519_verify` callers that take keys from untrusted sources should know. | Info | open, [XSH-141](../../TODO.md) |
 | G-7 | Some temporaries are not wiped: the Poly1305 key (zeroed by a plain loop), Poly1305 state, per-call ChaCha20 key copies, the ML-KEM seed, SHA-3 contexts, and the `Blockwise` and padding copies. | Low/Info | Poly1305 key fixed in ssh-build `4552fe0`; the other temporaries are open, [XSH-141](../../TODO.md) |
 

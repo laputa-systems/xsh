@@ -86,14 +86,6 @@ out of scope.
 - **Effort:** M
 
 
-### XSH-142 · P3 · Upgrade Graviola past 0.4.3 for its RSA and NIST-curve verification fixes
-
-- **Area:** Cryptography
-- **Where:** ssh-build `scripts/vendor-graviola.sh`, `patches/graviola/`, `crates/oxish-client/vendor/graviola`, workspace `[patch.crates-io]`
-- **Problem:** Graviola 0.4.1's RSA verification accepts e=1, even exponents and short signatures (`mid/rsa_pub.rs:22`, `high/rsa.rs:136-155`), and P-256 and P-384 accept public coordinates of at least p (`mid/p256.rs:264-267`), per the [Graviola review](docs/reviews/XSH-111-graviola-review.md) (G-4, G-5). Only TLS through rustls-graviola reaches them; forging with e=1 still needs a trusted or user-added CA to certify such a key.
-- **Recommendation:** Vendor Graviola 0.4.3 or later in ssh-build. Rebase the SSH ChaCha20-Poly1305 patch: 0.4.2 rewrote Poly1305 and added a NEON ChaCha20. Then revendor here. Acceptance: the 440 OpenSSH vectors in `cargo test -p oxish-graviola` pass on x86-64 Linux and macOS arm64, and a test refuses an e=1 RSA key.
-- **Fix with:** security
-- **Effort:** M
 
 
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
