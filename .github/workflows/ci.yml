@@ -36,6 +36,7 @@ jobs:
 
       - name: Ensure Linux tests pass
         run: |
+          mkdir -p .work/tmp
           docker run --rm --init --privileged --platform linux/arm64 \
             -v "$PWD:/work" -w /work \
             -e CARGO_INCREMENTAL=0 \
