@@ -39,7 +39,7 @@ blocks lifting the client's experimental label. Seven findings are Low or Info.
 | G-4 | TLS only: RSA verification accepts e=1, even exponents and short signatures. A certificate for such a key is still needed, from a trusted or user-added CA. | Low | open, [XSH-142](../../TODO.md): fixed in Graviola 0.4.3 |
 | G-5 | TLS only: P-256 and P-384 accept public coordinates of at least p. This gives a point a second encoding but enables no forgery. | Info | open, [XSH-142](../../TODO.md) |
 | G-6 | Ed25519 verification accepts small-order public keys, as OpenSSH does. A host key must already be trusted, so SSH is unaffected. `crypto.ed25519_verify` callers that take keys from untrusted sources should know. | Info | open, [XSH-141](../../TODO.md) |
-| G-7 | Some temporaries are not wiped: the Poly1305 key (zeroed by a plain loop), Poly1305 state, per-call ChaCha20 key copies, the ML-KEM seed, SHA-3 contexts, and the `Blockwise` and padding copies. | Low/Info | open, [XSH-141](../../TODO.md) |
+| G-7 | Some temporaries are not wiped: the Poly1305 key (zeroed by a plain loop), Poly1305 state, per-call ChaCha20 key copies, the ML-KEM seed, SHA-3 contexts, and the `Blockwise` and padding copies. | Low/Info | Poly1305 key fixed in ssh-build `4552fe0`; the other temporaries are open, [XSH-141](../../TODO.md) |
 
 ## Cleared
 
