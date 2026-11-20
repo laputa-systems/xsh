@@ -15,9 +15,11 @@ use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};
 use rustix::io::Errno;
 use xsh_root::FileKind;
 use xsh_root::transfer::{
-    Ancestor, Boundary, CancelReason, Cancellation, EntryIdentity, Removal, RemovalError,
-    Retirement, Session, mount_id, observe_entry, observe_fd,
+    CancelReason, Cancellation, EntryIdentity, mount_id, observe_entry, observe_fd,
 };
+
+#[cfg(target_os = "linux")]
+use xsh_root::transfer::{Ancestor, Boundary, Removal, RemovalError, Retirement, Session};
 
 use super::foreground::{self, Foreground, Streams};
 use super::fs_command::FileContext;
@@ -578,11 +580,13 @@ impl Tree {
         self.nodes[node].identity.kind == FileKind::Directory
     }
 
+    #[cfg(target_os = "linux")]
     fn name(&self, node: usize) -> String {
         String::from_utf8_lossy(self.nodes[node].name.as_bytes()).into_owned()
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OutcomeKind {
     Deleted,
@@ -605,6 +609,7 @@ struct DeletionReport {
 }
 
 impl DeletionReport {
+    #[cfg(target_os = "linux")]
     fn record(&mut self, name: String, kind: OutcomeKind, message: Option<String>) {
         let mut problem = |default: &str| {
             self.first_problem.get_or_insert_with(|| {
@@ -675,6 +680,7 @@ impl DeletionReport {
 }
 
 /// The state of one bottom-up deletion of a tree's contents.
+#[cfg(target_os = "linux")]
 struct Deletion<'a> {
     tree: &'a Tree,
     session: Option<&'a Session>,
@@ -685,12 +691,14 @@ struct Deletion<'a> {
     progress: &'a mut dyn FnMut(usize),
 }
 
+#[cfg(target_os = "linux")]
 struct Frame {
     node: usize,
     next_child: usize,
     ancestry: Vec<Ancestor>,
 }
 
+#[cfg(target_os = "linux")]
 impl Deletion<'_> {
     fn stopped(&self) -> bool {
         self.cancellation.is_cancelled()
@@ -949,6 +957,7 @@ impl Deletion<'_> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn direct_remove(parent: BorrowedFd<'_>, entry: &Node) -> (OutcomeKind, Option<String>) {
     match stat_identity(parent, &entry.name) {
         Ok(found) if found == entry.identity => {}
@@ -993,6 +1002,7 @@ fn direct_remove(parent: BorrowedFd<'_>, entry: &Node) -> (OutcomeKind, Option<S
     }
 }
 
+#[cfg(target_os = "linux")]
 fn removal_outcome(result: Result<Removal, RemovalError>) -> (OutcomeKind, Option<String>) {
     match result {
         Ok(Removal::Removed) => (OutcomeKind::Deleted, None),
@@ -1011,6 +1021,7 @@ fn removal_outcome(result: Result<Removal, RemovalError>) -> (OutcomeKind, Optio
 
 /// Deletes every entry below `root` through one journal session inside it.
 /// Returns the report together with an error that stopped the deletion.
+#[cfg(target_os = "linux")]
 fn delete_contents(
     root: BorrowedFd<'_>,
     tree: &Tree,
@@ -1065,6 +1076,16 @@ fn delete_contents(
         report,
         error.map(|error| io::Error::new(error.kind(), format!("deletion stopped: {error}"))),
     )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn delete_contents(
+    _root: BorrowedFd<'_>,
+    _tree: &Tree,
+    _cancellation: &Cancellation,
+    _progress: &mut dyn FnMut(usize),
+) -> (DeletionReport, Option<io::Error>) {
+    (DeletionReport::default(), Some(io::Error::new(io::ErrorKind::Unsupported, "filesystem transfer requires Linux")))
 }
 
 /// Why retiring a moved source tree stopped, and how many entries were

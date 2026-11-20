@@ -2,7 +2,7 @@
 #[path = "../../../tests/test_binary.rs"]
 mod test_binary;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod terminal_storm;
 
 use std::os::unix::ffi::OsStringExt;

@@ -12,10 +12,13 @@ use xsh_root::FileKind;
 use xsh_root::transfer::{
     Action, CancelReason, Cancellation, Collision, EngineOptions, Jobs, LiveProgress, MergeRequest,
     Observation,
-    Operands, Operation, PlannedOperand, PolicyOptions, PolicyRequest, Progress, Publication,
-    PublishRequest, Removal, Retirement, Session, dry_run, into_basename, merge_tree,
+    Operands, Operation, PlannedOperand, PolicyOptions, PolicyRequest, Progress,
+    PublishRequest, dry_run, into_basename, merge_tree,
     observe_entry, observe_fd, preflight, publish_tree, worker_count,
 };
+
+#[cfg(target_os = "linux")]
+use xsh_root::transfer::{Publication, Removal, Retirement, Session};
 
 use super::foreground::{self, EventSink, Foreground, Sink, Streams};
 use super::rmrf;
@@ -883,6 +886,7 @@ fn execute(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn check_recovery_roots(operands: &Operands, cwd: BorrowedFd<'_>) -> Result<(), (PathBuf, io::Error)> {
     let check = |path: &Path| -> Result<(), (PathBuf, io::Error)> {
         let root = Root::establish(cwd, path, true).map_err(|error| (path.to_path_buf(), error))?;
@@ -929,6 +933,11 @@ fn check_recovery_roots(operands: &Operands, cwd: BorrowedFd<'_>) -> Result<(), 
             Ok(())
         }
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn check_recovery_roots(_operands: &Operands, _cwd: BorrowedFd<'_>) -> Result<(), (PathBuf, io::Error)> {
+    Err((PathBuf::new(), io::Error::new(io::ErrorKind::Unsupported, "filesystem transfer requires Linux")))
 }
 
 fn execute_operand(
@@ -1152,6 +1161,7 @@ fn rename_object(
 
 /// Exchanges a moved leaf with the existing destination it replaces, then
 /// retires the displaced destination through the journal.
+#[cfg(target_os = "linux")]
 fn replace_by_exchange(
     source: &Root,
     destination: &Root,
@@ -1192,7 +1202,13 @@ fn replace_by_exchange(
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn replace_by_exchange(_source: &Root, _destination: &Root, _observed: Observation, _displaced: Observation) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "filesystem transfer requires Linux"))
+}
+
 /// Retires a moved source once its copy is published at the destination.
+#[cfg(target_os = "linux")]
 fn retire_moved_source(
     job: &Job<'_>,
     source: &Root,
@@ -1256,6 +1272,11 @@ fn retire_moved_source(
         }),
         (Err(error), _) => Err(retained(error.error)),
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn retire_moved_source(_job: &Job<'_>, _source: &Root, _destination: &Root, _observed: Observation) -> Result<OperandState, Failure> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "filesystem transfer requires Linux").into())
 }
 
 #[cfg(test)]
