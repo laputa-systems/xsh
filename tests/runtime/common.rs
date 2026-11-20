@@ -323,3 +323,67 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     }
     output
 }
+
+/// Whether `pid` has entered a poll wait.
+#[cfg(target_os = "linux")]
+pub(crate) fn blocked_in_poll(pid: u32) -> bool {
+    std::fs::read_dir(format!("/proc/{pid}/task")).ok().is_some_and(|tasks| {
+        tasks.flatten().any(|task| {
+            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
+                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok())
+                    == Some(libc::SYS_ppoll)
+            })
+        })
+    })
+}
+
+// macOS exposes no per-thread syscall; a thread blocked in poll is in the
+// waiting run state, and the script thread is the only one that runs.
+#[cfg(target_os = "macos")]
+pub(crate) fn blocked_in_poll(pid: u32) -> bool {
+    // PROC_PIDLISTTHREADS from <sys/proc_info.h>; libc does not export it.
+    const PROC_PIDLISTTHREADS: libc::c_int = 6;
+    let mut threads = [0u64; 64];
+    // SAFETY: the buffer is valid for its whole length, which is passed as its size.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            PROC_PIDLISTTHREADS,
+            0,
+            threads.as_mut_ptr().cast(),
+            std::mem::size_of_val(&threads) as libc::c_int,
+        )
+    };
+    if bytes <= 0 {
+        return false;
+    }
+    threads[..bytes as usize / std::mem::size_of::<u64>()].iter().all(|&thread| {
+        // SAFETY: proc_threadinfo is plain old data, and proc_pidinfo writes at most its size.
+        let mut info: libc::proc_threadinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_threadinfo>() as libc::c_int;
+        // SAFETY: info is valid for `size` bytes.
+        let written = unsafe {
+            libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTHREADINFO, thread, (&raw mut info).cast(), size)
+        };
+        written == size && info.pth_run_state == libc::TH_STATE_WAITING
+    })
+}
+
+/// Voluntary context switches of every thread of `pid`.
+#[cfg(target_os = "linux")]
+pub(crate) fn context_switches(pid: u32) -> u64 {
+    std::fs::read_dir(format!("/proc/{pid}/task"))
+        .expect("list threads")
+        .map(|task| {
+            let status = std::fs::read_to_string(task.expect("task").path().join("status")).unwrap_or_default();
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix("voluntary_ctxt_switches:"))
+                .and_then(|count| count.trim().parse().ok())
+                .unwrap_or(0)
+        })
+        .sum()
+}
+
+/// The directory listing the calling process's open descriptors, as an XSH path literal.
+pub(crate) const FD_DIRECTORY: &str = if cfg!(target_os = "linux") { "p\"/proc/self/fd\"" } else { "p\"/dev/fd\"" };

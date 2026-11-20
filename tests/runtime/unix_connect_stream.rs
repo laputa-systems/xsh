@@ -11,6 +11,14 @@ fn run(source: &str, path: &Path) -> std::process::Output {
     output
 }
 
+// Darwin fails setsockopt with EINVAL once the peer has closed the connection;
+// the read that follows then sees end of file at once.
+fn set_read_timeout_unless_closed(stream: &std::os::unix::net::UnixStream) {
+    if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(5))) {
+        assert!(cfg!(target_os = "macos") && error.kind() == std::io::ErrorKind::InvalidInput, "{error}");
+    }
+}
+
 #[test]
 fn unix_connect_stream_exchanges_bytes_and_observes_disconnect() {
     let root = PathBuf::from(format!(".work/tmp/u{} space", std::process::id()));
@@ -55,6 +63,7 @@ fn unix_connect_stream_exchanges_bytes_and_observes_disconnect() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+// Darwin refuses a connection to a full backlog at once instead of waiting.
 #[cfg(target_os = "linux")]
 #[test]
 fn unix_connect_stream_times_out_on_full_backlog_without_leaking_fds() {
@@ -65,7 +74,7 @@ fn unix_connect_stream_times_out_on_full_backlog_without_leaking_fds() {
     let listener = UnixListener::bind(&path).unwrap();
     rustix::net::listen(&listener, 0).unwrap();
     let filler = UnixStream::connect(&path).unwrap();
-    let output = run(r#"proc main(...argv: List[Str]) [process, net, fs, error] {
+    let output = run(&r#"proc main(...argv: List[Str]) [process, net, fs, error] {
   let socket_path = Path(argv[0])
   assert unix.connect_stream(socket_path, 0ms) is Err(is Timeout)
   let before = [entry.name for entry in fs.children(p"/proc/self/fd")?].len()
@@ -74,9 +83,35 @@ fn unix_connect_stream_times_out_on_full_backlog_without_leaking_fds() {
   }
   assert [entry.name for entry in fs.children(p"/proc/self/fd")?].len() == before
 }
-"#, &path);
+"#.replace("p\"/proc/self/fd\"", FD_DIRECTORY), &path);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     drop(filler);
+    drop(listener);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn unix_connect_stream_full_backlog_is_refused_at_once() {
+    use std::os::unix::net::UnixStream;
+    let root = PathBuf::from(format!(".work/tmp/f{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("socket");
+    let listener = UnixListener::bind(&path).unwrap();
+    rustix::net::listen(&listener, 0).unwrap();
+    let mut fillers = Vec::new();
+    while let Ok(filler) = UnixStream::connect(&path) {
+        fillers.push(filler);
+        assert!(fillers.len() < 4096, "the backlog never filled");
+    }
+    let output = run(r#"proc main(...argv: List[Str]) [process, net, time, error] {
+  let started = time.monotonic()?
+  assert unix.connect_stream(Path(argv[0]), 20s) is Err(is HostIo)
+  assert time.monotonic()? - started < 5000000000
+}
+"#, &path);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    drop(fillers);
     drop(listener);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -106,6 +141,7 @@ fn unix_connect_stream_preserves_platform_path_limit() {
 }
 
 
+// Darwin refuses a connection to a full backlog at once instead of waiting.
 #[cfg(target_os = "linux")]
 #[test]
 fn unix_connect_stream_cancels_a_waiting_connection() {
@@ -126,14 +162,8 @@ let _ = unix.connect_stream(Path({}), 20s)?
         .arg(&script).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     wait_for_path(&ready, Duration::from_secs(5), &mut child);
     let deadline = Instant::now() + Duration::from_secs(5);
-    let tasks = format!("/proc/{}/task", child.id());
     loop {
-        let waiting = std::fs::read_dir(&tasks).ok().is_some_and(|tasks| tasks.flatten().any(|task| {
-            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
-                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok()) == Some(libc::SYS_ppoll)
-            })
-        }));
-        if waiting { break; }
+        if blocked_in_poll(child.id()) { break; }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
@@ -171,7 +201,7 @@ fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
         };
         // A macOS listener's nonblocking mode carries over to the accepted socket.
         stream.set_nonblocking(false).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        set_read_timeout_unless_closed(&stream);
         wait.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut received = Vec::new();
         stream.read_to_end(&mut received).unwrap();
@@ -326,7 +356,6 @@ proc main(...argv: List[Str]) [process, net, io, error] {
     root.close().unwrap();
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn unix_stream_signal_during_deadline_wait_closes_peer() {
     let root = tempfile::Builder::new().prefix("s").tempdir_in(".work/tmp").unwrap();
@@ -345,7 +374,7 @@ fn unix_stream_signal_during_deadline_wait_closes_peer() {
         };
         // A macOS listener's nonblocking mode carries over to the accepted socket.
         stream.set_nonblocking(false).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        set_read_timeout_unless_closed(&stream);
         stream.read(&mut [0; 1])
     });
     let script = write_temp_script("unix-stream-signal", r#"proc main(...argv: List[Str]) [process, net, fs, io, error] {
@@ -364,13 +393,8 @@ fn unix_stream_signal_during_deadline_wait_closes_peer() {
         std::thread::yield_now();
     }
     let deadline = Instant::now() + Duration::from_secs(2);
-    let tasks = format!("/proc/{}/task", child.id());
     let waiting = ready.exists() && loop {
-        if std::fs::read_dir(&tasks).ok().is_some_and(|tasks| tasks.flatten().any(|task| {
-            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
-                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok()) == Some(libc::SYS_ppoll)
-            })
-        })) { break true; }
+        if blocked_in_poll(child.id()) { break true; }
         if Instant::now() >= deadline || child.try_wait().unwrap().is_some() { break false; }
         std::thread::yield_now();
     };
@@ -391,7 +415,6 @@ fn unix_stream_signal_during_deadline_wait_closes_peer() {
     root.close().unwrap();
 }
 
-#[cfg(target_os = "linux")]
 mod line_protocol {
     use super::*;
     use std::os::unix::net::UnixStream;
@@ -544,7 +567,7 @@ proc main(...argv: List[Str]) [process, net, time, fs, error] {
     fn client_script(root: &Path) -> PathBuf {
         std::os::unix::fs::symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("core/lib"), root.join("lib")).unwrap();
         let script = root.join("client.xsh");
-        std::fs::write(&script, CLIENT).unwrap();
+        std::fs::write(&script, CLIENT.replace("p\"/proc/self/fd\"", FD_DIRECTORY)).unwrap();
         script
     }
 
@@ -662,13 +685,8 @@ proc main(...argv: List[Str]) [process, net, time, fs, error] {
             .arg(&script).arg("cancelled").arg(&path).arg(&ready)
             .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         wait_for_path(&ready, Duration::from_secs(5), &mut child);
-        let tasks = format!("/proc/{}/task", child.id());
         let deadline = Instant::now() + Duration::from_secs(5);
-        while !std::fs::read_dir(&tasks).ok().is_some_and(|tasks| tasks.flatten().any(|task| {
-            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
-                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok()) == Some(libc::SYS_ppoll)
-            })
-        })) {
+        while !blocked_in_poll(child.id()) {
             if Instant::now() >= deadline {
                 let _ = child.kill();
                 panic!("client never entered its poll");
