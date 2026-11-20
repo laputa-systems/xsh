@@ -249,6 +249,22 @@ fn symlinks_are_archived_as_links_and_sockets_are_refused() {
 }
 
 #[test]
+fn symlink_modes_are_archived_as_0777_on_every_host() {
+    let base = sandbox();
+    let src = base.path().join("src");
+    fs::create_dir(&src).unwrap();
+    symlink("target", src.join("link")).unwrap();
+    for format in [Format::Tar, Format::Cpio] {
+        let dest = base.path().join(format!("links.{format:?}"));
+        create(&dest, &src, &entries(&["."]), &options(format), &budget()).unwrap();
+        let mut archive = open(fs::read(&dest).unwrap(), format, Compression::Plain).unwrap();
+        let listed = list(&mut archive).unwrap().entries;
+        let link = listed.iter().find(|entry| entry.name == b"link").unwrap();
+        assert_eq!(link.mode.map(|mode| mode & 0o7777), Some(0o777), "{format:?}");
+    }
+}
+
+#[test]
 fn cpio_create_round_trips_kinds_and_special_files() {
     let base = sandbox();
     let src = tree(base.path());
