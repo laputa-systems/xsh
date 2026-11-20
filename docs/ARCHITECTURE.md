@@ -1448,6 +1448,11 @@ before that contract can justify a finite caller's permissions.
 Reserved implementation declarations must satisfy that same contract before
 they can execute locally or be published to another prepared program.
 
+Checked-type canonicalization reuses record fields that need no error-type
+canonicalization. Semantic pools are mutable during building and rewind, so a
+pool-index cache would also need invalidation and preserve the decoder's
+materialization budget.
+
 ## Invariants
 
 - Verify the indexed program before installation or execution. Malformed or

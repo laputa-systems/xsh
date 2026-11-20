@@ -92,6 +92,16 @@ The concrete subtraction is the two Rust projections, operations, record
 contracts and fakes. The existing dump, userspace conversion and their checks
 still own the observation boundary.
 
+### Persistence boundaries
+
+Do not add a SQLite host API without a consumer that demonstrates a measured
+removal of persistence machinery. Filesystem publication, external effects,
+and early boot still need their own coordination and recovery.
+
+A cross-process checked-program cache was declined: the prototype fell short of
+the startup target because verification dominated the cached start. Reconsider
+it only with a cheaper verifier that independently checks transfer marks.
+
 ## Earn trust at the host boundary
 
 Conceptual coherence, expressive coverage, implementation economy and operational

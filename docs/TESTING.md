@@ -1221,8 +1221,8 @@ the audit). Its 16 workers were 94 to 96% busy, so the suite is now bound by
 total work rather than by its tail; its single longest case is
 `test_gnu_sort_sort_buffer_size_log` at 341 s (XSH-97), and per-process
 checking of large applet scripts dominates the remaining case time; a
-cross-process program cache was measured and declined
-([RFC](rfc/XSH-96-checked-program-cache.md)).
+cross-process program cache was measured and declined; see the
+[design decision](DESIGN.md#persistence-boundaries).
 Library unit tests in the verification profile took about as long to compile
 as the debug build they replaced, so that change removed a second dependency
 build but no wall time.
