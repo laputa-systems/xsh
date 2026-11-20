@@ -36,14 +36,14 @@ out of scope.
 - **Effort:** S
 
 
-### XSH-56 · P2 · Complete xsh-infra qualification
+### XSH-56 · P2 · Upstream xsh-infra's macOS controller support
 
 - **Area:** Remote execution consumer
 - **Where:** `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
-- **Problem:** xsh-infra implements remote reconciliation over native SSH. Its Alpine container scenarios and the pyinfra 3.5 differential now cover every resource kind, packages, services, commands and failures, and agree with pyinfra apart from two recorded deviations. Two-process cancellation is done (xsh-infra `7cd069a`): a SIGTERM or SIGINT exits 3 and reports the resource in flight as unknown and every resource not yet run as blocked, and 11 Alpine scenarios hold the before, after and in-flight boundaries with target-side gates and prove the rerun converges. Single-request kinds have no holdable interior. The file, system, command, failure, process and cancellation suites also pass on a pinned Alpine 3.22.8 KVM guest with OpenRC as PID 1 (xsh-infra `df05b26`). xsh-infra `e293bfd` (vendored as Laputa `be2fbe3`) adds an `xsh` inventory dialect for Laputa, whose login shell compiles commands as XSH, and an xinit service adapter: against a qemu-maintained KVM guest over native SSH, plan, apply (a managed file and a `logger` restart, pid 84 to 277, ready), an unchanged rerun and `check` all converge, and declaring `enabled` is refused because xinit has no enable. The 180-case suite passes against Alpine containers. Laputa package, account and OpenRC resources are refused under the `xsh` dialect; macOS is owner-deferred. Laputa is replacing its older in-tree xinfra with this implementation.
-- **Recommendation:** Retain the recorded Alpine/OpenRC and Laputa/xinit proof identities and the explicit Laputa resource refusals. Native macOS qualification remains owner-deferred. - **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH. - **Coordination:** Remote execution uses the experimental XSH-55 client.
-- **Fix with:** isolate-effects
-- **Effort:** L
+- **Problem:** Linux qualification is complete (Alpine container and KVM suites, pyinfra differential, cancellation, Laputa `xsh` dialect; see the [RFC](docs/rfc/XSH-56-xsh-infra.md)). On 2026-11-20 a native macOS arm64 controller (m1-max, XSH `20b1706c2` verification build, Laputa's vendored xsh-infra `e293bfd`) passed all 156 tests that reach Alpine targets: every `test-alpine-*` suite, `test-transport-ssh` and the planning tests. That needed a scratch fixture change, because `fixtures/alpine.xsh` reaches containers on their Docker bridge address, which macOS cannot route to (`No route to host`); the scratch copy published sshd on `127.0.0.1` and wrote `port` into the inventory. The other 24 tests use the controller itself as the target. They run target scripts that need Linux (`/proc/sys/kernel/random/uuid`, GNU `stat -c`, `touch -d`) and fail on a macOS controller. The upstream `laputa-systems/xsh-infra` repository is not reachable from this environment: it is not on GitHub under that name, on this host, or on m1-max.
+- **Recommendation:** In upstream xsh-infra, make the fixture publish sshd on loopback and record the port when the bridge address is unreachable (or always), and skip the local-target tests on non-Linux controllers, naming the Linux facility they need. Revendor into Laputa. Acceptance: on m1-max, `xsh fixtures/alpine.xsh up`, `xsht test --jobs 8` with the inventory, and `down` pass with the local-target tests skipped by reason, and the RFC records the macOS controller run.
+- **Fix with:** reference-parity
+- **Effort:** S
 
 ### XSH-129 · P2 · master CI is red on Lint and Test
 

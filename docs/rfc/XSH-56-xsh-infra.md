@@ -23,8 +23,13 @@ container suite also passes. Laputa package, account and OpenRC resources,
 and xinit `enabled`, remain refused under that dialect. These results retain
 their recorded source and platform identities.
 
-Open: native macOS qualification, deferred by the owner. Parallel connection
-setup uses `ssh.connect_all`.
+macOS controller (2026-11-20, m1-max, XSH `20b1706c2`, vendored `e293bfd`):
+all 156 tests that reach Alpine targets pass, including every `test-alpine-*`
+suite and `test-transport-ssh`, with the fixture changed to publish sshd on
+loopback because macOS cannot route to Docker bridge addresses. The 24 tests
+that use the controller as their target need Linux target facilities and fail
+there. Open: upstreaming that fixture change and gating the local-target tests
+(XSH-56). Parallel connection setup uses `ssh.connect_all`.
 See the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary
