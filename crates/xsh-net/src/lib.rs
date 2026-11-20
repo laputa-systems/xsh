@@ -1904,6 +1904,7 @@ fn net_transport_error(error: io::Error) -> NetError {
 }
 
 fn tls_config_for_key(key: &NetAgentKey, trust: Arc<trust::TrustGuard>) -> NetResult<ClientConfig> {
+    graviola_cpu::require().map_err(hardware_error)?;
     let provider = Arc::new(default_provider());
     let builder = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
@@ -1922,10 +1923,15 @@ fn tls_config_for_key(key: &NetAgentKey, trust: Arc<trust::TrustGuard>) -> NetRe
     Ok(config)
 }
 
+fn hardware_error(error: graviola_cpu::MissingFeature) -> NetError {
+    NetError::new("net-hardware", error.to_string())
+}
+
 fn default_tls_verifier(
     system_ca_file: Option<&Path>,
     trust: Arc<trust::TrustGuard>,
 ) -> NetResult<Arc<dyn ServerCertVerifier>> {
+    graviola_cpu::require().map_err(hardware_error)?;
     #[cfg(target_os = "macos")]
     {
         match system_ca_file {

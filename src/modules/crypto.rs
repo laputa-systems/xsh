@@ -24,6 +24,8 @@ pub(crate) fn ed25519_verify(
         .with_span(span));
     }
 
+    graviola_cpu::require().map_err(|error| RuntimeError::new("crypto-ed25519-hardware", error.to_string()).with_span(span))?;
+
     let key = Ed25519VerifyingKey::from_bytes(public_key).map_err(|error| match error {
         GraviolaError::NotOnCurve => RuntimeError::new(
             "crypto-ed25519-public-key",

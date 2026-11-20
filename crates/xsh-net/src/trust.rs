@@ -188,6 +188,7 @@ fn spki_sequence(content: &[u8]) -> Vec<u8> {
 }
 
 fn spki_digest(cert: &CertificateDer<'_>) -> Result<[u8; 32], rustls::Error> {
+    graviola_cpu::require().map_err(|error| rustls::Error::General(error.to_string()))?;
     let anchor = webpki::anchor_from_trusted_cert(cert)
         .map_err(|_| rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding))?;
     let spki = spki_sequence(anchor.subject_public_key_info.as_ref());
@@ -246,6 +247,7 @@ pub(super) fn parse_root_bundle(mut bytes: &[u8]) -> NetResult<Vec<CertificateDe
 }
 
 fn roots_from_bytes(files: &[(PathBuf, Vec<u8>)], blocked: &[[u8; 32]]) -> NetResult<RootCertStore> {
+    graviola_cpu::require().map_err(super::hardware_error)?;
     let mut roots = RootCertStore::empty();
     for (path, bytes) in files {
         let certificates = parse_root_bundle(bytes).map_err(|error| policy_error(format!("{}: {}", path.display(), error.message)))?;

@@ -458,8 +458,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["hash", "digest", "bytes"],
         )),
         ("crypto", "ed25519_verify") => Some((
-            "Verifies a detached RFC 8032 Ed25519 signature.",
-            "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. The operation has no host effects.",
+            "Verifies a detached RFC 8032 Ed25519 signature. Small-order public keys are accepted, as in OpenSSH; callers taking untrusted keys must check them.",
+            "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. Missing CPU features return crypto-ed25519-hardware, naming the feature. Small-order public keys are accepted, as in OpenSSH; callers taking untrusted keys must check them. The operation has no host effects.",
             &["crypto", "ed25519", "verification", "signature"],
         )),
         ("ssh", "connect") => Some((

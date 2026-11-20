@@ -295,6 +295,7 @@ pub fn net_error_facets(variant: &str) -> &'static [ErrorFacet] {
 }
 
 pub const NET_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant { name: "Hardware", facets: &[] },
     ErrorVariant {
         name: "Dns",
         facets: &[],

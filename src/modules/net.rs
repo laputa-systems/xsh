@@ -368,6 +368,7 @@ fn net_error_variant(kind: &str) -> &'static str {
         }
         "net-connect" => "Connect",
         "net-tls" => "Tls",
+        "net-hardware" => "Hardware",
         "net-certificate" => "Certificate",
         "net-ca-certificate" => "TrustStore",
         "net-empty-reply" => "EmptyReply",
