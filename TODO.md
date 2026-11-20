@@ -74,14 +74,6 @@ out of scope.
 
 
 
-### XSH-139 · P3 · Qualify timing gates against spread and attribution
-
-- **Area:** Performance
-- **Where:** bench/stdlib-port/run.py; dev/performance/README.md; docs/TESTING.md#profiling
-- **Problem:** The standard-library runner reports round MAD but its fixed budget decision ignores spread; current CPU phase diagnostics exclude child processes and cannot attribute tree-wide memory or I/O.
-- **Recommendation:** Compare paired measurements against observed spread and document separate process-tree CPU, allocation and syscall attribution runs.
-- **Fix with:** benchmark-checklist
-- **Effort:** M
 
 
 ### XSH-141 · P3 · Close the remaining Graviola hygiene and CPU-gate gaps outside the SSH client
