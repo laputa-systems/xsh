@@ -135,9 +135,12 @@ fn walk_entry(
 ) -> Result<()> {
     budget.checkpoint()?;
     let path = to_path(components);
-    let metadata = source
+    let mut metadata = source
         .metadata(&path)
         .map_err(|error| Error::from_host(&error).with_entry(&joined(components)))?;
+    if metadata.kind == FileKind::Symlink {
+        metadata.mode = (metadata.mode & !0o7777) | 0o777;
+    }
     if (metadata.device, metadata.inode) == identity {
         return Ok(());
     }

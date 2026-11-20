@@ -6438,7 +6438,8 @@ Contracts worth knowing without consulting the reference:
   not durable. Checksums are integrity checks, not authenticity. `create` writes
   tar or cpio through one compression lifecycle to a temporary file published
   with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`
-  do the same for single files.
+  do the same for single files. `create` records every symbolic link with mode
+  `0777`, so an archive does not depend on the host's symlink permissions.
 - `linux.mount(source, target)` accepts the kernel source operand as `Bytes` so
   symbolic sources and filesystem paths keep their exact bytes; `target` is a
   `Path` resolved through the host filesystem boundary. `linux.modinfo` treats a
