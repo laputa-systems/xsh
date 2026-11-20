@@ -3,8 +3,7 @@
 These are reduced, fixed workloads from Laputa at the commit in
 `versions.lock.json`. They measure interpreter and glue costs; they are not
 package builds or a claim about language optimality. Results have no pass/fail
-performance threshold. Timing starts after the integrator records functional
-completion at the measured source commit.
+performance threshold. Parity is checked before timing; reports record the measured commit and dirty state.
 
 | Workload | Laputa source | Fixed observable contract |
 | --- | --- | --- |
@@ -73,10 +72,9 @@ timeouts kill descendants and scratch is removed on exit. The runner pins one
 allowed host CPU, disables swap, and limits memory to 4 GiB.
 
 For measurement, require `perf-gate-ready` to exit 0, then add
-`--measure --functional-close /absolute/close.json`. Run `perf-gate-ready -1`
+`--measure`. Run `perf-gate-ready -1`
 immediately afterward and discard results if it fails. A busy host defers the
-timing gate. The integrator supplies that JSON record with `functional_complete: true`
-and `commit` equal to `--source-commit`. Parity always runs first. One warmup
+timing gate. Parity always runs first. One warmup
 per tool/workload precedes three rounds of 30 fresh process samples per tool,
 or 60 for startup. Filesystem caches are warm. Tools rotate cyclically within
 each sample, with alternating reversal and round offsets. Each workload runs

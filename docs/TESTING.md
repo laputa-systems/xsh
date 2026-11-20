@@ -1052,13 +1052,60 @@ statements in every configured source file, including files no test loads.
 
 ## Benchmarking
 
-Run benchmarks serially with paired settings. A single timing is inconclusive.
-`cargo dev bench` runs the `xshi` benchmark suite; `--fast` reports allocation
-counts, not latency. Use `cargo dev bench --syscalls` or `xsht trace --syscalls`
-to inspect subprocess and kernel activity. The
-[standard-library port](../bench/stdlib-port/README.md) and
-[performance adapter](../dev/performance/README.md) own their measurement
-procedures.
+Run benchmarks serially. A single timing is inconclusive. The registry is
+available through `cargo dev bench --list`. `--tier edit` runs harness checks;
+`--tier change` includes short comparative startup and standard-library cases;
+`--tier scenario` adds longer diagnostics. Costs in the registry are estimates.
+The `full` tier is manual-only and requires `--full`; no selector is an error.
+Use `--workload NAME` repeatedly, `--area AREA`, or `--skip NAME` to narrow a
+selection. Names and areas are separate namespaces; unknown or empty selections
+fail. `--check` checks selected prerequisites without running workloads and
+`--dry-run` prints commands without creating a run directory. For example:
+
+```sh
+cargo dev bench --list
+cargo dev bench --check --tier change
+cargo dev bench --dry-run --tier change
+cargo dev bench --tier edit
+cargo dev bench --workload consolidation-startup
+```
+
+Change measurements require the pinned `xsh-test` and comparative images, a
+release musl product and generated comparative fixtures. Build the release
+product in `Dockerfile.test` with the Linux target flags above and place it at
+`target/bench-linux/x86_64-unknown-linux-musl/release/xsh`; alternatively set
+`XSH_BENCH_BINARY` to its absolute path. Prepare fixtures as described in
+[comparative workloads](../bench/consolidation/README.md). Each run writes a
+dated `.work/bench/` directory, workload logs and a summary with selection,
+status, host readiness and exclusions. Check `perf-gate-ready` before and
+immediately after measurements; a busy host makes timing inconclusive. The
+short standard-library run uses the same product on both sides and establishes
+harness operation, not a regression verdict. Existing `--fast` allocation and
+`--syscalls` diagnostic aliases remain available.
+
+### Benchmark coverage and limitations
+
+| Outcome | Workload and oracle | Metric and attribution |
+| --- | --- | --- |
+| Startup | comparative `startup`, exact stdout, status and unchanged effects | fresh-process wall time; `xsht runtime-stats` for XSH phases |
+| Script throughput | standard-library frozen scripts, reference/candidate output and effect parity | paired wall samples; phase statistics and CPU profiles |
+| Process spawn and pipelines | comparative `spawn` and `pipeline`, fixed output and effects | wall time including helpers; `xsht trace --syscalls` for helper activity |
+| Stream memory | performance adapter stream counts and exact output | no simultaneous process-tree peak budget; use separate allocation profiling |
+| Check and lint | inference workload fixtures and frontend statistics | solver counters support attribution; representative end-to-end timing remains a gap |
+| Artifact size | release products | no benchmark registry budget or completed-work oracle |
+
+The comparative workloads use synthetic fixtures and warm filesystem caches;
+parity precedes each timed sample. Their process CPU and peak RSS are charged to
+the waited leader, not a simultaneous process-tree peak. The standard-library
+runner interleaves its sides and reports round medians and MAD, but its fixed
+budget does not incorporate spread. Small samples and host contention cannot
+establish a regression. Runtime statistics exclude descendants and add observer
+overhead. Use profiling and syscall tracing separately from timing. Instrumented
+results cannot be compared directly to uninstrumented timings. Retained
+historical reports identify their own inputs and do not establish a current
+baseline. Prepare the image and fixtures before checking; the runner checks
+observable parity but cannot independently establish that a provided binary
+was built from the named source.
 
 ### Profiling
 

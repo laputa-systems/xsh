@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from fixtures import generate
 from prepare import prepare
-from run import MEMORY_LIMIT_BYTES, equivalent, invoke, order_for, summarize_samples, validate_close, validate_container_resources, validate_fixtures
+from run import MEMORY_LIMIT_BYTES, equivalent, invoke, order_for, summarize_samples, validate_container_resources, validate_fixtures
 
 HERE = Path(__file__).resolve().parent
 
@@ -54,16 +54,6 @@ class HarnessTests(unittest.TestCase):
         for changed in ({"status": 1}, {"stderr_base64": "ZXJyb3I="}, {"effects": {"file": {"after": "new"}}}, {"timed_out": True}):
             self.assertFalse(equivalent(observation | changed, b"ok\n"))
 
-    def test_measurement_requires_completion_at_the_measured_commit(self):
-        commit = "a" * 40
-        close = self.root / "close.json"
-        close.write_text(json.dumps({"functional_complete": True, "commit": commit}))
-        self.assertEqual(validate_close(close, commit)["commit"], commit)
-        with self.assertRaisesRegex(ValueError, "measured source commit"):
-            validate_close(close, "b" * 40)
-        with self.assertRaisesRegex(ValueError, "requires --functional-close"):
-            validate_close(None, commit)
-
     def test_every_counterbalanced_sample_contains_every_tool_once(self):
         tools = ("a", "b", "c", "d", "e", "f", "g")
         for round_index in range(3):
@@ -86,6 +76,8 @@ class HarnessTests(unittest.TestCase):
 
         self.assertEqual(summary["median_ns"], 20)
         self.assertEqual(summary["round_medians_ns"], [3, 20, 200])
+        single_round = summarize_samples(samples[:3], "dash", "pipeline")
+        self.assertEqual(single_round["round_medians_ns"], [3])
 
     def test_container_resource_limits_must_match_the_recorded_cpuset_and_memory(self):
         resources = validate_container_resources(3, MEMORY_LIMIT_BYTES, [3], MEMORY_LIMIT_BYTES, 0)

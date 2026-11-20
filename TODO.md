@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 121
+Next: 133
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -77,6 +77,24 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
+### XSH-129 · P2 · master CI is red on Lint and Test
+
+- **Area:** Tooling
+- **Where:** `dev/test_workflows.xsh:259`, `crates/xsht/tests/lint_format_invariance.rs`; corpus files `core/lib/ipc_report.xsh`, `core/lib/locks.xsh`, `core/lib/memory_report.xsh`, `core/lib/scols_escape.xsh`, `core/tests/test-lsipc.xsh`, `core/tests/test-lslocks.xsh`, `core/tests/test-tail.xsh`, `dev/tests/test-targets.xsh`
+- **Problem:** Since at least `c4f2f0411` (2026-11-19), the CI Test job stops before any test because `HOST_UID` is unset when the job runs as root in the container. The Lint job, and locally `lint_format_invariance` in `cargo dev test linux`, fail on findings in the listed files: `lint.shadowing`, `check.ambiguous-grouping` in `ipc_report.xsh:158` after formatting, `check.redundant-parens`, and warnings. The linter's rules are newer than those files.
+- **Recommendation:** Pass `HOST_UID`/`HOST_GID` from the workflow, or skip the ownership repair when they are absent. Fix the listed findings at their sources. - **Acceptance:** Both CI jobs pass on master, and `cargo dev test linux` passes `lint_format_invariance`.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-131 · P2 · Qualify benchmark resource and tooling outcomes
+
+- **Area:** Performance
+- **Where:** docs/TESTING.md#benchmarking; dev/performance/workloads.py; bench/stdlib-port/run.py
+- **Problem:** Unproven: current fixed synthetic workloads do not establish workload-tree peak memory, representative xsht check and lint throughput, or retained artifact size budgets, so resource regressions can escape comparison.
+- **Recommendation:** Add representative completed-work oracles and scoped resource measurements with accepted anchors for those outcomes.
+- **Fix with:** refactor-benchmarks
+- **Effort:** L
+
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O
@@ -91,49 +109,17 @@ out of scope.
 - **Area:** Remote execution
 - **Where:** `crates/oxish-client`, ssh-build `client/`, `crates/oxish-client/vendor/graviola`, `docs/rfc/XSH-55-native-ssh-client.md`
 - **Problem:** The independent review ([report](docs/reviews/XSH-111-ssh-client-review.md)) found six defects, all fixed in ssh-build `6201a5a`, but it excluded Graviola's primitives and ran on Linux only, so the client keeps its experimental label (decided 2026-11-19).
-- **Recommendation:** Commission a review of the Graviola primitives XSH uses, and record a native macOS arm64 interop run against OpenSSH.
-- **Acceptance:** Both are recorded in the [RFC](docs/rfc/XSH-55-native-ssh-client.md#open), and the label is removed from `docs/ssh.md` and the RFC.
+- **Recommendation:** Commission a review of the Graviola primitives XSH uses, and record a native macOS arm64 interop run against OpenSSH. - **Acceptance:** Both are recorded in the [RFC](docs/rfc/XSH-55-native-ssh-client.md#open), and the label is removed from `docs/ssh.md` and the RFC.
 - **Fix with:** security
 - **Effort:** L
-
-### XSH-112 · P4 · Port buildlib's source locks to XSH
-
-- **Area:** Tooling
-- **Where:** `bench/consolidation/prepare.py`, [laputa-buildlib](https://github.com/laputa-systems/buildlib) `buildlib.locks`
-- **Problem:** `bench/consolidation/prepare.py` fetches its inputs without buildlib's verified source locks, and buildlib is Python-only, so XSH build scripts cannot use the contract natively.
-- **Recommendation:** Port `buildlib.locks` (source-input validation and verified downloads) and `buildlib.hashing` to an XSH library that follows the [build repository contract](https://github.com/laputa-systems/stuff/blob/main/docs/build-repos.md), then move the consolidation bench preparation onto it.
-- **Acceptance:** The XSH library reads `sources.lock.json`, rejects inputs whose SHA-256 or size differs, and the consolidation preparation fetches through it.
-- **Fix with:** reference-parity
-- **Effort:** M
-
-### XSH-113 · P4 · Stop locking unused Deser bridge crates
-
-- **Area:** Dependencies
-- **Where:** [laputa-systems/deser](https://github.com/laputa-systems/deser) `deser-core/Cargo.toml`, XSH `Cargo.lock`
-- **Problem:** `laputa-deser-core`'s `std` feature names its optional bridges through weak features (`rust_decimal?/std`, `bigdecimal?/std` and others). Cargo locks dependencies named that way even when nothing enables them ([rust-lang/cargo#10801](https://github.com/rust-lang/cargo/issues/10801)), so XSH's lockfile carries `rust_decimal`, `borsh`, `rand`, `wasm-bindgen` and `toml_edit`, none of which is built. `cargo fetch` and Laputa's vendoring still download them.
-- **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH.
-- **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
-- **Fix with:** none
-- **Effort:** S
 
 ### XSH-116 · P3 · Connected reader decodes record labels from the wrong table
 
 - **Area:** Formal verification
 - **Where:** `formal/Xsh/Conformance/Connected/RawExpression.lean` (`readRawValueFields`), `src/runtime/eval/indexed/full.rs` (`FullCodec for Name`)
 - **Problem:** Rust writes an `ExprRecord` entry's label as a process-interner symbol word, but the connected reader resolves that word as a string-pool ID through `readRawStringBytes`; the connected assignment-path decoder keeps labels as raw symbols. No connected document carries an `ExprRecord` row yet, so the mismatch is unexercised, and interner symbol words are not stable bytes in any case.
-- **Recommendation:** When the connected path first exchanges a record row, carry labels through the canonical label table in [the record-local design](docs/rfc/lean-vertical-record-locals.md) and read them from it in both connected decoders.
-- **Acceptance:** A connected document with an `ExprRecord` row decodes its labels to the spellings Rust wrote, and a test fails if the reader uses the string pool.
+- **Recommendation:** When the connected path first exchanges a record row, carry labels through the canonical label table in [the record-local design](docs/rfc/lean-vertical-record-locals.md) and read them from it in both connected decoders. - **Acceptance:** A connected document with an `ExprRecord` row decodes its labels to the spellings Rust wrote, and a test fails if the reader uses the string pool.
 - **Fix with:** reference-parity
-- **Effort:** S
-
-### XSH-129 · P2 · master CI is red on Lint and Test
-
-- **Area:** Tooling
-- **Where:** `dev/test_workflows.xsh:259`, `crates/xsht/tests/lint_format_invariance.rs`; corpus files `core/lib/ipc_report.xsh`, `core/lib/locks.xsh`, `core/lib/memory_report.xsh`, `core/lib/scols_escape.xsh`, `core/tests/test-lsipc.xsh`, `core/tests/test-lslocks.xsh`, `core/tests/test-tail.xsh`, `dev/tests/test-targets.xsh`
-- **Problem:** Since at least `c4f2f0411` (2026-11-19), the CI Test job stops before any test because `HOST_UID` is unset when the job runs as root in the container. The Lint job, and locally `lint_format_invariance` in `cargo dev test linux`, fail on findings in the listed files: `lint.shadowing`, `check.ambiguous-grouping` in `ipc_report.xsh:158` after formatting, `check.redundant-parens`, and warnings. The linter's rules are newer than those files.
-- **Recommendation:** Pass `HOST_UID`/`HOST_GID` from the workflow, or skip the ownership repair when they are absent. Fix the listed findings at their sources.
-- **Acceptance:** Both CI jobs pass on master, and `cargo dev test linux` passes `lint_format_invariance`.
-- **Fix with:** root-cause
 - **Effort:** S
 
 ### XSH-130 · P3 · xsht cancellation and admission tests fail on macOS
@@ -141,7 +127,34 @@ out of scope.
 - **Area:** Tooling
 - **Where:** `crates/xsht/tests/cli.rs` (`fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file`, `lint_fix_cancellation_writes_no_file`, `test_runner_admits_another_file_while_one_file_is_at_its_active_limit`)
 - **Problem:** On macOS arm64 (m1-max, 2026-11-19), `cargo dev test macos --ci` fails these three tests, both at `1278debe8` and at `af762dbf4`. A SIGTERM sent during `xsht fmt` or `xsht lint --fix` kills xsht by the signal, where the tests expect exit 143 from the cancellation handler. In the admission test, the hot file's tests and the cold file's single test exceed their 10 s budget. Linux passes all three.
-- **Recommendation:** Check whether xsht installs its cancellation handlers before the work starts on macOS. Then check whether the admission test's 10 s budget holds on a shared Mac, or whether workers stall there.
-- **Acceptance:** The three tests pass in `cargo dev test macos --ci` on native macOS and still pass on Linux.
+- **Recommendation:** Check whether xsht installs its cancellation handlers before the work starts on macOS. Then check whether the admission test's 10 s budget holds on a shared Mac, or whether workers stall there. - **Acceptance:** The three tests pass in `cargo dev test macos --ci` on native macOS and still pass on Linux.
 - **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-132 · P3 · Qualify timing gates against spread and attribution
+
+- **Area:** Performance
+- **Where:** bench/stdlib-port/run.py; dev/performance/README.md; docs/TESTING.md#profiling
+- **Problem:** The standard-library runner reports round MAD but its fixed budget decision ignores spread; current CPU phase diagnostics exclude child processes and cannot attribute tree-wide memory or I/O.
+- **Recommendation:** Compare paired measurements against observed spread and document separate process-tree CPU, allocation and syscall attribution runs.
+- **Fix with:** benchmark-checklist
+- **Effort:** M
+
+### XSH-112 · P4 · Port buildlib's source locks to XSH
+
+- **Area:** Tooling
+- **Where:** `bench/consolidation/prepare.py`, [laputa-buildlib](https://github.com/laputa-systems/buildlib) `buildlib.locks`
+- **Problem:** `bench/consolidation/prepare.py` fetches its inputs without buildlib's verified source locks, and buildlib is Python-only, so XSH build scripts cannot use the contract natively.
+- **Recommendation:** Port `buildlib.locks` (source-input validation and verified downloads) and `buildlib.hashing` to an XSH library that follows the [build repository contract](https://github.com/laputa-systems/stuff/blob/main/docs/build-repos.md), then move the consolidation bench preparation onto it. - **Acceptance:** The XSH library reads `sources.lock.json`, rejects inputs whose SHA-256 or size differs, and the consolidation preparation fetches through it.
+- **Fix with:** reference-parity
+- **Effort:** M
+
+
+### XSH-113 · P4 · Stop locking unused Deser bridge crates
+
+- **Area:** Dependencies
+- **Where:** [laputa-systems/deser](https://github.com/laputa-systems/deser) `deser-core/Cargo.toml`, XSH `Cargo.lock`
+- **Problem:** `laputa-deser-core`'s `std` feature names its optional bridges through weak features (`rust_decimal?/std`, `bigdecimal?/std` and others). Cargo locks dependencies named that way even when nothing enables them ([rust-lang/cargo#10801](https://github.com/rust-lang/cargo/issues/10801)), so XSH's lockfile carries `rust_decimal`, `borsh`, `rand`, `wasm-bindgen` and `toml_edit`, none of which is built. `cargo fetch` and Laputa's vendoring still download them.
+- **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH. - **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
+- **Fix with:** none
 - **Effort:** S

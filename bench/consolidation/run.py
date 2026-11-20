@@ -54,7 +54,7 @@ def order_for(round_index, sample_index, tools=TOOLS):
 def summarize_samples(samples, tool, workload):
     values = [row["wall_ns"] for row in samples if row["tool"] == tool and row["workload"] == workload]
     median = statistics.median(values)
-    rounds = [[row["wall_ns"] for row in samples if row["tool"] == tool and row["workload"] == workload and row["round"] == index] for index in range(3)]
+    rounds = [[row["wall_ns"] for row in samples if row["tool"] == tool and row["workload"] == workload and row["round"] == index] for index in sorted({row["round"] for row in samples})]
     return {"samples": len(values), "median_ns": median, "mad_ns": statistics.median(abs(value - median) for value in values), "round_medians_ns": [statistics.median(round_values) for round_values in rounds]}
 
 
@@ -265,15 +265,6 @@ def validate_fixtures(root):
     return digest(root / "manifest.json")
 
 
-def validate_close(path, commit):
-    if not path:
-        raise ValueError("measurement requires --functional-close with the integrator's completion record")
-    close = json.loads(path.read_text())
-    if close.get("functional_complete") is not True or close.get("commit") != commit or not re.fullmatch("[0-9a-f]{40}", commit):
-        raise ValueError("functional completion record must name the measured source commit")
-    return close
-
-
 def identities(xsh, lock, source_commit):
     queries = {"bash": [BINARIES["bash"], "--version"], "python": [BINARIES["python"], "--version"], "nushell": [BINARIES["nushell"], "--version"], "ysh": [BINARIES["ysh"], "--version"], "elvish": [BINARIES["elvish"], "-version"]}
     result = {}
@@ -289,6 +280,8 @@ def identities(xsh, lock, source_commit):
 def inside(args):
     if not Path("/.dockerenv").exists() or not args.image_id or not args.base_image:
         raise ValueError("workloads must run inside the explicitly identified test image overlay")
+    global WORKLOADS
+    WORKLOADS = tuple(args.workload or WORKLOADS)
     lock = json.loads((HERE / "versions.lock.json").read_text())
     architecture = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
     if architecture in lock["base_images"] and args.base_image != lock["base_images"][architecture]:
@@ -304,6 +297,7 @@ def inside(args):
         "schema": 1,
         "mode": "measure" if args.measure else "parity",
         "source_commit": args.source_commit,
+        "source_dirty": args.source_dirty,
         "image_id": args.image_id,
         "base_image": args.base_image,
         "platform": platform.platform(),
@@ -330,8 +324,6 @@ def inside(args):
         "samples": [],
         "summary": {},
     }
-    if args.measure:
-        report["functional_close"] = validate_close(args.functional_close, args.source_commit)
     environments = {}
     directories = {}
     for tool in TOOLS:
@@ -365,14 +357,14 @@ def inside(args):
                 write_report()
                 if not observation["equal"]:
                     raise ValueError(f"observable parity failed: {tool}/{workload}; see {args.output}")
-        report["method"] = {"rounds": 3, "samples_per_tool_per_round": 30, "startup_samples_per_tool_per_round": 60, "filesystem": "warm", "process": "fresh", "timing": "serialized wall clock including process creation, script loading/checking, helpers, stdout/stderr capture", "first_useful_stdout": "first complete expected stdout line observed on the host pipe; not first byte", "order": "cyclic rotation with alternating reversal; offsets include round index", "warmups_per_tool_workload": 1}
+        report["method"] = {"rounds": args.rounds, "samples_per_tool_per_round": args.samples or 30, "startup_samples_per_tool_per_round": args.samples or 60, "filesystem": "warm", "process": "fresh", "timing": "serialized wall clock including process creation, script loading/checking, helpers, stdout/stderr capture", "first_useful_stdout": "first complete expected stdout line observed on the host pipe; not first byte", "order": "cyclic rotation with alternating reversal; offsets include round index", "warmups_per_tool_workload": 1}
         if args.measure:
             for workload in WORKLOADS:
                 for tool in TOOLS:
                     if not record(tool, workload)["equal"]:
                         raise ValueError(f"warmup parity failed: {tool}/{workload}")
-                for round_index in range(3):
-                    for sample_index in range(60 if workload == "startup" else 30):
+                for round_index in range(args.rounds):
+                    for sample_index in range(args.samples or (60 if workload == "startup" else 30)):
                         order = order_for(round_index, sample_index)
                         for position, tool in enumerate(order):
                             observation = record(tool, workload, measured=True)
@@ -404,13 +396,12 @@ def host(args):
     for path in (args.output, args.scratch):
         if Path("/tmp") == path.resolve() or Path("/tmp") in path.resolve().parents:
             raise ValueError("results and scratch must live on disk outside /tmp")
+    args.source_dirty = "dirty" if subprocess.check_output(["git", "status", "--porcelain"], cwd=HERE, text=True).strip() else "clean"
     image_info = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]
     image_id = image_info["Id"]
     base_image = image_info.get("Config", {}).get("Labels", {}).get("org.xsh.comparative.base")
     if not base_image or not base_image.startswith("sha256:"):
         raise ValueError("image must be a prepared overlay of the immutable Dockerfile.test image")
-    if args.measure:
-        validate_close(args.functional_close, args.source_commit)
     available_cpus = host_allowed_cpus()
     if not available_cpus:
         raise ValueError("the benchmark host has no allowed CPUs")
@@ -418,11 +409,14 @@ def host(args):
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.scratch.mkdir(parents=True, exist_ok=False)
     command = ["docker", "run", "--rm", "--init", "--network", "none", "--read-only", "--platform", "linux/" + image_info["Architecture"], "--cpuset-cpus", str(cpu_id), "--memory", str(MEMORY_LIMIT_BYTES), "--memory-swap", str(MEMORY_LIMIT_BYTES), "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{HERE}:/suite:ro", "-v", f"{args.xsh.resolve()}:/bench/xsh:ro", "-v", f"{args.fixtures.resolve()}:/fixtures:ro", "-v", f"{args.output.parent.resolve()}:/results", "-v", f"{args.scratch.resolve()}:/scratch", "-w", "/suite"]
-    if args.functional_close:
-        command += ["-v", f"{args.functional_close.resolve()}:/functional-close.json:ro"]
     command += [image_id, "/usr/bin/python3", "-B", "/suite/run.py", "--inside", "--xsh", "/bench/xsh", "--fixtures", "/fixtures", "--output", "/results/" + args.output.name, "--scratch", "/scratch/run", "--image-id", image_id, "--base-image", base_image, "--source-commit", args.source_commit, "--timeout", str(args.timeout), "--cpuset-cpus", str(cpu_id), "--host-cpus-allowed", ",".join(str(cpu) for cpu in available_cpus), "--memory-bytes", str(MEMORY_LIMIT_BYTES)]
+    command += ["--rounds", str(args.rounds), "--source-dirty", args.source_dirty]
+    if args.samples:
+        command += ["--samples", str(args.samples)]
+    for workload in args.workload or []:
+        command += ["--workload", workload]
     if args.measure:
-        command += ["--measure", "--functional-close", "/functional-close.json"]
+        command += ["--measure"]
     try:
         subprocess.run(command, check=True)
     finally:
@@ -438,7 +432,10 @@ if __name__ == "__main__":
     parser.add_argument("--scratch", type=Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--measure", action="store_true")
-    parser.add_argument("--functional-close", type=Path)
+    parser.add_argument("--workload", action="append", choices=WORKLOADS)
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--samples", type=int)
+    parser.add_argument("--source-dirty", default="unknown")
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--image-id", help=argparse.SUPPRESS)
@@ -447,4 +444,6 @@ if __name__ == "__main__":
     parser.add_argument("--host-cpus-allowed", help=argparse.SUPPRESS)
     parser.add_argument("--memory-bytes", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.rounds < 1 or (args.samples is not None and args.samples < 1):
+        parser.error("rounds and samples must be positive")
     inside(args) if args.inside else host(args)

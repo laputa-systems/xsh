@@ -71,7 +71,10 @@ python3 -B bench/stdlib-port/run.py \
 
 The command assumes the repository root as its working directory. The runner
 executes workloads from `bench/stdlib-port`, so relative inputs resolve there.
-Binary paths must be absolute.
+Binary paths must be absolute. `--workload NAME` selects a frozen script and
+`--samples N` overrides its samples per round. `--observe` retains budget
+results but exits on parity failures only; use it for exploratory short runs
+whose timings cannot establish a budget decision.
 Three rounds are the usual comparison; `json_lines_batch` takes ten samples per
 round because each process is long-running. Other sample counts are fixed by
 `WORKLOADS` in `run.py`. Results report medians of round medians. The
