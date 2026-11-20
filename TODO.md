@@ -176,14 +176,6 @@ out of scope.
 
 
 
-### XSH-137 · P3 · Sparse record storage may have no consumer (unproven)
-
-- **Area:** Runtime values
-- **Where:** src/runtime/value.rs:170, src/runtime/value.rs:393, src/runtime/value.rs:428, src/runtime/value.rs:544, src/runtime/value.rs:674, src/execution.rs:93
-- **Problem:** The sparse record representation (SparseRecordMap, sparse_shaped constructors) appears only in value.rs and one host-API re-export in execution.rs; no caller constructs it in this repository, yet every record lookup, mutation, iteration and conversion handles it. External host consumers, such as Laputa, were not checked, so removal safety is unproven.
-- **Recommendation:** Search the known host consumers for sparse record construction; if none, remove the representation and its branches together, otherwise add a behavioural check for the consumer. Acceptance: either a real constructor caller with a test is identified, or the representation is gone and record tests pass.
-- **Fix with:** dead-code-archaeology
-- **Effort:** M
 
 
 ### XSH-139 · P3 · Qualify timing gates against spread and attribution
