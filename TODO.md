@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 133
+Next: 134
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -95,6 +95,15 @@ out of scope.
 - **Fix with:** refactor-benchmarks
 - **Effort:** L
 
+### XSH-133 · P2 · Restore the interactive benchmark command
+
+- **Area:** Performance
+- **Where:** dev/bench.xsh; crates/xshi/Cargo.toml; crates/xshi/benches/bench.rs
+- **Problem:** The existing benchmark alias passes only the benchmark feature, but the xshi bench target also requires laputa-asterinas; cargo bench -p xshi --bench bench --features benchmark --no-run exits before building, so the interactive baseline cannot run through that command.
+- **Recommendation:** Enable the required feature for the interactive benchmark command and verify its existing baseline and fast modes against the supported product configuration.
+- **Fix with:** root-cause
+- **Effort:** S
+
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O
@@ -140,6 +149,7 @@ out of scope.
 - **Fix with:** benchmark-checklist
 - **Effort:** M
 
+
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
 
 - **Area:** Tooling
@@ -149,7 +159,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** M
 
-
 ### XSH-113 · P4 · Stop locking unused Deser bridge crates
 
 - **Area:** Dependencies
@@ -158,3 +167,4 @@ out of scope.
 - **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH. - **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
 - **Fix with:** none
 - **Effort:** S
+
