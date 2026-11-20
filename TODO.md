@@ -86,14 +86,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-131 · P2 · TLS fixture failures skip the certificate verification tests
-
-- **Area:** Native test reliability
-- **Where:** core/tests/test-curl.xsh:788-816, core/tests/test-curl.xsh:818-820, core/tests/test-curl.xsh:849-851, core/tests/test-wget.xsh:508-535
-- **Problem:** start_tls_server returns null when certificate generation or signing fails or s_server never becomes ready, not only when openssl or perl is absent, and every caller turns null into the skip 'requires openssl and perl'. A broken fixture therefore silently removes the only checks that curl and wget reject an untrusted certificate and accept a named CA, and a readiness failure also costs 30 s per case.
-- **Recommendation:** Probe openssl and perl separately and skip only when one is absent; once both exist, fail with the failing command's diagnostic or the readiness timeout. Acceptance: with the tools present, forcing certificate generation and server startup failures each fails the test with its cause; with a tool absent the test skips naming it.
-- **Fix with:** test-audit
-- **Effort:** S
 
 ### XSH-132 · P2 · Release image inputs float with alpine:edge
 
@@ -190,14 +182,6 @@ out of scope.
 - **Effort:** S
 
 
-### XSH-136 · P3 · ls stat-dtype test skips on its own regression
-
-- **Area:** Native command conformance tests
-- **Where:** core/tests/test-gnu-ls.xsh:313-319
-- **Problem:** test_gnu_ls_stat_dtype_log uses the ls -p output under test as its capability probe and skips with 'directory entry types unavailable' whenever that output is not d/, so a regression in ls -p rendering or error handling skips the later symlink and unsearchable-directory checks instead of failing.
-- **Recommendation:** Probe directory entry types independently of the applet (for example with fs.children on the fixture) and assert the applet's output and status when the capability exists. Acceptance: breaking ls -p output makes this case fail rather than skip.
-- **Fix with:** test-audit
-- **Effort:** S
 
 
 ### XSH-137 · P3 · Sparse record storage may have no consumer (unproven)
