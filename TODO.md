@@ -23,11 +23,6 @@ which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
 
-
-
-
-
-
 ### XSH-56 · P2 · Upstream xsh-infra's macOS controller support
 
 - **Area:** Remote execution consumer
@@ -36,17 +31,6 @@ out of scope.
 - **Recommendation:** In upstream xsh-infra, make the fixture publish sshd on loopback and record the port when the bridge address is unreachable (or always), and skip the local-target tests on non-Linux controllers, naming the Linux facility they need. Revendor into Laputa. Acceptance: on m1-max, `xsh fixtures/alpine.xsh up`, `xsht test --jobs 8` with the inventory, and `down` pass with the local-target tests skipped by reason, and the RFC records the macOS controller run.
 - **Fix with:** reference-parity
 - **Effort:** S
-
-### XSH-129 · P2 · master CI is red on Lint and Test
-
-- **Area:** Tooling
-- **Where:** `dev/test_workflows.xsh:259`, `crates/xsht/tests/lint_format_invariance.rs`; corpus files `core/lib/ipc_report.xsh`, `core/lib/locks.xsh`, `core/lib/memory_report.xsh`, `core/lib/scols_escape.xsh`, `core/tests/test-lsipc.xsh`, `core/tests/test-lslocks.xsh`, `core/tests/test-tail.xsh`, `dev/tests/test-targets.xsh`
-- **Problem:** Since at least `c4f2f0411` (2026-11-19), the CI Test job stops before any test because `HOST_UID` is unset when the job runs as root in the container. The Lint job, and locally `lint_format_invariance` in `cargo dev test linux`, fail on findings in the listed files: `lint.shadowing`, `check.ambiguous-grouping` in `ipc_report.xsh:158` after formatting, `check.redundant-parens`, and warnings. The linter's rules are newer than those files.
-- **Recommendation:** Pass `HOST_UID`/`HOST_GID` from the workflow, or skip the ownership repair when they are absent. Fix the listed findings at their sources. Acceptance: Both CI jobs pass on master, and `cargo dev test linux` passes `lint_format_invariance`.
-- **Fix with:** root-cause
-- **Effort:** S
-
-
 
 ### XSH-138 · P2 · Capture benchmark anchors for tree memory, tooling throughput and artifact size
 
@@ -57,25 +41,6 @@ out of scope.
 - **Fix with:** refactor-benchmarks
 - **Effort:** L
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ### XSH-141 · P3 · Report Graviola's remaining register and temporary wiping gaps upstream
 
 - **Area:** Cryptography
@@ -85,9 +50,6 @@ out of scope.
 - **Fix with:** security
 - **Effort:** M
 
-
-
-
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
 
 - **Area:** Tooling
@@ -96,7 +58,6 @@ out of scope.
 - **Recommendation:** Port `buildlib.locks` (source-input validation and verified downloads) and `buildlib.hashing` to an XSH library that follows the [build repository contract](https://github.com/laputa-systems/stuff/blob/main/docs/build-repos.md), then move the consolidation bench preparation onto it. Acceptance: The XSH library reads `sources.lock.json`, rejects inputs whose SHA-256 or size differs, and the consolidation preparation fetches through it.
 - **Fix with:** reference-parity
 - **Effort:** M
-
 
 ### XSH-113 · P4 · Stop locking unused Deser bridge crates
 
