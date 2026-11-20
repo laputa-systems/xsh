@@ -816,6 +816,7 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     {path: "crates/xsh-root/src/lib.rs", stage: "test-root-security", words: ["-p", "xsh-root", "--test", "security"], debug: true},
     {path: "crates/xsh-root/src/transfer.rs", stage: "test-fs-transfer", words: ["-p", "xsh", "--test", "fs_transfer"], debug: false},
     {path: "crates/xsh-net/src/lib.rs", stage: "test-net-unit", words: ["-p", "xsh-net", "--lib"], debug: true},
+    {path: "crates/graviola-cpu/src/lib.rs", stage: "test-graviola-cpu-unit", words: ["-p", "graviola-cpu", "--lib"], debug: true},
     {path: "crates/xsh-registry/tests/api_reference.rs", stage: "test-registry-reference", words: ["-p", "xsh-registry", "--test", "api_reference"], debug: true},
     {path: "crates/xsh-fuzz/src/driver.rs", stage: "test-effect-oracle", words: ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true},
     {path: "crates/xsht/src/lint.rs", stage: "test-tooling-unit", words: ["-p", "xsht", "--lib", "--skip", "sugar_expansion_tests", "--skip", "desugar_tests"], debug: true},

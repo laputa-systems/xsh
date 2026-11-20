@@ -538,7 +538,7 @@ test test_printf_long_double_rounding_beyond_double_precision { |ctx|
   assert negative.stdout == "-0.25000000000000000000"
   assert rounded.stdout == (if long_double()? == "double" { "0.123456789012345677" } else { "0.123456789012345679" })
   assert tie_to_even.stdout == "0.123456789012345677"
-  assert tie_to_even_up.stdout == "0.123456789012345677"
+  assert tie_to_even_up.stdout == (if long_double()? == "quad" { "0.123456789012345678" } else { "0.123456789012345677" })
   assert literal.stderr == "" and rounded.stderr == ""
 }
 

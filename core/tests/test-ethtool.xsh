@@ -251,14 +251,25 @@ test test_feature_request_errors_follow_the_reference { |ctx|
   assert ran[9].status == 0
 }
 
+# veth sizes its queues by num_possible_cpus(), capped at 4096 (drivers/net/veth.c).
+proc veth_queue_maximum() [fs, error] -> Result[Int] {
+  var count = 0
+  for span in p"/sys/devices/system/cpu/possible".read_text()?.trim().split(",") {
+    let bounds = span.split("-")
+    count += if bounds.len() == 2 { bounds[1] as Int - bounds[0] as Int + 1 } else { 1 }
+  }
+  Ok(if count > 4096 { 4096 } else { count })
+}
+
 test test_channels_are_read_and_changed_on_a_veth_pair { |ctx|
-  let ran = session(ctx, ["-l v0", "-L v0 rx 2", "-l v0", "-L v0", "-L v0 rx 99", "-L v0 rx 0 tx 0", "-L v0 other 1", "-L v0 rx", "-L v0 bogus 1", "-L v0 rx x", "-l d0"])?
+  let maximum = veth_queue_maximum()?
+  let ran = session(ctx, ["-l v0", "-L v0 rx 2", "-l v0", "-L v0", f"-L v0 rx {maximum + 1}", "-L v0 rx 0 tx 0", "-L v0 other 1", "-L v0 rx", "-L v0 bogus 1", "-L v0 rx x", "-l d0"])?
   guard ! ran.is_empty() else { return }
   assert ran[0].stdout.lines() == [
     "Channel parameters for v0:",
     "Pre-set maximums:",
-    "RX:\t\t32",
-    "TX:\t\t32",
+    f"RX:\t\t{maximum}",
+    f"TX:\t\t{maximum}",
     "Other:\t\tn/a",
     "Combined:\tn/a",
     "Current hardware settings:",

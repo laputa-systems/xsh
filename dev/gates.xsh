@@ -461,7 +461,7 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Automation] when changed_path.starts_with("dev/") or changed_path.starts_with("tools/") or changed_path == "Makefile"
   return [Soundness] when changed_path.starts_with("crates/xsh-fuzz/")
   return [Interactive] when changed_path.starts_with("crates/xshi/")
-  return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path == "tests/linux_priv.rs"
+  return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path.starts_with("crates/graviola-cpu/") or changed_path == "tests/linux_priv.rs"
   return [Compile, Api] when changed_path == "Cargo.toml" or changed_path == "Cargo.lock" or changed_path == "build.rs" or changed_path == "rust-toolchain.toml" or changed_path.starts_with(".cargo/")
   return [Compile] when changed_path.starts_with("src/") or changed_path.starts_with("crates/") or changed_path.starts_with("tests/") or changed_path == "AGENTS.md" or changed_path == "TODO.md" or changed_path == "xsht-config.ini" or changed_path == "Dockerfile.test"
   Err(GateError.UnmappedPath(path: changed_path))
@@ -627,6 +627,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-runner-unit", [@root_lib, "runner::"], debug: true)?,
       rust_gate(ctx, profile, "test-trace-unit", [@root_lib, "trace::"], debug: true)?,
       rust_gate(ctx, profile, "test-net-unit", ["-p", "xsh-net", "--lib"], debug: true)?,
+      rust_gate(ctx, profile, "test-graviola-cpu-unit", ["-p", "graviola-cpu", "--lib"], debug: true)?,
     ]
     Tooling => [
       rust_gate(ctx, profile, "test-tooling-unit", ["-p", "xsht", "--lib", "--", @skipping(["sugar_expansion_tests", "desugar_tests"])], debug: true)?,
