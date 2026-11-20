@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 131
+Next: 138
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -86,6 +86,24 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
+### XSH-131 · P2 · TLS fixture failures skip the certificate verification tests
+
+- **Area:** Native test reliability
+- **Where:** core/tests/test-curl.xsh:788-816, core/tests/test-curl.xsh:818-820, core/tests/test-curl.xsh:849-851, core/tests/test-wget.xsh:508-535
+- **Problem:** start_tls_server returns null when certificate generation or signing fails or s_server never becomes ready, not only when openssl or perl is absent, and every caller turns null into the skip 'requires openssl and perl'. A broken fixture therefore silently removes the only checks that curl and wget reject an untrusted certificate and accept a named CA, and a readiness failure also costs 30 s per case.
+- **Recommendation:** Probe openssl and perl separately and skip only when one is absent; once both exist, fail with the failing command's diagnostic or the readiness timeout. Acceptance: with the tools present, forcing certificate generation and server startup failures each fails the test with its cause; with a tool absent the test skips naming it.
+- **Fix with:** test-audit
+- **Effort:** S
+
+### XSH-132 · P2 · Release image inputs float with alpine:edge
+
+- **Area:** Build and release
+- **Where:** Dockerfile.test:1, Dockerfile.test:3-7, Dockerfile.test:15-16, dev/docker.xsh:70-81, .github/workflows/release.yml:72
+- **Problem:** Linux release builds run in the Dockerfile.test image, whose base is the rolling alpine:edge with unversioned apk packages and unverified rustup-init downloads. Only the Rust nightly and LLVM archive are pinned, so rebuilding a release from the same commit later uses different system headers, libraries and tools, or fails when edge changes; the release cannot be reproduced or rolled back from source.
+- **Recommendation:** Pin the base image by digest and a dated Alpine release or package snapshot, and verify the rustup-init downloads by checksum. Acceptance: two fresh image builds of the same revision on each Linux architecture resolve identical package versions and checksums and build the distribution products.
+- **Fix with:** durable-state
+- **Effort:** M
+
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O
@@ -122,6 +140,56 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
+### XSH-133 · P3 · Pipeline setup failures leave started stages running
+
+- **Area:** Runtime process lifecycle
+- **Where:** src/runtime/process.rs:1265, src/runtime/process.rs:1304-1306, src/runtime/spawn.rs:258
+- **Problem:** A captured pipeline clones the shared stderr writer for each stage with try_clone()?, so a failure after earlier stages started (for example EMFILE) returns without the kill-and-wait cleanup the later setup-failure path runs. spawn::Child has no Drop, so those children keep running and become zombies in an interpreter that may catch the error and continue.
+- **Recommendation:** Give the partially started pipeline an owner that kills and reaps every started stage on every error exit and is disarmed when the normal wait takes over. Acceptance: injecting a failure after the first stage starts leaves no running or unreaped child once the caught error returns.
+- **Fix with:** lifecycle-concurrency
+- **Effort:** M
+
+
+### XSH-134 · P3 · unix.dup_fd wraps unverified descriptors in BorrowedFd and OwnedFd
+
+- **Area:** OS boundaries
+- **Where:** src/modules/unix/process.rs:44-60, src/modules/unix/process.rs:132-140
+- **Problem:** duplicate and duplicate_fd build BorrowedFd::borrow_raw from a script-supplied number without knowing it is open, and duplicate builds OwnedFd::from_raw_fd for a target that may be closed or owned elsewhere. Both violate the documented safety contracts; the kernel's EBADF and the immediate into_raw_fd keep it benign today, but any panic or refactor between wrap and release would close a descriptor the script owns.
+- **Recommendation:** Call dup2/dup3 on raw descriptors through an API that does not assert Rust ownership or a valid borrow, and keep the startup-stdio bookkeeping. Acceptance: invalid source, unopened target and already-open target cases return the specified results with no BorrowedFd or OwnedFd created from an unverified number.
+- **Fix with:** os-boundaries
+- **Effort:** S
+
+
+### XSH-135 · P3 · SSH options reject non-UTF-8 key, agent and known_hosts paths
+
+- **Area:** Remote execution
+- **Where:** src/modules/ssh.rs:67-72, docs/ssh.md:39
+- **Problem:** path_field decodes every SSH path option as UTF-8 before building a PathBuf, so a valid Unix key file, agent socket or known_hosts file whose name has non-UTF-8 bytes fails as an Options error, although these are documented Path inputs and Paths carry native bytes elsewhere.
+- **Recommendation:** Build the OS path from the native bytes (OsStr::from_bytes) as other Unix path boundaries do. Acceptance: a connection using a key, known_hosts file and agent socket under non-UTF-8 names reaches the same authentication and trust outcomes as UTF-8 names.
+- **Fix with:** os-boundaries
+- **Effort:** S
+
+
+### XSH-136 · P3 · ls stat-dtype test skips on its own regression
+
+- **Area:** Native command conformance tests
+- **Where:** core/tests/test-gnu-ls.xsh:313-319
+- **Problem:** test_gnu_ls_stat_dtype_log uses the ls -p output under test as its capability probe and skips with 'directory entry types unavailable' whenever that output is not d/, so a regression in ls -p rendering or error handling skips the later symlink and unsearchable-directory checks instead of failing.
+- **Recommendation:** Probe directory entry types independently of the applet (for example with fs.children on the fixture) and assert the applet's output and status when the capability exists. Acceptance: breaking ls -p output makes this case fail rather than skip.
+- **Fix with:** test-audit
+- **Effort:** S
+
+
+### XSH-137 · P3 · Sparse record storage may have no consumer (unproven)
+
+- **Area:** Runtime values
+- **Where:** src/runtime/value.rs:170, src/runtime/value.rs:393, src/runtime/value.rs:428, src/runtime/value.rs:544, src/runtime/value.rs:674, src/execution.rs:93
+- **Problem:** The sparse record representation (SparseRecordMap, sparse_shaped constructors) appears only in value.rs and one host-API re-export in execution.rs; no caller constructs it in this repository, yet every record lookup, mutation, iteration and conversion handles it. External host consumers, such as Laputa, were not checked, so removal safety is unproven.
+- **Recommendation:** Search the known host consumers for sparse record construction; if none, remove the representation and its branches together, otherwise add a behavioural check for the consumer. Acceptance: either a real constructor caller with a test is identified, or the representation is gone and record tests pass.
+- **Fix with:** dead-code-archaeology
+- **Effort:** M
+
+
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
 
 - **Area:** Tooling
@@ -131,6 +199,7 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** M
 
+
 ### XSH-113 · P4 · Stop locking unused Deser bridge crates
 
 - **Area:** Dependencies
@@ -139,3 +208,4 @@ out of scope.
 - **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH. Acceptance: XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
 - **Fix with:** none
 - **Effort:** S
+
