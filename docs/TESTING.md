@@ -513,20 +513,21 @@ It treats death by an uncaught signal before the script is ready as
 non-cooperative. A companion case SIGKILLs the runner after its children start
 and requires that no cleanup ran and that the owned process groups are still
 running, as the SPEC states. Terminal-mode restoration is covered separately, on Linux
-only, by the interactive storm in `crates/xshi/tests/cli.rs`
+and macOS, by the interactive storm in `crates/xshi/tests/cli.rs`
 (`terminal_storm::`): it starts the real `xshi` on a PTY that is the child's
 controlling terminal, waits for the shell's raw mode, and delivers a seeded
 SIGINT (escalated to SIGTERM, because the shell ignores SIGINT at the prompt),
 SIGTERM, or SIGHUP. After a bounded exit it
 compares the PTY's termios flags and VMIN/VTIME with the pre-start values, and
-it requires no live process carrying the run's tag and an untouched bystander.
+it requires no live stragglers and an untouched bystander. Linux identifies
+stragglers by the run's environment tag; macOS identifies non-zombie processes
+by their inherited, unique working directory.
 A companion case starts the shell with SIGHUP ignored and requires it to survive
 a SIGHUP in raw mode.
 That test needs `cargo test -p xshi --features laputa-asterinas`. A SIGHUP
 raised by closing the master is not observable this way, because the slave then
 answers `tcgetattr` with `EIO`, so the seeded SIGHUP is delivered directly.
-SIGKILL of the runner cannot restore a terminal and stays out of scope, and
-macOS is owner-deferred. `tests/xsh/process-failure-ownership.xsh` holds the
+SIGKILL of the runner cannot restore a terminal and stays out of scope. `tests/xsh/process-failure-ownership.xsh` holds the
 focused failed-spawn, early-exit, partial I/O, descriptor-inheritance and
 recycled-pid cases. They run on Linux and macOS: the inventories read
 `/proc` on Linux and `/dev/fd` and `pgrep -P` on macOS. The recycled-pid case

@@ -1,4 +1,6 @@
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(target_os = "linux")]
+use std::fs;
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -63,7 +65,8 @@ fn tag_for(seed: u64) -> String {
     format!("{}-{seed}", std::process::id())
 }
 
-fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
+#[cfg(target_os = "linux")]
+fn live_tagged_processes(tag: &str, _home: &Path) -> Vec<(i32, String)> {
     let needle = format!("{TAG_VARIABLE}={tag}\0").into_bytes();
     let mut found = Vec::new();
     let Ok(entries) = fs::read_dir("/proc") else {
@@ -101,10 +104,18 @@ fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
     found
 }
 
-fn kill_tagged(tag: &str) {
-    for (pid, _) in live_tagged_processes(tag) {
-        // SAFETY: the pid was just observed in /proc and is only used to stop
-        // this run's stray processes.
+#[cfg(target_os = "macos")]
+#[path = "../../../../tests/runtime/mac_processes.rs"]
+mod mac_processes;
+
+#[cfg(target_os = "macos")]
+fn live_tagged_processes(_tag: &str, home: &Path) -> Vec<(i32, String)> {
+    mac_processes::live_processes(home)
+}
+
+fn kill_tagged(tag: &str, home: &Path) {
+    for (pid, _) in live_tagged_processes(tag, home) {
+        // SAFETY: the pid was just observed as one of this run's stray processes.
         unsafe {
             libc::kill(pid, libc::SIGKILL);
         }
@@ -147,7 +158,7 @@ impl Terminal {
     fn new() -> Self {
         let mut master = -1;
         let mut slave = -1;
-        let size = libc::winsize {
+        let mut size = libc::winsize {
             ws_row: 24,
             ws_col: 80,
             ws_xpixel: 0,
@@ -160,7 +171,7 @@ impl Terminal {
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &size,
+                &mut size,
             )
         };
         assert_eq!(
@@ -201,7 +212,11 @@ impl Terminal {
     }
 
     fn state(&self) -> TerminalState {
-        terminal_state(self.slave.as_raw_fd())
+        #[cfg(target_os = "linux")]
+        let fd = self.slave.as_raw_fd();
+        #[cfg(target_os = "macos")]
+        let fd = self.master.as_raw_fd();
+        terminal_state(fd)
     }
 
     fn drain(&mut self) -> Vec<u8> {
@@ -378,6 +393,7 @@ fn check_outcome(
     baseline: &TerminalState,
     restored: &TerminalState,
     bystander: &mut Bystander,
+    home: &Path,
 ) -> Result<(), String> {
     let signal = expected_signal(plan);
     let died_by_signals = status.signal() == Some(signal) || status.code() == Some(128 + signal);
@@ -395,13 +411,13 @@ fn check_outcome(
     }
     let tag = tag_for(plan.seed);
     let deadline = Instant::now() + STRAGGLER_BOUND;
-    let mut survivors = live_tagged_processes(&tag);
+    let mut survivors = live_tagged_processes(&tag, home);
     while !survivors.is_empty() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
-        survivors = live_tagged_processes(&tag);
+        survivors = live_tagged_processes(&tag, home);
     }
     if !survivors.is_empty() {
-        kill_tagged(&tag);
+        kill_tagged(&tag, home);
         return Err(format!("xshi left live processes behind: {survivors:?}"));
     }
     if !bystander.alive() {
@@ -412,6 +428,7 @@ fn check_outcome(
 
 fn run_plan(plan: &Plan) {
     let home = tempfile::tempdir().expect("temporary HOME");
+    let home_path = home.path().canonicalize().expect("canonical HOME");
     let mut terminal = Terminal::new();
     let baseline = terminal.state();
     assert_ne!(baseline.local & libc::ICANON, 0, "baseline must be canonical");
@@ -419,7 +436,7 @@ fn run_plan(plan: &Plan) {
     assert_ne!(baseline.output & libc::OPOST, 0, "baseline must process output");
 
     let mut bystander = Bystander::start();
-    let mut child = spawn(&terminal, home.path(), &tag_for(plan.seed), Hangup::Default);
+    let mut child = spawn(&terminal, &home_path, &tag_for(plan.seed), Hangup::Default);
     let pid = child.id() as libc::pid_t;
     let started = Instant::now();
     let raw = wait_until_raw(&mut terminal, &mut child, started);
@@ -452,7 +469,7 @@ fn run_plan(plan: &Plan) {
 
     let status = wait_for_exit(plan, started, &mut child, &mut terminal);
     let restored = terminal.state();
-    if let Err(reason) = check_outcome(plan, &status, &baseline, &restored, &mut bystander) {
+    if let Err(reason) = check_outcome(plan, &status, &baseline, &restored, &mut bystander, &home_path) {
         let output = terminal.drain();
         panic!(
             "terminal storm seed {} failed: {reason}\nplan {plan:?}\nstatus {status:?}\npty output: {:?}",
@@ -472,6 +489,7 @@ fn terminal_storm_restores_termios_after_seeded_signals() {
 #[test]
 fn an_inherited_ignored_hangup_stays_ignored_in_raw_mode() {
     let home = tempfile::tempdir().expect("temporary HOME");
+    let home_path = home.path().canonicalize().expect("canonical HOME");
     let mut terminal = Terminal::new();
     let baseline = terminal.state();
     let plan = Plan {
@@ -480,7 +498,7 @@ fn an_inherited_ignored_hangup_stays_ignored_in_raw_mode() {
         after: Duration::ZERO,
     };
     let mut bystander = Bystander::start();
-    let mut child = spawn(&terminal, home.path(), &tag_for(plan.seed), Hangup::Ignored);
+    let mut child = spawn(&terminal, &home_path, &tag_for(plan.seed), Hangup::Ignored);
     let pid = child.id() as libc::pid_t;
     let started = Instant::now();
     assert_raw(&wait_until_raw(&mut terminal, &mut child, started));
@@ -502,7 +520,7 @@ fn an_inherited_ignored_hangup_stays_ignored_in_raw_mode() {
     }
     let status = wait_for_exit(&plan, started, &mut child, &mut terminal);
     let restored = terminal.state();
-    if let Err(reason) = check_outcome(&plan, &status, &baseline, &restored, &mut bystander) {
+    if let Err(reason) = check_outcome(&plan, &status, &baseline, &restored, &mut bystander, &home_path) {
         panic!("after an ignored SIGHUP: {reason}");
     }
 }
@@ -534,7 +552,7 @@ fn terminal_storm_oracle_rejects_a_terminal_left_in_raw_mode() {
         child.wait().expect("wait for the signalled child")
     };
     let mut bystander = Bystander::start();
-    let reason = check_outcome(&plan, &status, &baseline, &raw, &mut bystander)
+    let reason = check_outcome(&plan, &status, &baseline, &raw, &mut bystander, Path::new("."))
         .expect_err("a raw terminal must fail the oracle");
     assert!(reason.contains("not restored"), "{reason}");
 }
