@@ -27,6 +27,7 @@ structure RawInstructionRows where
   locationSources : List Nat
   strings : List RawPair
   stringBytes : List Nat
+  labels : List (Nat × List Nat)
   deriving DecidableEq
 
 structure RawRange where
@@ -100,6 +101,9 @@ def readRawStringBytes (rows : RawInstructionRows) (id : Nat) : Option (List Nat
     let range ← rows.strings[id - 1]?
     readRawRange rows.stringBytes ⟨range.lhs, range.rhs⟩
 
+def readRawLabelBytes (rows : RawInstructionRows) (symbol : Nat) : Option (List Nat) :=
+  (rows.labels.find? (fun entry => entry.1 == symbol)).map Prod.snd
+
 def readRawBlock (instructions : RawInstructionRows) (functions : RawFunctionRows)
     (id : Nat) : Option (RawBlock × List Nat) := do
   if id = 0 || id = 4294967295 then none else
@@ -123,29 +127,29 @@ def readRawStatementBlock (instructions : RawInstructionRows) (functions : RawFu
   | [] => none
 
 inductive RawAssignStep where
-  | field (symbol : Nat)
+  | field (name : List Nat)
   | index (expression : Nat)
   | indexStore (expression operation : Nat)
   | compound (operation : Nat)
   | storeValue (operation : Nat)
   deriving DecidableEq
 
-def decodeRawAssignSteps : Nat → List Nat → Option (List RawAssignStep × List Nat)
+def decodeRawAssignSteps (rows : RawInstructionRows) : Nat → List Nat → Option (List RawAssignStep × List Nat)
   | 0, words => some ([], words)
   | count + 1, 0 :: symbol :: words => do
-      let (steps, rest) ← decodeRawAssignSteps count words
-      pure (.field symbol :: steps, rest)
+      let (steps, rest) ← decodeRawAssignSteps rows count words
+      pure (.field (← readRawLabelBytes rows symbol) :: steps, rest)
   | count + 1, 1 :: expression :: words => do
-      let (steps, rest) ← decodeRawAssignSteps count words
+      let (steps, rest) ← decodeRawAssignSteps rows count words
       pure (.index expression :: steps, rest)
   | count + 1, 2 :: expression :: operation :: words => do
-      let (steps, rest) ← decodeRawAssignSteps count words
+      let (steps, rest) ← decodeRawAssignSteps rows count words
       pure (.indexStore expression operation :: steps, rest)
   | count + 1, 3 :: operation :: words => do
-      let (steps, rest) ← decodeRawAssignSteps count words
+      let (steps, rest) ← decodeRawAssignSteps rows count words
       pure (.compound operation :: steps, rest)
   | count + 1, 4 :: operation :: words => do
-      let (steps, rest) ← decodeRawAssignSteps count words
+      let (steps, rest) ← decodeRawAssignSteps rows count words
       pure (.storeValue operation :: steps, rest)
   | _, _ => none
 
@@ -154,7 +158,7 @@ def readRawAssignPath (instructions : RawInstructionRows) (functions : RawFuncti
   let words ← readOwnedRawBlock instructions functions owner id 0
   let count :: payload := words | none
   if count = 0 then none else
-    let (steps, rest) ← decodeRawAssignSteps count payload
+    let (steps, rest) ← decodeRawAssignSteps instructions count payload
     if rest.isEmpty then some steps else none
 
 inductive RawStatementShape where
@@ -171,13 +175,13 @@ def rawStatementShape (instructions : RawInstructionRows) (functions : RawFuncti
   | _, _ => none
 
 theorem raw_store_value_step_checks_arity_and_tag :
-    decodeRawAssignSteps 1 [4, 0] = some ([.storeValue 0], []) ∧
-    decodeRawAssignSteps 1 [4] = none ∧
-    decodeRawAssignSteps 1 [5, 0] = none := by
+    decodeRawAssignSteps ⟨[], [], [], [], [], [], [], [], [], [], [], []⟩ 1 [4, 0] = some ([.storeValue 0], []) ∧
+    decodeRawAssignSteps ⟨[], [], [], [], [], [], [], [], [], [], [], []⟩ 1 [4] = none ∧
+    decodeRawAssignSteps ⟨[], [], [], [], [], [], [], [], [], [], [], []⟩ 1 [5, 0] = none := by
   decide +kernel
 
 private def scopedAssignRows (ordinal : Nat) : RawInstructionRows :=
-  ⟨[], [], [], [], [1, 4, ordinal], [.set], [], [⟨67, 5⟩, ⟨57, 15⟩], [0, 0], [], []⟩
+  ⟨[], [], [], [], [1, 4, ordinal], [.set], [], [⟨67, 5⟩, ⟨57, 15⟩], [0, 0], [], [], []⟩
 
 private def scopedAssignBlocks : RawFunctionRows :=
   ⟨[⟨⟨0, 3⟩, 4294967295, 1, 0, (0, 0, 0)⟩], []⟩
@@ -358,14 +362,19 @@ def decodeRawAssignOp : WireValue → Option AssignOp
   | .string "rem" => some .rem
   | _ => none
 
+def decodeRawLabel (value : WireValue) : Option (Nat × List Nat) := do
+  let fields ← value.closedObject? ["symbol", "bytes"]
+  pure (← wordField fields "symbol", ← listField fields "bytes" decodeRawByte)
+
 def decodeRawInstructionRows (value : WireValue) : Option RawInstructionRows := do
-  let fields ← value.closedObject? ["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes"]
+  let fields ← value.closedObject? ["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes", "labels"]
   pure ⟨← listField fields "tags" decodeRawTag, ← listField fields "resourceTransfers" rawFlag,
     ← listField fields "checkedCallTargetRequired" rawFlag, ← listField fields "data" decodeRawPair,
     ← listField fields "extra" decodeWord, ← listField fields "assignOps" decodeRawAssignOp,
     ← listField fields "binaryOps" decodeRawBinaryOp,
     ← listField fields "locations" decodeRawLocation, ← listField fields "locationSources" decodeWord,
-    ← listField fields "strings" decodeRawLocation, ← listField fields "stringBytes" decodeRawByte⟩
+    ← listField fields "strings" decodeRawLocation, ← listField fields "stringBytes" decodeRawByte,
+    ← listField fields "labels" decodeRawLabel⟩
 
 def decodeRawRange (value : WireValue) : Option RawRange := do
   let fields ← value.closedObject? ["start", "length"]

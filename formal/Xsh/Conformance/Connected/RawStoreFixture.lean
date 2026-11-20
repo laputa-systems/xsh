@@ -9,7 +9,7 @@ def projectedScopedRows (ordinal slot location : Nat) (tagName : String) (assign
     List.replicate 9 false ++ [true], List.replicate 10 false,
     List.replicate 9 ⟨0, 0⟩ ++ [⟨22, 6⟩],
     List.replicate 8 0 ++ [1, 4, ordinal] ++ List.replicate 11 0 ++ [slot, 1, 0, 8, 0, location],
-    [assignment], [], [⟨67, 5⟩, ⟨57, 15⟩], [0, 0], [], []⟩
+    [assignment], [], [⟨67, 5⟩, ⟨57, 15⟩], [0, 0], [], [], []⟩
 
 def projectedScopedBlocks : RawFunctionRows :=
   ⟨[⟨⟨8, 3⟩, 4294967295, 1, 0, (0, 0, 0)⟩], []⟩

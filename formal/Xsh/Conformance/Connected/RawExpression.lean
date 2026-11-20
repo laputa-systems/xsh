@@ -184,7 +184,7 @@ mutual
     | _ + 1, _, [] => some .nil
     | fuel + 1, parent, 0 :: name :: value :: rest => do
         if value < parent then pure () else none
-        let key ← readRawStringBytes rows name
+        let key ← readRawLabelBytes rows name
         if key.all (fun byte => byte < 256) then pure () else none
         let tree ← readRawValueTree rows functions owner reserved fuel value
         let fields ← readRawValueFields rows functions owner reserved fuel parent rest

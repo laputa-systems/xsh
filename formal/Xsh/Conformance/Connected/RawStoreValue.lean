@@ -88,7 +88,7 @@ theorem scoped_store_rejects_a_different_well_typed_replacement :
   decide +kernel
 
 def literalReplacementRows (low high : Nat) : RawInstructionRows :=
-  ⟨[⟨"ExprInt", 20⟩], [false], [false], [⟨0, 2⟩], [low, high], [], [], [], [], [], []⟩
+  ⟨[⟨"ExprInt", 20⟩], [false], [false], [⟨0, 2⟩], [low, high], [], [], [], [], [], [], []⟩
 
 theorem raw_store_replacement_rejects_changed_literal_bits :
     rawValueCorrespondence 4 (fun _ => none) [] (literalReplacementRows 1 0) ⟨[], []⟩ 0 0 (.integer "1") = true ∧
@@ -101,7 +101,7 @@ def literalReplacementBlockRows (value temporary : Nat) (tail : RawTag) : RawIns
   ⟨[⟨"ExprInt", 20⟩, ⟨"StmtLet", 115⟩, ⟨"ExprParam", 31⟩, tail, ⟨"ExprValueBlock", 73⟩],
     [false, false, false, false, false], [false, false, false, false, false],
     [⟨0, 2⟩, ⟨2, 3⟩, ⟨5, 1⟩, ⟨6, 1⟩, ⟨7, 2⟩], [value, 0, temporary, 0, 0, 3, 2, 1, 1, 2, 1, 3],
-    [], [], [⟨0, 1⟩], [0], [], []⟩
+    [], [], [⟨0, 1⟩], [0], [], [], []⟩
 
 def literalReplacementBlockFunctions : RawFunctionRows :=
   ⟨[⟨⟨9, 3⟩, 4294967295, 0, 1, (0, 0, 0)⟩], []⟩
