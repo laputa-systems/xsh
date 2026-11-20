@@ -36,12 +36,12 @@ hits=$(echo "$graph" | sed 's/ v[0-9].*$//' | scan_names "$providers|$primitives
 [ -z "$hits" ] || fail "prohibited crates in the oxish-client release graph: $(echo $hits)"
 
 echo "$graph" | grep -q '^graviola v[^ ]* (.*crates/oxish-client/vendor/graviola)' ||
-    fail "graviola does not resolve to the vendored patched copy"
+    fail "graviola does not resolve to the vendored copy"
 
 stanza=$(sed -n '/^name = "graviola"$/,/^$/p' "$lock")
-echo "$stanza" | grep -q '^version = "0\.4\.1"$' || fail "Cargo.lock does not pin graviola 0.4.1"
+echo "$stanza" | grep -q '^version = "0\.4\.5"$' || fail "Cargo.lock does not pin graviola 0.4.5"
 if echo "$stanza" | grep -q '^source = '; then
     fail "Cargo.lock still resolves graviola from a registry"
 fi
 
-echo "ssh crypto graph ok: vendored graviola 0.4.1 is the only provider"
+echo "ssh crypto graph ok: vendored graviola 0.4.5 is the only provider"

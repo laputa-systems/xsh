@@ -2,7 +2,7 @@
 
 Source: `https://github.com/laputa-systems/ssh-build`.
 
-Revision: `143f5006974b9c1dab0d42bec909f68755013539`
+Revision: `899b8e52b7e835cf1d1ce81f825e6b443086cecd`
 
 `crates/oxish-client` is ssh-build's `client/` crate (`oxish-client`) at that
 revision, with the files the XSH library does not use left out: `src/bin`, the
@@ -26,9 +26,12 @@ Included:
 - `oxish-graviola` 0.2.0 from ssh-build `vendor/oxish/oxish-graviola`, which is
   the same upstream revision plus `0003-oxish-graviola.patch`. License:
   Apache-2.0 OR MIT.
-- `graviola` 0.4.5, crates.io checksum
-  `bc0377ccc5ef095424121430046e475cf06658e23475b1af526655cfad0b86b2`, plus
-  ssh-build `patches/graviola/0001-ssh-chacha20-poly1305.patch`. License:
+- `graviola` 0.4.5 from ssh-build `vendor/graviola`, which is
+  `https://github.com/laputa-systems/graviola` at
+  `bbb6286c5bd312411a79feb165232b0b3a6b19fa`: upstream `ctz/graviola` tag
+  `v/0.4.5` (`246ae105d8015dccdefc360eaa912a157e068695`) plus the fork's
+  AVX-512 register wipe, BMI2 and POPCNT gate, secret zeroisation and
+  chacha20-poly1305@openssh.com commits. License:
   Apache-2.0 OR ISC OR MIT-0 (`LICENSE-GRAVIOLA`).
 
 The OxiSH server, `oxish-aws-lc` provider and fuzz targets are not vendored.
