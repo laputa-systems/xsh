@@ -67,9 +67,10 @@ fn int_field(record: &RecordMap, name: &str, span: Span) -> Result<i64, RuntimeE
 #[cfg(feature = "ssh")]
 fn path_field(record: &RecordMap, name: &str, span: Span) -> Result<PathBuf, RuntimeError> {
     match record_field(record, name, span)? {
-        Value::Path(path) => String::from_utf8(path.bytes.clone())
-            .map(PathBuf::from)
-            .map_err(|_| failure("Options", format!("{name} is not UTF-8")).with_span(span)),
+        Value::Path(path) => {
+            use std::os::unix::ffi::OsStrExt;
+            Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&path.bytes)))
+        }
         _ => Err(failure("Options", format!("{name} must be Path")).with_span(span)),
     }
 }
@@ -655,5 +656,17 @@ mod tests {
             Some(Value::Tag { name, .. }) if name.as_ref() == "Submitted"
         ));
         assert!(error.message.contains("host key mismatch"), "{}", error.message);
+    }
+
+    #[test]
+    fn path_options_keep_native_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = b"/tmp/keys/id-\xff\xfe".to_vec();
+        let record = RecordMap::from([(
+            Arc::from("key"),
+            Value::Path(crate::runtime::value::PathValue::new(bytes.clone()).unwrap()),
+        )]);
+        let path = path_field(&record, "key", Span::new(SourceId::new(0), 0, 0)).unwrap();
+        assert_eq!(path.as_os_str().as_bytes(), bytes.as_slice());
     }
 }
