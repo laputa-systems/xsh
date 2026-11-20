@@ -9,6 +9,7 @@ use coverage as coverage_workflow
 use dist as distributions
 use docs as documentation
 use gates
+use images
 use install as installations
 use internal as container_internal
 use release as releases
@@ -94,6 +95,7 @@ usage: cargo dev COMMAND [OPTIONS]
 
 commands:
   build
+  image build  build the Linux OCI layout under .work/ (cargo dev image build)
   profile  build xsh and xsht with line tables and frame pointers
   test-health [--record]  rank the timings of the latest full test run
   check [lint]
@@ -204,6 +206,10 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
   let ctx = lifecycle.create()?
 
   match command {
+    "image" => {
+      guard args == ["build"] else { return Err(usage("image requires build")) }
+      return images.build(ctx.root)
+    }
     "build" => {
       guard args.is_empty() else {
         return Err(usage("build accepts no arguments"))

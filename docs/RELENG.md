@@ -182,3 +182,18 @@ produced these sizes. These are release-profile sizes, not `dist` sizes.
 The existing 5% size gate compares like profiles and targets. The last `dist`
 rows above remain its `dist` reference until a current `dist` build is measured.
 [Testing](TESTING.md#performance-baseline) records the CPU measurements.
+
+## Linux test image lock
+
+`dev/images.lock` contains the published image reference and the SHA-256 of
+its `Dockerfile.test`, on separate lines. The all-zero digest is a placeholder
+until the image is published. Consumers reject a stale Dockerfile hash.
+
+To rebuild and repin, select a multi-platform Docker buildx builder and run
+`cargo dev image build`. This produces `.work/test-image.oci`. The publisher
+publishes that layout, replaces the placeholder with the published index digest,
+and updates the second line with `sha256sum Dockerfile.test`. Do not repin
+the Dockerfile hash to an image built from different contents. Alpine packages
+are fixed by the published image, not by rebuilding the rolling edge repository.
+For local troubleshooting, `XSH_TEST_IMAGE` selects an already loaded image;
+`XSH_TEST_IMAGE_BUILD=1` explicitly builds a local image.
