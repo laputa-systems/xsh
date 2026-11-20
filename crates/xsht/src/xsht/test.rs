@@ -2671,12 +2671,18 @@ mod tests {
         if std::env::var_os(CHILD).is_none() {
             let module = module_path!().split_once("::").unwrap().1;
             let name = format!("{module}::native_test_directory_removal_holds_bounded_descriptors_for_deep_trees");
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([name.as_str(), "--exact", "--test-threads=1"])
                 .env(CHILD, "1")
-                .status()
+                .output()
                 .unwrap();
-            assert!(status.success(), "{status}");
+            assert!(
+                output.status.success(),
+                "{}\n{}\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
             return;
         }
         let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
