@@ -1123,9 +1123,17 @@ release products and must be compared with like builds; the records in
 The comparative workloads use synthetic fixtures and warm filesystem caches;
 parity precedes each timed sample. Their process CPU and peak RSS are charged to
 the waited leader, not a simultaneous process-tree peak. The standard-library
-runner interleaves its sides and reports round medians and MAD, but its fixed
-budget does not incorporate spread. Small samples and host contention cannot
-establish a regression. Runtime statistics exclude descendants and add observer
+runner interleaves its sides. Its delta is the median of paired round-median
+differences; spread is the sum of the reference and candidate round MADs. The
+existing budget is unchanged. A delta more than one spread above the budget
+is a regression, and a delta at least one spread below it passes. Anything
+between, or fewer than five rounds, is inconclusive. Here k = 1 and N = 5:
+one combined MAD avoids claiming differences within the observed variation,
+and five rounds give a minimally useful robust spread estimate. This is a
+heuristic, not a confidence interval. Host contention can still invalidate a
+result. `passed` and `performance_passed` are null for inconclusive results;
+`failed` lists regressions or parity failures, and `inconclusive` lists unresolved
+workloads. Non-observation runs exit 2 when inconclusive without failures. Runtime statistics exclude descendants and add observer
 overhead. Use profiling and syscall tracing separately from timing. Instrumented
 results cannot be compared directly to uninstrumented timings. Retained
 historical reports identify their own inputs and do not establish a current
@@ -1157,6 +1165,24 @@ perf script -i .work/tmp/xsht-perf.data > .work/tmp/xsht-perf.script
 xsh showcase/perf-collapse.xsh -- .work/tmp/xsht-perf.script > .work/tmp/xsht-perf.folded
 xsh showcase/flamegraph.xsh -- .work/tmp/xsht-perf.folded > .work/tmp/xsht-perf.svg
 ```
+
+For attribution, run each tool separately on the same representative workload,
+never together with a measured sample. Replace `SCRIPT` with the workload and
+use the profiling binary above:
+
+```sh
+perf record -g --inherit -o .work/tmp/tree-perf.data -- "$PROFILING_BIN/xsh" SCRIPT
+valgrind --tool=massif --trace-children=yes --massif-out-file=.work/tmp/massif.%p "$PROFILING_BIN/xsh" SCRIPT
+strace -f -c "$PROFILING_BIN/xsh" SCRIPT
+```
+
+`perf` samples CPU across inherited child processes and adds sampling overhead;
+inspect with `perf report -i .work/tmp/tree-perf.data`. Massif attributes heap
+allocations per process, including traced children, and adds substantial
+instrumentation overhead; inspect each file with `ms_print`. It is not a
+simultaneous tree-wide memory peak. `strace` counts syscalls across the tree and
+adds syscall tracing overhead. None of these instrumented runs is a timing
+sample.
 
 ### Profile btop
 

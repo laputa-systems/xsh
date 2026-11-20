@@ -5,6 +5,7 @@ import argparse
 import base64
 import json
 import os
+from pathlib import Path
 import statistics
 import subprocess
 import sys
@@ -181,7 +182,7 @@ def main():
         parser.error("--linux requires an existing absolute --candidate-xsh path")
     image = None
     if args.linux:
-        image = os.environ.get("XSH_TEST_IMAGE", "xsh-test")
+        image = os.environ.get("XSH_TEST_IMAGE") or (Path(__file__).resolve().parents[2] / "dev/images.lock").read_text().splitlines()[0]
         image_id = subprocess.check_output(
             ["docker", "image", "inspect", "--format", "{{.Id}}", image], text=True
         ).strip()
@@ -224,11 +225,14 @@ def main():
     for entry in results["workloads"].values():
         entry.update(summarize_rounds("end_to_end", entry["round_data"]))
         entry["performance_passed"] = entry["passed"]
-        entry["passed"] = entry["performance_passed"] and entry["parity"]["passed"]
-    results["failed"] = sorted(name for name, entry in results["workloads"].items() if not entry["passed"])
+        entry["passed"] = entry["performance_passed"] if entry["parity"]["passed"] else False
+    results["failed"] = sorted(name for name, entry in results["workloads"].items() if entry["passed"] is False)
+    results["inconclusive"] = sorted(name for name, entry in results["workloads"].items() if entry["passed"] is None)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2, sort_keys=True)
-    return 1 if results["failed"] else 0
+    if results["inconclusive"]:
+        print("inconclusive: " + ", ".join(results["inconclusive"]))
+    return 1 if results["failed"] else 2 if results["inconclusive"] else 0
 
 
 def self_test():

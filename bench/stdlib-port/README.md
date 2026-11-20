@@ -11,11 +11,12 @@ fixtures, and host.
 The gate allows a candidate-minus-reference increase of at most
 `max(5% of reference, 1 ms)` for cold-start workloads and
 `max(10% of reference, 2 ms)` for end-to-end workloads. The runner exits
-nonzero when a workload fails its budget or parity check. Before timing, require
+1 for a regression or parity failure, and 2 for an inconclusive result without
+failures. Before timing, require
 `perf-gate-ready` to exit 0. Run `perf-gate-ready -1` immediately afterward and
-discard results if it fails. A busy host defers the timing gate. The runner
-reports median absolute deviations but does not use them in its budget decision.
-Treat a result as a regression only when it exceeds the observed spread.
+discard results if it fails. A busy host defers the timing gate. The paired-round verdict uses combined median absolute deviation and requires at
+least five rounds; see [Benchmarking](../../docs/TESTING.md#benchmarking) for
+the rule.
 
 ## Historical reports
 
@@ -66,7 +67,7 @@ cargo build --release -p xsh --bin xsh
 python3 -B bench/stdlib-port/run.py \
   --reference "$PWD/.work/target/stdlib-reference/release/xsh" \
   --candidate "$PWD/target/release/xsh" \
-  --rounds 3 --out .work/tmp/stdlib-port-host.json
+  --rounds 5 --out .work/tmp/stdlib-port-host.json
 ```
 
 The command assumes the repository root as its working directory. The runner
@@ -75,11 +76,11 @@ Binary paths must be absolute. `--workload NAME` selects a frozen script and
 `--samples N` overrides its samples per round. `--observe` retains budget
 results but exits on parity failures only; use it for exploratory short runs
 whose timings cannot establish a budget decision.
-Three rounds are the usual comparison; `json_lines_batch` takes ten samples per
+At least five rounds are required for a verdict; `json_lines_batch` takes ten samples per
 round because each process is long-running. Other sample counts are fixed by
 `WORKLOADS` in `run.py`. Results report medians of round medians. The
-`failed`, `parity_failed`, and `skipped` fields distinguish budget failures,
-behavior mismatches, and workloads not run.
+`failed`, `inconclusive`, `parity_failed`, and `skipped` fields distinguish
+regressions, unresolved results, behavior mismatches, and workloads not run.
 
 ## Linux run
 
@@ -92,7 +93,7 @@ The runner's `--linux` route is pinned to `linux/arm64` and
 python3 -B bench/stdlib-port/run.py \
   --reference /absolute/path/to/reference/release/xsh \
   --candidate /absolute/path/to/candidate/release/xsh \
-  --rounds 3 --linux --out .work/tmp/stdlib-port-linux.json
+  --rounds 5 --linux --out .work/tmp/stdlib-port-linux.json
 ```
 
 `XSH_TEST_IMAGE` selects the Docker image; it defaults to `xsh-test`. Linux
