@@ -76,12 +76,12 @@ out of scope.
 
 
 
-### XSH-141 · P3 · Close the remaining Graviola hygiene and CPU-gate gaps outside the SSH client
+### XSH-141 · P3 · Report Graviola's remaining register and temporary wiping gaps upstream
 
 - **Area:** Cryptography
 - **Where:** `crates/xsh-net/src/{lib.rs,trust.rs}`, `src/modules/crypto.rs`, ssh-build `patches/graviola/0001-ssh-chacha20-poly1305.patch`, `crates/oxish-client/vendor/graviola/src/low/x86_64/cpu.rs`
-- **Problem:** The [Graviola review](docs/reviews/XSH-111-graviola-review.md) left four Low or Info findings open. G-3: XSH's TLS, `crypto` module and SPKI digest never call a CPU gate, so a host without Graviola's features faults (for example a Raspberry Pi 4 without the crypto extensions running `net` HTTPS) instead of returning a typed error. G-2: the AVX-512 AES-GCM path leaves round keys in zmm16 to zmm31. G-6: `crypto.ed25519_verify` accepts small-order public keys, and its docs do not say so. G-7: the ChaCha20-Poly1305 patch zeroes the Poly1305 key with a plain loop the compiler may remove, and several temporaries are never wiped.
-- **Recommendation:** Gate `xsh-net` and the `crypto` module on the same feature check as `oxish-client::cpu::require`, and return the typed hardware error. Use `zeroize` for the Poly1305 key in ssh-build's patch. Document the small-order acceptance on `crypto.ed25519_verify`. Report G-2 upstream to Graviola. Acceptance: a test with a feature reported missing makes an HTTPS request and `crypto.ed25519_verify` fail with the hardware error, and the stdlib reference states the small-order behaviour.
+- **Problem:** XSH's TLS setup, SPKI digest and `crypto.ed25519_verify` now return a typed hardware error (`NetError.Hardware`, `crypto-ed25519-hardware`) through `crates/graviola-cpu` before Graviola runs on a CPU without its features, and the stdlib reference states that `crypto.ed25519_verify` accepts small-order public keys. The SSH patch's Poly1305 key is now zeroised (ssh-build `4552fe0`). Two review findings remain inside upstream Graviola ([review](docs/reviews/XSH-111-graviola-review.md)): G-2, the AVX-512 AES-GCM path leaves round keys in zmm16 to zmm31 because `leave_cpu_state` clears only with `vzeroall`; and the rest of G-7, unwiped Poly1305 state, per-call ChaCha20 key copies, the ML-KEM generation seed, SHA-3 contexts and `Blockwise`/padding copies. Graviola's own bmi1/bmi2 entry check (G-3) also needs an upstream report.
+- **Recommendation:** File these upstream with ctz/graviola (an owner decision, since it publishes to a third-party tracker), or patch them in ssh-build's Graviola patch set if upstream declines. Acceptance: each finding has an upstream issue or a local patch with a test, recorded in the review.
 - **Fix with:** security
 - **Effort:** M
 
