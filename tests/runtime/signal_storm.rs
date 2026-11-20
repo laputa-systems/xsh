@@ -113,6 +113,18 @@ const RUNNER_KILLED: &str = r#"proc main(...argv: List[Str]) [fs, process, time,
 }
 "#;
 
+#[cfg(target_os = "macos")]
+const ESCAPED_DESCENDANT: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
+  let dir = Path(argv[0])
+  ready(dir)?
+  let detached = fp"{dir}/detached"
+  let script = """python3 -c 'import os,sys; os.setsid(); open(sys.argv[1], "w").close(); os.execlp("sleep", "sleep", "30")' "$0" </dev/null >/dev/null 2>&1 &
+while [ ! -e "$0" ]; do sleep 0.01; done"""
+  run.status sh -c $script $detached
+}
+"#;
+
+#[cfg(target_os = "linux")]
 const ESCAPED_DESCENDANT: &str = r#"proc main(...argv: List[Str]) [fs, process, time, error] {
   let dir = Path(argv[0])
   ready(dir)?
@@ -248,6 +260,7 @@ fn tag_for(seed: u64) -> String {
     format!("{}-{seed}", std::process::id())
 }
 
+#[cfg(target_os = "linux")]
 fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
     let needle = format!("{TAG_VARIABLE}={tag}\0").into_bytes();
     let mut found = Vec::new();
@@ -277,6 +290,17 @@ fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
         found.push((pid, comm.trim().to_owned()));
     }
     found
+}
+
+#[cfg(target_os = "macos")]
+#[path = "../../crates/xshi/tests/cli/mac_storm.rs"]
+mod mac_storm;
+
+#[cfg(target_os = "macos")]
+fn live_tagged_processes(tag: &str) -> Vec<(i32, String)> {
+    let dir = PathBuf::from(format!(".work/tmp/storm-{tag}"));
+    let dir = dir.canonicalize().expect("canonical storm directory");
+    mac_storm::live_processes(&dir)
 }
 
 fn kill_tagged(tag: &str) {
@@ -326,7 +350,10 @@ fn execute(plan: &Plan, body: &str) -> Outcome {
 
     let tag = tag_for(plan.seed);
     let started = Instant::now();
-    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    #[cfg(target_os = "macos")]
+    command.current_dir(&dir);
+    let mut child = command
         .arg(&script)
         .arg(&markers_dir)
         .env(TAG_VARIABLE, &tag)
@@ -412,7 +439,6 @@ fn execute(plan: &Plan, body: &str) -> Outcome {
         elapsed,
         stderr: fs::read_to_string(dir.join("stderr")).unwrap_or_default(),
     };
-    let _ = fs::remove_dir_all(&dir);
     outcome
 }
 
@@ -512,7 +538,9 @@ fn run_seed(seed: u64) {
     let plan = Plan::from_seed(seed);
     let mut bystander = Bystander::start();
     let outcome = execute(&plan, plan.scenario.body());
-    if let Err(reason) = check_outcome(&plan, &tag_for(seed), &outcome, &mut bystander) {
+    let verdict = check_outcome(&plan, &tag_for(seed), &outcome, &mut bystander);
+    let _ = fs::remove_dir_all(format!(".work/tmp/storm-{}", tag_for(seed)));
+    if let Err(reason) = verdict {
         panic!("signal storm seed {seed} failed: {reason}\nplan {plan:?}\noutcome {outcome:?}\nxsh stderr: {}", outcome.stderr);
     }
 }
@@ -548,6 +576,7 @@ fn signal_storm_oracle_rejects_a_descendant_that_escapes_cleanup() {
     let outcome = execute(&plan, ESCAPED_DESCENDANT);
     let verdict = check_outcome(&plan, &tag_for(plan.seed), &outcome, &mut bystander);
     kill_tagged(&tag_for(plan.seed));
+    let _ = fs::remove_dir_all(format!(".work/tmp/storm-{}", tag_for(plan.seed)));
     let reason = verdict.expect_err("an escaped descendant must fail the oracle");
     assert!(reason.contains("live processes"), "{reason}\nxsh stderr: {}", outcome.stderr);
 }
@@ -569,10 +598,17 @@ fn signal_storm_oracle_rejects_duplicated_and_reordered_cleanup() {
     assert!(check_cleanup_sequence(&plan, true, true, &owned(&["outer-err"])).is_err());
 }
 
+#[cfg(target_os = "linux")]
 fn process_group(pid: i32) -> Option<i32> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let (_, rest) = stat.rsplit_once(')')?;
     rest.split_whitespace().nth(2)?.parse().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn process_group(pid: i32) -> Option<i32> {
+    let group = unsafe { libc::getpgid(pid) };
+    (group >= 0).then_some(group)
 }
 
 #[test]
@@ -585,7 +621,10 @@ fn signal_storm_runner_sigkill_runs_no_cleanup_and_leaves_owned_groups_running()
     let script = dir.join("scenario.xsh");
     fs::write(&script, format!("{PRELUDE}{RUNNER_KILLED}")).expect("write scenario");
     let tag = format!("{}-sigkill", std::process::id());
-    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    #[cfg(target_os = "macos")]
+    command.current_dir(&dir);
+    let mut child = command
         .arg(&script)
         .arg(&markers_dir)
         .env(TAG_VARIABLE, &tag)

@@ -34,7 +34,7 @@ mod process;
 mod root_install;
 #[path = "runtime/run.rs"]
 mod run;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "runtime/signal_storm.rs"]
 mod signal_storm;
 #[path = "runtime/stack_depth.rs"]
