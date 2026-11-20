@@ -34,6 +34,24 @@ does not collect phase data. A `null` phase was not reached; zero is an observed
 zero-length phase. The report schema and callable boundaries live in
 `crates/xsht/src/stats.rs` and `src/runtime_stats.rs`.
 
+## Separate process-tree attribution
+
+Use a representative `SCRIPT` and the profiling build described in
+[Profiling](../../docs/TESTING.md#profiling). Run each command separately, never
+with a measured sample:
+
+```sh
+perf record -g --inherit -o .work/tmp/tree-perf.data -- "$PROFILING_BIN/xsh" SCRIPT
+valgrind --tool=massif --trace-children=yes --massif-out-file=.work/tmp/massif.%p "$PROFILING_BIN/xsh" SCRIPT
+strace -f -c "$PROFILING_BIN/xsh" SCRIPT
+```
+
+`perf` samples process-tree CPU with sampling overhead. Massif attributes heap
+allocations in each traced process with substantial instrumentation overhead;
+it does not measure a simultaneous tree-wide memory peak. Inspect its per-process
+files with `ms_print`. `strace` counts syscalls across the tree with tracing
+overhead. None of these instrumented runs is a timing sample.
+
 ## Inference measurements
 
 `inference_workloads.py` generates annotated and reduced source maps for the

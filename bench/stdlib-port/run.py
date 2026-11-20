@@ -290,7 +290,7 @@ def budget_for(kind, reference_ms):
 
 
 def summarize_rounds(kind, rounds):
-    """Apply the fixed gate to the median of independent round medians."""
+    """Qualify the fixed gate with paired round spread."""
     reference_rounds = [round_["reference_median_ms"] for round_ in rounds]
     candidate_rounds = [round_["candidate_median_ms"] for round_ in rounds]
     reference = statistics.median(reference_rounds)
@@ -306,6 +306,15 @@ def summarize_rounds(kind, rounds):
         if len(rounds) > 1
         else None
     )
+    deltas = [candidate - reference for reference, candidate in zip(reference_rounds, candidate_rounds)]
+    delta = statistics.median(deltas)
+    spread = reference_mad + candidate_mad if reference_mad is not None else None
+    if len(rounds) < 5 or abs(delta) <= spread or budget < delta <= budget + spread:
+        verdict = "inconclusive"
+    elif delta > budget + spread:
+        verdict = "regression"
+    else:
+        verdict = "pass"
     return {
         "reference_rounds": reference_rounds,
         "candidate_rounds": candidate_rounds,
@@ -319,9 +328,11 @@ def summarize_rounds(kind, rounds):
         "candidate_median_ms": candidate,
         "reference_round_mad_ms": reference_mad,
         "candidate_round_mad_ms": candidate_mad,
-        "delta_ms": candidate - reference,
+        "delta_ms": delta,
         "budget_ms": budget,
-        "passed": candidate - reference <= budget,
+        "spread_ms": spread,
+        "verdict": verdict,
+        "passed": None if verdict == "inconclusive" else verdict == "pass",
     }
 
 
@@ -373,7 +384,26 @@ def self_test():
     assert summary["reference_round_mad_ms"] == 2.0
     assert summary["candidate_round_mad_ms"] == 0.0
     assert summary["reference_samples"] == [10.0, 12.0, 14.0]
-    assert summary["passed"]
+    assert summary["verdict"] == "inconclusive"
+    spread_cases = [
+        ([10, 8, 12, 6, 14], [13, 11, 15, 9, 17], "inconclusive"),
+        ([9, 9, 10, 11, 11], [11.5, 11.5, 12.5, 13.5, 13.5], "inconclusive"),
+        ([10, 10, 10, 10, 10], [13, 13, 13, 13, 13], "regression"),
+        ([10, 10, 10, 10], [13, 13, 13, 13], "inconclusive"),
+        ([10, 10, 10, 10, 10], [11, 11, 11, 11, 11], "pass"),
+        ([10, 8, 12, 6, 14], [11, 9, 13, 7, 15], "inconclusive"),
+        ([10, 10, 10, 10, 20], [10, 10, 10, 20, 20], "inconclusive"),
+    ]
+    for references, candidates, expected in spread_cases:
+        rows = [
+            {"reference_median_ms": ref, "candidate_median_ms": cand,
+             "reference_samples_ms": [ref], "candidate_samples_ms": [cand]}
+            for ref, cand in zip(references, candidates)
+        ]
+        result = summarize_rounds("end_to_end", rows)
+        assert result["verdict"] == expected, result
+        assert result["passed"] is (None if expected == "inconclusive" else expected == "pass")
+    assert result["delta_ms"] == 0.0
     with tempfile.TemporaryDirectory(prefix="xsh-benchmark-status-") as directory:
         binary = os.path.join(directory, "exit-seven")
         with open(binary, "w", encoding="ascii") as handle:
@@ -395,7 +425,7 @@ def self_test():
         assert sha256_file(fixture) != digest
         assert ensure_unicode_fixture(fixture) == digest
         assert sha256_file(fixture) == digest
-    print(f"self-test: {len(cases)} budget cases match")
+    print(f"self-test: {len(cases)} budget cases and {len(spread_cases)} spread cases match")
     return 0
 
 
@@ -531,18 +561,20 @@ def main():
             print(
                 f"round={round_index + 1} {name:20s} ref={ref:8.3f} cand={cand:8.3f} "
                 f"delta={delta:+8.3f} budget={budget:7.3f} "
-                f"{'PASS' if delta <= budget else 'FAIL'}",
+                "unqualified round",
                 flush=True,
             )
 
     for entry in results["workloads"].values():
         entry.update(summarize_rounds(entry["kind"], entry["round_data"]))
         entry["performance_passed"] = entry["passed"]
-        entry["passed"] = entry["performance_passed"] and entry["parity"]["passed"]
+        entry["passed"] = entry["performance_passed"] if entry["parity"]["passed"] else False
     failed = sorted(
-        name for name, entry in results["workloads"].items() if not entry["passed"]
+        name for name, entry in results["workloads"].items() if entry["passed"] is False
     )
+    inconclusive = sorted(name for name, entry in results["workloads"].items() if entry["passed"] is None)
     results["failed"] = failed
+    results["inconclusive"] = inconclusive
     results["parity_failed"] = sorted(
         name for name, entry in results["workloads"].items() if not entry["parity"]["passed"]
     )
@@ -552,8 +584,10 @@ def main():
         json.dump(results, handle, indent=2, sort_keys=True)
     if results["parity_failed"]:
         print("parity failures: " + ", ".join(results["parity_failed"]))
-    print(f"\n{'all workloads within budget' if not failed else 'failures: ' + ', '.join(failed)}")
-    return 1 if (results["parity_failed"] if args.observe else failed) else 0
+    print("\nfailures: " + ", ".join(failed) if failed else "\nno failures")
+    if inconclusive:
+        print("inconclusive: " + ", ".join(inconclusive))
+    return 1 if (results["parity_failed"] if args.observe else failed) else 2 if inconclusive and not args.observe else 0
 
 
 if __name__ == "__main__":
