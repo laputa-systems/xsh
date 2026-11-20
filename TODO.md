@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 143
+Next: 144
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,15 @@ is deferred by the owner, with no macOS host available. The [G0 release candidat
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+
+### XSH-143 · P2 · Find why `timeout .1 tail -f` can outlive its 10 s bound on arm64 CI
+
+- **Area:** Core commands
+- **Where:** `core/tests/test-gnu-tail.xsh:556` (`test_gnu_tail_wait_log`), `core/timeout.xsh`, `core/tail.xsh:97`, `src/runtime/eval.rs` (`service_pending_signal`, `ignore_pending_primary`)
+- **Problem:** Master Test run 44713717696 (265e0626c, a docs-only commit, arm64 runner) failed only `test_gnu_tail_wait_log`: one `wrapped(s, [timeout, .1], tail -s.1 --max-unchanged-stats=1 -f|-F ...)` call hit the harness's 10 s process timeout (`timeout: process timed out`, 12.0 s), so `timeout` did not end `tail` within 10 s. The same test passed in 2.4 s on the previous run (44703633567). Suspected path, unproven: `on TERM [] {}` in core/tail.xsh, and `register_indexed_signal_hook` sets `ignore_pending_primary` when TERM is already recorded at arming; `service_pending_signal` then returns without running the hook or the unhooked shutdown, so a TERM landing between the last checkpoint and arming is dropped, while SPEC 12.2 says such a signal is treated as having no hook. Local attempts did not reproduce a hang: on x86_64 with the verification build, 100 runs at `.1` and 240 at 5 to 50 ms gave no hang with either the current code or a build that routes that case to the unhooked path. A TERM blocked and raised before exec is never delivered, so it is not a usable seam. `core/timeout.xsh`'s `send` also ignores ESRCH from `kill_group`.
+- **Recommendation:** Reproduce on arm64 under load (m1-max OrbStack linux/arm64 container with the CI image, the native case run repeatedly), with `xsht trace` or a signal trace on the `timeout` and `tail` processes to see which one is stuck and why. If the arming race is the cause, route a TERM pending at arming to the unhooked path as SPEC 12.2 states, with a regression test that lands the signal inside arming. Acceptance: the cause is named with evidence and a fix has a test that failed before it.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-112 · P4 · Port buildlib's source locks to XSH
 
