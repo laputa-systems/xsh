@@ -66,14 +66,6 @@ out of scope.
 - **Effort:** L
 
 
-### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
-
-- **Area:** Host I/O
-- **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, shutdown during a bounded poll, and a native line-protocol fixture on `lib.monotonic` deadlines: byte-fragmented and coalesced frames, EOF, a stalled peer, oversized unterminated and terminated frames, abrupt close mid-frame with a stable descriptor count, and SIGTERM mid-frame with cleanup and peer-visible closure. `unix.poll_fd` and `unix.poll_fds` both end at a handled signal, so Laputa's QMP client cancels promptly. Laputa's recorded Linux x86-64/KVM self-hosting proof corroborates a real QEMU monitor stop/resume cycle, with three seconds between acknowledgments and rejection of a resume marker before the stop acknowledgment. This retains that record's declared saved inputs; macOS remains unqualified.
-- **Recommendation:** Keep framing and QMP policy in the XSH consumer. - **Acceptance:** The same properties hold on the macOS host path, which remains owner-deferred. Real-monitor corroboration is bounded to the recorded acknowledged stop/resume cycle, not every host framing-fault case. No futures runtime or callbacks are required.
-- **Fix with:** isolate-effects
-- **Effort:** S
 
 
 
