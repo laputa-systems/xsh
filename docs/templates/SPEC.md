@@ -6066,7 +6066,9 @@ Contracts worth knowing without consulting the reference:
   close-on-exec descriptor owned by the caller, who closes it with
   `unix.close_fd`. The deadline covers connection establishment; use polling
   and a separate remaining deadline for reads and writes. Shutdown interrupts
-  a pending connection and releases its descriptor.
+  a pending connection and releases its descriptor. A listener whose backlog
+  is full keeps a Linux connection waiting until the deadline (`Timeout`);
+  macOS refuses it at once (`HostIo`, `ECONNREFUSED`).
 - Network primitives in `linux` move bytes between a script and the kernel;
   packet and message layouts stay in the script. `linux.socket` returns a
   close-on-exec descriptor number that `unix.read_fd`, `write_fd`, `poll_fd`,
