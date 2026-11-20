@@ -448,25 +448,24 @@ fn linux_priv_loop_attach_list_and_detach_release_device() {
             "\
 let device = Path({})
 let image = Path({})
+proc listed_until_released(device: Path) -> Bool {{
+  var tries = 0
+  while tries < 100 {{
+    return false unless linux.loop_list()?.collect() |> any .device == device
+    time.sleep(10ms)?
+    tries += 1
+  }}
+  true
+}}
   test.ok(linux.loop_list()?.collect() |> any .device == device)?
   linux.loop_detach(device)?
-  test.ok(! (linux.loop_list()?.collect() |> any .device == device))?
+  test.ok(! listed_until_released(device))?
   let attached = linux.loop_attach(image, device)?
   test.ok(attached == device)?
   test.ok(! linux.blockdev_info(attached)?.read_only)?
   test.ok(linux.loop_list()?.collect() |> any .device == attached)?
   linux.loop_detach(attached)?
-  var gone = false
-  var tries = 0
-  while tries < 100 {{
-    if ! (linux.loop_list()?.collect() |> any .device == attached) {{
-      gone = true
-      break
-    }}
-    time.sleep(10ms)?
-    tries += 1
-  }}
-  test.ok(gone)?
+  test.ok(! listed_until_released(attached))?
   print \"detached\"
 ",
             xsh_string_literal(device.to_str().unwrap()),
