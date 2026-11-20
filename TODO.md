@@ -87,14 +87,6 @@ out of scope.
 - **Effort:** S
 
 
-### XSH-132 · P2 · Release image inputs float with alpine:edge
-
-- **Area:** Build and release
-- **Where:** Dockerfile.test:1, Dockerfile.test:3-7, Dockerfile.test:15-16, dev/docker.xsh:70-81, .github/workflows/release.yml:72
-- **Problem:** Linux release builds run in the Dockerfile.test image, whose base is the rolling alpine:edge with unversioned apk packages and unverified rustup-init downloads. Only the Rust nightly and LLVM archive are pinned, so rebuilding a release from the same commit later uses different system headers, libraries and tools, or fails when edge changes; the release cannot be reproduced or rolled back from source.
-- **Recommendation:** Pin the base image by digest and a dated Alpine release or package snapshot, and verify the rustup-init downloads by checksum. Acceptance: two fresh image builds of the same revision on each Linux architecture resolve identical package versions and checksums and build the distribution products.
-- **Fix with:** durable-state
-- **Effort:** M
 
 ### XSH-138 · P2 · Qualify benchmark resource and tooling outcomes
 
