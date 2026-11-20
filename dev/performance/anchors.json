@@ -1,0 +1,30 @@
+{
+  "tree-memory": {
+    "value": 22417408,
+    "tolerance": 0.0778,
+    "commit": "1b7402ff830f3090eb04ad7b6f4dea7db1c97607",
+    "host": "threadripper",
+    "date": "2026-11-20"
+  },
+  "tooling-check": {
+    "value": 0.04069374594837427,
+    "tolerance": 0.2741,
+    "commit": "1b7402ff830f3090eb04ad7b6f4dea7db1c97607",
+    "host": "threadripper",
+    "date": "2026-11-20"
+  },
+  "tooling-lint": {
+    "value": 0.03369697509333491,
+    "tolerance": 0.1454,
+    "commit": "1b7402ff830f3090eb04ad7b6f4dea7db1c97607",
+    "host": "threadripper",
+    "date": "2026-11-20"
+  },
+  "artifact-size": {
+    "value": 108046536,
+    "tolerance": 0.05,
+    "commit": "1b7402ff830f3090eb04ad7b6f4dea7db1c97607",
+    "host": "threadripper",
+    "date": "2026-11-20"
+  }
+}
