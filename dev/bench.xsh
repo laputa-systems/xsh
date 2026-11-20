@@ -74,3 +74,9 @@ export proc syscalls(ctx: context.Context) [process, env, error, io] -> Result[U
     ),
   )
 }
+
+## Runs the selective benchmark registry.
+export proc pyramid(ctx: context.Context, args: List[Str]) [process, error, io] -> Result[Unit, Error] {
+  let argv = ["python3", "-B", fp"{ctx.root}/dev/performance/bench.py".display()].extend(args)
+  stages.execute(stages.command("bench", ctx.target.triple, "python3", argv, ctx.root, {}))
+}

@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 138
+Next: 141
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -104,6 +104,24 @@ out of scope.
 - **Fix with:** durable-state
 - **Effort:** M
 
+### XSH-138 · P2 · Qualify benchmark resource and tooling outcomes
+
+- **Area:** Performance
+- **Where:** docs/TESTING.md#benchmarking; dev/performance/workloads.py; bench/stdlib-port/run.py
+- **Problem:** Unproven: current fixed synthetic workloads do not establish workload-tree peak memory, representative xsht check and lint throughput, or retained artifact size budgets, so resource regressions can escape comparison.
+- **Recommendation:** Add representative completed-work oracles and scoped resource measurements with accepted anchors for those outcomes.
+- **Fix with:** refactor-benchmarks
+- **Effort:** L
+
+### XSH-140 · P2 · Restore the interactive benchmark command
+
+- **Area:** Performance
+- **Where:** dev/bench.xsh; crates/xshi/Cargo.toml; crates/xshi/benches/bench.rs
+- **Problem:** The existing benchmark alias passes only the benchmark feature, but the xshi bench target also requires laputa-asterinas; cargo bench -p xshi --bench bench --features benchmark --no-run exits before building, so the interactive baseline cannot run through that command.
+- **Recommendation:** Enable the required feature for the interactive benchmark command and verify its existing baseline and fast modes against the supported product configuration.
+- **Fix with:** root-cause
+- **Effort:** S
+
 ### XSH-39 · P3 · Qualify bounded Unix-socket I/O for VM control
 
 - **Area:** Host I/O
@@ -131,6 +149,7 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** S
 
+
 ### XSH-130 · P3 · xsht cancellation and admission tests fail on macOS
 
 - **Area:** Tooling
@@ -139,6 +158,7 @@ out of scope.
 - **Recommendation:** Check whether xsht installs its cancellation handlers before the work starts on macOS. Then check whether the admission test's 10 s budget holds on a shared Mac, or whether workers stall there. Acceptance: The three tests pass in `cargo dev test macos --ci` on native macOS and still pass on Linux.
 - **Fix with:** root-cause
 - **Effort:** S
+
 
 ### XSH-133 · P3 · Pipeline setup failures leave started stages running
 
@@ -187,6 +207,16 @@ out of scope.
 - **Problem:** The sparse record representation (SparseRecordMap, sparse_shaped constructors) appears only in value.rs and one host-API re-export in execution.rs; no caller constructs it in this repository, yet every record lookup, mutation, iteration and conversion handles it. External host consumers, such as Laputa, were not checked, so removal safety is unproven.
 - **Recommendation:** Search the known host consumers for sparse record construction; if none, remove the representation and its branches together, otherwise add a behavioural check for the consumer. Acceptance: either a real constructor caller with a test is identified, or the representation is gone and record tests pass.
 - **Fix with:** dead-code-archaeology
+- **Effort:** M
+
+
+### XSH-139 · P3 · Qualify timing gates against spread and attribution
+
+- **Area:** Performance
+- **Where:** bench/stdlib-port/run.py; dev/performance/README.md; docs/TESTING.md#profiling
+- **Problem:** The standard-library runner reports round MAD but its fixed budget decision ignores spread; current CPU phase diagnostics exclude child processes and cannot attribute tree-wide memory or I/O.
+- **Recommendation:** Compare paired measurements against observed spread and document separate process-tree CPU, allocation and syscall attribution runs.
+- **Fix with:** benchmark-checklist
 - **Effort:** M
 
 

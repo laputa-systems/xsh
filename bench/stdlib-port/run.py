@@ -407,12 +407,24 @@ def main():
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--out", default=os.path.join(HERE, "results.json"))
     parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument("--workload", action="append", choices=[row[0] for row in WORKLOADS])
+    parser.add_argument("--samples", type=int)
+    parser.add_argument("--observe", action="store_true")
     parser.add_argument(
         "--linux",
         action="store_true",
         help="the binaries are Linux builds in the Dockerfile.test container; run the Linux-only workloads",
     )
     args = parser.parse_args()
+    if args.samples is not None and args.samples < 1:
+        parser.error("--samples must be positive")
+    selected_workloads = [
+        (name, kind, args.samples or samples, linux_only)
+        for name, kind, samples, linux_only in WORKLOADS
+        if not args.workload or name in args.workload
+    ]
+    if not any(args.linux or not linux_only for _, _, _, linux_only in selected_workloads):
+        parser.error("selected workloads require --linux")
     if args.rounds < 1:
         parser.error("--rounds must be at least 1")
     if not os.path.isabs(args.reference) or not os.path.isabs(args.candidate):
@@ -469,7 +481,7 @@ def main():
         if args.linux
         else None
     )
-    for name, kind, samples, linux_only in WORKLOADS:
+    for name, kind, samples, linux_only in selected_workloads:
         if linux_only and not args.linux:
             continue
         results["workloads"][name] = {
@@ -482,7 +494,7 @@ def main():
         }
     skip_reasons = {}
     for round_index in range(args.rounds):
-        workloads = WORKLOADS if round_index % 2 == 0 else list(reversed(WORKLOADS))
+        workloads = selected_workloads if round_index % 2 == 0 else list(reversed(selected_workloads))
         selected = [
             workload for workload in workloads if args.linux or not workload[3]
         ]
@@ -541,7 +553,7 @@ def main():
     if results["parity_failed"]:
         print("parity failures: " + ", ".join(results["parity_failed"]))
     print(f"\n{'all workloads within budget' if not failed else 'failures: ' + ', '.join(failed)}")
-    return 1 if failed else 0
+    return 1 if (results["parity_failed"] if args.observe else failed) else 0
 
 
 if __name__ == "__main__":

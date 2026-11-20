@@ -30,7 +30,6 @@ type TestOptions = {kind: TestKind, ci: Bool}
 
 type CoverageOptions = {backend: Str}
 
-type BenchOptions = {fast: Bool, syscalls: Bool}
 
 type DistOptions = {docker: Str, ci: Bool}
 
@@ -105,7 +104,8 @@ commands:
   lint --fix
   test [xsh|linux|macos] [--ci]
   coverage [--backend native|docker]
-  bench [--fast|--syscalls]
+  bench --list | --check|--dry-run [--tier TIER] [--workload NAME] [--area AREA] [--skip NAME]
+  bench --tier TIER | --workload NAME [--full] | --fast | --syscalls
   dist [--target TRIPLE] [--docker auto|always|never] [--ci]
   install
   release smoke|package|core|validate [--tag RELEASE-TAG]
@@ -315,25 +315,10 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       return coverage_workflow.coverage(ctx, coverage_workflow.parse_request(options.backend)?)
     }
     "bench" => {
-      let options: BenchOptions = cli.parse(
-        args,
-        {
-          fast: {
-            form: "--fast",
-            default: false,
-            conflicts: "syscalls",
-          },
-          syscalls: {
-            form: "--syscalls",
-            default: false,
-            conflicts: "fast",
-          },
-        },
-      )?
+      return benchmarks.benchmark(ctx, true) when args == ["--fast"]
+      return benchmarks.syscalls(ctx) when args == ["--syscalls"]
+      return benchmarks.pyramid(ctx, args)
 
-      return benchmarks.syscalls(ctx) when options.syscalls
-
-      return benchmarks.benchmark(ctx, options.fast)
     }
     "dist" => {
       let parsed = cli.parse(
