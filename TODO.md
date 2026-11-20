@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 141
+Next: 143
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -177,6 +177,26 @@ out of scope.
 - **Problem:** The standard-library runner reports round MAD but its fixed budget decision ignores spread; current CPU phase diagnostics exclude child processes and cannot attribute tree-wide memory or I/O.
 - **Recommendation:** Compare paired measurements against observed spread and document separate process-tree CPU, allocation and syscall attribution runs.
 - **Fix with:** benchmark-checklist
+- **Effort:** M
+
+
+### XSH-141 · P3 · Close the remaining Graviola hygiene and CPU-gate gaps outside the SSH client
+
+- **Area:** Cryptography
+- **Where:** `crates/xsh-net/src/{lib.rs,trust.rs}`, `src/modules/crypto.rs`, ssh-build `patches/graviola/0001-ssh-chacha20-poly1305.patch`, `crates/oxish-client/vendor/graviola/src/low/x86_64/cpu.rs`
+- **Problem:** The [Graviola review](docs/reviews/XSH-111-graviola-review.md) left four Low or Info findings open. G-3: XSH's TLS, `crypto` module and SPKI digest never call a CPU gate, so a host without Graviola's features faults (for example a Raspberry Pi 4 without the crypto extensions running `net` HTTPS) instead of returning a typed error. G-2: the AVX-512 AES-GCM path leaves round keys in zmm16 to zmm31. G-6: `crypto.ed25519_verify` accepts small-order public keys, and its docs do not say so. G-7: the ChaCha20-Poly1305 patch zeroes the Poly1305 key with a plain loop the compiler may remove, and several temporaries are never wiped.
+- **Recommendation:** Gate `xsh-net` and the `crypto` module on the same feature check as `oxish-client::cpu::require`, and return the typed hardware error. Use `zeroize` for the Poly1305 key in ssh-build's patch. Document the small-order acceptance on `crypto.ed25519_verify`. Report G-2 upstream to Graviola. Acceptance: a test with a feature reported missing makes an HTTPS request and `crypto.ed25519_verify` fail with the hardware error, and the stdlib reference states the small-order behaviour.
+- **Fix with:** security
+- **Effort:** M
+
+
+### XSH-142 · P3 · Upgrade Graviola past 0.4.3 for its RSA and NIST-curve verification fixes
+
+- **Area:** Cryptography
+- **Where:** ssh-build `scripts/vendor-graviola.sh`, `patches/graviola/`, `crates/oxish-client/vendor/graviola`, workspace `[patch.crates-io]`
+- **Problem:** Graviola 0.4.1's RSA verification accepts e=1, even exponents and short signatures (`mid/rsa_pub.rs:22`, `high/rsa.rs:136-155`), and P-256 and P-384 accept public coordinates of at least p (`mid/p256.rs:264-267`), per the [Graviola review](docs/reviews/XSH-111-graviola-review.md) (G-4, G-5). Only TLS through rustls-graviola reaches them; forging with e=1 still needs a trusted or user-added CA to certify such a key.
+- **Recommendation:** Vendor Graviola 0.4.3 or later in ssh-build. Rebase the SSH ChaCha20-Poly1305 patch: 0.4.2 rewrote Poly1305 and added a NEON ChaCha20. Then revendor here. Acceptance: the 440 OpenSSH vectors in `cargo test -p oxish-graviola` pass on x86-64 Linux and macOS arm64, and a test refuses an e=1 RSA key.
+- **Fix with:** security
 - **Effort:** M
 
 

@@ -1,6 +1,6 @@
 # Native SSH
 
-`ssh` is XSH's native SSH client (experimental, see [Limits](#limits-and-threat-model)).
+`ssh` is XSH's native SSH client (see [Limits](#limits-and-threat-model)).
 It opens one TCP connection, verifies the server's host key before it sends any
 credential, authenticates one user with an Ed25519 identity, and runs command
 strings on that connection. It is ssh-build's `oxish-client` library, vendored at a pinned revision
@@ -183,7 +183,7 @@ a re-exchange is delivered afterwards, in order.
 
 Tested servers: OpenSSH 10.0 (Alpine 3.22, the loopback fixture) and Dropbear
 2026.94 (Laputa's maintained x86-64 VM, which negotiates the hybrid exchange). Graviola needs AES, PCLMULQDQ, BMI1,
-ADX, AVX and AVX2 on x86-64 and NEON, AES, PMULL and SHA-2 on aarch64; the
+BMI2, ADX, POPCNT, AVX and AVX2 on x86-64 and NEON, AES, PMULL and SHA-2 on aarch64; the
 client reports the missing feature as `SshError.Hardware` before any
 instruction runs.
 
@@ -248,16 +248,19 @@ server (`tests/protocol.rs`, `tests/hostile.rs`, `tests/descriptors.rs`) use a s
 the OxiSH server state machine, which can send the malformed and out-of-order
 traffic a real server will not.
 
-No native macOS interop run against a real server has been recorded, so macOS is
-not claimed.
+On macOS arm64 the same two commands run natively against the fixture's
+OpenSSH 10.0 servers in Docker. The last run was on 2026-11-20 at ssh-build
+`789d4cd`: the `oxish-client` suite passed 143 tests, and the 5 memory-budget
+probes, which need Linux procfs, were skipped. The native `tests/xsh/ssh-`
+suite passed 34 of 34.
 
 ## Limits and threat model
 
-The client is experimental. Passing these tests is not a security review or
-formal verification of the protocol. An independent protocol and security review
-is required before it guards anything beyond administration of hosts that the
-caller already controls; the [source review](rfc/XSH-55-native-ssh-client.md#protocol-and-security-review)
-of 2026-11-05 is not that review and lists the risks it could not demonstrate.
+Two independent reviews cover the client: one of the
+[protocol and its implementation](reviews/XSH-111-ssh-client-review.md), and one of
+the [Graviola primitives](reviews/XSH-111-graviola-review.md) it calls. Neither
+they nor the tests are formal verification of the protocol, and the residual
+findings of both are tracked in `TODO.md`.
 
 - It defends against an active network attacker who tries to impersonate the
   server (host-key verification before authentication), alter or inject packets
@@ -279,8 +282,10 @@ of 2026-11-05 is not that review and lists the risks it could not demonstrate.
   bytes, stdin bytes the client has read and output it holds for a full pipe
   are wiped when dropped or compacted, and an outgoing packet is sealed before
   its buffer can move. Graviola wipes its own signing-key, key-agreement and
-  cipher state on drop, as well as the SHA-256 contexts that hash the shared
-  secret into the exchange hash and keys. The caller's own stdin buffer,
+  cipher state on drop. The SHA-256 contexts that hash the shared secret into
+  the exchange hash and keys are wiped when they are finished, forked or
+  dropped. Some primitive temporaries and SIMD registers are not wiped; see the
+  [Graviola review](reviews/XSH-111-graviola-review.md). The caller's own stdin buffer,
   process memory dumps and swap are outside that guarantee.
 - Text the server supplies (a disconnect description, a channel-open failure
   reason, an exit-signal name, offered authentication methods and algorithm
