@@ -32,14 +32,6 @@ out of scope.
 - **Fix with:** make-invalid-states-unrepresentable
 - **Effort:** M
 
-### XSH-36 · P2 · Qualify descriptor and process ownership under failure
-
-- **Area:** Resources
-- **Where:** `src/modules/`, `src/runtime/process.rs`, `tests/xsh/process-failure-ownership.xsh`, `tests/xsh/unix-spawn-ownership.xsh`
-- **Problem:** Linux qualification found no defect: repeated failed spawns, early consumer exit, partial input and output, and descriptor inheritance leave no owned children or leaked descriptors, and a released or stale handle cannot signal a recycled pid. macOS has no qualification, and no backend limitation is recorded for it. Resolved observation: The full Linux verification at `d62ee5746` failed `core/tests/test-uu-factor.xsh::test_uu_factor_parallel` once with `io: No child process (os error 10)`. That commit added `test_unix_spawn_process_group_new_session_leads_its_own_session`, the only `unix.shutdown_process_groups` test that ran inside the native runner process. The runner runs tests concurrently on threads, and that shutdown drains every exited child with `wait(-1)`, as its PID 1 contract requires. A controlled reproduction showed it reaping another test's exited child, whose own wait then failed with ECHILD. The test now runs its scenario in a child script like its siblings, so its drain can reap only that script's children. Any new caller of `unix.shutdown_process_groups` or `unix.reap_child_events` in a native test must also run in a child script.
-- **Recommendation:** Run the same cases on macOS, where `/proc` is absent, so the child and descriptor inventories need another source. Record any backend that cannot enforce a contract instead of treating a no-op as enforcement. - **Acceptance:** The cases in `tests/xsh/process-failure-ownership.xsh` pass on native macOS. Native macOS qualification is deferred by the owner. - **Coordination:** Laputa LAP-34 exercises the service lifecycle; retain the host-process/bounded-stream concurrency model, not a new async runtime.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** S
 
 ### XSH-37 · P2 · Qualify confined filesystem operations for privileged consumers
 
@@ -128,34 +120,10 @@ out of scope.
 - **Effort:** S
 
 
-### XSH-133 · P3 · Pipeline setup failures leave started stages running
-
-- **Area:** Runtime process lifecycle
-- **Where:** src/runtime/process.rs:1265, src/runtime/process.rs:1304-1306, src/runtime/spawn.rs:258
-- **Problem:** A captured pipeline clones the shared stderr writer for each stage with try_clone()?, so a failure after earlier stages started (for example EMFILE) returns without the kill-and-wait cleanup the later setup-failure path runs. spawn::Child has no Drop, so those children keep running and become zombies in an interpreter that may catch the error and continue.
-- **Recommendation:** Give the partially started pipeline an owner that kills and reaps every started stage on every error exit and is disarmed when the normal wait takes over. Acceptance: injecting a failure after the first stage starts leaves no running or unreaped child once the caught error returns.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M
 
 
-### XSH-134 · P3 · unix.dup_fd wraps unverified descriptors in BorrowedFd and OwnedFd
-
-- **Area:** OS boundaries
-- **Where:** src/modules/unix/process.rs:44-60, src/modules/unix/process.rs:132-140
-- **Problem:** duplicate and duplicate_fd build BorrowedFd::borrow_raw from a script-supplied number without knowing it is open, and duplicate builds OwnedFd::from_raw_fd for a target that may be closed or owned elsewhere. Both violate the documented safety contracts; the kernel's EBADF and the immediate into_raw_fd keep it benign today, but any panic or refactor between wrap and release would close a descriptor the script owns.
-- **Recommendation:** Call dup2/dup3 on raw descriptors through an API that does not assert Rust ownership or a valid borrow, and keep the startup-stdio bookkeeping. Acceptance: invalid source, unopened target and already-open target cases return the specified results with no BorrowedFd or OwnedFd created from an unverified number.
-- **Fix with:** os-boundaries
-- **Effort:** S
 
 
-### XSH-135 · P3 · SSH options reject non-UTF-8 key, agent and known_hosts paths
-
-- **Area:** Remote execution
-- **Where:** src/modules/ssh.rs:67-72, docs/ssh.md:39
-- **Problem:** path_field decodes every SSH path option as UTF-8 before building a PathBuf, so a valid Unix key file, agent socket or known_hosts file whose name has non-UTF-8 bytes fails as an Options error, although these are documented Path inputs and Paths carry native bytes elsewhere.
-- **Recommendation:** Build the OS path from the native bytes (OsStr::from_bytes) as other Unix path boundaries do. Acceptance: a connection using a key, known_hosts file and agent socket under non-UTF-8 names reaches the same authentication and trust outcomes as UTF-8 names.
-- **Fix with:** os-boundaries
-- **Effort:** S
 
 
 
