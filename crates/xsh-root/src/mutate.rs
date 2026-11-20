@@ -276,11 +276,16 @@ impl Root {
                 unsafe { libc::mknodat(fd, leaf.as_ptr(), mode as libc::mode_t | file_type, dev) }
             }
         };
-        if status == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
+        if status != 0 {
+            return Err(io::Error::last_os_error());
         }
+        chmodat(
+            target.parent.fd(),
+            target.leaf.as_os_str(),
+            mode_bits(mode),
+            AtFlags::empty(),
+        )
+        .map_err(io::Error::from)
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
