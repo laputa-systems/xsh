@@ -75,7 +75,7 @@ impl BenchSession {
     pub fn list_len(&self, args: &[String]) -> usize {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let status = builtin::list_directory(args, &mut stdout, &mut stderr);
+        let status = builtin::list_directory(args, false, &mut stdout, &mut stderr);
         stdout.len() + stderr.len() + status as usize
     }
 

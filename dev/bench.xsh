@@ -41,7 +41,7 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
     "--bench",
     "bench",
     "--features",
-    "benchmark",
+    "benchmark,laputa-asterinas",
   ]
   stages.execute(
     stages.command(
