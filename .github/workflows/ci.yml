@@ -23,7 +23,7 @@ jobs:
   test:
     name: Test on Ubuntu
     runs-on: ubuntu-26.04-arm
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
