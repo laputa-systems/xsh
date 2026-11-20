@@ -90,7 +90,7 @@ pub mod value {
         CommandRedirectionStream, DigestValue, DurationValue, ErrorContext, FloatValue,
         FsEntryKind, FsEntryValue, FunctionName, MapKey, MapKeyRef, PathValue, ProcessHandleValue,
         RecordIter, RecordKeys, RecordMap, RecordShape, RecordShapeData, RecordValues, RegexValue,
-        ResultValue, RunError, RuntimeError, RuntimeShapeStats, SparseRecordMap, StreamItem,
+        ResultValue, RunError, RuntimeError, RuntimeShapeStats, StreamItem,
         StreamValue, Value, error_constructor, run_error_constructor, run_error_from_status,
         runtime_shape_stats, structured_error_constructor,
     };

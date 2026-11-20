@@ -58,13 +58,6 @@ impl RecordShape {
             data: intern_record_shape(names),
         }
     }
-
-    fn index_of(&self, key: &str) -> Option<usize> {
-        self.data
-            .texts
-            .iter()
-            .position(|field| field.as_str() == key)
-    }
 }
 
 fn runtime_record_shapes() -> &'static RwLock<RuntimeRecordShapes> {
@@ -177,14 +170,13 @@ pub enum RecordMap {
         // whole value vector. `get_mut`/`insert` copy-on-write via `Arc::make_mut`.
         values: Arc<[Value]>,
     },
-    SparseShaped(Arc<SparseRecordMap>),
 }
 
 impl RecordMap {
     pub(crate) fn shared_identity(&self) -> Option<(&Arc<RecordShapeData>, &Arc<[Value]>)> {
         match self {
             Self::Shaped { shape, values } => Some((shape, values)),
-            Self::Dynamic(_) | Self::SparseShaped(_) => None,
+            Self::Dynamic(_) => None,
         }
     }
 }
@@ -199,13 +191,6 @@ impl PartialEq for RecordMap {
 }
 
 impl Eq for RecordMap {}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SparseRecordMap {
-    shape: Arc<RecordShapeData>,
-    defaults: &'static [Value],
-    overrides: Arc<[(usize, Value)]>,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FsEntryKind {
@@ -390,55 +375,6 @@ impl RecordMap {
         }
     }
 
-    pub fn sparse_shaped(
-        shape: &RecordShape,
-        defaults: &'static [Value],
-        overrides: Vec<(&str, Value)>,
-    ) -> Self {
-        let overrides = overrides
-            .into_iter()
-            .map(|(key, value)| {
-                let index = shape
-                    .index_of(key)
-                    .unwrap_or_else(|| panic!("unknown sparse record field `{key}`"));
-                (index, value)
-            })
-            .collect();
-        Self::sparse_shaped_indices(shape, defaults, overrides)
-    }
-
-    pub fn sparse_shaped_indices(
-        shape: &RecordShape,
-        defaults: &'static [Value],
-        overrides: Vec<(usize, Value)>,
-    ) -> Self {
-        let overrides = Arc::from(overrides.into_boxed_slice());
-        Self::sparse_shaped_arc(shape, defaults, overrides)
-    }
-
-    pub fn sparse_shaped_array<const N: usize>(
-        shape: &RecordShape,
-        defaults: &'static [Value],
-        overrides: [(usize, Value); N],
-    ) -> Self {
-        let overrides: Arc<[(usize, Value)]> = Arc::new(overrides);
-        Self::sparse_shaped_arc(shape, defaults, overrides)
-    }
-
-    fn sparse_shaped_arc(
-        shape: &RecordShape,
-        defaults: &'static [Value],
-        overrides: Arc<[(usize, Value)]>,
-    ) -> Self {
-        assert_eq!(shape.data.names.len(), defaults.len());
-        debug_assert!(overrides.iter().all(|(index, _)| *index < defaults.len()));
-        Self::SparseShaped(Arc::new(SparseRecordMap {
-            shape: Arc::clone(&shape.data),
-            defaults,
-            overrides,
-        }))
-    }
-
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Self::Dynamic(fields) => fields.get(key),
@@ -447,14 +383,6 @@ impl RecordMap {
                 .iter()
                 .position(|field| field.as_str() == key)
                 .map(|index| &values[index]),
-            Self::SparseShaped(sparse) => sparse
-                .shape
-                .texts
-                .iter()
-                .position(|field| field.as_str() == key)
-                .map(|index| {
-                    sparse_shaped_value(sparse.defaults, sparse.overrides.as_ref(), index)
-                }),
         }
     }
 
@@ -469,14 +397,6 @@ impl RecordMap {
                 .iter()
                 .position(|field| *field == key)
                 .map(|index| &values[index]),
-            Self::SparseShaped(sparse) => sparse
-                .shape
-                .names
-                .iter()
-                .position(|field| *field == key)
-                .map(|index| {
-                    sparse_shaped_value(sparse.defaults, sparse.overrides.as_ref(), index)
-                }),
         }
     }
 
@@ -488,7 +408,6 @@ impl RecordMap {
                 .iter()
                 .position(|field| field.as_str() == key)
                 .map(|index| &mut Arc::make_mut(values)[index]),
-            Self::SparseShaped(_) => self.ensure_dynamic().get_mut(key),
         }
     }
 
@@ -512,7 +431,6 @@ impl RecordMap {
         match self {
             Self::Dynamic(fields) => fields.len(),
             Self::Shaped { values, .. } => values.len(),
-            Self::SparseShaped(sparse) => sparse.shape.names.len(),
         }
     }
 
@@ -524,7 +442,6 @@ impl RecordMap {
         match self {
             Self::Dynamic(fields) => RecordKeys::Dynamic(fields.keys()),
             Self::Shaped { shape, .. } => RecordKeys::Shaped(shape.texts.iter()),
-            Self::SparseShaped(sparse) => RecordKeys::Shaped(sparse.shape.texts.iter()),
         }
     }
 
@@ -532,12 +449,6 @@ impl RecordMap {
         match self {
             Self::Dynamic(fields) => RecordValues::Dynamic(fields.values()),
             Self::Shaped { values, .. } => RecordValues::Shaped(values.iter()),
-            Self::SparseShaped(sparse) => RecordValues::SparseShaped {
-                len: sparse.shape.names.len(),
-                defaults: sparse.defaults,
-                overrides: sparse.overrides.as_ref(),
-                index: 0,
-            },
         }
     }
 
@@ -547,12 +458,6 @@ impl RecordMap {
             Self::Shaped { shape, values, .. } => RecordIter::Shaped {
                 keys: shape.texts.iter(),
                 values: values.iter(),
-            },
-            Self::SparseShaped(sparse) => RecordIter::SparseShaped {
-                keys: sparse.shape.texts.iter(),
-                defaults: sparse.defaults,
-                overrides: sparse.overrides.as_ref(),
-                index: 0,
             },
         }
     }
@@ -564,17 +469,11 @@ impl RecordMap {
                 keys: shape.texts.iter(),
                 values: values.iter(),
             },
-            Self::SparseShaped(sparse) => RecordOwnedKeyIter::SparseShaped {
-                keys: sparse.shape.texts.iter(),
-                defaults: sparse.defaults,
-                overrides: sparse.overrides.as_ref(),
-                index: 0,
-            },
         }
     }
 
     fn ensure_dynamic(&mut self) -> &mut BTreeMap<Arc<str>, Value> {
-        if matches!(self, Self::Shaped { .. } | Self::SparseShaped(_)) {
+        if matches!(self, Self::Shaped { .. }) {
             let mut fields = BTreeMap::new();
             for (key, value) in self.iter() {
                 fields.insert(Arc::from(key), value.clone());
@@ -638,20 +537,6 @@ impl IntoIterator for RecordMap {
                 .zip(values.iter().cloned())
                 .collect::<Vec<_>>()
                 .into_iter(),
-            Self::SparseShaped(sparse) => sparse
-                .shape
-                .texts
-                .iter()
-                .enumerate()
-                .map(|(index, key)| {
-                    (
-                        Arc::from(key.as_str()),
-                        sparse_shaped_value(sparse.defaults, sparse.overrides.as_ref(), index)
-                            .clone(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_iter(),
         }
     }
 }
@@ -671,12 +556,6 @@ pub enum RecordIter<'a> {
         keys: std::slice::Iter<'a, NameText>,
         values: std::slice::Iter<'a, Value>,
     },
-    SparseShaped {
-        keys: std::slice::Iter<'a, NameText>,
-        defaults: &'static [Value],
-        overrides: &'a [(usize, Value)],
-        index: usize,
-    },
 }
 
 pub(crate) enum RecordOwnedKeyIter<'a> {
@@ -684,12 +563,6 @@ pub(crate) enum RecordOwnedKeyIter<'a> {
     Shaped {
         keys: std::slice::Iter<'a, NameText>,
         values: std::slice::Iter<'a, Value>,
-    },
-    SparseShaped {
-        keys: std::slice::Iter<'a, NameText>,
-        defaults: &'static [Value],
-        overrides: &'a [(usize, Value)],
-        index: usize,
     },
 }
 
@@ -702,17 +575,6 @@ impl<'a> Iterator for RecordOwnedKeyIter<'a> {
                 .next()
                 .map(|(key, value)| (NameText::Dynamic(Arc::clone(key)), value)),
             Self::Shaped { keys, values } => keys.next().cloned().zip(values.next()),
-            Self::SparseShaped {
-                keys,
-                defaults,
-                overrides,
-                index,
-            } => {
-                let key = keys.next()?.clone();
-                let value = sparse_shaped_value(defaults, overrides, *index);
-                *index += 1;
-                Some((key, value))
-            }
         }
     }
 }
@@ -727,17 +589,6 @@ impl<'a> Iterator for RecordIter<'a> {
                 .next()
                 .zip(values.next())
                 .map(|(key, value)| (key.as_str(), value)),
-            Self::SparseShaped {
-                keys,
-                defaults,
-                overrides,
-                index,
-            } => {
-                let key = keys.next()?;
-                let value = sparse_shaped_value(defaults, overrides, *index);
-                *index += 1;
-                Some((key.as_str(), value))
-            }
         }
     }
 }
@@ -761,12 +612,6 @@ impl<'a> Iterator for RecordKeys<'a> {
 pub enum RecordValues<'a> {
     Dynamic(std::collections::btree_map::Values<'a, Arc<str>, Value>),
     Shaped(std::slice::Iter<'a, Value>),
-    SparseShaped {
-        len: usize,
-        defaults: &'static [Value],
-        overrides: &'a [(usize, Value)],
-        index: usize,
-    },
 }
 
 impl<'a> Iterator for RecordValues<'a> {
@@ -776,32 +621,8 @@ impl<'a> Iterator for RecordValues<'a> {
         match self {
             Self::Dynamic(iter) => iter.next(),
             Self::Shaped(iter) => iter.next(),
-            Self::SparseShaped {
-                len,
-                defaults,
-                overrides,
-                index,
-            } => {
-                if *index >= *len {
-                    return None;
-                }
-                let value = sparse_shaped_value(defaults, overrides, *index);
-                *index += 1;
-                Some(value)
-            }
         }
     }
-}
-
-fn sparse_shaped_value<'a>(
-    defaults: &'static [Value],
-    overrides: &'a [(usize, Value)],
-    index: usize,
-) -> &'a Value {
-    overrides
-        .iter()
-        .find_map(|(candidate, value)| (*candidate == index).then_some(value))
-        .unwrap_or(&defaults[index])
 }
 
 const QUALIFIED_FUNCTION_TAG: u32 = 1;
@@ -2208,6 +2029,24 @@ mod tests {
     use std::collections::BTreeMap;
     use std::mem::size_of;
     use std::sync::Arc;
+
+    #[test]
+    fn record_storage_preserves_fields_when_extended() {
+        SymbolOwner::new().with_current(|| {
+            let mut record = RecordMap::from([(Arc::from("a"), Value::Int(1))]);
+            let storage_len = |record: &RecordMap| match record {
+                RecordMap::Dynamic(fields) => fields.len(),
+                RecordMap::Shaped { values, .. } => values.len(),
+            };
+            assert_eq!((storage_len(&record), record.get("a")), (1, Some(&Value::Int(1))));
+            record.insert(Arc::from("b"), Value::Int(2));
+            assert_eq!(storage_len(&record), 2);
+            assert_eq!(record.into_iter().collect::<Vec<_>>(), vec![
+                (Arc::from("a"), Value::Int(1)),
+                (Arc::from("b"), Value::Int(2)),
+            ]);
+        });
+    }
 
     #[test]
     fn shaped_records_support_name_lookup() {
