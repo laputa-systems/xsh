@@ -469,7 +469,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
 """,
     status: 0,
     stdout: [
-      "[docker-image-build target=x86_64-unknown-linux-musl] docker build",
+      "[docker-image-pull target=x86_64-unknown-linux-musl] docker pull",
       "[docker-dist target=x86_64-unknown-linux-musl] docker run",
       "StageError.Failed",
     ],
@@ -478,6 +478,8 @@ match docker.run_internal(ctx, "dist", false, []) {{
       PATH: tools,
       CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_TEST_IMAGE: "",
+      XSH_TEST_IMAGE_BUILD: "0",
     },
   )?
   assert "run" in docker_marker.read_text()?
@@ -512,7 +514,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
     status: 0,
     stdout: ["[docker-image-build target=x86_64-unknown-linux-musl] docker build"],
     args: [],
-    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", XSH_TEST_IMAGE_BUILD: "1", XSH_TEST_IMAGE: "fixture"},
   )?
   assert "[docker-dist" not in result.stdout, result.stdout
   assert docker_marker.read_text()?.starts_with("build|--provenance=false|"), docker_marker.read_text()?
@@ -825,7 +827,7 @@ print docker.resolve_image(ctx)?
     status: 0,
     stdout: [built],
     args: [],
-    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", DOCKER_PLATFORM: "linux/amd64"},
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", DOCKER_PLATFORM: "linux/amd64", XSH_TEST_IMAGE_BUILD: "1", XSH_TEST_IMAGE: "fixture"},
   )?
 }
 

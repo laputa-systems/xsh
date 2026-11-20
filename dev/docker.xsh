@@ -35,14 +35,16 @@ proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTo
   {mold: mold, kache: kache}
 }
 
-## Computes the Docker image name from the supported environment override.
-export proc image_name() [env, error] -> Result[Str, Error] {
-  let image = env.get_or("XSH_TEST_IMAGE", "xsh-test")?.trim()
-  if image == "" {
-    "xsh-test"
-  } else {
-    image
+## Resolve the pinned image and reject a Dockerfile changed since it was built.
+export proc image_name(ctx: context.Context) [env, fs, error] -> Result[Str, Error] {
+  let override_value = env.get_or("XSH_TEST_IMAGE", "")?.trim()
+  return override_value when override_value != ""
+  return "xsh-test" when env.get_or("XSH_TEST_IMAGE_BUILD", "0")?.trim() == "1"
+  let lock = fp"{ctx.root}/dev/images.lock".read_lines()?
+  guard lock.len() == 2 and hash.sha256(fp"{ctx.root}/Dockerfile.test")?.hex() == lock[1] else {
+    return Err(error.failure("stale image lock: run cargo dev image build, publish the layout, and repin dev/images.lock"))
   }
+  lock[0]
 }
 
 ## Computes the Docker platform while allowing the explicit environment override.
@@ -79,22 +81,26 @@ pure image_build(ctx: context.Context, image: Str, selected_platform: Str, extra
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
-export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Result[Str, Error] {
-  let image = image_name()?
+export proc ensure_image(ctx: context.Context) [fs, process, env, error, io] -> Result[Str, Error] {
+  let image = image_name(ctx)?
   let selected_platform = platform(ctx)?
-  let build_image = env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim()
+  let build_image = env.get_or("XSH_TEST_IMAGE_BUILD", "0")?.trim()
 
-  if build_image == "0" {
-    stages.execute(
-      stages.command(
-        "docker-image-inspect",
-        ctx.target.triple,
-        "docker",
-        ["docker", "image", "inspect", image],
-        ctx.root,
-        {},
-      ),
-    )
+  if build_image != "1" {
+    if env.get_or("XSH_TEST_IMAGE", "")?.trim() == "" {
+      stages.execute(stages.command("docker-image-pull", ctx.target.triple, "docker", ["docker", "pull", "--platform", selected_platform, image], ctx.root, {}))
+    } else {
+      stages.execute(
+        stages.command(
+          "docker-image-inspect",
+          ctx.target.triple,
+          "docker",
+          ["docker", "image", "inspect", image],
+          ctx.root,
+          {},
+        ),
+      )
+    }
   } else {
     stages.execute(image_build(ctx, image, selected_platform, []))
   }
@@ -110,11 +116,14 @@ pure valid_image_identity(identity: Str) -> Bool {
   true
 }
 
-## Resolves the immutable ID of the test image. Unless XSH_TEST_IMAGE_BUILD is 0 the image is built first and its ID
+## Resolves the immutable ID of the test image. When XSH_TEST_IMAGE_BUILD is 1 the image is built first and its ID
 ## is read from the build, so a retag between the build and a lookup cannot change it.
 export proc resolve_image(ctx: context.Context) [fs, process, env, error, io] -> Result[Str, Error] {
-  let image = image_name()?
-  if env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim() == "0" {
+  let image = image_name(ctx)?
+  if env.get_or("XSH_TEST_IMAGE_BUILD", "0")?.trim() != "1" {
+    if env.get_or("XSH_TEST_IMAGE", "")?.trim() == "" {
+      stages.execute(stages.command("docker-image-pull", ctx.target.triple, "docker", ["docker", "pull", "--platform", platform(ctx)?, image], ctx.root, {}))
+    }
     let inspection = run.capture --text docker image inspect --format "{{.Id}}" $image
     let raw = inspection.status.shell_code()?
     return Err(ImageError.Cancelled(raw_status: raw)) when raw == 130

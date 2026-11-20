@@ -31,8 +31,13 @@ jobs:
         with:
           lfs: true
 
-      - name: Build pinned Linux test image
-        run: docker build --platform linux/arm64 -t xsh-test -f Dockerfile.test .
+      - name: Pull pinned Linux test image
+        run: |
+          expected="$(sed -n '2p' dev/images.lock)"
+          actual="$(sha256sum Dockerfile.test | cut -d ' ' -f 1)"
+          test "$actual" = "$expected" || { echo 'stale image lock: run cargo dev image build, publish the layout, and repin dev/images.lock' >&2; exit 1; }
+          image="$(sed -n '1p' dev/images.lock)"
+          docker pull --platform linux/arm64 "$image"
 
       - name: Ensure Linux tests pass
         run: |
@@ -44,4 +49,4 @@ jobs:
             -e TARGET=aarch64-unknown-linux-musl -e DIST_PROFILE=verification \
             -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
-            xsh-test cargo dev internal test-linux-ci
+            "$(sed -n '1p' dev/images.lock)" cargo dev internal test-linux-ci
