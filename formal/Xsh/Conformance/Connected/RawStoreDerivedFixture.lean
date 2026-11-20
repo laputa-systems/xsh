@@ -5,7 +5,7 @@ import Xsh.Conformance.Connected.RawStoreFixture
 namespace Xsh.Conformance.Connected
 open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Semantics.Connected Xsh.Conformance.Transport
 
-def emptyRawRows : RawInstructionRows := ⟨[], [], [], [], [], [], [], [], [], [], []⟩
+def emptyRawRows : RawInstructionRows := ⟨[], [], [], [], [], [], [], [], [], [], [], []⟩
 
 def exportedRawRows (codes : List Nat) : RawInstructionRows :=
   ((parseCodes codes).bind decodeRawInstructionRows).getD emptyRawRows

@@ -347,7 +347,33 @@ fn wire_flag(value: bool) -> WireValue {
     wire_string(if value { "1" } else { "0" })
 }
 
-fn encode_instructions(rows: &RawFullRows) -> Result<String, CandidateDecodeError> {
+fn encode_instructions(rows: &RawFullRows, symbols: &crate::symbol::SymbolOwner) -> Result<String, CandidateDecodeError> {
+    let _symbols = symbols.enter();
+    let mut labels = Vec::<(u32, String)>::new();
+    for (tag, data) in rows.tags.iter().zip(&rows.data) {
+        let path = match tag { FullTag::ExprRecord => 0, FullTag::StmtAssignPath => 1, _ => continue };
+        let block_id = *rows.extra.get(data.lhs as usize + path).ok_or_else(|| CandidateDecodeError::Malformed("missing label block".into()))?;
+        let block = rows.blocks.get(block_id.checked_sub(1).ok_or_else(|| CandidateDecodeError::Malformed("missing label block".into()))? as usize)
+            .ok_or_else(|| CandidateDecodeError::Malformed("invalid label block".into()))?;
+        let start = block.instructions.start as usize;
+        let end = start.checked_add(block.instructions.len as usize).ok_or_else(|| CandidateDecodeError::Malformed("label block overflow".into()))?;
+        let words = rows.extra.get(start..end).ok_or_else(|| CandidateDecodeError::Malformed("invalid label block range".into()))?;
+        let (&count, mut rest) = words.split_first().ok_or_else(|| CandidateDecodeError::Malformed("empty label block".into()))?;
+        for _ in 0..count {
+            let (&kind, tail) = rest.split_first().ok_or_else(|| CandidateDecodeError::Malformed("truncated label block".into()))?;
+            let width = if path == 0 { match kind { 0 => 2, 1 => 1, _ => return Err(CandidateDecodeError::Malformed("invalid record entry".into())) } }
+                else { match kind { 0 | 1 | 3 | 4 => 1, 2 => 2, _ => return Err(CandidateDecodeError::Malformed("invalid assignment step".into())) } };
+            if tail.len() < width { return Err(CandidateDecodeError::Malformed("truncated label entry".into())); }
+            if kind == 0 {
+                let symbol = tail[0];
+                let spelling = Name::from_symbol(Symbol::from_raw(symbol)).as_str().to_string();
+                if spelling == "<invalid-symbol>" { return Err(CandidateDecodeError::Malformed("label has no spelling".into())); }
+                if !labels.iter().any(|entry| entry.0 == symbol) { labels.push((symbol, spelling)); }
+            }
+            rest = &tail[width..];
+        }
+        if !rest.is_empty() { return Err(CandidateDecodeError::Malformed("extra label block words".into())); }
+    }
     let tags = rows.tags.iter().map(|tag| {
         if !CONNECTED_TAGS.contains(tag) {
             return Err(CandidateDecodeError::UnsupportedTag(tag.name().to_string()));
@@ -376,6 +402,10 @@ fn encode_instructions(rows: &RawFullRows) -> Result<String, CandidateDecodeErro
         ("locationSources", WireValue::Array(rows.location_sources.iter().map(|source| wire_string(format!("{:08x}", source.raw()))).collect())),
         ("strings", WireValue::Array(rows.strings.iter().copied().map(wire_range).collect())),
         ("stringBytes", WireValue::Array(rows.string_bytes.iter().map(|value| wire_word(u32::from(*value))).collect())),
+        ("labels", WireValue::Array(labels.iter().map(|(symbol, spelling)| wire_object([
+            ("symbol", wire_word(*symbol)),
+            ("bytes", WireValue::Array(spelling.bytes().map(|byte| wire_word(u32::from(byte))).collect())),
+        ])).collect())),
     ]);
     deser_json::to_string(&wire).map_err(|error| CandidateDecodeError::Malformed(error.to_string()))
 }
@@ -390,7 +420,7 @@ fn decode_flag(value: WireValue) -> Result<bool, CandidateDecodeError> {
 
 fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeError> {
     let mut object = parse_object_fields(parse_wire_document(input)?,
-        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes"])?;
+        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes", "labels"])?;
     let tags = take_array(&mut object, "tags")?.into_iter().map(|value| {
         let mut row = parse_object_fields(value, &["name", "ordinal"])?;
         let name = take_string(&mut row, "name")?;
@@ -435,6 +465,14 @@ fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeEr
             .map_err(|_| CandidateDecodeError::Malformed("string byte is out of range".to_string())),
         _ => Err(CandidateDecodeError::Malformed("string byte is not a string".to_string())),
     }).collect::<Result<Vec<_>, CandidateDecodeError>>()?;
+    for label in take_array(&mut object, "labels")? {
+        let mut fields = parse_object_fields(label, &["symbol", "bytes"])?;
+        parse_hex_u32(&take_string(&mut fields, "symbol")?)?;
+        for byte in take_array(&mut fields, "bytes")? {
+            let WireValue::String(text) = byte else { return Err(CandidateDecodeError::Malformed("label byte is not a string".into())); };
+            u8::try_from(parse_hex_u32(&text)?).map_err(|_| CandidateDecodeError::Malformed("label byte is out of range".into()))?;
+        }
+    }
     Ok(RawInstructions { tags, resource_transfers, checked_call_target_required, data, extra, assign_ops, binary_ops, locations, location_sources, strings, string_bytes })
 }
 
@@ -668,11 +706,11 @@ fn scoped_instruction_exchange_retains_assignment_operations() {
     assert!(raw.rows.tags.contains(&FullTag::StmtAssignPath));
     assert!(raw.rows.tags.contains(&FullTag::ExprUnit));
     assert!(raw.rows.resource_transfers.iter().any(|marked| *marked));
-    let actual = encode_instructions(&raw.rows).unwrap();
+    let actual = encode_instructions(&raw.rows, program.symbol_owner()).unwrap();
     assert!(matches!(decode_instructions(&actual), Err(CandidateDecodeError::UnsupportedFeature(_))));
     let mut unmarked = raw.rows.clone();
     unmarked.resource_transfers.fill(false);
-    let encoded = encode_instructions(&unmarked).unwrap();
+    let encoded = encode_instructions(&unmarked, program.symbol_owner()).unwrap();
     let decoded = decode_instructions(&encoded).unwrap();
     assert_eq!(decoded.tags, unmarked.tags);
     assert_eq!(decoded.data, unmarked.data);
@@ -752,7 +790,7 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let (_, _, generic_program) = build_fixture(generic_source).unwrap();
     let generic_raw = RawFullProgram::capture(&generic_program);
     FullVerifier::verify(&generic_raw.clone().into_program()).unwrap();
-    let generic_bytes = encode_instructions(&generic_raw.rows).unwrap();
+    let generic_bytes = encode_instructions(&generic_raw.rows, generic_program.symbol_owner()).unwrap();
     assert!(matches!(decode_instructions(&generic_bytes), Err(CandidateDecodeError::UnsupportedFeature(_))));
 
     let source = "pure number(value: Int) -> Int { value + 1 }\nassert number(7) == 8\n";
@@ -760,7 +798,7 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let raw = RawFullProgram::capture(&program);
     let owner_bytes = encode_owner(&raw).unwrap();
     let owner = decode_owner(&owner_bytes, &program.sources).unwrap();
-    let instruction_bytes = encode_instructions(&raw.rows).unwrap();
+    let instruction_bytes = encode_instructions(&raw.rows, program.symbol_owner()).unwrap();
     let instructions = decode_instructions(&instruction_bytes).unwrap();
     assert_eq!(instructions.assign_ops, raw.rows.assign_ops);
     assert_eq!(instructions.binary_ops, raw.rows.binary_ops);
@@ -965,7 +1003,7 @@ fn raw_local_declarations_bind_source_sites_to_store_rows() {
         let raw = RawFullProgram::capture(&program);
         for (name, exported) in [
             (format!("{prefix}LocalDeclarationsCodes"), export_local_declarations(&program, 1).unwrap()),
-            (format!("{prefix}RawInstructionCodes"), encode_instructions(&raw.rows).unwrap()),
+            (format!("{prefix}RawInstructionCodes"), encode_instructions(&raw.rows, program.symbol_owner()).unwrap()),
             (format!("{prefix}RawFunctionCodes"), encode_functions(&raw.rows).unwrap()),
             (format!("{prefix}RawParameterCodes"), encode_parameters(&raw.rows).unwrap()),
         ] {
@@ -1117,7 +1155,7 @@ fn result_control_rows_and_signatures_are_the_lean_documents() {
     let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
     let mut stale = Vec::new();
     for (name, exported) in [
-        ("resultRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultRawInstructionCodes", encode_instructions(&raw.rows, program.symbol_owner()).unwrap()),
         ("resultRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
         ("resultRawParameterCodes", encode_parameters(&raw.rows).unwrap()),
         ("resultSignatureCodes", signatures.clone()),
@@ -1149,7 +1187,7 @@ fn result_call_rows_and_signatures_are_the_lean_documents() {
     let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
     let mut stale = Vec::new();
     for (name, exported) in [
-        ("resultCallRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultCallRawInstructionCodes", encode_instructions(&raw.rows, program.symbol_owner()).unwrap()),
         ("resultCallRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
         ("resultCallRawParameterCodes", encode_parameters(&raw.rows).unwrap()),
         ("resultCallSignatureCodes", signatures.clone()),
@@ -1178,4 +1216,23 @@ fn result_call_rows_and_signatures_are_the_lean_documents() {
     let mut forged = published;
     forged.declarations.bodies.selected_function_calls.remove(&call);
     assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+}
+
+#[test]
+fn connected_record_labels_match_lean_document() {
+    let source = "pure build(value: Int) { let box = {name: value, size: value + 1}; box }\n";
+    let (_, _, program) = build_fixture(source).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    assert!(raw.rows.tags.contains(&FullTag::ExprRecord));
+    let document = encode_instructions(&raw.rows, program.symbol_owner()).unwrap();
+    let functions = encode_functions(&raw.rows).unwrap();
+    let lean = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/formal/Xsh/Conformance/Connected/RawRecordDocuments.lean")).unwrap();
+    let mut stale = Vec::new();
+    for (name, exported) in [("recordRawInstructionCodes", document), ("recordRawFunctionCodes", functions)] {
+        if lean_document_from(&lean, name).as_deref() != Some(exported.as_str()) {
+            stale.push(lean_definition(name, &exported));
+        }
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
 }
