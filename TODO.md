@@ -167,4 +167,3 @@ out of scope.
 - **Recommendation:** In the fork, give each bridge a feature that enables `dep:X` and `X/std` together so `std` no longer names the optional crates; publish and update XSH. - **Acceptance:** XSH's `Cargo.lock` contains no Deser bridge crate that no enabled feature builds.
 - **Fix with:** none
 - **Effort:** S
-
