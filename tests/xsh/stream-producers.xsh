@@ -49,7 +49,7 @@ test test_stream_producers_are_lazy_and_stop_where_the_consumer_stops { |ctx|
 test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
   let pidfile = test.temp_path(ctx, name: "owned-process-stream-pid")
   {
-    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile
+    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1.tmp && mv $1.tmp $1; exec sleep 30" sh $pidfile
     for _ in range(100) {
       break when pidfile.exists()
       time.sleep(10ms)
@@ -90,7 +90,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
   }
   {
     var current = null
-    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1.tmp && mv $1.tmp $1; exec sleep 30" sh $first_pidfile
     for _ in range(100) {
       break when first_pidfile.exists()
       time.sleep(10ms)
@@ -101,7 +101,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
     current = null
     let first_survived_discard = process.kill(first_pid, signal: "0") is Ok(_)
 
-    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $second_pidfile
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1.tmp && mv $1.tmp $1; exec sleep 30" sh $second_pidfile
     for _ in range(100) {
       break when second_pidfile.exists()
       time.sleep(10ms)
