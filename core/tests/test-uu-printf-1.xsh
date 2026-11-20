@@ -273,7 +273,8 @@ test test_uu_printf_float_large_precision { |ctx|
   let s = uu.scene(ctx)?
   let r1 = uu.invoke(s, "printf", ["%.30f", "0.1"])?
   uu.succeeds(r1)
-  let expected = if system.uname()?.sysname == "Linux" { b"0.100000000000000000001355252716" } else { b"0.100000000000000005551115123126" }
+  let host = system.uname()?
+  let expected = if host.machine == "x86_64" { b"0.100000000000000000001355252716" } else if host.sysname == "Linux" { b"0.100000000000000000000000000000" } else { b"0.100000000000000005551115123126" }
   uu.stdout_is_bytes(r1, expected)
   uu.stderr_is_bytes(r1, b"")
 }

@@ -455,12 +455,21 @@ test test_printf_zero_precision_and_zero_integer { |ctx|
   assert output.stderr == ""
 }
 
+## The C `long double` printf uses: x87 extended on x86-64, IEEE quad on
+## aarch64 Linux, and plain double on Apple arm64.
+proc long_double() [env, error] -> Result[Str] {
+  let host = system.uname()?
+  return Ok("x87") when host.machine == "x86_64"
+  return Ok("quad") when host.sysname == "Linux"
+  Ok("double")
+}
+
 test test_printf_hexadecimal_float_and_character_constant { |ctx|
   let output = printf_run(ctx, ["%a|%A|%i", ".875", ".875", "'a"])?
   let float_character = printf_bytes_run(ctx, ["%f", "'á"])?
 
   assert output.status == 0, output.stderr
-  assert output.stdout == (if system.uname()?.sysname == "Darwin" { "0x1.cp-1|0X1.CP-1|97" } else { "0xep-4|0XEP-4|97" })
+  assert output.stdout == (if long_double()? == "x87" { "0xep-4|0XEP-4|97" } else { "0x1.cp-1|0X1.CP-1|97" })
   assert output.stderr == ""
   assert float_character.status == 0, float_character.stderr.utf8() ?? "invalid UTF-8 diagnostic"
   assert float_character.stdout == b"225.000000"
@@ -524,10 +533,10 @@ test test_printf_long_double_rounding_beyond_double_precision { |ctx|
   let tie_to_even_up = printf_run(ctx, ["%.18f", "0.1234567890123456775"])?
 
   assert literal.status == 0, literal.stderr
-  assert literal.stdout == (if system.uname()?.sysname == "Darwin" { "0.100000000000000005551115123126" } else { "0.100000000000000000001355252716" })
+  assert literal.stdout == (match long_double()? { "x87" => "0.100000000000000000001355252716", "quad" => "0.100000000000000000000000000000", else => "0.100000000000000005551115123126" })
   assert negative.status == 0, negative.stderr
   assert negative.stdout == "-0.25000000000000000000"
-  assert rounded.stdout == (if system.uname()?.sysname == "Darwin" { "0.123456789012345677" } else { "0.123456789012345679" })
+  assert rounded.stdout == (if long_double()? == "double" { "0.123456789012345677" } else { "0.123456789012345679" })
   assert tie_to_even.stdout == "0.123456789012345677"
   assert tie_to_even_up.stdout == "0.123456789012345677"
   assert literal.stderr == "" and rounded.stderr == ""
@@ -573,12 +582,12 @@ test test_printf_c_locale_character_constant_preserves_warning_bytes { |ctx|
 test test_printf_long_double_decimal_and_hex_rounding { |ctx|
   let output = printf_run(ctx, ["%f|%a|%.1a|%.1a", "0.9999995", "1", ".999", "1.1"])?
   assert output.status == 0, output.stderr
-  assert output.stdout == (if system.uname()?.sysname == "Darwin" { "1.000000|0x1p+0|0x2.0p-1|0x1.2p+0" } else { "0.999999|0x8p-3|0x1.0p+0|0x8.dp-3" })
+  assert output.stdout == (if long_double()? == "x87" { "0.999999|0x8p-3|0x1.0p+0|0x8.dp-3" } else { "1.000000|0x1p+0|0x2.0p-1|0x1.2p+0" })
 }
 
 test test_printf_hexadecimal_long_double_ties_padding_and_subnormal { |ctx|
-  let subnormal = if system.uname()?.sysname == "Darwin" { "0x1p-1074" } else { "0x1p-16445" }
+  let subnormal = if long_double()? == "double" { "0x1p-1074" } else { "0x1p-16445" }
   let output = printf_run(ctx, ["%015a|%.0a|%#.0a|%.2a|%.0a|%a", "1", ".999", "1", ".999", "1.0625", subnormal])?
   assert output.status == 0, output.stderr
-  assert output.stdout == (if system.uname()?.sysname == "Darwin" { "0x0000000001p+0|0x2p-1|0x1.p+0|0x1.ffp-1|0x1p+0|0x1p-1074" } else { "0x0000000008p-3|0x1p+0|0x8.p-3|0xf.fcp-4|0x8p-3|0x0.000000000000001p-16385" })
+  assert output.stdout == (match long_double()? { "x87" => "0x0000000008p-3|0x1p+0|0x8.p-3|0xf.fcp-4|0x8p-3|0x0.000000000000001p-16385", "quad" => "0x0000000001p+0|0x2p-1|0x1.p+0|0x1.ffp-1|0x1p+0|0x1p-16445", else => "0x0000000001p+0|0x2p-1|0x1.p+0|0x1.ffp-1|0x1p+0|0x1p-1074" })
 }

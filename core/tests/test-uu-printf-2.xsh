@@ -168,7 +168,7 @@ test test_uu_printf_sub_num_float_round_to_one { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", ["one is %f", "0.9999995"])?
   uu.succeeds(r0)
-  let expected = if system.uname()?.sysname == "Linux" { "one is 0.999999" } else { "one is 1.000000" }
+  let expected = if system.uname()?.machine == "x86_64" { "one is 0.999999" } else { "one is 1.000000" }
   uu.stdout_only(r0, expected)
 }
 
@@ -177,7 +177,7 @@ test test_uu_printf_sub_num_hex_float_lower { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", ["%a", ".875"])?
   uu.succeeds(r0)
-  let expected = if system.uname()?.sysname == "Linux" { "0xep-4" } else { "0x1.cp-1" }
+  let expected = if system.uname()?.machine == "x86_64" { "0xep-4" } else { "0x1.cp-1" }
   uu.stdout_only(r0, expected)
 }
 
@@ -186,7 +186,7 @@ test test_uu_printf_sub_num_hex_float_upper { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "printf", ["%A", ".875"])?
   uu.succeeds(r0)
-  let expected = if system.uname()?.sysname == "Linux" { "0XEP-4" } else { "0X1.CP-1" }
+  let expected = if system.uname()?.machine == "x86_64" { "0XEP-4" } else { "0X1.CP-1" }
   uu.stdout_only(r0, expected)
 }
 
