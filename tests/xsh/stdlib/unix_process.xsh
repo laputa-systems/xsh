@@ -554,3 +554,22 @@ test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
   test.error_kind(unix.exec_env(command, empty, argv0: "bad\u{0}name"), "unix-exec-env")
   assert ! output.exists()?
 }
+
+test test_unix_dup_fd_validates_source_and_replaces_closed_and_open_targets { |ctx|
+  let input = test.temp_file(ctx, contents: b"abcdef")?
+  let other = test.temp_file(ctx, contents: b"other")?
+  let result = test.expect(ctx, r"""let source = unix.open_fd(Path(args[0]))?
+let other = unix.open_fd(Path(args[1]))?
+assert unix.dup_fd(2147483647, 100) is Err(is HostIo)
+assert unix.duplicate_fd(2147483647) is Err(is HostIo)
+unix.dup_fd(source, 100)?
+assert unix.read_fd(100, 2)? == b"ab"
+unix.dup_fd(other, 101)?
+unix.dup_fd(source, 101)?
+assert unix.read_fd(101, 2)? == b"cd"
+unix.dup_fd(100, 0)?
+unix.exec(process.command_argv("cat", ["cat"]))?
+""", status: 0, args: [input, other])?
+  assert result.stdout == "ef"
+  assert result.stderr == ""
+}

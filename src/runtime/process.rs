@@ -1242,6 +1242,28 @@ enum StageFailure {
     Skip,
 }
 
+#[cfg(test)]
+thread_local! {
+    static PIPELINE_CLONE_FAILURE: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+struct StartingPipeline {
+    children: Vec<StartedChild>,
+    group: Option<ProcessGroup>,
+}
+
+impl Drop for StartingPipeline {
+    fn drop(&mut self) {
+        if let Some(group) = self.group {
+            group.kill();
+        }
+        for started in &mut self.children {
+            let _ = started.child.kill();
+            let _ = started.child.wait();
+        }
+    }
+}
+
 /// Spawns every segment into one process group, stopping at the first setup
 /// failure (recorded as that segment's status). `stderr` is a shared pipe
 /// every segment writes to, or `None` to inherit.
@@ -1262,7 +1284,7 @@ fn start_pipeline(
             "Bytes input is only valid on the first byte pipeline segment",
         ));
     }
-    let mut children: Vec<StartedChild> = Vec::new();
+    let mut starting = StartingPipeline { children: Vec::new(), group: None };
     let mut previous_stdout: Option<ChildStdout> = None;
     let mut last_stdout = None;
     let mut segment_statuses: Vec<Option<ProcessSegmentStatus>> = vec![None; invocations.len()];
@@ -1302,6 +1324,11 @@ fn start_pipeline(
         } else {
             ChildStdio::Piped
         };
+        #[cfg(test)]
+        if index == 1 && stderr.is_some() && PIPELINE_CLONE_FAILURE.with(|hook| hook.get().is_some()) {
+            PIPELINE_CLONE_FAILURE.with(|hook| hook.set(Some(starting.children[0].child.id())));
+            return Err(map_spawn_error(io::Error::from_raw_os_error(libc::EMFILE)));
+        }
         let stderr_stdio = match stderr {
             Some(writer) => ChildStdio::from(writer.try_clone().map_err(map_spawn_error)?),
             None => ChildStdio::Inherit,
@@ -1329,12 +1356,6 @@ fn start_pipeline(
                     previous_stdout = None;
                     continue;
                 }
-                if let Some(group) = process_group {
-                    group.kill();
-                    for started in &mut children {
-                        let _ = started.child.wait();
-                    }
-                }
                 return Err(error);
             }
         };
@@ -1343,15 +1364,13 @@ fn start_pipeline(
                 let group = process_group.unwrap_or_else(|| {
                     let group = ProcessGroup::from_child(&child);
                     process_group = Some(group);
+                    starting.group = Some(group);
                     group
                 });
                 assign_child_to_process_group(&child, group);
                 if let Err(error) = cgroup.assign_pid(i64::from(child.id())) {
                     group.kill();
                     let _ = child.wait();
-                    for started in &mut children {
-                        let _ = started.child.wait();
-                    }
                     return Err(map_cgroup_error(error));
                 }
                 let pid = Some(child.id());
@@ -1364,13 +1383,10 @@ fn start_pipeline(
                     Ok(input) => input,
                     Err(error) => {
                         group.kill();
-                        for started in &mut children {
-                            let _ = started.child.wait();
-                        }
                         return Err(error);
                     }
                 };
-                children.push(StartedChild {
+                starting.children.push(StartedChild {
                     input,
                     index,
                     target: invocation.target.clone(),
@@ -1397,8 +1413,9 @@ fn start_pipeline(
     }
 
     drop(previous_stdout);
+    starting.group = None;
     Ok(StartedPipeline {
-        children,
+        children: std::mem::take(&mut starting.children),
         segment_statuses,
         group: process_group,
         stdout: last_stdout,
@@ -4767,6 +4784,34 @@ pub fn path_bytes(path: &Path) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipeline_clone_failure_reaps_started_stage() {
+        let invocation = ProcessInvocation {
+            target: b"/bin/sleep".to_vec(),
+            argv: vec![b"30".to_vec()],
+            cwd: std::env::current_dir().unwrap(),
+            env: BTreeMap::new(),
+            env_overlay: BTreeMap::new(),
+            redirections: Vec::new(),
+            timeout: None,
+            cpu_max: None,
+            accepted_exit_codes: None,
+            namespaces: None,
+            confinement: None,
+            rooted_executable: None,
+        };
+        let (_reader, writer) = io::pipe().unwrap();
+        PIPELINE_CLONE_FAILURE.with(|hook| hook.set(Some(0)));
+        assert!(start_pipeline(&[invocation.clone(), invocation], true, Some(&writer), StageFailure::Halt).is_err());
+        let pid = rprocess::Pid::from_raw(PIPELINE_CLONE_FAILURE.with(|hook| hook.replace(None).unwrap()) as i32).unwrap();
+        let result = rprocess::waitpid(Some(pid), rprocess::WaitOptions::NOHANG);
+        if matches!(result, Ok(None)) {
+            let _ = rprocess::kill_process(pid, rprocess::Signal::KILL);
+            let _ = rprocess::waitpid(Some(pid), rprocess::WaitOptions::empty());
+        }
+        assert!(matches!(result, Err(rustix::io::Errno::CHILD)), "started child was still running or unreaped: {result:?}");
+    }
 
     #[test]
     fn raw_wait_status_distinguishes_exit_signal_and_stop() {
