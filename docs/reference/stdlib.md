@@ -90,7 +90,7 @@ CPU capability queries.
 
 Ed25519 signature verification.
 
-- `crypto.ed25519_verify(message: Bytes, public_key: Bytes, signature: Bytes) -> Result[Bool, Error]` — Verifies a detached RFC 8032 Ed25519 signature.
+- `crypto.ed25519_verify(message: Bytes, public_key: Bytes, signature: Bytes) -> Result[Bool, Error]` — Verifies a detached RFC 8032 Ed25519 signature. Small-order public keys are accepted, as in OpenSSH; callers taking untrusted keys must check them.
 
 ### `csv`
 

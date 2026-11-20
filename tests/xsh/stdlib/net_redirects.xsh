@@ -155,6 +155,7 @@ pure cause(failure: Error) -> Str {
     NetError.Connect => "connect"
     NetError.ConnectTimeout => "connect-timeout"
     NetError.Timeout => "timeout"
+    NetError.Hardware => "hardware"
     NetError.Tls => "tls"
     NetError.Certificate => "certificate"
     NetError.TrustStore => "trust-store"

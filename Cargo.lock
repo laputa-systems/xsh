@@ -642,6 +642,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "graviola-cpu"
+version = "0.0.1"
+
+[[package]]
 name = "h12tiny-client"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2624,6 +2628,7 @@ dependencies = [
  "futures-rustls",
  "getrandom 0.3.4",
  "graviola",
+ "graviola-cpu",
  "http",
  "laputa-deser",
  "laputa-deser-csv",
@@ -2698,6 +2703,7 @@ version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
  "graviola",
+ "graviola-cpu",
  "h12tiny-client",
  "http",
  "http-body-util",

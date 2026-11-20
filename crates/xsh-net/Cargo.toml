@@ -15,6 +15,7 @@ crossbeam-channel = "0.5"
 futures-lite = { package = "laputa-futures-lite", version = "=0.3.0", registry = "mycrates", default-features = false, features = ["race", "std"] }
 h12tiny-client = { version = "=0.9.0", default-features = false, features = ["http1", "http2", "tls"] }
 graviola = "0.4"
+graviola-cpu = { path = "../graviola-cpu" }
 webpki = { package = "rustls-webpki", version = "0.103.16", default-features = false, features = ["std"] }
 http = "1"
 http-body-util = "0.1"

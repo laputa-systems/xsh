@@ -1246,7 +1246,8 @@ return. Every variant carries `message` and `status: Int?`, the HTTP status of
 `Status` and `null` otherwise. `Dns` is a name that does not resolve,
 `Connect` a refused or unreachable peer, `ConnectTimeout` and `Timeout` the
 phase that ran out of time (both implement the `Timeout` facet), `Certificate`
-a rejected peer certificate, `Tls` any other handshake failure, `TrustStore`
+a rejected peer certificate, `Tls` any other handshake failure, `Hardware` a
+missing CPU feature named in the message, `TrustStore`
 an unusable CA bundle or trust policy, `EmptyReply` a connection closed before a
 response, `Status` a response that `fail_status` turned into a failure,
 `Redirect` a redirect that was not followed (more than `redirects` of them, or
@@ -5503,7 +5504,10 @@ Contracts worth knowing without consulting the reference:
   failures return structured `Err` values with kinds
   `crypto-ed25519-public-key-length`,
   `crypto-ed25519-signature-length`, `crypto-ed25519-public-key`, or
-  `crypto-ed25519-provider`. The operation is pure and has no filesystem or
+  `crypto-ed25519-provider`. A missing CPU feature returns
+  `crypto-ed25519-hardware` with the feature named in the message. Small-order
+  public keys are accepted, as in OpenSSH; callers taking untrusted keys must
+  check them. The operation is pure and has no filesystem or
   network effects.
 - `net.pool` `idle_timeout` and every HTTP request timeout (`timeout`,
   `dns_timeout`, `connect_timeout`, `tls_timeout`, `headers_timeout`, and
