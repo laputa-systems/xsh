@@ -6,6 +6,7 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use std::fs::OpenOptions;
 use std::io;
+use std::mem::ManuallyDrop;
 use rustix::io as rio;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
@@ -41,29 +42,42 @@ fn descriptor(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
         .ok_or_else(|| invalid(kind, "fd must be between 0 and 2147483647", span))
 }
 
+fn checked_fd<'a>(fd: libc::c_int, kind: &str, span: Span) -> Result<BorrowedFd<'a>, RuntimeError> {
+    crate::startup_stdio::check(fd).map_err(|error| host_error(kind, error, span))?;
+    if unsafe { libc::fcntl(fd, libc::F_GETFD) } == -1 {
+        return Err(host_error(kind, io::Error::last_os_error(), span));
+    }
+    // SAFETY: F_GETFD established that the descriptor is open; the caller must keep it open throughout the borrow.
+    Ok(unsafe { BorrowedFd::borrow_raw(fd) })
+}
+
 /// Descriptor replacement must survive exec, including when open allocated
 /// the target descriptor itself or source and target were already equal.
 fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -> Result<(), RuntimeError> {
-    // SAFETY: both numbers are descriptors this process addresses by value;
-    // the kernel rejects one that is not open.
-    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
-    let source_fd = unsafe { BorrowedFd::borrow_raw(source) };
-    if source != target {
-        // dup2 takes the replaced descriptor as an owner so that it can be
-        // closed and reopened in one step. The target stays the script's own
-        // descriptor, so ownership is released again on every path.
-        // SAFETY: the target may not be open yet; it is never closed by drop.
-        let mut replaced = unsafe { OwnedFd::from_raw_fd(target) };
-        let duplicated = rio::dup2(source_fd, &mut replaced);
-        let _ = replaced.into_raw_fd();
-        duplicated.map_err(|error| host_error(kind, io::Error::from(error), span))?;
-        crate::startup_stdio::replaced(target);
-        return Ok(());
+    let source_fd = checked_fd(source, kind, span)?;
+    if source == target {
+        let cleared = rio::fcntl_getfd(source_fd)
+            .and_then(|flags| rio::fcntl_setfd(source_fd, flags - rio::FdFlags::CLOEXEC));
+        cleared.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+    } else if unsafe { libc::fcntl(target, libc::F_GETFD) } != -1 {
+        // SAFETY: F_GETFD established that the target is open; ManuallyDrop retains the caller's ownership and the caller must keep it open during replacement.
+        let mut target_fd = ManuallyDrop::new(unsafe { OwnedFd::from_raw_fd(target) });
+        rio::dup2(source_fd, &mut target_fd)
+            .map_err(|error| host_error(kind, io::Error::from(error), span))?;
+    } else {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EBADF) {
+            return Err(host_error(kind, error, span));
+        }
+        let duplicated = rio::fcntl_dupfd_cloexec(source_fd, target)
+            .map_err(|error| host_error(kind, io::Error::from(error), span))?;
+        if duplicated.as_raw_fd() != target {
+            return Err(host_error(kind, io::Error::from_raw_os_error(libc::EBUSY), span));
+        }
+        rio::fcntl_setfd(&duplicated, rio::FdFlags::empty())
+            .map_err(|error| host_error(kind, io::Error::from(error), span))?;
+        let _ = duplicated.into_raw_fd();
     }
-    // dup2 onto itself leaves the close-on-exec flag alone, so it is cleared.
-    let cleared = rio::fcntl_getfd(source_fd)
-        .and_then(|flags| rio::fcntl_setfd(source_fd, flags - rio::FdFlags::CLOEXEC));
-    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))?;
     crate::startup_stdio::replaced(target);
     Ok(())
 }
@@ -134,11 +148,8 @@ fn duplicate_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let span = args.span();
     let source = descriptor(args.int(0)?, kind, span)?;
     let min_fd = descriptor(args.int_or(1, 3)?, kind, span)?;
-    // SAFETY: the kernel validates the borrowed descriptor; ownership of the
-    // new close-on-exec descriptor passes to the script.
-    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
-    let source = unsafe { BorrowedFd::borrow_raw(source) };
-    let saved = rio::fcntl_dupfd_cloexec(source, min_fd)
+    let source_fd = checked_fd(source, kind, span)?;
+    let saved = rio::fcntl_dupfd_cloexec(source_fd, min_fd)
         .map_err(|error| host_error(kind, io::Error::from(error), span))?;
     Ok(Value::ok(Value::Int(i64::from(saved.into_raw_fd()))))
 }
