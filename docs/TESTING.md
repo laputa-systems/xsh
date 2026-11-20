@@ -528,8 +528,10 @@ answers `tcgetattr` with `EIO`, so the seeded SIGHUP is delivered directly.
 SIGKILL of the runner cannot restore a terminal and stays out of scope, and
 macOS is owner-deferred. `tests/xsh/process-failure-ownership.xsh` holds the
 focused failed-spawn, early-exit, partial I/O, descriptor-inheritance and
-recycled-pid cases; the recycled-pid case needs unprivileged user and pid
-namespaces and skips without them.
+recycled-pid cases. They run on Linux and macOS: the inventories read
+`/proc` on Linux and `/dev/fd` and `pgrep -P` on macOS. The recycled-pid case
+needs Linux `ns_last_pid` in unprivileged user and pid namespaces and skips
+without them.
 
 Rust files such as `tests/grammar.rs` are modules of the `integration` target,
 not standalone Cargo test targets. For a pure grammar check, select
