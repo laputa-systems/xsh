@@ -39,6 +39,9 @@ jobs:
           image="$(sed -n '1p' dev/images.lock)"
           docker pull --platform linux/arm64 "$image"
 
+      - name: Allow unprivileged user namespaces
+        run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+
       - name: Ensure Linux tests pass
         run: |
           mkdir -p .work/tmp
@@ -47,6 +50,6 @@ jobs:
             -e CARGO_INCREMENTAL=0 \
             -e CARGO_BUILD_TARGET=aarch64-unknown-linux-musl \
             -e TARGET=aarch64-unknown-linux-musl -e DIST_PROFILE=verification \
-            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            -e HOST_UID=1000 -e HOST_GID=1000 \
             -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
             "$(sed -n '1p' dev/images.lock)" cargo dev internal test-linux-ci
