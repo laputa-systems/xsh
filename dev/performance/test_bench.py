@@ -1,4 +1,5 @@
 import argparse
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -23,6 +24,11 @@ class SelectionTests(unittest.TestCase):
             args = options()
             for key, value in changes.items(): setattr(args, key, value)
             with self.assertRaises(ValueError): bench.select(args)
+
+    def test_hot_process_warning_makes_timing_inconclusive(self):
+        self.assertTrue(bench.ready(subprocess.CompletedProcess([], 0, stdout='')))
+        self.assertFalse(bench.ready(subprocess.CompletedProcess([], 0, stdout='perf-gate-ready: hot process tree')))
+        self.assertFalse(bench.ready(subprocess.CompletedProcess([], 1, stdout='')))
 
     def test_preflight_reports_missing_product_for_each_consumer(self):
         rows = [row for row in bench.REGISTRY if row[0] in ('consolidation-startup', 'stdlib-cold')]

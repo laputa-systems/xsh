@@ -139,6 +139,10 @@ def preflight(selected):
     return failures
 
 
+def ready(result):
+    return result is not None and result.returncode == 0 and 'hot process tree' not in result.stdout
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--list', action='store_true')
@@ -169,8 +173,8 @@ def main():
         newest = max((p.stat().st_mtime for directory in ('src', 'crates', 'core') for p in (ROOT / directory).rglob('*.rs')), default=0)
         if BINARY.stat().st_mtime < newest: print(f'warning: {BINARY} may be stale; rebuild it if unintended')
     if args.check:
-        ready = subprocess.run(['perf-gate-ready'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if shutil.which('perf-gate-ready') else None
-        print('host readiness: ' + ('ready' if ready and ready.returncode == 0 else 'inconclusive'))
+        host_ready = subprocess.run(['perf-gate-ready'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if shutil.which('perf-gate-ready') else None
+        print('host readiness: ' + ('ready' if ready(host_ready) else 'inconclusive'))
         print('preflight passed; nothing ran')
         return 0
     run = ROOT / '.work/bench' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
@@ -186,8 +190,8 @@ def main():
             result = subprocess.run(command(name, out), stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
         duration = time.monotonic() - start
         after = subprocess.run(['perf-gate-ready', '-1'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if before else None
-        valid = name == 'harness-tests' or (before is not None and before.returncode == 0 and after.returncode == 0)
-        records.append({'workload': name, 'exit': result.returncode, 'duration_seconds': duration, 'timing_validity': 'valid' if valid else 'inconclusive: host readiness failed', 'readiness_before': before.stdout if before else None, 'readiness_after': after.stdout if after else None, 'verdict': 'inconclusive' if not valid or name in ('stdlib-cold', 'stdlib-full') else 'completion is not a performance verdict'})
+        valid = name == 'harness-tests' or (ready(before) and ready(after))
+        records.append({'workload': name, 'exit': result.returncode, 'duration_seconds': duration, 'timing_validity': 'valid' if valid else 'inconclusive: host contention or readiness check failed', 'readiness_before': before.stdout if before else None, 'readiness_after': after.stdout if after else None, 'verdict': 'inconclusive' if not valid or name in ('stdlib-cold', 'stdlib-full') else 'completion is not a performance verdict'})
     summary = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip()), 'workloads': records, 'exclusions': dict(excluded)}
     (run / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(f'summary: {run / "summary.json"}')
