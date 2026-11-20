@@ -2,7 +2,7 @@
 
 Source: `https://github.com/laputa-systems/ssh-build`.
 
-Revision: `4552fe0948cb1951ac0b53acfe07edf78ef90287`
+Revision: `143f5006974b9c1dab0d42bec909f68755013539`
 
 `crates/oxish-client` is ssh-build's `client/` crate (`oxish-client`) at that
 revision, with the files the XSH library does not use left out: `src/bin`, the
@@ -26,8 +26,8 @@ Included:
 - `oxish-graviola` 0.2.0 from ssh-build `vendor/oxish/oxish-graviola`, which is
   the same upstream revision plus `0003-oxish-graviola.patch`. License:
   Apache-2.0 OR MIT.
-- `graviola` 0.4.1, crates.io checksum
-  `e8596c4fa98466aae2fcf4c72a665bc0e021c0aaab1e47d82044d3dc3e309a76`, plus
+- `graviola` 0.4.5, crates.io checksum
+  `bc0377ccc5ef095424121430046e475cf06658e23475b1af526655cfad0b86b2`, plus
   ssh-build `patches/graviola/0001-ssh-chacha20-poly1305.patch`. License:
   Apache-2.0 OR ISC OR MIT-0 (`LICENSE-GRAVIOLA`).
 
@@ -46,7 +46,9 @@ made standalone so this workspace does not need ssh-build's workspace fields:
 dependency versions are spelled out, the inherited lint table is replaced by
 `[lints.clippy] all = "allow"` so the repository clippy gate (`-D warnings`,
 root `clippy.toml`) does not apply to vendored source, and `oxish-graviola` names its sibling `graviola` by path. The
-Graviola manifest drops its non-root resolver and inferable readme fields. The
+Graviola manifest drops its non-root resolver and inferable readme fields, and keeps
+its optional `crabgrind` (feature `__ctgrind`, never enabled here) at 0.2.6, the
+version the crate mirror carries. The
 workspace also patches crates.io `graviola` to this same path so one copy serves
 XSH and `oxish-client`.
 

@@ -84,7 +84,7 @@ directories = "6.0.0"
 fastrand = "=2.4.1"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
-graviola = "=0.4.1"
+graviola = "=0.4.5"
 graviola-cpu = { path = "crates/graviola-cpu" }
 ignore = { package = "laputa-ignore", version = "=0.4.33", registry = "mycrates" }
 md-5 = "0.11"
@@ -112,7 +112,6 @@ tempfile = "3"
 unicode-width = "=0.2.2"
 xsh-net = { path = "crates/xsh-net", optional = true }
 oxish-client = { path = "crates/oxish-client", optional = true }
-getrandom = "0.3"
 xsh-archive = { path = "crates/xsh-archive" }
 xsh-registry = { path = "crates/xsh-registry" }
 xsh-root = { path = "crates/xsh-root" }

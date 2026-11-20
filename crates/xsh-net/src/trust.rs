@@ -708,4 +708,23 @@ mod tests {
         assert_eq!(roots_from_bytes(&[(PathBuf::from("curl.pem"), bundle)], &[]).unwrap().len(), 2);
     }
 
+    fn pkcs1_rsa_public_key(exponent: u8) -> Vec<u8> {
+        let mut modulus = vec![0x00, 0xc1];
+        modulus.extend(std::iter::repeat_n(0x5a, 254));
+        modulus.push(0x01);
+        let mut body = vec![0x02, 0x82, 0x01, 0x01];
+        body.extend(&modulus);
+        body.extend([0x02, 0x01, exponent]);
+        let mut der = vec![0x30, 0x82, (body.len() >> 8) as u8, body.len() as u8];
+        der.extend(body);
+        der
+    }
+
+    #[test]
+    fn rsa_public_keys_with_exponent_one_or_even_are_refused() {
+        use graviola::signing::rsa::VerifyingKey;
+        assert!(VerifyingKey::from_pkcs1_der(&pkcs1_rsa_public_key(1)).is_err());
+        assert!(VerifyingKey::from_pkcs1_der(&pkcs1_rsa_public_key(4)).is_err());
+        assert!(VerifyingKey::from_pkcs1_der(&pkcs1_rsa_public_key(3)).is_ok());
+    }
 }
