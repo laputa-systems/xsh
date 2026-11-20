@@ -1098,9 +1098,26 @@ harness operation, not a regression verdict. Existing `--fast` allocation and
 | Startup | comparative `startup`, exact stdout, status and unchanged effects | fresh-process wall time; `xsht runtime-stats` for XSH phases |
 | Script throughput | standard-library frozen scripts, reference/candidate output and effect parity | paired wall samples; phase statistics and CPU profiles |
 | Process spawn and pipelines | comparative `spawn` and `pipeline`, fixed output and effects | wall time including helpers; `xsht trace --syscalls` for helper activity |
-| Stream memory | performance adapter stream counts and exact output | no simultaneous process-tree peak budget; use separate allocation profiling |
-| Check and lint | inference workload fixtures and frontend statistics | solver counters support attribution; representative end-to-end timing remains a gap |
-| Artifact size | release products | no benchmark registry budget or completed-work oracle |
+| Tree memory | `tree-memory`, 16 pipeline outputs and zero status | cgroup v2 `memory.peak` for a fresh container, including the workload tree and Python driver |
+| Check and lint | `tooling-check` and `tooling-lint`, six fixed `core/lib` and `core/tests` files, zero findings | median of five serial corpus wall times and files per second |
+| Artifact size | `artifact-size`, all three nonempty ELF release products | total unstripped bytes, with individual product sizes |
+
+The new workloads use the image pinned in `dev/images.lock`. They record the source commit and dirty state, binary SHA-256
+identities, readiness checks, oracle and metric in `.work/bench/`. A result is
+within budget or a regression only when both readiness checks succeed and an
+anchor exists for the same host; otherwise it is inconclusive. Capture anchors on a quiet host
+with clean source and the release products built as above:
+
+```sh
+cargo dev bench --workload tree-memory --workload tooling-check --workload tooling-lint --workload artifact-size --write-anchors
+```
+
+This writes `dev/performance/anchors.json` with each value, a 5% tolerance,
+commit, host and date. The timings use warm filesystem caches and a fixed subset,
+not the full repository. The memory peak includes the driver and container
+charges, and is not an allocation profile. Artifact sizes are unstripped
+release products and must be compared with like builds; the records in
+[release engineering](RELENG.md#size-record) use stripped products.
 
 The comparative workloads use synthetic fixtures and warm filesystem caches;
 parity precedes each timed sample. Their process CPU and peak RSS are charged to
