@@ -323,3 +323,51 @@ run sh -c r"trap '' USR1; (sleep 2; printf leaked > $1) & kill -USR1 $PPID; wait
   time.sleep(2300ms)
   assert ! leaked.exists()?
 }
+
+test test_signal_recorded_while_its_hook_is_armed_takes_the_unhooked_path { |ctx|
+  let root = test.temp_dir(ctx, name: "hook-arming")?
+  let marker = fp"{root}/marker"
+  let hook_marker = fp"{root}/hook"
+  let continued = fp"{root}/continued"
+  # `on TERM` arms by installing the handler and then reading the pending
+  # signal. A TERM recorded in that span arrived while no hook existed, so it
+  # must shut the script down without running the hook; dropping it would let
+  # the script continue, and running the hook would touch `hook`.
+  #
+  # Arming materializes one slot per referenced top-level binding, and each
+  # lookup scans the driver's slot list, so the 8192 bindings below widen that
+  # span to roughly 30 ms and the helper's 8 ms delay lands inside it on every
+  # run.
+  let bindings = [f"let top_{index} = {index}" for index in range(8192)].join("\n")
+  let hook_slots = [f"  let used_{index} = top_{index}" for index in range(8192)].join("\n")
+  let started = time.now()
+  let output = test.expect(
+    ctx,
+    f"""let marker = Path(args[0])
+let hook_marker = Path(args[1])
+let continued = Path(args[2])
+
+{bindings}
+
+let me = process.current_pid()?
+let helper = ["sh", "-c", f"(while ! test -e {{marker.display()}}; do :; done; sleep 0.008; kill -TERM {{me}}) >/dev/null 2>&1 &", "helper"]
+let _origin = process.spawn(process.command_argv("sh", helper))?
+marker.touch()?
+on TERM [process, fs, error] {{
+{hook_slots}
+  hook_marker.touch()?
+  exit 143
+}}
+continued.touch()?
+time.sleep(300ms)
+""",
+    status: 3,
+    args: [marker, hook_marker, continued],
+    name: "armed-in-flight",
+  )?
+  assert ! hook_marker.exists()?, "the hook ran for a signal recorded before it was armed"
+  assert ! continued.exists()?, "the signal recorded during arming was dropped"
+  assert output.stdout == ""
+  assert time.now() - started < 5000
+}
+

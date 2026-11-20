@@ -4208,7 +4208,15 @@ impl Evaluator {
         if self.signal_state.hook_started || self.signal_state.shutdown_complete {
             return Ok(());
         }
-        let Some(hook) = self.signal_hooks.get(&primary.name).cloned() else {
+        // A signal recorded before its own hook was armed arrived while no hook
+        // existed for it, so it takes the unhooked path: it still shuts the
+        // script down, and only the hook is skipped.
+        let hook = self
+            .signal_hooks
+            .get(&primary.name)
+            .cloned()
+            .filter(|hook| !hook.ignore_pending_primary);
+        let Some(hook) = hook else {
             if !self.process_handles.is_empty()
                 || self.live_process_streams > 0
                 || !self.net_jobs.is_empty()
@@ -4233,9 +4241,6 @@ impl Evaluator {
             self.signal_state.shutdown_complete = true;
             return Ok(());
         };
-        if hook.ignore_pending_primary {
-            return Ok(());
-        }
 
         self.signal_state.hook_started = true;
         self.signal_state.hook_span = Some(hook.span);
