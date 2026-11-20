@@ -202,13 +202,13 @@ configuration-management framework; xsh-infra is a separate application.
 native SSH client on OxiSH's sans-I/O protocol code and Graviola, exposed
 through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) provides
 xsh-infra, a small pyinfra-inspired configuration-management tool written in
-XSH in its own repository, as the first substantial consumer: native Rust
+XSH in Laputa's `xinfra/` tree, as the first substantial consumer: native Rust
 handles SSH protocol and I/O, XSH handles infrastructure policy.
 
 ### Sequence
 
-XSH-55 and xsh-infra have delivered Linux implementations. Qualification and
-review of xsh-infra remain open in its RFC. The core corpus runs natively on an arm64 Mac,
+XSH-55 and xsh-infra are delivered; xsh-infra is qualified on Linux and macOS
+arm64 controllers (see its RFC). The core corpus runs natively on an arm64 Mac,
 apart from load-sensitive cases (see
 [Testing](TESTING.md#native-macos-qualification)). The native client is qualified
 on Linux x86-64 musl and macOS arm64 and reviewed (see [Native SSH](ssh.md#limits-and-threat-model)). Laputa's administration library

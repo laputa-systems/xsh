@@ -23,22 +23,23 @@ container suite also passes. Laputa package, account and OpenRC resources,
 and xinit `enabled`, remain refused under that dialect. These results retain
 their recorded source and platform identities.
 
-macOS controller (2026-11-20, m1-max, XSH `20b1706c2`, vendored `e293bfd`):
-all 156 tests that reach Alpine targets pass, including every `test-alpine-*`
-suite and `test-transport-ssh`, with the fixture changed to publish sshd on
-loopback because macOS cannot route to Docker bridge addresses. The 24 tests
-that use the controller as their target need Linux target facilities and fail
-there. Open: upstreaming that fixture change and gating the local-target tests
-(XSH-56). Parallel connection setup uses `ssh.connect_all`.
+macOS controller (2026-11-20): xsh-infra now lives in Laputa's `xinfra/`
+tree, which replaces the retired `laputa-systems/xsh-infra` repository as its
+upstream. Laputa `d0c44bd3` publishes each fixture container's sshd on a
+loopback port, because macOS cannot route to Docker bridge addresses, and
+skips the 24 controller-as-target tests on non-Linux controllers, naming the
+Linux facilities they need (`/proc`, GNU `stat` and `touch`). On m1-max (XSH
+debug build) the three-host suite gives 156 passed, 24 skipped; on Linux
+x86_64 all 180 pass. Parallel connection setup uses `ssh.connect_all`.
 See the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary
 
 xsh-infra is a practical, deliberately small configuration-management tool
 written predominantly in XSH, inspired by pyinfra, and using XSH's native SSH
-client for all remote transport. It lives in its own repository,
-[laputa-systems/xsh-infra](https://github.com/laputa-systems/xsh-infra), not in
-XSH or Laputa. It makes provisioning and reconciling a small fleet of
+client for all remote transport. It lives in Laputa's
+[`xinfra/`](https://github.com/laputa-systems/laputa/tree/master/xinfra) tree,
+not in XSH. It makes provisioning and reconciling a small fleet of
 Alpine/Laputa-style machines safer and more inspectable than ad hoc shell
 deployment, without Python, Ansible, systemd assumptions or a remotely
 installed XSH runtime.
