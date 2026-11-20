@@ -21,6 +21,7 @@ PINNED_IMAGE = (ROOT / 'dev/images.lock').read_text().splitlines()[0]
 PRODUCTS = BINARY.parent
 QUALIFIED = ('tree-memory', 'tooling-check', 'tooling-lint', 'artifact-size')
 ANCHORS = ROOT / 'dev/performance/anchors.json'
+from dev.performance.qualified_bench import TREE_ROUNDS, anchor_tolerance, combine_tree_rounds
 REGISTRY = (
     ('harness-tests', 'edit', 'harness', 'benchmark accounting and parity contracts', 'estimated 30s'),
     ('consolidation-startup', 'change', 'startup', 'fresh process startup and output parity', 'estimated 1m'),
@@ -162,6 +163,20 @@ def preflight(selected):
     return failures
 
 
+def tree_rounds(out, log):
+    # cgroup v2 charges a file page to the first cgroup that faults it, so the first
+    # container after a build pays for the binary and image pages; a discarded
+    # warm-up leaves the measured containers charged for their own memory.
+    for index in range(TREE_ROUNDS + 1):
+        directory = out / f'round-{index}'
+        directory.mkdir()
+        result = subprocess.run(command('tree-memory', directory), stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
+        if result.returncode: return result
+    rounds = [json.loads((out / f'round-{index}' / 'result.json').read_text()) for index in range(1, TREE_ROUNDS + 1)]
+    (out / 'result.json').write_text(json.dumps(combine_tree_rounds(rounds), indent=2) + '\n')
+    return result
+
+
 def ready(result):
     return result is not None and result.returncode == 0 and 'hot process tree' not in result.stdout
 
@@ -217,7 +232,10 @@ def main():
         before = subprocess.run(['perf-gate-ready'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if name != 'harness-tests' and shutil.which('perf-gate-ready') else None
         start = time.monotonic()
         with (out / 'log.txt').open('w') as log:
-            result = subprocess.run(command(name, out), stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
+            if name == 'tree-memory':
+                result = tree_rounds(out, log)
+            else:
+                result = subprocess.run(command(name, out), stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
         duration = time.monotonic() - start
         after = subprocess.run(['perf-gate-ready', '-1'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) if before else None
         valid = name == 'harness-tests' or (ready(before) and ready(after))
@@ -238,7 +256,7 @@ def main():
             return 1
         anchors = json.loads(ANCHORS.read_text()) if ANCHORS.exists() else {}
         for row in records:
-            anchors[row['workload']] = {'value': row['value'], 'tolerance': 0.05, 'commit': summary['commit'], 'host': platform.node(), 'date': datetime.date.today().isoformat()}
+            anchors[row['workload']] = {'value': row['value'], 'tolerance': anchor_tolerance(row.get('samples_seconds') or row.get('samples_bytes')), 'commit': summary['commit'], 'host': platform.node(), 'date': datetime.date.today().isoformat()}
         ANCHORS.write_text(json.dumps(anchors, indent=2) + '\n')
     (run / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(f'summary: {run / "summary.json"}')

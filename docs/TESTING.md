@@ -1099,8 +1099,8 @@ harness operation, not a regression verdict. Existing `--fast` allocation and
 | Startup | comparative `startup`, exact stdout, status and unchanged effects | fresh-process wall time; `xsht runtime-stats` for XSH phases |
 | Script throughput | standard-library frozen scripts, reference/candidate output and effect parity | paired wall samples; phase statistics and CPU profiles |
 | Process spawn and pipelines | comparative `spawn` and `pipeline`, fixed output and effects | wall time including helpers; `xsht trace --syscalls` for helper activity |
-| Tree memory | `tree-memory`, 16 pipeline outputs and zero status | cgroup v2 `memory.peak` for a fresh container, including the workload tree and Python driver |
-| Check and lint | `tooling-check` and `tooling-lint`, six fixed `core/lib` and `core/tests` files, zero findings | median of five serial corpus wall times and files per second |
+| Tree memory | `tree-memory`, 16 pipeline outputs and zero status | median cgroup v2 `memory.peak` of five fresh containers after a discarded warm-up, including the workload tree and Python driver |
+| Check and lint | `tooling-check` and `tooling-lint`, six fixed `core/lib` and `core/tests` files, zero findings | median of 21 serial corpus wall times after five discarded passes, and files per second |
 | Artifact size | `artifact-size`, all three nonempty ELF release products | total unstripped bytes, with individual product sizes |
 
 The new workloads use the image pinned in `dev/images.lock`. They record the source commit and dirty state, binary SHA-256
@@ -1113,8 +1113,11 @@ with clean source and the release products built as above:
 cargo dev bench --workload tree-memory --workload tooling-check --workload tooling-lint --workload artifact-size --write-anchors
 ```
 
-This writes `dev/performance/anchors.json` with each value, a 5% tolerance,
-commit, host and date. The timings use warm filesystem caches and a fixed subset,
+This writes `dev/performance/anchors.json` with each value, a tolerance of
+three times the samples' relative median absolute deviation (at least 5%),
+commit, host and date. A fresh container is charged for the file pages it
+faults first, so the warm-up keeps the binary and image pages out of the
+measured memory peaks. The timings use warm filesystem caches and a fixed subset,
 not the full repository. The memory peak includes the driver and container
 charges, and is not an allocation profile. Artifact sizes are unstripped
 release products and must be compared with like builds; the records in

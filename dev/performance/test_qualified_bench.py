@@ -30,3 +30,16 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(q.verdict(100, anchor, True, 'other'), ('inconclusive', 'anchor host differs'))
         self.assertEqual(q.verdict(100, None, True), ('inconclusive', 'anchor missing'))
         self.assertEqual(q.verdict(100, None, False), ('inconclusive', 'host readiness check failed; anchor missing'))
+
+    def test_anchor_tolerance_follows_observed_spread(self):
+        self.assertEqual(q.anchor_tolerance([100, 100, 100, 100, 100]), q.MINIMUM_TOLERANCE)
+        self.assertEqual(q.anchor_tolerance([90, 95, 100, 105, 110]), 0.15)
+        self.assertEqual(q.anchor_tolerance(None), q.MINIMUM_TOLERANCE)
+
+    def test_tree_rounds_take_the_median_peak(self):
+        rounds = [{'value': peak, 'unit': 'bytes', 'completed_lines': 16} for peak in (30, 10, 12, 11, 13)]
+        combined = q.combine_tree_rounds(rounds)
+        self.assertEqual(combined['value'], 12)
+        self.assertEqual(combined['samples_bytes'], [30, 10, 12, 11, 13])
+        with self.assertRaises(ValueError):
+            q.combine_tree_rounds(rounds[:4])

@@ -12,6 +12,10 @@ PRODUCTS = ('xsh', 'xsht', 'xshi')
 CORPUS = ('core/lib/search.xsh', 'core/lib/dhcp_frame.xsh', 'core/lib/text_input.xsh',
           'core/tests/test-sha512sum.xsh', 'core/tests/test-touch.xsh', 'core/tests/test-host.xsh')
 TREE_OUTPUT = b''.join(f'probe {i}\n'.encode() for i in range(16))
+TREE_ROUNDS = 5
+TOOLING_SAMPLES = 21
+TOOLING_WARMUP = 5
+MINIMUM_TOLERANCE = 0.05
 
 
 def tree_complete(status, stdout, stderr):
@@ -25,6 +29,23 @@ def tooling_complete(mode, expected, results):
 
 def products_complete(sizes):
     return set(sizes) == set(PRODUCTS) and all(type(size) is int and size > 0 for size in sizes.values())
+
+
+def relative_spread(samples):
+    middle = statistics.median(samples)
+    return statistics.median(abs(sample - middle) for sample in samples) / middle
+
+
+def anchor_tolerance(samples):
+    if not samples: return MINIMUM_TOLERANCE
+    return max(MINIMUM_TOLERANCE, round(3 * relative_spread(samples), 4))
+
+
+def combine_tree_rounds(rounds):
+    if len(rounds) != TREE_ROUNDS: raise ValueError(f'expected {TREE_ROUNDS} measured tree rounds, got {len(rounds)}')
+    peaks = [round_['value'] for round_ in rounds]
+    return {**rounds[0], 'value': statistics.median(peaks), 'samples_bytes': peaks,
+            'scope': f'median of {TREE_ROUNDS} fresh container cgroup v2 peaks after one discarded warm-up container, including workload tree and Python driver'}
 
 
 def verdict(value, anchor, host_ready, host=None):
@@ -55,15 +76,15 @@ def measure(name, products):
     if name in ('tooling-check', 'tooling-lint'):
         mode = name.removeprefix('tooling-')
         samples = []
-        for _ in range(5):
+        for index in range(TOOLING_WARMUP + TOOLING_SAMPLES):
             started = time.monotonic()
             results = []
             for path in CORPUS:
                 p = subprocess.run([str(products / 'xsht'), mode, str(ROOT / path)], capture_output=True)
                 results.append((p.returncode, p.stdout, p.stderr))
-            samples.append(time.monotonic() - started)
             if not tooling_complete(mode, len(CORPUS), results):
                 raise ValueError(f'{mode} oracle failed: {results!r}')
+            if index >= TOOLING_WARMUP: samples.append(time.monotonic() - started)
         return {'value': statistics.median(samples), 'unit': 'seconds per corpus', 'samples_seconds': samples,
                 'files': list(CORPUS), 'completed_files': len(CORPUS), 'expected_findings': 0,
                 'files_per_second': len(CORPUS) / statistics.median(samples)}
