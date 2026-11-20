@@ -1,8 +1,9 @@
 # XSH-55: Native SSH client
 
-Status: delivered on Linux x86-64 as an experimental client, with the open items
-listed under [Open](#open). Native macOS qualification is deferred by the owner
-because no macOS host is available. The Rust crate is `crates/oxish-client`, vendored from ssh-build's `client/`
+Status: delivered and qualified on Linux x86-64 musl and native macOS arm64,
+with the limits listed under [Open](#open). Two independent reviews cover it: one of
+the [protocol and its implementation](#independent-review-xsh-111), and one of the
+[Graviola primitives](../reviews/XSH-111-graviola-review.md) it calls. The Rust crate is `crates/oxish-client`, vendored from ssh-build's `client/`
 (formerly the XSH-owned `crates/xsh-ssh`, which ssh-build absorbed and extended);
 the interface is [Native SSH](../ssh.md).
 
@@ -48,7 +49,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Public API docs, compatibility matrix, threat model, residual limits | P | D | `docs/ssh.md` |
 | Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/oxish-client/fixture/ssh-fixture.sh` |
 | Before and after size, startup, memory and throughput | P macOS only | D build time deferred: host busy | [Measurements](#measurements) |
-| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P x86-64 musl executed: the `oxish-client` fixture suites and the native `tests/xsh/ssh-` suite; macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
+| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | D x86-64 musl and native macOS arm64 executed: the `oxish-client` fixture suites and the native `tests/xsh/ssh-` suite; aarch64 Linux cross-checked only | [Measurements](#measurements), [Native SSH](../ssh.md#qualification) |
 | Stage 1: host identity, pinned verification, changed key fails closed, no agent forwarding or secrets in logs | D | D | as above |
 | Stage 1: structured argv, environment, working directory, byte-preserving paths | M | P Laputa `run` takes a UTF-8 argv and a timeout; no environment, working directory or non-UTF-8 path | `tests/system/remote_guest.xsh` in Laputa |
 | Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
@@ -107,7 +108,9 @@ its fix.
 Corrections to the earlier review: padding under 4 bytes was already refused by
 the vendored decoder (`padding_under_four_bytes_is_refused` now guards it), and
 Graviola already wipes its signing-key, key-agreement, AES, GHASH and ChaCha
-state on drop; its SHA-256 contexts are now wiped as well.
+state on drop; its SHA-256 contexts are now wiped as well (on finish and fork too
+since ssh-build `789d4cd`, after the Graviola review found the finished state
+freed unwiped).
 
 Two untested thresholds now have tests: the packet-count and elapsed-time
 rekey limits (`the_packet_count_alone_starts_a_rekey`,
@@ -130,7 +133,7 @@ its change.
 2026-11-12, Linux x86-64 musl. A separate review reproduced two gaps in the
 previous bounds, then independently verified the fixes with the original
 backlog and allocator probes and 35 focused tests. The full 144-test OpenSSH
-fixture suite and package clippy pass. The client remains experimental.
+fixture suite and package clippy pass. The client remained experimental.
 
 | Defect | Fix and regression |
 |---|---|
@@ -260,19 +263,22 @@ the glibc host and `x86_64-unknown-linux-musl` against the loopback fixture
 x86_64-unknown-linux-musl]`). On 2026-11-08, on an x86-64 musl host, the
 third round's tree passed the whole `oxish-client` suite for
 `x86_64-unknown-linux-musl` and all 34 native `tests/xsh/ssh-` tests with
-`verification` products, both against the loopback fixture. Cross-checked only, not executed:
-`aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p oxish-client`).
+`verification` products, both against the loopback fixture. On 2026-11-20 on
+m1-max (macOS arm64), ssh-build `789d4cd` passed 143 `oxish-client` tests
+natively against the fixture's OpenSSH 10.0p2 servers, skipping the 5
+procfs-only memory probes. It also passed the 34 native `tests/xsh/ssh-` tests
+and `cargo test -p oxish-graviola`. `aarch64-unknown-linux-musl` is
+cross-checked only (`cargo check -p oxish-client`).
 
 ## Open
 
-- Native macOS arm64 SSH qualification: the native suite now runs on an arm64
-  Mac, but no interop run against a real server has been recorded there.
 - The [independent review](#independent-review-xsh-111) found six defects,
-  all fixed. The client keeps its experimental label (decided 2026-11-19). The
-  label lifts after a review that also covers Graviola's primitives and a
-  recorded native macOS interop run. The internal rounds above and the
-  remaining listed risks stand; the tests, fuzz loops and fixtures are not
-  formal verification.
+  all fixed. The [Graviola review](../reviews/XSH-111-graviola-review.md)
+  (2026-11-20) found no blocking defect. ssh-build `789d4cd` fixes G-1 and the
+  client's half of G-3. XSH-141 and XSH-142 track the rest. With the native
+  macOS arm64 interop run recorded in [Native SSH](../ssh.md#qualification),
+  the experimental label is lifted. The remaining listed risks stand; the
+  tests, fuzz loops and fixtures are not formal verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
   any failure once the request reached the connection; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
@@ -513,7 +519,7 @@ from executed platform tests. Report unavailable hardware and unexecuted lanes.
 - The concrete API contract xsh-infra and Laputa's administration library
   consume.
 
-The client is labeled experimental. Passing tests is not production security
+The client stays labeled experimental until the reviews this asks for are done. Passing tests is not production security
 or formal verification of the protocol; name the protocol and security review
 required before stronger claims. Commit coherent changes; do not rewrite
 unrelated history, retag the G0 candidate, submit upstream PRs or deploy to real
