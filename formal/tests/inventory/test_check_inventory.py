@@ -120,10 +120,10 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1263, len(result["fragment_roots"]))
+        self.assertEqual(1262, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
-        self.assertEqual(["VAL-ERASE", "VAL-PRESERVE", "VAL-UNION"], result["closed_obligations"])
+        self.assertEqual(["VAL-ERASE", "VAL-PRESERVE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
         self.assertEqual(
             self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),
@@ -835,8 +835,11 @@ class InventoryCheckerTests(unittest.TestCase):
             obligation for obligation in coverage["universal_theorems"]
             if obligation["id"] == "VAL-WIDEN"
         )
-        self.assertEqual("planned", widen_obligation["status"])
-        self.assertNotIn("module", widen_obligation)
+        self.assertEqual("closed", widen_obligation["status"])
+        self.assertEqual("Xsh.Validation.Core.Widen", widen_obligation["module"])
+        self.assertEqual(
+            "Xsh.Validation.Core.Widen.validated_widening", widen_obligation["declaration"]
+        )
         nonempty_filtering_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.NonEmptyFiltering"

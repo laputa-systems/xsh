@@ -3009,8 +3009,10 @@
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-WIDEN"
+      "status": "closed",
+      "proof_root_id": "full.VAL-WIDEN",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -15114,15 +15116,6 @@
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
       "boundary": "Store mutation through .extend or += and path writes are not modelled. Closes no full-core obligation."
-    },
-    {
-      "id": "fragment.Xsh.Validation.Core.Widen.validated_widening",
-      "module": "Xsh.Validation.Core.Widen",
-      "declaration": "Xsh.Validation.Core.Widen.validated_widening",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Base views preserve Core membership and cannot reverse a validated base view.",
-      "boundary": "The erased-position precision theorem is not proved; duplicate row labels are not ruled out by the raw view relation. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [

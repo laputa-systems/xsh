@@ -230,6 +230,19 @@ theorem base_never_views_validated {validated baseType : ValueType Declaration}
   rw [base_is_unvalidated hasBase] at this
   cases this
 
+theorem chain_member (world : MembershipWorld Declaration Identity Source) {source target : ValueType Declaration}
+    (chain : ViewChain source target) (candidate : Value Declaration Identity Source)
+    (member : Membership.value world source candidate) : Membership.value world target candidate := by
+  induction chain with
+  | refl => exact member
+  | step _ view ih => exact view_member world view candidate ih
+
+theorem equivalent_members (world : MembershipWorld Declaration Identity Source)
+    {source target : ValueType Declaration} (equiv : source ≈ target) (candidate : Value Declaration Identity Source) :
+    Membership.value world source candidate ↔ Membership.value world target candidate :=
+  ⟨chain_member world (erasedEquiv_mutual_views equiv).1 candidate,
+    chain_member world (erasedEquiv_mutual_views equiv).2 candidate⟩
+
 /-- Validated widening over every Core type, value and world. A base view
 replaces validated positions by their bases at any depth: inside `NonEmpty`,
 lists, maps, streams, optionals, results, callable returns, record fields in
@@ -239,7 +252,10 @@ callable contracts are read upward-closed under views. A view into a validated
 type starts from a type with the same validation tag whose base views to the
 target's base, so distinct validations, including nested intervals, never fit.
 Every validated type views as its base, and no base views as its validated
-type. -/
+type. A view between types whose rows have distinct labels is precise: with
+validations erased, the two types are equivalent, differing at most in the
+order of record fields and union members, and equivalent types have the same
+members in every world. -/
 theorem validated_widening (world : MembershipWorld Declaration Identity Source) :
     (∀ (source target : ValueType Declaration) candidate, BaseView source target →
       Membership.value world source candidate → Membership.value world target candidate) ∧
@@ -248,10 +264,16 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
         ∀ sourceBase targetBase, base source = some sourceBase → base target = some targetBase →
           BaseView sourceBase targetBase) ∧
     (∀ validated baseType : ValueType Declaration, base validated = some baseType →
-      BaseView validated baseType ∧ ¬ BaseView baseType validated) :=
+      BaseView validated baseType ∧ ¬ BaseView baseType validated) ∧
+    (∀ source target : ValueType Declaration, RowsDistinct source → RowsDistinct target →
+      BaseView source target → eraseValidations source ≈ eraseValidations target) ∧
+    (∀ (source target : ValueType Declaration) candidate, source ≈ target →
+      (Membership.value world source candidate ↔ Membership.value world target candidate)) :=
   ⟨fun _ _ candidate view member => view_member world view candidate member,
     fun _ _ _ view tagged => view_into_validated view tagged,
-    fun _ _ hasBase => ⟨base_view hasBase, base_never_views_validated hasBase⟩⟩
+    fun _ _ hasBase => ⟨base_view hasBase, base_never_views_validated hasBase⟩,
+    fun _ _ sourceDistinct targetDistinct view => view_precision sourceDistinct targetDistinct view,
+    fun _ _ candidate equiv => equivalent_members world equiv candidate⟩
 
 namespace Witness
 
@@ -365,22 +387,32 @@ theorem distinct_validations_never_view :
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)
 
+def duplicateRow : WitnessType :=
+  .record (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty))
+
+def pathRow : WitnessType := .record (.rowField "a" (.primitive .path) .rowEmpty)
+
 theorem duplicate_row_breaks_precision :
-    BaseView (Declaration := Unit)
-      (.record (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty)))
-      (.record (.rowField "a" (.primitive .path) .rowEmpty)) ∧
-    ¬ RowsDistinct (Declaration := Unit)
-      (.record (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty))) ∧
-    ¬ List.Perm
-      (rowEntries (eraseValidations (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty)) : ViewRow Unit))
-      (rowEntries (eraseValidations (.rowField "a" (.primitive .path) .rowEmpty) : ViewRow Unit)) := by
+    BaseView duplicateRow pathRow ∧ ¬ RowsDistinct duplicateRow ∧
+      ¬ eraseValidations duplicateRow ≈ eraseValidations pathRow := by
   refine ⟨.record ?_ (by simp [rowEntries]), ?_, ?_⟩
   · simp only [rowEntries]
     exact .cons (.here _ _ (.validated rfl (.refl _))) (.nil _)
-  · simp [RowsDistinct, rowEntries]
-  · intro permutation
-    have lengths := permutation.length_eq
-    simp [eraseValidations, rowEntries] at lengths
+  · simp [duplicateRow, RowsDistinct, rowEntries]
+  · intro equiv
+    have widths := erasedEquiv_recordWidth equiv
+    simp [duplicateRow, pathRow, eraseValidations, recordWidth] at widths
+
+theorem reordered_views_are_precise :
+    eraseValidations (Declaration := Unit) (.union .relativePath (.primitive .string) .membersEmpty) ≈
+        eraseValidations (Declaration := Unit) (.union (.primitive .string) (.primitive .path) .membersEmpty) ∧
+      eraseValidations (Declaration := Unit)
+          (.record (.rowField "a" .relativePath (.rowField "b" (.primitive .string) .rowEmpty))) ≈
+        eraseValidations (Declaration := Unit)
+          (.record (.rowField "b" (.primitive .string) (.rowField "a" (.primitive .path) .rowEmpty))) :=
+  ⟨view_precision ⟨trivial, trivial, trivial⟩ ⟨trivial, trivial, trivial⟩ reordered_union_and_record_are_views.1,
+    view_precision (by simp [RowsDistinct, rowEntries]) (by simp [RowsDistinct, rowEntries])
+      reordered_union_and_record_are_views.2⟩
 
 theorem union_cannot_gain_member :
     ¬ BaseView (Declaration := Unit)
