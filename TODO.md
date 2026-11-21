@@ -103,15 +103,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** L
 
-### XSH-158 · P2 · Top-level compound assignment repeats Int arithmetic and rejects Duration operands
-
-- **Area:** Runtime
-- **Where:** `src/runtime/eval/lower.rs:6441-6492` (a top-level `name OP= value` whose binding is not `UInt` lowers to `BuildTopKind::Assign`); `src/runtime/eval/lowered_run/indexed_run/driver.rs:325-357` (`DriverPayloadView::Assign` calls `compound_assignment_value`); `src/runtime/eval.rs:8105-8171` (`compound_assignment_value`: List, its own checked Int arms, Float, then `type-error`); reproduction: `var d = 1s\nd += 500ms\nassert d == 1500ms`
-- **Problem:** At top level `d += 500ms` on a `Duration` passes the checker and fails at runtime with `type-error: += assignment cannot combine Duration and Duration`, though SPEC 4.3 says compound assignment follows the Duration rules. The same statement inside a function lowers to `StmtAssign` and reaches `lowered_assign_value`, which works. Int compound assignment at top level takes the same function, whose arms repeat `crate::arith::checked_int_binary` instead of calling it, so the refinement proof of that function does not cover the route; `int_top_level_compound_route_conformance` shows agreement at the 720 points of its grid only. Reproduced with the x86_64 musl release `xsh` built from the lane-impl-adapters sources (`err: type-error`, exit 3; the function form prints `ok`) and by `duration_route(Form::TopLevelCompound)` in `src/runtime/eval/indexed/full/arith_route_tests.rs`, which has no test until this is fixed.
-- **Recommendation:** Route the driver `Assign` step's arithmetic through the shared decisions (as `lowered_assign_value` does) and delete the repeated Int arms in `compound_assignment_value`. Add `duration_top_level_compound_route_conformance` (`duration_route(Form::TopLevelCompound)`) and a native test for top-level Duration compound assignment.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker

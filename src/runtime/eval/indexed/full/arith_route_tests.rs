@@ -640,6 +640,11 @@ fn duration_local_compound_route_conformance() {
 }
 
 #[test]
+fn duration_top_level_compound_route_conformance() {
+    duration_route(Form::TopLevelCompound);
+}
+
+#[test]
 fn duration_literal_route_conformance() {
     duration_route(Form::Literal);
 }

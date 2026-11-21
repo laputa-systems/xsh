@@ -76,6 +76,17 @@ test test_int_routes_truncate_toward_zero {
   }
 }
 
+test test_top_level_compound_assignment_truncates_toward_zero { |ctx|
+  # A top-level `name OP= value` is a driver assignment; its failures are the
+  # compound cases of test_int_routes_report_each_failure_at_its_operator.
+  let output = test.expect(
+    ctx,
+    "var sum = 9223372036854775807\nsum += -9223372036854775807 - 1\nvar difference = 5\ndifference -= 7\nvar product = -9223372036854775807 - 1\nproduct *= 1\nvar quotient = -7\nquotient /= 2\nvar remainder = -7\nremainder %= 2\nvar mirrored = 7\nmirrored %= -2\nprint f\"{sum} {difference} {product} {quotient} {remainder} {mirrored}\"\n",
+    status: 0,
+  )?
+  assert output.stdout == "-1 -2 -9223372036854775808 -3 -1 1\n", output.stdout
+}
+
 test test_int_constants_fold_truncating_division {
   assert FOLDED_QUOTIENT == -3
   assert FOLDED_REMAINDER == -1
