@@ -15036,6 +15036,15 @@
       "status": "fragment",
       "scope": "Admitted source functions do not directly call a record-local function anywhere in the same module, including a later declaration.",
       "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "module": "Xsh.Semantics.Connected.CoreBridge",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world; an accepted connected store write commits the embedded value through the Core store guard.",
+      "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation."
     }
   ],
   "artifact_certificates": [

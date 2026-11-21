@@ -144,6 +144,22 @@ This is not a proof of reference ownership, liveness, heap closure, contract
 authentication, type admissibility, machine integration or Rust conformance.
 Those obligations remain open. BASE-ENV and TYPE-MEMBER remain planned.
 
+[`Semantics/CoreWorld.lean`](Xsh/Semantics/CoreWorld.lean) is the semantic
+foundation interface. Its types and values are the Core types and values, its
+store is the Core store guarded by reference retention and Core membership, and
+its environments resolve names through binders to activation cells. Assignment
+and declaration return a committed store, a `type-error` failure with the old
+store, or an internal fault for a missing, immutable or occupied cell. `try`
+recovery catches only catchable failures and propagates `type-error`.
+[`Semantics/Connected/CoreBridge.lean`](Xsh/Semantics/Connected/CoreBridge.lean)
+embeds the connected machine's runtime types, values and checker monotypes into
+Core. A connected value with a connected type is a Core member of that type's
+image, and an accepted connected write commits through the Core guard. Connected
+nominal types over non-record bases, and row or argument sorts, have no Core
+image. Core record membership is wider than the connected check, so a connected
+rejection is not a Core rejection. The connected machine still runs on its own
+store; the bridge is a fragment root, not a full-core obligation.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws
