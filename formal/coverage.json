@@ -2965,8 +2965,10 @@
       "id": "VAL-NARROW",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-NARROW"
+      "status": "closed",
+      "proof_root_id": "full.VAL-NARROW",
+      "module": "Xsh.Validation.Core.Narrow",
+      "declaration": "Xsh.Validation.Core.Narrow.narrowing"
     },
     {
       "id": "VAL-NOMINAL",

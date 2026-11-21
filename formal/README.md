@@ -208,6 +208,14 @@ member views as one of the other's in any order. Union admissibility, which
 rejects overlapping members, is a checker judgment and is not assumed; the
 overlap witness selects `UInt` for `5` and `Int` for `-5`.
 
+VAL-NARROW is closed by `narrowing` in
+[`Validation/Core/Narrow.lean`](Xsh/Validation/Core/Narrow.lean): a type
+test is true exactly for members, a failed union member test narrows to the
+remaining members, a non-null optional value is a member of its element type,
+and cell facts learned from passing tests stay sound because assignment forgets
+the assigned cell's fact. The witness shows that retaining a `NonEmpty` fact
+after assigning `[]` is unsound.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws
