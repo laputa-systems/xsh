@@ -822,6 +822,13 @@ theorem functions_fit_tokens {tokens : List Token} {functions : List SourceFunct
     simp only [List.length_cons]
     omega
 
+theorem functions_syntax_complete_with_token_fuel {tokens : List Token} {functions : List SourceFunction}
+    (derivation : FunctionsSyntax tokens functions) :
+    parseFunctions (tokens.length + 1) tokens = some functions := by
+  apply functions_syntax_complete derivation
+  have bound := functions_fit_tokens derivation
+  omega
+
 theorem functions_in_order_complete {earlier functions : List SourceFunction}
     (derivation : FunctionsInOrder earlier functions) : functionsAdmitted.go earlier functions = true := by
   induction derivation with
