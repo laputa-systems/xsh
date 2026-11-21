@@ -1229,6 +1229,12 @@ theorem check_in_declarative_domain {bytes : List UInt8} {moduleInputs : List (L
         ordered, recordOrdered, recordAnywhere, wordGuard⟩
   · cases parsed
 
+theorem check_iff_declarative_domain {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))} :
+    check bytes moduleInputs functions scopes = true ↔
+      DeclarativeDomain bytes moduleInputs functions scopes :=
+  ⟨check_in_declarative_domain, declarative_domain_complete⟩
+
 /-- The source admission boundary composes with the existing universal lowerer theorem. The
 artifact's entire function meaning is the meaning of the tree derived from these exact bytes. -/
 theorem admitted_lowering_means_source {bytes : List UInt8} {moduleInputs : List (List UInt8)}
