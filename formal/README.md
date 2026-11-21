@@ -424,8 +424,10 @@ syntax form and the checker's expected type (P).
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
 (`statement_resolution`), for pattern captures and comprehension targets
-(`capture_resolution`, with capture names from `pattern_names`), not for
-function bodies (P).
+(`capture_resolution`, with capture names from `pattern_names`) and for
+function bodies (`body_resolution`); the scopes at a hoisted closure's
+declaration are a premise of `body_resolution` rather than derived from
+`runScript` (P).
 
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
@@ -569,6 +571,20 @@ alternatives bind the same names (SPEC 6.8) a successful match binds exactly
 `patternNames pattern` without the match's names. `[a, b] | [b, a, _]` binds
 `b` then `a` on `[1, 2, 7]`, as the verification binary does (`21`); reading
 an alternation as all its alternatives' names, or the names in order, is
+rejected.
+
+The `body_resolution` fragment root, in
+[`Proofs/Core/Bodies.lean`](Xsh/Proofs/Core/Bodies.lean), ties function bodies
+to the pass. A call's arguments bind exactly its parameter names, and its body
+runs through `callBlock` as `runTail` on the declaration's environment entered
+once, with the parameters as locals; `runTail` runs the statements before the
+tail as `runStatements` does. Wherever the body's statements have completed
+normally, the environment represents the pass's scopes from a fresh scope
+above the declaration's, and the locals are exactly the parameters that scope
+does not declare, since each declaration hides the locals it shadows
+(`statement_hides`). `proc f(x) { let x = 2; return x }` gives `2` and a
+shadowing `let` in a nested block leaves `x` as `7`, as on the verification
+binary; a pass that resolves parameters above the body's own scope is
 rejected.
 
 The `declaration_hoisting` fragment root, in
