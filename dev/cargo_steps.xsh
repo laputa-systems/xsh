@@ -343,13 +343,17 @@ export proc mold_driver_spec(spec: contract.CommandSpec) [env, error] -> Result[
 export proc musl_c_compiler_overlay(spec: contract.CommandSpec) [process, error] -> Result[Map[Str, Str]?, Error] {
   if let compiler = target_policy.musl_c_compiler(spec.target) {
     return null when compiler.variable in spec.environment.keys()
+    return null when compiler.linker_variable in spec.environment.keys()
     return null unless process.which("cc") is Ok(_)
     let dumpmachine = run.text cc -dumpmachine
     return null when dumpmachine.trim().ends_with("-musl")
     guard process.which(compiler.tool) is Ok(_) else {
       return Err(stages.StageError.MissingTool(tool: compiler.tool))
     }
-    return {[compiler.variable]: compiler.tool}
+    guard process.which("rust-lld") is Ok(_) else {
+      return Err(stages.StageError.MissingTool(tool: "rust-lld"))
+    }
+    return {[compiler.variable]: compiler.tool, [compiler.linker_variable]: "rust-lld"}
   }
 
   null

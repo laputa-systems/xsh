@@ -173,6 +173,7 @@ test test_a_glibc_host_selects_the_musl_c_compiler_for_a_musl_target { |ctx|
   let tools = fp"{root}/tools"
   tools.mkdir()
   fp"{tools}/x86_64-linux-musl-gcc".write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  fp"{tools}/rust-lld".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let repository = fs.cwd()?
   let inherited_path = env.get_or("PATH", "")?
   let script = f"""use cargo_steps
@@ -183,13 +184,13 @@ let spec = stages.command(
   {{CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C target-feature=+crt-static"}},
 )
 if let selected = cargo_steps.musl_c_compiler_overlay(spec)? {{
-  print f"{{selected.keys().join(",")}}={{selected.values().join(",")}}"
+  print f"{{selected.keys().join(",")}}"
 }} else {{
   print "default"
 }}
 """
   for probe in [
-    ["x86_64-linux-gnu", "CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc"],
+    ["x86_64-linux-gnu", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,CC_x86_64_unknown_linux_musl"],
     ["x86_64-alpine-linux-musl", "default"],
   ] {
     fp"{tools}/cc".write(

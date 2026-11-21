@@ -83,7 +83,7 @@ image. See [Testing](TESTING.md#linux) for what it runs.
 The host builds the Linux musl product target, so the host needs that target's
 standard library and a C toolchain for it; `scripts/setup-dev` installs both.
 On an x86-64 host the build also links through the toolchain's `rust-lld`,
-which the pinned toolchain supplies.
+which the pinned toolchain supplies and `scripts/setup-dev` puts on `PATH`.
 
 Verification runs Docker containers. Where the host is itself a container,
 start a daemon inside it and run the capsule privileged. A nested host that

@@ -30,4 +30,11 @@ case "$(uname -m)" in
   *) echo "setup-dev supports x86_64 and aarch64 only" >&2; exit 1 ;;
 esac
 rustup target add "$target"
+host=$(rustc -vV | sed -n 's/^host: //p')
+rust_lld="$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld"
+if [ ! -x "$rust_lld" ]; then
+  echo "the pinned toolchain does not supply rust-lld for $host" >&2
+  exit 1
+fi
+ln -sf "$rust_lld" "${CARGO_HOME:-$HOME/.cargo}/bin/rust-lld"
 cargo fetch --locked
