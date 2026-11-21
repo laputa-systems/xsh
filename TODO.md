@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 151
+Next: 154
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -73,6 +73,33 @@ out of scope.
 - **Where:** `src/runtime/eval.rs:7865-7869` (`PathBuf::set_extension` called without validating the extension)
 - **Problem:** `p"a".with_ext("/../..")` aborts the interpreter with exit 101 instead of returning a specified error. Rust's `set_extension` panics on an extension containing a path separator, and XSH passes the user string straight through.
 - **Recommendation:** Reject an extension containing `/` (or NUL) with a SPEC-named error before calling `set_extension`, document it in the SPEC's Path methods, and add native tests for the separator case and for `p"...b".with_ext("")`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-151 · P2 · `.require` rejects every `stat: false` directory entry against a record schema
+
+- **Area:** Runtime
+- **Where:** Entry `.require`/`.require_exact`/`.require_stripped` for entries from `fs.children(path, stat: false)`; reproduction: `fs.children(p"tree", stat: false)` then `entry.require({name: Str})`
+- **Problem:** An unstat'd entry fails any non-empty record schema under all three field policies with `expected Record, found Record`, while a stat'd entry converts (`.require({kind: Kind})` succeeds). SPEC 5.3 says the policy does not change which containers a slot admits, and the message names the same kind on both sides.
+- **Recommendation:** Make an unstat'd entry expose its available fields as a record for schema checks (or reject with a message naming the missing fields), and add native tests for keep, exact and stripped against `stat: false` entries.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-152 · P2 · Module values are accepted into record schemas and fail internally on enum fields
+
+- **Area:** Runtime
+- **Where:** `.require(T)` on a loaded module value where `T` is a record type; e.g. `module.load(p"plug.xsh")?.require({tag: Kind})`
+- **Problem:** A module value checked against a record schema is accepted (`.require({x: Int})` succeeds), which the SPEC does not provide for: module values are checked against `module { ... }` contracts. With a Str-backed enum field the check fails with the internal message `lowered expression expected Record` instead of a schema error.
+- **Recommendation:** Reject a module value against a record schema with a schema error naming the kinds, unless the SPEC is changed to allow it; add native tests for a plain field and an enum field.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-153 · P2 · A module contract with a `pure` entry fails with `compact.indexed-build`
+
+- **Area:** Runtime
+- **Where:** `type PureG = module { export pure g() -> Int }` then `module.load(p"plug3.xsh")?.require(PureG)` in the verification binary
+- **Problem:** Requiring a module against a contract whose entry is a `pure` function fails with the internal diagnostic `compact.indexed-build` rather than accepting the module or reporting a contract violation.
+- **Recommendation:** Find why the indexed build rejects the pure contract entry, fix it, and add a native test that a matching pure export is accepted and a proc export is reported as mismatched.
 - **Fix with:** none
 - **Effort:** S
 
