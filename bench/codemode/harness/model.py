@@ -12,7 +12,7 @@ USAGE_FIELDS = ("input", "output", "cacheRead", "cacheWrite", "reasoning", "tota
 PROVIDER_MARKERS = (
     "429", "rate limit", "rate-limit", "ratelimit", "too many requests", "quota", "overloaded", "503", "502",
     "504", "timeout", "timed out", "econnreset", "socket hang up", "fetch failed", "network", "unavailable",
-    "insufficient", "limit exceeded", "free tier", "capacity",
+    "insufficient", "limit exceeded", "free tier", "capacity", "api key", "login",
 )
 BACKOFF_SCHEDULE_S = (60, 120, 240, 480, 900, 1200, 1800, 1800)
 BACKOFF_BUDGET_S = 2 * 3600

@@ -87,6 +87,10 @@ def run_cells(args: argparse.Namespace) -> int:
     for cell in loaded["schedule"]:
         if args.limit is not None and len(pending) >= args.limit:
             break
+        if args.resume and args.task and cell["task"] not in args.task:
+            continue
+        if args.resume and args.only_sample is not None and cell["sample"] != args.only_sample:
+            continue
         record = trial.load(trial.trial_directory(out, cell["task"], cell["condition"], cell["sample"]) / "trial.json")
         if record is not None and record.state == "done":
             continue
@@ -138,6 +142,30 @@ def context(args: argparse.Namespace) -> int:
         if other.exists():
             text = other.read_text()
             print(f"{name}: sha256 {contexts.digest(text)}, {len(text.encode())} bytes")
+    return 0
+
+
+def measure_contexts(args: argparse.Namespace) -> int:
+    out = RUNS / "measure" / time.strftime("%Y%m%dT%H%M%S")
+    out.mkdir(parents=True)
+    instruction = "Reply with only the word OK."
+    rows = []
+    texts = {"none": ""}
+    for name in args.context:
+        texts[name] = (contexts.baseline_path().parent / name).read_text()
+    measured = {}
+    for name, text in texts.items():
+        prompt = f"{text.rstrip()}\n\n{instruction}\n" if text else instruction + "\n"
+        reply = model.ask(prompt, out, out / f"{name}.events.jsonl")
+        measured[name] = reply.usage.input
+        rows.append({"context": name, "bytes": len(text.encode()), "input": reply.usage.input,
+                     "cache_read": reply.usage.cache_read, "error": reply.error})
+    for row in rows:
+        base = measured["none"]
+        row["context_tokens"] = None if row["input"] is None or base is None else row["input"] - base
+        print(f"{row['context']:14} {row['bytes']:7} bytes  input {row['input']}  context tokens {row['context_tokens']}")
+    (out / "measure.json").write_text(json.dumps(rows, indent=2))
+    print(f"records: {out}")
     return 0
 
 
@@ -202,11 +230,16 @@ def main() -> int:
     p.add_argument("--limit", type=int)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--retry-infra", action="store_true")
+    p.add_argument("--only-sample", type=int, help="with --resume, run only this sample's pending cells")
     p.set_defaults(func=run_cells)
 
     p = sub.add_parser("context", help="build or verify the frozen baseline context and print context digests")
     p.add_argument("--write", action="store_true")
     p.set_defaults(func=context)
+
+    p = sub.add_parser("measure-contexts", help="measure each context's input tokens with one unscored call")
+    p.add_argument("context", nargs="+")
+    p.set_defaults(func=measure_contexts)
 
     p = sub.add_parser("isolation", help="run the isolation probes inside a task's program boundary")
     p.add_argument("--task", default="dev-audit-errors")
