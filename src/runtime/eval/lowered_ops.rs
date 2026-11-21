@@ -248,17 +248,12 @@ pub(super) fn lowered_binary_value(
                     .with_span(span),
             ),
         };
-        return crate::duration::checked_duration_binary(op, operand(&left)?, operand(&right)?)
-            .map(|value| match value {
-                crate::duration::DurationResult::Millis(millis) => {
-                    LoweredValue::Duration(crate::runtime::value::DurationValue { millis })
-                }
-                crate::duration::DurationResult::Count(value) => LoweredValue::Int(value),
-            })
-            .map_err(|error| {
-                let (code, message) = error.diagnostic();
-                RuntimeError::new(code, message).with_span(span)
-            });
+        return checked_duration_binary(op, operand(&left)?, operand(&right)?, span).map(|value| match value {
+            crate::duration::DurationResult::Millis(millis) => {
+                LoweredValue::Duration(crate::runtime::value::DurationValue { millis })
+            }
+            crate::duration::DurationResult::Count(value) => LoweredValue::Int(value),
+        });
     }
     match (op, left, right) {
         (BinaryOp::Add, LoweredValue::Float(left), LoweredValue::Float(right)) => Ok(
@@ -547,6 +542,18 @@ pub(super) fn checked_int_binary(
             let (kind, message) = error.diagnostic();
             RuntimeError::new(kind, message).with_span(span)
         })
+}
+
+pub(super) fn checked_duration_binary(
+    op: BinaryOp,
+    left: crate::duration::DurationOperand,
+    right: crate::duration::DurationOperand,
+    span: Span,
+) -> Result<crate::duration::DurationResult, RuntimeError> {
+    crate::duration::checked_duration_binary(op, left, right).map_err(|error| {
+        let (code, message) = error.diagnostic();
+        RuntimeError::new(code, message).with_span(span)
+    })
 }
 
 pub(super) fn lowered_str_value(value: &LoweredValue) -> Option<&str> {

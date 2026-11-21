@@ -8147,7 +8147,16 @@ impl<'a> ProducerProof<'a> {
                     if !matches!(ty.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scalar string predicate has a non-string slot")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
-                schema::BoolView::LiteralCompareSlot { slot, .. } => {
+                // The typed evaluator decides these operators only.
+                schema::BoolView::IntCompare { op, .. } => {
+                    if !matches!(op, super::super::BinaryOp::Eq | super::super::BinaryOp::Ne | super::super::BinaryOp::Lt | super::super::BinaryOp::Le | super::super::BinaryOp::Gt | super::super::BinaryOp::Ge) {
+                        return Err(IrVerifyError::new("integer comparison row has a non-comparison operator"));
+                    }
+                }
+                schema::BoolView::LiteralCompareSlot { op, slot, .. } => {
+                    if !matches!(op, super::super::BinaryOp::Eq | super::super::BinaryOp::Ne) {
+                        return Err(IrVerifyError::new("literal comparison row has an operator other than == and !="));
+                    }
                     let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar predicate has no slot contract"))?;
                     ensure_closed_type(&ty)?;
                     self.slot(decoder.owner, instruction, slot, ty)?;

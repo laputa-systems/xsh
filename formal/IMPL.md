@@ -74,8 +74,8 @@ full domain.
   (`src/runtime/eval/lowered_ops.rs::checked_int_binary`) expects `Some` and
   reports the error's `division-by-zero` or `integer-overflow` diagnostic
   with the span it is given; `lowered_binary_value` and the typed scalar
-  `ApplyIntBinary` step call it. Top-level compound assignment does not: it
-  repeats the rules in `compound_assignment_value` (XSH-158).
+  `ApplyIntBinary` step call it, and so does `compound_assignment_value` for a
+  top-level compound assignment.
 - **Property.** `Xsh.Core.Arith.checked` for `+ - * / %`: exact sum,
   difference and product, `Int.tdiv` and `Int.tmod`, a zero divisor of `/` or
   `%` is `divisionByZero`, and a result whose witness (the quotient for `%`)
@@ -232,7 +232,7 @@ and the checker reports.
 | `if left OP right < k` over `Int` parameters | `IntBinary` under `BoolIntCompare` in `StmtIfBool` | the same |
 | `let result: T = ...`, a returned `left OP right`, literal operands, and Duration `let result = ...` | `ExprBinary` | `lowered_binary_value` |
 | `value OP= right` in a function | `StmtAssign` carrying the `AssignOp` | `apply_indexed_assignment`, `lowered_assign_value`, `lowered_binary_value` |
-| `value OP= right` at top level | a driver `Assign` step | `compound_assignment_value` in `src/runtime/eval.rs`, which repeats the Int rules instead of calling `checked_int_binary` and has no Duration arm (XSH-158) |
+| `value OP= right` at top level | a driver `Assign` step | `compound_assignment_value` in `src/runtime/eval.rs`, then `lowered_ops::checked_int_binary` or `lowered_ops::checked_duration_binary` |
 | `const C = left OP right` | none: the operation is folded | `fold_constant_binary` |
 
 The Int grid is the twelve values of `arith_conformance`, which Lean's
@@ -240,18 +240,32 @@ The Int grid is the twelve values of `arith_conformance`, which Lean's
 720 cases per form, 5,760 over eight forms. The Duration grid pairs eight
 millisecond values (0, 1, 2, 7, 1000, 2^63 − 1, 2^64 − 2 and 2^64 − 1) with
 each other and with eight counts (`MIN`, −7, −1, 0, 1, 2, 7 and `MAX`): 384
-cases for each of five forms and 256 for function-local compound assignment,
-which keeps the left dimension, 2,176 in all. The 7,936 cases run as 4,029
-programs, in under a second of test time. Top-level Duration compound
-assignment fails at runtime with `type-error: += assignment cannot combine
-Duration and Duration` (XSH-158), so that form has no test until the fix.
+cases for each of five forms and 256 for each of the two compound assignment
+forms, which keep the left dimension, 2,432 in all. The 8,192 cases run as
+4,269 programs, in about a second of test time. `lowered_binary_value`'s
+Duration branch and top-level compound assignment share the error mapping in
+`lowered_ops::checked_duration_binary`.
 
-Three temporary source mutants were each caught by the forms they reach and by
-no others. Swapping the operands of `ApplyIntBinary` failed the unannotated
+Temporary source mutants were each caught by the forms they reach and by no
+others. Swapping the operands of `ApplyIntBinary` failed the unannotated
 `let` and comparison forms. Swapping them in the Duration branch of
 `lowered_binary_value` failed every runtime Duration form, but not the
-`const` form. Reporting a top-level `/= 0` as `integer-overflow` failed the
-top-level compound form.
+`const` form. Swapping them in both calls of `compound_assignment_value`
+failed the Int and Duration top-level compound forms and no others. (An
+earlier mutant, reporting a top-level `/= 0` as `integer-overflow`, was caught
+in the Int rules that function used to repeat; XSH-158 removed them.)
+
+XSH-158 is closed. A top-level `name OP= value` is a driver `Assign` step,
+which `compound_assignment_value` evaluated with its own checked Int arms and
+no Duration arm, so `var d = 1s; d += 500ms` failed with `type-error: +=
+assignment cannot combine Duration and Duration`. Its Int and Duration
+arithmetic now goes through `lowered_ops::checked_int_binary` and
+`lowered_ops::checked_duration_binary`, the adapters of the other routes. The
+native tests `test_top_level_compound_assignment_follows_duration_rules` and
+`test_top_level_compound_assignment_truncates_toward_zero` check success for
+every operator and each Duration error code that compound assignment can
+raise, at the statement (`:2:1`). The Int error codes at top level were
+already in `test_int_routes_report_each_failure_at_its_operator`.
 
 XSH-155 is closed. `verify_scalar` now rejects an `IntBinary` row whose
 operator is not `+ - * / %`, so a verified program cannot reach the execution
@@ -263,6 +277,23 @@ lowered return type mismatch`. `int_binary_rows_admit_only_the_arithmetic_operat
 rewrites each of four `IntBinary` rows (under `StmtLetInt`, nested in another
 row, and under a `BoolIntCompare`) to each of the thirteen other operators and
 requires rejection, and requires the five arithmetic operators to verify.
+
+XSH-159 is closed the same way for the comparison rows. The schema has four
+row families whose payload carries a `BinaryOp`: `IntBinary`, `BoolIntCompare`,
+`BoolLiteralCompareSlot` and `ExprBinary`, whose operator the checked facts
+type. `operator_rows_are_the_schema_rows_that_carry_a_binary_operator` reads
+`schema.rs` and fails when a new one appears unclassified. Before the check, a
+`BoolIntCompare` row rewritten to `+` passed verification; in-place execution
+panicked at `unreachable!("verified typed comparison")` and frame execution
+failed with `type-error: lowered expression expected Bool`. A
+`BoolLiteralCompareSlot` row rewritten to `<` passed and panicked at
+`unreachable!("verified literal comparison")` in both modes. `verify_scalar`
+now admits only `== != < <= > >=` in `BoolIntCompare` rows and only `==` and
+`!=` in `BoolLiteralCompareSlot` rows.
+`comparison_rows_admit_only_their_comparison_operators` rewrites each of six
+`BoolIntCompare` rows (an `if` condition and the operands of `or` and `and`)
+and two `BoolLiteralCompareSlot` rows to each of the 18 operators, and
+requires exactly the admitted ones to verify.
 
 The remaining assumptions about the adapters are these:
 
@@ -280,14 +311,6 @@ The remaining assumptions about the adapters are these:
   field reads, list indexes or byte access are not in the matrix. Each form's
   route is read from its test fixtures, and other source shapes may lower
   differently.
-- **Top-level compound assignment.** It is a second implementation of the Int
-  rules, outside the refinement theorem, which agrees with the decision at the
-  720 grid points. It rejects Duration operands (XSH-158).
-- **Typed comparisons.** `verify_scalar` does not check the operator of a
-  `BoolIntCompare` or `BoolLiteralCompareSlot` row. Rewritten to `+` or `<`,
-  such rows pass verification and then reach an `unreachable!` in the typed
-  evaluator (XSH-159). They are not arithmetic adapters, but a `BoolIntCompare`
-  consumes `IntBinary` rows.
 
 ## Reproduce
 
@@ -373,15 +396,16 @@ Writing the adapter regressions exposed the typed-route blame defect
 (XSH-157), whose repair changes the `IntBinary` payload and so waits for the
 raw-IR lane. The route tests exposed the top-level compound route (XSH-158),
 and corruption probes beside them exposed the unchecked comparison operators
-(XSH-159). The one production change is XSH-155's check in `verify_scalar`.
+(XSH-159). The production changes are the operator checks in `verify_scalar`
+(XSH-155, XSH-159) and the top-level compound route's use of the shared
+adapters (XSH-158).
 XSH-150 to XSH-154 concern paths, `.require`, module contracts and map writes,
 not these functions, and were not reused.
 
 ## Next
 
 Close the adapter gap: carry the operator span on `IntBinary` (XSH-157) after
-the raw-IR lane lands, route top-level compound assignment through the shared
-decisions (XSH-158), and check the comparison operators (XSH-159). Then prove
+the raw-IR lane lands. Then prove
 that both execution routes pass operators and operands to the shared decision
 and report its error at the operator span, which needs the lowering and
 indexed-execution steps for `IntBinary` and `ExprBinary` in the IR model. Then apply the same route to the membership decision
