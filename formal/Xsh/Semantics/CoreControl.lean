@@ -269,22 +269,26 @@ mutual
   def runTail {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
     | 0, _, _ => .outOfFuel
-    | _ + 1, _, [] => .stuck
-    | fuel + 1, frame, [.expression value] =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals value) fun result =>
-        .returned result frame
-    | fuel + 1, frame, [.tailName name] =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals (.ident name)) fun result =>
-        .returned result frame
-    | fuel + 1, frame, statement :: rest =>
-      (runStatement machine fuel frame statement).andThen fun next => runTail machine fuel next rest
+    | fuel + 1, frame, body =>
+      match body with
+      | [] => .stuck
+      | [.expression value] =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals value) fun result =>
+          .returned result frame
+      | [.tailName name] =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals (.ident name)) fun result =>
+          .returned result frame
+      | statement :: rest =>
+        (runStatement machine fuel frame statement).andThen fun next => runTail machine fuel next rest
 
   def runStatements {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
     | 0, _, _ => .outOfFuel
-    | _ + 1, frame, [] => .normal frame
-    | fuel + 1, frame, statement :: rest =>
-      (runStatement machine fuel frame statement).andThen fun next => runStatements machine fuel next rest
+    | fuel + 1, frame, body =>
+      match body with
+      | [] => .normal frame
+      | statement :: rest =>
+        (runStatement machine fuel frame statement).andThen fun next => runStatements machine fuel next rest
 
   /-- A block runs in its own scope. -/
   def runBlock {world : World Declaration Identity Source} (machine : Machine world) :
@@ -371,41 +375,45 @@ mutual
       Nat → Frame world → List (Xsh.Syntax.Expr × List Xsh.Syntax.Statement) →
         Option (List Xsh.Syntax.Statement) → Exec world
     | 0, _, _, _ => .outOfFuel
-    | _ + 1, frame, [], none => .normal frame
-    | fuel + 1, frame, [], some otherwise => runBlock machine fuel frame otherwise
-    | fuel + 1, frame, (.patternCondition subject pattern, body) :: rest, otherwise =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals subject) fun value =>
-        match conditionMatch machine.context pattern value with
-        | .matched captures => runBound machine fuel frame captures body
-        | .failed => runIf machine fuel frame rest otherwise
-        | .unsupported => .unsupported
-    | fuel + 1, frame, (condition, body) :: rest, otherwise =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals condition) fun tested =>
-        match tested.eraseNominal with
-        | .scalar (.boolean true) => runBlock machine fuel frame body
-        | .scalar (.boolean false) => runIf machine fuel frame rest otherwise
-        | _ => .unsupported
+    | fuel + 1, frame, branches, otherwise =>
+      match branches, otherwise with
+      | [], none => .normal frame
+      | [], some fallback => runBlock machine fuel frame fallback
+      | (.patternCondition subject pattern, body) :: rest, otherwise =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals subject) fun value =>
+          match conditionMatch machine.context pattern value with
+          | .matched captures => runBound machine fuel frame captures body
+          | .failed => runIf machine fuel frame rest otherwise
+          | .unsupported => .unsupported
+      | (condition, body) :: rest, otherwise =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals condition) fun tested =>
+          match tested.eraseNominal with
+          | .scalar (.boolean true) => runBlock machine fuel frame body
+          | .scalar (.boolean false) => runIf machine fuel frame rest otherwise
+          | _ => .unsupported
 
   /-- `while` and `while let`: each iteration's body is its own scope; `break`
   ends this loop and `continue` starts its next test. -/
   def runWhile {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → Xsh.Syntax.Expr → List Xsh.Syntax.Statement → Exec world
     | 0, _, _, _ => .outOfFuel
-    | fuel + 1, frame, .patternCondition subject pattern, body =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals subject) fun value =>
-        match conditionMatch machine.context pattern value with
-        | .matched captures =>
-          (runBound machine fuel frame captures body).iterate fun next =>
-            runWhile machine fuel next (.patternCondition subject pattern) body
-        | .failed => .normal frame
-        | .unsupported => .unsupported
     | fuel + 1, frame, condition, body =>
-      fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals condition) fun tested =>
-        match tested.eraseNominal with
-        | .scalar (.boolean true) =>
-          (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
-        | .scalar (.boolean false) => .normal frame
-        | _ => .unsupported
+      match condition with
+      | .patternCondition subject pattern =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals subject) fun value =>
+          match conditionMatch machine.context pattern value with
+          | .matched captures =>
+            (runBound machine fuel frame captures body).iterate fun next =>
+              runWhile machine fuel next (.patternCondition subject pattern) body
+          | .failed => .normal frame
+          | .unsupported => .unsupported
+      | condition =>
+        fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals condition) fun tested =>
+          match tested.eraseNominal with
+          | .scalar (.boolean true) =>
+            (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
+          | .scalar (.boolean false) => .normal frame
+          | _ => .unsupported
 
   /-- `for` over a list snapshot: each item is bound immutably in that
   iteration's scope. -/
@@ -413,10 +421,12 @@ mutual
       Nat → Frame world → Xsh.Syntax.BindingTarget → List (Value Declaration Identity Source) →
         List Xsh.Syntax.Statement → Exec world
     | 0, _, _, _, _ => .outOfFuel
-    | _ + 1, frame, _, [], _ => .normal frame
-    | fuel + 1, frame, target, item :: rest, body =>
-      (withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
-          runStatements machine fuel bound body)).iterate fun next => runFor machine fuel next target rest body
+    | fuel + 1, frame, target, items, body =>
+      match items with
+      | [] => .normal frame
+      | item :: rest =>
+        (withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+            runStatements machine fuel bound body)).iterate fun next => runFor machine fuel next target rest body
 
   def runLoop {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
@@ -429,23 +439,26 @@ mutual
       Nat → Frame world → Value Declaration Identity Source →
         List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × List Xsh.Syntax.Statement) → Exec world
     | 0, _, _, _ => .outOfFuel
-    | _ + 1, _, _, [] => .stuck
-    | fuel + 1, frame, value, (pattern, guard, body) :: rest =>
-      match matchPattern machine.context pattern value with
-      | .failed => runMatch machine fuel frame value rest
-      | .unsupported => .unsupported
-      | .matched captures =>
-        match guard with
-        | none => runBound machine fuel frame captures body
-        | some condition =>
-          match bindCaptures machine frame.enter captures with
-          | .normal bound =>
-            fromResult frame (evalExpr machine fuel bound.store bound.environment bound.locals condition) fun tested =>
-              match tested.eraseNominal with
-              | .scalar (.boolean true) => runBound machine fuel frame captures body
-              | .scalar (.boolean false) => runMatch machine fuel frame value rest
-              | _ => .unsupported
-          | other => withinScope frame other
+    | fuel + 1, frame, value, arms =>
+      match arms with
+      | [] => .stuck
+      | (pattern, guard, body) :: rest =>
+        match matchPattern machine.context pattern value with
+        | .failed => runMatch machine fuel frame value rest
+        | .unsupported => .unsupported
+        | .matched captures =>
+          match guard with
+          | none => runBound machine fuel frame captures body
+          | some condition =>
+            match bindCaptures machine frame.enter captures with
+            | .normal bound =>
+              fromResult frame (evalExpr machine fuel bound.store bound.environment bound.locals condition)
+                fun tested =>
+                  match tested.eraseNominal with
+                  | .scalar (.boolean true) => runBound machine fuel frame captures body
+                  | .scalar (.boolean false) => runMatch machine fuel frame value rest
+                  | _ => .unsupported
+            | other => withinScope frame other
 end
 
 end Xsh.Semantics.CoreControl
