@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 149
+Next: 150
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -56,6 +56,15 @@ out of scope.
 - **Problem:** `xsht lint` flags unused private callables, types and locals, but not an unused private `const`: `case_dir` and `nul` in Laputa produce no diagnostic. It has no project-wide check for exports: an exported proc, type or const that no module in the project imports and uses (Laputa has 18 with no reference anywhere, and 102 used only inside their own file) is invisible to it, because `lint.unused-callable` stops at unexported callables. A script found these instead. The owner wants xsht's dead-code detection to be correct and thorough.
 - **Recommendation:** Add `lint.unused-const` for private constants. Add a workspace-level unused-export lint that resolves `use ... as` aliases across every module under the project's module and test roots. It reports exports referenced nowhere, separately notes exports referenced only by tests or only inside their own module, and exempts modules declared as a public API in `xsht-config.ini`, such as stdlib and published libraries. Prove it against fixtures that reproduce Laputa's 18 dead exports, aliased imports, same-named exports in two modules, and re-export chains.
 - **Fix with:** design-cli, dead-code-archaeology
+- **Effort:** M
+
+### XSH-149 · P2 · The whole-project paranoid kernel recheck exceeds its time cap
+
+- **Area:** Formal
+- **Where:** `formal/scripts/check-fresh.py:19-20` (`WALL_LIMIT_SECONDS`, `PARANOID_WALL_LIMIT_SECONDS = 1620`), run log from the EFF-LATTICE integration on 2026-11-21
+- **Problem:** After a clean build (298 jobs), the bundled lean4lean paranoid check of all 35,093 project declarations ran past its 1,620-second cap on one 4-CPU Lean slot and was terminated. Several decode certificates take 1-4.5 s each in lean4lean (`actual_scoped_facts_are_checked` 4.0 s, `scoped_fixture_accepted` 4.6 s). The plan requires every production proof root to pass a separate fresh kernel recheck, and G10 runs it over the whole root import, so the fixed gate cannot pass as the project grows. An exceeded cap is inconclusive evidence, not a pass.
+- **Recommendation:** Recheck each closed root's import closure (`leanchecker --fresh <module>`) as the per-closure gate. Size the whole-project paranoid run from a measured baseline: give it its own budget within the plan's 45-minute clean-room cap, or run the paranoid kernel with more threads in a dedicated slot. Record the measured time per run, and treat certificate-heavy modules as the first optimization target.
+- **Fix with:** make-it-fast
 - **Effort:** M
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
