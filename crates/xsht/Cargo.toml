@@ -11,8 +11,8 @@ default = ["native-tests"]
 native-tests = ["xsh/default", "xsh-registry/native-tests"]
 
 [dependencies]
-deser = { package = "laputa-deser", version = "=0.10.2", registry = "mycrates", features = ["derive"] }
-deser-json = { package = "laputa-deser-json", version = "=0.10.2", registry = "mycrates" }
+deser = { package = "laputa-deser", version = "=0.10.3", registry = "mycrates", features = ["derive"] }
+deser-json = { package = "laputa-deser-json", version = "=0.10.3", registry = "mycrates" }
 crossbeam-channel = "0.5"
 ignore = { package = "laputa-ignore", version = "=0.4.33", registry = "mycrates" }
 libc = "0.2"
