@@ -878,6 +878,6 @@ test test_linux_root_caller_uses_unprivileged_native_identity {
   let root = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 0, 0, "", [])?
   assert "HOST_UID=1000" in root and "HOST_GID=1000" in root
   assert "XSH_ROOT_NATIVE_TESTS=1" in root
-  let user = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 1001, 1001, "", [])?
-  assert "HOST_UID=1001" in user and "XSH_ROOT_NATIVE_TESTS=1" not in user
+  let unprivileged = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 1001, 1001, "", [])?
+  assert "HOST_UID=1001" in unprivileged and "XSH_ROOT_NATIVE_TESTS=1" not in unprivileged
 }
