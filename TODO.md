@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 157
+Next: 158
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -102,6 +102,15 @@ out of scope.
 - **Recommendation:** Find why the indexed build rejects the pure contract entry, fix it, and add a native test that a matching pure export is accepted and a proc export is reported as mismatched.
 - **Fix with:** none
 - **Effort:** S
+
+### XSH-157 · P2 · Typed Int arithmetic reports its failure at the caller instead of the operator
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/values.rs` (`IntView::Binary` pushes `ApplyIntBinary { op, span: call_span }`); `src/runtime/eval/indexed/full/schema.rs` (`BuildIntRow::Binary` carries no span); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
+- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, which has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`). The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
+- **Recommendation:** Carry the operator span on `IntBinary` rows (or a span pool reference) and pass it to `ApplyIntBinary` and the frame-mode `BinaryLeft` continuation, then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
