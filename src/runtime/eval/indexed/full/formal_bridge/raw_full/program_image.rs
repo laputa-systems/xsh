@@ -517,6 +517,9 @@ image_unit_enums! {
     crate::sema::sealed_operation::TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem, OrderingOperand, NegationOperand }
     crate::sema::sealed_operation::SliceBounds { Unbounded, Start, End, Both }
     xsh_registry::signature::ArithmeticOperator { Add, Subtract, Multiply, Divide, Remainder }
+    xsh_registry::signature::ArithmeticSignature { Integer, Float, StringConcatenation, ListConcatenation, SetDifference, DurationPair, DurationScale, IntegerScale, DurationRatio }
+    crate::sema::sealed_operation::MembershipDomain { List, Set, Map, UnsignedMap, Record, Str, Bytes, Path, EnvPath }
+    crate::sema::wrapper_operation::WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
     CheckedPatternVariantKind { Tag, Error }
     Effect { Fs, Net, Process, Env, Time, Error, Io }
     AssignOp { Set, Add, Sub, Mul, Div, Rem }
@@ -751,6 +754,15 @@ image_structs! {
 }
 
 image_enums! {
+    schemes::FullOperationBinding { Selected(signature) = 0, Forwarded(ordinal) = 1 }
+    schemes::FullMethodBinding { Selected(id) = 0, SelectedFunction(id) = 1, Forwarded(ordinal) = 2 }
+    schemes::FullWrapperBinding { Selected(selection) = 0, Forwarded(ordinal) = 1 }
+    crate::sema::sealed_operation::SealedOperationSignature {
+        TypePredicate(domain) = 0, Binary(signature) = 1, Field = 2, IndexList = 3, IndexMap = 4,
+        IndexRecord = 5, IndexModule = 6, StoreValue = 7, SliceList = 8, SliceStr = 9,
+        SliceBytes = 10, RecordOverride = 11, TargetVariant = 12, Equality = 13,
+        Membership(domain) = 14, MapKey = 15,
+    }
     FullCallableContract { Ground(signature) = 0, Scheme(scheme) = 1 }
     FullCheckedExprPurpose { CheckedContract { function_ref } = 0, ProducerContext(owner) = 1, CapturedErrorContract(owner) = 2 }
     ExecutableOwner { Function(function) = 0, Driver(step) = 1 }
@@ -798,6 +810,47 @@ image_enums! {
     guard_schemes::FullGuardCallTarget { Scope(index) = 0, Call(index) = 1 }
     crate::sema::sealed_operation::IndexSyntax { Ordinary = 0, NegativeLiteral(index) = 1 }
     crate::map_key::MapKey { Str(text) = 0, Int(value) = 1, Bool(value) = 2, Bytes(bytes) = 3, Path(bytes) = 4, Duration(millis) = 5 }
+}
+
+macro_rules! registered_id_codec {
+    ($($ty:ty),* $(,)?) => {$(
+        impl ImageCodec for $ty {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                self.raw().put(output)
+            }
+
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                Ok(Self::from_raw(u32::take(input)?))
+            }
+        }
+    )*};
+}
+
+registered_id_codec! {
+    xsh_registry::signature::RegisteredMethodId,
+    xsh_registry::signature::RegisteredFunctionId,
+}
+
+#[test]
+fn binding_images_round_trip_and_reject_invalid_tags() {
+    fn check<T: ImageCodec + std::fmt::Debug + PartialEq>(value: T) {
+        let mut output = ImageWriter::default();
+        value.put(&mut output).unwrap();
+        let mut input = ImageReader::new(&output.bytes);
+        assert_eq!(T::take(&mut input).unwrap(), value);
+        input.finish().unwrap();
+        assert!(T::take(&mut ImageReader::new(&[255])).is_err());
+    }
+
+    use crate::sema::sealed_operation::{MembershipDomain, SealedOperationSignature};
+    use crate::sema::wrapper_operation::WrapperSelection;
+    check(schemes::FullOperationBinding::Selected(SealedOperationSignature::Membership(MembershipDomain::EnvPath)));
+    check(schemes::FullOperationBinding::Forwarded(u32::MAX));
+    check(schemes::FullMethodBinding::Selected(xsh_registry::signature::RegisteredMethodId::from_raw(37)));
+    check(schemes::FullMethodBinding::SelectedFunction(xsh_registry::signature::RegisteredFunctionId::from_raw(42)));
+    check(schemes::FullMethodBinding::Forwarded(u32::MAX));
+    check(schemes::FullWrapperBinding::Selected(WrapperSelection::ProcCompletion));
+    check(schemes::FullWrapperBinding::Forwarded(u32::MAX));
 }
 
 impl ImageCodec for FloatValue {
@@ -970,9 +1023,6 @@ macro_rules! image_unsupported {
 }
 
 image_unsupported! {
-    schemes::FullOperationBinding => "sealed operation bindings",
-    schemes::FullMethodBinding => "sealed method bindings",
-    schemes::FullWrapperBinding => "wrapper bindings",
     crate::runtime::eval::require::PreparedSchema => "prepared schemas",
     crate::runtime::eval::ModuleCallPlan => "prepared module call plans",
     crate::sema::schemes::RegisteredCallPlan => "registered call plans",
