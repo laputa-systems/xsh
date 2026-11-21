@@ -120,6 +120,24 @@ theorem substituted_source_and_projection_refused :
     check arithmeticBytes [arithmeticBytes] arithmeticTree [[("x", 0)]] = false := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
+theorem adjacent_word_hyphen_refused :
+    check (witnessBytes "pure f(x: Int) -> Int {\n  return x-1\n}\n") []
+      [⟨"f", ["x"], [], none, .value (.binary .sub (.var "x") (.int 1))⟩]
+      [[("x", 0)]] = false := by
+  decide +kernel
+
+theorem adjacent_error_redirect_refused :
+    check (witnessBytes "pure f(E: Int) -> Bool {\n  return E>1\n}\n") []
+      [⟨"f", ["E"], [], none, .comparison .gt (.var "E") (.int 1)⟩]
+      [[("E", 0)]] = false := by
+  decide +kernel
+
+theorem out_of_range_decimal_refused :
+    check (witnessBytes "pure f(x: Int) -> Int {\n  return 9223372036854775808\n}\n") []
+      [⟨"f", ["x"], [], none, .value (.atom (.int 9223372036854775808))⟩]
+      [[("x", 0)]] = false := by
+  decide +kernel
+
 theorem unsupported_trailing_bytes_refused :
     check (arithmeticBytes ++ [0]) [] arithmeticTree [[("x", 0)]] = false ∧
     check (arithmeticBytes ++ [64]) [] arithmeticTree [[("x", 0)]] = false ∧

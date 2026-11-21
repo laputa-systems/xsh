@@ -1242,11 +1242,31 @@ theorem scopes_projection {functions : List SourceFunction} {scopes : List (List
     cases projected
     exact .cons (scope_projection scopeProjected) (ih othersProjected)
 
+def noConflictingAdjacency : List Nat → Bool
+  | first :: second :: rest =>
+      !(isWordPartCode first && second == 45) &&
+      !(isDigitCode first && (isWordStartCode second || second == 46)) &&
+      !(first == 69 && second == 62) &&
+      !(first == 61 && (second == 61 || second == 62)) &&
+      !((first == 60 || first == 62) && second == 61) &&
+      !(first == 62 && second == 62) && !(first == 63 && second == 63) &&
+      noConflictingAdjacency (second :: rest)
+  | _ => true
+
+def decimalRunsInRange (codes : List Nat) : Bool :=
+  (codes.foldl (fun (state : Nat × Bool) code =>
+    if isDigitCode code then
+      let value := state.1 * 10 + (code - 48)
+      (value, state.2 && decide (value ≤ maxIntLiteral))
+    else (0, state.2)) (0, true)).2
+
 /-- A witness checker for one module with no imported inputs. The submitted trees and slot
 projections are candidates; both are reconstructed from the original byte list. -/
 def check (bytes : List UInt8) (moduleInputs : List (List UInt8))
     (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Bool :=
-  moduleInputs.isEmpty && decide (functions.map (·.name)).Nodup &&
+  (noConflictingAdjacency (bytes.map UInt8.toNat) &&
+    decimalRunsInRange (bytes.map UInt8.toNat)) && moduleInputs.isEmpty &&
+    decide (functions.map (·.name)).Nodup &&
     match parseSourceCodes (bytes.map UInt8.toNat) with
     | none => false
     | some parsed => parsed == functions && parsed.mapM SourceFunction.scope? == some scopes
@@ -1261,7 +1281,7 @@ theorem check_sound {bytes : List UInt8} {moduleInputs : List (List UInt8)}
       AdmittedSource (bytes.map UInt8.toNat) functions ∧ ScopesProjection functions scopes := by
   unfold check at accepted
   simp only [Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq] at accepted
-  rcases accepted with ⟨⟨noModules, distinct⟩, accepted⟩
+  rcases accepted with ⟨⟨⟨_, noModules⟩, distinct⟩, accepted⟩
   cases parsed : parseSourceCodes (bytes.map UInt8.toNat) with
   | none => simp [parsed] at accepted
   | some found =>
@@ -1286,6 +1306,24 @@ theorem accepted_projection_unique {bytes : List UInt8} {moduleInputs : List (Li
     subst second
     refine ⟨rfl, ?_⟩
     exact Option.some.inj (firstAccepted.2.2.symm.trans secondAccepted.2.2)
+
+theorem accepted_has_no_conflicting_adjacency {bytes : List UInt8}
+    {moduleInputs : List (List UInt8)} {functions : List SourceFunction}
+    {scopes : List (List (String × Nat))}
+    (accepted : check bytes moduleInputs functions scopes = true) :
+    noConflictingAdjacency (bytes.map UInt8.toNat) = true := by
+  unfold check at accepted
+  simp only [Bool.and_eq_true] at accepted
+  exact accepted.1.1.1.1
+
+theorem accepted_decimal_runs_in_range {bytes : List UInt8}
+    {moduleInputs : List (List UInt8)} {functions : List SourceFunction}
+    {scopes : List (List (String × Nat))}
+    (accepted : check bytes moduleInputs functions scopes = true) :
+    decimalRunsInRange (bytes.map UInt8.toNat) = true := by
+  unfold check at accepted
+  simp only [Bool.and_eq_true] at accepted
+  exact accepted.1.1.1.2
 
 
 def witnessBytes (text : String) : List UInt8 := text.toUTF8.toList

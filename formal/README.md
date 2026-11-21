@@ -208,6 +208,12 @@ preserving the stored value. The model checks qualified storage requirements
 and relates them to runtime compatibility; source-derived unique rows and
 runtime-relevant call-instance closure remain open. Source admission, lexical
 effect bounds, translation validation, and whole-machine correspondence remain open.
+The vertical source witness checker excludes adjacent identifier characters and
+hyphens, decimal digits followed by identifier starts or dots, `E>`, `==`,
+`=>`, `<=`, `>=`, `>>`, and `??`. It also requires each consecutive decimal
+digit run to fit in a signed 64-bit integer, even inside an identifier. These
+are conservative restrictions on checker acceptance; they do not establish
+production lexer agreement or parse-failure and source-position soundness.
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
