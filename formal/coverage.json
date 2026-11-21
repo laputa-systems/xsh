@@ -15292,6 +15292,24 @@
       "boundary": "Writable captures are unsupported, since a call cannot write cells its caller holds; local functions are not first-class values; stream and cli-main declarations, defaults and rest parameters, type and error declarations as runtime binders, map and set comprehensions, text holes other than s and d, and use aliases are not modelled. The resolver is the canonical binder scheme over the machine's lexical depth, not a separate pass over the syntax, and declared types still come from an oracle. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Control.resolution_and_captures",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.resolution_and_captures",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A syntax-directed resolution pass over lexical scopes gives each use the canonical binder of its innermost declaring scope; the machine's lexical environment represents the pass's scopes across block entry and name declarations under the canonical resolution, so uses resolve to the pass's binders; a local function's capture set is exactly its free names other than its parameters that resolve outside it, its writable cells are cells of that set, and a statement-level call returns with the caller's cells as the callee left them (SPEC 9.2 writable captures).",
+      "boundary": "Represents is preserved by the operations shown, not proved for whole machine runs; destructuring targets, pattern captures and comprehension targets are covered by the machine's own scoping lemmas but not tied to the pass. Writes to captured cells reach the caller only through statement-level calls; calls nested in expressions stay pure. First-class local functions, type and error constructors, default and rest parameters, map and set comprehensions and the f, e and g text holes are not modelled, and declared types still come from an oracle. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.parameters_and_maps",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.parameters_and_maps",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 9.2 parameters and SPEC 6.5 map comprehensions: a supplied argument binds its parameter in order, an omitted one takes its default from the declaration scope without the other parameters, a final rest parameter takes the remaining arguments as a List, a missing argument without a default does not bind, and a map comprehension's later projection of a key replaces an earlier one, its key projected before its value.",
+      "boundary": "Parameters with defaults and rest apply to local functions; named, spread and splice arguments are not modelled, nor are static functions' defaults. The machine's use of these laws is checked by witnesses. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",

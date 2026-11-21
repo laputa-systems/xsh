@@ -53,12 +53,13 @@ structure Deferred (Declaration Identity Source : Type) where
   locals : Locals Declaration Identity Source
 
 /-- A local function (SPEC 9): the cell its name is bound to, the environment
-it was declared in, the local functions visible there, its parameters and
-body. Its captured names are read through that environment when it is
-called, so a captured `var` is read as it is at the call. -/
+it was declared in, the local functions visible there, the mutable cells it
+captures, its parameters and body. Its captured names are read through that
+environment when it is called, so a captured `var` is read as it is at the
+call, and it may write a captured mutable cell (SPEC 9.2). -/
 inductive Closure where
-  | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure))
-      (parameters : List Xsh.Syntax.RawName) (body : FunctionBody)
+  | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
+      (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody)
 
 /-- What an expression sees besides its environment, store and locals: the
 call activation, the local functions in scope, and the implicit `.` of the
@@ -94,6 +95,9 @@ structure Frame (world : World Declaration Identity Source) where
   item : Option (Value Declaration Identity Source)
   /-- What the enclosing `collect` has gathered from `yield`, if there is one. -/
   collected : Option (List (Value Declaration Identity Source))
+  /-- The caller's cells this frame may still write: a closure's captured
+  mutable cells. -/
+  writable : List CellId
 
 def Frame.scope {world : World Declaration Identity Source} (frame : Frame world) : Scope Declaration Identity Source :=
   ⟨frame.activation, frame.closures, frame.item⟩
@@ -104,7 +108,7 @@ def Frame.ofScope {world : World Declaration Identity Source} (environment : Env
     (scope : Scope Declaration Identity Source) : Frame world :=
   { environment, store, overlay := [], locals, callerStore, activation := scope.activation, deferred := [],
     reported := [], waited := [], breakValue := none, closures := scope.closures, item := scope.item,
-    collected := none }
+    collected := none, writable := [] }
 
 /-- The outcome of running statements. -/
 inductive Exec (world : World Declaration Identity Source) where
@@ -266,8 +270,38 @@ where
     else digits.foldl (fun total digit =>
       total.bind fun sum => if digit.isDigit then some (sum * 10 + (digit.toNat - '0'.toNat)) else none) (some 0)
 
-/-- The value a text-pattern hole takes (SPEC 6.10): a `Str`, or for `d` an
-`Int` of decimal digits with an optional sign; other specs are not modelled. -/
+/-- The value of a digit in `base`. -/
+def digitValue (base : Nat) (digit : Char) : Option Nat :=
+  let lower := digit.toLower
+  let value :=
+    if digit.isDigit then some (digit.toNat - '0'.toNat)
+    else if 'a' ≤ lower ∧ lower ≤ 'f' then some (lower.toNat - 'a'.toNat + 10)
+    else none
+  value.bind fun found => if found < base then some found else none
+
+/-- Digits in `base` with an optional sign and an optional `0x`, `0o` or `0b`
+prefix (SPEC 6.10, Python's `parse` reading of the format letter). -/
+def radix (base : Nat) (marker : Char) : List Char → Option Int
+  | '-' :: rest => (unsigned rest).map fun value => -(value : Int)
+  | '+' :: rest => (unsigned rest).map fun value => (value : Int)
+  | rest => (unsigned rest).map fun value => (value : Int)
+where
+  unsigned : List Char → Option Nat
+    | '0' :: letter :: digits => if letter.toLower = marker then natural digits else natural ('0' :: letter :: digits)
+    | digits => natural digits
+  natural (digits : List Char) : Option Nat :=
+    if digits.isEmpty then none
+    else digits.foldl (fun total digit =>
+      total.bind fun sum => (digitValue base digit).map fun value => sum * base + value) (some 0)
+
+def integerHole (parsed : Option Int) : Match Declaration Identity Source :=
+  match parsed.bind validateInt? with
+  | some value => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.integer value))]
+  | none => .failed
+
+/-- The value a text-pattern hole takes (SPEC 6.10): a `Str`, or an `Int` for
+`d`, `x`, `o` and `b`; the `Float` letters `f`, `e` and `g` need Float literal
+rounding, which is outside the model. -/
 def holeValue (spelling : Xsh.Syntax.RawName → String) (spec : Option Xsh.Syntax.RawName) (taken : List Char) :
     Match Declaration Identity Source :=
   match spec.map spelling with
@@ -276,6 +310,9 @@ def holeValue (spelling : Xsh.Syntax.RawName → String) (spec : Option Xsh.Synt
     match (decimal taken).bind validateInt? with
     | some value => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.integer value))]
     | none => .failed
+  | some "x" => integerHole (radix 16 'x' taken)
+  | some "o" => integerHole (radix 8 'o' taken)
+  | some "b" => integerHole (radix 2 'b' taken)
   | some _ => .unsupported
 
 /-- A hole's capture under its name, or none for `{_}`. -/
@@ -679,6 +716,46 @@ def retryStep {world : World Declaration Identity Source} (context : Context Dec
     | none => .exec .unsupported
   | other => other
 
+/-- The names a local function captures: its body's free names other than
+its parameters. -/
+def captureNames (parameters : List Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) : List Xsh.Syntax.RawName :=
+  (Xsh.Syntax.freeStatementsFuel 256 parameters body).eraseDups
+
+/-- The captured names that resolve to mutable cells of the frame. -/
+def mutableCaptures {world : World Declaration Identity Source} (frame : Frame world)
+    (names : List Xsh.Syntax.RawName) : List CellId :=
+  names.filterMap fun name =>
+    match frame.environment.cellOf name with
+    | .ok cell =>
+      match frame.store cell with
+      | some held => if held.mutability = .mutable then some cell else none
+      | none => none
+    | .error _ => none
+
+/-- A statement-level call of a local function returns to its caller with the
+caller's cells as the callee left them, so a write to a captured mutable cell
+is kept; the callee's own cells end with the call. -/
+def returnTo {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind) :
+    Exec world → Valued world
+  | .returned value callee =>
+    .value (match kind with | .result => wrapOk value | .plain => value)
+      { caller with store := keep caller.store callee.store }
+  | .failed (.raised error) callee =>
+    match kind with
+    | .result => .value (.err error) { caller with store := keep caller.store callee.store }
+    | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store })
+  | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store })
+  | .unsupported => .exec .unsupported
+  | .outOfFuel => .exec .outOfFuel
+  | _ => .exec .stuck
+
+def bodyKind : FunctionBody → ReturnKind
+  | .expression _ kind | .block _ kind => kind
+
+def bodyStatements : FunctionBody → List Xsh.Syntax.Statement
+  | .expression result _ => [.expression result]
+  | .block statements _ => statements
+
 /-- The local function a name resolves to. -/
 def localClosure (closures : List (CellId × Closure)) (environment : Environment) (name : Xsh.Syntax.RawName) :
     Option Closure :=
@@ -686,12 +763,34 @@ def localClosure (closures : List (CellId × Closure)) (environment : Environmen
   | .ok cell => closures.lookup cell
   | .error _ => none
 
-/-- The parameter names of a declaration whose parameters have no defaults,
-annotations aside, and no rest parameter. -/
-def plainParameters : List Xsh.Syntax.Parameter → Option (List Xsh.Syntax.RawName)
-  | [] => some []
-  | .mk name _ none false :: rest => (plainParameters rest).map (name :: ·)
-  | _ :: _ => none
+def parameterNames (parameters : List Xsh.Syntax.Parameter) : List Xsh.Syntax.RawName :=
+  parameters.map fun | .mk name _ _ _ => name
+
+/-- Bind a call's arguments to a declaration's parameters (SPEC 9.2): each
+supplied argument to its parameter in order, then each omitted one to its
+default, evaluated by `evaluateDefault` in the declaration scope without the
+other parameters, in parameter order; a final rest parameter takes the
+remaining arguments as a `List`. -/
+def bindArguments (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    List Xsh.Syntax.Parameter → List (Value Declaration Identity Source) →
+      Result Declaration Identity Source (Locals Declaration Identity Source)
+  | [], [] => .value []
+  | [.mk name _ _ true], arguments => .value [(name, .list arguments)]
+  | .mk name _ _ false :: rest, argument :: arguments =>
+    (bindArguments evaluateDefault rest arguments).bind fun bound => .value ((name, argument) :: bound)
+  | .mk name _ (some default) false :: rest, [] =>
+    (evaluateDefault default).bind fun value =>
+      (bindArguments evaluateDefault rest []).bind fun bound => .value ((name, value) :: bound)
+  | _, _ => .stuck
+
+/-- The map a map comprehension builds from its key and value projections:
+a later projection of a key replaces an earlier one (SPEC 6.4, 6.5). -/
+def mapOfPairs (pairs : List (Value Declaration Identity Source)) : Option (List (MapKey × Value Declaration Identity Source)) :=
+  pairs.foldl (fun built pair =>
+    built.bind fun entries =>
+      match pair with
+      | .list [key, value] => (mapKeyOf key).map fun mapKey => upsert mapKey value entries
+      | _ => none) (some [])
 
 /-- A declared return type's kind: a `Result` type or any other. -/
 def returnKindOf {world : World Declaration Identity Source} (machine : Machine world) (result : Option Xsh.Syntax.TypeExpr) :
@@ -737,22 +836,28 @@ mutual
         | some value => .value value
         | none => .unsupported
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ =>
         valuedResult (runValue machine fuel (Frame.ofScope environment store locals (some store) scope) expression)
       | .call (.ident name) arguments =>
         match locals.lookup name, localClosure scope.closures environment name, positional arguments with
-        | none, some (.mk cell defining captured parameters body), some values =>
+        | none, some (.mk cell defining captured writable parameters body), some values =>
           (evaluateAll (evalExpr machine fuel scope store environment locals) values).bind fun evaluated =>
-            if parameters.length = evaluated.length then
-              let callee : Scope Declaration Identity Source :=
-                ⟨scope.activation + machine.activationStep, (cell, .mk cell defining captured parameters body) :: captured,
-                  none⟩
+            (bindArguments
+                (evalExpr machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining [])
+                parameters evaluated).bind fun bound =>
               match body with
-              | .expression result .plain => evalExpr machine fuel callee store defining (parameters.zip evaluated) result
+              | .expression result .plain =>
+                evalExpr machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound result
               | .expression result .result =>
-                callBlock machine fuel callee store defining (parameters.zip evaluated) [.expression result] .result
-              | .block statements kind => callBlock machine fuel callee store defining (parameters.zip evaluated) statements kind
-            else .stuck
+                callBlock machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
+                  [.expression result] .result
+              | .block statements kind =>
+                callBlock machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
+                  statements kind
         | _, _, _ =>
           match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
           | none, none, "Ok", [] => .value (.ok (.scalar .unit))
@@ -818,6 +923,32 @@ mutual
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
       | .listComp value qualifiers => comprehend machine fuel frame qualifiers value
+      | .mapComp key value qualifiers =>
+        (comprehend machine fuel frame qualifiers (.list [key, value])).bind fun pairs next =>
+          match listValues pairs with
+          | some items =>
+            match mapOfPairs items with
+            | some entries => .value (.map entries) next
+            | none => .exec .unsupported
+          | none => .exec .stuck
+      | .call (.ident name) arguments =>
+        match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
+        | none, some (.mk cell defining captured writable parameters body), some values =>
+          resultThen frame (evaluateAll (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals) values)
+            fun evaluated =>
+              resultThen frame
+                (bindArguments
+                  (evalExpr machine fuel ⟨frame.activation + machine.activationStep,
+                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ frame.store defining [])
+                  parameters evaluated) fun bound =>
+                returnTo frame (bodyKind body)
+                  (runBody machine fuel
+                    { Frame.ofScope defining frame.store bound (some frame.store)
+                        ⟨frame.activation + machine.activationStep,
+                          (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                      writable }
+                    (bodyStatements body))
+        | _, _, _ => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
       | .collect body =>
         collectWith frame (runBlock machine fuel { frame with collected := some [] } body)
       | expression => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
@@ -1007,10 +1138,10 @@ mutual
           match frame.environment.cellOf root with
           | .error fault => .internal (.unresolvedName fault) frame
           | .ok cell =>
-            match frame.callerStore.bind fun caller => caller cell, frame.store cell with
-            | some _, _ => .unsupported
-            | none, none => .internal (.missingCell cell) frame
-            | none, some current =>
+            match frame.callerStore.bind (fun caller => caller cell), frame.writable.contains cell, frame.store cell with
+            | some _, false, _ => .unsupported
+            | _, _, none => .internal (.missingCell cell) frame
+            | _, _, some current =>
               resultExec frame
                 (selectorsOf (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals)
                   (some current.contents.typeTag) path) fun sides =>
@@ -1057,16 +1188,17 @@ mutual
           | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
           | _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
-        match kind, plainParameters parameters, (machine.namesAt frame.activation).declaration frame.environment name with
-        | .stream, _, _ | .cliMain, _, _ | _, none, _ => .unsupported
-        | _, _, none => .internal .malformedTarget frame
-        | _, some names, some (binder, cell, _) =>
+        match kind, (machine.namesAt frame.activation).declaration frame.environment name with
+        | .stream, _ | .cliMain, _ => .unsupported
+        | _, none => .internal .malformedTarget frame
+        | _, some (binder, cell, _) =>
           let environment := extend frame.environment [(name, binder, cell)]
           .normal { frame with
             environment
             locals := hide [name] frame.locals
-            closures := (cell, .mk cell environment frame.closures names (.block body (returnKindOf machine result))) ::
-              frame.closures }
+            closures := (cell, .mk cell environment frame.closures
+              (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
+              (.block body (returnKindOf machine result))) :: frame.closures }
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
           match guardValue (machine.resultSubject next.environment initializer) subject with

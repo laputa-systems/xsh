@@ -230,6 +230,32 @@ theorem selectorsOf_refines {world : World Declaration Identity Source}
     · exact refines_refl _
     · exact bind_refines (selectorsOf_refines each _ rest) fun _ => refines_refl _
 
+theorem bindArguments_refines
+    {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
+    ∀ parameters arguments, Refines (bindArguments evaluate parameters arguments) (bindArguments evaluate' parameters arguments)
+  | [], [] => refines_refl _
+  | [], _ :: _ => by simp only [bindArguments]; exact refines_refl _
+  | .mk name annotation default rest :: more, arguments => by
+    cases rest with
+    | true =>
+      cases more with
+      | nil => simp only [bindArguments]; exact refines_refl _
+      | cons _ _ =>
+        cases arguments <;> (simp only [bindArguments]; exact refines_refl _)
+    | false =>
+      cases arguments with
+      | cons argument others =>
+        simp only [bindArguments]
+        exact bind_refines (bindArguments_refines each more others) fun _ => refines_refl _
+      | nil =>
+        cases default with
+        | none => simp only [bindArguments]; exact refines_refl _
+        | some default =>
+          simp only [bindArguments]
+          exact bind_refines (each default) fun _ =>
+            bind_refines (bindArguments_refines each more []) fun _ => refines_refl _
+
 theorem guardElse_refines {world : World Declaration Identity Source} {first second : Exec world}
     (head : Exec.Refines first second) : Exec.Refines (guardElse first) (guardElse second) := by
   rcases head with out | same
@@ -241,6 +267,15 @@ theorem guardElse_refines {world : World Declaration Identity Source} {first sec
 theorem collectWith_refines {world : World Declaration Identity Source} (outer : Frame world)
     {first second : Exec world} (head : Exec.Refines first second) :
     Valued.Refines (collectWith outer first) (collectWith outer second) := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    exact valued_refl _
+
+theorem returnTo_refines {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind)
+    {first second : Exec world} (head : Exec.Refines first second) :
+    Valued.Refines (returnTo caller kind first) (returnTo caller kind second) := by
   rcases head with out | same
   · subst out
     exact Or.inl rfl
@@ -340,8 +375,11 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.comprehendItems _ _ _ _ _
   | exact inner.loopValues _ _
   | refine collectWith_refines _ ?_
+  | refine returnTo_refines _ _ ?_
+  | exact inner.body _ _
   | refine loopStep_refines (fun _ => inner.loopValues _ _) ?_
   | refine resultExec_refines _ (selectorsOf_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
+  | refine resultThen_refines _ (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
   | refine guardElse_refines ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
@@ -408,6 +446,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | exact step_refines machine.context environment store (inner.expr scope store)
               (inner.call _ store) locals _
           | refine bind_refines (evaluateAll_refines (inner.expr _ _ _ _) _) fun _ => ?_
+          | refine bind_refines (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
           | refine bind_refines (inner.expr _ _ _ _ _) fun _ => ?_
           | split)
       call := fun scope store environment locals body kind => by
@@ -701,6 +740,19 @@ theorem collectWith_persists {world : World Declaration Identity Source} {before
   | unsupported => exact head
   | outOfFuel => exact head
 
+theorem returnTo_persists {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind)
+    {first : Exec world} (head : Keeps caller.store first) : VKeeps caller.store (returnTo caller kind first) := by
+  unfold returnTo
+  split
+  · exact persists_keep (head _ rfl)
+  · split
+    · exact persists_keep (head _ rfl)
+    · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present
+  · intro last present; cases present
+  · intro last present; cases present
+
 theorem withStore_keeps {world : World Declaration Identity Source} {before store : Store world}
     (kept : Persists before store) (status : Exec world) : Keeps before (status.withStore store) := by
   cases status <;> (intro last present; cases present <;> exact kept)
@@ -796,6 +848,8 @@ theorem bindTarget_entered {world : World Declaration Identity Source} (machine 
 /-- The statement functions at `fuel` keep every cell of the frame they start
 from. -/
 structure Persisting {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  body : ∀ frame statements, Keeps frame.store (runBody machine fuel frame statements)
+  tail : ∀ frame statements, Keeps frame.store (runTail machine fuel frame statements)
   value : ∀ frame expression, VKeeps frame.store (runValue machine fuel frame expression)
   scope : ∀ frame body, VKeeps frame.store (valueScope machine fuel frame body)
   valueTail : ∀ frame body, VKeeps frame.store (runValueTail machine fuel frame body)
@@ -854,6 +908,9 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.comprehendItems _ _ _ _ _
   | exact inner.loopValues _ _
   | refine collectWith_persists _ ?_
+  | refine returnTo_persists _ _ ?_
+  | exact inner.body _ _
+  | exact inner.tail _ _
   | refine loopStep_persists (fun _ => inner.loopValues _ _) ?_
   | refine resultExec_persists _ _ fun _ => ?_
   | refine guardElse_persists ?_
@@ -868,6 +925,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
+      body := fun _ _ => by simp only [runBody]; exact fun _ present => by cases present
+      tail := fun _ _ => by simp only [runTail]; exact fun _ present => by cases present
       value := fun _ _ => by simp only [runValue]; exact fun _ present => by cases present
       scope := fun _ _ => by simp only [valueScope]; exact fun _ present => by cases present
       valueTail := fun _ _ => by simp only [runValueTail]; exact fun _ present => by cases present
@@ -890,6 +949,8 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
+      body := fun frame statements => by simp only [runBody]; close_persists
+      tail := fun frame statements => by simp only [runTail]; close_persists
       value := fun frame expression => by simp only [runValue]; close_persists
       scope := fun frame body => by simp only [valueScope]; close_persists
       valueTail := fun frame body => by simp only [runValueTail]; close_persists
@@ -1391,17 +1452,18 @@ theorem callee_cells_fresh {world : World Declaration Identity Source} (store : 
     simp at bound
     omega
 
-/-- A callee cannot write a cell its caller holds. -/
+/-- A callee cannot write a cell its caller holds unless it is one of the
+callee's captured mutable cells. -/
 theorem callee_cannot_write_caller {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (target : Xsh.Syntax.AssignTarget) (op : Xsh.Syntax.AssignOp) (value : Xsh.Syntax.Expr)
     (root : Xsh.Syntax.RawName) (path : List PathSpec) (cell : CellId) (caller : Store world) (held : Cell world)
     (fielded : flatten machine.context.spelling target = some (root, path))
     (resolved : frame.environment.cellOf root = .ok cell) (calling : frame.callerStore = some caller)
-    (holds : caller cell = some held) :
+    (holds : caller cell = some held) (notWritable : cell ∉ frame.writable) :
     runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported := by
   cases target with
   | env key => simp [flatten] at fielded
-  | _ => simp [runStatement, fielded, resolved, calling, holds]
+  | _ => simp [runStatement, fielded, resolved, calling, holds, notWritable]
 
 /-- A function body's cells end with the call: a cell absent from the store
 at the call is absent from every frame the body leaves with. -/
@@ -1612,6 +1674,138 @@ theorem shadowing_cells_distinct (name : Xsh.Syntax.RawName) (outer inner activa
 
 end Resolver
 
+section StaticResolution
+
+/-- Lexical scopes as the resolution pass sees them: the names each scope
+declares, innermost first. -/
+abbrev StaticScopes := List (List Xsh.Syntax.RawName)
+
+/-- The pass's resolution of a use: the canonical binder of the innermost
+scope that declares the name. -/
+def staticResolve : StaticScopes → Xsh.Syntax.RawName → Option BinderId
+  | [], _ => none
+  | scope :: outer, name => if name ∈ scope then some (canonicalBinder name (outer.length + 1)) else staticResolve outer name
+
+/-- The scopes after a statement, for the declaring statements: a `let`,
+`var` or `const` of a name and a local function declare it in the innermost
+scope; every other covered statement leaves its scopes as it found them. -/
+def staticDeclare : StaticScopes → Xsh.Syntax.Statement → StaticScopes
+  | top :: outer, .binding _ (.name name) _ _ => (name :: top) :: outer
+  | top :: outer, .functionDef _ name _ _ _ _ _ _ => (name :: top) :: outer
+  | scopes, _ => scopes
+
+/-- The pass over a statement list: each use, in order, with the binder it
+resolves to, declarations taking effect after their statement and a nested
+block's uses resolved in a scope of its own. -/
+def staticUses (fuel : Nat) : StaticScopes → List Xsh.Syntax.Statement →
+    List (Xsh.Syntax.RawName × Option BinderId)
+  | _, [] => []
+  | scopes, statement :: rest =>
+    let here := (Xsh.Syntax.freeStatementsFuel fuel [] [statement]).map fun name => (name, staticResolve scopes name)
+    here ++ staticUses fuel (staticDeclare scopes statement) rest
+
+/-- A local function's capture set: its free names other than its
+parameters that resolve outside it. -/
+def staticCaptures (scopes : StaticScopes) (parameters : List Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
+    List Xsh.Syntax.RawName :=
+  (captureNames parameters body).filter fun name => (staticResolve scopes name).isSome
+
+/-- A runtime lexical environment carries the pass's scopes. -/
+def Represents (names : LexicalEnvironment) (scopes : StaticScopes) : Prop :=
+  names.length = scopes.length ∧ ∀ name, resolve names name = staticResolve scopes name
+
+theorem represents_enter {names : LexicalEnvironment} {scopes : StaticScopes} (carried : Represents names scopes) :
+    Represents (enterScope names) ([] :: scopes) := by
+  refine ⟨by simp [enterScope, carried.1], fun name => ?_⟩
+  rw [resolve_enter_scope, carried.2 name]
+  simp [staticResolve]
+
+theorem represents_declare {names : LexicalEnvironment} {top : List Xsh.Syntax.RawName} {outer : StaticScopes}
+    (carried : Represents names (top :: outer)) (name : Xsh.Syntax.RawName) :
+    Represents (bind names name (canonicalBinder name (outer.length + 1))) ((name :: top) :: outer) := by
+  obtain ⟨lengths, resolves⟩ := carried
+  refine ⟨?_, fun other => ?_⟩
+  · cases names with
+    | nil => simp at lengths
+    | cons frame rest => simpa [Xsh.Semantics.Environments.bind] using lengths
+  · by_cases same : other = name
+    · subst same
+      rw [resolve_after_bind]
+      simp [staticResolve]
+    · rw [resolve_bind_other _ _ _ _ same, resolves other]
+      simp [staticResolve, same]
+
+/-- A use resolves at run time to the binder the pass gave it. -/
+theorem represents_lookup {names : LexicalEnvironment} {scopes : StaticScopes} (carried : Represents names scopes)
+    (name : Xsh.Syntax.RawName) : resolve names name = staticResolve scopes name := carried.2 name
+
+/-- A closure's free names that resolve outside it are exactly its capture
+set. -/
+theorem staticCaptures_exact (scopes : StaticScopes) (parameters : List Xsh.Syntax.RawName)
+    (body : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    name ∈ staticCaptures scopes parameters body ↔
+      name ∈ Xsh.Syntax.freeStatementsFuel 256 parameters body ∧ (staticResolve scopes name).isSome := by
+  simp [staticCaptures, captureNames, List.mem_eraseDups]
+
+variable [DecidableEq Declaration]
+
+/-- Under the canonical resolution, binding a name target extends the pass's
+innermost scope with that name. -/
+theorem bindTarget_represents {world : World Declaration Identity Source} (machine : Machine world) (base : Oracles world)
+    (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (frame next : Frame world)
+    (mutability : Mutability) (name : Xsh.Syntax.RawName) (value : Value Declaration Identity Source)
+    (top : List Xsh.Syntax.RawName) (outer : StaticScopes) (carried : Represents frame.environment.names (top :: outer))
+    (bound : bindTarget machine frame mutability (.name name) value = .normal next) :
+    Represents next.environment.names ((name :: top) :: outer) := by
+  obtain ⟨target, declared, found, _, environment, _, _⟩ :=
+    bindTarget_binds machine frame next mutability (.name name) value bound
+  have depth : frame.environment.names.length = outer.length + 1 := by simpa using carried.1
+  have shaped := canonical_cells machine base types resolved frame.activation frame.environment name
+  simp only [resolveTarget] at found
+  rw [shaped] at found
+  cases typed : types frame.environment name with
+  | none => simp [typed] at found
+  | some type =>
+    simp only [typed, Option.map_some, Option.some.injEq, Prod.mk.injEq] at found
+    obtain ⟨_, same⟩ := found
+    subst same
+    rw [environment]
+    simp only [extend]
+    rw [depth]
+    exact represents_declare carried name
+
+omit [DecidableEq Declaration] in
+/-- The runtime capture set: every mutable cell a local function may write
+is the cell of a name in its static capture set. -/
+theorem writable_captured {world : World Declaration Identity Source} (frame : Frame world) (scopes : StaticScopes)
+    (carried : Represents frame.environment.names scopes) (parameters : List Xsh.Syntax.RawName)
+    (body : List Xsh.Syntax.Statement) (cell : CellId)
+    (writable : cell ∈ mutableCaptures frame (captureNames parameters body)) :
+    ∃ name ∈ staticCaptures scopes parameters body, frame.environment.cellOf name = .ok cell := by
+  simp only [mutableCaptures, List.mem_filterMap] at writable
+  obtain ⟨name, inside, chosen⟩ := writable
+  split at chosen
+  · rename_i found resolvedCell
+    split at chosen
+    · split at chosen
+      · simp only [Option.some.injEq] at chosen
+        subst chosen
+        refine ⟨name, ?_, resolvedCell⟩
+        simp only [staticCaptures, List.mem_filter]
+        refine ⟨inside, ?_⟩
+        rw [← represents_lookup carried name]
+        simp only [Environment.cellOf] at resolvedCell
+        split at resolvedCell
+        · cases resolvedCell
+        · rename_i binder resolvedBinder
+          simp [resolvedBinder]
+      · cases chosen
+    · cases chosen
+  · cases chosen
+
+end StaticResolution
+
 section Root
 
 /-- The statements that open their own scope around everything they bind:
@@ -1792,7 +1986,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
         store ⟨activation + step, binder⟩ = none) ∧
     (∀ fuel frame target op value root path cell caller held,
       flatten machine.context.spelling target = some (root, path) → frame.environment.cellOf root = .ok cell →
-        frame.callerStore = some caller → caller cell = some held →
+        frame.callerStore = some caller → caller cell = some held → cell ∉ frame.writable →
           runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported) ∧
     (∀ fuel frame body last, frameOf (runBody machine (fuel + 1) frame body) = some last →
       ∀ cell, frame.store cell = none → last.store cell = none) :=
@@ -1957,15 +2151,17 @@ declarations get distinct binders within the name-table and nesting bounds,
 entering a block deepens the scope by one, and a shadowing declaration gets
 a cell distinct from the shadowed one. The declared type is still an oracle. -/
 theorem local_bindings {world : World Declaration Identity Source} (machine : Machine world) :
-    (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test names binder cell type,
-      kind ≠ .stream → kind ≠ .cliMain → plainParameters parameters = some names →
+    (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test binder cell type,
+      kind ≠ .stream → kind ≠ .cliMain →
         (machine.namesAt frame.activation).declaration frame.environment name = some (binder, cell, type) →
           runStatement machine (fuel + 1) frame (.functionDef kind name parameters effects result body metadata test) =
             .normal { frame with
               environment := extend frame.environment [(name, binder, cell)]
               locals := hide [name] frame.locals
-              closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures names
-                (.block body (returnKindOf machine result))) :: frame.closures }) ∧
+              closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures
+                (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
+                (.block body (returnKindOf machine result))) ::
+                frame.closures }) ∧
     (∀ fuel (scope : Scope Declaration Identity Source) store environment locals value,
       scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value) ∧
     (∀ (outer inner : Frame world),
@@ -1983,15 +2179,80 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
       (⟨activation, canonicalBinder name outer⟩ : CellId) ≠ ⟨activation, canonicalBinder name inner⟩) := by
   refine ⟨?_, ?_, fun _ _ => rfl, canonicalBinder_injective, enter_depth, fun base types resolved =>
     canonical_cells machine base types resolved, shadowing_cells_distinct⟩
-  · intro fuel frame kind name parameters effects result body metadata test names binder cell type notStream notMain
-      plain declared
+  · intro fuel frame kind name parameters effects result body metadata test binder cell type notStream notMain
+      declared
     cases kind
-    · simp [runStatement, plain, declared]
-    · simp [runStatement, plain, declared]
+    · simp [runStatement, declared]
+    · simp [runStatement, declared]
     · exact absurd rfl notStream
     · exact absurd rfl notMain
   · intro fuel scope store environment locals value present
     simp [evalExpr, present]
+
+/-- The resolution pass and captured writes. The pass's `staticResolve` gives
+each use the canonical binder of the innermost scope declaring it, and
+`Represents` holds between the machine's lexical environment and the pass's
+scopes: entering a block pushes an empty scope, binding a name target under
+the canonical resolution adds the name to the innermost scope, and so every
+use resolves at run time to the pass's binder. A local function's capture set
+is exactly its free names other than its parameters that resolve outside it,
+and every mutable cell it may write is the cell of a name in that set; a
+statement-level call returns with the caller's cells as the callee left
+them. -/
+theorem resolution_and_captures {world : World Declaration Identity Source} (machine : Machine world) :
+    (∀ (names : LexicalEnvironment) scopes, Represents names scopes → Represents (enterScope names) ([] :: scopes)) ∧
+    (∀ (names : LexicalEnvironment) top outer, Represents names (top :: outer) → ∀ name,
+      Represents (Xsh.Semantics.Environments.bind names name (canonicalBinder name (outer.length + 1)))
+        ((name :: top) :: outer)) ∧
+    (∀ (names : LexicalEnvironment) scopes, Represents names scopes → ∀ name,
+      resolve names name = staticResolve scopes name) ∧
+    (∀ base types, machine.resolution = canonicalResolution base types →
+      ∀ frame next mutability name value top outer, Represents frame.environment.names (top :: outer) →
+        bindTarget machine frame mutability (.name name) value = .normal next →
+          Represents next.environment.names ((name :: top) :: outer)) ∧
+    (∀ scopes parameters body name, name ∈ staticCaptures scopes parameters body ↔
+      name ∈ Xsh.Syntax.freeStatementsFuel 256 parameters body ∧ (staticResolve scopes name).isSome) ∧
+    (∀ (frame : Frame world) scopes, Represents frame.environment.names scopes → ∀ parameters body cell,
+      cell ∈ mutableCaptures frame (captureNames parameters body) →
+        ∃ name ∈ staticCaptures scopes parameters body, frame.environment.cellOf name = .ok cell) ∧
+    (∀ (caller callee : Frame world) kind value,
+      returnTo caller kind (.returned value callee) =
+        .value (match kind with | .result => wrapOk value | .plain => value)
+          { caller with store := keep caller.store callee.store }) :=
+  ⟨fun _ _ carried => represents_enter carried,
+    fun _ _ _ carried name => represents_declare carried name,
+    fun _ _ carried name => represents_lookup carried name,
+    fun base types resolved frame next mutability name value top outer carried bound =>
+      bindTarget_represents machine base types resolved frame next mutability name value top outer carried bound,
+    staticCaptures_exact,
+    fun frame scopes carried parameters body cell writable =>
+      writable_captured frame scopes carried parameters body cell writable,
+    fun _ _ _ _ => rfl⟩
+
+omit [DecidableEq Declaration] in
+/-- Default and rest parameters and map comprehensions (SPEC 9.2, 6.5): a
+supplied argument binds its parameter, an omitted one takes its default from
+`evaluateDefault`, which the machine runs in the declaration scope with no
+parameters in scope, a final rest parameter takes the remaining arguments as a
+`List`, and a map comprehension's later projection of a key replaces an
+earlier one. -/
+theorem parameters_and_maps (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    (∀ name annotation default rest (argument : Value Declaration Identity Source) arguments,
+      bindArguments evaluateDefault (.mk name annotation default false :: rest) (argument :: arguments) =
+        (bindArguments evaluateDefault rest arguments).bind fun bound => .value ((name, argument) :: bound)) ∧
+    (∀ name annotation default rest,
+      bindArguments evaluateDefault (.mk name annotation (some default) false :: rest) [] =
+        (evaluateDefault default).bind fun value =>
+          (bindArguments evaluateDefault rest []).bind fun bound => .value ((name, value) :: bound)) ∧
+    (∀ name annotation default (arguments : List (Value Declaration Identity Source)),
+      bindArguments evaluateDefault [.mk name annotation default true] arguments = .value [(name, .list arguments)]) ∧
+    (∀ name annotation rest, bindArguments evaluateDefault (.mk name annotation none false :: rest) [] = .stuck) ∧
+    (∀ (key : Value Declaration Identity Source) mapKey first second,
+      mapKeyOf key = some mapKey →
+        mapOfPairs [.list [key, first], .list [key, second]] = some (upsert mapKey second (upsert mapKey first []))) := by
+  refine ⟨fun _ _ _ _ _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ _ => rfl, ?_⟩
+  intro key mapKey first second keyed
+  simp [mapOfPairs, keyed]
 
 end Root
 
@@ -2979,6 +3240,157 @@ theorem canonical_resolution_runs :
       readInt totalName (runStatements canonicalMachine 80 start countdown) = some 3 ∧
       readInt rName (runStatements canonicalMachine 90 fullStart capturing) = some 3 := by
   decide +kernel
+
+def countName : Xsh.Syntax.RawName := name 90 (by decide)
+def bumpName : Xsh.Syntax.RawName := name 91 (by decide)
+
+def declareBump : Xsh.Syntax.Statement :=
+  .functionDef .proc bumpName [] none none [bump countName (int "1")] none false
+
+def counter : List Xsh.Syntax.Statement :=
+  [varOf countName "0", declareBump, .expression (call bumpName []), .expression (call bumpName [])]
+
+/-- A closure that increments a captured `var` writes it: two calls leave `2`. -/
+theorem counter_closure : readInt countName (runFull counter) = some 2 := by decide +kernel
+
+/-- Returning without the callee's writes loses them. -/
+def lostWrite : Exec witnessWorld :=
+  match runStatements fullMachine 40 fullStart [varOf countName "0", declareBump] with
+  | .normal frame =>
+    match localClosure frame.closures frame.environment bumpName with
+    | some (.mk cell defining captured writable parameters body) =>
+      match runBody fullMachine 40
+          { Frame.ofScope defining frame.store [] (some frame.store) ⟨1, (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+            writable } (bodyStatements body) with
+      | .returned _ _ => .normal frame
+      | other => other
+    | none => .stuck
+  | other => other
+
+theorem lost_write_rejected : readInt countName lostWrite = some 0 := by decide +kernel
+
+def shadowedCall : List Xsh.Syntax.Statement :=
+  [varOf countName "0", declareBump, varOf totalName "0",
+    block [varOf countName "7", .expression (call bumpName []), .assign (.name totalName) .set (ident countName)]]
+
+/-- The write goes to the captured `count`, not to the `count` the call site
+shadows it with. -/
+theorem write_reaches_captured :
+    readInt countName (runFull shadowedCall) = some 1 ∧ readInt totalName (runFull shadowedCall) = some 7 := by
+  decide +kernel
+
+/-- Running the body where it is called writes the call site's `count`. -/
+def callSiteWrite : Exec witnessWorld :=
+  match runStatements fullMachine 40 fullStart [varOf countName "0", declareBump, varOf totalName "0"] with
+  | .normal frame =>
+    (runStatements fullMachine 40 frame.enter [varOf countName "7", bump countName (int "1"),
+      .assign (.name totalName) .set (ident countName)]).andThen fun inner => .normal (frame.restore inner)
+  | other => other
+
+theorem uncaptured_write_rejected : readInt totalName callSiteWrite = some 8 := by decide +kernel
+
+/-- The pass resolves each use of a straight-line program to the binder the
+machine's canonical resolution gives it. -/
+theorem static_pass_uses :
+    staticUses 64 [[]] [letX "1", .expression (ident xName)] =
+      [(xName, some (canonicalBinder xName 1))] := by
+  decide +kernel
+
+def declareDefaulted : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk pName none none false, .mk kName none (some (int "7")) false] none none
+    [.expression (.binary .add (ident pName) (ident kName))] none false
+
+/-- An omitted argument takes its default: `add(1)` is `8` and `add(1, 2)` is
+`3`. -/
+theorem default_parameters :
+    readInt rName (runFull [declareDefaulted, letR (call addName [int "1"])]) = some 8 ∧
+      readInt rName (runFull [declareDefaulted, letR (call addName [int "1", int "2"])]) = some 3 := by
+  decide +kernel
+
+def declareSeeing : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk pName none none false, .mk kName none (some (ident pName)) false] none none
+    [.expression (ident kName)] none false
+
+/-- A default cannot see the other parameters (SPEC 9.2): `k = p` finds no `p`. -/
+theorem default_cannot_see_parameters :
+    readAny rName (runFull [declareSeeing, letR (call addName [int "1"])]) = none := by
+  decide +kernel
+
+def boundLocal (target : Xsh.Syntax.RawName) : Result Unit Unit Unit (Locals Unit Unit Unit) → Bool
+  | .value bound => (bound.lookup target).isSome
+  | _ => false
+
+/-- Evaluating the default with the supplied parameters in scope binds `k`. -/
+theorem default_seeing_parameters_rejected :
+    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment
+        [(pName, integer intOne)]) [.mk pName none none false, .mk kName none (some (ident pName)) false]
+      [integer intOne]) = true ∧
+    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment [])
+      [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = false := by
+  decide +kernel
+
+def declareRest : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk kName none none true] none none [.expression (ident kName)] none false
+
+/-- A rest parameter takes the remaining arguments as a list. -/
+theorem rest_parameter :
+    listInts rName (runFull [declareRest, letR (call addName [int "1", int "2"])]) = some [1, 2] := by
+  decide +kernel
+
+def localBound (target : Xsh.Syntax.RawName) (outcome : Exec witnessWorld) : Bool :=
+  match frameOf outcome with
+  | some frame => (frame.locals.lookup target).isSome
+  | none => false
+
+/-- A parameter is bound only in its call: after `add(1)` the caller has no
+`p`. -/
+theorem parameter_scoped : localBound pName (runFull [declareDefaulted, letR (call addName [int "1"])]) = false := by
+  decide +kernel
+
+/-- A call that leaves its parameters among the caller's locals. -/
+def leakyParameters : Exec witnessWorld :=
+  match runFull [declareDefaulted] with
+  | .normal frame => .normal { frame with locals := (pName, integer intOne) :: frame.locals }
+  | other => other
+
+theorem leaky_parameters_rejected : localBound pName leakyParameters = true := by decide +kernel
+
+def mapComp : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name vName) none
+      (.mapComp (.binary .rem (ident iName) (int "2")) (ident iName) [.each (.name iName) (items ["1", "2", "7"])]),
+    letR (.index (ident vName) (int "1") false)]
+
+/-- `{i % 2: i for i in [1, 2, 7]}`: the later projection of key `1` wins, so
+`m[1]` is `7`. -/
+theorem map_comprehension_later_wins : readInt rName (runFull mapComp) = some 7 := by decide +kernel
+
+/-- A map built keeping the first projection of each key. -/
+def earlierWins (pairs : List (Value Unit Unit Unit)) : Option (List (MapKey × Value Unit Unit Unit)) :=
+  pairs.foldl (fun built pair =>
+    built.bind fun entries =>
+      match pair with
+      | .list [key, value] =>
+        (mapKeyOf key).map fun mapKey => if (entries.lookup mapKey).isSome then entries else upsert mapKey value entries
+      | _ => none) (some [])
+
+def firstEntry (built : Option (List (MapKey × Value Unit Unit Unit))) : Option Int :=
+  match built.bind fun entries => entries.lookup keyOne with
+  | some (.scalar (.integer value)) => some value.val
+  | _ => none
+
+theorem earlier_wins_rejected :
+    firstEntry (earlierWins [.list [integer intOne, integer intOne], .list [integer intOne, integer ⟨7, by decide⟩]]) = some 1 ∧
+      firstEntry (mapOfPairs [.list [integer intOne, integer intOne], .list [integer intOne, integer ⟨7, by decide⟩]]) =
+        some 7 := by
+  decide +kernel
+
+def keyFirst : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name vName) none
+    (.mapComp (.index (.list []) (int "0") false) (.binary .div (int "1") (int "0")) [.each (.name iName) (items ["1"])])]
+
+/-- The key is evaluated before the value: a failing key reports
+`index-out-of-range` even though the value would divide by zero. -/
+theorem map_key_before_value : runtimeFailure (runFull keyFirst) = some "index-out-of-range" := by decide +kernel
 
 end Witness
 
