@@ -56,6 +56,7 @@ macro_rules! raw_full_rows {
     };
 }
 
+mod document;
 mod program_image;
 mod shapes;
 

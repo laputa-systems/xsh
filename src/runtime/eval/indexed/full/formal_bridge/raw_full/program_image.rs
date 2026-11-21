@@ -518,8 +518,16 @@ image_scheme_ids!(
     schemes::FullSchemeSchemaExpectationId => raw,
 );
 
+pub(super) trait UnitVariants: Sized + 'static {
+    const ALL: &'static [Self];
+}
+
 macro_rules! image_unit_enums {
     ($($ty:ty { $($variant:ident),* $(,)? })*) => {$(
+        impl UnitVariants for $ty {
+            const ALL: &'static [Self] = &[$(<$ty>::$variant),*];
+        }
+
         impl ImageCodec for $ty {
             fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
                 type This = $ty;
@@ -1645,6 +1653,29 @@ fn canonical_symbol_table(rows: &RawFullRows, encode: impl Fn(&mut ImageWriter) 
     Ok(names.into_iter().collect())
 }
 
+fn canonical_packed_rows(rows: RawFullRows, table: &[Name]) -> ImageResult<(FxHashMap<u32, u32>, RawFullRows)> {
+    let first = first_dynamic_symbol();
+    let canonical = table.iter().enumerate().map(|(index, name)| {
+        u32::try_from(index).ok().and_then(|index| first.checked_add(index)).map(|word| (name.symbol().raw(), word))
+            .map_or_else(|| unsupported("the symbol table exceeds the symbol word space"), Ok)
+    }).collect::<ImageResult<FxHashMap<u32, u32>>>()?;
+    let mut packed = rows;
+    map_packed_symbols(&mut packed, |word| {
+        if word < first { return Ok(word) }
+        canonical.get(&word).copied().map_or_else(|| unsupported(format!("packed symbol {word} is missing from the image table")), Ok)
+    })?;
+    Ok((canonical, packed))
+}
+
+pub(super) fn canonical_document(program: &FullProgram) -> ImageResult<super::document::Document> {
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let table = canonical_symbol_table(&rows, |collector| rows.put_image(collector).map(drop))?;
+    let (_, packed) = canonical_packed_rows(rows, &table)?;
+    let symbols = table.iter().map(|name| name.as_str().as_str().to_owned()).collect();
+    super::document::project(&packed, program.sources.files().len(), first_dynamic_symbol(), symbols).map_err(ImageError::Unsupported)
+}
+
 pub(super) struct EncodedImage {
     pub(super) bytes: Vec<u8>,
     pub(super) sizes: Vec<(&'static str, usize)>,
@@ -1692,16 +1723,7 @@ fn encode_image(
         Ok(sizes)
     };
     let table = canonical_symbol_table(&rows, |collector| put_named(collector, &rows).map(drop))?;
-    let first = first_dynamic_symbol();
-    let canonical = table.iter().enumerate().map(|(index, name)| {
-        u32::try_from(index).ok().and_then(|index| first.checked_add(index)).map(|word| (name.symbol().raw(), word))
-            .map_or_else(|| unsupported("the symbol table exceeds the symbol word space"), Ok)
-    }).collect::<ImageResult<FxHashMap<u32, u32>>>()?;
-    let mut packed = rows;
-    map_packed_symbols(&mut packed, |word| {
-        if word < first { return Ok(word) }
-        canonical.get(&word).copied().map_or_else(|| unsupported(format!("packed symbol {word} is missing from the image table")), Ok)
-    })?;
+    let (canonical, packed) = canonical_packed_rows(rows, &table)?;
     let mut output = ImageWriter { symbols: SymbolCanon::Canonical(canonical), ..ImageWriter::default() };
     output.bytes.extend_from_slice(IMAGE_MAGIC);
     let mut sizes = Vec::new();
@@ -1985,6 +2007,86 @@ fn program_image_rekeys_symbols_reallocated_to_other_spellings() {
         assert_eq!((actual.status, actual.stdout.as_slice(), actual.stderr.as_slice()), (0, b"42\n".as_slice(), b"".as_slice()));
         drop(squatters);
     });
+}
+
+const EXPORTED_SCRIPT: &str = "tests/fixtures/runtime/formal-raw-ir-points.xsh";
+const LEAN_RAW_SCHEMA: &str = "formal/Xsh/IR/Raw/Schema.lean";
+const LEAN_RAW_EXPORT: &str = "formal/Xsh/IR/Raw/Exported.lean";
+
+fn checked_document(path: &'static str) -> super::document::Document {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    super::super::super::tests::run_with_large_stack(move || {
+        let entry = prepare_checked(path, &[]);
+        sender.send(canonical_document(entry.evaluator.indexed_program.as_ref().unwrap()).unwrap()).unwrap();
+    });
+    receiver.recv().unwrap()
+}
+
+const LEAN_DOCUMENT_CHUNK: usize = 1000;
+
+fn lean_export_module(document: &str) -> String {
+    assert!(document.is_ascii(), "the exported raw-IR document is ASCII");
+    let chunks = document.as_bytes().chunks(LEAN_DOCUMENT_CHUNK)
+        .map(|chunk| std::str::from_utf8(chunk).expect("ASCII chunks are UTF-8")).collect::<Vec<_>>();
+    let mut output = String::from("namespace Xsh.IR.Raw\n\n");
+    for (index, chunk) in chunks.iter().enumerate() {
+        output.push_str(&lean_definition(&format!("exportedDocumentCodes{index}"), chunk));
+        output.push('\n');
+    }
+    let parts = (0..chunks.len()).map(|index| format!("exportedDocumentCodes{index}")).collect::<Vec<_>>().join(" ++ ");
+    output.push_str(&format!("def exportedDocumentCodes : List Nat :=\n  {parts}\n\nend Xsh.IR.Raw\n"));
+    output
+}
+
+fn lean_module_path(path: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+#[test]
+fn raw_ir_document_round_trips_and_rejects_malformed_tables() {
+    use super::document::{decode, encode, Field};
+    let oversized = checked_document(AWK_SCRIPT);
+    assert!(decode(&encode(&oversized).unwrap(), &oversized).is_err_and(|error| error.contains("byte limit")));
+    for path in [EXPORTED_SCRIPT, COLLISION_SCRIPT, "tests/fixtures/runtime/cli-simple.xsh"] {
+        let document = checked_document(path);
+        let text = encode(&document).unwrap();
+        let decoded = decode(&text, &document).unwrap();
+        assert_eq!(decoded, document, "{path}: the document decodes to other tables");
+        assert_eq!(encode(&decoded).unwrap(), text, "{path}: the decoded document encodes differently");
+        assert!(document.iter().any(|(name, field)| *name == "tags" && matches!(field, Field::Tags(tags) if !tags.is_empty())));
+    }
+    let document = checked_document(EXPORTED_SCRIPT);
+    let text = encode(&document).unwrap();
+    let missing = text.replacen("\"driverRoot\":", "\"driverRout\":", 1);
+    assert!(decode(&missing, &document).is_err());
+    let duplicate = text.replacen("\"driverRoot\":", "\"driverRoot\":\"00000000\",\"driverRoot\":", 1);
+    assert!(decode(&duplicate, &document).is_err());
+    let short_word = text.replacen("\"sourceId\":\"0000000", "\"sourceId\":\"000000", 1);
+    assert!(decode(&short_word, &document).is_err());
+    let upper = text.replacen("\"symbolBase\":\"", "\"symbolBase\":\"A", 1).replacen("\"symbolBase\":\"A0", "\"symbolBase\":\"A", 1);
+    assert!(decode(&upper, &document).is_err());
+    let schema = text.replacen(super::document::DOCUMENT_SCHEMA, "xsh-raw-ir-v2", 1);
+    assert!(decode(&schema, &document).is_err());
+    let short_row = text.replacen("\"data\":[[\"", "\"data\":[[\"00000000\"],[\"", 1);
+    assert!(decode(&short_row, &document).is_err());
+}
+
+#[test]
+fn lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export() {
+    let schema = super::document::lean_schema_module();
+    let export = lean_export_module(&super::document::encode(&checked_document(EXPORTED_SCRIPT)).unwrap());
+    let stale = [(LEAN_RAW_SCHEMA, schema), (LEAN_RAW_EXPORT, export)].into_iter()
+        .filter(|(path, text)| std::fs::read_to_string(lean_module_path(path)).ok().as_deref() != Some(text.as_str()))
+        .map(|(path, _)| path).collect::<Vec<_>>();
+    assert!(stale.is_empty(), "the generated Lean raw-IR modules {stale:?} are stale; run the ignored test write_lean_raw_ir_modules");
+}
+
+#[test]
+#[ignore = "writes the generated Lean raw-IR schema and exported document modules"]
+fn write_lean_raw_ir_modules() {
+    std::fs::write(lean_module_path(LEAN_RAW_SCHEMA), super::document::lean_schema_module()).unwrap();
+    let export = lean_export_module(&super::document::encode(&checked_document(EXPORTED_SCRIPT)).unwrap());
+    std::fs::write(lean_module_path(LEAN_RAW_EXPORT), export).unwrap();
 }
 
 const ARCH_SCRIPT: &str = "core/arch.xsh";
