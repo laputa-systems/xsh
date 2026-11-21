@@ -129,6 +129,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.stringly-typed-match` | Suggest a tag union type for a match with three or more string-literal arms |
 | `lint.unsorted-imports` | Sort a contiguous import block by module path and alias |
 | `lint.unused-callable` | Flag an unexported callable not reachable from a bundle entry point |
+| `lint.unused-const` | Flag a private constant that is never read |
 | `lint.unused-local` | Flag a local variable that is never read |
 | `lint.unused-type` | Flag a type declaration that is never referenced |
 | `lint.prefer-inferred-proc-return` | Drop a private proc return type when it is inferred exactly |

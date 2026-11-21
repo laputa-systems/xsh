@@ -305,3 +305,11 @@ test test_lint_counts_a_record_type_annotation_as_a_type_use { |ctx|
   assert headers(reported.stderr) == [], reported.stderr
   assert_fixes_check_and_stay_formatted(ctx, source)
 }
+
+test test_lint_reports_unused_private_const { |ctx|
+  let root = test.temp_dir(ctx, name: "unused-const")?
+  let file = fp"{root}/constants.xsh"
+  file.write("pure read() -> Int { used }\npure shadow(unused: Int) -> Int { unused }\nconst unused = 1\nconst used = 2\nexport const public_value = 3\nprint read()\n")
+  let reported = lint(file, ["--only", "lint.unused-const"])?
+  assert headers(reported.stderr) == ["warn[lint.unused-const]: unused constant `unused`"], reported.stderr
+}

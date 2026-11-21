@@ -1858,6 +1858,30 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn lint_unused_consts(&mut self, statements: &[StmtId]) {
+        let Some(checked) = self.checked_output.as_deref() else { return };
+        let bindings = &checked.resolved_bindings;
+        let reads: FxHashSet<_> = bindings.expressions.values()
+            .chain(bindings.value_sites.values())
+            .chain(bindings.tails.values())
+            .copied().collect();
+        for &statement in statements {
+            let stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::Const { target, .. } = stmt.kind else { continue };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue };
+            if name.as_str().starts_with('_') {
+                continue;
+            }
+            if bindings.target(target).is_some_and(|binding| !reads.contains(&binding)) {
+                self.diagnostics.push(
+                    Diagnostic::new(Severity::Warning, format!("unused constant `{name}`"))
+                        .with_code(DiagnosticCode::LintUnusedConst)
+                        .with_label(Label::secondary(stmt.span, "constant is declared but never read")),
+                );
+            }
+        }
+    }
+
     fn lint_unused_types(&mut self) {
         let mut unused: Vec<_> = self
             .type_declarations
