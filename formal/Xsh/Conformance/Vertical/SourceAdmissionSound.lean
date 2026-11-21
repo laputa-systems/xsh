@@ -486,6 +486,42 @@ theorem ordinary_body_complete {shape : ResultShape} {name : String} {parameters
   all_goals try assumption
   all_goals constructor <;> assumption
 
+theorem assignment_boundary_from_return {vars : List String} {tokens afterAssignment expressionTokens : List Token}
+    {assignment : Option (String × SourceValue)}
+    (derivation : AssignmentSyntax vars tokens assignment afterAssignment)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens)
+    {returned : SourceExpression} {closing : List Token}
+    (expressionSyntax : ExpressionSyntax expressionTokens returned closing) :
+    assignment = none → ∀ target more, tokens ≠ .word target :: .equals :: more := by
+  cases derivation with
+  | empty tokens =>
+    intro _ target more same
+    rw [returnLine] at same
+    cases same
+    cases expressionSyntax with
+    | value value =>
+      cases value with
+      | atom atom => cases atom
+      | binary left valid right => cases left
+    | comparison left valid right => cases left
+  | assign member value => simp
+
+theorem propagation_boundary_from_return {vars : List String}
+    {tokens afterPropagation afterAssignment expressionTokens : List Token}
+    {propagation : Option SourcePropagation} {assignment : Option (String × SourceValue)}
+    (propagationSyntax : PropagationSyntax tokens propagation afterPropagation)
+    (assignmentSyntax : AssignmentSyntax vars afterPropagation assignment afterAssignment)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens) :
+    propagation = none → ∀ target callee more,
+      tokens ≠ .word "let" :: .word target :: .equals :: .word callee :: .leftParen :: more := by
+  cases propagationSyntax with
+  | empty tokens =>
+    intro _ target callee more same
+    cases assignmentSyntax with
+    | empty => rw [returnLine] at same; simp at same
+    | assign member value => cases same
+  | call validTarget validCallee args => simp
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
