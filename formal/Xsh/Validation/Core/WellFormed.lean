@@ -17,9 +17,9 @@ def rowLookup : RecordType Declaration → String → Option (ValueType Declarat
 
 mutual
   /-- Type well-formedness for the positions a value can occupy: every record
-  schema, nominal schema and error payload row lists each field once (Rust's
+  and nominal schema lists each field once (Rust's
   `check.duplicate-record-field`), and every module contract names each export
-  once. -/
+  once (Rust's `check.duplicate-name`). -/
   def WellFormed : ValueType Declaration → Prop
     | .list element | .nonEmpty element | .optional element | .set element | .stream element => WellFormed element
     | .map key element => WellFormed key ∧ WellFormed element

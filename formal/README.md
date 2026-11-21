@@ -274,19 +274,32 @@ unknown wire string, a rejected map key, a rejected or repeated set element, a
 union no alternative of which converts, or the complete module violation list.
 The premise `WellFormed` in
 [`Validation/Core/WellFormed.lean`](Xsh/Validation/Core/WellFormed.lean) is the
-type judgment that every record schema and module contract lists each name
-once (Rust `check.duplicate-record-field`); `WireWellFormed` requires each
-Str-backed enum to list each variant and wire string once. Without
-`WellFormed` a stripped publication of `{level: Level, level: Str}` is not a
-member. A filesystem entry in a record slot is checked by membership under
-`.require` and converted as its field record under the other two policies.
-The error message renders the path; its remaining wording is diagnostic. The
-witnesses convert a wire string, report an unknown one at its field and list
-index, publish a map from a record, follow the SPEC's `Config` example for the
-three policies, report a union path, show that order decides enum conversion,
-reject a repeated set element and report three module violations with their
-facets. Mutants detected: a check without conversion, a skipped enum
-conversion, a map published as a record and a dropped field path.
+type judgment that every record schema lists each field once (Rust
+`check.duplicate-record-field`) and every module contract names each export
+once (Rust `check.duplicate-name`); `WireWellFormed` requires each Str-backed
+enum to list each variant and wire string once. Without `WellFormed` a
+stripped publication of `{level: Level, level: Str}` is not a member. A value
+export rejects a callable, because SPEC 4.9 reports a `MismatchedExport` when
+"an export has another kind". A filesystem entry is converted as its field
+record under every policy, because "Choosing a field policy does not change
+which containers a slot admits". The error message renders the reported path,
+which for an unexpected field is the field's own path ("schema check failed at
+future"); its remaining wording is diagnostic.
+
+Boundaries: map and set publication keep the candidate's order, while SPEC 4.5
+orders maps by key and Rust sorts them; no Core operation reads that order
+today. The lexical codec mode is reachable only from `decode_lexical`, never
+from `.require`, and is not modelled. The expected and found export signatures
+that SPEC 4.9 puts in module failure messages are not modelled.
+
+The witnesses convert a wire string, report an unknown one at its field and
+list index, publish a map from a record, follow the SPEC's `Config` example for
+the three policies, report a union path, show that order decides enum
+conversion, reject a repeated set element, convert a filesystem entry under
+every policy, report three module violations with their facets, and report a
+callable under an `Any` value export as `.mismatched "f"`. Mutants detected: a
+check without conversion, a skipped enum conversion, a map published as a
+record and a dropped field path.
 
 The `nominal_provenance` fragment root is in
 [`Validation/Core/Nominal.lean`](Xsh/Validation/Core/Nominal.lean). Core

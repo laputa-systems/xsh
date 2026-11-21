@@ -69,23 +69,12 @@ def keyOf (candidate : Value Declaration Identity Source) : Option MapKey :=
   | .scalar (.duration value) => some (.duration value)
   | _ => none
 
-def fieldsOf (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
+def fieldsOf (boundary : Boundary Declaration Identity Source)
     (candidate : Value Declaration Identity Source) : Option (List (Field Declaration Identity Source)) :=
   match candidate.eraseNominal with
   | .record fields => some fields
-  | .filesystemEntry reference =>
-    match policy with
-    | .keep => none
-    | _ => some (boundary.world.entryFields reference)
+  | .filesystemEntry reference => some (boundary.world.entryFields reference)
   | _ => none
-
-def isEntry (candidate : Value Declaration Identity Source) : Bool :=
-  match candidate.eraseNominal with
-  | .filesystemEntry _ => true
-  | _ => false
-
-def KeepsEntry (policy : FieldPolicy) (candidate : Value Declaration Identity Source) : Prop :=
-  policy = .keep ∧ isEntry candidate = true
 
 def replaceField (name : String) (replacement : Value Declaration Identity Source) :
     List (Field Declaration Identity Source) → List (Field Declaration Identity Source)
@@ -203,7 +192,9 @@ def exportViolations (boundary : Boundary Declaration Identity Source) :
   | .variable id, _ => nomatch id
   | .exportsEmpty, _ => []
   | .exportValue name presence type rest, actual =>
-    entryViolations name presence (Membership.check boundary.world boundary.contracts type) actual ++
+    entryViolations name presence
+        (fun found => !Membership.isCallable found && Membership.check boundary.world boundary.contracts type found)
+        actual ++
       exportViolations boundary rest actual
   | .exportCallable name presence signature rest, actual =>
     entryViolations name presence
@@ -261,22 +252,17 @@ mutual
         | some values => (setKeys element path 0 [] values).map .set
         | none => .error ⟨path, .mismatch⟩
     | .record row, candidate =>
-      match fieldsOf boundary policy candidate with
+      match fieldsOf boundary candidate with
       | some fields =>
         (recordBody policy path (rowNames row) (convertRow boundary policy path row) (projectRow boundary policy path row)
           fields).map (publish policy candidate)
-      | none =>
-        if policy = .keep ∧ isEntry candidate = true then checkMember boundary path (.record row) candidate
-        else .error ⟨path, .mismatch⟩
+      | none => .error ⟨path, .mismatch⟩
     | .nominal declaration row, candidate =>
-      match fieldsOf boundary policy candidate with
+      match fieldsOf boundary candidate with
       | some fields =>
         (recordBody policy path (rowNames row) (convertRow boundary policy path row) (projectRow boundary policy path row)
           fields).map fun converted => .nominal declaration (.record converted)
-      | none =>
-        if policy = .keep ∧ isEntry candidate = true then
-          (checkMember boundary path (.record row) candidate).map fun accepted => .nominal declaration accepted.eraseNominal
-        else .error ⟨path, .mismatch⟩
+      | none => .error ⟨path, .mismatch⟩
     | .optional element, candidate =>
       if Membership.check boundary.world boundary.contracts (.primitive .null) candidate then .ok candidate
       else convert boundary policy path element candidate
@@ -405,19 +391,16 @@ mutual
         (∃ values keys, listItems candidate = some values ∧ values.map keyOf = keys.map some ∧
           (∀ key ∈ keys, Membership.key element key) ∧ keys.Nodup ∧ result = .set keys)
     | .record row, candidate, result =>
-      (∃ fields results, fieldsOf boundary policy candidate = some fields ∧ result = publish policy candidate results ∧
+      (∃ fields results, fieldsOf boundary candidate = some fields ∧ result = publish policy candidate results ∧
         RecordSpec policy (rowNames row)
           (fun fields results => RowDeclared boundary policy row fields results ∧ Frame (rowNames row) [] fields results)
-          (RowProject boundary policy row) fields results) ∨
-        (KeepsEntry policy candidate ∧ Membership.value boundary.world (.record row) candidate ∧ result = candidate)
+          (RowProject boundary policy row) fields results)
     | .nominal declaration row, candidate, result =>
-      (∃ fields results, fieldsOf boundary policy candidate = some fields ∧
+      (∃ fields results, fieldsOf boundary candidate = some fields ∧
         result = .nominal declaration (.record results) ∧
         RecordSpec policy (rowNames row)
           (fun fields results => RowDeclared boundary policy row fields results ∧ Frame (rowNames row) [] fields results)
-          (RowProject boundary policy row) fields results) ∨
-        (KeepsEntry policy candidate ∧ Membership.value boundary.world (.record row) candidate ∧
-          result = .nominal declaration candidate.eraseNominal)
+          (RowProject boundary policy row) fields results)
     | .optional element, candidate, result =>
       (Membership.primitive .null candidate ∧ result = candidate) ∨
         (¬ Membership.primitive .null candidate ∧ Converts boundary policy element candidate result)
@@ -965,16 +948,6 @@ section Decisions
 
 variable [DecidableEq Declaration]
 
-omit [DecidableEq Declaration] in
-theorem fieldsOf_keeps {boundary : Boundary Declaration Identity Source} {policy : FieldPolicy}
-    {candidate : Value Declaration Identity Source} (keeps : KeepsEntry policy candidate) :
-    fieldsOf boundary policy candidate = none := by
-  obtain ⟨kept, entry⟩ := keeps
-  subst kept
-  unfold fieldsOf
-  unfold isEntry at entry
-  split at entry <;> simp_all
-
 theorem checkMember_ok {boundary : Boundary Declaration Identity Source} {path : List PathStep}
     {type : ValueType Declaration} {candidate result : Value Declaration Identity Source} :
     checkMember boundary path type candidate = .ok result ↔
@@ -1256,20 +1229,12 @@ mutual
           | error failure => simp [body, Except.map] at converted
           | ok results =>
             simp only [body, Except.map, Except.ok.injEq] at converted
-            exact Or.inl ⟨fields, results, fielded, converted.symm, recordBody_sound keepSound projectSound body⟩
-        · rename_i unfielded
-          split at converted
-          · rename_i keeps
-            exact Or.inr ⟨keeps, checkMember_ok.mp converted⟩
-          · simp at converted
-      · rintro (⟨fields, results, fielded, rfl, specified⟩ | ⟨keeps, member, same⟩)
-        · simp only [fielded]
-          rw [recordBody_complete keepComplete projectComplete specified]
-          rfl
-        · have unfielded : fieldsOf boundary policy candidate = none := fieldsOf_keeps keeps
-          simp only [unfielded]
-          rw [ite_eq_left (show policy = .keep ∧ isEntry candidate = true from keeps), same]
-          exact checkMember_ok.mpr ⟨member, rfl⟩
+            exact ⟨fields, results, fielded, converted.symm, recordBody_sound keepSound projectSound body⟩
+        · simp at converted
+      · rintro ⟨fields, results, fielded, rfl, specified⟩
+        simp only [fielded]
+        rw [recordBody_complete keepComplete projectComplete specified]
+        rfl
     | .nominal declaration row, wellFormed, path, candidate, result => by
       simp only [WellFormed] at wellFormed
       have keepSound := fun fields results (ok : convertRow boundary policy path row fields = .ok results) =>
@@ -1290,27 +1255,12 @@ mutual
           | error failure => simp [body, Except.map] at converted
           | ok results =>
             simp only [body, Except.map, Except.ok.injEq] at converted
-            exact Or.inl ⟨fields, results, fielded, converted.symm, recordBody_sound keepSound projectSound body⟩
-        · rename_i unfielded
-          split at converted
-          · rename_i keeps
-            cases checked : checkMember boundary path (.record row) candidate with
-            | error failure => simp [checked, Except.map] at converted
-            | ok accepted =>
-              simp only [checked, Except.map, Except.ok.injEq] at converted
-              obtain ⟨member, same⟩ := checkMember_ok.mp checked
-              subst same
-              exact Or.inr ⟨keeps, member, converted.symm⟩
-          · simp at converted
-      · rintro (⟨fields, results, fielded, rfl, specified⟩ | ⟨keeps, member, same⟩)
-        · simp only [fielded]
-          rw [recordBody_complete keepComplete projectComplete specified]
-          rfl
-        · have unfielded : fieldsOf boundary policy candidate = none := fieldsOf_keeps keeps
-          simp only [unfielded]
-          rw [ite_eq_left (show policy = .keep ∧ isEntry candidate = true from keeps),
-            checkMember_ok.mpr ⟨member, rfl⟩, same]
-          rfl
+            exact ⟨fields, results, fielded, converted.symm, recordBody_sound keepSound projectSound body⟩
+        · simp at converted
+      · rintro ⟨fields, results, fielded, rfl, specified⟩
+        simp only [fielded]
+        rw [recordBody_complete keepComplete projectComplete specified]
+        rfl
     | .optional element, wellFormed, path, candidate, result => by
       simp only [WellFormed] at wellFormed
       simp only [convert, Converts]
@@ -1598,27 +1548,21 @@ mutual
     | .record row, wellFormed, candidate, result, converted => by
       simp only [WellFormed] at wellFormed
       simp only [Converts] at converted
-      rcases converted with ⟨fields, results, _, rfl, specified⟩ | ⟨_, member, rfl⟩
-      · simp only [Membership.value, recordFields_publish]
-        cases policy with
-        | keep => exact rowDeclared_member boundary .keep row wellFormed fields results specified.1
-        | exact => exact rowDeclared_member boundary .exact row wellFormed fields results specified.2.1
-        | stripped => exact rowProject_member boundary .stripped row wellFormed fields results specified
-      · exact member
+      obtain ⟨fields, results, _, rfl, specified⟩ := converted
+      simp only [Membership.value, recordFields_publish]
+      cases policy with
+      | keep => exact rowDeclared_member boundary .keep row wellFormed fields results specified.1
+      | exact => exact rowDeclared_member boundary .exact row wellFormed fields results specified.2.1
+      | stripped => exact rowProject_member boundary .stripped row wellFormed fields results specified
     | .nominal declaration row, wellFormed, candidate, result, converted => by
       simp only [WellFormed] at wellFormed
       simp only [Converts] at converted
-      rcases converted with ⟨fields, results, _, rfl, specified⟩ | ⟨_, member, rfl⟩
-      · simp only [Membership.value, Membership.recordFields, Value.eraseNominal, true_and]
-        cases policy with
-        | keep => exact rowDeclared_member boundary .keep row wellFormed fields results specified.1
-        | exact => exact rowDeclared_member boundary .exact row wellFormed fields results specified.2.1
-        | stripped => exact rowProject_member boundary .stripped row wellFormed fields results specified
-      · simp only [Membership.value, true_and]
-        simp only [Membership.value] at member
-        unfold Membership.recordFields at member ⊢
-        rw [eraseNominal_eraseNominal]
-        exact member
+      obtain ⟨fields, results, _, rfl, specified⟩ := converted
+      simp only [Membership.value, Membership.recordFields, Value.eraseNominal, true_and]
+      cases policy with
+      | keep => exact rowDeclared_member boundary .keep row wellFormed fields results specified.1
+      | exact => exact rowDeclared_member boundary .exact row wellFormed fields results specified.2.1
+      | stripped => exact rowProject_member boundary .stripped row wellFormed fields results specified
     | .optional element, wellFormed, candidate, result, converted => by
       simp only [WellFormed] at wellFormed
       simp only [Converts] at converted
@@ -1736,7 +1680,7 @@ def At (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy) 
     Value Declaration Identity Source → List PathStep → Value Declaration Identity Source → Prop
   | candidate, [], sub => sub = candidate
   | candidate, .field name :: rest, sub =>
-    ∃ fields found, fieldsOf boundary policy candidate = some fields ∧ fields.lookup name = some found ∧
+    ∃ fields found, fieldsOf boundary candidate = some fields ∧ fields.lookup name = some found ∧
       At boundary policy found rest sub
   | candidate, .index position :: rest, sub =>
     ∃ values found, listItems candidate = some values ∧ values[position]? = some found ∧ At boundary policy found rest sub
@@ -1759,11 +1703,9 @@ def Admits (boundary : Boundary Declaration Identity Source) (policy : FieldPoli
       (keyType = .primitive .string ∧ ∃ fields, candidate.eraseNominal = .record fields)
   | .set element, candidate => Membership.value boundary.world (.set element) candidate ∨ listItems candidate ≠ none
   | .record row, candidate =>
-    fieldsOf boundary policy candidate ≠ none ∨
-      (KeepsEntry policy candidate ∧ Membership.value boundary.world (.record row) candidate)
+    fieldsOf boundary candidate ≠ none
   | .nominal _ row, candidate =>
-    fieldsOf boundary policy candidate ≠ none ∨
-      (KeepsEntry policy candidate ∧ Membership.value boundary.world (.record row) candidate)
+    fieldsOf boundary candidate ≠ none
   | .optional _, _ => True
   | .union _ _ _, _ => True
   | .tagged declaration, candidate =>
@@ -1780,9 +1722,9 @@ def Local [DecidableEq Declaration] (boundary : Boundary Declaration Identity So
     (slot : ValueType Declaration) (sub : Value Declaration Identity Source) : Reason → Prop
   | .mismatch => ¬ Admits boundary policy slot sub
   | .missingField name =>
-    name ∈ declaredNames slot ∧ ∃ fields, fieldsOf boundary policy sub = some fields ∧ fields.lookup name = none
+    name ∈ declaredNames slot ∧ ∃ fields, fieldsOf boundary sub = some fields ∧ fields.lookup name = none
   | .unexpectedField name =>
-    policy = .exact ∧ ∃ fields, fieldsOf boundary policy sub = some fields ∧ name ∈ fields.map Prod.fst ∧
+    policy = .exact ∧ ∃ fields, fieldsOf boundary sub = some fields ∧ name ∈ fields.map Prod.fst ∧
       name ∉ declaredNames slot
   | .unknownWire text =>
     ∃ declaration mapping, slot = .tagged declaration ∧ boundary.enums.strings declaration = some mapping ∧
@@ -1967,7 +1909,7 @@ theorem record_located {boundary : Boundary Declaration Identity Source} {policy
     {path : List PathStep} {failure : Failure} {fields : List (Field Declaration Identity Source)}
     (rowSlot : ∀ name, childSlot (stripOptional type) (.field name) = rowLookup row name)
     (declared : declaredNames (stripOptional type) = rowNames row)
-    (fielded : fieldsOf boundary policy candidate = some fields)
+    (fielded : fieldsOf boundary candidate = some fields)
     (reported : (∃ name ∈ rowNames row, fields.lookup name = none ∧ failure = ⟨path, .missingField name⟩) ∨
       (∃ name fieldType found, rowLookup row name = some fieldType ∧ fields.lookup name = some found ∧
         Located boundary policy fieldType found (path ++ [.field name]) failure)) :
@@ -2113,23 +2055,11 @@ mutual
         · exact record_located (fun _ => by simp [stripOptional, childSlot]) (by simp [stripOptional, declaredNames])
             fielded (projectRow_located boundary wires policy row wellFormed path fields failure projectFailed)
       · rename_i unfielded
-        split at failed
-        · rename_i keeps
-          obtain ⟨same, rejected⟩ := checkMember_error failed
-          subst same
-          refine located_here ?_
-          simp only [stripOptional, Local, Admits, unfielded]
-          rintro (impossible | ⟨_, member⟩)
-          · exact impossible rfl
-          · exact rejected member
-        · rename_i notKeeps
-          simp only [Except.error.injEq] at failed
-          subst failed
-          refine located_here ?_
-          simp only [stripOptional, Local, Admits, unfielded]
-          rintro (impossible | ⟨keeps, _⟩)
-          · exact impossible rfl
-          · exact notKeeps keeps
+        simp only [Except.error.injEq] at failed
+        subst failed
+        refine located_here ?_
+        simp only [stripOptional, Local, Admits, unfielded]
+        exact fun impossible => impossible rfl
     | .nominal declaration row, wellFormed, path, candidate, failure, failed => by
       simp only [WellFormed] at wellFormed
       simp only [convert] at failed
@@ -2147,23 +2077,11 @@ mutual
         · exact record_located (fun _ => by simp [stripOptional, childSlot]) (by simp [stripOptional, declaredNames])
             fielded (projectRow_located boundary wires policy row wellFormed path fields failure projectFailed)
       · rename_i unfielded
-        split at failed
-        · rename_i keeps
-          obtain ⟨same, rejected⟩ := checkMember_error (map_error failed)
-          subst same
-          refine located_here ?_
-          simp only [stripOptional, Local, Admits, unfielded]
-          rintro (impossible | ⟨_, member⟩)
-          · exact impossible rfl
-          · exact rejected member
-        · rename_i notKeeps
-          simp only [Except.error.injEq] at failed
-          subst failed
-          refine located_here ?_
-          simp only [stripOptional, Local, Admits, unfielded]
-          rintro (impossible | ⟨keeps, _⟩)
-          · exact impossible rfl
-          · exact notKeeps keeps
+        simp only [Except.error.injEq] at failed
+        subst failed
+        refine located_here ?_
+        simp only [stripOptional, Local, Admits, unfielded]
+        exact fun impossible => impossible rfl
     | .optional element, wellFormed, path, candidate, failure, failed => by
       simp only [WellFormed] at wellFormed
       simp only [convert] at failed
@@ -2371,7 +2289,7 @@ inductive ExportEntry (Declaration : Type) where
 
 def ExportEntry.Admits (world : MembershipWorld Declaration Identity Source) :
     ExportEntry Declaration → Value Declaration Identity Source → Prop
-  | .value type, found => Membership.value world type found
+  | .value type, found => Membership.isCallable found = false ∧ Membership.value world type found
   | .callable signature, found => Membership.callable world signature found
   | .generic kind, found => Membership.generic world kind found
 
@@ -2425,11 +2343,16 @@ def renderStep (rendered : String) : PathStep → String
 def renderPath (path : List PathStep) : String :=
   path.foldl renderStep "$"
 
+def reportedPath (failure : Failure) : List PathStep :=
+  match failure.reason with
+  | .unexpectedField name => failure.path ++ [.field name]
+  | _ => failure.path
+
 def schemaError (family : Declaration) (failure : Failure) : ErrorData Declaration Identity Source where
   family := family
   variant := "schema"
   kind := "schema"
-  message := "schema check failed at " ++ renderPath failure.path
+  message := "schema check failed at " ++ renderPath (reportedPath failure)
   payload := []
   facets := facetsOf failure.reason
   span := none
@@ -2469,10 +2392,11 @@ theorem exportViolations_members (boundary : Boundary Declaration Identity Sourc
   | .exportValue name presence type rest, actual, violation => by
     simp only [exportViolations, List.mem_append, entryViolations_members, exportEntries, List.mem_cons,
       exists_eq_or_imp, exportViolations_members boundary rest actual violation, ExportEntry.Admits]
-    have decided : ∀ found, Membership.check boundary.world boundary.contracts type found = false ↔
-        ¬ Membership.value boundary.world type found := fun found => by
+    have decided : ∀ found,
+        (!Membership.isCallable found && Membership.check boundary.world boundary.contracts type found) = false ↔
+          ¬ (Membership.isCallable found = false ∧ Membership.value boundary.world type found) := fun found => by
       rw [← Membership.check_iff boundary.world boundary.contracts]
-      simp
+      cases Membership.isCallable found <;> simp
     simp only [decided]
   | .exportCallable name presence signature rest, actual, violation => by
     simp only [exportViolations, List.mem_append, entryViolations_members, exportEntries, List.mem_cons,
@@ -2707,6 +2631,25 @@ def distinctNames : WitnessValue := .list [text "a", text "b"]
 def contract : WitnessType :=
   .module .exact (.exportValue "a" .required (.primitive .string) (.exportValue "b" .required (.primitive .integer) .exportsEmpty))
 def plugin : WitnessValue := .module ⟨()⟩ [("a", one), ("c", text "x")]
+def anyContract : WitnessType := .module .open (.exportValue "f" .required (.primitive .any) .exportsEmpty)
+def withCallable : WitnessValue := .module ⟨()⟩ [("f", .callable ⟨()⟩ .pure)]
+
+def entryWorld : MembershipWorld Nat Unit Unit where
+  entryFields := fun _ => [("level", .scalar (.string "warn"))]
+  stream := fun _ _ => True
+  callable := fun _ _ => True
+  scheme := fun _ _ => False
+  generic := fun _ _ => False
+
+def entryContracts : ContractDecisions entryWorld where
+  stream := fun _ type => isTrue ⟨type, trivial, .refl _⟩
+  callable := fun _ type => isTrue ⟨type, trivial, .refl _⟩
+  scheme := fun _ _ => instDecidableFalse
+  generic := fun _ _ => instDecidableFalse
+
+def entryBoundary : Boundary Nat Unit Unit := ⟨entryWorld, entryContracts, enums⟩
+def entry : WitnessValue := .filesystemEntry ⟨()⟩
+
 def duplicated : WitnessType := .record (.rowField "level" (.tagged level) (.rowField "level" (.primitive .string) .rowEmpty))
 
 macro "evaluate" : tactic => `(tactic| simp [convert, convertRow, projectRow, recordBody, fieldsOf, listItems,
@@ -2715,7 +2658,7 @@ macro "evaluate" : tactic => `(tactic| simp [convert, convertRow, projectRow, re
   config, stringMap, table, Except.map, checkMember, Membership.check_iff, Membership.value, Membership.primitive,
   convertItems, convertEntries, recordEntry, undeclared, rowNames, setKeys, keyOf, keyAdmits_iff, Membership.key,
   MapKey.scalar, convertMembers, moduleViolations, exportViolations, entryViolations, unexpectedExports,
-  Membership.exportNames, Membership.recordFields, Membership.row, decide_eq_true_eq, contract, plugin, duplicated, unionSlot, textFirst, enumFirst, repeated, distinctNames])
+  Membership.exportNames, Membership.isCallable, Membership.recordFields, Membership.row, decide_eq_true_eq, contract, plugin, anyContract, withCallable, duplicated, unionSlot, textFirst, enumFirst, repeated, distinctNames])
 
 theorem wire_string_converts :
     convert boundary .keep [] settings warnSettings = .ok (.record [("level", warn)]) := by
@@ -2809,6 +2752,24 @@ theorem duplicate_fields_break_publication :
   refine ⟨by simp [duplicated, WellFormed, RowWellFormed, rowNames], by evaluate, ?_⟩
   simp [duplicated, warn, Membership.value, Membership.row, Membership.recordFields, Membership.primitive,
     Value.eraseNominal, List.lookup]
+
+theorem callable_for_value_export_is_mismatched :
+    convert boundary .keep [] anyContract withCallable = .error ⟨[], .module [.mismatched "f"]⟩ := by
+  evaluate
+
+theorem entry_converts_under_every_policy :
+    convert entryBoundary .keep [] settings entry = .ok (.record [("level", warn)]) ∧
+      convert entryBoundary .exact [] settings entry = .ok (.record [("level", warn)]) ∧
+      convert entryBoundary .stripped [] settings entry = .ok (.record [("level", warn)]) := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    simp [convert, entry, fieldsOf, Value.eraseNominal, entryBoundary, entryWorld, settings, recordBody,
+      convertRow, projectRow, undeclared, rowNames, replaceField, List.lookup, wire, WireEnums.variantOf, enums,
+      levelWire, level, Except.map, publish, warn]
+
+theorem unexpected_field_message_names_the_field :
+    (schemaError (Identity := Unit) (Source := Unit) level ⟨[], .unexpectedField "future"⟩).message =
+      "schema check failed at future" := by
+  decide
 
 end Witness
 

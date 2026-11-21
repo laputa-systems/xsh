@@ -363,10 +363,10 @@ theorem listItems_bound {allowed : Declaration → Prop} {candidate : Value Decl
 
 omit [DecidableEq Declaration] in
 theorem fieldsOf_bound {allowed : Declaration → Prop} {boundary : Boundary Declaration Identity Source}
-    {policy : FieldPolicy} {candidate : Value Declaration Identity Source}
+    {candidate : Value Declaration Identity Source}
     {fields : List (String × Value Declaration Identity Source)}
-    (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2)
-    (bound : Bound allowed candidate) (fielded : fieldsOf boundary policy candidate = some fields) :
+    (entries : ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2)
+    (bound : Bound allowed candidate) (fielded : fieldsOf boundary candidate = some fields) :
     ∀ field ∈ fields, Bound allowed field.2 := by
   have erasedBound := bound_eraseNominal bound
   unfold fieldsOf at fielded
@@ -377,12 +377,9 @@ theorem fieldsOf_bound {allowed : Declaration → Prop} {boundary : Boundary Dec
     rw [erased] at erasedBound
     exact bound_record.mp erasedBound
   · rename_i reference erased
-    split at fielded
-    · simp at fielded
-    · rename_i notKeep
-      simp only [Option.some.injEq] at fielded
-      subst fielded
-      exact entries (by cases policy <;> simp_all) reference
+    simp only [Option.some.injEq] at fielded
+    subst fielded
+    exact entries reference
   · simp at fielded
 
 omit [DecidableEq Declaration] in
@@ -425,7 +422,7 @@ theorem toOption_some {α ε : Type} {outcome : Except ε α} {value : α} (some
 mutual
   theorem convert_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
       (allowed : Declaration → Prop)
-      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
+      (entries : ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (type : ValueType Declaration), (∀ declaration ∈ typeNominals type, allowed declaration) →
         ∀ (path : List PathStep) (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
           convert boundary policy path type candidate = .ok converted → Bound allowed converted
@@ -523,9 +520,7 @@ mutual
           exact publish_bound bound (recordBody_bound
             (convertRow_bound boundary policy allowed entries row typeBound path)
             (projectRow_bound boundary policy allowed entries row typeBound path) fieldsBound body)
-      · split at required
-        · exact (checkMember_ok.mp required).2 ▸ bound
-        · simp at required
+      · simp at required
     | .nominal declaration row, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals, List.mem_cons, forall_eq_or_imp] at typeBound
       simp only [convert] at required
@@ -546,20 +541,7 @@ mutual
               (convertRow_bound boundary policy allowed entries row typeBound.2 path)
               (projectRow_bound boundary policy allowed entries row typeBound.2 path) fieldsBound body) found
               (by simpa [nominals] using inner)
-      · split at required
-        · cases checked : checkMember boundary path (.record row) candidate with
-          | error failure => simp [checked, Except.map] at required
-          | ok accepted =>
-            simp only [checked, Except.map, Except.ok.injEq] at required
-            subst required
-            have same := (checkMember_ok.mp checked).2
-            subst same
-            intro found present
-            simp only [nominals, List.mem_cons] at present
-            rcases present with same | inner
-            · exact same ▸ typeBound.1
-            · exact bound_eraseNominal bound found inner
-        · simp at required
+      · simp at required
     | .optional element, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals] at typeBound
       simp only [convert] at required
@@ -629,7 +611,7 @@ mutual
 
   theorem convertRow_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
       (allowed : Declaration → Prop)
-      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
+      (entries : ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (row : RecordType Declaration), (∀ declaration ∈ rowNominals row, allowed declaration) →
         ∀ (path : List PathStep) (fields results : List (String × Value Declaration Identity Source)),
           (∀ field ∈ fields, Bound allowed field.2) → convertRow boundary policy path row fields = .ok results →
@@ -654,7 +636,7 @@ mutual
 
   theorem projectRow_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
       (allowed : Declaration → Prop)
-      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
+      (entries : ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (row : RecordType Declaration), (∀ declaration ∈ rowNominals row, allowed declaration) →
         ∀ (path : List PathStep) (fields results : List (String × Value Declaration Identity Source)),
           (∀ field ∈ fields, Bound allowed field.2) → projectRow boundary policy path row fields = .ok results →
@@ -689,7 +671,7 @@ mutual
 
   theorem convertMembers_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
       (allowed : Declaration → Prop)
-      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
+      (entries : ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (rest : UnionTail Declaration), (∀ declaration ∈ membersNominals rest, allowed declaration) →
         ∀ (path : List PathStep) (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
           convertMembers boundary policy path rest candidate = some converted → Bound allowed converted
@@ -714,7 +696,8 @@ end
 mutual
   theorem evaluate_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
       (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
-      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
+      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored)
+      (entriesBound : ∀ reference, ∀ field ∈ world.entryFields reference, Bound allowed field.2) :
       ∀ (form : Form Declaration), (∀ declaration ∈ introductions form, allowed declaration) →
         ∀ value, evaluate world contracts enums heap form = some value → Bound allowed value
     | .scalar scalar, _, value, evaluated => by
@@ -729,7 +712,7 @@ mutual
       | some values =>
         simp only [all, Option.map_some, Option.some.injEq] at evaluated
         subst evaluated
-        exact bound_list.mpr (evaluateAll_bound world contracts enums heap allowed heapBound items introduced values all)
+        exact bound_list.mpr (evaluateAll_bound world contracts enums heap allowed heapBound entriesBound items introduced values all)
     | .record fields, introduced, value, evaluated => by
       simp only [introductions] at introduced
       simp only [evaluate] at evaluated
@@ -738,7 +721,7 @@ mutual
       | some values =>
         simp only [all, Option.map_some, Option.some.injEq] at evaluated
         subst evaluated
-        exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound fields introduced values all)
+        exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound entriesBound fields introduced values all)
     | .construct declaration schema fields, introduced, value, evaluated => by
       simp only [introductions, List.mem_cons, forall_eq_or_imp] at introduced
       simp only [evaluate] at evaluated
@@ -753,7 +736,7 @@ mutual
           simp only [nominals, List.mem_cons] at present
           rcases present with same | inner
           · exact same ▸ introduced.1
-          · exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound fields introduced.2
+          · exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound entriesBound fields introduced.2
               values all) found (by simpa [nominals] using inner)
         · simp [all, member] at evaluated
     | .require target source, introduced, value, evaluated => by
@@ -763,9 +746,9 @@ mutual
       | none => simp [inner] at evaluated
       | some sourceValue =>
         simp only [inner] at evaluated
-        exact convert_bound ⟨world, contracts, enums⟩ .keep allowed (fun notKeep => absurd rfl notKeep) target
+        exact convert_bound ⟨world, contracts, enums⟩ .keep allowed entriesBound target
           (fun d p => introduced d (Or.inl p)) [] sourceValue value
-          (evaluate_bound world contracts enums heap allowed heapBound source (fun d p => introduced d (Or.inr p))
+          (evaluate_bound world contracts enums heap allowed heapBound entriesBound source (fun d p => introduced d (Or.inr p))
             sourceValue inner) (toOption_some evaluated)
     | .read cell, _, value, evaluated => by
       simp only [evaluate] at evaluated
@@ -777,7 +760,7 @@ mutual
       | none => simp [inner] at evaluated
       | some sourceValue =>
         have sourceBound := bound_eraseNominal
-          (evaluate_bound world contracts enums heap allowed heapBound source introduced sourceValue inner)
+          (evaluate_bound world contracts enums heap allowed heapBound entriesBound source introduced sourceValue inner)
         simp only [inner] at evaluated
         cases erased : sourceValue.eraseNominal <;> simp only [erased, reduceCtorEq] at evaluated sourceBound
         case record fields => exact bound_lookup (bound_record.mp sourceBound) evaluated
@@ -788,7 +771,7 @@ mutual
       | none => simp [inner] at evaluated
       | some sourceValue =>
         have sourceBound := bound_eraseNominal
-          (evaluate_bound world contracts enums heap allowed heapBound source (fun d p => introduced d (Or.inl p))
+          (evaluate_bound world contracts enums heap allowed heapBound entriesBound source (fun d p => introduced d (Or.inl p))
             sourceValue inner)
         simp only [inner] at evaluated
         cases erased : sourceValue.eraseNominal <;> simp only [erased, reduceCtorEq] at evaluated sourceBound
@@ -802,13 +785,14 @@ mutual
             intro field present
             simp only [List.mem_append] at present
             rcases present with updated | kept
-            · exact evaluateFields_bound world contracts enums heap allowed heapBound updates
+            · exact evaluateFields_bound world contracts enums heap allowed heapBound entriesBound updates
                 (fun d p => introduced d (Or.inr p)) replaced all field updated
             · exact bound_record.mp sourceBound field kept
 
   theorem evaluateAll_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
       (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
-      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
+      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored)
+      (entriesBound : ∀ reference, ∀ field ∈ world.entryFields reference, Bound allowed field.2) :
       ∀ (items : List (Form Declaration)), (∀ declaration ∈ introductionsOf items, allowed declaration) →
         ∀ values, evaluateAll world contracts enums heap items = some values → ∀ value ∈ values, Bound allowed value
     | [], _, values, evaluated => by
@@ -829,14 +813,15 @@ mutual
           intro found present
           simp only [List.mem_cons] at present
           rcases present with same | later
-          · exact same ▸ evaluate_bound world contracts enums heap allowed heapBound item (fun d p => introduced d (Or.inl p))
+          · exact same ▸ evaluate_bound world contracts enums heap allowed heapBound entriesBound item (fun d p => introduced d (Or.inl p))
               value head
-          · exact evaluateAll_bound world contracts enums heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
+          · exact evaluateAll_bound world contracts enums heap allowed heapBound entriesBound rest (fun d p => introduced d (Or.inr p))
               others tail found later
 
   theorem evaluateFields_bound (world : MembershipWorld Declaration Identity Source)
       (contracts : ContractDecisions world) (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
-      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
+      (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored)
+      (entriesBound : ∀ reference, ∀ field ∈ world.entryFields reference, Bound allowed field.2) :
       ∀ (fields : List (String × Form Declaration)), (∀ declaration ∈ introductionsOfFields fields, allowed declaration) →
         ∀ values, evaluateFields world contracts enums heap fields = some values → ∀ field ∈ values, Bound allowed field.2
     | [], _, values, evaluated => by
@@ -858,9 +843,9 @@ mutual
           simp only [List.mem_cons] at present
           rcases present with same | later
           · subst same
-            exact evaluate_bound world contracts enums heap allowed heapBound item (fun d p => introduced d (Or.inl p)) value
+            exact evaluate_bound world contracts enums heap allowed heapBound entriesBound item (fun d p => introduced d (Or.inl p)) value
               head
-          · exact evaluateFields_bound world contracts enums heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
+          · exact evaluateFields_bound world contracts enums heap allowed heapBound entriesBound rest (fun d p => introduced d (Or.inr p))
               others tail found later
 end
 
@@ -915,7 +900,8 @@ constructor introduces exactly its declaration and checks its schema, and two
 declarations with the same name or shape stay distinct types. Raw membership
 alone admits a forged candidate; this judgment is what excludes it. -/
 theorem nominal_provenance (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-    (enums : WireEnums Declaration) :
+    (enums : WireEnums Declaration)
+    (hostEntries : ∀ reference, ∀ field ∈ world.entryFields reference, nominals field.2 = []) :
     (∀ (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop) (form : Form Declaration) value,
       (∀ cell stored, heap cell = some stored → Bound allowed stored) →
       (∀ declaration ∈ introductions form, allowed declaration) →
@@ -935,13 +921,16 @@ theorem nominal_provenance (world : MembershipWorld Declaration Identity Source)
       Membership.value world (.nominal first firstFields) candidate →
       Membership.value world (.nominal second secondFields) candidate → first = second) := by
   refine ⟨fun heap allowed form value heapBound introduced evaluated =>
-      evaluate_bound world contracts enums heap allowed heapBound form introduced value evaluated,
+      evaluate_bound world contracts enums heap allowed heapBound
+        (fun reference field present found inside => by simp [hostEntries reference field present] at inside)
+        form introduced value evaluated,
     fun _ _ _ member => nominal_member_carries_declaration world member, ?_,
     construct_introduces world contracts enums,
     fun _ _ _ _ _ firstMember secondMember => nominal_member_unique world firstMember secondMember⟩
   intro heap stored form value declaration fields heapBound evaluated member
   exact evaluate_bound world contracts enums heap (fun found => stored found ∨ found ∈ introductions form)
-    (fun cell found present d inside => Or.inl (heapBound cell found present d inside)) form
+    (fun cell found present d inside => Or.inl (heapBound cell found present d inside))
+    (fun reference field present found inside => by simp [hostEntries reference field present] at inside) form
     (fun d inside => Or.inr inside) value evaluated declaration (nominal_member_carries_declaration world member)
 
 namespace Witness
@@ -979,7 +968,7 @@ theorem forged_candidate_is_a_member_but_has_no_introduction :
           ¬ Membership.value moduleWorld (.nominal north .rowEmpty) value := by
   refine ⟨by simp [Membership.value, Membership.row, Membership.recordFields, Value.eraseNominal], ?_⟩
   intro form value none evaluated member
-  rcases (nominal_provenance moduleWorld moduleContracts WireEnums.empty).2.2.1 emptyHeap (fun _ => False) form value north .rowEmpty
+  rcases (nominal_provenance moduleWorld moduleContracts WireEnums.empty (fun _ _ present => by simp [moduleWorld] at present)).2.2.1 emptyHeap (fun _ => False) form value north .rowEmpty
     (fun _ _ present => by simp [emptyHeap] at present) evaluated member with impossible | introduced
   · exact impossible
   · simp [none] at introduced

@@ -103,6 +103,11 @@ def key (type : ValueType Declaration) (value : MapKey) : Prop :=
       | _ => False
   | _ => False
 
+def isCallable (candidate : Value Declaration Identity Source) : Bool :=
+  match candidate.eraseNominal with
+  | .callable _ _ => true
+  | _ => false
+
 mutual
   def value (world : MembershipWorld Declaration Identity Source)
       (type : ValueType Declaration) (candidate : Value Declaration Identity Source) : Prop :=
@@ -206,7 +211,7 @@ mutual
     | .exportsEmpty => True
     | .exportValue name presence type rest =>
         (match fields.lookup name with
-         | some candidate => value world type candidate
+         | some candidate => isCallable candidate = false ∧ value world type candidate
          | none => absentAllowed presence) ∧ exports world rest fields
     | .exportCallable name presence signature rest =>
         (match fields.lookup name with
