@@ -439,6 +439,53 @@ theorem return_type_complete {tokens rest : List Token} {shape : ResultShape}
     parseReturnType tokens = some (shape, rest) := by
   cases derivation <;> rfl
 
+theorem ordinary_body_complete {shape : ResultShape} {name : String} {parameters : List String}
+    {tokens afterLets afterComputed afterPropagation afterAssignment expressionTokens closing rest : List Token}
+    {lets : List (String × Nat)} {vars : List String} {computed : List (String × SourceValue)}
+    {propagation : Option SourcePropagation} {assignment : Option (String × SourceValue)}
+    {returned assigned result : SourceExpression}
+    (literalSyntax : LetsSyntax tokens lets vars afterLets)
+    (computedSyntax : ComputedSyntax afterLets computed afterComputed)
+    (propagationSyntax : PropagationSyntax afterComputed propagation afterPropagation)
+    (assignmentSyntax : AssignmentSyntax vars afterPropagation assignment afterAssignment)
+    (propagationAllowed : PropagationAllowed parameters lets assignment shape propagation)
+    (computedAllowed : ComputedAllowed parameters lets assignment propagation shape computed)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens)
+    (expressionSyntax : ExpressionSyntax expressionTokens returned closing)
+    (assignedSyntax : AssignedResult assignment returned assigned)
+    (computedResult : ComputedResult computed assigned result)
+    (resultAllowed : admitsResult shape result.shape = true)
+    (fresh : ∀ found, propagation = some found → found.target ∉ parameters)
+    (closingSyntax : ClosingSyntax closing rest)
+    (literalBoundary : beginsLiteralLet afterLets = false)
+    (computedBoundary : ComputedBoundary afterComputed)
+    (propagationBoundary : propagation = none → ∀ target callee more,
+      afterComputed ≠ .word "let" :: .word target :: .equals :: .word callee :: .leftParen :: more)
+    (assignmentBoundary : assignment = none → ∀ target more,
+      afterPropagation ≠ .word target :: .equals :: more) :
+    parseOrdinaryFunctionBody shape name parameters tokens =
+      some (⟨name, parameters, lets, propagation, result⟩, rest) := by
+  have parsedLets := lets_complete literalSyntax literalBoundary (tokens.length + 1)
+    (by have := lets_fit_tokens literalSyntax; omega)
+  have parsedComputed := computed_complete computedSyntax computedBoundary (afterLets.length + 1)
+    (by have := computed_fit_tokens computedSyntax; omega)
+  have parsedPropagation := propagation_complete propagationSyntax propagationBoundary
+  have parsedAssignment := assignment_complete assignmentSyntax assignmentBoundary
+  have parsedAssigned := assigned_result_complete assignedSyntax
+  have parsedResult := computed_result_complete computedResult
+  cases closingSyntax <;> have parsedExpression := expression_line_complete expressionSyntax <;>
+    cases propagation <;> cases computed
+  all_goals simp only [PropagationAllowed, ComputedAllowed, Option.some_ne_none, false_and, and_false,
+      true_and, and_true] at propagationAllowed computedAllowed
+  all_goals try contradiction
+  all_goals try rcases propagationAllowed with ⟨rfl, rfl, rfl, pLen⟩
+  all_goals try rcases computedAllowed with ⟨rfl, rfl, rfl, cLen, cBindings⟩
+  all_goals simp [parseOrdinaryFunctionBody, parsedLets, parsedComputed, parsedPropagation,
+      parsedAssignment, returnLine, parsedExpression, parsedAssigned, parsedResult,
+      resultAllowed, fresh, List.contains_iff_mem]
+  all_goals try assumption
+  all_goals constructor <;> assumption
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
