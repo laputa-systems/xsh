@@ -1,3 +1,0 @@
-status=incomplete
-completed_ranges=0
-detail=ExactOwnerError: owner 0: invalid owner projection: owner index statement has no matching AST owner: StmtId(1)

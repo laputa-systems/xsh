@@ -20,7 +20,7 @@ stages with ordinary readiness-checked interleaved measurements. XSH-19 then
 retired the pinned consolidation tools. No everyday gate reads campaign
 receipts, baselines or source pins: the [structural ratchets](#structural-ratchets)
 and the [util-linux runtime products](../dev/util-linux/README.md#parity) use
-current inputs, and the records under `dev/consolidation` are historical.
+current inputs, and the campaign records are in Git history.
 
 The canonical replay at `9ed42ed4af9a9367ff5be65699cb05302dd39cc0` passed
 with 15,503 passed, 0 failed and 174 skipped. The diff from that commit to the

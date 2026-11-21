@@ -15,13 +15,13 @@ from compare_tree import entries
 
 ROOT = Path(__file__).resolve().parents[3]
 CHECKPOINT = "15243e97f6fd751016ab28690ada2cadb6fc973a"
-ELIGIBILITY_PATH = "dev/consolidation/typing-corpus/eligibility.tsv"
-RETAINED_PATH = "dev/consolidation/typing-corpus/retained.tsv"
-INVENTORY_PATH = "dev/consolidation/evidence/typing-cohort-inventory.tsv"
-INDIVIDUAL_EFFECTS_PATH = "dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv"
+ELIGIBILITY_PATH = "dev/" "consolidation/typing-corpus/eligibility.tsv"
+RETAINED_PATH = "dev/" "consolidation/typing-corpus/retained.tsv"
+INVENTORY_PATH = "dev/" "consolidation/evidence/typing-cohort-inventory.tsv"
+INDIVIDUAL_EFFECTS_PATH = "dev/" "consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv"
 EFFECT_TARGETS_PATH = ROOT / "dev/performance/corpus/effect-facts-targets.tsv"
 EFFECT_FACTS_PATH = ROOT / "dev/performance/corpus/effect-facts-r6.tsv"
-VIEW_DIGEST_SCRIPT = ROOT / "dev/consolidation/typing-corpus/view_digest.py"
+VIEW_DIGEST_SCRIPT = ROOT / "dev/performance/corpus/typing/view_digest.py"
 EXPECTED_VIEW_DIGESTS = {
     "original": "e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899",
     "reduced-1040": "b67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9",

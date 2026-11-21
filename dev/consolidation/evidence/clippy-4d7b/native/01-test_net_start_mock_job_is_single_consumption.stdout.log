@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/stdlib/net.xsh::test_net_start_mock_job_is_single_consumption ... ok 0ms
-test result: ok. 1 passed; 0 failed; 0 skipped

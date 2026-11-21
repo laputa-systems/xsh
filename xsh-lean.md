@@ -21,7 +21,7 @@ effect predicates and membership) closes no universal obligation.
 [functional-core pilot](docs/ROADMAP.md#internal-functional-cores), alongside
 the source, facts and IR work below. Complete one connected compiler proof
 milestone (see [the typing and formal successor
-requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
+requirements](#typing-and-formal-successor-requirements))
 while retaining the full-core obligations and the G0b source freeze. Typing
 acceptance does not wait for this campaign.
 
@@ -634,3 +634,27 @@ dated log here.
 ## For the owner afterwards
 
 Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep each full theorem obligation planned until its complete proof and required evidence pass.
+
+## Typing and formal successor requirements
+
+The owner adopted these requirements on 2026-10-15. Phases A to E governed the
+consolidation and inference campaigns, which are closed (see [the
+roadmap](docs/ROADMAP.md)); the full adopted text is in Git history at
+`git show 7cd552301:dev/consolidation/CAMPAIGN.md`. Phase F governs this
+campaign and is kept here verbatim.
+
+### Phase F — connected Lean compiler milestone, deferred
+
+Keep Lean an independent specification/verification layer. No production dependency on Lean. Preserve the existing formal campaign's core scope and all universal obligations; coreutils, system-report, btop, and other application algorithms do not become proof targets here. They may supply minimized semantic counterexamples.
+
+Honor the post-consolidation source-freeze gate before claiming Rust correspondence. Do not optimize for number of roots, touched files, or fragment coverage. Choose a connected path with immediate relevance to this campaign and complete it before opening more disconnected model families.
+
+A suitable first path is resolved lexical names -> generated constraints -> solved substitutions/schemes -> elaborated typed core -> verified indexed instructions -> observable execution for an explicitly defined core fragment containing variables, functions/application, immutable and mutable local bindings, records/projection, Bool/Result control, and the relevant effect boundaries. Stage it if necessary, but make each stage's exact domain explicit.
+
+For that domain, state and prove the actual typing/substitution/generalization/elaboration obligations. Prove or independently check the translation from source constructs to modeled constraints; do not assume the checker selected the right operation or classified every effect and then describe a theorem about that assumed graph as checker soundness. Existing effect-lattice/solver fragments are useful inputs, not the missing translation proof itself.
+
+Bind executable correspondence witnesses to actual emitted checked facts/raw IR and the active schema. Add negative mutations that the independent checker rejects, not just round trips through the same encoder. Distinguish universally quantified Lean theorems, validated finite certificates, empirical differential tests, and unproved host assumptions in the existing ledger. Finite conformance witnesses do not prove universal Rust implementation correctness.
+
+Run the existing pinned Lean build, axiom/trust audit, kernel or external rechecking where required, and negative controls. Absence of `sorry` alone does not establish the desired theorem or implementation connection. Do not introduce compiler-trusting/native-evaluation axioms to evade the existing trust policy. Record necessary assumptions precisely rather than hiding them in bridge inputs.
+
+Complete one connected slice as an intermediate milestone while leaving broader obligations honestly open. Do not shrink the original full-core theorem inventory or close the whole formal campaign because the intermediate slice passed.

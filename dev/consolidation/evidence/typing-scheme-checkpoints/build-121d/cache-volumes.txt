@@ -1,2 +1,0 @@
-xsh-cargo-registry local
-xsh-consolidation-kache local

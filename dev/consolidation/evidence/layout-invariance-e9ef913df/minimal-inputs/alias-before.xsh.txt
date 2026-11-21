@@ -1,2 +1,0 @@
-pure target(value: Int) -> Int { value + 1 }
-pure wrapper(value: Int) -> Int { target(value) }

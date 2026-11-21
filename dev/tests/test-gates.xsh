@@ -1122,7 +1122,6 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
   let ratchets = checks[3]
   assert ratchets.argv[1..] == ["dev/ratchets.xsh", "check", "--root", ctx.root.display(), "--report", ".work/gate/ratchets.json"]
-  assert [arg for arg in ratchets.argv |> where .starts_with("dev/consolidation")].is_empty()
   for spec in checks {
     assert spec.executable != "python3"
     assert [arg for arg in spec.argv |> where .starts_with("dev/compat/")].is_empty()

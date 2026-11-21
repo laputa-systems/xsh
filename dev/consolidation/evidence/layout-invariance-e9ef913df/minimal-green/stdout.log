@@ -1,8 +1,0 @@
-CASE /fixtures/alias-after.xsh
-STATUS 1
-CASE /fixtures/alias-before.xsh
-STATUS 1
-CASE /fixtures/annotation-after.xsh
-STATUS 1
-CASE /fixtures/annotation-before.xsh
-STATUS 1

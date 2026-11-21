@@ -653,7 +653,7 @@ fn lint_trace_validator_accepts_two_roots_reusing_one_shared_module() {
     );
 
     let trace_text = fs::read_to_string(&trace).expect("read real cache trace");
-    let validator = repository.join("dev/consolidation/w9-cache-trace-validate.awk");
+    let validator = repository.join("crates/xsht/tests/fixtures/w9-cache-trace-validate.awk");
     let validation = Command::new("awk")
         .args(["-F", "\t", "-f"])
         .arg(validator)
