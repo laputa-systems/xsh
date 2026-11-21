@@ -226,7 +226,8 @@ def unicodeCheck (after : List UInt8) : EscapeCheck :=
       else .invalid (digits.length + 3)
   | _ => .invalid (digits.length + 2)
 
-/-- `rest` starts immediately after a backslash. -/
+/-- `rest` starts immediately after a backslash. A carriage return followed by a line feed
+is one line end, so an invalid escape there spans both line-end bytes. -/
 def classifyEscape : List UInt8 → EscapeCheck
   | [] => .invalid 0
   | byte :: rest =>
@@ -236,16 +237,22 @@ def classifyEscape : List UInt8 → EscapeCheck
         match rest with
         | 123 :: after => unicodeCheck after
         | _ => .invalid 1
+      else if byte = 13 then
+        match rest with
+        | 10 :: _ => .invalid 2
+        | _ => .invalid 1
       else .invalid 1
 
 /-- Bytes consumed after a backslash by the escape's syntax, matching the scanner's skip: one
-byte for every form except `\u{...}`, which spans its digits and any closing brace. -/
+byte for every form except `\u{...}`, which spans its digits and any closing brace, and a
+carriage return followed by a line feed, which spans both line-end bytes. -/
 def escapeSyntax : List UInt8 → Nat
   | 117 :: 123 :: after =>
       let digits := after.takeWhile isHexByte
       match after.drop digits.length with
       | 125 :: _ => digits.length + 3
       | _ => digits.length + 2
+  | 13 :: 10 :: _ => 2
   | _ => 1
 
 /-- The result of scanning one string body from the byte after its opening quote. -/
@@ -721,6 +728,13 @@ theorem short_hex_escape_witness :
 theorem backslash_before_line_feed_witness :
     scanStrings 0 [34, 97, 92, 10, 98, 34] =
       .failed (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+/-- A backslash before `\r\n` is an invalid escape spanning the backslash and both
+line-end bytes, not an unterminated string. -/
+theorem backslash_before_crlf_witness :
+    scanStrings 0 [34, 97, 92, 13, 10, 98, 34] =
+      .failed (.invalidEscape ⟨2, 5⟩) := by
   decide +kernel
 
 theorem unterminated_after_backslash :

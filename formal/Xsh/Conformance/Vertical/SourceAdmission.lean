@@ -153,6 +153,13 @@ theorem backslash_newline_classified :
       .rejected (.invalidEscape ⟨2, 4⟩) := by
   decide +kernel
 
+/-- SPEC 2.6 makes a backslash before a line end an invalid escape; for `\r\n` the span
+covers the backslash and both line-end bytes. -/
+theorem backslash_crlf_classified :
+    classify [34, 97, 92, 13, 10, 98, 34] [] =
+      .rejected (.invalidEscape ⟨2, 5⟩) := by
+  decide +kernel
+
 theorem comment_only_classified_outside :
     classify (witnessBytes "# a comment\n") [] = .outside := by
   decide +kernel

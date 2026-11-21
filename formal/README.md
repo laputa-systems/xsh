@@ -779,7 +779,8 @@ outcomes, each with an exact declarative range:
   `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `g"`, `p"`, `rx"`, or `e"`
   opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
   An invalid escape spans the backslash through the
-  escape's syntax, and an unterminated string spans the opening quote through
+  escape's syntax; a backslash before a line end spans the backslash and the
+  line-end bytes. An unterminated string spans the opening quote through
   the line end, excluding the line-end bytes, or through the end of input when
   no line end follows.
 - `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
