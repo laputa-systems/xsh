@@ -91,6 +91,8 @@ import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables
 import Xsh.Proofs.Core.Constructors
+import Xsh.Proofs.Core.Arguments
+import Xsh.Proofs.Core.Hoisting
 import Xsh.Proofs.Base.Num
 import Xsh.Proofs.Base.Step
 import Xsh.Proofs.Base.Progress
