@@ -407,6 +407,23 @@ theorem assignment_complete {vars : List String} {tokens rest : List Token}
     have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
     simp [parseAssignment, List.contains_iff_mem, member, parsed]
 
+theorem record_body_complete {name parameter target : String} {fields : List (String × SourceValue)}
+    {value : RecordValue} {tokens afterLet afterValue rest : List Token}
+    (record : RecordLetSyntax tokens target fields (.word "return" :: afterLet))
+    (returned : RecordValueSyntax afterLet value afterValue)
+    (admitted : recordLocalAdmitted parameter target fields value = true)
+    (closing : ClosingSyntax afterValue rest) :
+    parseRecordBody .integer name [parameter] tokens =
+      some (⟨name, [parameter], [], none, .recordLocal target fields value⟩, rest) := by
+  have parsedRecord := record_let_complete record
+  cases closing with
+  | endOfInput =>
+    have parsedValue := record_value_line_complete returned
+    simp [parseRecordBody, parsedRecord, parsedValue, admitted]
+  | more rest =>
+    have parsedValue := record_value_line_complete returned
+    simp [parseRecordBody, parsedRecord, parsedValue, admitted]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
