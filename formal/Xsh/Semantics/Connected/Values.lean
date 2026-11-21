@@ -132,17 +132,4 @@ theorem has_type_iff_compatible (ty : RuntimeType) (value : Value) :
   unfold HasType
   cases found : valueType value <;> simp [found]
 
-abbrev Store := TypedStore RuntimeType Value HasType
-
-def write (store : Store) (cell : CellId) (candidate : Value) : StoreWriteResult Store :=
-  writeCell (fun _ _ => inferInstance) store cell candidate
-
-theorem write_rejects_wrong_type_atomically (store : Store) (cell : CellId)
-    (candidate : Value) (current : StoreCell RuntimeType Value HasType)
-    (present : store cell = some current) (mutable : current.mutability = .mutable)
-    (wrong : ¬ HasType current.contents.typeTag candidate) :
-    (write store cell candidate).storeAfter = store := by
-  exact Xsh.Semantics.Environments.write_rejects_nonmember_atomically (fun _ _ => inferInstance) store cell candidate
-    current present mutable wrong
-
 end Xsh.Semantics.Connected

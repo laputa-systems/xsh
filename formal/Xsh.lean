@@ -27,6 +27,8 @@ import Xsh.Conformance.Connected.IdentityFacts
 import Xsh.Conformance.Connected.SourceEffects
 import Xsh.Semantics.Connected.Witness
 import Xsh.Semantics.Connected.TypedBinary
+import Xsh.Semantics.CoreWorld
+import Xsh.Semantics.Connected.CoreBridge
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
@@ -71,6 +73,7 @@ import Xsh.Proofs.BaseMachineComposition
 import Xsh.Semantics.BaseInvariant
 import Xsh.Proofs.BaseInvariant
 import Xsh.Proofs.Base.Env
+import Xsh.Proofs.Core.Env
 import Xsh.Proofs.Base.Num
 import Xsh.Proofs.Base.Step
 import Xsh.Proofs.Base.Progress
@@ -88,6 +91,15 @@ import Xsh.Validation.RecursiveRequire
 import Xsh.Validation.SetRequire
 import Xsh.Enums.WireConversion
 import Xsh.Validation.BoundedRefinements
+import Xsh.Validation.Core.Widen
+import Xsh.Validation.Core.Erase
+import Xsh.Validation.Core.Store
+import Xsh.Validation.Core.Union
+import Xsh.Validation.Core.Narrow
+import Xsh.Validation.Core.Require
+import Xsh.Validation.Core.Nominal
+import Xsh.Validation.Core.Preserve
+import Xsh.Validation.Core.Intro
 import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver

@@ -91,7 +91,7 @@ theorem identity_function_accepts_integer_and_boolean_activations :
 
 theorem mutable_integer_assignment_executes (state : Machine) (binder : BinderId)
     (cell : Xsh.Semantics.Environments.CellId) (text : String) (value : IntValue)
-    (current : Xsh.Semantics.Environments.StoreCell RuntimeType Value HasType)
+    (current : Xsh.Semantics.Environments.StoreCell RuntimeType Value StoreTyped)
     (parsed : parseInteger text = some value)
     (active : state.cells binder = some cell) (present : state.store cell = some current)
     (mutable : current.mutability = .mutable)
@@ -102,7 +102,7 @@ theorem mutable_integer_assignment_executes (state : Machine) (binder : BinderId
       { state with control := .returned (.scalar (.integer value)), store := next } := by
   obtain ⟨next, written⟩ :=
     (Xsh.Semantics.Environments.write_accepted_iff (fun _ _ => inferInstance)
-      state.store cell (.scalar (.integer value))).mpr ⟨current, present, mutable, typed⟩
+      state.store cell (.scalar (.integer value))).mpr ⟨current, present, mutable, StoreTyped.of_hasType typed⟩
   exact ⟨next, assignment_then_return_reads_new_value state binder cell text value next parsed active written⟩
 
 

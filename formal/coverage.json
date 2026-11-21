@@ -2949,8 +2949,10 @@
       "id": "VAL-ERASE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-ERASE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-ERASE",
+      "module": "Xsh.Validation.Core.Erase",
+      "declaration": "Xsh.Validation.Core.Erase.validated_erasure"
     },
     {
       "id": "VAL-INTRO",
@@ -2977,36 +2979,46 @@
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-PRESERVE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-PRESERVE",
+      "module": "Xsh.Validation.Core.Preserve",
+      "declaration": "Xsh.Validation.Core.Preserve.validated_operations"
     },
     {
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-REQUIRE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-REQUIRE",
+      "module": "Xsh.Validation.Core.Require",
+      "declaration": "Xsh.Validation.Core.Require.recursive_require"
     },
     {
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store"
     },
     {
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-UNION"
+      "status": "closed",
+      "proof_root_id": "full.VAL-UNION",
+      "module": "Xsh.Validation.Core.Union",
+      "declaration": "Xsh.Validation.Core.Union.union_semantics"
     },
     {
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-WIDEN"
+      "status": "closed",
+      "proof_root_id": "full.VAL-WIDEN",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -11270,7 +11282,7 @@
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
-      "module": "Xsh.Semantics.Connected.Values",
+      "module": "Xsh.Semantics.Connected.Store",
       "declaration": "Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -15038,6 +15050,96 @@
       "status": "fragment",
       "scope": "Admitted source functions do not directly call a record-local function anywhere in the same module, including a later declaration.",
       "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "module": "Xsh.Semantics.Connected.CoreEmbedding",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world.",
+      "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.has_type_iff_compatible",
+      "module": "Xsh.Semantics.Connected.Values",
+      "declaration": "Xsh.Semantics.Connected.has_type_iff_compatible",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A connected value has a runtime type exactly when its inferred value type fits that type.",
+      "boundary": "Connected runtime typing only; the store guard adds the Core membership of the embedded value. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "module": "Xsh.Semantics.Connected.CoreBridge",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted connected store write commits the embedded value to the corresponding Core store cell, using the Core typing each connected cell stores.",
+      "boundary": "Single-cell write projection under a supplied cell correspondence; no whole-store simulation, path writes or BASE-ENV closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "module": "Xsh.Proofs.Core.Env",
+      "declaration": "Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
+      "module": "Xsh.Validation.Core.Nominal",
+      "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over a file-local value-forming expression evaluator, every nominal identity in a produced value was named by a constructor or .require target or came from the store.",
+      "boundary": "The evaluator is a local toy covering literals, constructors, .require, reads, field reads and spreads only; calls, returns, iteration, match, ?, dynamic Pure.call and Proc.call, checker static types and a top-level spread clause are missing. Assumes host filesystem-entry fields carry no nominal identity. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Narrow.narrowing",
+      "module": "Xsh.Validation.Core.Narrow",
+      "declaration": "Xsh.Validation.Core.Narrow.narrowing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type tests decide Core membership, failed union tests narrow to the remaining members, and per-cell facts stay sound because assignment forgets the assigned cell's fact.",
+      "boundary": "Per-cell facts only: no statement syntax, field paths, logical combinators, else chains, guards, loops, retry, call invalidation of captured vars or deferred blocks. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.WireEnums.variantOf_mem",
+      "module": "Xsh.Core.WireEnums",
+      "declaration": "Xsh.Core.WireEnums.variantOf_mem",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The wire lookup of a Str-backed enum returns a variant declared with that wire string.",
+      "boundary": "Lookup law over the declared (variant, wire) list only; uniqueness is the WellFormed wire judgment. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "module": "Xsh.Validation.Core.WellFormed",
+      "declaration": "Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under the wire well-formedness judgment, a wire string names at most one variant of its Str-backed enum.",
+      "boundary": "Consequence of the stated judgment only; the judgment mirrors the Rust declaration checks and is not derived from source checking. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Intro.introduction_routes",
+      "module": "Xsh.Validation.Core.Intro",
+      "declaration": "Xsh.Validation.Core.Intro.introduction_routes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require, .require_exact and .require_stripped results on well-formed targets are members.",
+      "boundary": "fp literals are modelled as components, not source text with format specs; adjacent-interpolation rejection, strip_prefix, constants and defaults, as T and type tests are missing; relies on the toy nominal evaluator. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.chain_primitive_iff",
+      "module": "Xsh.Core.Views",
+      "declaration": "Xsh.Core.chain_primitive_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A view chain from an unvalidated primitive type reaches only that type, so retained primitive stream and callable contracts are read exactly.",
+      "boundary": "Covers primitive starting points of the shared base-view relation only; the view relation's soundness is the widening obligation. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [
