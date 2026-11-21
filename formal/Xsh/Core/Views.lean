@@ -431,6 +431,29 @@ theorem Submultiset.count_le {α : Type} [BEq α] {small large : List α} :
     Submultiset small large → ∀ item, small.count item ≤ large.count item
   | ⟨_, perm, sub⟩, item => perm.count_eq item ▸ sub.count_le item
 
+theorem Submultiset.of_counts {α : Type} [DecidableEq α] : ∀ (small large : List α),
+    (∀ item, small.count item ≤ large.count item) → Submultiset small large
+  | [], _, _ => ⟨[], .refl _, List.nil_sublist _⟩
+  | item :: rest, large, counts => by
+      have present : item ∈ large := List.count_pos_iff.mp (by have := counts item; simp at this; omega)
+      have perm := List.perm_cons_erase present
+      obtain ⟨kept, keptPerm, keptSub⟩ := Submultiset.of_counts rest (large.erase item) (fun other => by
+        have := counts other
+        rw [List.count_erase]
+        by_cases same : item = other
+        · subst same
+          simp at this ⊢
+          omega
+        · simp [same] at this ⊢
+          omega)
+      obtain ⟨found, foundPerm, foundSub⟩ := List.exists_perm_sublist (keptSub.cons_cons item) perm.symm
+      exact ⟨found, foundPerm.trans (keptPerm.cons item), foundSub⟩
+
+/-- With decidable items, being a submultiset is exactly per-item count inclusion. -/
+theorem submultiset_iff_counts {α : Type} [DecidableEq α] {small large : List α} :
+    Submultiset small large ↔ ∀ item, small.count item ≤ large.count item :=
+  ⟨fun within => within.count_le, Submultiset.of_counts small large⟩
+
 def entryTags (entry : String × ViewType Declaration) : List (ValidationTag Declaration) :=
   validationTags entry.2
 

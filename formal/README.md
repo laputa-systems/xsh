@@ -200,7 +200,15 @@ introduces no validation at any depth: `validationTags` lists the tag of every
 validated position, and for each tag the target has at most as many
 occurrences as the source. So `List[narrowPort]` does not view as
 `List[widePort]`, and the witness shows that the tag clause alone rejects
-that pair. The label premise mirrors Rust, where a record type is a map keyed
+that pair. Counts cannot place a tag, so the theorem also inverts every
+congruence: a view between two lists, `NonEmpty`s, streams, optionals, maps
+with the same key, results, callables with the same policy and parameters,
+records or unions is a view between their matching parts, with record fields
+matched by label and union members by the one-to-one pairing. With the
+top-level tag rule this requires the exact validation at every depth: the
+witness rejects `Result[narrowPort, widePort]` as `Result[widePort, Int]`,
+whose members, erasures and tag counts all agree, for any relation that
+satisfies the result inversion and the top-level tag rule. The label premise mirrors Rust, where a record type is a map keyed
 by label (`Type::Record` in `src/sema/types.rs`) and cannot repeat one, and a
 schema that repeats a field is rejected separately with
 `check.duplicate-record-field`; the premise is assumed, not derived from that
@@ -221,7 +229,7 @@ validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
-and rejects the same write to the `NonEmpty` cell. Store mutation through .extend or += and path writes are not modelled. VAL-STORE remains planned.
+and rejects the same write to the `NonEmpty` cell. Store mutation through `+=` and path writes are not modelled. VAL-STORE remains planned.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union

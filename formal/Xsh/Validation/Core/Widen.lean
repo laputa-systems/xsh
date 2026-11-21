@@ -218,6 +218,105 @@ theorem view_into_validated {source target : ValueType Declaration} (view : Base
     exact .list elementView
   | _ => simp [validationTag] at targetTag
 
+theorem entry_covered_view : ∀ {entry : String × ValueType Declaration} {sources : List (String × ValueType Declaration)},
+    EntryCovered entry sources → ∃ source, (entry.1, source) ∈ sources ∧ BaseView source entry.2
+  | _, _, .here _ _ view => ⟨_, List.mem_cons_self, view⟩
+  | _, _, .there _ covered => by
+      obtain ⟨source, present, view⟩ := entry_covered_view covered
+      exact ⟨source, List.mem_cons_of_mem _ present, view⟩
+
+theorem entries_covered_view : ∀ {targets sources : List (String × ValueType Declaration)},
+    EntriesCovered targets sources →
+      ∀ target ∈ targets, ∃ source, (target.1, source) ∈ sources ∧ BaseView source target.2
+  | _, _, .nil _ => by simp
+  | _, _, .cons here rest => by
+      intro target present
+      rcases List.mem_cons.mp present with same | later
+      · exact same ▸ entry_covered_view here
+      · exact entries_covered_view rest target later
+
+/-! Congruence inversion: a view between two types of one shape is a view
+between their matching parts, so with `view_into_validated` the exact
+validation identity is required at every depth. -/
+
+theorem list_view_parts {source target : ValueType Declaration}
+    (view : BaseView (.list source) (.list target)) : BaseView source target := by
+  cases view with
+  | refl => exact .refl _
+  | validated hasBase _ => simp [base] at hasBase
+  | list inner => exact inner
+
+theorem nonEmpty_view_parts {source target : ValueType Declaration}
+    (view : BaseView (.nonEmpty source) (.nonEmpty target)) : BaseView source target := by
+  cases view with
+  | refl => exact .refl _
+  | validated hasBase rest =>
+    have := view_from_unvalidated rest (base_is_unvalidated hasBase)
+    simp [validationTag] at this
+  | nonEmpty inner => exact inner
+
+theorem stream_view_parts {source target : ValueType Declaration}
+    (view : BaseView (.stream source) (.stream target)) : BaseView source target := by
+  cases view with
+  | refl => exact .refl _
+  | validated hasBase _ => simp [base] at hasBase
+  | stream inner => exact inner
+
+theorem optional_view_parts {source target : ValueType Declaration}
+    (view : BaseView (.optional source) (.optional target)) : BaseView source target := by
+  cases view with
+  | refl => exact .refl _
+  | validated hasBase _ => simp [base] at hasBase
+  | optional inner => exact inner
+
+theorem map_view_parts {sourceKey targetKey source target : ValueType Declaration}
+    (view : BaseView (.map sourceKey source) (.map targetKey target)) :
+    sourceKey = targetKey ∧ BaseView source target := by
+  cases view with
+  | refl => exact ⟨rfl, .refl _⟩
+  | validated hasBase _ => simp [base] at hasBase
+  | map _ inner => exact ⟨rfl, inner⟩
+
+theorem result_view_parts {sourceValue sourceError targetValue targetError : ValueType Declaration}
+    (view : BaseView (.result sourceValue sourceError) (.result targetValue targetError)) :
+    BaseView sourceValue targetValue ∧ BaseView sourceError targetError := by
+  cases view with
+  | refl => exact ⟨.refl _, .refl _⟩
+  | validated hasBase _ => simp [base] at hasBase
+  | result valueView errorView => exact ⟨valueView, errorView⟩
+
+theorem callable_view_parts {sourcePolicy targetPolicy : InvocationPolicy 0}
+    {sourceParameters targetParameters : TypeVariableFreeTerm 0 String Declaration .arguments}
+    {source target : ValueType Declaration}
+    (view : BaseView (.callable (.signature sourcePolicy sourceParameters source))
+      (.callable (.signature targetPolicy targetParameters target))) :
+    sourcePolicy = targetPolicy ∧ sourceParameters = targetParameters ∧ BaseView source target := by
+  cases view with
+  | refl => exact ⟨rfl, rfl, .refl _⟩
+  | validated hasBase _ => simp [base] at hasBase
+  | callable inner =>
+    cases inner with
+    | result _ _ resultView => exact ⟨rfl, rfl, resultView⟩
+
+theorem record_view_parts {sourceRow targetRow : RecordType Declaration}
+    (view : BaseView (.record sourceRow) (.record targetRow)) :
+    (∀ entry ∈ rowEntries targetRow, ∃ source, (entry.1, source) ∈ rowEntries sourceRow ∧ BaseView source entry.2) ∧
+      ∀ name ∈ (rowEntries sourceRow).map Prod.fst, name ∈ (rowEntries targetRow).map Prod.fst := by
+  cases view with
+  | refl => exact ⟨fun entry present => ⟨entry.2, present, .refl _⟩, fun _ present => present⟩
+  | validated hasBase _ => simp [base] at hasBase
+  | record covered names => exact ⟨entries_covered_view covered, names⟩
+
+theorem union_view_parts {sourceFirst sourceSecond targetFirst targetSecond : ValueType Declaration}
+    {sourceRest targetRest : UnionTail Declaration}
+    (view : BaseView (.union sourceFirst sourceSecond sourceRest) (.union targetFirst targetSecond targetRest)) :
+    MembersPaired (sourceFirst :: sourceSecond :: tailMembers sourceRest)
+      (targetFirst :: targetSecond :: tailMembers targetRest) := by
+  cases view with
+  | refl => exact paired_self _
+  | validated hasBase _ => simp [base] at hasBase
+  | union _ _ _ paired => exact paired
+
 theorem base_view {validated baseType : ValueType Declaration} (hasBase : base validated = some baseType) :
     BaseView validated baseType :=
   .validated hasBase (.refl _)
@@ -257,8 +356,13 @@ validations erased, the two types are equivalent, differing at most in the
 order of record fields and union members, and equivalent types have the same
 members in every world. Such a view also introduces no validation at any
 depth: for each validation tag, counted over every position, the target has at
-most as many occurrences as the source, so a nested interval never widens to
-another interval. -/
+most as many occurrences as the source. Finally, a view between two types of
+the same shape is a view between their matching parts: list, `NonEmpty`,
+stream and optional elements, map values under the same key, both sides of a
+result, callable results under the same policy and parameters, record fields
+matched by label, and union members through the one-to-one pairing. With the
+tag rule above, a view into a validated position at any depth starts from the
+same validation, so a nested interval never widens to another interval. -/
 theorem validated_widening (world : MembershipWorld Declaration Identity Source) :
     (∀ (source target : ValueType Declaration) candidate, BaseView source target →
       Membership.value world source candidate → Membership.value world target candidate) ∧
@@ -273,13 +377,48 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
     (∀ (source target : ValueType Declaration) candidate, source ≈ target →
       (Membership.value world source candidate ↔ Membership.value world target candidate)) ∧
     (∀ source target : ValueType Declaration, RowsDistinct source → RowsDistinct target →
-      BaseView source target → Submultiset (validationTags target) (validationTags source)) :=
+      BaseView source target → Submultiset (validationTags target) (validationTags source)) ∧
+    ((∀ source target : ValueType Declaration, BaseView (.list source) (.list target) → BaseView source target) ∧
+      (∀ source target : ValueType Declaration,
+        BaseView (.nonEmpty source) (.nonEmpty target) → BaseView source target) ∧
+      (∀ source target : ValueType Declaration, BaseView (.stream source) (.stream target) → BaseView source target) ∧
+      (∀ source target : ValueType Declaration,
+        BaseView (.optional source) (.optional target) → BaseView source target) ∧
+      (∀ sourceKey targetKey source target : ValueType Declaration,
+        BaseView (.map sourceKey source) (.map targetKey target) → sourceKey = targetKey ∧ BaseView source target) ∧
+      (∀ sourceValue sourceError targetValue targetError : ValueType Declaration,
+        BaseView (.result sourceValue sourceError) (.result targetValue targetError) →
+          BaseView sourceValue targetValue ∧ BaseView sourceError targetError) ∧
+      (∀ (sourcePolicy targetPolicy : InvocationPolicy 0)
+          (sourceParameters targetParameters : TypeVariableFreeTerm 0 String Declaration .arguments)
+          (source target : ValueType Declaration),
+        BaseView (.callable (.signature sourcePolicy sourceParameters source))
+            (.callable (.signature targetPolicy targetParameters target)) →
+          sourcePolicy = targetPolicy ∧ sourceParameters = targetParameters ∧ BaseView source target) ∧
+      (∀ sourceRow targetRow : RecordType Declaration, BaseView (.record sourceRow) (.record targetRow) →
+        (∀ entry ∈ rowEntries targetRow,
+          ∃ source, (entry.1, source) ∈ rowEntries sourceRow ∧ BaseView source entry.2) ∧
+        ∀ name ∈ (rowEntries sourceRow).map Prod.fst, name ∈ (rowEntries targetRow).map Prod.fst) ∧
+      (∀ (sourceFirst sourceSecond targetFirst targetSecond : ValueType Declaration)
+          (sourceRest targetRest : UnionTail Declaration),
+        BaseView (.union sourceFirst sourceSecond sourceRest) (.union targetFirst targetSecond targetRest) →
+          MembersPaired (sourceFirst :: sourceSecond :: tailMembers sourceRest)
+            (targetFirst :: targetSecond :: tailMembers targetRest))) :=
   ⟨fun _ _ candidate view member => view_member world view candidate member,
     fun _ _ _ view tagged => view_into_validated view tagged,
     fun _ _ hasBase => ⟨base_view hasBase, base_never_views_validated hasBase⟩,
     fun _ _ sourceDistinct targetDistinct view => view_precision sourceDistinct targetDistinct view,
     fun _ _ candidate equiv => equivalent_members world equiv candidate,
-    fun _ _ sourceDistinct targetDistinct view => view_tags sourceDistinct targetDistinct view⟩
+    fun _ _ sourceDistinct targetDistinct view => view_tags sourceDistinct targetDistinct view,
+    fun _ _ view => list_view_parts view,
+    fun _ _ view => nonEmpty_view_parts view,
+    fun _ _ view => stream_view_parts view,
+    fun _ _ view => optional_view_parts view,
+    fun _ _ _ _ view => map_view_parts view,
+    fun _ _ _ _ view => result_view_parts view,
+    fun _ _ _ _ _ _ view => callable_view_parts view,
+    fun _ _ view => record_view_parts view,
+    fun _ _ _ _ _ _ view => union_view_parts view⟩
 
 namespace Witness
 
@@ -409,6 +548,34 @@ theorem nested_interval_never_views :
     have counted := within.count_le (.bounded widePort)
     revert counted
     decide
+
+/-- The position mutant: an interval widens to a wider one in a result's value
+while the wider tag already occurs in the source's error, so membership,
+erasure and tag counts all agree. The real relation rejects it, and so does
+any relation that satisfies the result inversion clause and the top-level tag
+clause of `validated_widening`. -/
+theorem positioned_interval_never_views :
+    ¬ BaseView (Declaration := Unit) (.result (.boundedInteger narrowPort) (.boundedInteger widePort))
+        (.result (.boundedInteger widePort) (.primitive .integer)) ∧
+      ∀ related : WitnessType → WitnessType → Prop,
+        (∀ source target tag, related source target → validationTag target = some tag →
+          validationTag source = some tag) →
+        (∀ sourceValue sourceError targetValue targetError, related (.result sourceValue sourceError)
+            (.result targetValue targetError) → related sourceValue targetValue ∧ related sourceError targetError) →
+          ¬ related (.result (.boundedInteger narrowPort) (.boundedInteger widePort))
+            (.result (.boundedInteger widePort) (.primitive .integer)) := by
+  have rejects : ∀ related : WitnessType → WitnessType → Prop,
+      (∀ source target tag, related source target → validationTag target = some tag →
+        validationTag source = some tag) →
+      (∀ sourceValue sourceError targetValue targetError, related (.result sourceValue sourceError)
+          (.result targetValue targetError) → related sourceValue targetValue ∧ related sourceError targetError) →
+        ¬ related (.result (.boundedInteger narrowPort) (.boundedInteger widePort))
+          (.result (.boundedInteger widePort) (.primitive .integer)) := by
+    intro related tagged parts view
+    have same := tagged _ _ (.bounded widePort) (parts _ _ _ _ view).1 rfl
+    simp [validationTag, narrowPort, widePort] at same
+  exact ⟨rejects BaseView (fun _ _ _ view tagged => (view_into_validated view tagged).1)
+      (fun _ _ _ _ view => result_view_parts view), rejects⟩
 
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)

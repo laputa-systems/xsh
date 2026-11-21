@@ -15115,7 +15115,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
-      "boundary": "Store mutation through .extend or += and path writes are not modelled. Closes no full-core obligation."
+      "boundary": "Store mutation through += and path writes are not modelled. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [
