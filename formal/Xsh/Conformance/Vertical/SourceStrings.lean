@@ -123,6 +123,102 @@ theorem plain_literal_in_envelope :
 theorem empty_in_envelope : InEnvelope [] = true := by
   decide +kernel
 
+/-! ## Escape forms -/
+
+def isHexByte (byte : UInt8) : Bool :=
+  (48 ≤ byte.toNat && byte.toNat ≤ 57) || (65 ≤ byte.toNat && byte.toNat ≤ 70) ||
+    (97 ≤ byte.toNat && byte.toNat ≤ 102)
+
+def hexDigitValue (byte : UInt8) : Nat :=
+  if byte.toNat ≤ 57 then byte.toNat - 48
+  else if byte.toNat ≤ 70 then byte.toNat - 55
+  else byte.toNat - 87
+
+def hexValue (digits : List UInt8) : Nat :=
+  digits.foldl (fun value digit => value * 16 + hexDigitValue digit) 0
+
+/-- A Unicode scalar value: at most U+10FFFF and outside the surrogate range. -/
+def isScalarValue (value : Nat) : Bool :=
+  value ≤ 0x10FFFF && !(0xD800 ≤ value && value ≤ 0xDFFF)
+
+/-- The one-byte escapes: `\\`, `\"`, `\$`, `\n`, `\r`, `\t`, `\0`. -/
+def isSimpleEscape (byte : UInt8) : Bool :=
+  byte = 92 || byte = 34 || byte = 36 || byte = 110 || byte = 114 || byte = 116 || byte = 48
+
+inductive EscapeCheck where
+  | valid (consumed : Nat)
+  | invalid (consumed : Nat)
+  deriving DecidableEq, Repr
+
+def EscapeCheck.isValid : EscapeCheck → Bool
+  | .valid _ => true
+  | .invalid _ => false
+
+def EscapeCheck.consumed : EscapeCheck → Nat
+  | .valid k => k
+  | .invalid k => k
+
+/-- The `\x` form, given the bytes after the `x`. -/
+def hexCheck (rest : List UInt8) : EscapeCheck :=
+  match rest with
+  | first :: second :: _ =>
+      if isHexByte first && isHexByte second then .valid 3 else .invalid 1
+  | _ => .invalid 1
+
+/-- The `\u{` form, given the bytes after the `{`. A present closing brace is part of the
+span even when the digits are rejected, matching the discarded delimiter. -/
+def unicodeCheck (after : List UInt8) : EscapeCheck :=
+  let digits := after.takeWhile isHexByte
+  let rest := after.drop digits.length
+  match rest with
+  | 125 :: _ =>
+      if digits ≠ [] && isScalarValue (hexValue digits) then .valid (digits.length + 3)
+      else .invalid (digits.length + 3)
+  | _ => .invalid (digits.length + 2)
+
+/-- `rest` starts immediately after a backslash. -/
+def classifyEscape : List UInt8 → EscapeCheck
+  | [] => .invalid 0
+  | byte :: rest =>
+      if isSimpleEscape byte then .valid 1
+      else if byte = 120 then hexCheck rest
+      else if byte = 117 then
+        match rest with
+        | 123 :: after => unicodeCheck after
+        | _ => .invalid 1
+      else .invalid 1
+
+/-- Bytes consumed after a backslash by the escape's syntax, matching the scanner's skip: one
+byte for every form except `\u{...}`, which spans its digits and any closing brace. -/
+def escapeSyntax : List UInt8 → Nat
+  | 117 :: 123 :: after =>
+      let digits := after.takeWhile isHexByte
+      match after.drop digits.length with
+      | 125 :: _ => digits.length + 3
+      | _ => digits.length + 2
+  | _ => 1
+
+/-- The result of scanning one string body from the byte after its opening quote. -/
+inductive BodyResult where
+  | closed (after : List UInt8)
+  | open
+  deriving DecidableEq, Repr
+
+/-- Scan one single-line body. A line feed, a carriage return, the end of input, or a lone
+trailing backslash ends an open body; otherwise the first unescaped quote closes it. -/
+def scanBody (offset : Nat) : List UInt8 → BodyResult
+  | [] => .open
+  | 34 :: after => .closed after
+  | 10 :: _ => .open
+  | 13 :: _ => .open
+  | [92] => .open
+  | 92 :: rest => scanBody (offset + 1 + escapeSyntax rest) (rest.drop (escapeSyntax rest))
+  | _ :: rest => scanBody (offset + 1) rest
+termination_by bytes => bytes.length
+decreasing_by
+  · simp only [List.length_cons, List.length_drop]; omega
+  · simp
+
 end SourceAdmission
 
 end Xsh.Conformance.Vertical
