@@ -33,6 +33,11 @@ structure Machine (world : World Declaration Identity Source) where
   /-- Whether the checker gives a `guard let` subject an outermost `Result`
   type (SPEC 8.6). -/
   resultSubject : Environment → Xsh.Syntax.Expr → Bool
+  /-- The runtime's identity for the callable value a top-level function
+  declaration gives, by the cell its name is bound to. -/
+  callableReference : CellId → Reference Identity .callable
+  /-- The declaration cell a callable value's identity names. -/
+  callableCell : Reference Identity .callable → Option CellId
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -58,7 +63,8 @@ captures, its parameters and body. Its captured names are read through that
 environment when it is called, so a captured `var` is read as it is at the
 call, and it may write a captured mutable cell (SPEC 9.2). -/
 inductive Closure where
-  | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
+  | mk (cell : CellId) (kind : CallableKind) (environment : Environment) (captured : List (CellId × Closure))
+      (writable : List CellId)
       (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody)
 
 /-- What an expression sees besides its environment, store and locals: the
@@ -856,6 +862,21 @@ def callFunctionWith {world : World Declaration Identity Source} (machine : Mach
   | .block statements kind =>
     callBlock caller ⟨caller.activation + machine.activationStep, [], none⟩ defining parameters [] statements kind
 
+/-- A function declaration's callable kind; streams and `cli main` are not
+called as values. -/
+def callableKind : Xsh.Syntax.FunctionKind → Option CallableKind
+  | .proc => some .procedure
+  | .pure => some .pure
+  | _ => none
+
+/-- What `.call(...)` gives (SPEC 9.1): a `Proc` value's call is the proc's
+own `Result` when it returns one and `Ok` of any other value, `Ok(())` for
+none; a `Pure` value's call is its value. -/
+def callResult (kind : CallableKind) (value : Value Declaration Identity Source) : Value Declaration Identity Source :=
+  match kind with
+  | .procedure => wrapOk value
+  | _ => value
+
 def bodyKind : FunctionBody → ReturnKind
   | .expression _ kind | .block _ kind => kind
 
@@ -949,19 +970,50 @@ mutual
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
           | .listComp _ _ | .mapComp _ _ _ =>
         runValue machine fuel frame expression
+      | .ident name =>
+        match frame.locals.lookup name, localClosure frame.closures frame.environment name with
+        | none, some (.mk cell callable _ _ _ _ _) => .value (.callable (machine.callableReference cell) callable) frame
+        | _, _ =>
+          threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
+            expression
+      | .call (.field receiver method) arguments =>
+        match machine.context.spelling method, positional arguments with
+        | "call", some values =>
+          (evalExpr machine fuel frame receiver).bind fun callee after =>
+            match callee.eraseNominal with
+            | .callable reference _ =>
+              match (machine.callableCell reference).bind fun cell => after.closures.lookup cell with
+              | some (.mk cell callable defining captured writable parameters body) =>
+                (threadAll (evalExpr machine fuel) after values).bind fun evaluated next =>
+                  (bindArgumentsIn
+                      (fun current default => returnValue current (evalExpr machine fuel
+                        { Frame.ofScope defining current.store [] (some current.store)
+                            ⟨current.activation + machine.activationStep,
+                              (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
+                          writable } default))
+                      next parameters evaluated).bind fun bound last =>
+                    (callBlock machine fuel last ⟨last.activation + machine.activationStep,
+                      (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
+                      writable (bodyStatements body) (bodyKind body)).bind fun result final =>
+                      .value (callResult callable result) final
+              | none => .exec .stuck
+            | _ => .exec .unsupported
+        | _, _ =>
+          threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
+            expression
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
-        | none, some (.mk cell defining captured writable parameters body), some values =>
+        | none, some (.mk cell callable defining captured writable parameters body), some values =>
           (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
             (bindArgumentsIn
                 (fun current default => returnValue current (evalExpr machine fuel
                   { Frame.ofScope defining current.store [] (some current.store)
                       ⟨current.activation + machine.activationStep,
-                        (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                        (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
                     writable } default))
                 after parameters evaluated).bind fun bound last =>
               callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+                (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
                 writable (bodyStatements body) (bodyKind body)
         | _, _, _ =>
           match frame.locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
@@ -1268,17 +1320,20 @@ mutual
           | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
           | _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
-        match kind, (machine.namesAt frame.activation).declaration frame.environment name with
-        | .stream, _ | .cliMain, _ => .unsupported
-        | _, none => .internal .malformedTarget frame
-        | _, some (binder, cell, _) =>
-          let environment := extend frame.environment [(name, binder, cell)]
-          .normal { frame with
-            environment
-            locals := hide [name] frame.locals
-            closures := (cell, .mk cell environment frame.closures
-              (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-              (.block body (returnKindOf machine result))) :: frame.closures }
+        match frame.callerStore, frame.environment.names with
+        | none, [_] =>
+          match callableKind kind, (machine.namesAt frame.activation).declaration frame.environment name with
+          | none, _ => .unsupported
+          | _, none => .internal .malformedTarget frame
+          | some callable, some (binder, cell, _) =>
+            let environment := extend frame.environment [(name, binder, cell)]
+            .normal { frame with
+              environment
+              locals := hide [name] frame.locals
+              closures := (cell, .mk cell callable environment frame.closures
+                (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
+                (.block body (returnKindOf machine result))) :: frame.closures }
+        | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
           match guardValue (machine.resultSubject next.environment initializer) subject with
