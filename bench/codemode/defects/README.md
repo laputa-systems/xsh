@@ -88,6 +88,35 @@ its repair avoided the append by joining a list that ends with an empty line, an
 scored runs, so its handling is recorded rather than pre-set: the attempt counts as a
 runtime failure and is classified `compiler/runtime defect`; no reference is affected.
 
+## D4: `sort-by(desc: true)` reverses items with equal keys
+
+Reported by the held-out author (`tasks/session/session-oncall-report/NOTES.md`) and
+reproduced on the frozen toolchain:
+
+```sh
+xsh bench/codemode/defects/d4-descending-sort/main.xsh
+```
+
+```text
+desc: c d b a
+asc: a b d c
+```
+
+`xsht api language:stream.sort-by` promises a stable sort, so `a b d` (all keyed 1) should
+keep their order after `c` under `desc: true`; they come out reversed. The documented
+two-pass idiom for a compound order is therefore wrong for a descending primary key.
+The authored references sort once by a record key instead; no reference depends on it.
+
+## D5: a user type named like a built-in record gives a misleading second error
+
+Reported by the held-out author (`tasks/held/held-dedupe-tree/NOTES.md`) and reproduced:
+`type Group = {name: Str, size: Int}` is rejected with `check.duplicate-name` (correct),
+and each use is then checked against the built-in `Group` record, adding a
+`check.type-mismatch` that names fields the user never wrote
+(`bench/codemode/defects/d5-builtin-type-name/main.xsh`). A diagnostic-quality issue, not
+a behavior defect. The author's exact wording ("expected Record, found Record") did not
+reproduce; the cascade did.
+
 ## Documentation gaps the development runs exposed
 
 Each is a fact a correct program needs that `xsht api` states wrongly or not at all.
@@ -98,6 +127,13 @@ They are not product defects; they are recorded for the follow-up list.
 - Many `xsht api` contracts say "Function arguments are positional-only; parameters
   marked `= default` ... cannot be supplied as `name = value`", while `name: value`
   arguments such as `fs.walk(root, gitignore: false, hidden: true)` and
-  `archive.create(..., collision: .Replace)` check and run.
+  `archive.create(..., collision: .Replace)` check and run. Some functions even require
+  the label: the held-out author found, and the frozen checker confirms, that
+  `csv.encode(rows, true, ",", ["sku", "name", "price"])` is `check.named-arg` for
+  `headers`, `delimiter` and `columns`.
 - `check.redundant-parens` is a hard check error, not a lint, and neither the tour nor
   `xsht api language:core` says so; it caused 8 of the 24 failed development programs.
+
+TODO.md tracks D1 as XSH-158, D2 as XSH-159, D3 as XSH-162, D4 as XSH-163, D5 as
+XSH-164, and the documentation gaps as XSH-160 and XSH-161.
+
