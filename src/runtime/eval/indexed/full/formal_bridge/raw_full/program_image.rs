@@ -1987,6 +1987,79 @@ fn program_image_rekeys_symbols_reallocated_to_other_spellings() {
     });
 }
 
+const ARCH_SCRIPT: &str = "core/arch.xsh";
+const LARGEST_FILES_SCRIPT: &str = "docs/snippets/tour/02-largest-files.xsh";
+
+struct Reconstructed {
+    image: Vec<u8>,
+    module_call_plans: usize,
+    signature_cli: bool,
+    status: u8,
+    stdout: Vec<u8>,
+}
+
+fn reconstruct_and_compare(path: &'static str, args: Vec<String>) -> Reconstructed {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    super::super::super::tests::run_with_large_stack(move || {
+        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let (image, module_call_plans, signature_cli) = {
+            let entry = prepare_checked(path, &args);
+            let program = entry.evaluator.indexed_program.as_ref().unwrap();
+            (encode_checked(&entry), program.store.prepared_module_call_plans.len(), entry.plan.signature_cli.is_some())
+        };
+        let (evaluator, plan) = prepare_from_image(path, &args, &image.bytes, ImageStage::Install).unwrap().expect("installation returns the prepared run");
+        assert_eq!(evaluator.indexed_program.as_ref().unwrap().store.prepared_module_call_plans.len(), module_call_plans);
+        assert_eq!(plan.signature_cli.is_some(), signature_cli);
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "{path}: the decoded program encodes differently");
+        let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("{path}: the decoded program failed to execute"));
+        let expected = crate::runner::run_script(crate::execution::script::RunOptions {
+            script: path.to_owned(),
+            args: args.iter().map(|arg| (*arg).into()).collect(),
+            coverage_trace_dir: None,
+        });
+        assert_eq!(actual.status, expected.status, "{path}: status differs");
+        assert_eq!(actual.stdout, expected.stdout, "{path}: stdout differs");
+        assert_eq!(actual.stderr, expected.stderr, "{path}: stderr differs");
+        let mut truncated = image.bytes.clone();
+        truncated.pop();
+        assert!(matches!(prepare_from_image(path, &args, &truncated, ImageStage::Install), Err(ImageError::Malformed(_))));
+        sender.send(Reconstructed { image: image.bytes, module_call_plans, signature_cli, status: actual.status, stdout: actual.stdout }).unwrap();
+    });
+    receiver.recv().unwrap()
+}
+
+#[test]
+fn arch_program_image_reconstructs_its_prepared_cli_descriptor() {
+    let run = reconstruct_and_compare(ARCH_SCRIPT, Vec::new());
+    assert!(run.module_call_plans > 0);
+    assert_eq!(run.status, 0);
+    assert_eq!(String::from_utf8(run.stdout).unwrap().trim(), std::env::consts::ARCH);
+    let help = reconstruct_and_compare(ARCH_SCRIPT, vec!["--help".into()]);
+    assert_eq!(help.image, run.image);
+    assert!(help.stdout.starts_with(b"Usage: arch"));
+}
+
+#[test]
+fn signature_cli_program_image_reconstructs_its_entry_plan() {
+    let root = std::env::temp_dir().join(format!("xsh-program-image-largest-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for (name, size) in [("small", 3), ("large", 40), ("middle", 17)] {
+        std::fs::write(root.join(name), vec![b'x'; size]).unwrap();
+    }
+    let root_arg = root.to_str().unwrap().to_owned();
+    let run = reconstruct_and_compare(LARGEST_FILES_SCRIPT, vec![root_arg.clone(), "--limit".into(), "2".into()]);
+    assert!(run.signature_cli);
+    assert_eq!(run.status, 0);
+    let stdout = String::from_utf8(run.stdout).unwrap();
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].trim_start().starts_with("40 ") && lines[0].ends_with("large"));
+    assert!(lines[1].trim_start().starts_with("17 ") && lines[1].ends_with("middle"));
+    let usage = reconstruct_and_compare(LARGEST_FILES_SCRIPT, vec![root_arg, "--limit".into(), "many".into()]);
+    assert_ne!(usage.status, 0);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 #[ignore = "writes the AWK program image named by XSH_PROGRAM_IMAGE for the startup measurement"]
 fn awk_program_image_write() {
