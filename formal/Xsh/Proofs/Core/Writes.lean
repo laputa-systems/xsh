@@ -1018,12 +1018,13 @@ theorem declareTarget_never_malformed (world : World Declaration Identity Source
     (store : Store world) (mutability : Mutability) (type : ValueType Declaration) (target : Target Declaration)
     (source : Value Declaration Identity Source) (member : Membership.value world.membership type source)
     (typed : TargetTyped type target) :
-    declareTarget world decisions store mutability target source ≠ .internal .malformedTarget store := by
+    ∀ after, declareTarget world decisions store mutability target source ≠ .internal .malformedTarget after := by
+  intro after
   have selected := select_typed world.membership type target source member typed
   unfold declareTarget
   cases found : select world.membership target source with
   | none => exact absurd found selected
-  | some bindings => exact declareAll_not_malformed world decisions store mutability store bindings store
+  | some bindings => exact declareAll_not_malformed world decisions store mutability store bindings after
 
 theorem declareTarget_discard (world : World Declaration Identity Source) (decisions : Decisions world)
     (store : Store world) (mutability : Mutability) (source : Value Declaration Identity Source) :
@@ -1333,8 +1334,8 @@ theorem store_writing_forms (world : World Declaration Identity Source) (decisio
       (∀ next, declareTarget world decisions store mutability target source ≠ .committed next) →
         (declareTarget world decisions store mutability target source).storeAfter = store) ∧
     (∀ (store : Store world) mutability type target source, Membership.value world.membership type source →
-      TargetTyped type target → declareTarget world decisions store mutability target source ≠
-        .internal .malformedTarget store) ∧
+      TargetTyped type target → ∀ after, declareTarget world decisions store mutability target source ≠
+        .internal .malformedTarget after) ∧
     (∀ (store : Store world) mutability cell type source,
       declareTarget world decisions store mutability (.name cell type) source =
         declare world decisions store cell mutability type source) ∧
@@ -1549,7 +1550,8 @@ def nestedMap : ValueType Unit := .map (.primitive .unsignedInteger) (.map (.pri
 def keyedCell : Cell witnessWorld :=
   ⟨⟨nestedMap, .map [], ⟨fun _ _ => trivial, by simp [nestedMap, Membership.value, Value.eraseNominal]⟩⟩, .mutable⟩
 
-def keyedStore : Store witnessWorld := fun cell => if cell = counterCell then some keyedCell else none
+def keyedStore : Store witnessWorld := fun cell =>
+  if cell = counterCell then some keyedCell else if cell = otherCell then some (anyCell one) else none
 
 def negativeKey : SelectorSide witnessWorld := fun store => .ok (.key (.integer ⟨-1, by decide⟩), store)
 
@@ -1560,17 +1562,41 @@ def writingKey : SelectorSide witnessWorld := fun store =>
 
 def constant : RightSide witnessWorld := fun store => .ok (one, store)
 
+def lateCheck (store : Store witnessWorld) : StoreStep witnessWorld :=
+  match negativeKey store with
+  | .error (failure, after) => .failed failure after
+  | .ok (first, afterFirst) =>
+    match writingKey afterFirst with
+    | .error (failure, after) => .failed failure after
+    | .ok (_, afterAll) =>
+      match stepFailure raises nestedMap first with
+      | some error => .failed (.raised error) afterAll
+      | none => .committed afterAll
+
 theorem negative_unsigned_key_fails_at_its_own_selector :
     assignStatement witnessWorld witnessDecisions raises pair keyedStore counterCell [negativeKey, writingKey] .set
         constant = .failed (.raised raises.schema) keyedStore ∧
+      (keyedStore otherCell).map (fun cell => cell.contents.value) = some one ∧
       tryBlock [] (assignStatement witnessWorld witnessDecisions raises pair keyedStore counterCell
-        [negativeKey, writingKey] .set constant) = .caught raises.schema keyedStore := by
+        [negativeKey, writingKey] .set constant) = .caught raises.schema keyedStore ∧
+      ∃ written, lateCheck keyedStore = .failed (.raised raises.schema) written ∧
+        (written otherCell).map (fun cell => cell.contents.value) = some ten := by
+  have negative : stepFailure raises nestedMap (.key (.integer ⟨-1, by decide⟩)) = some raises.schema :=
+    stepFailure_negative raises (element := .map (.primitive .string) (.primitive .integer)) _ rfl (by decide)
   have stopped := evaluateSelectors_stops raises nestedMap negativeKey [writingKey] keyedStore keyedStore _
-    raises.schema rfl (stepFailure_negative raises (element := .map (.primitive .string) (.primitive .integer)) _ rfl
-      (by decide))
+    raises.schema rfl negative
   have failed := assignStatement_selectors_fail witnessWorld witnessDecisions raises pair keyedStore keyedStore
     counterCell [negativeKey, writingKey] .set keyedCell (by simp [keyedStore]) _ stopped constant
-  exact ⟨failed, by rw [failed]; rfl⟩
+  have otherPresent : keyedStore otherCell = some (anyCell one) := by
+    simp [keyedStore, otherCell, counterCell, binder]
+  obtain ⟨written, committed⟩ := (assign_committed_iff witnessWorld witnessDecisions keyedStore otherCell ten).mpr
+    ⟨anyCell one, otherPresent, rfl, ⟨fun _ _ => trivial, by simp [anyCell, Membership.value, Membership.primitive]⟩⟩
+  obtain ⟨_, _, ⟨replaced, replacedAt, _, replacedValue, _⟩, _⟩ :=
+    assign_committed_effect witnessWorld witnessDecisions keyedStore written otherCell ten committed
+  have late : lateCheck keyedStore = .failed (.raised raises.schema) written := by
+    simp only [lateCheck, negativeKey, writingKey, committed, negative]
+  exact ⟨failed, by simp [otherPresent, anyCell], by rw [failed]; rfl, written, late,
+    by simp [replacedAt, replacedValue]⟩
 
 def increments : RightSide witnessWorld := fun store =>
   match assign witnessWorld witnessDecisions store counterCell ten with
