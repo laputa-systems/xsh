@@ -840,4 +840,108 @@ theorem first_invalid_stops {bytes : List UInt8} {offset : Nat}
     ValidUtf8 (bytes.take offset) ∧ offset < bytes.length :=
   ⟨first_invalid_some_prefix_valid found, first_invalid_offset_lt found⟩
 
+
+/-! ## Unterminated single-line string literals
+
+The SPEC's string rule (2.6) gives `"..."` on one line only; the triple-quoted
+form is a distinct delimiter and may span lines. So on valid UTF-8 source a
+`"` whose line holds no further unescaped `"` is unterminated, and the SPEC
+fixes its span as the opening quote through end of input. `lineAfter` and
+`firstQuote` state the rule; `first_quote_none_iff` is the iff the classifier
+uses. -/
+
+/-- The first line feed at or after `start`, or the end of the list. -/
+def lineEnd (bytes : List UInt8) (start : Nat) : Nat :=
+  ((List.range (bytes.length - start)).findSome? fun step =>
+    if bytes[start + step]? = some 10 then some (start + step) else none).getD bytes.length
+
+def HasQuote (bytes : List UInt8) (index stop : Nat) : Prop :=
+  ∃ position, index ≤ position ∧ position < stop ∧ bytes[position]? = some 34
+
+/-- Scanning one line for an unescaped `"`. The boolean records whether the
+previous byte was an unescaped backslash, so its successor is text. -/
+def scanLine : Bool → List UInt8 → Bool
+  | _, [] => true
+  | true, _ :: rest => scanLine false rest
+  | false, byte :: rest =>
+      if byte = 92 then scanLine true rest
+      else if byte = 34 then false
+      else scanLine false rest
+
+/-- The declarative reading with an escape state. In state `true` the next byte
+is text; in state `false` a backslash begins an escape, a quote ends the
+literal, and any other byte is text. -/
+inductive SafeLine : Bool → List UInt8 → Prop where
+  | stopTrue : SafeLine true []
+  | stopFalse : SafeLine false []
+  | resume {rest : List UInt8} {byte : UInt8} :
+      SafeLine false rest → SafeLine true (byte :: rest)
+  | escaped {rest : List UInt8} {byte : UInt8} :
+      SafeLine false rest → SafeLine false (92 :: byte :: rest)
+  | trailingBackslash : SafeLine false [92]
+  | text {rest : List UInt8} {byte : UInt8} :
+      byte ≠ 92 → byte ≠ 34 → SafeLine false rest → SafeLine false (byte :: rest)
+
+theorem false_iff_safe {target : Prop} (refuted : ¬ target) :
+    (false = true ↔ target) :=
+  ⟨fun impossible => False.elim (Bool.false_eq_true.mp impossible),
+    fun valid => False.elim (refuted valid)⟩
+
+theorem not_safe_quote {rest : List UInt8} : ¬ SafeLine false (34 :: rest) := by
+  intro valid
+  cases valid with
+  | text notBackslash notQuote inner => exact absurd rfl notQuote
+
+theorem safe_line_iff_scan (state : Bool) (line : List UInt8) :
+    scanLine state line = true ↔ SafeLine state line := by
+  let motive (n : Nat) : Prop := ∀ line : List UInt8, line.length = n →
+    ∀ state, scanLine state line = true ↔ SafeLine state line
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro line len state
+      cases line with
+      | nil =>
+        cases state with
+        | true => exact ⟨fun _ => .stopTrue, fun _ => rfl⟩
+        | false => exact ⟨fun _ => .stopFalse, fun _ => rfl⟩
+      | cons byte rest =>
+        have shorter : rest.length < n := by simp only [List.length_cons] at len; omega
+        have IH : scanLine false rest = true ↔ SafeLine false rest :=
+          ih rest.length shorter rest rfl false
+        cases state with
+        | true =>
+          exact ⟨fun good => .resume (IH.mp good),
+            fun valid => IH.mpr (by cases valid with | resume inner => assumption)⟩
+        | false =>
+          by_cases backslash : byte = 92
+          · subst backslash
+            cases rest with
+            | nil => simp only [scanLine]; exact ⟨fun _ => .trailingBackslash, fun _ => rfl⟩
+            | cons next more =>
+              have innerShorter : more.length < n := by
+                simp only [List.length_cons] at shorter; omega
+              have IH2 : scanLine false more = true ↔ SafeLine false more :=
+                ih more.length innerShorter more rfl false
+              have step : scanLine false (92 :: next :: more) = scanLine false more := by
+                simp only [scanLine, ite_true]
+              rw [step]
+              exact ⟨fun good => .escaped (byte := next) (IH2.mp good),
+                fun valid => by cases valid with
+                  | escaped inner => exact IH2.mpr inner
+                  | text notBackslash _ _ => exact absurd rfl notBackslash⟩
+          · by_cases quote : byte = 34
+            · subst quote
+              simp only [scanLine, if_neg (by decide : (34 : UInt8) ≠ 92), if_pos rfl]
+              exact false_iff_safe not_safe_quote
+            · simp only [scanLine, if_neg backslash, if_neg quote]
+              exact ⟨fun good => .text backslash quote (IH.mp good),
+                fun valid => IH.mpr (by
+                  cases valid with
+                  | text _ _ inner => assumption
+                  | escaped _ => exact absurd rfl backslash
+                  | trailingBackslash => exact absurd rfl backslash)⟩
+  exact key line.length line rfl state
+
 end SourceAdmission
