@@ -2060,7 +2060,9 @@ streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), 
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
 are `Bool` values, never assertions. A failed comprehension exposes no partial
 result. A map comprehension is the only entry in its braces; an entry or
-spread before it is an error (`parse.map-comprehension-entries`).
+spread before it is an error (`parse.map-comprehension-entries`). When two
+projections produce the same key, the later one replaces the earlier, as in a
+map literal.
 
 A set is built from a comprehension with `set.from([word.lower() for word in
 words])`, which holds each projected value once. A set is also a source: its
