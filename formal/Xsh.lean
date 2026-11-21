@@ -32,6 +32,7 @@ import Xsh.Semantics.Connected.CoreBridge
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
+import Xsh.Values.FloatArith
 import Xsh.Values.OrderedSet
 import Xsh.Sets.Algebra
 import Xsh.Values.MapPresence

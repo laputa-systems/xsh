@@ -10666,6 +10666,15 @@
       "boundary": "Store writes are proved on the environment API; the base machine has no declaration or assignment form. It does not close BASE-ENV for the core and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Values.FloatArith.roundEven_nearest",
+      "module": "Xsh.Values.FloatArith",
+      "declaration": "Xsh.Values.FloatArith.roundEven_nearest",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rounding a nonnegative rational to the nearest integer grid point, with ties to even, for a positive denominator.",
+      "boundary": "This proves uniform-grid rounding only. Binary64 exponent selection, overflow, arithmetic, conversions and Rust conformance are not proved; BASE-NUM remains open."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Base.Num.base_num",
       "module": "Xsh.Proofs.Base.Num",
       "declaration": "Xsh.Proofs.Base.Num.base_num",
