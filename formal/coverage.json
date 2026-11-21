@@ -2821,8 +2821,10 @@
       "id": "SRC-ADMIT",
       "gate": "G1b",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.SRC-ADMIT"
+      "status": "closed",
+      "proof_root_id": "full.SRC-ADMIT",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission"
     },
     {
       "id": "STREAM-CLOSE",
@@ -15072,6 +15074,60 @@
       "status": "fragment",
       "scope": "scanLine agrees with the declarative SafeLine reading of an unescaped closing quote for every escape state and line.",
       "boundary": "The model covers the single-line string rule with its escapes; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanBody agrees with the declarative BodyScan reading for every body byte list and escape state.",
+      "boundary": "Covers the single-line body closure rule with escape syntax skipping; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanStrings agrees with the declarative DeclaredString reading: unterminated spans open quote to end of input, invalid escape spans the escape, and a clean scan continues.",
+      "boundary": "Covers the Lean string scan over the declared envelope only; UTF-8 validity of the whole input and Rust diagnostic rendering are outside it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier accepts exactly the inputs in the declared domain D.",
+      "boundary": "Relates the Lean classifier and Lean domain over arbitrary bytes; it makes no claim about Rust parser acceptance or diagnostics."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier rejects with a string failure exactly on the declared envelope where the string scan fails.",
+      "boundary": "Uses the declared envelope E and the Lean scan; the SPEC claims inside E and the Rust diagnostic text are separate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "module": "Xsh.Conformance.Vertical.SourceTreeSpans",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A positioned token slice's span starts at least at the source offset and stops at most at the source end.",
+      "boundary": "Confines Lean token spans to the Lean source; the Rust span rendering and byte offsets are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every number token of an accepted input's positioned tokens reads as the decimal value of a digit run in the source and is within the integer literal bound.",
+      "boundary": "Relates the Lean decimal interpretation to the Lean positioned tokens; the Rust lexer's number decoding is outside this claim."
     }
   ],
   "artifact_certificates": [

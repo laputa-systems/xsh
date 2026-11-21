@@ -11,8 +11,9 @@ the frozen source commit and tree. A universal obligation is planned or
 closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
-that is absent, not a theorem, or outside the project modules. No row is closed
-yet. The finite Rust-conformance ledger holds only the named tests that ran
+that is absent, not a theorem, or outside the project modules. SRC-ADMIT is
+closed by `Xsh.Conformance.Vertical.SourceAdmission.source_admission`; see
+[Source admission](#source-admission) for its scope and boundary. The finite Rust-conformance ledger holds only the named tests that ran
 against binaries built from that commit. Each case is evidence for its own test
 only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
 per kernel-checked certificate: the artifact kind, the Lean definitions that
@@ -322,6 +323,46 @@ owner coverage, root reachability, and evidence records. They do not test Lean
 theorem behavior or Rust conformance. [`xsh-lean.md`](../xsh-lean.md) is the
 owner-managed plan and is parsed by the inventory checker; preserve its
 G0–G10 structure when updating it.
+
+## Source admission
+
+[`Conformance/Vertical/SourceAdmission.lean`](Xsh/Conformance/Vertical/SourceAdmission.lean)
+closes SRC-ADMIT with `Xsh.Conformance.Vertical.SourceAdmission.source_admission`.
+It decides, for arbitrary source bytes and no imported inputs, one of three
+outcomes, each with an exact declarative range:
+
+- `accepted functions scopes` holds exactly on the declared domain `D`. `D`
+  fixes a module input list of `[]`, no conflicting adjacent bytes, decimal runs
+  within the integer bound, distinct function names, supported names, a slot
+  projection for every function, and a tokenization whose trees satisfy the
+  independent grammar, ordered propagation, record-call exclusion, and the
+  supported-word guard.
+- `rejected (.invalidUtf8 span)` holds exactly on inputs with a first invalid
+  UTF-8 offset; the span starts there and runs to the end of input.
+- `rejected (.invalidEscape span)` and `rejected (.unterminatedString span)`
+  hold exactly over the declared string envelope `E`: well-formed UTF-8 with no
+  `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `p"`, `rx"`, or `e"` opener,
+  and no `"""`. Inside `E` every `"` outside a string opens an ordinary
+  single-line string. An invalid escape spans the backslash through the
+  escape's syntax, and an unterminated string spans the opening quote through
+  the end of input.
+- `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
+  outside `D`, and either outside `E` or scanning clean.
+
+The accepted outcome also yields the positioned tokens of the exact bytes, the
+grammar derivation, the decimal interpretation of every number token within the
+bound, and a span for the token list that lies within the source. A node's span
+is its own tokens' span by construction. `D` contains no quote byte, so an
+input that fails the string scan is never in `D`; that disjointness makes the
+ranges exact rather than merely sufficient. The classifier decides `D` through
+`reconstruct`, so the accepted outcome names the very trees and scopes the
+domain requires.
+
+The boundary is the Lean model. It proves nothing about the Rust lexer,
+parser, or diagnostics, and `E` and `D` are narrower than the full source
+language: interpolation, triple-quoted layout, raw strings, and every
+production outside the integer fragment are outside both. The SPEC's claimed
+diagnostic codes and message text are not modelled.
 
 ## Checked Int arithmetic
 
