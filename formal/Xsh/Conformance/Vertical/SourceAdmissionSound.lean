@@ -106,6 +106,35 @@ theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
   | number => rfl
   | name text rest valid => simp [parseAtom, valid]
 
+theorem parameter_list_complete {tokens rest : List Token} {parameters : List String}
+    (derivation : ParametersSyntax tokens parameters rest) (nonempty : parameters ≠ []) :
+    ∀ fuel, parameters.length ≤ fuel → parseParameterList fuel tokens = some (parameters, rest) := by
+  induction derivation with
+  | empty rest => contradiction
+  | @single name rest valid =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel => simp [parseParameterList, valid]
+  | @cons name tokens rest others valid tail othersNonempty ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : others.length ≤ fuel := by simp at enough; omega
+      simp [parseParameterList, valid, ih othersNonempty fuel bound]
+
+theorem parameters_complete {tokens rest : List Token} {parameters : List String}
+    (derivation : ParametersSyntax tokens parameters rest) :
+    ∀ fuel, parameters.length ≤ fuel → parseParameters fuel tokens = some (parameters, rest) := by
+  intro fuel enough
+  cases derivation with
+  | empty rest => rfl
+  | @single name rest valid =>
+    simpa [parseParameters] using parameter_list_complete (ParametersSyntax.single valid) (by simp) fuel enough
+  | @cons name tokens rest others valid tail othersNonempty =>
+    simpa [parseParameters] using parameter_list_complete (ParametersSyntax.cons valid tail othersNonempty) (by simp) fuel enough
+
 theorem constructor_is_not_an_ordinary_call :
     ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
         (.call "Ok" [.var "x"]) [] ∧
