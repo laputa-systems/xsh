@@ -378,7 +378,7 @@ def scopeStore : Store witnessWorld := fun cell =>
 
 /-- `fn f() { x }`, defined at the top level. -/
 def scopeContext : Context Unit Unit Unit :=
-  { context with functions := fun name => if name = fName then some (outer, [], .expression (.ident xName)) else none }
+  { context with functions := fun name => if name = fName then some (outer, [], .expression (.ident xName) .plain) else none }
 
 def callF : Xsh.Syntax.Expr := .call (.ident fName) []
 
@@ -386,7 +386,7 @@ def callF : Xsh.Syntax.Expr := .call (.ident fName) []
 def dynamicScope (callSite : Environment) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
   | .call (.ident name) arguments =>
     match scopeContext.functions name, positional arguments with
-    | some (_, parameters, .expression body), some values =>
+    | some (_, parameters, .expression body _), some values =>
       (evaluateAll (evaluate scopeContext callSite scopeStore 7 []) values).bind fun evaluated =>
         evaluate scopeContext callSite scopeStore 7 (parameters.zip evaluated) body
     | _, _ => .unsupported

@@ -381,6 +381,60 @@ are rejected: a `try` that captures runtime failures, a tail `Err` treated as
 a normal exit, a `retry` that skips attempt defers, and a `Result` function's
 cleanup failure escaping as a call failure.
 
+### BASE-ENV and BASE-STEP gap list
+
+`xsh-lean.md` closes BASE-ENV and BASE-STEP "only when their theorems hold for
+the frozen core's syntax, values and host request families"; BASE-STEP also
+needs every numeric step result to meet the BASE-NUM meanings, including
+`IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning`. This list is every core
+form the expression evaluator and statement machine still leave
+`.unsupported` (P: pure, E: needs clocks, processes, the filesystem or the host
+environment).
+
+Statements:
+
+- `for` over a `Stream` (E)
+- `yield` and `yield @` into `collect` (P); stream producers (E)
+- `use` aliases, which need module loading (E)
+- `export` of anything but a binding; `type`, `error` and function declarations
+  as runtime binders (P)
+- `guard let`'s `else { |failure| ... }` parameter, which the core syntax does
+  not carry (P)
+- `with` resource scopes, `exit`, signal hooks and command statements (E)
+
+Expressions:
+
+- `and`/`or` operands of a `Result[Bool]` condition (P)
+- `??` with the implicit `.` handler parameter (P)
+- `match` as an expression, comparison chains, `in`, set literals and set
+  operators, slices, guarded `?.` and `?[]` (P)
+- record spread, shorthand, computed and path fields (P)
+- named, spread and splice arguments, defaults, methods, closures and value
+  pipelines (P)
+- list, map and set comprehensions and `collect` (P)
+- `.require` (P), `ctx` error contexts (P)
+- `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
+  `spawn`, `wait`, run forms, pipelines and stream stages (E), `$NAME` and
+  `$PATH` reads (E), `$?` (E)
+- Float literal and `parse_float` rounding, method calls behind
+  `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
+
+Patterns: text patterns, error-variant patterns, facets and tuples (P).
+
+The `pure_forms_laws` fragment root and the witnesses in
+[`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean) cover what this
+list no longer names: `Ok(...)` and `Err(...)`, return kinds for
+expression-bodied functions, `??` with a named handler parameter (the new
+`Expr.handlerBlock`), `Result[Bool]` conditions, `guard let` (the checker's
+`Result` or optional form from an oracle), `loop` expressions and `break` with
+a value, `return` without a value (`Unit`), index-selector assignment through
+`evaluateSelectors` with the `Map[UInt]` key rule, `for` over `Map` in key
+order, `Str` and `Bytes`, and alternation, alias, `Ok`/`Err` and variant
+constructor and type patterns. Each binding form has a witness that its
+binding is visible where SPEC says and a rejected mutant that leaks or hides
+it: a block's `let`, `for` targets, `if let`, `while let`, `match` arms,
+`guard let` and `??` handler parameters.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,
