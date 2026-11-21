@@ -538,6 +538,9 @@ fn escape_end(bytes: &[u8], offset: usize) -> usize {
             close
         };
     }
+    if bytes.get(offset + 1) == Some(&b'\r') && bytes.get(offset + 2) == Some(&b'\n') {
+        return offset + 3;
+    }
     (offset + 2).min(bytes.len())
 }
 
@@ -647,9 +650,14 @@ pub(crate) fn decode_string_text(
             '0' => output.push(b'\0'),
             'x' => {
                 let hex_start = offset;
-                let hex_end = (offset + 2).min(raw.len());
-                if offset + 2 <= raw.len() {
-                    let hex = &raw[offset..offset + 2];
+                let ascii = raw.as_bytes()[offset..]
+                    .iter()
+                    .take(2)
+                    .take_while(|byte| byte.is_ascii())
+                    .count();
+                let hex_end = offset + ascii;
+                if ascii == 2 {
+                    let hex = &raw[offset..hex_end];
                     if hex.as_bytes().iter().all(u8::is_ascii_hexdigit)
                         && let Ok(value) = u8::from_str_radix(hex, 16)
                     {
