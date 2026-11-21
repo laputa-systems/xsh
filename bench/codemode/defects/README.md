@@ -151,6 +151,6 @@ They are not product defects; they are recorded for the follow-up list.
 - `check.redundant-parens` is a hard check error, not a lint, and neither the tour nor
   `xsht api language:core` says so; it caused 8 of the 24 failed development programs.
 
-TODO.md tracks D1 as XSH-158, D2 as XSH-159, D3 as XSH-162, D4 as XSH-163, D5 as
-XSH-164, D6 as XSH-165, and the documentation gaps as XSH-160 and XSH-161.
+TODO.md tracks D1 as XSH-160, D2 as XSH-161, D3 as XSH-164, D4 as XSH-165, D5 as
+XSH-166, D6 as XSH-167, and the documentation gaps as XSH-162 and XSH-163.
 

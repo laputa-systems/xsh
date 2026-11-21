@@ -150,18 +150,18 @@ revision had the lowest tokens per solved task, so `revised.md` is frozen as
 - D2 (P3): `Path.relative_to` returns a path outside its base unchanged, contrary to its
   contract.
 
-Reproducers are in `../defects/`; TODO.md tracks them as XSH-158, XSH-162 and XSH-159 (renumbered after merging master).
+Reproducers are in `../defects/`; TODO.md tracks them as XSH-160, XSH-164 and XSH-161 (renumbered after merging master).
 
 ## Ranked follow-ups
 
 1. Fix D1 and D3; both silently change behavior of programs that check.
-2. Decide whether `check.redundant-parens` should stay a hard error (XSH-161): it alone
+2. Decide whether `check.redundant-parens` should stay a hard error (XSH-163): it alone
    caused a third of the failed XSH programs under both the current docs and the
    candidate.
 3. Add negation (`!`, and that `not` exists only in `not in`) to the published agent
    context's next version; the getting-started page already states it.
 4. Correct `xsht api` contract text on named arguments and print defaults, starting with
-   `fs.walk`'s `gitignore` (XSH-160).
+   `fs.walk`'s `gitignore` (XSH-162).
 5. Resolve D2's contract.
 
 ## What development evidence says, and what it does not
