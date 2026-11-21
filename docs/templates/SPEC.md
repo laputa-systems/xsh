@@ -350,6 +350,13 @@ error (`check.return-outside-callable`). Declarations (`use`, `export`,
 of a script or module; inside a callable body or any block they are
 `check.nested-declaration`. A local `const` remains valid in bodies.
 
+Declarations are visible throughout their script or module, including the
+statements before them: a `proc`, `pure`, `stream`, `type`, `enum`, or `error`
+can be called, constructed, or matched above the line that declares it. A
+callable body resolves the top-level bindings declared before the callable. A
+call that reads such a binding before the statement that initializes it has run
+is a runtime failure (`runtime.error`, exit `3`).
+
 A script's exit status is chosen as follows:
 
 - A final top-level `Int` or `UInt` value in `0..=255` becomes the exit status.
