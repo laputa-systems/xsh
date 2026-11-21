@@ -702,6 +702,47 @@ theorem expression_consumes_tokens {tokens rest : List Token} {expression : Sour
     simp at a b c d ⊢
     omega
 
+theorem parameters_consume_tokens {tokens rest : List Token} {parameters : List String}
+    (derivation : ParametersSyntax tokens parameters rest) : rest.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | single valid => simp <;> omega
+  | cons valid tail nonempty ih => simp_all <;> omega
+
+theorem lets_consume_tokens {tokens rest : List Token} {lets : List (String × Nat)} {vars : List String}
+    (derivation : LetsSyntax tokens lets vars rest) : rest.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | immutable tail ih => simp_all <;> omega
+  | mutable tail ih => simp_all <;> omega
+
+theorem computed_consume_tokens {tokens rest : List Token} {bindings : List (String × SourceValue)}
+    (derivation : ComputedSyntax tokens bindings rest) : rest.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | cons valid value tail ih =>
+    have consumed := value_consumes_tokens value
+    simp_all <;> omega
+
+theorem propagation_consumes_tokens {tokens rest : List Token} {propagation : Option SourcePropagation}
+    (derivation : PropagationSyntax tokens propagation rest) : rest.length ≤ tokens.length := by
+  cases derivation with
+  | empty => simp
+  | call validTarget validCallee args =>
+    have consumed := arguments_consume_tokens args
+    simp at consumed ⊢
+    omega
+
+theorem assignment_consumes_tokens {vars : List String} {tokens rest : List Token}
+    {assignment : Option (String × SourceValue)}
+    (derivation : AssignmentSyntax vars tokens assignment rest) : rest.length ≤ tokens.length := by
+  cases derivation with
+  | empty => simp
+  | assign member value =>
+    have consumed := value_consumes_tokens value
+    simp at consumed ⊢
+    omega
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
