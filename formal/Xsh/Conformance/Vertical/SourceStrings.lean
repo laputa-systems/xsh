@@ -457,6 +457,14 @@ theorem decode_escapes_past (byte : UInt8) (rest : List UInt8) (offset : Nat)
     decodeEscapes (byte :: rest) offset = decodeEscapes rest (offset + 1) := by
   rw [decode_escapes_eq]; simp only
 
+/-- The bytes before the first line feed or carriage return: an unterminated single-line
+string ends at that line end, excluding its bytes. -/
+def lineWidth : List UInt8 → Nat
+  | [] => 0
+  | 10 :: _ => 0
+  | 13 :: _ => 0
+  | _ :: rest => lineWidth rest + 1
+
 /-- The result of scanning a whole byte string for its first string error. -/
 inductive StringResult where
   | clean
@@ -468,7 +476,7 @@ def scanStrings (offset : Nat) : List UInt8 → StringResult
   | [] => .clean
   | 34 :: rest =>
       match hbody : scanBody rest with
-      | .unclosed => .failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩)
+      | .unclosed => .failed (.unterminatedString ⟨offset, offset + 1 + lineWidth rest⟩)
       | .closed after =>
           let content := rest.take (rest.length - after.length)
           match decodeEscapes content (offset + 1) with
@@ -547,9 +555,11 @@ theorem decode_escapes_none_iff (content : List UInt8) (offset : Nat) :
     | none => rfl
     | some span => exact absurd ((decode_escapes_iff content offset span).mp found) (absent span)
 
-/-- The declarative reading of the whole-source string scan, in the SPEC's three cases over
-the declared envelope. `unterminated`'s span runs from the opening quote to the end of input;
-`invalid`'s span is the escape; otherwise the scan continues after the closed string. -/
+/-- The Lean scanner's relational reading of the whole-source string scan, in its three
+cases. This is not an independent SPEC reading; it relates the scanner's own decisions.
+`unterminated`'s span runs from the opening quote to the line end, excluding the line-end
+bytes, or to the end of input when no line end follows; `invalid`'s span is the escape;
+otherwise the scan continues after the closed string. -/
 inductive DeclaredString : List UInt8 → Nat → StringResult → Prop where
   | cleanNil (offset : Nat) : DeclaredString [] offset .clean
   | outsideText {offset : Nat} {byte : UInt8} {rest : List UInt8} {result : StringResult} :
@@ -558,7 +568,7 @@ inductive DeclaredString : List UInt8 → Nat → StringResult → Prop where
   | unterminated {offset : Nat} {rest : List UInt8} :
       BodyScan rest .unclosed →
       DeclaredString (34 :: rest) offset
-        (.failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩))
+        (.failed (.unterminatedString ⟨offset, offset + 1 + lineWidth rest⟩))
   | invalid {offset : Nat} {rest after : List UInt8} {span : Span} :
       BodyScan rest (.closed after) →
       EscapeError (rest.take (rest.length - after.length)) (offset + 1) span →
@@ -581,7 +591,7 @@ theorem scan_strings_text (byte : UInt8) (rest : List UInt8) (offset : Nat)
 theorem scan_strings_unterminated (rest : List UInt8) (offset : Nat)
     (unclosed : scanBody rest = .unclosed) :
     scanStrings offset (34 :: rest) =
-      .failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩) := by
+      .failed (.unterminatedString ⟨offset, offset + 1 + lineWidth rest⟩) := by
   conv => lhs; rw [scanStrings.eq_def]
   simp only
   split
@@ -716,6 +726,12 @@ theorem backslash_before_line_feed_witness :
 theorem unterminated_after_backslash :
     scanStrings 0 [34, 97, 92] =
       .failed (.unterminatedString ⟨0, 3⟩) := by
+  decide +kernel
+
+/-- An unterminated string ends at its line end; the span excludes the line feed. -/
+theorem unterminated_line_span_witness :
+    scanStrings 0 (witnessBytes "let a = \"abc\nlet b = 1\n") =
+      .failed (.unterminatedString ⟨8, 12⟩) := by
   decide +kernel
 
 theorem unicode_out_of_range_witness :

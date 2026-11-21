@@ -845,10 +845,10 @@ theorem first_invalid_stops {bytes : List UInt8} {offset : Nat}
 
 The SPEC's string rule (2.6) gives `"..."` on one line only; the triple-quoted
 form is a distinct delimiter and may span lines. So on valid UTF-8 source a
-`"` whose line holds no further unescaped `"` is unterminated, and the SPEC
-fixes its span as the opening quote through end of input. `lineAfter` and
-`firstQuote` state the rule; `first_quote_none_iff` is the iff the classifier
-uses. -/
+`"` whose line holds no further unescaped `"` is unterminated. The SPEC fixes
+no span; the model ends the span at the line end, excluding the line-end bytes,
+or at the end of input when no line end follows, as the Rust scanner does.
+`lineEnd` and `scanLine` state the rule; `safe_line_iff_scan` relates them. -/
 
 /-- The first line feed at or after `start`, or the end of the list. -/
 def lineEnd (bytes : List UInt8) (start : Nat) : Nat :=

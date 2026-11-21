@@ -780,7 +780,8 @@ outcomes, each with an exact declarative range:
   opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
   An invalid escape spans the backslash through the
   escape's syntax, and an unterminated string spans the opening quote through
-  the end of input.
+  the line end, excluding the line-end bytes, or through the end of input when
+  no line end follows.
 - `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
   outside `D`, and either outside `E` or scanning clean.
 

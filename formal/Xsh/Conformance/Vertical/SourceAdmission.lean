@@ -132,6 +132,12 @@ theorem backslash_end_classified :
     classify [34, 97, 92] [] = .rejected (.unterminatedString ⟨0, 3⟩) := by
   decide +kernel
 
+/-- An unterminated string's span ends at the line end, not at the end of input. -/
+theorem unterminated_line_classified :
+    classify (witnessBytes "let a = \"abc\nlet b = 1\n") [] =
+      .rejected (.unterminatedString ⟨8, 12⟩) := by
+  decide +kernel
+
 theorem invalid_escape_classified :
     classify [34, 97, 92, 113, 98, 34] [] =
       .rejected (.invalidEscape ⟨2, 4⟩) := by
