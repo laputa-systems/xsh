@@ -46,13 +46,13 @@ def BodiesEvaluable (context : Context Declaration Identity Source) : Prop :=
   ∀ name defining parameters result,
     context.functions name = some (defining, parameters, .expression result .plain) → Evaluable result
 
-theorem lift_bind {world : World Declaration Identity Source} {α β : Type} {store : Store world}
-    {first : Evaluated world α} {result : Result Declaration Identity Source α}
-    {next : α → Store world → Evaluated world β} {next' : α → Result Declaration Identity Source β}
-    (head : result ≠ .unsupported → first = .lift store result)
-    (tail : ∀ value, result = .value value → next' value ≠ .unsupported → next value store = .lift store (next' value))
+theorem lift_bind {world : World Declaration Identity Source} {α β : Type} {frame : Frame world}
+    {first : Outcome world α} {result : Result Declaration Identity Source α}
+    {next : α → Frame world → Outcome world β} {next' : α → Result Declaration Identity Source β}
+    (head : result ≠ .unsupported → first = fromEval frame result)
+    (tail : ∀ value, result = .value value → next' value ≠ .unsupported → next value frame = fromEval frame (next' value))
     (supported : result.bind next' ≠ .unsupported) :
-    first.bind next = .lift store (result.bind next') := by
+    first.bind next = fromEval frame (result.bind next') := by
   cases result with
   | value value =>
     rw [head (fun same => by cases same)]
@@ -62,13 +62,13 @@ theorem lift_bind {world : World Declaration Identity Source} {α β : Type} {st
   | unsupported => exact absurd rfl supported
   | outOfFuel => rw [head (fun same => by cases same)]; rfl
 
-theorem threadAll_agrees {world : World Declaration Identity Source} {α : Type} {store : Store world}
-    {holds : α → Prop} {evaluate : Store world → α → Evaluated world (Value Declaration Identity Source)}
+theorem threadAll_agrees {world : World Declaration Identity Source} {α : Type} {frame : Frame world}
+    {holds : α → Prop} {evaluate : Frame world → α → Valued world}
     {reference : α → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, holds source → reference source ≠ .unsupported →
-      evaluate store source = .lift store (reference source)) :
+      evaluate frame source = fromEval frame (reference source)) :
     ∀ items, (∀ item ∈ items, holds item) → evaluateAll reference items ≠ .unsupported →
-      threadAll evaluate store items = .lift store (evaluateAll reference items)
+      threadAll evaluate frame items = fromEval frame (evaluateAll reference items)
   | [], _, _ => rfl
   | first :: rest, all, supported => by
     simp only [threadAll, evaluateAll] at supported ⊢
@@ -76,15 +76,15 @@ theorem threadAll_agrees {world : World Declaration Identity Source} {α : Type}
     exact lift_bind (threadAll_agrees each rest fun item inside => all item (by simp [inside])) (fun _ _ _ => rfl)
       restSupported
 
-theorem threadFields_agrees {world : World Declaration Identity Source} {store : Store world}
+theorem threadFields_agrees {world : World Declaration Identity Source} {frame : Frame world}
     (context : Context Declaration Identity Source)
-    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     {reference : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, Evaluable source → reference source ≠ .unsupported →
-      evaluate store source = .lift store (reference source)) :
+      evaluate frame source = fromEval frame (reference source)) :
     ∀ fields, (∀ name operand, Xsh.Syntax.RecordField.named name operand ∈ fields → Evaluable operand) →
       evaluateFields context reference fields ≠ .unsupported →
-        threadFields context evaluate store fields = .lift store (evaluateFields context reference fields)
+        threadFields context evaluate frame fields = fromEval frame (evaluateFields context reference fields)
   | [], _, _ => rfl
   | .named name operand :: rest, all, supported => by
     simp only [threadFields, evaluateFields] at supported ⊢
@@ -94,11 +94,11 @@ theorem threadFields_agrees {world : World Declaration Identity Source} {store :
   | .computed _ _ :: _, _, supported | .path _ _ :: _, _, supported | .shorthand _ :: _, _, supported
     | .spread _ :: _, _, supported => absurd rfl supported
 
-theorem branch_agrees {world : World Declaration Identity Source} {store : Store world}
-    (shape : Value Declaration Identity Source) {whenTrue whenFalse : Evaluated world (Value Declaration Identity Source)}
+theorem branch_agrees {world : World Declaration Identity Source} {frame : Frame world}
+    (shape : Value Declaration Identity Source) {whenTrue whenFalse : Valued world}
     {referenceTrue referenceFalse : Result Declaration Identity Source (Value Declaration Identity Source)}
-    (onTrue : referenceTrue ≠ .unsupported → whenTrue = .lift store referenceTrue)
-    (onFalse : referenceFalse ≠ .unsupported → whenFalse = .lift store referenceFalse)
+    (onTrue : referenceTrue ≠ .unsupported → whenTrue = fromEval frame referenceTrue)
+    (onFalse : referenceFalse ≠ .unsupported → whenFalse = fromEval frame referenceFalse)
     (supported : (match (generalizing := false) shape with
       | .scalar (.boolean true) => referenceTrue
       | .scalar (.boolean false) => referenceFalse
@@ -106,8 +106,8 @@ theorem branch_agrees {world : World Declaration Identity Source} {store : Store
     (match (generalizing := false) shape with
       | .scalar (.boolean true) => whenTrue
       | .scalar (.boolean false) => whenFalse
-      | _ => .stuck) =
-    .lift store (match (generalizing := false) shape with
+      | _ => .exec .stuck) =
+    fromEval frame (match (generalizing := false) shape with
       | .scalar (.boolean true) => referenceTrue
       | .scalar (.boolean false) => referenceFalse
       | _ => .stuck) := by
@@ -118,15 +118,15 @@ theorem branch_agrees {world : World Declaration Identity Source} {store : Store
     | _ => rfl
   | _ => rfl
 
-theorem threadBranches_agrees {world : World Declaration Identity Source} {store : Store world}
-    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+theorem threadBranches_agrees {world : World Declaration Identity Source} {frame : Frame world}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     {reference : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, Evaluable source → reference source ≠ .unsupported →
-      evaluate store source = .lift store (reference source)) :
+      evaluate frame source = fromEval frame (reference source)) :
     ∀ conditions otherwise, (∀ condition value, (condition, value) ∈ conditions → Evaluable condition) →
       (∀ condition value, (condition, value) ∈ conditions → Evaluable value) →
       Evaluable otherwise → branches reference conditions otherwise ≠ .unsupported →
-        threadBranches evaluate store conditions otherwise = .lift store (branches reference conditions otherwise)
+        threadBranches evaluate frame conditions otherwise = fromEval frame (branches reference conditions otherwise)
   | [], otherwise, _, _, last, supported => each otherwise last supported
   | (condition, value) :: rest, otherwise, tests, values, last, supported => by
     simp only [threadBranches, branches] at supported ⊢
@@ -156,11 +156,11 @@ theorem positional_mem : ∀ (arguments : List Xsh.Syntax.CallArgument) (values 
   | .named _ _ :: _, _, found, _, _ | .namedSpread _ :: _, _, found, _, _ | .splice _ :: _, _, found, _, _ => by
     simp [positional] at found
 
-theorem falseFirst_agrees {world : World Declaration Identity Source} {store : Store world}
-    (shape : Value Declaration Identity Source) {whenFalse whenTrue : Evaluated world (Value Declaration Identity Source)}
+theorem falseFirst_agrees {world : World Declaration Identity Source} {frame : Frame world}
+    (shape : Value Declaration Identity Source) {whenFalse whenTrue : Valued world}
     {referenceFalse referenceTrue : Result Declaration Identity Source (Value Declaration Identity Source)}
-    (onFalse : referenceFalse ≠ .unsupported → whenFalse = .lift store referenceFalse)
-    (onTrue : referenceTrue ≠ .unsupported → whenTrue = .lift store referenceTrue)
+    (onFalse : referenceFalse ≠ .unsupported → whenFalse = fromEval frame referenceFalse)
+    (onTrue : referenceTrue ≠ .unsupported → whenTrue = fromEval frame referenceTrue)
     (supported : (match (generalizing := false) shape with
       | .scalar (.boolean false) => referenceFalse
       | .scalar (.boolean true) => referenceTrue
@@ -168,8 +168,8 @@ theorem falseFirst_agrees {world : World Declaration Identity Source} {store : S
     (match (generalizing := false) shape with
       | .scalar (.boolean false) => whenFalse
       | .scalar (.boolean true) => whenTrue
-      | _ => .stuck) =
-    .lift store (match (generalizing := false) shape with
+      | _ => .exec .stuck) =
+    fromEval frame (match (generalizing := false) shape with
       | .scalar (.boolean false) => referenceFalse
       | .scalar (.boolean true) => referenceTrue
       | _ => .stuck) := by
@@ -180,12 +180,12 @@ theorem falseFirst_agrees {world : World Declaration Identity Source} {store : S
     | _ => rfl
   | _ => rfl
 
-theorem boolean_agrees {world : World Declaration Identity Source} {store : Store world}
+theorem boolean_agrees {world : World Declaration Identity Source} {frame : Frame world}
     (shape : Value Declaration Identity Source) :
     (match (generalizing := false) shape with
-      | .scalar (.boolean value) => Evaluated.value (boolean value : Value Declaration Identity Source) store
-      | _ => .stuck) =
-    .lift store (match (generalizing := false) shape with
+      | .scalar (.boolean value) => Outcome.value (boolean value : Value Declaration Identity Source) frame
+      | _ => .exec .stuck) =
+    fromEval frame (match (generalizing := false) shape with
       | .scalar (.boolean value) => Result.value (boolean value : Value Declaration Identity Source)
       | _ => .stuck) := by
   cases shape with
@@ -196,84 +196,85 @@ theorem boolean_agrees {world : World Declaration Identity Source} {store : Stor
   | _ => rfl
 
 theorem threadStep_agrees (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
-    (environment : Environment) (store : Store world)
-    {recurse : Environment → Locals Declaration Identity Source → Store world → Xsh.Syntax.Expr →
-      Evaluated world (Value Declaration Identity Source)}
-    {callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
-      Store world → Evaluated world (Value Declaration Identity Source)}
+    (frame : Frame world) {recurse : Frame world → Xsh.Syntax.Expr → Valued world}
+    {callFunction : Environment → Locals Declaration Identity Source → FunctionBody → Frame world → Valued world}
     {reference : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source)}
     (bodies : BodiesEvaluable context)
-    (inner : ∀ environment locals expression, Evaluable expression →
-      reference environment locals expression ≠ .unsupported →
-        recurse environment locals store expression = .lift store (reference environment locals expression))
-    (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) (evaluable : Evaluable expression)
-    (supported : step context environment store reference (fun _ _ _ _ => .unsupported) locals expression ≠ .unsupported) :
-    threadStep context environment recurse callBlock locals store expression =
-      .lift store (step context environment store reference (fun _ _ _ _ => .unsupported) locals expression) := by
+    (inner : ∀ expression, Evaluable expression →
+      reference frame.environment frame.locals expression ≠ .unsupported →
+        recurse frame expression = fromEval frame (reference frame.environment frame.locals expression))
+    (calls : ∀ defining locals result, Evaluable result → reference defining locals result ≠ .unsupported →
+      callFunction defining locals (.expression result .plain) frame = fromEval frame (reference defining locals result))
+    (expression : Xsh.Syntax.Expr) (evaluable : Evaluable expression)
+    (supported : step context frame.environment frame.store reference (fun _ _ _ _ => .unsupported) frame.locals
+      expression ≠ .unsupported) :
+    threadStep context recurse callFunction frame expression =
+      fromEval frame (step context frame.environment frame.store reference (fun _ _ _ _ => .unsupported) frame.locals
+        expression) := by
   cases evaluable with
   | literal value => rfl
   | ident name =>
     simp only [threadStep, step]
-    cases locals.lookup name with
+    cases frame.locals.lookup name with
     | some value => rfl
     | none =>
       dsimp only
-      cases environment.cellOf name with
+      cases frame.environment.cellOf name with
       | ok cell =>
         dsimp only
-        cases store cell <;> rfl
+        cases frame.store cell <;> rfl
       | error _ => rfl
   | list elements all =>
     simp only [threadStep, step] at supported ⊢
-    exact lift_bind (threadAll_agrees (inner environment locals) elements all) (fun _ _ _ => rfl) supported
+    exact lift_bind (threadAll_agrees inner elements all) (fun _ _ _ => rfl) supported
   | record fields all =>
     simp only [threadStep, step] at supported ⊢
-    exact lift_bind (threadFields_agrees context (inner environment locals) fields all) (fun _ _ _ => rfl) supported
+    exact lift_bind (threadFields_agrees context inner fields all) (fun _ _ _ => rfl) supported
   | field base name based =>
     simp only [threadStep, step] at supported ⊢
-    exact lift_bind (inner environment locals base based) (fun _ _ _ => rfl) supported
+    exact lift_bind (inner base based) (fun _ _ _ => rfl) supported
   | index base key based keyed =>
     simp only [threadStep, step] at supported ⊢
-    exact lift_bind (inner environment locals base based) (fun _ _ restSupported =>
-      lift_bind (inner environment locals key keyed) (fun _ _ _ => rfl) restSupported) supported
+    exact lift_bind (inner base based) (fun _ _ restSupported =>
+      lift_bind (inner key keyed) (fun _ _ _ => rfl) restSupported) supported
   | unary operator operand evaluated =>
     simp only [threadStep, step] at supported ⊢
-    exact lift_bind (inner environment locals operand evaluated) (fun _ _ _ => rfl) supported
+    exact lift_bind (inner operand evaluated) (fun _ _ _ => rfl) supported
   | binary operator left right notFallback lefty righty =>
     cases operator
     case resultFallback => exact absurd rfl notFallback
     case and =>
       simp only [threadStep, step] at supported ⊢
-      exact lift_bind (inner environment locals left lefty) (fun first _ firstSupported =>
+      exact lift_bind (inner left lefty) (fun first _ firstSupported =>
         falseFirst_agrees first.eraseNominal (fun _ => rfl)
-          (fun secondSupported => lift_bind (inner environment locals right righty)
+          (fun secondSupported => lift_bind (inner right righty)
             (fun second _ _ => boolean_agrees second.eraseNominal) secondSupported)
           firstSupported) supported
     case or =>
       simp only [threadStep, step] at supported ⊢
-      exact lift_bind (inner environment locals left lefty) (fun first _ firstSupported =>
+      exact lift_bind (inner left lefty) (fun first _ firstSupported =>
         branch_agrees first.eraseNominal (fun _ => rfl)
-          (fun secondSupported => lift_bind (inner environment locals right righty)
+          (fun secondSupported => lift_bind (inner right righty)
             (fun second _ _ => boolean_agrees second.eraseNominal) secondSupported)
           firstSupported) supported
     all_goals
       simp only [threadStep, step] at supported ⊢
-      exact lift_bind (inner environment locals left lefty) (fun _ _ restSupported =>
-        lift_bind (inner environment locals right righty) (fun _ _ _ => rfl) restSupported) supported
+      exact lift_bind (inner left lefty) (fun _ _ restSupported =>
+        lift_bind (inner right righty) (fun _ _ _ => rfl) restSupported) supported
   | ifExpr conditions otherwise tests values last =>
     simp only [threadStep, step] at supported ⊢
-    exact threadBranches_agrees (inner environment locals) conditions otherwise tests values last supported
+    exact threadBranches_agrees inner conditions otherwise tests values last supported
   | call name arguments all =>
     simp only [threadStep, step] at supported ⊢
-    rcases hl : locals.lookup name with _ | found
+    rcases hl : frame.locals.lookup name with _ | found
     · rcases hf : context.functions name with _ | ⟨defining, parameters, body⟩
       · rfl
       · rcases hp : positional arguments with _ | values
         · rfl
         · simp only [hl, hf, hp] at supported
           refine lift_bind
-            (threadAll_agrees (inner environment locals) values
+            (threadAll_agrees inner values
               (fun value inside => all value (positional_mem arguments values hp value inside)))
             (fun evaluated _ evaluatedSupported => ?_) supported
           by_cases same : parameters.length = evaluated.length
@@ -282,28 +283,28 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
             | expression result kind =>
               cases kind with
               | result => exact absurd rfl evaluatedSupported
-              | plain => exact inner defining _ result (bodies name defining parameters result hf) evaluatedSupported
+              | plain => exact calls defining _ result (bodies name defining parameters result hf) evaluatedSupported
             | block statements kind => exact absurd rfl evaluatedSupported
           · simp only [same, ↓reduceIte]
             rfl
     · rfl
 
-theorem lift_bind_eq {world : World Declaration Identity Source} {α β : Type} {store : Store world}
-    {result : Result Declaration Identity Source α} {next : α → Store world → Evaluated world β}
-    {next' : α → Result Declaration Identity Source β} (tail : ∀ value, next value store = .lift store (next' value)) :
-    (Evaluated.lift store result).bind next = .lift store (result.bind next') := by
+theorem lift_bind_eq {world : World Declaration Identity Source} {α β : Type} {frame : Frame world}
+    {result : Result Declaration Identity Source α} {next : α → Frame world → Outcome world β}
+    {next' : α → Result Declaration Identity Source β} (tail : ∀ value, next value frame = fromEval frame (next' value)) :
+    (fromEval frame result).bind next = fromEval frame (result.bind next') := by
   cases result <;> first | exact tail _ | rfl
 
-/-- With defaults that leave the store as it is, the machine's threaded
+/-- With defaults that leave the frame as it is, the machine's threaded
 binder is `bindArguments`, so `parameters_and_maps` describes it. -/
 theorem bindArgumentsIn_lift {world : World Declaration Identity Source}
     (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
-    ∀ (store : Store world) parameters arguments,
-      bindArgumentsIn (fun current default => .lift current (evaluateDefault default)) store parameters arguments =
-        .lift store (bindArguments evaluateDefault parameters arguments)
+    ∀ (frame : Frame world) parameters arguments,
+      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
+        fromEval frame (bindArguments evaluateDefault parameters arguments)
   | _, [], [] => rfl
   | _, [], _ :: _ => rfl
-  | store, .mk name annotation default rest :: more, arguments => by
+  | frame, .mk name annotation default rest :: more, arguments => by
     cases rest with
     | true =>
       cases more with
@@ -312,7 +313,7 @@ theorem bindArgumentsIn_lift {world : World Declaration Identity Source}
     | false =>
       cases arguments with
       | cons argument others =>
-        rw [bindArgumentsIn, bindArguments, bindArgumentsIn_lift evaluateDefault store more others]
+        rw [bindArgumentsIn, bindArguments, bindArgumentsIn_lift evaluateDefault frame more others]
         exact lift_bind_eq fun _ => rfl
       | nil =>
         cases default with
@@ -320,7 +321,7 @@ theorem bindArgumentsIn_lift {world : World Declaration Identity Source}
         | some default =>
           rw [bindArgumentsIn, bindArguments]
           exact lift_bind_eq fun _ => by
-            rw [bindArgumentsIn_lift evaluateDefault store more []]
+            rw [bindArgumentsIn_lift evaluateDefault frame more []]
             exact lift_bind_eq fun _ => rfl
 
 theorem localClosure_none (environment : Environment) (name : Xsh.Syntax.RawName) :
@@ -328,31 +329,57 @@ theorem localClosure_none (environment : Environment) (name : Xsh.Syntax.RawName
   unfold localClosure
   split <;> rfl
 
+theorem keep_self {world : World Declaration Identity Source} (store : Store world) : keep store store = store := by
+  funext cell
+  simp only [keep]
+  split <;> simp_all
+
+/-- A result in a frame with the caller's store, returned to the caller as a
+plain function's result, is that result in the caller. -/
+theorem returnValue_fromEval {world : World Declaration Identity Source} (caller inner : Frame world)
+    (sameStore : inner.store = caller.store) (result : Result Declaration Identity Source (Value Declaration Identity Source)) :
+    returnValue caller (fromEval inner result) = fromEval caller result := by
+  cases result with
+  | value value =>
+    show Outcome.value value { caller with store := keep caller.store inner.store } = _
+    rw [sameStore, keep_self]
+    rfl
+  | failure failure =>
+    show returnTo caller .plain (.failed failure inner) = _
+    cases failure <;> (simp only [returnTo]; rw [sameStore, keep_self]; rfl)
+  | _ => rfl
+
 variable [DecidableEq Declaration]
 
-/-- On a scope without local functions, wherever `CoreEval.evaluate` gives an
-evaluable expression a meaning, the machine's store-threading step gives the
-same result with the store unchanged. -/
+/-- On a frame without local functions, wherever `CoreEval.evaluate` gives an
+evaluable expression a meaning, the machine's frame-threading step gives the
+same result with the frame unchanged. -/
 theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : Machine world)
     (bodies : BodiesEvaluable machine.context) :
-    ∀ fuel scope store environment locals expression, scope.closures = [] → Evaluable expression →
-      evaluate machine.context environment store fuel locals expression ≠ .unsupported →
-        evalExpr machine fuel scope store environment locals expression =
-          .lift store (evaluate machine.context environment store fuel locals expression)
-  | 0, _, _, _, _, _, _, _, _ => rfl
-  | fuel + 1, scope, store, environment, locals, expression, closureFree, evaluable, supported => by
-    have agrees := threadStep_agrees machine.context environment store
-      (recurse := fun inner innerLocals current => evalExpr machine fuel scope current inner innerLocals)
-      (callBlock := fun defining parameters body kind current =>
-        callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ current defining parameters [] body kind)
-      (reference := fun inner innerLocals => evaluate machine.context inner store fuel innerLocals) bodies
-      (fun inner innerLocals source evaluated sourceSupported =>
-        evalExpr_agrees machine bodies fuel scope store inner innerLocals source closureFree evaluated sourceSupported)
-      locals expression evaluable supported
+    ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+      evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
+        evalExpr machine fuel frame expression =
+          fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)
+  | 0, _, _, _, _, _ => rfl
+  | fuel + 1, frame, expression, closureFree, evaluable, supported => by
+    have agrees := threadStep_agrees machine.context frame
+      (recurse := evalExpr machine fuel)
+      (callFunction := callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel))
+      (reference := fun environment locals => evaluate machine.context environment frame.store fuel locals) bodies
+      (fun source evaluated sourceSupported =>
+        evalExpr_agrees machine bodies fuel frame source closureFree evaluated sourceSupported)
+      (fun defining locals result evaluated resultSupported => by
+        simp only [callFunctionWith]
+        rw [evalExpr_agrees machine bodies fuel
+          { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] }
+          result closureFree evaluated resultSupported]
+        exact returnValue_fromEval frame
+          { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] } rfl _)
+      expression evaluable supported
     refine Eq.trans ?_ agrees
     cases evaluable with
     | call name arguments all =>
-      rcases hl : locals.lookup name with _ | found
+      rcases hl : frame.locals.lookup name with _ | found
       · rcases hf : machine.context.functions name with _ | entry
         · exfalso
           apply supported
@@ -367,12 +394,10 @@ end Bridge
 
 section Root
 
-variable [DecidableEq Declaration]
-
-omit [DecidableEq Declaration] in
-theorem evaluated_finished_agree {world : World Declaration Identity Source} {α : Type} {run : Nat → Evaluated world α}
-    (monotone : ∀ fuel extra, Evaluated.Refines (run fuel) (run (fuel + extra))) (first second : Nat)
-    (firstFinished : run first ≠ .outOfFuel) (secondFinished : run second ≠ .outOfFuel) : run first = run second := by
+theorem finished_valued {world : World Declaration Identity Source} {α : Type} {run : Nat → Outcome world α}
+    (monotone : ∀ fuel extra, Valued.Refines (run fuel) (run (fuel + extra))) (first second : Nat)
+    (firstFinished : run first ≠ .exec .outOfFuel) (secondFinished : run second ≠ .exec .outOfFuel) :
+    run first = run second := by
   rcases Nat.le_total first second with smaller | larger
   · obtain ⟨extra, rfl⟩ := Nat.exists_eq_add_of_le smaller
     rcases monotone first extra with out | same
@@ -383,14 +408,15 @@ theorem evaluated_finished_agree {world : World Declaration Identity Source} {α
     · exact absurd out secondFinished
     · exact same.symm
 
+variable [DecidableEq Declaration]
+
 theorem binary_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
-    (scope : Scope Declaration Identity Source) (store : Store world) (environment : Environment)
-    (locals : Locals Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr)
+    (frame : Frame world) (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr)
     (notAnd : operator ≠ .and) (notOr : operator ≠ .or) (notFallback : operator ≠ .resultFallback) :
-    evalExpr machine (fuel + 1) scope store environment locals (.binary operator left right) =
-      (evalExpr machine fuel scope store environment locals left).bind fun first after =>
-        (evalExpr machine fuel scope after environment locals right).bind fun second last =>
-          .lift last (binary machine.context operator first second) := by
+    evalExpr machine (fuel + 1) frame (.binary operator left right) =
+      (evalExpr machine fuel frame left).bind fun first after =>
+        (evalExpr machine fuel after right).bind fun second last =>
+          fromEval last (binary machine.context operator first second) := by
   cases operator <;> first
     | exact absurd rfl notAnd
     | exact absurd rfl notOr
@@ -398,113 +424,116 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
     | simp only [evalExpr, threadStep]
 
 theorem closure_call_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
-    (scope : Scope Declaration Identity Source) (store : Store world) (environment : Environment)
-    (locals : Locals Declaration Identity Source) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument)
+    (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument)
     (cell : CellId) (defining : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
     (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody) (values : List Xsh.Syntax.Expr)
-    (unshadowed : locals.lookup name = none)
-    (found : localClosure scope.closures environment name =
+    (unshadowed : frame.locals.lookup name = none)
+    (found : localClosure frame.closures frame.environment name =
       some (.mk cell defining captured writable parameters body))
     (supplied : positional arguments = some values) :
-    evalExpr machine (fuel + 1) scope store environment locals (.call (.ident name) arguments) =
-      (threadAll (fun current => evalExpr machine fuel scope current environment locals) store values).bind
-        fun evaluated after =>
-          (bindArgumentsIn
-              (fun current default => evalExpr machine fuel ⟨scope.activation + machine.activationStep,
-                (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ current defining []
-                default)
-              after parameters evaluated).bind fun bound last =>
-            callBlock machine fuel ⟨scope.activation + machine.activationStep,
-              (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ last defining bound
-              writable (bodyStatements body) (bodyKind body) := by
+    evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
+      (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
+        (bindArgumentsIn
+            (fun current default => returnValue current (evalExpr machine fuel
+              { Frame.ofScope defining current.store [] (some current.store)
+                  ⟨current.activation + machine.activationStep,
+                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                writable } default))
+            after parameters evaluated).bind fun bound last =>
+          callBlock machine fuel last ⟨last.activation + machine.activationStep,
+            (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+            writable (bodyStatements body) (bodyKind body) := by
   simp only [evalExpr, unshadowed, found, supplied]
 
 /-- Store threading through the statement machine's expressions (SPEC 9.2: "A
 writable capture must refer to mutable storage with exactly that type";
-SPEC 1: "Evaluation order is source order"). On a scope without local
+SPEC 1: "Evaluation order is source order"). On a frame without local
 functions, wherever `CoreEval.evaluate` gives an evaluable expression a
-meaning, the machine's step gives the same result with the store unchanged,
+meaning, the machine's step gives the same result with the frame unchanged,
 so the evaluator's operator, failure and typing results hold for the
 machine's values there. A finished expression result is the same at every
-fuel, and every result keeps the cells it started with at their types. A
-binary operator's operands, a list's elements and a call's arguments evaluate
-left to right, each in the store the one before it left; a local function's
-call binds its arguments, evaluating omitted defaults in the store the
-arguments left (with defaults that leave the store as it is, this is
-`bindArguments`), and runs its body through `callBlock`, which returns through
-`returnTo`, so the caller's cells come back as the callee left them from a
-call nested anywhere in an expression; and a call in statement position is
-the same evaluation. -/
+fuel, and every result keeps the cells it started with at their types and
+leaves the environment and locals as it found them. A binary operator's
+operands, a list's elements and a call's arguments evaluate left to right,
+each in the frame the one before it left; a value block nested in an
+expression runs as a block in the current frame; a local function's call
+binds its arguments, evaluating omitted defaults in the frame the arguments
+left (with defaults that leave the frame as it is, this is `bindArguments`),
+and runs its body through `callBlock`, which returns through `returnTo`, so
+the caller's cells come back as the callee left them from a call nested
+anywhere in an expression; and a call in statement position is the same
+evaluation. -/
 theorem expression_store_threading {world : World Declaration Identity Source} (machine : Machine world) :
     (BodiesEvaluable machine.context →
-      ∀ fuel scope store environment locals expression, scope.closures = [] → Evaluable expression →
-        evaluate machine.context environment store fuel locals expression ≠ .unsupported →
-          evalExpr machine fuel scope store environment locals expression =
-            .lift store (evaluate machine.context environment store fuel locals expression)) ∧
-    (∀ scope store environment locals expression first second,
-      evalExpr machine first scope store environment locals expression ≠ .outOfFuel →
-        evalExpr machine second scope store environment locals expression ≠ .outOfFuel →
-          evalExpr machine first scope store environment locals expression =
-            evalExpr machine second scope store environment locals expression) ∧
-    (∀ fuel scope store environment locals expression,
-      EKeeps store (evalExpr machine fuel scope store environment locals expression)) ∧
-    (∀ fuel scope store environment locals operator left right, operator ≠ .and → operator ≠ .or →
+      ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+        evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
+          evalExpr machine fuel frame expression =
+            fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)) ∧
+    (∀ (frame : Frame world) expression first second,
+      evalExpr machine first frame expression ≠ .exec .outOfFuel →
+        evalExpr machine second frame expression ≠ .exec .outOfFuel →
+          evalExpr machine first frame expression = evalExpr machine second frame expression) ∧
+    (∀ fuel (frame : Frame world) expression, VKeeps frame.store (evalExpr machine fuel frame expression)) ∧
+    (∀ fuel (frame : Frame world) expression, VRestores frame (evalExpr machine fuel frame expression)) ∧
+    (∀ fuel (frame : Frame world) operator left right, operator ≠ .and → operator ≠ .or →
       operator ≠ .resultFallback →
-        evalExpr machine (fuel + 1) scope store environment locals (.binary operator left right) =
-          (evalExpr machine fuel scope store environment locals left).bind fun first after =>
-            (evalExpr machine fuel scope after environment locals right).bind fun second last =>
-              .lift last (binary machine.context operator first second)) ∧
-    (∀ fuel scope store environment locals elements,
-      evalExpr machine (fuel + 1) scope store environment locals (.list elements) =
-        (threadAll (fun current => evalExpr machine fuel scope current environment locals) store elements).bind
-          fun values after => .value (.list values) after) ∧
-    (∀ (evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)) store first rest,
-      threadAll evaluate store (first :: rest) =
-        (evaluate store first).bind fun value after =>
+        evalExpr machine (fuel + 1) frame (.binary operator left right) =
+          (evalExpr machine fuel frame left).bind fun first after =>
+            (evalExpr machine fuel after right).bind fun second last =>
+              fromEval last (binary machine.context operator first second)) ∧
+    (∀ fuel (frame : Frame world) elements,
+      evalExpr machine (fuel + 1) frame (.list elements) =
+        (threadAll (evalExpr machine fuel) frame elements).bind fun values after => .value (.list values) after) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) frame first rest,
+      threadAll evaluate frame (first :: rest) =
+        (evaluate frame first).bind fun value after =>
           (threadAll evaluate after rest).bind fun values last => .value (value :: values) last) ∧
-    (∀ fuel scope store environment locals name arguments cell defining captured writable parameters body values,
-      locals.lookup name = none →
-        localClosure scope.closures environment name = some (.mk cell defining captured writable parameters body) →
+    (∀ fuel (frame : Frame world) body, evalExpr machine (fuel + 1) frame (.valueBlock body) =
+      runValue machine fuel frame (.valueBlock body)) ∧
+    (∀ fuel (frame : Frame world) name arguments cell defining captured writable parameters body values,
+      frame.locals.lookup name = none →
+        localClosure frame.closures frame.environment name = some (.mk cell defining captured writable parameters body) →
           positional arguments = some values →
-            evalExpr machine (fuel + 1) scope store environment locals (.call (.ident name) arguments) =
-              (threadAll (fun current => evalExpr machine fuel scope current environment locals) store values).bind
-                fun evaluated after =>
-                  (bindArgumentsIn
-                      (fun current default => evalExpr machine fuel ⟨scope.activation + machine.activationStep,
-                        (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ current defining []
-                        default)
-                      after parameters evaluated).bind fun bound last =>
-                    callBlock machine fuel ⟨scope.activation + machine.activationStep,
-                      (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ last defining bound
-                      writable (bodyStatements body) (bodyKind body)) ∧
+            evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
+              (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
+                (bindArgumentsIn
+                    (fun current default => returnValue current (evalExpr machine fuel
+                      { Frame.ofScope defining current.store [] (some current.store)
+                          ⟨current.activation + machine.activationStep,
+                            (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                        writable } default))
+                    after parameters evaluated).bind fun bound last =>
+                  callBlock machine fuel last ⟨last.activation + machine.activationStep,
+                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+                    writable (bodyStatements body) (bodyKind body)) ∧
     (∀ (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
-        (store : Store world) parameters arguments,
-      bindArgumentsIn (fun current default => .lift current (evaluateDefault default)) store parameters arguments =
-        .lift store (bindArguments evaluateDefault parameters arguments)) ∧
-    (∀ fuel (scope : Scope Declaration Identity Source) store defining parameters writable body kind,
-      callBlock machine (fuel + 1) scope store defining parameters writable body kind =
-        fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
-          (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body))) ∧
+        (frame : Frame world) parameters arguments,
+      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
+        fromEval frame (bindArguments evaluateDefault parameters arguments)) ∧
+    (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
+      callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
+        returnTo caller kind
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+            body)) ∧
     (∀ (caller callee : Frame world) kind value,
-      ∃ result, fromValued (returnTo caller kind (.returned value callee)) =
-        .value result (keep caller.store callee.store)) ∧
+      ∃ result, returnTo caller kind (.returned value callee) =
+        .value result { caller with store := keep caller.store callee.store }) ∧
     (∀ (before after : Store world) cell, before cell ≠ none → keep before after cell = after cell) ∧
     (∀ fuel (frame : Frame world) name arguments,
       runValue machine (fuel + 1) frame (.call (.ident name) arguments) =
-        stored frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals
-          (.call (.ident name) arguments))) := by
+        evalExpr machine fuel frame (.call (.ident name) arguments)) := by
   refine ⟨fun bodies => evalExpr_agrees machine bodies,
-    fun scope store environment locals expression =>
-      evaluated_finished_agree fun fuel extra => (refining machine fuel extra).expr scope store environment locals expression,
+    fun frame expression => finished_valued fun fuel extra => (refining machine fuel extra).expr frame expression,
     fun fuel => (persisting machine fuel).expr,
-    fun fuel scope store environment locals operator left right notAnd notOr notFallback =>
-      binary_threads machine fuel scope store environment locals operator left right notAnd notOr notFallback,
-    fun _ _ _ _ _ _ => by simp only [evalExpr, threadStep],
+    fun fuel => (restoring machine fuel).expr,
+    fun fuel frame operator left right notAnd notOr notFallback =>
+      binary_threads machine fuel frame operator left right notAnd notOr notFallback,
+    fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
-    fun fuel scope store environment locals name arguments cell defining captured writable parameters body values
-        unshadowed found supplied =>
-      closure_call_threads machine fuel scope store environment locals name arguments cell defining captured writable
-        parameters body values unshadowed found supplied,
+    fun _ _ _ => by simp only [evalExpr],
+    fun fuel frame name arguments cell defining captured writable parameters body values unshadowed found supplied =>
+      closure_call_threads machine fuel frame name arguments cell defining captured writable parameters body values
+        unshadowed found supplied,
     bindArgumentsIn_lift,
     fun _ _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> exact ⟨_, rfl⟩,
@@ -590,35 +619,32 @@ def intsOf : Value Unit Unit Unit → Option (List Int)
   | _ => none
 
 /-- An expression's integers and the `count` it leaves, read in the counter frame. -/
-def observe (evaluate : Frame witnessWorld → Evaluated witnessWorld (Value Unit Unit Unit)) :
-    Option (List Int × Int) :=
+def observe (evaluate : Frame witnessWorld → Valued witnessWorld) : Option (List Int × Int) :=
   counterFrame.bind fun frame =>
     match evaluate frame with
-    | .value value store => (intsOf value).bind fun ints => (countIn frame store).map fun count => (ints, count)
+    | .value value after => (intsOf value).bind fun ints => (countIn frame after.store).map fun count => (ints, count)
     | _ => none
 
-def threaded (frame : Frame witnessWorld) : Xsh.Syntax.Expr → Evaluated witnessWorld (Value Unit Unit Unit) :=
-  evalExpr fullMachine 60 frame.scope frame.store frame.environment frame.locals
+def threaded (frame : Frame witnessWorld) : Xsh.Syntax.Expr → Valued witnessWorld :=
+  evalExpr fullMachine 60 frame
 
-/-- A list step that evaluates every element in the store before the list and
-keeps that store, so nested writes are dropped. -/
-def droppingList (frame : Frame witnessWorld) (elements : List Xsh.Syntax.Expr) :
-    Evaluated witnessWorld (Value Unit Unit Unit) :=
-  (threadAll (fun _ element => evalExpr fullMachine 60 frame.scope frame.store frame.environment frame.locals element)
-    frame.store elements).bind fun values _ => .value (.list values) frame.store
+/-- A list step that evaluates every element in the frame before the list and
+keeps that frame, so nested writes are dropped. -/
+def droppingList (frame : Frame witnessWorld) (elements : List Xsh.Syntax.Expr) : Valued witnessWorld :=
+  (threadAll (fun _ element => evalExpr fullMachine 60 frame element) frame elements).bind fun values _ =>
+    .value (.list values) frame
 
-/-- A list step that threads the store through its elements right to left. -/
-def rightToLeftList (frame : Frame witnessWorld) (elements : List Xsh.Syntax.Expr) :
-    Evaluated witnessWorld (Value Unit Unit Unit) :=
-  (threadAll (fun current element => evalExpr fullMachine 60 frame.scope current frame.environment frame.locals element)
-    frame.store elements.reverse).bind fun values after => .value (.list values.reverse) after
+/-- A list step that threads the frame through its elements right to left. -/
+def rightToLeftList (frame : Frame witnessWorld) (elements : List Xsh.Syntax.Expr) : Valued witnessWorld :=
+  (threadAll (evalExpr fullMachine 60) frame elements.reverse).bind fun values after =>
+    .value (.list values.reverse) after
 
 /-- A binary step that evaluates its right operand first. -/
 def rightFirstBinary (frame : Frame witnessWorld) (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr) :
-    Evaluated witnessWorld (Value Unit Unit Unit) :=
-  (evalExpr fullMachine 60 frame.scope frame.store frame.environment frame.locals right).bind fun second after =>
-    (evalExpr fullMachine 60 frame.scope after frame.environment frame.locals left).bind fun first last =>
-      .lift last (binary fullMachine.context operator first second)
+    Valued witnessWorld :=
+  (evalExpr fullMachine 60 frame right).bind fun second after =>
+    (evalExpr fullMachine 60 after left).bind fun first last =>
+      fromEval last (binary fullMachine.context operator first second)
 
 /-- In the same frame, the machine's step gives `[1, 2]` with `count = 2` and
 `9` with `count = 2`. -/
@@ -639,6 +665,33 @@ theorem right_to_left_rejected :
         (call tallyName [])) = some ([15], 2) := by
   decide +kernel
 
+/-- `[{ count = 2; 1 }]`, a value block nested in a list. -/
+def nestedBlock : Xsh.Syntax.Expr := .list [.valueBlock [set countName "2", .expression (int "1")]]
+
+/-- `var count = 0; let r = [{ count = 2; 1 }]` gives `[1]` and leaves
+`count = 2`: the block runs in the current frame and writes the cell that
+existed before it. -/
+theorem nested_block_writes :
+    listInts rName (runFull [varOf countName "0", letR nestedBlock]) = some [1] ∧
+      readInt countName (runFull [varOf countName "0", letR nestedBlock]) = some 2 ∧
+      observe (fun frame => threaded frame nestedBlock) = some ([1], 2) := by
+  decide +kernel
+
+/-- Running the nested block as a call, in a frame whose caller store holds
+every cell, loses the write: the assignment is refused. -/
+def blockAsCall (frame : Frame witnessWorld) : Valued witnessWorld :=
+  runValue fullMachine 60 (Frame.ofScope frame.environment frame.store frame.locals (some frame.store) frame.scope)
+    (.valueBlock [set countName "2", .expression (int "1")])
+
+/-- Running the block and keeping the frame before it also loses the write. -/
+def blockDroppingStore (frame : Frame witnessWorld) : Valued witnessWorld :=
+  (runValue fullMachine 60 frame (.valueBlock [set countName "2", .expression (int "1")])).bind fun value _ =>
+    .value (.list [value]) frame
+
+theorem block_write_loss_rejected :
+    observe blockAsCall = none ∧ observe blockDroppingStore = some ([1], 0) := by
+  decide +kernel
+
 def bridged : Xsh.Syntax.Expr :=
   .binary .add (.index (items ["7", "8"]) (.unary .neg (int "0")) false) (.binary .mul (int "2") (int "2"))
 
@@ -652,12 +705,12 @@ def evaluatedInts : Result Unit Unit Unit (Value Unit Unit Unit) → Option (Lis
 
 /-- The bridge's premises hold for `[7, 8][-0] + 2 * 2` in the witness
 machine's empty frame, where the evaluator gives `11`; by
-`expression_store_threading` the machine gives the same with the store
+`expression_store_threading` the machine gives the same with the frame
 unchanged. -/
 theorem bridge_instance :
-    Evaluable bridged ∧ start.scope.closures = [] ∧
-      supportedBy (evaluate machine.context start.environment start.store 10 [] bridged) = true ∧
-      evaluatedInts (evaluate machine.context start.environment start.store 10 [] bridged) = some [11] := by
+    Evaluable bridged ∧ start.closures = [] ∧
+      supportedBy (evaluate machine.context start.environment start.store 10 start.locals bridged) = true ∧
+      evaluatedInts (evaluate machine.context start.environment start.store 10 start.locals bridged) = some [11] := by
   refine ⟨.binary _ _ _ (by decide)
       (.index _ _ (.list _ fun element inside => ?_) (.unary _ _ (.literal _)))
       (.binary _ _ _ (by decide) (.literal _) (.literal _)), rfl, by decide +kernel, by decide +kernel⟩

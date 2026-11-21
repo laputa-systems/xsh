@@ -419,13 +419,13 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: an assignment, inside a value block nested in an
-expression, to a cell that exists before the block (P); local functions as
-first-class `Proc`/`Pure` values with `.call` (P).
+Writes and values: local functions as first-class `Proc`/`Pure` values with
+`.call` (P).
 
 Binders: declared types still come from the resolution oracle (P), and the
-resolution pass is tied to the machine through the operations
-`resolution_and_captures` names, not for whole machine runs (P).
+resolution pass is tied to the machine for statements and statement lists
+(`statement_resolution`), not inside the nested scopes of pattern captures,
+comprehension targets and function bodies (P).
 
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
@@ -446,37 +446,55 @@ the later projection of a key wins and the key is projected before the value.
 
 The `expression_store_threading` fragment root, in
 [`Proofs/Core/Threading.lean`](Xsh/Proofs/Core/Threading.lean), gives the
-statement machine its own store-threading expression step. `evalExpr` returns
-an `Evaluated` result, a value or a failure with the store it leaves, so a
-failure keeps the writes made before it. `threadStep` is `CoreEval.step` with
-the store threaded and the same `binary`, `unary`, `indexAt` and `fieldOf`:
-operands, list elements, record fields, branch tests, call arguments,
-assignment selectors and omitted defaults evaluate left to right, each in the
-store the one before it left (SPEC 1: "Evaluation order is source order").
-Every call that runs a body goes through `callBlock`, which returns through
-`returnTo`, so a captured mutable cell written by a call nested anywhere in an
-expression reaches the caller (SPEC 9.2: "A writable capture must refer to
-mutable storage with exactly that type"), and a call in statement position is
-the same evaluation. On a scope without local functions, wherever
-`CoreEval.evaluate` gives an `Evaluable` expression (its forms, without `??`)
-a meaning and every expression-bodied plain function's body is evaluable, the
-machine gives the evaluator's result with the store unchanged, so
-`covered_expression_evaluation`, `preservation` and `evaluated_store_writes`
-describe the machine's results there; with defaults that leave the store as
-it is, the threaded binder is `bindArguments`, which `parameters_and_maps`
-describes. Finished results agree at every fuel, and every result keeps the
-cells it started with at their types. The witnesses give `[counter(),
-counter()]` as `[1, 2]` with `count = 2`, `counter() * 7 + counter()` as `9`
-with `count = 2`, `[defaulted(), count]` as `[1, 1]` through a default that
-calls the counter, and the bridge's premises on `[7, 8][-0] + 2 * 2`. Three
-mutants are rejected: a list step that drops nested writes gives `[1, 1]` and
-leaves `count = 0`, right-to-left elements give `[2, 1]`, and a right-first
-`+` gives `15`. Threading restates `error_handling`'s `?` and call equations
-and its return-kind cases (now `returnTo`'s, with the kept store),
-`local_bindings`' `.item` equation and `deferred_cleanup`'s `call_activation`
-conjunct; the bridge excludes local-function calls, `Ok` and `Err`
+statement machine its own frame-threading expression step. `evalExpr` takes
+the current frame and returns an `Outcome`: a value with the frame it leaves,
+or the outcome that leaves instead, so a failure keeps the writes made before
+it. `threadStep` is `CoreEval.step` with the frame threaded and the same
+`binary`, `unary`, `indexAt` and `fieldOf`: operands, list elements, record
+fields, branch tests, call arguments, assignment selectors and omitted
+defaults evaluate left to right, each in the frame the one before it left
+(SPEC 1: "Evaluation order is source order"). A value block nested in an
+expression runs as a block in the current frame, so `[{ x = 2; 1 }]` writes a
+cell that existed before it. Every call that runs a body goes through
+`callBlock`, which returns through `returnTo`, so a captured mutable cell
+written by a call nested anywhere in an expression reaches the caller (SPEC
+9.2: "A writable capture must refer to mutable storage with exactly that
+type"), and a call in statement position is the same evaluation. On a frame
+without local functions, wherever `CoreEval.evaluate` gives an `Evaluable`
+expression (its forms, without `??`) a meaning and every expression-bodied
+plain function's body is evaluable, the machine gives the evaluator's result
+with the frame unchanged, so `covered_expression_evaluation`, `preservation`
+and `evaluated_store_writes` describe the machine's results there; with
+defaults that leave the frame as it is, the threaded binder is
+`bindArguments`, which `parameters_and_maps` describes. Finished results
+agree at every fuel, and every result keeps the cells it started with at
+their types and leaves the environment and locals as it found them. The
+witnesses give `[counter(), counter()]` as `[1, 2]` with `count = 2`,
+`counter() * 7 + counter()` as `9` with `count = 2`, `[defaulted(), count]`
+as `[1, 1]` through a default that calls the counter, `[{ count = 2; 1 }]` as
+`[1]` with `count = 2`, and the bridge's premises on `[7, 8][-0] + 2 * 2`.
+Five mutants are rejected: a list step that drops nested writes gives `[1, 1]`
+and leaves `count = 0`, right-to-left elements give `[2, 1]`, a right-first
+`+` gives `15`, and a nested block run as a call or with the frame before it
+loses the write. The bridge excludes local-function calls, `Ok` and `Err`
 constructors, `??`, value blocks and every other form the evaluator leaves
 unsupported.
+
+The `statement_resolution` fragment root, in
+[`Proofs/Core/Resolution.lean`](Xsh/Proofs/Core/Resolution.lean), adds scope
+preservation to `Restoring`: every expression and value-block result leaves
+with a value or another exit, never a bare normal completion, in a frame with
+the environment and locals it started with. From it and the existing
+`Represents` lemmas, under the canonical resolution, binding any target
+declares its names in the innermost static scope, so destructuring targets
+are tied to the pass; a statement that completes normally, a `guard let` of
+either form included, leaves a lexical environment representing the pass's
+scopes after it; and so does a statement list. The pass's `staticDeclare` now
+declares binding and guard targets' names and what sugar's expansion
+declares. The witness runs `let {key: a, value: b} = pair; guard let x = ok`
+under the canonical resolution, where `a`, `b` and `x` hold `1`, `2` and `7`
+and resolve to the pass's binders; the earlier pass, which declared only
+single-name lets, is rejected.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the
