@@ -405,3 +405,16 @@ test test_errdefer_formats_as_written { |ctx|
 }
 """
 }
+
+test test_try_does_not_capture_runtime_failures { |ctx|
+  for item in [
+    {body: "var items = [1]\nitems[3] = 2", kind: "index-out-of-range"},
+    {body: "var n = 4\nn /= 0", kind: "division-by-zero"},
+    {body: "var n = 9223372036854775807\nn += 1", kind: "integer-overflow"},
+  ] {
+    let output = test.run_script(ctx, "let caught = try {\n" + item.body + "\n}\nprint \"never\"\n")?
+    assert output.status != 0, item.kind
+    assert output.stdout == "", item.kind
+    assert item.kind in output.stderr, f"{item.kind}: {output.stderr}"
+  }
+}

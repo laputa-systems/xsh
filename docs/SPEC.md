@@ -3944,7 +3944,9 @@ statement-position `Result[Unit]` failures,
 failed assertions, and failed plain `run` statements inside the block become
 `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
-type failures, `exit`, and cancellation are not captured. The tail value is
+type failures, other runtime failures such as `index-out-of-range`,
+`division-by-zero` and `integer-overflow`, `exit`, and cancellation are not
+captured. The tail value is
 computed before the block's defers run; a cleanup failure becomes the `Err`
 when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
