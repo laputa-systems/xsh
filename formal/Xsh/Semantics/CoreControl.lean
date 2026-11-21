@@ -1003,6 +1003,25 @@ def callResult (kind : CallableKind) (value : Value Declaration Identity Source)
   | .procedure => wrapOk value
   | _ => value
 
+/-- The enum variant a name is, and the enum that declares it (SPEC 4.8). -/
+def variantOf (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+    (name : Xsh.Syntax.RawName) : Option (Xsh.Syntax.RawName × Xsh.Syntax.TagVariant) :=
+  declarations.findSome? fun
+    | .typeDef enum _ (.tagUnion variants) _ _ | .export (.typeDef enum _ (.tagUnion variants) _ _) =>
+      (variants.find? fun | .mk variant _ _ => spelling variant = spelling name).map (enum, ·)
+    | _ => none
+
+/-- The payload-free variants a program's enums declare, each with its value
+(SPEC 4.8: "payload-free variants are bare names"). -/
+def bareVariants {world : World Declaration Identity Source} (machine : Machine world) :
+    List (Xsh.Syntax.RawName × Value Declaration Identity Source) :=
+  machine.declarations.flatMap fun
+    | .typeDef enum _ (.tagUnion variants) _ _ | .export (.typeDef enum _ (.tagUnion variants) _ _) =>
+      variants.filterMap fun
+        | .mk variant [] _ => some (variant, .tagged (machine.identity enum) (machine.context.spelling variant) [])
+        | .mk _ (_ :: _) _ => none
+    | _ => []
+
 /-- The top-level record schema a name declares (SPEC 4.7): its fields and
 whether it is nominal. -/
 def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
@@ -1160,7 +1179,9 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
 placed on its parameters, a misfit raising the runtime argument error (SPEC
 9.1: "their arguments are checked at runtime"), omitted defaults evaluated in
 the declaration scope, and its body run through `callBlock` in a fresh
-activation with its captured cells writable. -/
+activation with its captured cells writable. The body sees the closures its
+caller sees: every function is declared at the top level, so every body sees
+every top-level function. -/
 def invokeWith {world : World Declaration Identity Source} (machine : Machine world)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
     (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
@@ -1178,11 +1199,13 @@ def invokeWith {world : World Declaration Identity Source} (machine : Machine wo
             (fun current default => returnValue current (evaluate
               { Frame.ofScope defining current.store [] (some current.store)
                   ⟨current.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
+                    (cell, .mk cell callable defining captured writable parameters body) :: captured ++ current.closures,
+                    none⟩ with
                 writable } default))
             after slots).bind fun bound last =>
           callBlock last ⟨last.activation + machine.activationStep,
-            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
+            (cell, .mk cell callable defining captured writable parameters body) :: captured ++ last.closures, none⟩
+            defining bound
             writable (bodyStatements body) (bodyKind body)
 
 mutual
@@ -1272,8 +1295,9 @@ mutual
           | none, none, "Err", [.positional payload] =>
             (evalExpr machine fuel frame payload).bind fun value next => .value (.err value) next
           | _, _, _, _ =>
-            match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name with
-            | none, none, some (fields, nominal) =>
+            match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name,
+                variantOf machine.context.spelling machine.declarations name with
+            | none, none, some (fields, nominal), _ =>
               (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
                 match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1) supplied with
                 | none => .exec .stuck
@@ -1281,7 +1305,15 @@ mutual
                   (fillFields machine.context.spelling (evalExpr machine fuel) after (fields.map schemaField) placed).bind
                     fun entries last =>
                       .value (if nominal then .nominal (machine.identity name) (.record entries) else .record entries) last
-            | _, _, _ =>
+            | none, none, none, some (enum, .mk variant fields _) =>
+              (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+                match supplied.mapM Supplied.positionalValue with
+                | some values =>
+                  if values.length = fields.length then
+                    .value (.tagged (machine.identity enum) (machine.context.spelling variant) values) after
+                  else .exec .stuck
+                | none => .exec .stuck
+            | _, _, _, _ =>
               threadStep machine.context (evalExpr machine fuel)
                 (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
@@ -1756,14 +1788,19 @@ def hoistClosures {world : World Declaration Identity Source} (machine : Machine
     | _, _ => hoistClosures machine activation environment mutable closures rest
   | environment, mutable, closures, _ :: rest => hoistClosures machine activation environment mutable closures rest
 
-/-- A script's frame with its top-level functions hoisted (SPEC 3.1:
+/-- A script's frame with its top-level declarations hoisted (SPEC 3.1:
 "Declarations are visible throughout their script or module, including the
-statements before them"). -/
+statements before them"): its functions' names, its enums' payload-free
+variants as immutable bindings, then its functions' closures. -/
 def hoist {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Option (Frame world) :=
   (hoistNames machine frame.activation frame.environment (hoistedNames body)).bind fun environment =>
-    (hoistClosures machine frame.activation environment [] frame.closures body).map fun closures =>
-      { frame with environment, locals := hide (hoistedNames body) frame.locals, closures }
+    match bindCaptures machine { frame with environment, locals := hide (hoistedNames body) frame.locals }
+        (bareVariants machine) with
+    | .normal bound =>
+      (hoistClosures machine frame.activation bound.environment [] frame.closures body).map fun closures =>
+        { bound with closures }
+    | _ => none
 
 /-- A script: its top-level functions hoisted, then its statements in order. -/
 def runScript {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)

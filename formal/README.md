@@ -418,8 +418,7 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: mutual calls between hoisted top-level functions, and
-stream and enum declarations used above their line (P); `.Variant` constructors, which need a leading-dot
+Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
 syntax form and the checker's expected type (P).
 
 Binders: declared types still come from the resolution oracle (P); the
@@ -567,8 +566,12 @@ The `declaration_hoisting` fragment root, in
 [`Proofs/Core/Hoisting.lean`](Xsh/Proofs/Core/Hoisting.lean), models SPEC 3.1
 hoisting ("Declarations are visible throughout their script or module,
 including the statements before them"). `runScript` binds a script's
-top-level functions before any statement runs, each closure over the
-environment at its declaration with the earlier top-level `var`s writable, so
+top-level functions and its enums' payload-free variants before any statement
+runs, each closure over the environment at its declaration with the earlier
+top-level `var`s writable, and every call's body sees every top-level
+function, so `isEven` and `isOdd` call each other (a callee that sees only
+the functions hoisted before it is rejected); payload variants are called
+like functions (SPEC 4.8). So
 a binding declared after a callable stays unresolved in its body, and reading
 a captured top-level binding whose statement has not run is a runtime failure
 (`unknown captured name`) that `try` does not capture. The witnesses follow
