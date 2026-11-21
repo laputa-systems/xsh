@@ -1235,6 +1235,20 @@ theorem check_iff_declarative_domain {bytes : List UInt8} {moduleInputs : List (
       DeclarativeDomain bytes moduleInputs functions scopes :=
   ⟨check_in_declarative_domain, declarative_domain_complete⟩
 
+theorem domain_has_valid_utf8 {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    (domain : Domain bytes moduleInputs) : bytes.toByteArray.IsValidUTF8 := by
+  obtain ⟨functions, scopes, admitted⟩ := domain
+  exact check_has_valid_utf8 (declarative_domain_complete admitted)
+
+theorem invalid_utf8_outside_domain {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    (invalid : ¬ bytes.toByteArray.IsValidUTF8) : ¬ Domain bytes moduleInputs := by
+  intro domain
+  exact invalid (domain_has_valid_utf8 domain)
+
+theorem invalid_utf8_witness_outside_domain : ¬ Domain [255] [] := by
+  apply invalid_utf8_outside_domain
+  decide +kernel
+
 /-- The source admission boundary composes with the existing universal lowerer theorem. The
 artifact's entire function meaning is the meaning of the tree derived from these exact bytes. -/
 theorem admitted_lowering_means_source {bytes : List UInt8} {moduleInputs : List (List UInt8)}
