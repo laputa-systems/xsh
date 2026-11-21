@@ -1235,6 +1235,41 @@ theorem check_iff_declarative_domain {bytes : List UInt8} {moduleInputs : List (
       DeclarativeDomain bytes moduleInputs functions scopes :=
   ⟨check_in_declarative_domain, declarative_domain_complete⟩
 
+def reconstruct (bytes : List UInt8) (moduleInputs : List (List UInt8)) :
+    Option (List SourceFunction × List (List (String × Nat))) := do
+  let functions ← parseSourceCodes (bytes.map UInt8.toNat)
+  let scopes ← functions.mapM SourceFunction.scope?
+  if check bytes moduleInputs functions scopes then some (functions, scopes) else none
+
+theorem reconstruct_complete {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))}
+    (domain : DeclarativeDomain bytes moduleInputs functions scopes) :
+    reconstruct bytes moduleInputs = some (functions, scopes) := by
+  have accepted := declarative_domain_complete domain
+  have acceptedCheck := accepted
+  unfold check at accepted
+  simp only [Bool.and_eq_true] at accepted
+  cases parsed : parseSourceCodes (bytes.map UInt8.toNat) with
+  | none => simp [parsed] at accepted
+  | some tree =>
+    simp only [parsed, Bool.and_eq_true, beq_iff_eq] at accepted
+    have same : tree = functions := accepted.2.1
+    subst tree
+    have projected : functions.mapM SourceFunction.scope? = some scopes := accepted.2.2
+    simp [reconstruct, parsed, projected, acceptedCheck]
+
+theorem reconstruct_sound {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))}
+    (reconstructed : reconstruct bytes moduleInputs = some (functions, scopes)) :
+    DeclarativeDomain bytes moduleInputs functions scopes := by
+  unfold reconstruct at reconstructed
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at reconstructed
+  obtain ⟨tree, _, foundScopes, _, reconstructed⟩ := reconstructed
+  split at reconstructed
+  · cases reconstructed
+    exact check_in_declarative_domain (by assumption)
+  · cases reconstructed
+
 theorem domain_has_valid_utf8 {bytes : List UInt8} {moduleInputs : List (List UInt8)}
     (domain : Domain bytes moduleInputs) : bytes.toByteArray.IsValidUTF8 := by
   obtain ⟨functions, scopes, admitted⟩ := domain
