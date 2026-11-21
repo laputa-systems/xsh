@@ -121,7 +121,9 @@ def ask(prompt: str, workdir: Path, events_path: Path, model: str = MODEL, think
         stdout = (expired.stdout or b"").decode() if isinstance(expired.stdout, bytes) else (expired.stdout or "")
         stderr, code = f"pi ran longer than {CALL_TIMEOUT_S} seconds", None
     wall = time.perf_counter() - started
-    events_path.write_text(stdout)
+    events_path.write_text("".join(
+        line + "\n" for line in stdout.splitlines() if '"type":"message_update"' not in line[:40]
+    ))
     (events_path.parent / (events_path.stem + ".stderr.txt")).write_text(stderr)
     events, assistant = parse_events(stdout)
     text: list[str] = []
