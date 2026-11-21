@@ -393,29 +393,25 @@ environment).
 
 Statements:
 
-- index-selector assignment `xs[i] = v`, with the `Map[UInt]` key rule (P)
-- `guard let` (P)
-- `break` with a value, which needs `loop` as an expression (P)
-- `for` over `Map`, `Str` and `Bytes` (P); over `Stream` (E)
+- `for` over a `Stream` (E)
 - `yield` and `yield @` into `collect` (P); stream producers (E)
 - `use` aliases, which need module loading (E)
-- `export` of anything but a binding, `type`, `error` and function
-  declarations as runtime binders (P)
+- `export` of anything but a binding; `type`, `error` and function declarations
+  as runtime binders (P)
+- `guard let`'s `else { |failure| ... }` parameter, which the core syntax does
+  not carry (P)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
 Expressions:
 
-- `Ok(...)` and `Err(...)` constructors, and constructor calls in general (P)
-- return kinds for expression-bodied functions (P)
-- `??` and its handler blocks (P)
-- `Result[Bool]` conditions and `and`/`or` operands in control position (P)
+- `and`/`or` operands of a `Result[Bool]` condition (P)
+- `??` with the implicit `.` handler parameter (P)
 - `match` as an expression, comparison chains, `in`, set literals and set
   operators, slices, guarded `?.` and `?[]` (P)
 - record spread, shorthand, computed and path fields (P)
 - named, spread and splice arguments, defaults, methods, closures and value
   pipelines (P)
 - list, map and set comprehensions and `collect` (P)
-- `loop` as an expression (P)
 - `.require` (P), `ctx` error contexts (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages (E), `$NAME` and
@@ -423,8 +419,21 @@ Expressions:
 - Float literal and `parse_float` rounding, method calls behind
   `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
 
-Patterns: alternation, alias, constructor and error-variant patterns, type
-tests, facets, tuples and text patterns (P).
+Patterns: text patterns, error-variant patterns, facets and tuples (P).
+
+The `pure_forms_laws` fragment root and the witnesses in
+[`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean) cover what this
+list no longer names: `Ok(...)` and `Err(...)`, return kinds for
+expression-bodied functions, `??` with a named handler parameter (the new
+`Expr.handlerBlock`), `Result[Bool]` conditions, `guard let` (the checker's
+`Result` or optional form from an oracle), `loop` expressions and `break` with
+a value, `return` without a value (`Unit`), index-selector assignment through
+`evaluateSelectors` with the `Map[UInt]` key rule, `for` over `Map` in key
+order, `Str` and `Bytes`, and alternation, alias, `Ok`/`Err` and variant
+constructor and type patterns. Each binding form has a witness that its
+binding is visible where SPEC says and a rejected mutant that leaks or hides
+it: a block's `let`, `for` targets, `if let`, `while let`, `match` arms,
+`guard let` and `??` handler parameters.
 
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,

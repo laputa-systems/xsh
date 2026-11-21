@@ -1788,6 +1788,52 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     call_boundary machine,
     boundary_cases⟩
 
+omit [DecidableEq Declaration] in
+/-- The pure binding and `Result` forms of the statement machine: `Result[Bool]`
+conditions; `for` over a `Map` in key order, a `Str` and `Bytes`; `guard let`'s
+bound value; `loop` expressions; selectors for index assignment; and the
+alternation, alias and `Ok`/`Err` constructor patterns. -/
+theorem pure_forms_laws {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
+    (∀ (flag : Bool) (error : Value Declaration Identity Source),
+      conditionValue (.scalar (.boolean flag) : Value Declaration Identity Source) = some (.ok flag) ∧
+      conditionValue (.ok (.scalar (.boolean flag)) : Value Declaration Identity Source) = some (.ok flag) ∧
+      conditionValue (.err error) = some (.error error)) ∧
+    (∀ entries : List (MapKey × Value Declaration Identity Source),
+      iterationItems (.map entries) =
+        some ((entries.foldr (fun entry ordered => insertOrdered entry.1 entry.2 ordered) []).map fun entry =>
+          .record [("key", keyValue entry.1), ("value", entry.2)])) ∧
+    (∀ text : String, iterationItems (.scalar (.string text) : Value Declaration Identity Source) =
+      some (text.toList.map fun character => .scalar (.string character.toString))) ∧
+    (∀ (payload error : Value Declaration Identity Source),
+      guardValue true payload.ok = some payload ∧ guardValue true (.err error) = none ∧
+      guardValue false (.scalar .null : Value Declaration Identity Source) = none) ∧
+    (∀ (next : Frame world → Valued world) (frame : Frame world),
+      loopStep next (.broke frame) = .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none } ∧
+      loopStep next (.normal frame) = next frame ∧ loopStep next (.continued frame) = next frame) ∧
+    (∀ (inner : Xsh.Syntax.Pattern) (bound : Xsh.Syntax.RawName) (value : Value Declaration Identity Source),
+      matchPattern context test (.alias inner bound) value =
+        (matchPattern context test inner value).both fun _ => .matched [(bound, value)]) ∧
+    (∀ (members : List Xsh.Syntax.Pattern) (value : Value Declaration Identity Source),
+      matchPattern context test (.alternation members) value = matchAlternatives context test members value) ∧
+    (∀ (member : Xsh.Syntax.Pattern) rest (value : Value Declaration Identity Source) captures,
+      matchPattern context test member value = .matched captures →
+        matchAlternatives context test (member :: rest) value = .matched captures) ∧
+    (∀ (member : Xsh.Syntax.Pattern) rest (value : Value Declaration Identity Source),
+      matchPattern context test member value = .failed →
+        matchAlternatives context test (member :: rest) value = matchAlternatives context test rest value) ∧
+    (∀ (name : Xsh.Syntax.RawName) (inner : Xsh.Syntax.Pattern) (payload : Value Declaration Identity Source),
+      context.spelling name = "Ok" →
+        matchPattern context test (.constructor name (some inner)) payload.ok = matchPattern context test inner payload) := by
+  refine ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ => rfl, fun _ => rfl, fun _ _ => ⟨rfl, rfl, rfl⟩,
+    fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ => rfl, ?_, ?_, ?_⟩
+  · intro member rest value captures matched
+    simp [matchAlternatives, matched]
+  · intro member rest value failed
+    simp [matchAlternatives, failed]
+  · intro name inner payload spelled
+    simp [matchPattern, spelled, Value.eraseNominal]
+
 end Root
 
 namespace Witness
@@ -2553,6 +2599,32 @@ its key with the `Schema` error. -/
 theorem index_assignment :
     readInt rName (runRich indexWrite) = some 7 ∧ primaryText (runRich unsignedKey) = some "schema" := by
   decide +kernel
+
+/-- A block that keeps its declarations after it. -/
+def leakyBlock : Exec witnessWorld :=
+  match runStatements richMachine 20 richStart [letX "1"] with
+  | .normal frame => runStatements richMachine 20 frame.enter [letX "2"]
+  | other => other
+
+/-- The leaking block leaves `x` at its inner `2`. -/
+theorem leaky_block_rejected : readInt xName leakyBlock = some 2 := by decide +kernel
+
+def whileLet : List Xsh.Syntax.Statement :=
+  [varOf totalName "0",
+    .whileStmt (.patternCondition (ident okLocalName) (.constructor okCtor (some (.binding vName))))
+      [.assign (.name totalName) .set (ident vName), .breakStmt none]]
+
+/-- `while let Ok(v) = result` binds `v` in each iteration only. -/
+theorem while_let_scoped :
+    readInt totalName (runRich whileLet) = some 7 ∧ resolvesAny vName (runRich whileLet) = false := by
+  decide +kernel
+
+/-- A `while let` whose capture stays bound after the iteration. -/
+def leakyWhileLet : Exec witnessWorld :=
+  (bindCaptures richMachine richStart.enter [(vName, integer ⟨7, by decide⟩)]).andThen fun bound =>
+    runStatements richMachine 20 bound [.breakStmt none]
+
+theorem leaky_while_let_rejected : resolvesAny vName leakyWhileLet = true := by decide +kernel
 
 end Witness
 

@@ -15274,6 +15274,15 @@
       "boundary": "Ok and Err values come from the store, locals or function results: no constructor calls. Conversions are a parameter; retry backoff schedules, clocks, exit, cancellation, try before a run form, Result[Bool] conditions, ?? and handlers, and error contexts are not modelled; an expression-bodied function has no return kind, so its ? fails the call. Return, break and continue inside an effectful expression nested in another expression are unsupported. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Control.pure_forms_laws",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.pure_forms_laws",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The pure binding and Result forms of the statement machine: Result[Bool] conditions give their Bool and raise their Err; for iterates a Map's {key, value} items in key order, a Str's one-scalar strings and Bytes as Int; guard let binds a Result's Ok payload or a non-null optional; loop expressions take their break value; and alternation, alias and Ok/Err constructor patterns match as SPEC 6.10 says.",
+      "boundary": "Ok and Err constructor calls, expression-bodied return kinds, ?? handlers, guard let, index-selector assignment with the Map[UInt] key rule and every binding form's scope are checked by witnesses and leak or hide mutants, not by universal theorems beyond statement_control and deferred_cleanup. Text patterns, facets, tuples, error-variant patterns, guard let's else parameter, and and/or operands in control position are unsupported; type patterns take the checker's type from an oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
