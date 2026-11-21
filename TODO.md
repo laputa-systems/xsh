@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 148
+Next: 149
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -57,4 +57,13 @@ out of scope.
 - **Recommendation:** Add `lint.unused-const` for private constants. Add a workspace-level unused-export lint that resolves `use ... as` aliases across every module under the project's module and test roots. It reports exports referenced nowhere, separately notes exports referenced only by tests or only inside their own module, and exempts modules declared as a public API in `xsht-config.ini`, such as stdlib and published libraries. Prove it against fixtures that reproduce Laputa's 18 dead exports, aliased imports, same-named exports in two modules, and re-export chains.
 - **Fix with:** design-cli, dead-code-archaeology
 - **Effort:** M
+
+### XSH-148 · P3 · The checker rejects validated callable returns inside collections
+
+- **Area:** Checker
+- **Where:** `src/sema/types.rs` (`matches_stored`, no callable arm; falls through to `matches_invariant`), SPEC `docs/templates/SPEC.md:1594-1602` (callable fit: a validated return may stand for its base at any depth), formal `Xsh.Validation.Core.Widen.Witness.callable_return_view_is_derived` (lane/lean-foundation)
+- **Problem:** `let ys: List[pure() -> Path] = xs` with `xs: List[pure() -> RelPath]` fails with `check.type-mismatch`, while the direct binding `let f: pure() -> Path = name` for a `pure() -> RelPath` function is accepted. The SPEC lets a validated type stand where its base is written in a callable's return type at any depth, and the Lean model derives this view. Rust's stored-value matcher has no callable arm, so a callable nested in a collection, record or union loses the return widening the SPEC grants.
+- **Recommendation:** Add a callable arm to `matches_stored` that applies the SPEC's callable fit (same kind, labels and parameter types; return compared by the stored view; effects may be fewer), with native tests for List, record and union nesting and a rejected case that changes a parameter type.
+- **Fix with:** none
+- **Effort:** S
 
