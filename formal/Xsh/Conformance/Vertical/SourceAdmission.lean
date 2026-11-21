@@ -10,11 +10,11 @@ namespace SourceAdmission
 accepted range is exactly `D`, its UTF-8 range is exactly the spans where a
 valid prefix ends and no well-formed sequence starts, and its string range is
 stated through the scanner's relations `DeclaredString` and `EscapeError`, with
-`outside` covering the rest. For any accepted input it also yields the
-positioned tokens, the independent grammar derivation, the decimal
-interpretation of every number token, and the fact that each node's span is
-exactly its own tokens' span, inside the source. The string relations are the
-Lean scanner's relational reading, not an independent SPEC reading. -/
+`outside` covering the rest. For any accepted input it also yields the scope
+projection, the positioned tokens, the independent grammar derivation, the
+decimal interpretation of every number token, and the fact that each node's
+span is exactly its own tokens' span, inside the source. The string relations
+are the Lean scanner's relational reading, not an independent SPEC reading. -/
 
 theorem accepted_positioned_tokens {bytes : List UInt8} {moduleInputs : List (List UInt8)}
     {functions : List SourceFunction} {scopes : List (List (String × Nat))}
@@ -199,6 +199,13 @@ theorem unterminated_line_classified :
 theorem invalid_escape_classified :
     classify [34, 97, 92, 113, 98, 34] [] =
       .rejected (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+/-- A later string error reports the offset it accumulated past an earlier clean string:
+`"a" "c\q"` fails at offset 6. -/
+theorem error_after_clean_string_classified :
+    classify [34, 97, 34, 32, 34, 99, 92, 113, 34] [] =
+      .rejected (.invalidEscape ⟨6, 8⟩) := by
   decide +kernel
 
 theorem short_hex_classified :

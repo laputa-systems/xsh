@@ -15126,8 +15126,8 @@
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "scanStrings agrees with the declarative DeclaredString reading: unterminated spans open quote to end of input, invalid escape spans the escape, and a clean scan continues.",
-      "boundary": "Covers the Lean string scan over the declared envelope only; UTF-8 validity of the whole input and Rust diagnostic rendering are outside it."
+      "scope": "scanStrings agrees with the relational DeclaredString reading: an unterminated span runs from the opening quote to the line end, an invalid escape spans the escape, and a clean scan continues; the invalid case carries EscapeError.",
+      "boundary": "DeclaredString and EscapeError are the Lean scanner's relational reading, not an independent SPEC reading. They cover the Lean string scan over the declared envelope only; UTF-8 validity of the whole input and Rust diagnostic rendering are outside it."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
@@ -15162,8 +15162,8 @@
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Over every byte list, the Lean source classifier accepts exactly the declared function-syntax domain D, rejects invalid UTF-8 at its first offset, rejects string failures inside the envelope E, and classifies everything else as outside.",
-      "boundary": "A fragment, not SRC-ADMIT: D has no string literals, comments or module inputs, there is no parse-failure judgment, the string rejection clauses are stated over the Lean scanner itself, and no Rust lexer correspondence or diagnostic code is shown."
+      "scope": "Over every byte list, the Lean source classifier accepts exactly the declared function-syntax domain D with a scope projection, rejects invalid UTF-8 at the least offset whose prefix is well-formed UTF-8 and where no well-formed sequence starts, rejects string failures inside the envelope E stated through the relations DeclaredString and EscapeError, and classifies everything else as outside.",
+      "boundary": "A fragment, not SRC-ADMIT: D has no string literals, comments or module inputs, there is no parse-failure judgment, the string rejection clauses are the Lean scanner's relational reading (DeclaredString and EscapeError), not an independent SPEC reading, and no Rust lexer correspondence or diagnostic code is shown."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",

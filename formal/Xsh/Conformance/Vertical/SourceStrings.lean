@@ -750,6 +750,19 @@ theorem unterminated_line_span_witness :
       .failed (.unterminatedString ⟨8, 12⟩) := by
   decide +kernel
 
+/-- A string error after an earlier clean string reports its offset in the whole input:
+`"a" "c\q"` fails at the second string's escape, offset 6, so the scan carried the offset
+past the first string. -/
+theorem error_after_clean_string_witness :
+    scanStrings 0 [34, 97, 34, 32, 34, 99, 92, 113, 34] =
+      .failed (.invalidEscape ⟨6, 8⟩) := by
+  decide +kernel
+
+theorem error_after_clean_string_declared :
+    DeclaredString [34, 97, 34, 32, 34, 99, 92, 113, 34] 0
+      (.failed (.invalidEscape ⟨6, 8⟩)) :=
+  (declared_string_iff _ _ _).mp error_after_clean_string_witness
+
 theorem unicode_out_of_range_witness :
     scanStrings 0 [34, 92, 117, 123, 49, 49, 48, 48, 48, 48, 125, 34] =
       .failed (.invalidEscape ⟨1, 11⟩) := by
