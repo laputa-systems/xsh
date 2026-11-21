@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 173
+Next: 175
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -139,6 +139,15 @@ out of scope.
 - **Fix with:** error-model, os-boundaries
 - **Effort:** S
 
+### XSH-173 · P2 · a hoisted call in a top-level binding's initializer fails on the binding it initializes
+
+- **Area:** Runtime and hoisting
+- **Where:** hoisted closure capture for top-level declarations (src/runtime/eval); docs/templates/SPEC.md 3.1; formal root fragment.Xsh.Proofs.Core.Scripts.hoisted_scopes
+- **Problem:** `let r = first()` followed by `proc first() -> Int { 2 }` fails on the verification binary with `runtime.error` `unknown captured name r` (exit 3), although `first` never reads `r`; `print (first())` above the same declaration prints 2. SPEC 3.1 makes a call fail only when it reads a top-level binding before that binding's statement has run. The Lean machine follows the SPEC, so the hoisted_scopes witness has no binary match for this case.
+- **Recommendation:** Capture only the top-level bindings a callable body names, or resolve them lazily at the read, so an unread binding that is still uninitialized does not fail the call. Acceptance: a test in tests/xsh/declaration-hoisting.xsh runs `let r = first(); print (r); proc first() -> Int { 2 }` and prints 2, and the existing uninitialized-read test still exits 3.
+- **Fix with:** reference-parity
+- **Effort:** S
+
 ### XSH-172 · P3 · lane/namespace-native always skips its 13 lsipc and lslocks tests
 
 - **Area:** Gates
@@ -146,6 +155,15 @@ out of scope.
 - **Problem:** namespace_tests lists 13 core/tests/test-lsipc.xsh and test-lslocks.xsh tests, but they run only when XSH_UTIL_LINUX_PRIVATE=1 and the parent IPC, mount and PID namespace identities are exported, and only dev/util-linux/check.py sets those. In lane/namespace-native each one reports "requires private util-linux IPC, mount and PID namespaces", so the lane ends incomplete (84 passed, 13 skipped, exit 2) on every run, including master 3155adf2a before the capsule merge, and the tests run under no gate.
 - **Recommendation:** Have the namespace lane enter the private IPC, mount and PID namespaces the way dev/util-linux/check.py does and export the marker and parent identities, or move these tests to the group that names the util-linux harness as their owner. Acceptance: `cargo dev gate --case lane/namespace-native` exits 0 with the 13 tests passing, or the tests leave namespace_tests and the lane exits 0.
 - **Fix with:** none
+- **Effort:** S
+
+### XSH-174 · P3 · "executable not found" does not name the program
+
+- **Area:** Process API errors
+- **Where:** src/runtime/process.rs:4202, 4339, 4750 (RunError "not-found"); core/env.xsh:368 matches the message text
+- **Problem:** process.which, run and spawn report `not-found: executable not found` without the program name. A Laputa capsule run on a fresh Ubuntu host failed five PM tests with that message alone; finding the missing tools (cc, readelf, python3) took reading each test and recipe.
+- **Recommendation:** Carry the requested program in the error, for example `executable not found: readelf`, and match on the error kind rather than the message in core/env.xsh. Acceptance: a native test shows process.which("no-such-tool") and run of a missing program both name it, and the env.xsh fallback still works.
+- **Fix with:** error-model
 - **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
