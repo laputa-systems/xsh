@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 170
+Next: 171
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -201,6 +201,15 @@ out of scope.
 - **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
 - **Fix with:** none
 - **Effort:** S
+
+### XSH-170 · P3 · named, spread and splice arguments to a callable value's .call are rejected although SPEC 6.3 allows them
+
+- **Area:** Checker and calls
+- **Where:** src/sema (call checking for callable values); docs/templates/SPEC.md 6.3
+- **Problem:** SPEC 6.3 lets a record spread target a local that holds a callable value and allows named arguments in calls. For a callable value, the verification binary rejects f.call(...pair)? with check.named-spread (named argument spreading requires a statically checked callable signature), and the formal foundation lane found a named argument to a dynamic .call fails to compile (compact.indexed-build) and an @ splice there is check.call-splice. The Lean machine follows the SPEC (root call_arguments), so its named .call witness has no binary match.
+- **Recommendation:** Decide whether the SPEC or the checker is right. Either type a callable value's .call against the referenced declaration's signature so named, spread and splice arguments work, or narrow SPEC 6.3 and 4.x to say those forms need a statically known callee. Acceptance: a native test pins the chosen behaviour for named, spread and splice arguments through .call, and the call_arguments root's boundary row matches it.
+- **Fix with:** checker or SPEC
+- **Effort:** M
 
 ### XSH-166 · P4 · A user type named like a built-in record cascades into a misleading mismatch
 
