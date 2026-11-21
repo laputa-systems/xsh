@@ -318,3 +318,49 @@ theorem without_region_allows_known_empty (excluded : Effect) (rest : List Effec
   simp [bottom] at impossible
 
 end Xsh.Semantics.Effects
+
+namespace Xsh.Effects.Lattice
+
+open Xsh.Syntax Xsh.Semantics.Effects
+
+theorem finite_lattice_and_implication_closure :
+    (∀ a : FiniteEffectSet, le a a ∧ le bottom a ∧ le a top) ∧
+    (∀ a b c : FiniteEffectSet, (le a b → le b c → le a c) ∧
+      (le a b → le b a → a = b) ∧
+      le a (join a b) ∧ le b (join a b) ∧
+      (le a c → le b c → le (join a b) c) ∧
+      le (meet a b) a ∧ le (meet a b) b ∧
+      (le c a → le c b → le c (meet a b))) ∧
+    (∀ a b : FiniteEffectSet, le a (closure a) ∧
+      (le a b → le (closure a) (closure b)) ∧
+      closure (closure a) = closure a ∧
+      (le a b → (∀ e, ioComponent e → b .io → b e) → le (closure a) b)) ∧
+    (∀ a : FiniteEffectSet, ∀ e : Effect,
+      closure a e ↔ a e ∨ (a .io ∧ (e = .fs ∨ e = .net ∨ e = .process ∨ e = .env))) := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · intro a
+    exact ⟨le_refl a, bottom_le a, le_top a⟩
+  · intro a b c
+    exact ⟨le_trans, le_antisymm, join_upper_left a b, join_upper_right a b,
+      join_least, meet_lower_left a b, meet_lower_right a b, meet_greatest⟩
+  · intro a b
+    exact ⟨closure_extensive a, closure_mono, closure_idempotent a,
+      closure_is_least_closed a b⟩
+  · intro a e
+    cases e <;> simp [closure, ioComponent]
+
+theorem lattice_positive_witness : closure (ofList [.io]) .fs := by
+  exact io_clause_covers_filesystem _ (by simp [ofList])
+
+theorem lattice_adversarial_witness :
+    ¬ closure (ofList [.fs]) .io ∧ ¬ closure (ofList [.io]) .time ∧
+    ¬ closure (ofList [.io]) .error :=
+  ⟨filesystem_does_not_imply_io, io_does_not_imply_time, io_does_not_imply_error⟩
+
+theorem dropped_io_implication_detected :
+    closure (ofList [.io]) .net ∧ ¬ ofList [.io] .net := by
+  constructor
+  · exact io_clause_covers_network _ (by simp [ofList])
+  · simp [ofList]
+
+end Xsh.Effects.Lattice
