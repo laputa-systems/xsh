@@ -46,6 +46,64 @@ def unionMembers : ViewType Declaration → Option (List (ViewType Declaration))
   | .union first second rest => some (first :: second :: tailMembers rest)
   | _ => none
 
+def eraseValidations : {kind : TypeKind} → TypeVariableFreeTerm 0 String Declaration kind →
+    TypeVariableFreeTerm 0 String Declaration kind
+  | _, .variable id => nomatch id
+  | _, .primitive p => .primitive p
+  | _, .list item => .list (eraseValidations item)
+  | _, .map key value => .map (eraseValidations key) (eraseValidations value)
+  | _, .set item => .set (eraseValidations item)
+  | _, .stream item => .stream (eraseValidations item)
+  | _, .record fields => .record (eraseValidations fields)
+  | _, .module closure exports => .module closure (eraseValidations exports)
+  | _, .result value error => .result (eraseValidations value) (eraseValidations error)
+  | _, .optional value => .optional (eraseValidations value)
+  | _, .union first second rest => .union (eraseValidations first) (eraseValidations second) (eraseValidations rest)
+  | _, .functionClass kind => .functionClass kind
+  | _, .callable signature => .callable (eraseValidations signature)
+  | _, .schemeCallable declaration => .schemeCallable declaration
+  | _, .tagged declaration => .tagged declaration
+  | _, .errorFamily declaration => .errorFamily declaration
+  | _, .errorVariant family variant => .errorVariant family variant
+  | _, .errorFacet facet => .errorFacet facet
+  | _, .nonEmpty element => .list (eraseValidations element)
+  | _, .relativePath => .primitive .path
+  | _, .nominal _ fields => .record (eraseValidations fields)
+  | _, .boundedInteger bounds => IntegerBaseType bounds.base
+  | _, .rowEmpty => .rowEmpty
+  | _, .rowField name value rest => .rowField name (eraseValidations value) (eraseValidations rest)
+  | _, .argumentsEmpty => .argumentsEmpty
+  | _, .parameter requirement name type rest =>
+      .parameter requirement name (eraseValidations type) (eraseValidations rest)
+  | _, .restParameter name element => .restParameter name (eraseValidations element)
+  | _, .signature policy parameters result => .signature policy (eraseValidations parameters) (eraseValidations result)
+  | _, .membersEmpty => .membersEmpty
+  | _, .member value rest => .member (eraseValidations value) (eraseValidations rest)
+  | _, .exportsEmpty => .exportsEmpty
+  | _, .exportValue name presence value rest => .exportValue name presence (eraseValidations value) (eraseValidations rest)
+  | _, .exportCallable name presence signature rest =>
+      .exportCallable name presence (eraseValidations signature) (eraseValidations rest)
+  | _, .exportGenericCallable name presence kind rest => .exportGenericCallable name presence kind (eraseValidations rest)
+
+def RowsDistinct : {kind : TypeKind} → TypeVariableFreeTerm 0 String Declaration kind → Prop
+  | _, .variable id => nomatch id
+  | _, .list item | _, .set item | _, .stream item | _, .optional item | _, .nonEmpty item =>
+      RowsDistinct item
+  | _, .map key value | _, .result key value => RowsDistinct key ∧ RowsDistinct value
+  | _, .record fields | _, .nominal _ fields => RowsDistinct fields
+  | _, .module _ exports => RowsDistinct exports
+  | _, .union first second rest => RowsDistinct first ∧ RowsDistinct second ∧ RowsDistinct rest
+  | _, .callable signature => RowsDistinct signature
+  | _, .rowField name type rest =>
+      name ∉ (rowEntries rest).map Prod.fst ∧ RowsDistinct type ∧ RowsDistinct rest
+  | _, .parameter _ _ type rest => RowsDistinct type ∧ RowsDistinct rest
+  | _, .restParameter _ type => RowsDistinct type
+  | _, .signature _ parameters result => RowsDistinct parameters ∧ RowsDistinct result
+  | _, .member type rest | _, .exportValue _ _ type rest => RowsDistinct type ∧ RowsDistinct rest
+  | _, .exportCallable _ _ signature rest => RowsDistinct signature ∧ RowsDistinct rest
+  | _, .exportGenericCallable _ _ _ rest => RowsDistinct rest
+  | _, _ => True
+
 mutual
   inductive BaseView : ViewType Declaration → ViewType Declaration → Prop where
     | refl (type : ViewType Declaration) : BaseView type type
@@ -75,6 +133,8 @@ mutual
           (targetFirst :: targetSecond :: tailMembers targetRest).length →
         TargetMembersCovered (targetFirst :: targetSecond :: tailMembers targetRest)
           (sourceFirst :: sourceSecond :: tailMembers sourceRest) →
+        MembersPaired (sourceFirst :: sourceSecond :: tailMembers sourceRest)
+          (targetFirst :: targetSecond :: tailMembers targetRest) →
           BaseView (.union sourceFirst sourceSecond sourceRest) (.union targetFirst targetSecond targetRest)
     | callable {source target : ViewSignature Declaration} :
         SignatureView source target → BaseView (.callable source) (.callable target)
@@ -112,6 +172,18 @@ mutual
     | nil (source : List (ViewType Declaration)) : TargetMembersCovered [] source
     | cons {member : ViewType Declaration} {rest source : List (ViewType Declaration)} :
         TargetMemberCovered member source → TargetMembersCovered rest source → TargetMembersCovered (member :: rest) source
+
+  inductive MemberRemoved : ViewType Declaration → List (ViewType Declaration) → List (ViewType Declaration) → Prop where
+    | here (item : ViewType Declaration) (rest : List (ViewType Declaration)) :
+        MemberRemoved item (item :: rest) rest
+    | there (other : ViewType Declaration) {item : ViewType Declaration} {source rest : List (ViewType Declaration)} :
+        MemberRemoved item source rest → MemberRemoved item (other :: source) (other :: rest)
+
+  inductive MembersPaired : List (ViewType Declaration) → List (ViewType Declaration) → Prop where
+    | nil : MembersPaired [] []
+    | cons {source target : ViewType Declaration} {sources targets rest : List (ViewType Declaration)} :
+        BaseView source target → MemberRemoved target targets rest → MembersPaired sources rest →
+          MembersPaired (source :: sources) targets
 
   inductive SignatureView : ViewSignature Declaration → ViewSignature Declaration → Prop where
     | result (policy : InvocationPolicy 0) (parameters : TypeVariableFreeTerm 0 String Declaration .arguments)

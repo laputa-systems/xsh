@@ -119,7 +119,7 @@ mutual
           | exact member.elim
           | exact view_member world valueView _ member
           | exact view_member world errorView _ member
-    | _, _, .union covered _ _, candidate, member => by
+    | _, _, .union covered _ _ _, candidate, member => by
         have sourceListed := (union_member_iff world (union := .union _ _ _) rfl candidate).mp member
         exact (union_member_iff world (union := .union _ _ _) rfl candidate).mpr
           (members_member world covered candidate sourceListed)
@@ -310,11 +310,14 @@ theorem reordered_union_and_record_are_views :
         (.record (.rowField "a" .relativePath (.rowField "b" (.primitive .string) .rowEmpty)))
         (.record (.rowField "b" (.primitive .string) (.rowField "a" (.primitive .path) .rowEmpty))) := by
   constructor
-  · refine .union ?_ (by simp [tailMembers]) ?_
+  · refine .union ?_ (by simp [tailMembers]) ?_ ?_
     · simp only [tailMembers]
       exact .cons (.there _ (.here _ (.validated rfl (.refl _)))) (.cons (.here _ (.refl _)) (.nil _))
     · simp only [tailMembers]
       exact .cons (.there _ (.here _ (.refl _))) (.cons (.here _ (.validated rfl (.refl _))) (.nil _))
+    · simp only [tailMembers]
+      exact .cons (.validated rfl (.refl _)) (.there _ (.here _ _))
+        (.cons (.refl _) (.here _ _) .nil)
   · refine .record ?_ (by simp [rowEntries])
     simp only [rowEntries]
     exact .cons (.there _ (.here _ _ (.refl _))) (.cons (.here _ _ (.validated rfl (.refl _))) (.nil _))
@@ -362,6 +365,23 @@ theorem distinct_validations_never_view :
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)
 
+theorem duplicate_row_breaks_precision :
+    BaseView (Declaration := Unit)
+      (.record (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty)))
+      (.record (.rowField "a" (.primitive .path) .rowEmpty)) ∧
+    ¬ RowsDistinct (Declaration := Unit)
+      (.record (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty))) ∧
+    ¬ List.Perm
+      (rowEntries (eraseValidations (.rowField "a" .relativePath (.rowField "a" (.primitive .integer) .rowEmpty)) : ViewRow Unit))
+      (rowEntries (eraseValidations (.rowField "a" (.primitive .path) .rowEmpty) : ViewRow Unit)) := by
+  refine ⟨.record ?_ (by simp [rowEntries]), ?_, ?_⟩
+  · simp only [rowEntries]
+    exact .cons (.here _ _ (.validated rfl (.refl _))) (.nil _)
+  · simp [RowsDistinct, rowEntries]
+  · intro permutation
+    have lengths := permutation.length_eq
+    simp [eraseValidations, rowEntries] at lengths
+
 theorem union_cannot_gain_member :
     ¬ BaseView (Declaration := Unit)
       (.list (.union (.primitive .integer) (.primitive .string) .membersEmpty))
@@ -372,7 +392,7 @@ theorem union_cannot_gain_member :
   | list inner =>
     cases inner with
     | validated hasBase _ => simp [base] at hasBase
-    | union _ length _ => simp [tailMembers] at length
+    | union _ length _ _ => simp [tailMembers] at length
 
 theorem record_cannot_drop_field :
     ¬ BaseView (Declaration := Unit)

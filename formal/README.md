@@ -179,14 +179,14 @@ The validated-type obligations use the Core types directly.
 base, and the base-view relation: a validated position at any depth of
 `NonEmpty`, a list, map value, stream element, optional, result, callable
 return, record field or union member may stand for its base. Record fields
-and union members are matched in any order. Core membership reads a retained
+and union members are matched in any order, with each target member paired once. `RowsDistinct` requires distinct labels in every nested row, and `eraseValidations` replaces validated positions with their bases. Core membership reads a retained
 stream or callable contract upward-closed under views, because stream items
 are checked against the retained type as they are produced.
 The `validated_widening` fragment in
 [`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean) shows that every view
 carries members to members in every world, a view into a validated type starts
 from the same tag with a base that views to the target's base, and no base
-views as its validated type. Erased-position precision is not proved, and the raw row relation permits duplicate labels. VAL-WIDEN remains planned. Nested intervals are not views, even though the
+views as its validated type. Erased-position precision is not proved, and the raw row relation permits duplicate labels; a witness shows that this can change the erased row length. VAL-WIDEN remains planned. Nested intervals are not views, even though the
 interval-containment fragment relates them. A module contract entry must match its kind and full signature exactly.
 
 VAL-ERASE is closed by `validated_erasure` in
