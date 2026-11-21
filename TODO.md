@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 147
+Next: 148
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -47,5 +47,14 @@ out of scope.
 - **Problem:** `cargo dev dist` builds `xsh`, `xsht` and `xshi` in one invocation, and `xsht/native-tests` enables `xsh/default`, which includes `native-tests`. Every shipped `xsh` therefore carries the native test machinery. The `test` module type-checks in ordinary scripts. `test.linux_fake` and `test.unix_fake` replace host `linux.*` and `unix.*` results. `test.mock` intercepts DNS and network results. Every DNS and network call appends a cloned request record to `evaluator.test_calls`, which is never cleared, for the evaluator's lifetime. `XSH_INTERNAL_TEST_FORCE_FRAMES` and `XSH_TEST_SMALL_EVAL_STACK` are honored. RELENG.md documents the unification but not these consequences.
 - **Recommendation:** Build `xsh` for distribution without `native-tests` (a separate cargo invocation for `xsht`, or a `native-tests` feature that only `xsht` enables), and record only on an installed mock. Add a check that the dist `xsh` rejects a script using `test.`.
 - **Fix with:** api-surface-and-module-boundaries
+- **Effort:** M
+
+### XSH-147 · P2 · xsht lint misses unused constants and unreferenced exports
+
+- **Area:** Tooling
+- **Where:** `crates/xsht/src/cli/lint.rs` (`lint.unused-callable`, `lint.unused-type`, `lint.unused-local`), Laputa `guest/asterinas/device/entry.xsh:2` (`const case_dir`), Laputa `xinfra/lib/infra/mutate.xsh:15` (`const nul`), Laputa `pm/types.xsh:177,414,669` and 15 other exports with no reference
+- **Problem:** `xsht lint` flags unused private callables, types and locals, but not an unused private `const`: `case_dir` and `nul` in Laputa produce no diagnostic. It has no project-wide check for exports: an exported proc, type or const that no module in the project imports and uses (Laputa has 18 with no reference anywhere, and 102 used only inside their own file) is invisible to it, because `lint.unused-callable` stops at unexported callables. A script found these instead. The owner wants xsht's dead-code detection to be correct and thorough.
+- **Recommendation:** Add `lint.unused-const` for private constants. Add a workspace-level unused-export lint that resolves `use ... as` aliases across every module under the project's module and test roots. It reports exports referenced nowhere, separately notes exports referenced only by tests or only inside their own module, and exempts modules declared as a public API in `xsht-config.ini`, such as stdlib and published libraries. Prove it against fixtures that reproduce Laputa's 18 dead exports, aliased imports, same-named exports in two modules, and re-export chains.
+- **Fix with:** design-cli, dead-code-archaeology
 - **Effort:** M
 
