@@ -40,29 +40,27 @@ describes the cases and profiles behind each command.
 
 ```sh
 cargo dev build
-cargo dev check
-cargo dev gate --full
 cargo dev test linux
 ```
 
-`cargo dev build` compiles the workspace for the host target. `cargo dev check`
-is the non-mutating check gate: it builds the release products, runs `cargo
-fmt --check`, clippy with `-D warnings`, `xsht check`, `xsht fmt --check`,
-`xsht lint`, the core contracts, the generated-documentation check, the
-deprecated-import contract, and `git diff --check`. `cargo dev gate --full` is
-the full local integration gate: every declared Rust harness, the native corpus,
-the documentation owner, the repository checks and the structural ratchets.
-`cargo dev test linux` runs the Rust and native Linux suite, including the
-privileged tests, inside the image pinned by `Dockerfile.test` and
-`dev/images.lock`; it needs a working Docker daemon and downloads that image on
-first use.
+`cargo dev build` compiles the workspace for the host target. `cargo dev test
+linux` runs the Rust and native Linux suite, including the privileged tests,
+inside the image pinned by `Dockerfile.test` and `dev/images.lock`; it needs a
+working Docker daemon and downloads that image on first use.
 
 Use `cargo dev gate PATH...` for the narrowest check owned by changed paths.
 `cargo dev gate --plan PATH...` lists the selected cases without building or
-starting Docker.
+starting Docker. `cargo dev gate --full` is the full local integration gate for
+pre-release verification: every declared Rust harness, the native corpus, the
+documentation owner, the repository checks and the structural ratchets. It is
+not part of the cold first-run proof.
 
-Linux verification runs the default native suite and the Rust and privileged
-Linux tests inside the pinned image. The first run downloads that image.
+`cargo dev check` is a non-mutating development gate. It builds the release
+products and runs clippy, `xsht check`, `xsht lint`, the core contracts, the
+generated-documentation check, the deprecated-import contract and `git diff
+--check`, together with `cargo fmt --check` and `xsht fmt --check`. The sources
+are not currently kept formatted, so those two formatter stages fail on a clean
+checkout; [TODO](../TODO.md) XSH-168 tracks that.
 
 ## Cold capsule costs
 
