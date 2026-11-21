@@ -5,6 +5,46 @@ namespace Xsh.Conformance.Vertical
 
 namespace SourceAdmission
 
+theorem take_codes_complete (keep : Nat → Bool) (leading rest : List Nat)
+    (kept : leading.all keep = true) (boundary : Boundary keep rest) :
+    takeCodesWhile keep (leading ++ rest) = (leading, rest) := by
+  induction leading with
+  | nil =>
+    cases rest with
+    | nil => rfl
+    | cons head tail =>
+      have stopped := boundary head tail rfl
+      simp [takeCodesWhile, stopped]
+  | cons head tail ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at kept
+    simp [takeCodesWhile, kept.1, ih kept.2]
+
+theorem lexeme_nonempty {rest leading : List Nat} {token : Token}
+    (lexeme : Lexeme rest leading token) : leading ≠ [] := by
+  cases lexeme with
+  | punctuation punctuation maximal =>
+    simp [Punctuation] at punctuation
+    rcases punctuation with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+    all_goals rcases h with ⟨rfl, rfl⟩ <;> simp
+  | decimal nonempty digits boundary => exact nonempty
+  | word first letters boundary => simp
+
+theorem lexed_tokens_fit_in_source {codes : List Nat} {tokens : List Token}
+    (lexed : Lexed codes tokens) : tokens.length ≤ codes.length := by
+  induction lexed with
+  | empty => simp
+  | space lexed ih => simp only [List.length_cons]; omega
+  | @token leading rest token tokens lexical tail ih =>
+    have positive : 0 < leading.length := List.length_pos_iff.mpr (lexeme_nonempty lexical)
+    simp only [List.length_cons, List.length_append]
+    omega
+
+theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
+    (derivation : AtomSyntax tokens atom rest) : parseAtom tokens = some (atom, rest) := by
+  cases derivation with
+  | number => rfl
+  | name text rest valid => simp [parseAtom, valid]
+
 theorem constructor_is_not_an_ordinary_call :
     ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
         (.call "Ok" [.var "x"]) [] ∧
