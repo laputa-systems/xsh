@@ -634,6 +634,34 @@ theorem function_syntax_complete {tokens rest : List Token} {function : SourceFu
     have parsedBody := body_syntax_complete body
     simp [parseFunction, parsedParameters, parsedType, parsedBody]
 
+theorem functions_syntax_complete {tokens : List Token} {functions : List SourceFunction}
+    (derivation : FunctionsSyntax tokens functions) :
+    ∀ fuel, functions.length < fuel → parseFunctions fuel tokens = some functions := by
+  induction derivation with
+  | empty =>
+    intro fuel enough
+    cases fuel <;> rfl
+  | @newline tokens functions tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have parsed := ih (fuel + 1) enough
+      cases tokens with
+      | nil => simpa [parseFunctions, skipNewlines] using parsed
+      | cons token tokens =>
+        simpa [parseFunctions, skipNewlines] using parsed
+  | @cons tokens rest function functions first tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : functions.length < fuel := by simp at enough; omega
+      have parsed := function_syntax_complete first
+      cases first with
+      | function params result body =>
+        simp [parseFunctions, skipNewlines, parsed, ih fuel bound]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
