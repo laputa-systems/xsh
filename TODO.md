@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 171
+Next: 172
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -94,15 +94,6 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-157 · P2 · Typed Int arithmetic reports its failure at the caller instead of the operator
-
-- **Area:** Runtime
-- **Where:** cause: `src/runtime/eval/indexed/full/schema.rs:820-824` (`BuildIntRow::Binary`, the `IntBinary` row, has no span field) and `src/runtime/eval/lower/scalar.rs:62-76` (the lowerer builds that row from a `BuildExprRow::Binary` and drops its span); symptoms: `src/runtime/eval/lowered_run/indexed_run/values.rs:625-629` (in place, `ApplyIntBinary { op, span: call_span }`) and `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6871` (in frames, `FrameOperation::Binary` carries no span, so `BinaryLeft` and `BinaryRight` take the span the row's consumer passed in); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
-- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, whose row has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`) on both execution routes. The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. SPEC 4.2 says both failures happen at the operator, and ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
-- **Recommendation:** Add `span: Span` to `BuildIntRow::Binary`, so the `IntBinary` payload grows from three words to four as `ExprBinary`'s has, and set it from the expression row's span in `scalar.rs`. Pass it to `ApplyIntBinary`, and carry it in `FrameOperation::Binary` into `BinaryLeft` and `BinaryRight`. The payload change reaches the raw IR and the formal model: the bridge projection and its checks (`formal_bridge/arithmetic.rs`, `payload_words` and validation), the raw-IR decoder (`formal_bridge/raw_full.rs`), the Lean vertical model (`Artifact.lean` `payloadWords`, a `takeSpan` in `Lowering.lean:328`, `Meaning.lean:251`, `Reading.lean:470`, the row offsets in `Fixture.lean`), the regenerated raw-IR codes in `Documents.lean` for every fixture with `IntBinary` rows and the certificates over them, and the instruction schema records in `formal/coverage.json`. Land it after the raw-IR lane that is reworking those files. Then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
-- **Fix with:** root-cause
-- **Effort:** L
-
 ### XSH-160 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
 
 - **Area:** Runtime
@@ -146,6 +137,15 @@ out of scope.
 - **Problem:** Explicit-server `dns.lookup` sets a blocking UDP socket timeout, but `dns_io_error` recognizes only `ErrorKind::TimedOut`. [Rust documents](https://doc.rust-lang.org/stable/std/net/struct.UdpSocket.html#method.set_read_timeout) that Unix socket timeouts typically return `WouldBlock`, which this code maps to `dns-lookup`, so callers cannot consistently identify a DNS deadline expiry. The test server handles both error kinds, but the DNS transport tests only exercise successful replies. This is a source finding; a native XSH reproducer is still required.
 - **Recommendation:** Extend the existing loopback DNS fixture to receive a query and withhold its reply, then reproduce the error through native `dns.lookup` on the pinned Linux/musl target. Normalize `WouldBlock` and `TimedOut` to `dns-timeout` at the configured blocking-socket timeout boundary, without reclassifying unrelated resolver errors. Cover both error kinds directly and assert the native timeout kind and a bounded completion time; retain the existing successful A/AAAA cases and bounded fixture cleanup. The regression must need no external DNS or new daemon. Run the applicable Linux gate and the existing macOS qualification path.
 - **Fix with:** error-model, os-boundaries
+- **Effort:** S
+
+### XSH-171 · P2 · The runtime gate cases count the raw-IR module writer as unresolved
+
+- **Area:** Tooling
+- **Where:** `dev/gates.xsh:578-579` (the manual skip names), `dev/gates.xsh:626,673` (`test-runtime-unit` and `test-lowering`), `src/runtime/eval/indexed/full/formal_bridge/raw_full/program_image.rs:2135-2141` (`#[ignore]` `write_lean_raw_ir_modules`)
+- **Problem:** Since the raw-IR merge (884c096ce), `test-runtime-unit` (`runtime::`) and `test-lowering` (`runtime::eval`) select the ignored writer `write_lean_raw_ir_modules`, and the gate reports an ignored test as unresolved, so both cases end `incomplete` (exit 2) for any change. On lane/impl-adapters they reported `passed=1816, skipped=1` and `passed=1780, skipped=1`, with the writer as the only unresolved case. Every narrow gate that selects either case cannot pass.
+- **Recommendation:** Exclude the writer as the gates already exclude the other manual tests (`production_matches_lean_`, the program-image measurements): add its name to the `--skip` lists of both cases and to the expectations in `dev/tests/test-gates.xsh`.
+- **Fix with:** none
 - **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections

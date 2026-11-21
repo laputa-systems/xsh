@@ -117,7 +117,7 @@ test test_int_routes_report_each_failure_at_its_operator { |ctx|
       ctx,
       "pure apply(left: Int, right: Int) -> Int {\n  let result = left " + failure.op + " right\n  return result\n}\n" + call,
       status: 3,
-      stderr: [diagnostic],
+      stderr: [diagnostic, ":2:16"],
     )?
     assert typed.stdout == "", typed.stdout
     let annotated = test.expect(

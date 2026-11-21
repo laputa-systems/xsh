@@ -98,8 +98,8 @@ def word : FragmentTag → Word32
 def payloadWords : FragmentTag → Nat
   | intInt | stmtLetInt | exprInt | exprValueBlock | exprErr | exprTry => 2
   | exprParam | stmtReturn | stmtValue | intSlot | exprOk | exprRecord => 1
-  | exprIf | exprDirectPureCall | intBinary | stmtLet | exprField => 3
-  | exprBinary | stmtAssignInt => 4
+  | exprIf | exprDirectPureCall | stmtLet | exprField => 3
+  | exprBinary | intBinary | stmtAssignInt => 4
 
 def ofName? (text : String) : Option FragmentTag := all.find? fun tag => tag.name == text
 

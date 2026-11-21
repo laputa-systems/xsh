@@ -53,7 +53,9 @@ theorem the_several_let_source_parses_to_the_several_let_functions :
     severalLet_text_codes_round_trip, the_several_let_text_codes_parse]
 
 set_option maxRecDepth 100000 in
-theorem severalLet_span_words : spanWords severalLetArtifact = [⟨2, by decide⟩, ⟨3, by decide⟩] := by
+theorem severalLet_span_words :
+    spanWords severalLetArtifact =
+      [⟨2, by decide⟩, ⟨3, by decide⟩, ⟨4, by decide⟩, ⟨5, by decide⟩] := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -128,7 +130,7 @@ set_option maxRecDepth 100000 in
 function two, while only `scales` precedes it. The call's function word is the first payload
 word. -/
 theorem a_wrong_several_let_callee_is_rejected :
-    severalLetVerdictAfter (·.setExtraWord 31 ⟨2, by decide⟩) = false := by
+    severalLetVerdictAfter (·.setExtraWord 33 ⟨2, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -136,7 +138,7 @@ set_option maxRecDepth 100000 in
 for `scales` on 5 where the record holds 13. The read is the first word of the second value's
 `IntSlot` row. -/
 theorem a_wrong_several_let_binding_read_is_rejected :
-    severalLetVerdictAfter (·.setExtraWord 8 ⟨0, by decide⟩) = false := by
+    severalLetVerdictAfter (·.setExtraWord 9 ⟨0, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -145,7 +147,7 @@ before any statement binds it, so no recorded call has an outcome. The body bloc
 statement count, both binding rows and the return. -/
 theorem a_reordered_several_let_binding_is_rejected :
     severalLetVerdictAfter (fun artifact =>
-        (artifact.setExtraWord 24 ⟨7, by decide⟩).setExtraWord 25 ⟨3, by decide⟩) = false := by
+        (artifact.setExtraWord 26 ⟨7, by decide⟩).setExtraWord 27 ⟨3, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -184,9 +186,9 @@ set_option maxRecDepth 100000 in
 second binding naming the first binding statement as its value, and two bindings on the same slot.
 The bindings' payloads are the target slot and the value row. -/
 theorem malformed_several_let_ir_is_rejected :
-    severalLetVerdictAfter (·.setExtraWord 7 ⟨3, by decide⟩) = false ∧
-      severalLetVerdictAfter (·.setExtraWord 15 ⟨3, by decide⟩) = false ∧
-      severalLetVerdictAfter (·.setExtraWord 14 ⟨2, by decide⟩) = false := by
+    severalLetVerdictAfter (·.setExtraWord 8 ⟨3, by decide⟩) = false ∧
+      severalLetVerdictAfter (·.setExtraWord 17 ⟨3, by decide⟩) = false ∧
+      severalLetVerdictAfter (·.setExtraWord 16 ⟨2, by decide⟩) = false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 
 set_option maxRecDepth 100000 in

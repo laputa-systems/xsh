@@ -5,7 +5,7 @@ namespace Xsh.IR.Raw
 def instructionSchema : List TagSchema := [
   ⟨"IntInt", 0, .int, [.seq [.word .raw, .word .raw]]⟩,
   ⟨"IntSlot", 1, .int, [.word .slot]⟩,
-  ⟨"IntBinary", 2, .int, [.word .binaryOp, .word .int, .word .int]⟩,
+  ⟨"IntBinary", 2, .int, [.word .binaryOp, .word .int, .word .int, .word .location]⟩,
   ⟨"IntStrByteLenSlot", 3, .int, [.word .slot, .word .location]⟩,
   ⟨"IntStrCountLinesSlot", 4, .int, [.word .slot, .word .location]⟩,
   ⟨"IntStrByteAtSlot", 5, .int, [.word .slot, .word .int, .choice [0, 1] [.seq [], .word .int], .word .location]⟩,

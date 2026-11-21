@@ -10,9 +10,10 @@
 //! dimension form, confirms which lowered rows carry the operation, and runs it
 //! over a fixed operand grid in both execution modes. A program's outcome must
 //! be the shared decision's outcome on the same operator and operands: the same
-//! value, or the same error code and message. A swapped operand, a substituted
-//! operator or a remapped error at a grid point fails the case. Points outside
-//! the grid are unchecked, and the error's span is not compared (XSH-157).
+//! value, or the same error code and message, reported at the operator: the
+//! binary expression, or the compound assignment statement. A swapped operand,
+//! a substituted operator, a remapped error or another blamed span at a grid
+//! point fails the case. Points outside the grid are unchecked.
 
 use super::noncompletion_tests::{checked_program, function_index};
 use super::tests::run_with_large_stack;
@@ -387,6 +388,18 @@ fn case_source(form: Form, operation: &Operation, left: &str, right: &str, expec
     }
 }
 
+/// The source text of the operation that a failure of `form` must blame.
+fn operator_text(form: Form, symbol: &str, left: &str, right: &str) -> String {
+    match form {
+        Form::UnannotatedLet | Form::AnnotatedLet | Form::Returned | Form::Compared => format!("left {symbol} right"),
+        // A compound assignment blames its statement, line ending included.
+        Form::LocalCompound => format!("value {symbol}= right\n"),
+        Form::TopLevelCompound => format!("value_0 {symbol}= {right}\n"),
+        Form::Literal => format!("{left} {symbol} {right}"),
+        Form::Constant => unreachable!("constant preparation reports at check time"),
+    }
+}
+
 /// Requires the lowered rows that carry the operation to be the ones that select
 /// `form`'s execution route.
 fn assert_route(form: Form, operation: &Operation, source: &str) {
@@ -532,6 +545,16 @@ fn run_cases(form: Form, operation: &Operation, cases: &[(String, String, Outcom
                         && output.traceback.as_ref().is_some_and(|traceback| traceback.error.kind == *code && traceback.error.message == *message),
                     "{form:?} force_frames={force_frames} expected {code}: {message}\n{source}\n{}",
                     render(&output),
+                );
+                let blamed = output
+                    .traceback
+                    .as_ref()
+                    .and_then(|traceback| traceback.failing_span)
+                    .map(|span| &source[span.start()..span.end()]);
+                assert_eq!(
+                    blamed,
+                    Some(operator_text(form, operation.symbol, left, right).as_str()),
+                    "{form:?} force_frames={force_frames} blames another span\n{source}",
                 );
             }
         }

@@ -573,7 +573,7 @@ theorem int_value_lowers {cs : List (Option Callee)} {scope : List (String × Na
   | binary op left right =>
     simp only [Lower.intValue, run_bind, run_require] at h
     obtain ⟨_, s0, ⟨notComparison, h0⟩, leftRow, s1, hl, rightRow, s2, hr, operation, s3, hop,
-      push⟩ := h
+      span, s4, hspan, push⟩ := h
     have h0' : s = s0 := h0.symm
     subst h0'
     have plain : op.isComparison = false := by simpa using notComparison
@@ -581,30 +581,37 @@ theorem int_value_lowers {cs : List (Option Callee)} {scope : List (String × Na
     obtain ⟨second, hsecond, rl⟩ := int_atom_lowers (cs := cs) ll.wf hr
     obtain ⟨opLe, pooled, opRows, opExtra, opBlocks, opFunctions, opCallable⟩ :=
       operation_index_run hop
-    have wf3 : BlocksIndexed s3 := BlocksIndexed.congr (s := s2) (by simpa using opBlocks) rl.wf
-    have same : s3.functions = s.functions ∧ s3.callable = s.callable := by
+    obtain ⟨rest, spans, rfl⟩ := take_span_run hspan
+    have spanLe : StateLE s3 { s3 with spans := rest } :=
+      StateLE.of_preserved rfl rfl rfl rfl rfl rfl
+    have le4 : StateLE s2 { s3 with spans := rest } := opLe.trans spanLe
+    have wf4 : BlocksIndexed { s3 with spans := rest } :=
+      BlocksIndexed.congr (s := s2) (by simpa using opBlocks) rl.wf
+    have same : ({ s3 with spans := rest } : LoweringState).functions = s.functions ∧
+        ({ s3 with spans := rest } : LoweringState).callable = s.callable := by
       obtain ⟨a, b⟩ := ll.functions
       obtain ⟨c, d⟩ := rl.functions
       exact ⟨by simp [opFunctions, c, a], by simp [opCallable, d, b]⟩
     refine ⟨op.expression first second,
       by simp [SourceValue.expression?, plain, hfirst, hsecond], ?_⟩
-    refine int_lowers_row (ll.le.trans (rl.le.trans opLe)) wf3 same push ?_
+    refine int_lowers_row (ll.le.trans (rl.le.trans le4)) wf4 same push ?_
     intro F le
     have at_ := (push_row_at push rfl).mono le
     obtain ⟨pushed, hs', index, _⟩ := push_row_run push
     have pushLe := push_row_le push
     have leftBefore : leftRow.val < row.val := by
       have a := ll.before
-      have b := state_le_rows_length (rl.le.trans opLe)
-      simp only [index]; omega
+      have b := state_le_rows_length (rl.le.trans le4)
+      simp only [index]; simp at b ⊢; omega
     have rightBefore : rightRow.val < row.val := by
       have a := rl.before
-      have b := state_le_rows_length opLe
-      simp only [index]; omega
-    have pooledF : F.ops[operation.val]? = some op := op_mono (pushLe.trans le) pooled
+      have b := state_le_rows_length le4
+      simp only [index]; simp at b ⊢; omega
+    have pooledF : F.ops[operation.val]? = some op :=
+      op_mono (spanLe.trans (pushLe.trans le)) pooled
     exact int_reads_binary at_ leftBefore rightBefore pooledF plain
-      (ll.reads (rl.le.trans (opLe.trans (pushLe.trans le))))
-      (rl.reads (opLe.trans (pushLe.trans le)))
+      (ll.reads ((rl.le.trans le4).trans (pushLe.trans le)))
+      (rl.reads (le4.trans (pushLe.trans le)))
 
 theorem push_row_frame {tag : FragmentTag} {payload : List Word32} {s s' : LoweringState}
     {r : Word32} (h : Lower.pushRow tag payload s = some (r, s')) :

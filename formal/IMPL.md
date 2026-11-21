@@ -224,7 +224,9 @@ through parsing, checking, lowering, verification and execution, in both the
 in-place and the frame execution modes. Each outcome must equal the shared
 decision's outcome on the same operator and operands: the same value, the same
 error code and message, or, for `const`, a constant that preparation declines
-and the checker reports.
+and the checker reports. A runtime failure must also blame the operator, as
+SPEC 4.2 and 4.3 require: the traceback's failing span is the binary
+expression, or the compound assignment statement with its line ending.
 
 | Source form | Lowered rows | Path to the decision |
 |---|---|---|
@@ -295,15 +297,21 @@ now admits only `== != < <= > >=` in `BoolIntCompare` rows and only `==` and
 and two `BoolLiteralCompareSlot` rows to each of the 18 operators, and
 requires exactly the admitted ones to verify.
 
+XSH-157 is closed. The `IntBinary` row had no span, so the typed route of an
+unannotated `let` over `Int` parameters blamed the enclosing call (`5:9`,
+`apply(...)`) in both modes. The row now carries the operator's location, its
+payload growing from three words to four as `ExprBinary`'s has. In place,
+`ApplyIntBinary` reports at it; in frames, `FrameOperation::Binary` carries it
+into `BinaryLeft` and `BinaryRight`. The bridge projection, the raw-IR schema
+in `IR/Raw/Schema.lean`, the vertical model (`payloadWords`, the lowering's
+`takeSpan`, `intExpression?`, `int_reads_binary`, `int_value_lowers`) and the
+three certified documents with `IntBinary` rows follow the change. The native
+regression in [`int-arithmetic-routes.xsh`](../tests/xsh/int-arithmetic-routes.xsh)
+now requires `:2:16` on the typed route. Before the fix it failed in both modes
+with the failure at `5:9`, and after it passes in both.
+
 The remaining assumptions about the adapters are these:
 
-- **Reported at the operator.** Not shown. SPEC 4.2 and 4.3 place both
-  failures at the operator. The typed `IntBinary` route reports the enclosing
-  call in both modes, because its row carries no span (XSH-157). The route
-  tests compare no spans. The native regressions in
-  [`int-arithmetic-routes.xsh`](../tests/xsh/int-arithmetic-routes.xsh) and
-  [`duration-arithmetic.xsh`](../tests/xsh/duration-arithmetic.xsh) check the
-  line and column on the other forms.
 - **Off the grid.** An adapter fault that changes no outcome on the grids
   passes the tests.
 - **Unlisted routes.** Field and path compound assignment (`StmtAssignField`,
@@ -393,19 +401,18 @@ binary built by another compiler, not the x86_64 and aarch64 products.
 
 No proof attempt exposed an XSH defect, and no proved source changed.
 Writing the adapter regressions exposed the typed-route blame defect
-(XSH-157), whose repair changes the `IntBinary` payload and so waits for the
-raw-IR lane. The route tests exposed the top-level compound route (XSH-158),
-and corruption probes beside them exposed the unchecked comparison operators
-(XSH-159). The production changes are the operator checks in `verify_scalar`
-(XSH-155, XSH-159) and the top-level compound route's use of the shared
-adapters (XSH-158).
+(XSH-157), repaired by carrying the operator span on `IntBinary` rows. The
+route tests exposed the top-level compound route (XSH-158), and corruption
+probes beside them exposed the unchecked comparison operators (XSH-159). The
+production changes are the operator checks in `verify_scalar` (XSH-155,
+XSH-159), the top-level compound route's use of the shared adapters (XSH-158)
+and the `IntBinary` span (XSH-157).
 XSH-150 to XSH-154 concern paths, `.require`, module contracts and map writes,
 not these functions, and were not reused.
 
 ## Next
 
-Close the adapter gap: carry the operator span on `IntBinary` (XSH-157) after
-the raw-IR lane lands. Then prove
+Close the adapter gap: prove
 that both execution routes pass operators and operands to the shared decision
 and report its error at the operator span, which needs the lowering and
 indexed-execution steps for `IntBinary` and `ExprBinary` in the IR model. Then apply the same route to the membership decision

@@ -466,8 +466,8 @@ theorem int_reads_slot {F : LoweringState} {callees : List (Option Callee)} {row
     simp [intExpression?, readInstruction_of_rowAt at_]
 
 theorem int_reads_binary {F : LoweringState} {callees : List (Option Callee)}
-    {row op left right : Word32} {operation : FragmentOp} {first second : BaseExpr}
-    (at_ : F.RowAt row.val .intBinary [op, left, right])
+    {row op left right span : Word32} {operation : FragmentOp} {first second : BaseExpr}
+    (at_ : F.RowAt row.val .intBinary [op, left, right, span])
     (leftBefore : left.val < row.val) (rightBefore : right.val < row.val)
     (pooled : F.ops[op.val]? = some operation) (arithmetic : operation.isComparison = false)
     (readsLeft : IntReads F callees left first) (readsRight : IntReads F callees right second) :

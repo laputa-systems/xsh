@@ -248,7 +248,7 @@ def intExpression? (context : MeaningContext) : Nat → Word32 → Option BaseEx
       match tag, payload with
       | .intInt, [low, high] => some (.integerLiteral (signedOfWords low high))
       | .intSlot, [slot] => some (.identifier (NameId.mk slot))
-      | .intBinary, [op, left, right] => do
+      | .intBinary, [op, left, right, _] => do
           check (decide (left.val < index.val) && decide (right.val < index.val))
           let operation ← context.ops[op.val]?
           check (!operation.isComparison)

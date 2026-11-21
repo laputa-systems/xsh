@@ -622,11 +622,8 @@ fn eval_indexed_typed_scalar(
                         };
                         values.push(TypedScalarValue::Int(value));
                     }
-                    IntView::Binary { op, left, right } => {
-                        work.push(TypedScalarWork::ApplyIntBinary {
-                            op,
-                            span: call_span,
-                        });
+                    IntView::Binary { op, left, right, span } => {
+                        work.push(TypedScalarWork::ApplyIntBinary { op, span });
                         work.push(TypedScalarWork::Int(right.raw()));
                         work.push(TypedScalarWork::Int(left.raw()));
                     }
