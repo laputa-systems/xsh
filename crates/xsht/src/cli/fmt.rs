@@ -6,7 +6,6 @@ use crate::xsht::config::config_for_file;
 use crate::xsht::format::Formatter;
 use rustc_hash::FxHashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;

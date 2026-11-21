@@ -1,4 +1,4 @@
-use crate::xsht::cli::{CliOutput, XshConfig, text_bytes};
+use crate::xsht::cli::{CliOutput, text_bytes};
 use crate::xsht::config::config_for_file;
 use crate::xsht::format::Formatter;
 use xsh::diagnostic::DiagnosticRenderer;

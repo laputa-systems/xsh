@@ -1,4 +1,3 @@
-use crate::xsht::cli::{CliOutput, TraceOptions};
 
 #[cfg(all(
     target_os = "linux",

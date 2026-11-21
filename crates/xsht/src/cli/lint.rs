@@ -19,16 +19,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 use xsh::diagnostic::{
-    Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity,
+    Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Severity,
 };
 use xsh::frontend::check::{CheckBundleView, CheckOptions};
 use xsh::frontend::load::{
-    LoadedImport as WorkspaceImport, LoadedModule, ModuleLoader, module_key, parse_load_check_text,
+    LoadedImport as WorkspaceImport, LoadedModule, ModuleLoader, module_key,
 };
-use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::source::{SourceId, SourceMap};
 use xsh::frontend::symbols::SymbolOwner;
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
+    ArenaProgram, ArenaProgramBuilder, ArenaRange,
 };
 use xsh::frontend::syntax::grouping::grouping_diagnostics_in_range;
 use xsh::frontend::syntax::parser::Parser;
@@ -1913,7 +1913,7 @@ fn lint_one_file_with_fixes(
 ) -> LintResult {
     let symbols = SymbolOwner::new();
     let mut checked_program = symbols.with_current(|| {
-        parse_load_check_text(
+        xsh::frontend::load::parse_load_check_text(
             file,
             text.clone(),
             config.module_roots.clone(),
