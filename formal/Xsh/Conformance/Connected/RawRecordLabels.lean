@@ -27,7 +27,7 @@ def decodedRecordDocument : Option RawValueTree := do
   let functions ← (parseCodes recordRawFunctionCodes).bind decodeRawFunctionRows
   readRawValueTree rows functions 1 [] 16 4
 
-set_option maxRecDepth 100000 in
+set_option maxRecDepth 10000 in
 theorem rust_record_document_decodes_label_spellings :
     decodedRecordDocument = some (.record (.cons (rawBytes "name") (.slot 0)
       (.cons (rawBytes "size") (.binary .add (.slot 0) (.integer 1)) .nil))) := by
