@@ -26,6 +26,8 @@ structure Machine (world : World Declaration Identity Source) where
   assertion : Option (Value Declaration Identity Source) → Value Declaration Identity Source
   /-- How far a call's activation is from its caller's. -/
   activationStep : Nat
+  /-- The `Result` a conversion `value as T` gives (SPEC 6.11). -/
+  conversion : Value Declaration Identity Source → Xsh.Syntax.TypeExpr → Option (Value Declaration Identity Source)
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -49,7 +51,8 @@ structure Deferred (Declaration Identity Source : Type) where
 overlay and the locals of the function it is in. Inside a function body
 `callerStore` is the store at the call: its cells are read but not written.
 `activation` numbers the call, `deferred` holds the current block's actions,
-newest first, and `reported` the cleanup failures that were not primary. -/
+newest first, `reported` the cleanup failures that were not primary, and
+`waited` the retry delays taken. -/
 structure Frame (world : World Declaration Identity Source) where
   environment : Environment
   store : Store world
@@ -59,6 +62,9 @@ structure Frame (world : World Declaration Identity Source) where
   activation : Nat
   deferred : List (Deferred Declaration Identity Source)
   reported : List (Failure Declaration Identity Source)
+  /-- The delays `retry` attempts waited, in order; a delay is observed, not
+  slept. -/
+  waited : List (Value Declaration Identity Source)
 
 /-- The outcome of running statements. -/
 inductive Exec (world : World Declaration Identity Source) where
@@ -308,15 +314,117 @@ def fieldPath (spelling : Xsh.Syntax.RawName → String) :
   | .field base label => (fieldPath spelling base).map fun (root, path) => (root, path ++ [.field (spelling label)])
   | _ => none
 
-/-- The value of a function body that ends: its `return` value, or its tail
-expression. -/
-def bodyValue {world : World Declaration Identity Source} :
-    Exec world → Result Declaration Identity Source (Value Declaration Identity Source)
-  | .returned value _ => .value value
-  | .failed failure _ => .failure failure
-  | .unsupported => .unsupported
-  | .outOfFuel => .outOfFuel
-  | _ => .stuck
+/-- A plain value a `Result` function returns is wrapped in `Ok` (SPEC 8.5). -/
+def wrapOk (value : Value Declaration Identity Source) : Value Declaration Identity Source :=
+  match value.eraseNominal with
+  | .ok _ | .err _ => value
+  | _ => .ok value
+
+/-- A function's call result from its body's outcome: a `Result` function
+returns a raised failure, whether from `?`, an assertion or a primary cleanup
+failure, as its `Err`; any other function fails the call with it. -/
+def boundary {world : World Declaration Identity Source} :
+    ReturnKind → Exec world → Result Declaration Identity Source (Value Declaration Identity Source)
+  | .result, .returned value _ => .value (wrapOk value)
+  | .plain, .returned value _ => .value value
+  | .result, .failed (.raised error) _ => .value (.err error)
+  | _, .failed failure _ => .failure failure
+  | _, .unsupported => .unsupported
+  | _, .outOfFuel => .outOfFuel
+  | _, _ => .stuck
+
+/-- An expression's value with the frame it leaves, or the outcome that
+leaves instead. -/
+inductive Valued (world : World Declaration Identity Source) where
+  | value (value : Value Declaration Identity Source) (frame : Frame world)
+  | exec (outcome : Exec world)
+
+def Valued.bind {world : World Declaration Identity Source} :
+    Valued world → (Value Declaration Identity Source → Frame world → Valued world) → Valued world
+  | .value result frame, next => next result frame
+  | .exec outcome, _ => .exec outcome
+
+def Valued.toExec {world : World Declaration Identity Source} :
+    Valued world → (Value Declaration Identity Source → Frame world → Exec world) → Exec world
+  | .value result frame, next => next result frame
+  | .exec outcome, _ => outcome
+
+def Exec.thenValued {world : World Declaration Identity Source} :
+    Exec world → (Frame world → Valued world) → Valued world
+  | .normal frame, next => next frame
+  | other, _ => .exec other
+
+def resultThen {world : World Declaration Identity Source} {α : Type} (frame : Frame world) :
+    Result Declaration Identity Source α → (α → Valued world) → Valued world
+  | .value result, next => next result
+  | .failure failure, _ => .exec (.failed failure frame)
+  | .stuck, _ => .exec .stuck
+  | .unsupported, _ => .exec .unsupported
+  | .outOfFuel, _ => .exec .outOfFuel
+
+def fromEval {world : World Declaration Identity Source} (frame : Frame world)
+    (result : Result Declaration Identity Source (Value Declaration Identity Source)) : Valued world :=
+  resultThen frame result fun value => .value value frame
+
+/-- Leave a value block through `leave`: a tail value survives only a normal
+exit. -/
+def settle {world : World Declaration Identity Source} (leave : Exec world → Exec world) : Valued world → Valued world
+  | .value result inner =>
+    match leave (.normal inner) with
+    | .normal outer => .value result outer
+    | other => .exec other
+  | .exec other => .exec (leave other)
+
+/-- `?` (SPEC 8.3): `Ok` unwraps and `Err` raises its error. -/
+def propagate (value : Value Declaration Identity Source) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match value.eraseNominal with
+  | .ok payload => .value payload
+  | .err error => .failure (.raised error)
+  | _ => .unsupported
+
+/-- `try { ... }` (SPEC 8.8): a raised failure becomes `Err`, normal completion
+`Ok` of the tail; runtime and type failures, and every other exit, pass on. -/
+def capture {world : World Declaration Identity Source} : Valued world → Valued world
+  | .value value frame => .value (.ok value) frame
+  | .exec (.failed (.raised error) frame) => .value (.err error) frame
+  | other => other
+
+/-- The value of an effectful expression used inside a pure one. -/
+def valuedResult {world : World Declaration Identity Source} :
+    Valued world → Result Declaration Identity Source (Value Declaration Identity Source)
+  | .value value _ => .value value
+  | .exec (.failed failure _) => .failure failure
+  | .exec .outOfFuel => .outOfFuel
+  | .exec .stuck | .exec (.internal _ _) => .stuck
+  | .exec _ => .unsupported
+
+/-- Whether `retry ... on (pattern)` retries an error. -/
+def retryable (context : Context Declaration Identity Source) :
+    Option Xsh.Syntax.Pattern → Value Declaration Identity Source → Option Bool
+  | none, _ => some true
+  | some pattern, error =>
+    match matchPattern context pattern error with
+    | .matched _ => some true
+    | .failed => some false
+    | .unsupported => none
+
+/-- One `retry` attempt's outcome: success is `Ok`, a selected raised failure
+takes the next delay and goes on through `next`, and the last or an
+unselected one is `Err`. -/
+def retryStep {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (pattern : Option Xsh.Syntax.Pattern) (delays : List (Value Declaration Identity Source))
+    (next : Frame world → List (Value Declaration Identity Source) → Valued world) : Valued world → Valued world
+  | .value result after => .value (.ok result) after
+  | .exec (.failed (.raised error) after) =>
+    match retryable context pattern error with
+    | some true =>
+      match delays with
+      | delay :: rest => next { after with waited := after.waited ++ [delay] } rest
+      | [] => .value (.err error) after
+    | some false => .value (.err error) after
+    | none => .exec .unsupported
+  | other => other
 
 mutual
   /-- Expressions, with block function bodies run as statements. -/
@@ -325,21 +433,85 @@ mutual
         Result Declaration Identity Source (Value Declaration Identity Source)
     | 0, _, _, _, _, _ => .outOfFuel
     | fuel + 1, activation, store, environment, locals, expression =>
-      step machine.context environment store
-        (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
-        (fun defining parameters body =>
-          callBlock machine fuel (activation + machine.activationStep) store defining parameters body)
-        locals expression
+      match expression with
+      | .tryExpr inner => (evalExpr machine fuel activation store environment locals inner).bind propagate
+      | .convert inner target =>
+        (evalExpr machine fuel activation store environment locals inner).bind fun value =>
+          match machine.conversion value target with
+          | some converted => propagate converted
+          | none => .unsupported
+      | .valueBlock _ | .capture _ | .retry _ _ _ _ =>
+        valuedResult (runValue machine fuel ⟨environment, store, [], locals, some store, activation, [], [], []⟩ expression)
+      | _ =>
+        step machine.context environment store
+          (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
+          (fun defining parameters body kind =>
+            callBlock machine fuel (activation + machine.activationStep) store defining parameters body kind)
+          locals expression
 
   /-- A block function body runs in its own activation, in its defining
   environment with its parameters as locals; it may not write the caller's
   cells, and its own cells end with the call. -/
   def callBlock {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Nat → Store world → Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
-        Result Declaration Identity Source (Value Declaration Identity Source)
-    | 0, _, _, _, _, _ => .outOfFuel
-    | fuel + 1, activation, store, defining, parameters, body =>
-      bodyValue (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], []⟩ body)
+        ReturnKind → Result Declaration Identity Source (Value Declaration Identity Source)
+    | 0, _, _, _, _, _, _ => .outOfFuel
+    | fuel + 1, activation, store, defining, parameters, body, kind =>
+      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body)
+
+  /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
+  conversions on them run here with the frame they change; anything else is
+  evaluated. -/
+  def runValue {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → Xsh.Syntax.Expr → Valued world
+    | 0, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, expression =>
+      match expression with
+      | .valueBlock body => valueScope machine fuel frame body
+      | .capture body => capture (valueScope machine fuel frame body)
+      | .retry .delays delays pattern body =>
+        resultThen frame (evaluateAll (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals) delays)
+          fun scheduled => retryLoop machine fuel frame pattern body scheduled
+      | .tryExpr inner =>
+        (runValue machine fuel frame inner).bind fun value next => fromEval next (propagate value)
+      | .convert inner target =>
+        (runValue machine fuel frame inner).bind fun value next =>
+          match machine.conversion value target with
+          | some converted => fromEval next (propagate converted)
+          | none => .exec .unsupported
+      | .retry .backoff _ _ _ => .exec .unsupported
+      | expression => fromEval frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals expression)
+
+  /-- A value block (SPEC 6.9): its tail is computed before its defers run, and
+  an `Err` tail is its value, so it leaves without an error. -/
+  def valueScope {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.Statement → Valued world
+    | 0, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, body =>
+      settle (leaveBlock machine fuel frame) (runValueTail machine fuel frame.enter body)
+
+  def runValueTail {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.Statement → Valued world
+    | 0, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, body =>
+      match body with
+      | [] => .value (.scalar .unit) frame
+      | [.expression value] => runValue machine fuel frame value
+      | [.tailName name] => runValue machine fuel frame (.ident name)
+      | statement :: rest =>
+        (runStatement machine fuel frame statement).thenValued fun next => runValueTail machine fuel next rest
+
+  /-- `retry [delays] on (pattern) { ... }` (SPEC 8.8): each attempt is a
+  block; a raised failure the pattern selects takes the next delay and runs
+  another attempt, and the result is `Ok` of the first success or `Err` of
+  the last failure. -/
+  def retryLoop {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → Option Xsh.Syntax.Pattern → List Xsh.Syntax.Statement →
+        List (Value Declaration Identity Source) → Valued world
+    | 0, _, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, pattern, body, delays =>
+      retryStep machine.context pattern delays (fun after rest => retryLoop machine fuel after pattern body rest)
+        (valueScope machine fuel frame body)
 
   /-- A function body: its statements in a scope, the last one a tail
   expression whose value is returned. -/
@@ -354,13 +526,9 @@ mutual
     | 0, _, _ => .outOfFuel
     | fuel + 1, frame, body =>
       match body with
-      | [] => .stuck
-      | [.expression value] =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals value) fun result =>
-          .returned result frame
-      | [.tailName name] =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals (.ident name)) fun result =>
-          .returned result frame
+      | [] => .returned (.scalar .unit) frame
+      | [.expression value] => (runValue machine fuel frame value).toExec fun result next => .returned result next
+      | [.tailName name] => (runValue machine fuel frame (.ident name)).toExec fun result next => .returned result next
       | statement :: rest =>
         (runStatement machine fuel frame statement).andThen fun next => runTail machine fuel next rest
 
@@ -423,19 +591,19 @@ mutual
     | fuel + 1, frame, statement =>
       match statement with
       | .binding kind target _ initializer =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals initializer) fun value =>
-          bindTarget machine frame (bindingMutability kind) target value
+        (runValue machine fuel frame initializer).toExec fun value next =>
+          bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         match frame.callerStore with
         | some _ => .unsupported
         | none =>
-          fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals value) fun result =>
+          (runValue machine fuel frame value).toExec fun result next =>
             match machine.resolution.argv result with
-            | none => .internal .unconvertibleEnvironment frame
+            | none => .internal .unconvertibleEnvironment next
             | some bytes =>
-              match setEnvironment machine.raises frame.overlay (machine.context.spelling key).toUTF8.toList bytes with
-              | .ok overlay => .normal { frame with overlay := overlay }
-              | .error failure => .failed failure frame
+              match setEnvironment machine.raises next.overlay (machine.context.spelling key).toUTF8.toList bytes with
+              | .ok overlay => .normal { next with overlay := overlay }
+              | .error failure => .failed failure next
       | .assign target op value =>
         match fieldPath machine.context.spelling target with
         | none => .unsupported
@@ -446,15 +614,18 @@ mutual
             match frame.callerStore.bind fun caller => caller cell with
             | some _ => .unsupported
             | none =>
-              fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals value) fun result =>
-                fromStep frame frame.environment frame.locals
-                  (assignPath world machine.decisions machine.raises machine.operate frame.store cell path op result)
+              (runValue machine fuel frame value).toExec fun result next =>
+                fromStep next next.environment next.locals
+                  (assignPath world machine.decisions machine.raises machine.operate next.store cell path op result)
       | .expression (.valueBlock body) => runBlock machine fuel frame body
       | .expression value =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals value) fun _ => .normal frame
+        (runValue machine fuel frame value).toExec fun result next =>
+          match result.eraseNominal with
+          | .err error => .failed (.raised error) next
+          | _ => .normal next
       | .returnValue (some value) =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals value) fun result =>
-          .returned result frame
+        (runValue machine fuel frame value).toExec fun result next => .returned result next
+      | .returnValue none => .returned (.scalar .unit) frame
       | .ifStmt branches otherwise => runIf machine fuel frame branches otherwise
       | .whileStmt condition body => runWhile machine fuel frame condition body
       | .forStmt target iterable body =>

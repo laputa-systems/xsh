@@ -15265,6 +15265,15 @@
       "boundary": "Cancellation, exit statuses, owned streams, process handles, network jobs, roots and locks, tempdir, with and resource scopes, retry attempts and try blocks are not modelled; a primary cleanup failure in a Result-returning function is a failure of the call rather than its Err return, and an internal fault skips the pending actions. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Control.error_handling",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.error_handling",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.1, 8.3, 8.5, 8.7 and 8.8 in the statement machine: ? and conversions unwrap Ok and raise the error of Err, in statements and inside expressions; a statement-position Err fails its statement; try { ... } is a value block whose raised failure becomes Err and whose completion is Ok of its tail, while runtime and type failures, return, break and continue pass on; a value block's Err tail is its value and leaves it normally, so its errdefers are not due; each retry attempt is a value block, a raised failure the on filter selects takes the next delay as an observation and runs again, and the result is Ok of the first success or Err of the last failure; a block function's return kind makes a raised failure, including a primary cleanup failure, its Err and wraps plain values in Ok, while a plain function fails the call.",
+      "boundary": "Ok and Err values come from the store, locals or function results: no constructor calls. Conversions are a parameter; retry backoff schedules, clocks, exit, cancellation, try before a run form, Result[Bool] conditions, ?? and handlers, and error contexts are not modelled; an expression-bodied function has no return kind, so its ? fails the call. Return, break and continue inside an effectful expression nested in another expression are unsupported. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",

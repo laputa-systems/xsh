@@ -159,7 +159,7 @@ variable (context : Context Declaration Identity Source) {world : World Declarat
   (environment : Environment) (store : Store world)
   (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
     Result Declaration Identity Source (Value Declaration Identity Source))
-  (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+  (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
     Result Declaration Identity Source (Value Declaration Identity Source))
   (locals : Locals Declaration Identity Source)
 
@@ -912,7 +912,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
         obtain ⟨evaluated, evaluatedValue, called⟩ := bind_value produced
         by_cases sameLength : parameterNames.length = evaluated.length
         · cases functionBody with
-          | block statements => simp [sameLength] at called
+          | block statements kind => simp [sameLength] at called
           | expression body =>
             simp only [sameLength, ite_true] at called
             obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
