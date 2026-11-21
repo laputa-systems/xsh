@@ -623,6 +623,17 @@ theorem body_syntax_complete {shape : ResultShape} {name : String} {parameters :
     cases record with
     | record valid fields => simpa [parseFunctionBody] using parsed
 
+theorem function_syntax_complete {tokens rest : List Token} {function : SourceFunction}
+    (derivation : FunctionSyntax tokens function rest) :
+    parseFunction tokens = some (function, rest) := by
+  cases derivation with
+  | @function name parameters shape tokens afterParameters bodyTokens rest function params result body =>
+    have bound := parameters_fit_tokens params
+    have parsedParameters := parameters_complete params (tokens.length + 1) (by omega)
+    have parsedType := return_type_complete result
+    have parsedBody := body_syntax_complete body
+    simp [parseFunction, parsedParameters, parsedType, parsedBody]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
