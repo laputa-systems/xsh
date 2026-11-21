@@ -403,7 +403,7 @@ Statements:
 
 Expressions:
 
-- writable captures and first-class local functions (P)
+- first-class local functions (P)
 - map and set comprehensions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
 - `match` as an expression, comparison chains, `in`, set literals and set
@@ -417,11 +417,23 @@ Expressions:
 - Float literal and `parse_float` rounding, method calls behind
   `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
 
-Patterns: text holes other than `s` and `d` (P).
+Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
+rounding (P).
 
-Binders: declared types still come from the resolution oracle, and the
-resolver is the canonical binder scheme over the machine's lexical depth, not
-a separate pass over the syntax (P).
+Binders: declared types still come from the resolution oracle (P), and the
+resolution pass is tied to the machine through the operations
+`resolution_and_captures` names, not for whole machine runs (P).
+
+The `resolution_and_captures` fragment root adds the syntax-directed
+resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
+`Represents` link between the machine's lexical environment and the pass's
+scopes, and writable captures: a statement-level call of a local function
+returns with the caller's cells as the callee left them, and the callee may
+write a caller-held cell only when it is one of the closure's captured mutable
+cells (SPEC 9.2). Its witnesses are a counter closure, a write that reaches the
+captured cell rather than the call site's shadowing one, and the pass on a
+straight-line program; the mutants lose the write or write the call site's
+cell.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

@@ -2160,6 +2160,46 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
   · intro fuel scope store environment locals value present
     simp [evalExpr, present]
 
+/-- The resolution pass and captured writes. The pass's `staticResolve` gives
+each use the canonical binder of the innermost scope declaring it, and
+`Represents` holds between the machine's lexical environment and the pass's
+scopes: entering a block pushes an empty scope, binding a name target under
+the canonical resolution adds the name to the innermost scope, and so every
+use resolves at run time to the pass's binder. A local function's capture set
+is exactly its free names other than its parameters that resolve outside it,
+and every mutable cell it may write is the cell of a name in that set; a
+statement-level call returns with the caller's cells as the callee left
+them. -/
+theorem resolution_and_captures {world : World Declaration Identity Source} (machine : Machine world) :
+    (∀ (names : LexicalEnvironment) scopes, Represents names scopes → Represents (enterScope names) ([] :: scopes)) ∧
+    (∀ (names : LexicalEnvironment) top outer, Represents names (top :: outer) → ∀ name,
+      Represents (Xsh.Semantics.Environments.bind names name (canonicalBinder name (outer.length + 1)))
+        ((name :: top) :: outer)) ∧
+    (∀ (names : LexicalEnvironment) scopes, Represents names scopes → ∀ name,
+      resolve names name = staticResolve scopes name) ∧
+    (∀ base types, machine.resolution = canonicalResolution base types →
+      ∀ frame next mutability name value top outer, Represents frame.environment.names (top :: outer) →
+        bindTarget machine frame mutability (.name name) value = .normal next →
+          Represents next.environment.names ((name :: top) :: outer)) ∧
+    (∀ scopes parameters body name, name ∈ staticCaptures scopes parameters body ↔
+      name ∈ Xsh.Syntax.freeStatementsFuel 256 parameters body ∧ (staticResolve scopes name).isSome) ∧
+    (∀ (frame : Frame world) scopes, Represents frame.environment.names scopes → ∀ parameters body cell,
+      cell ∈ mutableCaptures frame (captureNames parameters body) →
+        ∃ name ∈ staticCaptures scopes parameters body, frame.environment.cellOf name = .ok cell) ∧
+    (∀ (caller callee : Frame world) kind value,
+      returnTo caller kind (.returned value callee) =
+        .value (match kind with | .result => wrapOk value | .plain => value)
+          { caller with store := keep caller.store callee.store }) :=
+  ⟨fun _ _ carried => represents_enter carried,
+    fun _ _ _ carried name => represents_declare carried name,
+    fun _ _ carried name => represents_lookup carried name,
+    fun base types resolved frame next mutability name value top outer carried bound =>
+      bindTarget_represents machine base types resolved frame next mutability name value top outer carried bound,
+    staticCaptures_exact,
+    fun frame scopes carried parameters body cell writable =>
+      writable_captured frame scopes carried parameters body cell writable,
+    fun _ _ _ _ => rfl⟩
+
 end Root
 
 namespace Witness
