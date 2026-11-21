@@ -36,6 +36,10 @@ command options.
 Tool configuration lives in `xsht-config.ini`; see
 [configuration](docs/XSHT.md#configuration).
 
+## Develop
+
+Follow the [development setup](docs/DEVELOPMENT.md) to build and verify XSH.
+
 ## Learn
 
 - Start with the [user tour](docs/user-tour.md).

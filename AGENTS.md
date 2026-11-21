@@ -6,6 +6,8 @@ the topic owner below. For capability or architecture work, apply the
 [design principles](docs/DESIGN.md): keep the core/substrate small and make
 userspace growth remove machinery rather than duplicate its responsibilities.
 
+For Ubuntu bootstrap and default verification, see [Development](docs/DEVELOPMENT.md).
+
 ## Commands and invariants
 
 - Build: `cargo dev build`; run the narrowest applicable check with `cargo dev gate PATH...`.
