@@ -171,6 +171,21 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
+The validated-type obligations use the Core types directly.
+[`Validation/Core/Validated.lean`](Xsh/Validation/Core/Validated.lean) names
+the four validation identities (`NonEmpty` with its element, `RelPath`, a
+nominal declaration with its schema, and a bounded interval), each base, and
+the base-view relation: a validated position at any depth of a collection,
+record, optional, result, union, stream element or callable return may stand
+for its base. VAL-WIDEN is closed by `validated_widening` in
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean): a view
+carries members to members, a view into a validated type is the identity, and
+no base views as its validated type. Stream and callable views hold in worlds
+whose retained contracts are closed under views; a world that retains a
+`Stream[RelPath]` contract without `Stream[Path]` refutes the unconditional
+statement, and the witnesses record it. Nested intervals are not views, even
+though the interval-containment fragment relates them.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

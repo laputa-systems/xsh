@@ -3005,8 +3005,10 @@
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-WIDEN"
+      "status": "closed",
+      "proof_root_id": "full.VAL-WIDEN",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
