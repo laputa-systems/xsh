@@ -381,6 +381,51 @@ are rejected: a `try` that captures runtime failures, a tail `Err` treated as
 a normal exit, a `retry` that skips attempt defers, and a `Result` function's
 cleanup failure escaping as a call failure.
 
+### BASE-ENV and BASE-STEP gap list
+
+`xsh-lean.md` closes BASE-ENV and BASE-STEP "only when their theorems hold for
+the frozen core's syntax, values and host request families"; BASE-STEP also
+needs every numeric step result to meet the BASE-NUM meanings, including
+`IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning`. This list is every core
+form the expression evaluator and statement machine still leave
+`.unsupported` (P: pure, E: needs clocks, processes, the filesystem or the host
+environment).
+
+Statements:
+
+- index-selector assignment `xs[i] = v`, with the `Map[UInt]` key rule (P)
+- `guard let` (P)
+- `break` with a value, which needs `loop` as an expression (P)
+- `for` over `Map`, `Str` and `Bytes` (P); over `Stream` (E)
+- `yield` and `yield @` into `collect` (P); stream producers (E)
+- `use` aliases, which need module loading (E)
+- `export` of anything but a binding, `type`, `error` and function
+  declarations as runtime binders (P)
+- `with` resource scopes, `exit`, signal hooks and command statements (E)
+
+Expressions:
+
+- `Ok(...)` and `Err(...)` constructors, and constructor calls in general (P)
+- return kinds for expression-bodied functions (P)
+- `??` and its handler blocks (P)
+- `Result[Bool]` conditions and `and`/`or` operands in control position (P)
+- `match` as an expression, comparison chains, `in`, set literals and set
+  operators, slices, guarded `?.` and `?[]` (P)
+- record spread, shorthand, computed and path fields (P)
+- named, spread and splice arguments, defaults, methods, closures and value
+  pipelines (P)
+- list, map and set comprehensions and `collect` (P)
+- `loop` as an expression (P)
+- `.require` (P), `ctx` error contexts (P)
+- `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
+  `spawn`, `wait`, run forms, pipelines and stream stages (E), `$NAME` and
+  `$PATH` reads (E), `$?` (E)
+- Float literal and `parse_float` rounding, method calls behind
+  `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
+
+Patterns: alternation, alias, constructor and error-variant patterns, type
+tests, facets, tuples and text patterns (P).
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,
