@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 158
+Next: 160
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -112,6 +112,15 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
+### XSH-158 · P2 · Top-level compound assignment repeats Int arithmetic and rejects Duration operands
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/lower.rs:6441-6492` (a top-level `name OP= value` whose binding is not `UInt` lowers to `BuildTopKind::Assign`); `src/runtime/eval/lowered_run/indexed_run/driver.rs:325-357` (`DriverPayloadView::Assign` calls `compound_assignment_value`); `src/runtime/eval.rs:8105-8171` (`compound_assignment_value`: List, its own checked Int arms, Float, then `type-error`); reproduction: `var d = 1s\nd += 500ms\nassert d == 1500ms`
+- **Problem:** At top level `d += 500ms` on a `Duration` passes the checker and fails at runtime with `type-error: += assignment cannot combine Duration and Duration`, though SPEC 4.3 says compound assignment follows the Duration rules. The same statement inside a function lowers to `StmtAssign` and reaches `lowered_assign_value`, which works. Int compound assignment at top level takes the same function, whose arms repeat `crate::arith::checked_int_binary` instead of calling it, so the refinement proof of that function does not cover the route; `int_top_level_compound_route_conformance` shows agreement at the 720 points of its grid only. Reproduced with the x86_64 musl release `xsh` built from the lane-impl-adapters sources (`err: type-error`, exit 3; the function form prints `ok`) and by `duration_route(Form::TopLevelCompound)` in `src/runtime/eval/indexed/full/arith_route_tests.rs`, which has no test until this is fixed.
+- **Recommendation:** Route the driver `Assign` step's arithmetic through the shared decisions (as `lowered_assign_value` does) and delete the repeated Int arms in `compound_assignment_value`. Add `duration_top_level_compound_route_conformance` (`duration_route(Form::TopLevelCompound)`) and a native test for top-level Duration compound assignment.
+- **Fix with:** root-cause
+- **Effort:** S
+
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
@@ -128,4 +137,13 @@ out of scope.
 - **Problem:** Reading a missing key fails with `map-missing`, but a compound update or deeper path write through a missing key (`m["k"] += 1`, `m["k"].x = 1`) fails with `missing-field` and a message rendering the key as `Str("k")`. The two paths name the same condition differently and the write message leaks Rust Debug formatting.
 - **Recommendation:** Raise the read path's kind and message for a missing key on the write path, state the kind in the SPEC's map-assignment rules, and add native tests for compound and nested writes through a missing key.
 - **Fix with:** none
+- **Effort:** S
+
+### XSH-159 · P3 · FullVerifier accepts any operator in BoolIntCompare and BoolLiteralCompareSlot rows
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`verify_scalar`, the `_ => {}` arm for Bool views); `src/runtime/eval/lowered_run/indexed_run/values.rs:772` (`unreachable!("verified literal comparison")`) and `:817` (`unreachable!("verified typed comparison")`)
+- **Problem:** The comparison sibling of the closed XSH-155. Reproduced with corruption probes on lowered programs: rewriting the `>` of `if left / right > 2` (a `BoolIntCompare` row) to `Add` passes `FullVerifier::verify`, then in-place execution panics at values.rs:817 ("entered unreachable code: verified typed comparison") and frame execution fails with `type-error: lowered expression expected Bool`. Rewriting the `==` of `if value == "x"` (a `BoolLiteralCompareSlot` row) to `Lt` also passes, and both modes panic at values.rs:772 ("verified literal comparison"). The lowerer emits only comparisons in these rows, so lowered programs are safe; IR built another way is not.
+- **Recommendation:** In `verify_scalar`, reject a `BoolIntCompare` operator other than `Eq`, `Ne`, `Lt`, `Le`, `Gt` and `Ge`, and a `BoolLiteralCompareSlot` operator other than `Eq` and `Ne`, as XSH-155 does for `IntBinary`; add both corruption cases to `src/runtime/eval/indexed/full/arith_route_tests.rs`.
+- **Fix with:** root-cause
 - **Effort:** S
