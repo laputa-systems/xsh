@@ -14,10 +14,13 @@ independent definitions. It holds conditionally on the named extraction
 pipeline and library models. It is not `SPEC_PROVED` (the subject is a model of
 Rust, not the independent semantics), not `RUST_CONFORMANCE` (no named Rust
 test produced it) and not a proof of a shipped binary. The inventory checker
-fails a `checked` record when a source, copied declaration, translation,
-library patch or toolchain pin differs from the recorded identity; such a
-record must be regenerated and rechecked, or marked `stale`, which keeps it out
-of the evidence.
+fails a `checked` record when a production source, copied declaration,
+translation, library patch or toolchain pin differs from the recorded
+identity, and when any harness file or formal module that the harness imports
+(`proof_sources`: `Core/Arith.lean`, `Values/DurationOps.lean`,
+`Values/Scalars.lean`, `Foundation.lean` and every file under
+`dev/verify/aeneas`) changes or appears. Such a record must be regenerated and
+rechecked, or marked `stale`, which keeps it out of the evidence.
 
 ## Methods adopted
 
@@ -94,7 +97,10 @@ full domain.
 - **Domain.** All 18 operators, all `u64` milliseconds and all `i64` counts in
   either position.
 - **Connection.** The same slice and translation. The translation includes
-  core's bodies of `TryFrom<i64> for u64` and `TryFrom<u64> for i64`.
+  core's bodies of `TryFrom<i64> for u64` and `TryFrom<u64> for i64` as the
+  extraction nightly-2026-09-17 defines them, not the production nightly's;
+  the slice witness tests run the production toolchain's conversions on the
+  same cases.
 
 ## Accepted theorems
 
@@ -110,9 +116,15 @@ theorem XshImpl.Duration.checked_duration_binary_refines
       decode out = expected op (operand left) (operand right)
 ```
 
-`expected` is defined from the independent definitions only
-([`ArithSpec.lean`](../dev/verify/aeneas/lean/XshImpl/ArithSpec.lean),
-[`Duration.lean`](../dev/verify/aeneas/lean/XshImpl/Duration.lean)).
+`expected` reads only the independent definitions. For Int
+([`ArithSpec.lean`](../dev/verify/aeneas/lean/XshImpl/ArithSpec.lean)) it
+maps `+ - * / %` to `Xsh.Core.Arith.checked` and every other operator to
+`none`. For Duration
+([`DurationSpec.lean`](../dev/verify/aeneas/lean/XshImpl/DurationSpec.lean))
+the dimension table is written in the harness: it dispatches each admitted
+operator and dimension pair to `Xsh.Values.DurationOps` and every other pair
+to invalid dimensions, matching the SPEC 4.3 table (`docs/templates/SPEC.md`,
+rendered at `docs/SPEC.md` lines 879–883).
 `decode_injective` holds for both decoders, so each extracted result, including
 its error constructor, is the unique one with the specified meaning. The
 theorems depend only on `propext`, `Quot.sound` and `Classical.choice`.
@@ -120,17 +132,20 @@ theorems depend only on `propext`, `Quot.sound` and `Classical.choice`.
 **Trust boundary.** The theorems are about the Aeneas translation of the
 identified source. They rely on rustc nightly-2026-09-17 (the extraction
 compiler, not the production nightly-2026-11-09) producing MIR with the
-production meaning, on Charon and Aeneas preserving it, on the audited Aeneas
+production meaning, on core's `TryFrom` bodies at that nightly matching the
+production ones, on Charon and Aeneas preserving it, on the audited Aeneas
 library models, and on the Lean 4.35.0 kernel. They say nothing about LLVM,
 the linked binary or the host.
 
 ## Library audit
 
 The translation leaves no axiom, opaque item or noncomputable section;
-`extract.sh` refuses one. It calls these library models: `I64` and `U64`
+`extract.sh` refuses one. It calls these library models: `I64`
 `checked_add`, `checked_sub`, `checked_mul`, `checked_div` and `checked_rem`;
-`Option::ok_or`; `Result::map_err`; `Try::branch` and `FromResidual` for `?`;
-unsigned division; and the `as` casts `IScalar.hcast` and `UScalar.hcast`.
+`U64` `checked_add`, `checked_sub` and `checked_mul`; unsigned `/`
+(`UScalar.div`); `Option::ok_or`; `Result::map_err`; `Try::branch` and
+`FromResidual` for `?`; and the `as` casts `IScalar.hcast` and
+`UScalar.hcast`.
 The proofs use the library's specification lemmas, which the kernel checks, so
 the trust is in each model definition matching Rust; each was read against
 the Rust documentation. One was wrong: upstream `checked_rem` for signed integers is
@@ -173,10 +188,12 @@ Aeneas defaults; the hand-written modules set no option.
   overflow, wrapping duration addition, saturating subtraction, a wrapped
   negative factor and a wrapping interval count, and an implementation that
   always reports a type error.
-- **Source mutant.** `mutant.sh` replaces `checked_add` with `wrapping_add` in a
-  copy of `src/arith.rs`, extracts the copy, and requires both that the
-  unchanged refinement proof fails and that Lean proves the extracted mutant
-  violates the property at `i64::MAX + 1`.
+- **Source mutants.** `mutant.sh` replaces `checked_add` with `wrapping_add`
+  in a copy of `src/arith.rs` and checked Duration subtraction with
+  `saturating_sub` in a copy of `src/duration.rs`, extracts the copies, and
+  requires that both unchanged refinement proofs fail and that Lean proves
+  each extracted mutant violates its property, at `i64::MAX + 1` and at
+  `0ms - 1ms`.
 
 ## Adapters
 
@@ -206,13 +223,14 @@ reproduced (XSH-155).
 
 ## Reproduce
 
-From the repository root, with Docker, network access for the first run, and
-the pinned Lean on `PATH` (`.work/bin/lean-slot` provides it here):
+From the repository root. `extract.sh` and `mutant.sh` need Docker, the first
+run needs network access, and `check.sh` and `mutant.sh` need Lean 4.35.0
+(elan toolchain v4.35.0) on `PATH`:
 
 ```sh
 dev/verify/aeneas/extract.sh --check
-.work/bin/lean-slot dev/verify/aeneas/check.sh
-.work/bin/lean-slot dev/verify/aeneas/mutant.sh
+dev/verify/aeneas/check.sh
+dev/verify/aeneas/mutant.sh
 cargo test --locked --manifest-path dev/verify/aeneas/slice/Cargo.toml
 python3 formal/scripts/check-inventory.py
 ```
@@ -220,15 +238,17 @@ python3 formal/scripts/check-inventory.py
 `extract.sh` downloads the Aeneas release and checks its SHA-256, builds the
 extraction image from `extract.Dockerfile`, extracts the slice and compares the
 translation with the committed file (without `--check` it installs it).
-`check.sh` fetches Mathlib's cache, applies the patch, builds `XshImpl`, audits
-the axioms of the 25 recorded theorems and runs `leanchecker --fresh XshImpl`.
+`check.sh` fetches Mathlib's cache, requires the Aeneas package to be the
+pinned revision whose working diff is exactly the patch (applying the patch
+when absent), builds `XshImpl`, audits the axioms of the 25 recorded theorems
+and runs `leanchecker --fresh XshImpl`.
 
 Measured on the shared 32-CPU host in one 4-CPU Lean slot, over two runs:
 extraction 5 s; warm `check.sh` 184 and 228 s; `leanchecker --fresh XshImpl`
 172 and 204 s wall, 164 and 194 s user, 2.51 GiB peak resident memory both
 times, over the whole import closure including the Mathlib and Aeneas modules
 it reaches; rebuilding the 60 Aeneas modules the patch
-affects 44 s and 2.0 GiB; the source mutant 17 s. Mathlib v4.35.0
+affects 44 s and 2.0 GiB; both source mutants 44 s. Mathlib v4.35.0
 (`56a00585`, Apache-2.0) and Aeneas (Apache-2.0) are dev-only dependencies of
 this harness, not of `formal/` or any product.
 
@@ -238,20 +258,21 @@ One bounded investigation of the OSS Verify route used the harness
 [`dev/verify/binary/fuzz`](../dev/verify/binary/fuzz/fuzz_targets/checked_int_binary.rs):
 an `LLVMFuzzerTestOneInput` that decodes an operator and two `i64` values,
 calls the production `checked_int_binary`, compares it with an `i128`
-restatement of `Xsh.Core.Arith.checked`, and aborts on a difference. A halts proof of its plain
-build would prove the property for the binary. Built as a riscv64 musl static
-library with rustc nightly-2026-09-17 (`-Copt-level=s -Cpanic=abort
--Zub-checks=no --cfg fuzzing`), the entry point keeps the guarded `div`,
-`rem` and `mulh` instructions and a reachable call to `std::process::abort`:
+restatement of `Xsh.Core.Arith.checked`, and aborts on a difference. It
+returns -1, libFuzzer's rejection, for an input shorter than 17 bytes, so
+rejection is distinct from a checked input. A halts proof of its plain build
+would prove the property for the binary. The package is a static library,
+because the driver supplies `main`. Built for riscv64 musl with rustc
+nightly-2026-09-17 (`panic = "abort"`, `opt-level = "s"`, `-Zub-checks=no
+--cfg fuzzing`), the entry point keeps the guarded `div`, `rem` and `mulh`
+instructions and a reachable call to `std::process::abort`:
 
 ```sh
 rustup target add riscv64gc-unknown-linux-musl --toolchain nightly-2026-09-17
-rustc +nightly-2026-09-17 --edition 2024 --crate-type staticlib --crate-name xsh_arith_fuzz \
-  --target riscv64gc-unknown-linux-musl -C opt-level=s -C panic=abort -C debuginfo=1 \
-  -Zub-checks=no --cfg fuzzing dev/verify/binary/fuzz/fuzz_targets/checked_int_binary.rs \
-  -o .work/impl/binary/libxsh_arith_fuzz.a
-cd .work/impl/binary
-member=$(llvm-ar t libxsh_arith_fuzz.a | rg '^libxsh_arith_fuzz\.xsh_arith_fuzz\.')
+RUSTFLAGS='-Zub-checks=no --cfg fuzzing' cargo +nightly-2026-09-17 build --locked --release \
+  --target riscv64gc-unknown-linux-musl --manifest-path dev/verify/binary/fuzz/Cargo.toml
+cd dev/verify/binary/fuzz/target/riscv64gc-unknown-linux-musl/release
+member=$(llvm-ar t libxsh_arith_fuzz.a | rg '^xsh_arith_fuzz-[0-9a-f]+\.xsh_arith_fuzz\.')
 llvm-ar x libxsh_arith_fuzz.a "$member"
 llvm-objdump -dr "$member" | rg 'R_RISCV_CALL|\b(div|rem|mulh)\b'
 ```
