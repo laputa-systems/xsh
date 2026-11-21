@@ -2202,6 +2202,8 @@
         "UnixTtyname",
         "UnixControllingTty",
         "UnixOpenFd",
+        "UnixFdInfo",
+        "UnixSetFdFlags",
         "UnixPollFd",
         "UnixPollFds",
         "UnixCloseFd",
@@ -12370,6 +12372,33 @@
       "status": "fragment",
       "scope": "The projected scoped assignment checks and rejects changed ordinal, slot, statement location, tag name, and assignment operator.",
       "boundary": "The rows are a projection of diagnostic output, not an exact decoded foreign artifact or a runtime simulation."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.record_label_comes_from_labels",
+      "module": "Xsh.Conformance.Connected.RawRecordLabels",
+      "declaration": "Xsh.Conformance.Connected.record_label_comes_from_labels",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A raw record expression reads its field name from the instruction label pool.",
+      "boundary": "The rows are one fixed raw record document; general record decoding, transfer marks and execution correspondence remain unchecked."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.assignment_field_comes_from_labels",
+      "module": "Xsh.Conformance.Connected.RawRecordLabels",
+      "declaration": "Xsh.Conformance.Connected.assignment_field_comes_from_labels",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A raw field assignment step takes its field name from the label pool and rejects an out-of-range label.",
+      "boundary": "The rows are one fixed raw record document; general record decoding, transfer marks and execution correspondence remain unchecked."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.rust_record_document_decodes_label_spellings",
+      "module": "Xsh.Conformance.Connected.RawRecordLabels",
+      "declaration": "Xsh.Conformance.Connected.rust_record_document_decodes_label_spellings",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Rust-emitted record document decodes to fields named by their label spellings.",
+      "boundary": "Agreement is with one recorded Rust document, not a universal decoder theorem."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
