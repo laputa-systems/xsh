@@ -15036,6 +15036,42 @@
       "status": "fragment",
       "scope": "Admitted source functions do not directly call a record-local function anywhere in the same module, including a later declaration.",
       "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "utf8ValidB decides the declarative ValidUtf8 predicate over every byte list.",
+      "boundary": "Decisions over arbitrary byte lists for Unicode Table 3-7 well-formedness. No Rust lexer correspondence or diagnostic rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The first-invalid-offset scan reports absence exactly when the whole list is well-formed UTF-8.",
+      "boundary": "The reported offset is the first place no well-formed prefix extends; it makes no claim about the Rust loader's span rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reported first-invalid offset names a well-formed prefix and is strictly interior to the input.",
+      "boundary": "The span is the valid prefix length; the Rust loader's reported offset and message are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanLine agrees with the declarative SafeLine reading of an unescaped closing quote for every escape state and line.",
+      "boundary": "The model covers the single-line string rule with its escapes; it does not model interpolation, triple-quoted layout, or the Rust scanner."
     }
   ],
   "artifact_certificates": [
