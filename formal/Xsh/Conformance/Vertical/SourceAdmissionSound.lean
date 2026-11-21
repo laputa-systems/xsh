@@ -1270,6 +1270,23 @@ theorem reconstruct_sound {bytes : List UInt8} {moduleInputs : List (List UInt8)
     exact check_in_declarative_domain (by assumption)
   · cases reconstructed
 
+theorem reconstruct_some_iff_domain (bytes : List UInt8) (moduleInputs : List (List UInt8)) :
+    (reconstruct bytes moduleInputs).isSome = true ↔ Domain bytes moduleInputs := by
+  constructor
+  · intro found
+    cases result : reconstruct bytes moduleInputs with
+    | none => simp [result] at found
+    | some pair =>
+      rcases pair with ⟨functions, scopes⟩
+      exact ⟨functions, scopes, reconstruct_sound result⟩
+  · rintro ⟨functions, scopes, domain⟩
+    simp [reconstruct_complete domain]
+
+theorem reconstruct_none_iff_outside_domain (bytes : List UInt8) (moduleInputs : List (List UInt8)) :
+    reconstruct bytes moduleInputs = none ↔ ¬ Domain bytes moduleInputs := by
+  rw [← reconstruct_some_iff_domain]
+  cases reconstruct bytes moduleInputs <;> simp
+
 theorem domain_has_valid_utf8 {bytes : List UInt8} {moduleInputs : List (List UInt8)}
     (domain : Domain bytes moduleInputs) : bytes.toByteArray.IsValidUTF8 := by
   obtain ⟨functions, scopes, admitted⟩ := domain
