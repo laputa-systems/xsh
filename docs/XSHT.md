@@ -233,11 +233,12 @@ not reported either; a computed path cannot be recognized and should be
 declared with `public-api`. A proc named `main` is invoked by the runner, so it
 is an entry rather than an import, and a `--fix` run leaves the workspace
 analysis to the next ordinary lint because its rewrites can change which
-modules reference an export. An export whose name a `module { ... }` contract
-declares is a dynamic interface name: the contract does not name the module
-that implements it, so the rule keeps that name quiet. A module with an
-unresolved import makes every name its text mentions unjudgeable, because the
-reference cannot be followed.
+modules reference an export. A module that exports every required entry of a
+`module { ... }` contract is treated as implementing it, and only that module's
+exports named by the contract are dynamic interface names; a module that does
+not implement the contract is reported normally. An unresolved import exempts
+only the members reached through its alias, such as `alias.name`, because that
+is the reference the rule cannot follow.
 
 `lint.prefer-inferred-proc-return` remains opt-in. A private return annotation
 can make a helper's result easier to read even when inference preserves its

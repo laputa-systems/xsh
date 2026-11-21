@@ -9,7 +9,10 @@
 //! way a hand-written syntax walk would. It can over-count a reference where a
 //! local binding shadows a namespace alias, which keeps a live export from
 //! being reported. Modules reached through a literal `module.load(p"PATH")`
-//! are exempt, because their exports are used at run time.
+//! are exempt, because their exports are used at run time. A module that
+//! implements a `module { ... }` contract is exempt only for the names that
+//! contract promises, and an unresolved import exempts only the members
+//! reached through its alias.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
@@ -53,6 +56,14 @@ struct ExportDecl {
     entry: bool,
 }
 
+/// One `module { ... }` contract: the names it promises, and those it
+/// requires. A module implements the contract only when it exports every
+/// required name.
+struct ModuleContract {
+    required: Vec<String>,
+    names: FxHashSet<String>,
+}
+
 /// One export referenced nowhere is a warning in every run; an export only
 /// tests or only its own module use is advice, emitted when the rule is named
 /// so a default run stays readable.
@@ -72,14 +83,16 @@ pub(crate) fn unused_export_diagnostics(
     let mut by_name = FxHashMap::default();
     let mut member_owner = FxHashMap::default();
     // A module contract names the surface of a module loaded at run time. It
-    // does not name the module that implements it, so an export with a
-    // contract's name is a dynamic interface name rather than dead code.
-    let mut contract_surface = FxHashSet::default();
+    // does not name the module that implements it, so an export is a dynamic
+    // interface name only when its own module implements that contract.
+    let mut contracts = Vec::new();
+    let mut module_exports: Vec<FxHashSet<String>> =
+        (0..modules.len()).map(|_| FxHashSet::default()).collect();
     for (index, module) in modules.iter().enumerate() {
         for statement in arena.stmt_ids(module.statements) {
             let stmt = arena.stmt(statement);
             if let ArenaStmtKind::TypeDef(id) = stmt.kind {
-                collect_contract_names(arena, id, &mut contract_surface);
+                collect_contracts(arena, id, &mut contracts);
             }
             let ArenaStmtKind::Export(inner) = stmt.kind else {
                 continue;
@@ -88,7 +101,7 @@ pub(crate) fn unused_export_diagnostics(
             let (name, members, entry) = match inner_stmt.kind {
                 ArenaStmtKind::TypeDef(id) => {
                     let def = arena.type_def(id);
-                    collect_contract_names(arena, id, &mut contract_surface);
+                    collect_contracts(arena, id, &mut contracts);
                     let members = match &def.body {
                         ArenaTypeDefBody::TagUnion(variants) => arena
                             .tag_variants(*variants)
@@ -128,6 +141,7 @@ pub(crate) fn unused_export_diagnostics(
             if name.starts_with('_') {
                 continue;
             }
+            module_exports[index].insert(name.clone());
             let index_decl = declarations.len();
             by_name.insert((index, name.clone()), index_decl);
             for member in &members {
@@ -145,26 +159,48 @@ pub(crate) fn unused_export_diagnostics(
         }
     }
 
+    let mut contract_exempt: Vec<FxHashSet<String>> =
+        (0..modules.len()).map(|_| FxHashSet::default()).collect();
+    for contract in &contracts {
+        for (index, exports) in module_exports.iter().enumerate() {
+            if contract.required.iter().all(|name| exports.contains(name)) {
+                contract_exempt[index].extend(contract.names.iter().cloned());
+            }
+        }
+    }
+
     let mut stats = vec![RefStats::default(); declarations.len()];
     let mut own_occurrences: Vec<FxHashMap<String, Vec<usize>>> =
         (0..modules.len()).map(|_| FxHashMap::default()).collect();
     // A module loaded through `module.load(p"PATH")` is reached at run time,
     // so a literal path names a dynamic surface rather than a dead one.
     let mut dynamically_loaded = FxHashSet::default();
-    // An unresolved import hides the references its module makes, so any
-    // exported name it mentions cannot be judged unused.
+    // An unresolved import hides only the members reached through it, so
+    // record `alias.name` uses of its binding and nothing else.
     let mut unresolved_names = FxHashSet::default();
     for (index, module) in modules.iter().enumerate() {
         let aliases = module_aliases(program, module);
-        let has_unresolved_import = module.imports.iter().any(|import| {
-            import.target.is_none()
-                && (import.diagnostic.is_some()
-                    || program
-                        .arena
-                        .use_stmt(import.use_id)
-                        .searched_candidates
-                        .is_some())
-        });
+        let unresolved_aliases = module
+            .imports
+            .iter()
+            .filter(|import| {
+                import.target.is_none()
+                    && (import.diagnostic.is_some()
+                        || program
+                            .arena
+                            .use_stmt(import.use_id)
+                            .searched_candidates
+                            .is_some())
+            })
+            .filter_map(|import| {
+                program
+                    .arena
+                    .use_stmt(import.use_id)
+                    .alias
+                    .or_else(|| import.path.last().copied())
+                    .map(|alias| alias.as_str().to_string())
+            })
+            .collect::<FxHashSet<_>>();
         let use_spans = use_statement_spans(program, module.statements);
         let lexed = Lexer::new(module.source_id, module.text).lex_compact();
         let table = &lexed.token_table;
@@ -190,9 +226,6 @@ pub(crate) fn unused_export_diagnostics(
                 continue;
             };
             let name = name.as_str().to_string();
-            if has_unresolved_import {
-                unresolved_names.insert(name.clone());
-            }
             // A member after `.` is qualified, and a label before `:` binds or
             // names a field rather than reading a top-level name.
             let qualified_member = token > 0 && table.tag_at(token - 1) == Some(TokenTag::Dot);
@@ -212,6 +245,9 @@ pub(crate) fn unused_export_diagnostics(
             }) else {
                 continue;
             };
+            if unresolved_aliases.contains(&name) {
+                unresolved_names.insert(member.as_str().to_string());
+            }
             let Some(target) = aliases.get(&name) else {
                 continue;
             };
@@ -254,12 +290,8 @@ pub(crate) fn unused_export_diagnostics(
             let expr = program.arena.expr(expression);
             match expr.kind {
                 ArenaExprKind::Ident(name) if !field_bases.contains(&expression) => {
-                    let name = name.as_str().to_string();
-                    if has_unresolved_import {
-                        unresolved_names.insert(name.clone());
-                    }
                     own_occurrences[index]
-                        .entry(name)
+                        .entry(name.as_str().to_string())
                         .or_default()
                         .push(expr.span.start());
                 }
@@ -298,8 +330,7 @@ pub(crate) fn unused_export_diagnostics(
                     let ArenaExprKind::Ident(alias) = program.arena.expr(base).kind else {
                         continue;
                     };
-                    if has_unresolved_import {
-                        unresolved_names.insert(alias.as_str().to_string());
+                    if unresolved_aliases.contains(alias.as_str().as_str()) {
                         unresolved_names.insert(name.as_str().to_string());
                     }
                     let Some(target) = aliases.get(alias.as_str().as_str()) else {
@@ -342,7 +373,7 @@ pub(crate) fn unused_export_diagnostics(
             || module.public_api
             || loaded_dynamically
             || declaration.entry
-            || contract_surface.contains(&declaration.name)
+            || contract_exempt[declaration.module].contains(&declaration.name)
             || unresolved_names.contains(&declaration.name)
         {
             continue;
@@ -410,12 +441,20 @@ pub(crate) fn unused_export_diagnostics(
     diagnostics
 }
 
-fn collect_contract_names(arena: &AstArena, id: TypeDefId, names: &mut FxHashSet<String>) {
-    if let ArenaTypeDefBody::ModuleContract { entries, .. } = &arena.type_def(id).body {
-        for entry in arena.module_contract_entries(*entries) {
-            names.insert(entry.name.as_str().to_string());
+fn collect_contracts(arena: &AstArena, id: TypeDefId, contracts: &mut Vec<ModuleContract>) {
+    let ArenaTypeDefBody::ModuleContract { entries, .. } = &arena.type_def(id).body else {
+        return;
+    };
+    let mut required = Vec::new();
+    let mut names = FxHashSet::default();
+    for entry in arena.module_contract_entries(*entries) {
+        let name = entry.name.as_str().to_string();
+        if !entry.optional {
+            required.push(name.clone());
         }
+        names.insert(name);
     }
+    contracts.push(ModuleContract { required, names });
 }
 
 fn module_aliases(program: &ArenaProgram, module: &ExportModule<'_>) -> FxHashMap<String, String> {
