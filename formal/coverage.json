@@ -2977,8 +2977,10 @@
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-PRESERVE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-PRESERVE",
+      "module": "Xsh.Validation.Core.Preserve",
+      "declaration": "Xsh.Validation.Core.Preserve.validated_operations"
     },
     {
       "id": "VAL-REQUIRE",
@@ -15089,15 +15091,6 @@
       "status": "fragment",
       "scope": "A recursive .require over Core types is sound on admissible targets, exact on nominal-free targets, schema-equivalent for nominal targets, ordered for unions and all-or-nothing.",
       "boundary": "Assumes Admissible instead of deriving it from type well-formedness. Str-backed enum wire conversion, map publication from records, structured errors with field and union paths, require_exact and require_stripped are missing; exactness is identity, not the SPEC conversion. Closes no full-core obligation."
-    },
-    {
-      "id": "fragment.Xsh.Validation.Core.Preserve.preserving_operations",
-      "module": "Xsh.Validation.Core.Preserve",
-      "declaration": "Xsh.Validation.Core.Preserve.preserving_operations",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "NonEmpty push, concatenation, single-clause comprehension and element replacement, and RelPath parent and normalize, preserve their validated types; filtering yields the base.",
-      "boundary": "RelPath parent does not follow the SPEC component reading (a//b and a/./b give a/ and a/.). No result-type typing rule, store mutation for .extend or +=, or non-preservation witnesses for slicing, multi-clause comprehensions, path methods and bounded arithmetic. Closes no full-core obligation."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Intro.introduction_routes",

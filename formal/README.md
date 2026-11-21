@@ -247,15 +247,19 @@ machine that adds them must show they are nominal-transparent. The witnesses
 include a constructor resolved to another module's declaration, which the
 theorem rejects.
 
-The `preserving_operations` fragment root is in
-[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean). It shows that `push`,
+VAL-PRESERVE is closed by `validated_operations` in
+[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean): `push`,
 `extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
-without a filter and element replacement keep a `NonEmpty`, filtering yields
-only the base list, and `.parent()` and `.normalize()` keep a `RelPath`. The
-path operations are defined on the components of
-[`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean): `.parent()`
-drops trailing empty and `.` components and then the last one, `.normalize()`
-resolves `.` and `..` lexically, and both return `.` when nothing is left.
+without a filter and element replacement keep a `NonEmpty`; filtering, slicing
+and comprehensions with several clauses return only the base list; `.extend`
+and `+=` on a `NonEmpty` variable are store writes that commit and keep the
+type; and `.parent()` and `.normalize()` keep a `RelPath`. The path operations
+read a path by its non-trivial components, as `strip_prefix` does, in
+[`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean), so `a//b` and
+`a/./b` have parent `a`; `.normalize()` resolves `.` and `..` lexically, and
+both return `.` when nothing is left. The witnesses show `relative_to`,
+`with_ext`, `components` and `Port` arithmetic leaving their validated type,
+and kill a result-type rule that keeps `NonEmpty` after filtering.
 These definitions follow the SPEC and claim no Rust correspondence.
 
 The `introduction_routes` fragment root is in

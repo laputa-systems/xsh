@@ -12,10 +12,9 @@ def join (parts : List Component) : PathBytes := [slashByte].intercalate parts
 
 def isTrivial (component : Component) : Bool := component = [] || component = [dotByte]
 
-def trimTrailing (parts : List Component) : List Component :=
-  (parts.reverse.dropWhile isTrivial).reverse
+def readComponents (parts : List Component) : List Component := parts.filter fun part => !isTrivial part
 
-def parentComponents (parts : List Component) : List Component := (trimTrailing parts).dropLast
+def parentComponents (parts : List Component) : List Component := (readComponents parts).dropLast
 
 def parent (bytes : PathBytes) : PathBytes :=
   match parentComponents (components bytes) with
