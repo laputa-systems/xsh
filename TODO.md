@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 175
+Next: 176
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -139,14 +139,14 @@ out of scope.
 - **Fix with:** error-model, os-boundaries
 - **Effort:** S
 
-### XSH-173 · P2 · a hoisted call in a top-level binding's initializer fails on the binding it initializes
+### XSH-173 · P2 · a hoisted call fails on any earlier top-level binding that has not run, read or not
 
-- **Area:** Runtime and hoisting
-- **Where:** hoisted closure capture for top-level declarations (src/runtime/eval); docs/templates/SPEC.md 3.1; formal root fragment.Xsh.Proofs.Core.Scripts.hoisted_scopes
-- **Problem:** `let r = first()` followed by `proc first() -> Int { 2 }` fails on the verification binary with `runtime.error` `unknown captured name r` (exit 3), although `first` never reads `r`; `print (first())` above the same declaration prints 2. SPEC 3.1 makes a call fail only when it reads a top-level binding before that binding's statement has run. The Lean machine follows the SPEC, so the hoisted_scopes witness has no binary match for this case.
-- **Recommendation:** Capture only the top-level bindings a callable body names, or resolve them lazily at the read, so an unread binding that is still uninitialized does not fail the call. Acceptance: a test in tests/xsh/declaration-hoisting.xsh runs `let r = first(); print (r); proc first() -> Int { 2 }` and prints 2, and the existing uninitialized-read test still exits 3.
-- **Fix with:** reference-parity
-- **Effort:** S
+- **Area:** Lowering and hoisting
+- **Where:** src/runtime/eval/lower.rs:2874 (append_immutable_top_level_captures gets `reads: None` for every non-generic callable); src/runtime/eval/lowered_run.rs:7181; docs/templates/SPEC.md 3.1
+- **Problem:** A non-generic `proc` or `pure` has no scheme body facts, so lowering captures every top-level binding declared before it, read or not. A hoisted call made before such a binding's statement has run then fails with `runtime.error` `unknown captured name` (exit 3): `print (first()); let b = 3; proc first() -> Int { 2 }` fails on `b`, and `let r = first(); proc first() -> Int { 2 }` fails on `r`. SPEC 3.1 makes a call fail only when it reads a binding before that binding's statement has run, and the Lean machine (Scripts.hoisted_scopes) follows the SPEC.
+- **Recommendation:** Capture only the bindings `bodies.binding_reads.read_within` finds in the body and its default expressions (it includes assignment targets). A patch doing exactly that fixes both cases and passes declaration-hoisting, lowering-coverage, test-type-agreement and test-runtime, but changes slot counts in the exported IR: 13 test-lowering and test-runtime-unit cases fail, 10 of them the Lean-certified arithmetic and raw-IR documents (for example `excess` drops from 3 to 2 slots) and 3 verifier mutation tests that target a capture. Land it as a Lean-campaign slice that regenerates the documents with `write_lean_raw_ir_modules`, re-proves the artifact certificates, and updates those verifier tests. A runtime-only skip keyed on `use_location` is unsound: it misses tail and record-shorthand reads. Acceptance: tests/xsh/declaration-hoisting.xsh gains a case that prints 2, 2, 5 for `let r = first(); print (r); print (first()); let later = 3; print (later + first()); proc first() -> Int { 2 }`, the uninitialized-read and write-only capture cases still pass, and `lake build` plus check-inventory pass with the regenerated documents.
+- **Fix with:** none
+- **Effort:** M
 
 ### XSH-172 · P3 · lane/namespace-native always skips its 13 lsipc and lslocks tests
 
@@ -164,6 +164,15 @@ out of scope.
 - **Problem:** process.which, run and spawn report `not-found: executable not found` without the program name. A Laputa capsule run on a fresh Ubuntu host failed five PM tests with that message alone; finding the missing tools (cc, readelf, python3) took reading each test and recipe.
 - **Recommendation:** Carry the requested program in the error, for example `executable not found: readelf`, and match on the error kind rather than the message in core/env.xsh. Acceptance: a native test shows process.which("no-such-tool") and run of a missing program both name it, and the env.xsh fallback still works.
 - **Fix with:** error-model
+- **Effort:** S
+
+### XSH-175 · P3 · net.download and net.request send no User-Agent
+
+- **Area:** Network API
+- **Where:** src/modules (net.download, net.request, net.download_many HTTP client)
+- **Problem:** XSH's HTTP client sends no User-Agent unless the caller adds one. git.kernel.org answers such requests with 403 (curl with an empty agent gets 403, with any agent 200), so Laputa's `make fetch` could not fetch linux-firmware files on a fresh host until PM added its own header (laputa 601e4597).
+- **Recommendation:** Send a default `User-Agent: xsh/<version>` that a caller's header replaces, and document it in the net reference. Acceptance: a native test against a local server sees the default agent, and a caller-supplied User-Agent replaces it rather than duplicating it.
+- **Fix with:** none
 - **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
