@@ -229,7 +229,22 @@ export pure internal_argv(
   let root_native = host_uid == 0 and linux_test_operation(operation)
   let test_uid = if root_native { 1000 } else { host_uid }
   let test_gid = if root_native { 1000 } else { host_gid }
-  let root_native_environment = if root_native { ["-e", "XSH_ROOT_NATIVE_TESTS=1"] } else { [] }
+  # Root callers run native tests as uid 1000, so git must accept a checkout
+  # that root owns.
+  let root_native_environment = if root_native {
+    [
+      "-e",
+      "XSH_ROOT_NATIVE_TESTS=1",
+      "-e",
+      "GIT_CONFIG_COUNT=1",
+      "-e",
+      "GIT_CONFIG_KEY_0=safe.directory",
+      "-e",
+      "GIT_CONFIG_VALUE_0=/work",
+    ]
+  } else {
+    []
+  }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
