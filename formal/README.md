@@ -776,9 +776,9 @@ outcomes, each with an exact declarative range:
   UTF-8 offset; the span starts there and runs to the end of input.
 - `rejected (.invalidEscape span)` and `rejected (.unterminatedString span)`
   hold exactly over the declared string envelope `E`: well-formed UTF-8 with no
-  `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `p"`, `rx"`, or `e"` opener,
-  and no `"""`. Inside `E` every `"` outside a string opens an ordinary
-  single-line string. An invalid escape spans the backslash through the
+  `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `g"`, `p"`, `rx"`, or `e"`
+  opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
+  An invalid escape spans the backslash through the
   escape's syntax, and an unterminated string spans the opening quote through
   the end of input.
 - `outside` holds for everything else and makes no SPEC claim: valid UTF-8,

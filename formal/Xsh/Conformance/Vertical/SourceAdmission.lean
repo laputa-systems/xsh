@@ -159,6 +159,18 @@ theorem valid_literal_classified_outside :
     classify (witnessBytes "\"hello\"") [] = .outside := by
   decide +kernel
 
+/-- Interpolation inside a command word is SPEC-valid source, so the classifier does not
+reject it. The narrowed envelope places it outside `E`. -/
+theorem command_interpolation_not_rejected :
+    classify (witnessBytes "print \"${\"\\\"\"}\"") [] = .outside := by
+  decide +kernel
+
+/-- A glob string prefix is not an ordinary single-line string, so the classifier does not
+reject it as one. -/
+theorem glob_string_not_rejected :
+    classify (witnessBytes "g\"*.txt\"") [] = .outside := by
+  decide +kernel
+
 /-- A mismatched candidate tree never makes the classifier a parse failure: the classifier
 ignores candidate trees and decides only on bytes, so a different tree yields the same
 outcome. -/

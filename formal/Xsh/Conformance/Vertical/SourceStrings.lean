@@ -9,8 +9,10 @@ namespace SourceAdmission
 `Span` is a half-open byte interval `[start, stop)`. `ParseFailure` names the
 three lexical failures the classifier decides. `InEnvelope` is the declared
 string envelope `E` of the admission boundary: valid UTF-8, no comment byte, no
-other quoted-literal prefix immediately before a quote, and no triple quote.
-Within `E` every `"` outside a string opens an ordinary single-line string. -/
+other quoted-literal prefix immediately before a quote, no triple quote, no
+`${` or `$(` interpolation marker, and no `'` byte. `E` admits only sources
+whose quotes the Lean scanner reads as ordinary strings; it makes no claim
+about interpolation, command words, or glob strings. -/
 
 structure Span where
   start : Nat
@@ -41,10 +43,11 @@ def Infixed (window : List UInt8) : List UInt8 → Bool
   | byte :: rest => window.isPrefixOf (byte :: rest) || Infixed window rest
 
 /-- True when the bytes before a quote name another quoted literal form: `r"`, `b"`, `f"`,
-`fp"`, `p"`, `rx"`, `e"`. `previous2` and `previous1` are the two bytes before the quote. -/
+`fp"`, `g"`, `p"`, `rx"`, `e"`. `previous2` and `previous1` are the two bytes before the
+quote. -/
 def ExcludedBefore (previous2 previous1 : Option UInt8) : Bool :=
   previous1 = some 114 || previous1 = some 98 || previous1 = some 102 ||
-    previous1 = some 112 || previous1 = some 101 ||
+    previous1 = some 103 || previous1 = some 112 || previous1 = some 101 ||
     (previous2 = some 102 && previous1 = some 112) ||
     (previous2 = some 114 && previous1 = some 120)
 
@@ -76,17 +79,26 @@ def AvoidsTripleQuote : List UInt8 → Bool
 
 def AvoidsComment (bytes : List UInt8) : Bool := bytes.all (fun byte => byte != CommentByte)
 
+/-- True when no `${` or `$(` interpolation opener occurs. -/
+def AvoidsInterpolation (bytes : List UInt8) : Bool :=
+  !(Infixed [36, 123] bytes) && !(Infixed [36, 40] bytes)
+
+/-- True when no `'` byte occurs. -/
+def AvoidsApostrophe (bytes : List UInt8) : Bool := bytes.all (fun byte => byte != 39)
+
 /-- The declared string envelope `E`. -/
 def InEnvelope (bytes : List UInt8) : Bool :=
   utf8ValidB bytes && AvoidsComment bytes && AvoidsQuotedPrefixes none none false bytes &&
-    AvoidsTripleQuote bytes
+    AvoidsTripleQuote bytes && AvoidsInterpolation bytes && AvoidsApostrophe bytes
 
 theorem envelope_parts {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
     utf8ValidB bytes = true ∧ AvoidsComment bytes = true ∧
-      AvoidsQuotedPrefixes none none false bytes = true ∧ AvoidsTripleQuote bytes = true := by
+      AvoidsQuotedPrefixes none none false bytes = true ∧ AvoidsTripleQuote bytes = true ∧
+      AvoidsInterpolation bytes = true ∧ AvoidsApostrophe bytes = true := by
   unfold InEnvelope at envelope
   simp only [Bool.and_eq_true] at envelope
-  exact ⟨envelope.1.1.1, envelope.1.1.2, envelope.1.2, envelope.2⟩
+  rcases envelope with ⟨⟨⟨⟨⟨valid, comment⟩, prefixes⟩, triple⟩, interpolation⟩, apostrophe⟩
+  exact ⟨valid, comment, prefixes, triple, interpolation, apostrophe⟩
 
 theorem envelope_valid {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
     ValidUtf8 bytes :=
@@ -102,7 +114,15 @@ theorem envelope_no_prefixes {bytes : List UInt8} (envelope : InEnvelope bytes =
 
 theorem envelope_no_triple {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
     AvoidsTripleQuote bytes = true :=
-  (envelope_parts envelope).2.2.2
+  (envelope_parts envelope).2.2.2.1
+
+theorem envelope_no_interpolation {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
+    AvoidsInterpolation bytes = true :=
+  (envelope_parts envelope).2.2.2.2.1
+
+theorem envelope_no_apostrophe {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
+    AvoidsApostrophe bytes = true :=
+  (envelope_parts envelope).2.2.2.2.2
 
 /-! ## Witnesses for the envelope and the UTF-8 decision -/
 
@@ -135,6 +155,22 @@ theorem plain_literal_in_envelope :
   decide +kernel
 
 theorem empty_in_envelope : InEnvelope [] = true := by
+  decide +kernel
+
+theorem interpolation_outside_envelope :
+    InEnvelope (witnessBytes "print \"${\"\\\"\"}\"") = false := by
+  decide +kernel
+
+theorem command_substitution_outside_envelope :
+    InEnvelope (witnessBytes "print $(date)") = false := by
+  decide +kernel
+
+theorem apostrophe_outside_envelope :
+    InEnvelope (witnessBytes "print 'x'") = false := by
+  decide +kernel
+
+theorem glob_prefix_outside_envelope :
+    InEnvelope (witnessBytes "g\"*.txt\"") = false := by
   decide +kernel
 
 /-! ## Escape forms -/
