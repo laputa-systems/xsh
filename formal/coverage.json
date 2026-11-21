@@ -2958,8 +2958,10 @@
       "id": "VAL-INTRO",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-INTRO"
+      "status": "closed",
+      "proof_root_id": "full.VAL-INTRO",
+      "module": "Xsh.Validation.Core.Intro",
+      "declaration": "Xsh.Validation.Core.Intro.introduction_routes"
     },
     {
       "id": "VAL-NARROW",

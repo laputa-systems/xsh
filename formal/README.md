@@ -254,6 +254,15 @@ drops trailing empty and `.` components and then the last one, `.normalize()`
 resolves `.` and `..` lexically, and both return `.` when nothing is left.
 These definitions follow the SPEC and claim no Rust correspondence.
 
+VAL-INTRO is closed by `introduction_routes` in
+[`Validation/Core/Intro.lean`](Xsh/Validation/Core/Intro.lean): a judged list
+literal of typed items is a `NonEmpty` and a rejected one is only plain
+splices; path and bounded-integer literals are members exactly when the rule
+or interval accepts them; an `fp` literal whose text passes the rule with each
+`RelPath` interpolation read as `.` renders to a `RelPath`; constructors and
+accepted `.require` results are members; and no view reaches a validated type
+from anything else. Constants and field defaults use the same judgments.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

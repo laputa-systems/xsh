@@ -99,6 +99,7 @@ import Xsh.Validation.Core.Narrow
 import Xsh.Validation.Core.Require
 import Xsh.Validation.Core.Nominal
 import Xsh.Validation.Core.Preserve
+import Xsh.Validation.Core.Intro
 import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
