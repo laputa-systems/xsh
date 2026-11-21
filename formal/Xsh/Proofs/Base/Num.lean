@@ -1,6 +1,7 @@
 import Xsh.Values.IntegerOps
 import Xsh.Values.DurationOps
 import Xsh.Values.FloatEquality
+import Xsh.Values.FloatOps
 
 namespace Xsh.Proofs.Base.Num
 
@@ -327,7 +328,7 @@ theorem nan_is_unequal_to_every_float (nan : FloatBits) (isNaN : floatIsNaN nan)
     (other : FloatBits) : ¬ ieeeFloatEq nan other ∧ ¬ ieeeFloatEq other nan :=
   ⟨nan_never_equals nan other isNaN, nan_never_equals_on_right other nan isNaN⟩
 
-/-- The exact numeric values of the base machine. Checked integer arithmetic returns the exact
+/-- The integer, Duration and Float equality facts of the base machine. Checked integer arithmetic returns the exact
 mathematical result when it is an `Int` and otherwise the specified fault, and the specification
 determines the result. Whenever a result is a value it equals the two's-complement hardware
 result, and the overflow fault is reported exactly when the wrapped hardware result differs from
@@ -336,7 +337,7 @@ of `Int`. Duration arithmetic is exact or reports its specified fault. Float bit
 round-trip, value equality is IEEE equality with signed zeros equal and every NaN unequal, and
 the total order is total and antisymmetric on the raw bit patterns. Float arithmetic is outside
 this model. -/
-theorem base_num :
+def IntegerDurationAndEqualityFacts : Prop :=
     (∀ operator left right,
       ArithmeticMeaning operator left right (applyBinary operator left right)) ∧
     (∀ operator left right result, ArithmeticMeaning operator left right result →
@@ -400,7 +401,9 @@ theorem base_num :
     (∀ first second third, floatTotalLE first second → floatTotalLE second third →
       floatTotalLE first third) ∧
     (∀ left right, floatTotalLE left right ∨ floatTotalLE right left) ∧
-    (∀ left right, floatTotalLE left right → floatTotalLE right left → left = right) :=
+    (∀ left right, floatTotalLE left right → floatTotalLE right left → left = right)
+
+theorem base_num : IntegerDurationAndEqualityFacts :=
   ⟨applied_operation_has_its_meaning, the_meaning_determines_the_operation, negation_is_exact,
     exact_addition_matches_hardware, exact_subtraction_matches_hardware,
     exact_multiplication_matches_hardware, exact_negation_matches_hardware,
@@ -491,5 +494,130 @@ theorem wrapping_duration_addition_is_rejected :
     revert exact
     decide
   · cases impossible
+
+open Xsh.Values.FloatArith
+open Xsh.Values.FloatOps
+
+/-- The exact numeric values of the core. The integer, Duration and Float equality facts hold.
+Float `+`, `-`, `*` and `/` round the exact rational result of their finite operands to the
+nearest finite binary64 value with ties to even, overflow to a signed infinity at or above the
+overflow midpoint, keep the IEEE signed-zero and infinity rules, and return a NaN under every
+NaN-payload policy; the meaning determines every non-NaN result. `.float()` rounds an `Int` the
+same way. `.floor()`, `.ceil()` and `.round()` return the exact floor, ceiling and nearest integer
+with ties away from zero, and reject NaN, infinities and results outside `Int`. -/
+theorem numeric_semantics :
+    IntegerDurationAndEqualityFacts ∧
+    (∀ (policy : NaNPolicy) operator left right,
+      FloatMeaning operator left right (floatApply policy operator left right)) ∧
+    (∀ operator left right first second,
+      FloatMeaning operator left right first → FloatMeaning operator left right second →
+        (floatIsNaN first ∧ floatIsNaN second) ∨ first = second) ∧
+    (∀ numerator denominator, 0 < denominator →
+      numerator * 2 ^ 1074 < denominator * overflowMidpointUnits →
+        BinaryNearest numerator denominator (roundMagnitudeBits numerator denominator)) ∧
+    (∀ numerator denominator, 0 < denominator →
+      denominator * overflowMidpointUnits ≤ numerator * 2 ^ 1074 →
+        roundMagnitudeBits numerator denominator = infinityRaw) ∧
+    (∀ numerator denominator, 0 < denominator → ∀ first second,
+      BinaryNearest numerator denominator first → BinaryNearest numerator denominator second →
+        first = second) ∧
+    (∀ bits, floatClass bits = .nan ↔ floatIsNaN bits) ∧
+    (∀ value, IntToFloatMeaning value (intToFloat value)) ∧
+    (∀ value first second,
+      IntToFloatMeaning value first → IntToFloatMeaning value second → first = second) ∧
+    (∀ bits, ToIntMeaning FloorBound bits (floatFloor bits)) ∧
+    (∀ bits, ToIntMeaning CeilBound bits (floatCeil bits)) ∧
+    (∀ bits, ToIntMeaning RoundAwayBound bits (floatRound bits)) ∧
+    (∀ bits first second, ToIntMeaning FloorBound bits first →
+      ToIntMeaning FloorBound bits second → first = second) ∧
+    (∀ bits first second, ToIntMeaning CeilBound bits first →
+      ToIntMeaning CeilBound bits second → first = second) ∧
+    (∀ bits first second, ToIntMeaning RoundAwayBound bits first →
+      ToIntMeaning RoundAwayBound bits second → first = second) ∧
+    (∀ bits, floatIsNaN bits ∨ floatMagnitudeRaw bits = infinityRaw →
+      floatFloor bits = none ∧ floatCeil bits = none ∧ floatRound bits = none) ∧
+    (floatApply quietNaNPolicy .add floatTenth floatFifth = floatTenthPlusFifth ∧
+      floatApply quietNaNPolicy .add floatOne floatTwo = floatThree ∧
+      floatApply quietNaNPolicy .add floatOne floatHalfUlpOfOne = floatOne ∧
+      floatApply quietNaNPolicy .add floatOneAndUlp floatHalfUlpOfOne = floatOneAndTwoUlps ∧
+      floatApply quietNaNPolicy .multiply floatLargest floatTwo = floatPositiveInfinity ∧
+      floatApply quietNaNPolicy .divide floatLeastSubnormal floatTwo = floatPositiveZero ∧
+      floatApply quietNaNPolicy .divide floatThreeLeastSubnormals floatTwo =
+        floatTwoLeastSubnormals ∧
+      floatApply quietNaNPolicy .add floatNegativeZero floatNegativeZero = floatNegativeZero ∧
+      floatApply quietNaNPolicy .add floatPositiveZero floatNegativeZero = floatPositiveZero ∧
+      floatApply quietNaNPolicy .subtract floatOne floatOne = floatPositiveZero ∧
+      floatApply quietNaNPolicy .subtract floatNegativeZero floatPositiveZero =
+        floatNegativeZero ∧
+      floatApply quietNaNPolicy .multiply floatNegativeOne floatPositiveZero = floatNegativeZero ∧
+      floatApply quietNaNPolicy .divide floatOne floatPositiveZero = floatPositiveInfinity ∧
+      floatApply quietNaNPolicy .divide floatNegativeOne floatPositiveZero =
+        floatNegativeInfinity ∧
+      floatApply quietNaNPolicy .divide floatOne floatNegativeZero = floatNegativeInfinity ∧
+      floatApply quietNaNPolicy .divide floatOne floatPositiveInfinity = floatPositiveZero ∧
+      floatApply quietNaNPolicy .add floatPositiveInfinity floatOne = floatPositiveInfinity ∧
+      floatApply quietNaNPolicy .subtract floatOne floatPositiveInfinity =
+        floatNegativeInfinity) ∧
+    (∀ policy : NaNPolicy,
+      floatIsNaN (floatApply policy .divide floatPositiveZero floatPositiveZero) ∧
+      floatIsNaN (floatApply policy .subtract floatPositiveInfinity floatPositiveInfinity) ∧
+      floatIsNaN (floatApply policy .multiply floatPositiveInfinity floatPositiveZero) ∧
+      floatIsNaN (floatApply policy .divide floatPositiveInfinity floatNegativeInfinity) ∧
+      floatIsNaN (floatApply policy .add floatQuietNaN floatOne)) ∧
+    (floatApply quietNaNPolicy .divide floatPositiveZero floatPositiveZero ≠
+        floatApply negativeNaNPolicy .divide floatPositiveZero floatPositiveZero ∧
+      FloatMeaning .divide floatPositiveZero floatPositiveZero
+        (floatApply quietNaNPolicy .divide floatPositiveZero floatPositiveZero) ∧
+      FloatMeaning .divide floatPositiveZero floatPositiveZero
+        (floatApply negativeNaNPolicy .divide floatPositiveZero floatPositiveZero)) ∧
+    ieeeFloatEq (floatApply quietNaNPolicy .subtract floatOne floatOne) floatNegativeZero ∧
+    (floatRound floatTwoAndHalf = some (intValue 3) ∧
+      floatRound floatNegativeTwoAndHalf = some (intValue (-3)) ∧
+      floatRound floatHalf = some (intValue 1) ∧
+      floatFloor floatNegativeTwoAndHalf = some (intValue (-3)) ∧
+      floatCeil floatNegativeTwoAndHalf = some (intValue (-2)) ∧
+      floatFloor floatTwoAndHalf = some (intValue 2) ∧
+      floatCeil floatTwoAndHalf = some (intValue 3) ∧
+      floatRound floatNegativeZero = some (intValue 0) ∧
+      floatFloor floatNegativeTwoPow63 = some intMin ∧
+      floatFloor floatTwoPow63 = none ∧
+      floatCeil floatTwoPow63 = none ∧
+      floatRound floatQuietNaN = none ∧
+      floatFloor floatPositiveInfinity = none ∧
+      floatCeil floatNegativeInfinity = none ∧
+      intToFloat (intValue (2 ^ 53 + 1)) = floatTwoPow53 ∧
+      intToFloat intMax = floatTwoPow63 ∧
+      intToFloat intMin = floatNegativeTwoPow63 ∧
+      intToFloat intNegativeOne = floatNegativeOne ∧
+      intToFloat intZero = floatPositiveZero) ∧
+    (¬ ∀ operator left right, FloatMeaning operator left right (tiesAwayApply operator left right)) ∧
+    (¬ ∀ operator left right,
+      FloatMeaning operator left right (offByOneExponentApply operator left right)) ∧
+    (¬ ∀ operator left right,
+      FloatMeaning operator left right (unsignedZeroApply operator left right)) ∧
+    (¬ ∀ operator left right,
+      FloatMeaning operator left right (floatApplyWith floatPositiveZero operator left right)) ∧
+    (¬ ∀ bits, ToIntMeaning RoundAwayBound bits (floatRoundTiesEven bits)) :=
+  ⟨base_num, float_apply_meaning,
+    fun operator left right _ _ => float_meaning_determines_result operator left right,
+    fun numerator denominator positive =>
+      round_magnitude_bits_nearest numerator denominator positive,
+    fun numerator denominator positive =>
+      round_magnitude_bits_overflow numerator denominator positive,
+    fun numerator denominator positive _ _ =>
+      binary_nearest_unique numerator denominator positive,
+    float_class_nan_iff, int_to_float_meaning,
+    fun value _ _ => int_to_float_unique value,
+    float_to_int_meaning _ _ floor_is_correct,
+    float_to_int_meaning _ _ ceil_is_correct,
+    float_to_int_meaning _ _ round_is_correct,
+    fun bits _ _ => to_int_meaning_unique _ floor_bound_functional bits,
+    fun bits _ _ => to_int_meaning_unique _ ceil_bound_functional bits,
+    fun bits _ _ => to_int_meaning_unique _ round_away_bound_functional bits,
+    nonfinite_conversions_rejected, float_arithmetic_witnesses, float_nan_witnesses,
+    nan_payload_is_unconstrained, cancellation_is_ieee_equal_to_negative_zero,
+    float_conversion_witnesses, ties_away_arithmetic_mutant_rejected,
+    off_by_one_exponent_mutant_rejected, unsigned_zero_mutant_rejected,
+    non_nan_policy_mutant_rejected, ties_even_round_mutant_rejected⟩
 
 end Xsh.Proofs.Base.Num

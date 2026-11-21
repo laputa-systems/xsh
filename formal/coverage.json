@@ -2529,8 +2529,10 @@
       "id": "BASE-NUM",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.BASE-NUM"
+      "status": "closed",
+      "proof_root_id": "full.BASE-NUM",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.numeric_semantics"
     },
     {
       "id": "BASE-PROGRESS",
@@ -10131,7 +10133,7 @@
       "declaration": "Xsh.Proofs.Base.Num.integer_exact_determines_the_result",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10140,7 +10142,7 @@
       "declaration": "Xsh.Proofs.Base.Num.checked_conversion_is_exact",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10149,7 +10151,7 @@
       "declaration": "Xsh.Proofs.Base.Num.applied_operation_has_its_meaning",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10158,7 +10160,7 @@
       "declaration": "Xsh.Proofs.Base.Num.the_meaning_determines_the_operation",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10167,7 +10169,7 @@
       "declaration": "Xsh.Proofs.Base.Num.negation_is_exact",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10176,7 +10178,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_addition_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10185,7 +10187,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_subtraction_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10194,7 +10196,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_multiplication_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10203,7 +10205,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_negation_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10212,7 +10214,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_division_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10221,7 +10223,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_remainder_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10230,7 +10232,7 @@
       "declaration": "Xsh.Proofs.Base.Num.unsigned_boundary_accepts_exactly_the_nonnegative_half",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10239,7 +10241,7 @@
       "declaration": "Xsh.Proofs.Base.Num.signed_value_is_unsigned_exactly_when_nonnegative",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10248,7 +10250,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_addition_is_exact_or_overflow",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10257,7 +10259,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_subtraction_is_exact_or_underflow",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10266,7 +10268,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_scaling_is_exact_or_faults",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10275,7 +10277,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_division_is_exact_or_nonpositive",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10284,7 +10286,7 @@
       "declaration": "Xsh.Proofs.Base.Num.float_total_order_is_antisymmetric",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10293,7 +10295,7 @@
       "declaration": "Xsh.Proofs.Base.Num.float_bits_outside_the_word_are_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10302,7 +10304,7 @@
       "declaration": "Xsh.Proofs.Base.Num.nan_is_unequal_to_every_float",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10311,7 +10313,7 @@
       "declaration": "Xsh.Proofs.Base.Num.base_num_witness",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10320,7 +10322,7 @@
       "declaration": "Xsh.Proofs.Base.Num.wrapping_addition_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10329,7 +10331,7 @@
       "declaration": "Xsh.Proofs.Base.Num.floored_division_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10338,7 +10340,7 @@
       "declaration": "Xsh.Proofs.Base.Num.remainder_without_division_overflow_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10347,7 +10349,7 @@
       "declaration": "Xsh.Proofs.Base.Num.bitwise_float_equality_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10356,7 +10358,7 @@
       "declaration": "Xsh.Proofs.Base.Num.wrapping_duration_addition_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10672,7 +10674,16 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Rounding a nonnegative rational to the nearest integer grid point, with ties to even, for a positive denominator.",
-      "boundary": "This proves uniform-grid rounding only. Binary64 exponent selection, overflow, arithmetic, conversions and Rust conformance are not proved; BASE-NUM remains open."
+      "boundary": "This proves uniform-grid rounding only; binary64 rounding, Float arithmetic and conversions are proved in Xsh.Values.FloatArith and Xsh.Values.FloatOps and closed by BASE-NUM. It claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Values.FloatOps.float_apply_meaning",
+      "module": "Xsh.Values.FloatOps",
+      "declaration": "Xsh.Values.FloatOps.float_apply_meaning",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Float addition, subtraction, multiplication and division on raw binary64 bits under every NaN-payload policy, with exact rational rounding, signed zeros, infinities and NaN.",
+      "boundary": "Proves the Lean Float model only; it claims no Rust or hardware conformance. BASE-NUM closes through Xsh.Proofs.Base.Num.numeric_semantics."
     },
     {
       "id": "fragment.Xsh.Proofs.Base.Num.base_num",
@@ -10681,7 +10692,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Checked Int, UInt and Duration arithmetic, signed encoding, Float bits, IEEE Float equality and the Float total order.",
-      "boundary": "Float arithmetic and Float conversions are not modeled. It does not close BASE-NUM for the core and claims no Rust conformance."
+      "boundary": "This declaration states no Float arithmetic or conversion; numeric_semantics in the same module closes BASE-NUM. It claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Base.Progress.base_progress",

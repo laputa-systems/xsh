@@ -171,6 +171,37 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
+BASE-NUM is closed by `numeric_semantics` in
+[`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
+UInt and Duration results and IEEE Float equality, and adds Float arithmetic
+and conversions from [`Values/FloatOps.lean`](Xsh/Values/FloatOps.lean).
+`FloatMeaning` decodes each operand's raw bits to NaN, a signed infinity or a
+signed exact multiple of 2^-1074, and specifies `+`, `-`, `*` and `/` through
+an outcome: NaN, a signed infinity, a signed zero, or the exact rational result
+with its sign. A rounded outcome below the overflow midpoint must be
+`BinaryNearest`: no finite binary64 encoding is closer, and a tie keeps the
+even encoding. At or above the midpoint it is the signed infinity. The proof in
+[`Values/FloatArith.lean`](Xsh/Values/FloatArith.lean) shows the selected
+encoding decodes to the uniform-grid rounding at the value's own binade, that
+every other finite candidate is on that grid or below the binade floor, and
+that magnitude decoding is strictly monotone. `floatApply` meets the meaning
+for every `NaNPolicy`, a policy being any choice of NaN bits. The meaning fixes
+every non-NaN result and leaves the NaN payload free, which the witnesses show
+with two policies. `.float()` rounds an Int the same way and is never infinite.
+`.floor()`, `.ceil()` and `.round()` return the unique integer satisfying the
+floor, ceiling or nearest-with-ties-away-from-zero bound, after the Int range
+check, and reject NaN and infinities. The special-value table (which operands
+give NaN, infinity or a signed zero) is part of the meaning and shared with
+`floatApply`. The proved content is the rounding, the overflow, the signed
+encodings and determinism. The witnesses compute 0.1 + 0.2, both tie
+directions at 1 + 2^-53, overflow, subnormal ties, signed-zero sums and
+products, division by zero and the conversions of 2.5, -2.5 and 2^63. Five
+mutants are rejected: ties-away rounding, operand exponents decoded one too
+high, unsigned zero results, a non-NaN result for 0/0, and `.round()` with
+ties to even. The model claims no Rust or hardware conformance. Witnesses that
+evaluate binary64 rounding with `decide` raise `maxRecDepth` to 10000, because
+`Nat.log2` recursion follows the bit length of numerators up to 2^2200.
+
 The validated-type obligations use the Core types directly.
 [`Validation/Core/Validated.lean`](Xsh/Validation/Core/Validated.lean) names
 the four validation identities (`NonEmpty` with its element, `RelPath`, a

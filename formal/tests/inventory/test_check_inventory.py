@@ -120,10 +120,10 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1256, len(result["fragment_roots"]))
+        self.assertEqual(1257, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
-        self.assertEqual(["BASE-ENV", "VAL-ERASE", "VAL-INTRO", "VAL-NARROW", "VAL-NOMINAL", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-STORE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
+        self.assertEqual(["BASE-ENV", "BASE-NUM", "VAL-ERASE", "VAL-INTRO", "VAL-NARROW", "VAL-NOMINAL", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-STORE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
         self.assertEqual(
             self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),

@@ -1,5 +1,4 @@
 import Xsh.Values.Scalars
-import Init.Data.Rat
 
 namespace Xsh.Values.FloatArith
 
@@ -58,18 +57,6 @@ theorem roundEven_nearest (n d : Nat) (positive : 0 < d) :
 
 def floatNegative (bits : FloatBits) : Bool := decide (floatSign ≤ bits.val)
 
-def finiteMantissa (bits : FloatBits) : Nat :=
-  if floatExponent bits = 0 then floatFraction bits
-  else floatFractionWidth + floatFraction bits
-
-def finiteMagnitude (bits : FloatBits) : Rat :=
-  let exponent := floatExponent bits
-  let scaled := finiteMantissa bits * 2 ^ (exponent - 1)
-  mkRat (Int.ofNat scaled) (2 ^ 1074)
-
-def finiteValue (bits : FloatBits) : Rat :=
-  if floatNegative bits then -finiteMagnitude bits else finiteMagnitude bits
-
 def magnitudeUnits (raw : Nat) : Nat :=
   let exponent := raw / floatFractionWidth
   let fraction := raw % floatFractionWidth
@@ -105,27 +92,10 @@ def roundMagnitudeBits (numerator denominator : Nat) : Nat :=
     else (exponent + 2) * floatFractionWidth
   else (exponent + 1) * floatFractionWidth + (mantissa - floatFractionWidth)
 
-def finiteToInt (bits : FloatBits) (mode : Nat → Nat → Nat) : Option IntValue :=
-  if floatExponent bits = floatExponentLimit - 1 then none
-  else
-    let value := finiteMagnitude bits
-    let rounded := mode value.num.natAbs value.den
-    validateInt? (if floatNegative bits then -Int.ofNat rounded else Int.ofNat rounded)
-
 def floorMagnitude (numerator denominator : Nat) : Nat := numerator / denominator
 
 def ceilMagnitude (numerator denominator : Nat) : Nat :=
   (numerator + denominator - 1) / denominator
-
-def floatFloor (bits : FloatBits) : Option IntValue :=
-  finiteToInt bits (if floatNegative bits then ceilMagnitude else floorMagnitude)
-
-def floatCeil (bits : FloatBits) : Option IntValue :=
-  finiteToInt bits (if floatNegative bits then floorMagnitude else ceilMagnitude)
-
-def floatRound (bits : FloatBits) : Option IntValue := finiteToInt bits roundAway
-
-def intToFloatMagnitude (value : IntValue) : Nat := roundMagnitudeBits value.val.natAbs 1
 
 theorem round_even_tie_to_even : roundEven 5 2 = 2 ∧ roundEven 7 2 = 4 := by
   decide
@@ -165,12 +135,6 @@ theorem tiny_subnormal_rounds_to_zero : roundMagnitudeBits 1 (2 ^ 1075) = 0 := b
 set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem least_subnormal_rounds_exactly : roundMagnitudeBits 1 (2 ^ 1074) = 1 := by
-  decide
-
-theorem conversion_rejects_positive_infinity : floatRound floatPositiveInfinity = none := by
-  decide
-
-theorem conversion_rejects_nan : floatRound floatQuietNaN = none := by
   decide
 
 end Xsh.Values.FloatArith
@@ -489,5 +453,75 @@ theorem round_magnitude_bits_nearest (n d : Nat) (positive : 0 < d)
       · intro even
         have := Nat.dvd_trans evenWidth (Nat.dvd_mul_left floatFractionWidth (exponent + 1))
         omega
+
+theorem round_magnitude_bits_overflow (n d : Nat) (positive : 0 < d)
+    (above : d * overflowMidpointUnits ≤ n * 2 ^ 1074) :
+    roundMagnitudeBits n d = (floatExponentLimit - 1) * floatFractionWidth := by
+  have large : 2 ^ 2097 ≤ n * 2 ^ 1074 / d := by
+    apply (Nat.le_div_iff_mul_le positive).2
+    have midpoint : 2 ^ 2097 ≤ overflowMidpointUnits := by
+      unfold overflowMidpointUnits
+      rw [show (2097 : Nat) = 53 + 2044 from rfl, Nat.pow_add]
+      exact Nat.mul_le_mul_right _ (by decide)
+    have scaled := Nat.mul_le_mul_right d midpoint
+    rw [Nat.mul_comm overflowMidpointUnits] at scaled
+    exact Nat.le_trans scaled above
+  have nonzero : n * 2 ^ 1074 / d ≠ 0 := by
+    have := Nat.two_pow_pos 2097
+    omega
+  have logarithm := (Nat.le_log2 nonzero).2 large
+  have top : min 2045 (Nat.log2 (n * 2 ^ 1074 / d) - 52) = 2045 := by omega
+  have carry := round_even_reaches_carry (n * 2 ^ 1074) (d * 2 ^ 2044)
+    (Nat.mul_pos positive (Nat.two_pow_pos _)) (by rw [← midpoint_half]; exact above)
+  rw [← top_binade_half] at carry
+  unfold roundMagnitudeBits
+  dsimp only
+  rw [top, ite_eq_right (fun subnormal => absurd subnormal.1 (by decide)), ite_eq_left carry,
+    ite_eq_left rfl]
+
+theorem magnitude_units_strict_mono {left right : Nat} (lower : left < right) :
+    magnitudeUnits left < magnitudeUnits right := by
+  rcases Nat.lt_trichotomy (left / floatFractionWidth) (right / floatFractionWidth) with
+    smaller | equal | larger
+  · exact magnitude_units_strict _ _ smaller
+  · have leftParts := Nat.div_add_mod left floatFractionWidth
+    have rightParts := Nat.div_add_mod right floatFractionWidth
+    rw [equal] at leftParts
+    have fractions : left % floatFractionWidth < right % floatFractionWidth := by omega
+    unfold magnitudeUnits
+    dsimp only
+    rw [equal]
+    split
+    · exact fractions
+    · exact Nat.mul_lt_mul_of_pos_right (by omega) (Nat.two_pow_pos _)
+  · have := magnitude_units_strict _ _ larger
+    have := Nat.div_le_div_right (c := floatFractionWidth) (Nat.le_of_lt lower)
+    omega
+
+theorem binary_nearest_unique (n d : Nat) (positive : 0 < d) {first second : Nat}
+    (firstNearest : BinaryNearest n d first) (secondNearest : BinaryNearest n d second) :
+    first = second := by
+  have ordered : ∀ low high, low < high → BinaryNearest n d low → BinaryNearest n d high → False := by
+    intro low high lower lowNearest highNearest
+    have lowBound := lowNearest.2.1 high highNearest.1
+    have highBound := highNearest.2.1 low lowNearest.1
+    have tie : distance (n * 2 ^ 1074) (d * magnitudeUnits low) =
+        distance (n * 2 ^ 1074) (d * magnitudeUnits high) := Nat.le_antisymm lowBound highBound
+    have lowEven := (lowNearest.2.2 high highNearest.1 tie).resolve_right (by omega)
+    have highEven := (highNearest.2.2 low lowNearest.1 tie.symm).resolve_right (by omega)
+    have middleFinite : low + 1 < (floatExponentLimit - 1) * floatFractionWidth := by
+      have := highNearest.1
+      omega
+    have middleBound := lowNearest.2.1 (low + 1) middleFinite
+    have belowMiddle := Nat.mul_lt_mul_of_pos_left
+      (magnitude_units_strict_mono (show low < low + 1 by omega)) positive
+    have aboveMiddle := Nat.mul_lt_mul_of_pos_left
+      (magnitude_units_strict_mono (show low + 1 < high by omega)) positive
+    unfold distance at tie middleBound
+    omega
+  rcases Nat.lt_trichotomy first second with lower | same | higher
+  · exact (ordered _ _ lower firstNearest secondNearest).elim
+  · exact same
+  · exact (ordered _ _ higher secondNearest firstNearest).elim
 
 end Xsh.Values.FloatArith
