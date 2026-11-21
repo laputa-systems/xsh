@@ -39,6 +39,12 @@ theorem lexed_tokens_fit_in_source {codes : List Nat} {tokens : List Token}
     simp only [List.length_cons, List.length_append]
     omega
 
+theorem lexeme_consumes_source {rest leading : List Nat} {token : Token}
+    (lexeme : Lexeme rest leading token) : rest.length < (leading ++ rest).length := by
+  have positive := List.length_pos_iff.mpr (lexeme_nonempty lexeme)
+  simp only [List.length_append]
+  omega
+
 theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
     (derivation : AtomSyntax tokens atom rest) : parseAtom tokens = some (atom, rest) := by
   cases derivation with
