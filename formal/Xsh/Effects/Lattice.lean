@@ -324,6 +324,7 @@ namespace Xsh.Effects.Lattice
 open Xsh.Syntax Xsh.Semantics.Effects
 
 theorem finite_lattice_and_implication_closure :
+    (∀ e : Effect, e ∈ allEffects) ∧ allEffects.Nodup ∧
     (∀ a : FiniteEffectSet, le a a ∧ le bottom a ∧ le a top) ∧
     (∀ a b c : FiniteEffectSet, (le a b → le b c → le a c) ∧
       (le a b → le b a → a = b) ∧
@@ -337,7 +338,7 @@ theorem finite_lattice_and_implication_closure :
       (le a b → (∀ e, ioComponent e → b .io → b e) → le (closure a) b)) ∧
     (∀ a : FiniteEffectSet, ∀ e : Effect,
       closure a e ↔ a e ∨ (a .io ∧ (e = .fs ∨ e = .net ∨ e = .process ∨ e = .env))) := by
-  refine ⟨?_, ?_, ?_, ?_⟩
+  refine ⟨every_effect_is_listed, listed_effects_are_distinct, ?_, ?_, ?_, ?_⟩
   · intro a
     exact ⟨le_refl a, bottom_le a, le_top a⟩
   · intro a b c

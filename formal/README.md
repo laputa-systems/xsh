@@ -11,9 +11,10 @@ the frozen source commit and tree. A universal obligation is planned or
 closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
-that is absent, not a theorem, or outside the project modules. `EFF-LATTICE` is closed. The finite Rust-conformance ledger holds only the named tests that ran
-against binaries built from that commit. Each case is evidence for its own test
-only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
+that is absent, not a theorem, or outside the project modules. `EFF-LATTICE`
+is closed. The finite Rust-conformance ledger holds only the named tests that
+ran against binaries built from that commit. Each case is evidence for its own
+test only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
 per kernel-checked certificate: the artifact kind, the Lean definitions that
 hold the artifact's bytes, the certificate theorem, its supporting and
 rejection theorems, the proposition, and what it does not show. A certificate
@@ -72,7 +73,9 @@ replacements. These are laws of the model: a false comparison witnesses an
 assignment that fails, not an immediate Rust predicate rejection. Source
 extraction, agreement with the Rust predicate decision, source effect
 instantiation, inference integration and execution correspondence remain open.
-`EFF-LATTICE` proves the finite effect-set lattice and exact `io` implication closure; the other universal effect obligations remain planned.
+`EFF-LATTICE` proves the finite effect-set lattice and exact `io` implication
+closure for the Lean model only; it does not prove Rust extraction, diagnostics
+or runtime effects. The other universal effect obligations remain planned.
 
 [`Core/EffectPredicates.lean`](Xsh/Core/EffectPredicates.lean) models the
 three-result decision for equality, inclusion, permission coverage and exclusion
