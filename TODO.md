@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 165
+Next: 166
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -138,6 +138,15 @@ out of scope.
 - **Recommendation:** Make the descending order stable (reverse the comparison, not the result), or document that `desc: true` is not stable; add a native test with equal keys under `desc: true`.
 - **Fix with:** root-cause
 - **Effort:** S
+
+### XSH-165 · P2 · Narrowing an optional field of a match-bound record fails IR verification
+
+- **Area:** Lowering
+- **Where:** indexed IR `full_ir_verification` (`compact.indexed-build`); reproducer `bench/codemode/defects/d6-narrowed-field-lowering/main.xsh`
+- **Problem:** A record bound by `Ok(state) =>` whose `Str?` field is narrowed with `if state.transfer != null` and then used as `Str` (`sent += [state.transfer]`), followed by a later read of `sent`, type-checks and is then rejected with `err[compact.indexed-build]: ... checked optional field receiver has no non-null branch proof` at line 1, column 1. Without the later read, or with the narrowing on a `let` binding, it passes. Two held-out programs of the code mode experiment hit it.
+- **Recommendation:** Carry the checker's narrowing proof for fields of pattern-bound records into the indexed IR, and add a native test of this shape; until then, report the source span of the field access instead of 1:1.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 

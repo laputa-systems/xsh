@@ -117,6 +117,23 @@ and each use is then checked against the built-in `Group` record, adding a
 a behavior defect. The author's exact wording ("expected Record, found Record") did not
 reproduce; the cascade did.
 
+## D6: narrowing an optional field of a match-bound record fails lowering
+
+Found in two held-out programs, one under each XSH condition, and reduced to
+`d6-narrowed-field-lowering/main.xsh` in the boundary:
+
+```text
+err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`: checked optional field receiver has no non-null branch proof
+  /task/main.xsh:1:1
+```
+
+A record bound by `Ok(state) =>` whose `Str?` field is narrowed with
+`if state.transfer != null` and then used as a `Str` (`sent += [state.transfer]`),
+followed by any later read of `sent`, type-checks and then fails in IR verification with
+an internal code pointing at line 1, column 1. Without the later read, or with the same
+narrowing on a plain `let` binding, it passes. The program is rejected with exit 2, so a
+model sees a diagnostic it cannot act on.
+
 ## Documentation gaps the development runs exposed
 
 Each is a fact a correct program needs that `xsht api` states wrongly or not at all.
@@ -135,5 +152,5 @@ They are not product defects; they are recorded for the follow-up list.
   `xsht api language:core` says so; it caused 8 of the 24 failed development programs.
 
 TODO.md tracks D1 as XSH-158, D2 as XSH-159, D3 as XSH-162, D4 as XSH-163, D5 as
-XSH-164, and the documentation gaps as XSH-160 and XSH-161.
+XSH-164, D6 as XSH-165, and the documentation gaps as XSH-160 and XSH-161.
 
