@@ -1588,6 +1588,94 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     callee_cannot_write_caller machine,
     body_cells_dropped machine⟩
 
+/-- The error-handling core of SPEC 8 in the statement machine. `?` and a
+conversion unwrap `Ok` and raise the error of `Err`, in statements and inside
+expressions; a statement-position `Err` fails its statement; `try { ... }` is
+a value block whose raised failure becomes `Err` and whose normal completion
+is `Ok` of the tail, while runtime and type failures and `return`, `break`
+and `continue` pass on; a value block's tail is its value and an `Err` tail
+leaves it normally; each `retry` attempt is a value block, a raised failure
+the `on` filter selects takes the next delay as an observation and runs again,
+and the result is `Ok` of the first success or `Err` of the last failure; and a
+block function's return kind decides its call: a `Result` function returns a
+raised failure, including a primary cleanup failure, as its `Err` and wraps a
+plain value in `Ok`, and any other function fails the call. -/
+theorem error_handling {world : World Declaration Identity Source} (machine : Machine world) :
+    (∀ payload error : Value Declaration Identity Source,
+      propagate payload.ok = .value payload ∧ propagate (.err error) = .failure (.raised error)) ∧
+    (∀ fuel activation store environment locals inner,
+      evalExpr machine (fuel + 1) activation store environment locals (.tryExpr inner) =
+        (evalExpr machine fuel activation store environment locals inner).bind propagate) ∧
+    (∀ fuel frame inner target body pattern delays,
+      runValue machine (fuel + 1) frame (.tryExpr inner) =
+        (runValue machine fuel frame inner).bind (fun value next => fromEval next (propagate value)) ∧
+      runValue machine (fuel + 1) frame (.convert inner target) =
+        (runValue machine fuel frame inner).bind (fun value next =>
+          match machine.conversion value target with
+          | some converted => fromEval next (propagate converted)
+          | none => .exec .unsupported) ∧
+      runValue machine (fuel + 1) frame (.capture body) =
+        Xsh.Semantics.CoreControl.capture (valueScope machine fuel frame body) ∧
+      runValue machine (fuel + 1) frame (.valueBlock body) = valueScope machine fuel frame body ∧
+      valueScope machine (fuel + 1) frame body =
+        settle (leaveBlock machine fuel frame) (runValueTail machine fuel frame.enter body) ∧
+      retryLoop machine (fuel + 1) frame pattern body delays =
+        retryStep machine.context pattern delays (fun after rest => retryLoop machine fuel after pattern body rest)
+          (valueScope machine fuel frame body)) ∧
+    (∀ fuel frame next value result error, (∀ body, value ≠ .valueBlock body) →
+      runValue machine fuel frame value = .value result next →
+        (result.eraseNominal = .err error →
+          runStatement machine (fuel + 1) frame (.expression value) = .failed (.raised error) next) ∧
+        ((∀ error, result.eraseNominal ≠ .err error) →
+          runStatement machine (fuel + 1) frame (.expression value) = .normal next)) ∧
+    (∀ (value error : Value Declaration Identity Source) expected (frame : Frame world),
+      Xsh.Semantics.CoreControl.capture (.value value frame) = .value value.ok frame ∧
+      Xsh.Semantics.CoreControl.capture (.exec (.failed (.raised error) frame)) = .value (.err error) frame ∧
+      Xsh.Semantics.CoreControl.capture (.exec (.failed (.runtime error) frame)) =
+        .exec (.failed (.runtime error) frame) ∧
+      Xsh.Semantics.CoreControl.capture (.exec (.failed (.typeError expected error) frame)) =
+        .exec (.failed (.typeError expected error) frame) ∧
+      Xsh.Semantics.CoreControl.capture (.exec (.returned value frame)) = .exec (.returned value frame) ∧
+      Xsh.Semantics.CoreControl.capture (.exec (.broke frame)) = .exec (.broke frame)) ∧
+    (∀ (leave : Exec world → Exec world) value inner,
+      settle leave (.value value inner) =
+        (match leave (.normal inner) with
+          | .normal outer => .value value outer
+          | other => .exec other) ∧
+      exitsWithError (.normal inner) = false) ∧
+    (∀ pattern (next : Frame world → List (Value Declaration Identity Source) → Valued world) value error delay rest
+        after inner,
+      retryStep machine.context pattern (delay :: rest) next (.value value after) = .value value.ok after ∧
+      (retryable machine.context pattern error = some true →
+        retryStep machine.context pattern (delay :: rest) next (.exec (.failed (.raised error) after)) =
+          next { after with waited := after.waited ++ [delay] } rest) ∧
+      (retryable machine.context pattern error = some true →
+        retryStep machine.context pattern [] next (.exec (.failed (.raised error) after)) = .value (.err error) after) ∧
+      (retryable machine.context pattern error = some false →
+        retryStep machine.context pattern (delay :: rest) next (.exec (.failed (.raised error) after)) =
+          .value (.err error) after) ∧
+      retryStep machine.context pattern (delay :: rest) next (.exec (.failed (.runtime inner) after)) =
+        .exec (.failed (.runtime inner) after)) ∧
+    (∀ fuel activation store defining parameters body kind,
+      callBlock machine (fuel + 1) activation store defining parameters body kind =
+        boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body)) ∧
+    (∀ (value error : Value Declaration Identity Source) failure (frame : Frame world),
+      boundary .result (.failed (.raised error) frame) = .value (.err error) ∧
+      boundary .plain (.failed failure frame) = .failure failure ∧
+      boundary .result (.returned value frame) = .value (wrapOk value) ∧
+      boundary .plain (.returned value frame) = .value value ∧
+      ∀ inner, boundary .result (.failed (.runtime inner) frame) = .failure (.runtime inner)) :=
+  ⟨propagate_cases,
+    fun _ _ _ _ _ _ => rfl,
+    fun fuel frame inner target body pattern delays => error_forms machine fuel frame inner target body pattern delays,
+    fun fuel frame next value result error plain ran => statement_result machine fuel frame next value plain result error ran,
+    capture_cases,
+    value_block_leaves_normally,
+    fun pattern next value error delay rest after inner =>
+      retryStep_cases machine.context pattern next value error delay rest after inner,
+    call_boundary machine,
+    boundary_cases⟩
+
 end Root
 
 namespace Witness

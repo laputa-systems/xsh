@@ -356,6 +356,31 @@ over a cleanup failure. Five mutants are rejected: calls sharing the caller's
 activation, registration-order unwinding, skipping defers on `break`, running
 `errdefer` on success, and a cleanup failure masking the original one.
 
+The `error_handling` fragment root, in the same module, covers the error core
+of SPEC 8. `?` and a conversion unwrap `Ok` and raise the error of `Err`, which
+is the raised class together with failed assertions and the `Map[UInt]` key
+`Schema` failure; a statement-position `Err` fails its statement. `try { ... }`
+is a value block whose raised failure becomes `Err` and whose completion is
+`Ok` of its tail; runtime and type failures, `return`, `break` and `continue`
+pass through it, and because the failure leaves the `try` body, that body's
+`errdefer` runs while the block containing the `try` continues. A value
+block's tail is its value, so an `Err` tail leaves it normally and its
+`errdefer` is not due. Each `retry` attempt is a value block: a raised failure
+the `on` filter selects runs the attempt's defers, takes the next delay as an
+observation in `Frame.waited`, and runs again, and the result is `Ok` of the
+first success or `Err` of the last failure. A block function body has a
+return kind: a `Result` function returns a raised failure, a primary cleanup
+failure included, as its `Err` and wraps plain values in `Ok`, and any other
+function fails the call. The witnesses show `?` skipping the rest of a `try`
+body and running its `errdefer`, `try` capturing a failed assertion but not an
+`index-out-of-range`, a three-attempt `retry` running its attempt `errdefer`
+twice, a cleanup failure reaching a `Result` function's caller as `Err` and a
+plain function's caller as a call failure that `try` captures, and a tail
+`Err` running a function's `errdefer` but not a value block's. Four mutants
+are rejected: a `try` that captures runtime failures, a tail `Err` treated as
+a normal exit, a `retry` that skips attempt defers, and a `Result` function's
+cleanup failure escaping as a call failure.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,
