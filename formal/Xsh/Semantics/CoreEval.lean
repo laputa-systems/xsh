@@ -30,11 +30,18 @@ structure Errors (Declaration Identity Source : Type) where
   missingField : Value Declaration Identity Source
   mapMissing : Value Declaration Identity Source
 
+/-- Whether a function returns a `Result`, which decides where its failures
+go (SPEC 8.3, 8.7). -/
+inductive ReturnKind where
+  | result
+  | plain
+  deriving DecidableEq
+
 /-- A function body: a result expression, or a statement block whose value is
 its `return` or its tail expression. -/
 inductive FunctionBody where
   | expression (value : Xsh.Syntax.Expr)
-  | block (statements : List Xsh.Syntax.Statement)
+  | block (statements : List Xsh.Syntax.Statement) (kind : ReturnKind)
 
 /-- A function: the environment it was defined in, its parameter names and its
 body. -/
@@ -274,7 +281,7 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
     (environment : Environment) (store : Store world)
     (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source))
-    (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+    (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
       Result Declaration Identity Source (Value Declaration Identity Source))
     (locals : Locals Declaration Identity Source) :
     Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
@@ -325,7 +332,7 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
         if parameters.length = evaluated.length then
           match body with
           | .expression result => recurse defining (parameters.zip evaluated) result
-          | .block statements => callBlock defining (parameters.zip evaluated) statements
+          | .block statements kind => callBlock defining (parameters.zip evaluated) statements kind
         else .stuck
     | _, _, _ => .unsupported
   | _ => .unsupported
@@ -335,7 +342,7 @@ def evaluate (context : Context Declaration Identity Source) {world : World Decl
     Nat → Locals Declaration Identity Source → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | 0, _, _ => .outOfFuel
   | fuel + 1, locals, expression =>
-    step context environment store (fun inner => evaluate context inner store fuel) (fun _ _ _ => .unsupported) locals
+    step context environment store (fun inner => evaluate context inner store fuel) (fun _ _ _ _ => .unsupported) locals
       expression
 
 def compoundBinary : Xsh.Syntax.AssignOp → Option Xsh.Syntax.BinaryOp
