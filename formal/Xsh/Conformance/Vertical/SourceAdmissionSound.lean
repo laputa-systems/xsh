@@ -780,6 +780,48 @@ theorem record_let_consumes_tokens {tokens rest : List Token} {target : String}
     simp at consumed ⊢
     omega
 
+theorem closing_consumes_tokens {tokens rest : List Token}
+    (derivation : ClosingSyntax tokens rest) : rest.length < tokens.length := by
+  cases derivation <;> simp <;> omega
+
+theorem body_consumes_tokens {shape : ResultShape} {name : String} {parameters : List String}
+    {tokens rest : List Token} {function : SourceFunction}
+    (derivation : BodySyntax shape name parameters tokens function rest) : rest.length < tokens.length := by
+  cases derivation with
+  | body literal computed propagation assignment propAllowed compAllowed returnLine expression assigned result resultAllowed fresh closing =>
+    have a := lets_consume_tokens literal
+    have b := computed_consume_tokens computed
+    have c := propagation_consumes_tokens propagation
+    have d := assignment_consumes_tokens assignment
+    have e := expression_consumes_tokens expression
+    have f := closing_consumes_tokens closing
+    simp [returnLine] at d
+    omega
+  | record shape parameters record returned admitted closing =>
+    have a := record_let_consumes_tokens record
+    have b := record_value_consumes_tokens returned
+    have c := closing_consumes_tokens closing
+    simp at a
+    omega
+
+theorem function_consumes_tokens {tokens rest : List Token} {function : SourceFunction}
+    (derivation : FunctionSyntax tokens function rest) : rest.length < tokens.length := by
+  cases derivation with
+  | function params result body =>
+    have a := parameters_consume_tokens params
+    have b := body_consumes_tokens body
+    cases result <;> simp at a ⊢ <;> omega
+
+theorem functions_fit_tokens {tokens : List Token} {functions : List SourceFunction}
+    (derivation : FunctionsSyntax tokens functions) : functions.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | newline tail ih => simp_all <;> omega
+  | cons first tail ih =>
+    have consumed := function_consumes_tokens first
+    simp only [List.length_cons]
+    omega
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
