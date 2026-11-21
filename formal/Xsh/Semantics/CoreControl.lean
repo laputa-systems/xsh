@@ -1763,30 +1763,54 @@ def hoistNames {world : World Declaration Identity Source} (machine : Machine wo
     | some (binder, cell, _) => hoistNames machine activation (extend environment [(name, binder, cell)]) rest
     | none => none
 
+/-- One top-level statement's part in hoisting, as the statement itself will
+bind when it runs: a binding or a `guard let` declares its target's names, the
+`var`s among them writable; a `proc` or `pure` declares its name and its
+closure over the environment at its declaration; sugar hoists as its
+expansion does. -/
+def hoistStatement {world : World Declaration Identity Source} (machine : Machine world) (activation : Nat) :
+    Environment → List CellId → List (CellId × Closure) → Xsh.Syntax.Statement →
+      Option (Environment × List CellId × List (CellId × Closure))
+  | environment, mutable, closures, .binding kind target _ _ =>
+    match resolveTarget (machine.namesAt activation) environment target with
+    | some (_, declared) =>
+      some (extend environment declared,
+        if kind = .var then mutable ++ declared.map fun entry => entry.2.2 else mutable, closures)
+    | none => none
+  | environment, mutable, closures, .guardStmt target _ _ _ =>
+    match resolveTarget (machine.namesAt activation) environment target with
+    | some (_, declared) => some (extend environment declared, mutable, closures)
+    | none => none
+  | environment, mutable, closures, .guardHandled target _ _ _ _ =>
+    match resolveTarget (machine.namesAt activation) environment target with
+    | some (_, declared) => some (extend environment declared, mutable, closures)
+    | none => none
+  | environment, mutable, closures, .functionDef kind name parameters _ result body _ _ =>
+    match callableKind kind, (machine.namesAt activation).declaration environment name with
+    | some callable, some (binder, cell, _) =>
+      some (extend environment [(name, binder, cell)], mutable,
+        (cell, .mk cell callable (extend environment [(name, binder, cell)]) closures
+          ((captureNames (parameterNames parameters) body).filterMap fun captured =>
+            match (extend environment [(name, binder, cell)]).cellOf captured with
+            | .ok found => if mutable.contains found then some found else none
+            | .error _ => none)
+          parameters (.block body (returnKindOf machine result))) :: closures)
+    | some _, none => none
+    | none, _ => some (environment, mutable, closures)
+  | environment, mutable, closures, .sugar _ expansion =>
+    hoistStatement machine activation environment mutable closures expansion
+  | environment, mutable, closures, _ => some (environment, mutable, closures)
+
 /-- Each top-level function's closure before any statement runs: over the
 environment at its declaration, which holds the top-level bindings declared
 before it, with the `var`s among them writable. -/
 def hoistClosures {world : World Declaration Identity Source} (machine : Machine world) (activation : Nat) :
     Environment → List CellId → List (CellId × Closure) → List Xsh.Syntax.Statement → Option (List (CellId × Closure))
   | _, _, closures, [] => some closures
-  | environment, mutable, closures, .binding kind target _ _ :: rest =>
-    match resolveTarget (machine.namesAt activation) environment target with
-    | some (_, declared) =>
-      hoistClosures machine activation (extend environment declared)
-        (if kind = .var then mutable ++ declared.map fun entry => entry.2.2 else mutable) closures rest
+  | environment, mutable, closures, statement :: rest =>
+    match hoistStatement machine activation environment mutable closures statement with
+    | some (environment, mutable, closures) => hoistClosures machine activation environment mutable closures rest
     | none => none
-  | environment, mutable, closures, .functionDef kind name parameters _ result body _ _ :: rest =>
-    match callableKind kind, (machine.namesAt activation).declaration environment name with
-    | some callable, some (binder, cell, _) =>
-      hoistClosures machine activation (extend environment [(name, binder, cell)]) mutable
-        ((cell, .mk cell callable (extend environment [(name, binder, cell)]) closures
-          ((captureNames (parameterNames parameters) body).filterMap fun captured =>
-            match (extend environment [(name, binder, cell)]).cellOf captured with
-            | .ok found => if mutable.contains found then some found else none
-            | .error _ => none)
-          parameters (.block body (returnKindOf machine result))) :: closures) rest
-    | _, _ => hoistClosures machine activation environment mutable closures rest
-  | environment, mutable, closures, _ :: rest => hoistClosures machine activation environment mutable closures rest
 
 /-- A script's frame with its top-level declarations hoisted (SPEC 3.1:
 "Declarations are visible throughout their script or module, including the
