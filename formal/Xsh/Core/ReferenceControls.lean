@@ -20,8 +20,8 @@ private def world (policy : ReferencePolicy Nat) : Store.World Nat Nat Unit :=
 private def decisions (policy : ReferencePolicy Nat) (choice : ∀ reference, Decidable (policy reference)) :
     Store.Decisions (world policy) where
   contracts := {
-    stream := fun _ _ => isFalse id
-    callable := fun _ _ => isFalse id
+    stream := fun _ _ => isFalse (fun ⟨_, held, _⟩ => held)
+    callable := fun _ _ => isFalse (fun ⟨_, held, _⟩ => held)
     scheme := fun _ _ => isFalse id
     generic := fun _ _ => isFalse id
   }

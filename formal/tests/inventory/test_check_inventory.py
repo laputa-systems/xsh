@@ -120,10 +120,10 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1254, len(result["fragment_roots"]))
+        self.assertEqual(1267, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
-        self.assertEqual(["EFF-LATTICE"], result["closed_obligations"])
+        self.assertEqual(["BASE-NUM", "EFF-LATTICE", "VAL-ERASE", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
         self.assertEqual(
             self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),
@@ -184,7 +184,11 @@ class InventoryCheckerTests(unittest.TestCase):
             certificate["module"] for certificate in coverage["artifact_certificates"]
         }
         root_ids = CHECKER.validate_fragment_roots(
-            roots, module_sources, reachable, certified_modules
+            roots,
+            module_sources,
+            reachable,
+            certified_modules,
+            CHECKER.closed_obligation_modules(coverage),
         )
         self.assertEqual(len(roots), len(root_ids))
         integer_ops_roots = {
@@ -831,7 +835,11 @@ class InventoryCheckerTests(unittest.TestCase):
             obligation for obligation in coverage["universal_theorems"]
             if obligation["id"] == "VAL-WIDEN"
         )
-        self.assertEqual("planned", widen_obligation["status"])
+        self.assertEqual("closed", widen_obligation["status"])
+        self.assertEqual("Xsh.Validation.Core.Widen", widen_obligation["module"])
+        self.assertEqual(
+            "Xsh.Validation.Core.Widen.validated_widening", widen_obligation["declaration"]
+        )
         nonempty_filtering_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.NonEmptyFiltering"
@@ -955,6 +963,16 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.InventoryError, "missing fragment roots"):
             CHECKER.validate_coverage(ROOT, coverage)
 
+    def test_a_closed_obligation_module_needs_its_closed_row(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        for entry in coverage["universal_theorems"]:
+            if entry["id"] == "VAL-ERASE":
+                entry["status"] = "planned"
+                del entry["module"]
+                del entry["declaration"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "missing fragment roots"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
     def test_duplicate_fragment_root_fails(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         coverage["fragment_roots"].append(coverage["fragment_roots"][0].copy())
@@ -972,7 +990,8 @@ class InventoryCheckerTests(unittest.TestCase):
         sources = CHECKER.lean_module_sources(ROOT / "formal")
         reachable = CHECKER.reachable_lean_modules(sources)
         certified = {row["module"] for row in coverage["artifact_certificates"]}
-        CHECKER.validate_fragment_roots(coverage["fragment_roots"], sources, reachable, certified)
+        closed = CHECKER.closed_obligation_modules(coverage)
+        CHECKER.validate_fragment_roots(coverage["fragment_roots"], sources, reachable, certified, closed)
         row = coverage["fragment_roots"][0]
         source = sources[row["module"]].read_text(encoding="utf-8")
         forged = "Xsh.InventoryForged.root"
@@ -1025,8 +1044,9 @@ class InventoryCheckerTests(unittest.TestCase):
 
     def test_fragment_cannot_close_a_full_obligation(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
-        coverage["universal_theorems"][0]["proof_root_id"] = coverage["fragment_roots"][0]["id"]
-        coverage["universal_theorems"][0]["status"] = "proved"
+        planned = next(row for row in coverage["universal_theorems"] if row["status"] == "planned")
+        planned["proof_root_id"] = coverage["fragment_roots"][0]["id"]
+        planned["status"] = "proved"
         with self.assertRaisesRegex(CHECKER.InventoryError, "cannot close theorem obligation"):
             CHECKER.validate_coverage(ROOT, coverage)
 

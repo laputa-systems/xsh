@@ -1809,11 +1809,25 @@ def validate_artifact_certificates(
     return seen_ids, modules, seen_declarations
 
 
+def closed_obligation_modules(coverage: dict[str, Any]) -> set[str]:
+    obligations = coverage["universal_theorems"]
+    if not isinstance(obligations, list):
+        return set()
+    return {
+        entry["module"]
+        for entry in obligations
+        if isinstance(entry, dict)
+        and entry.get("status") == "closed"
+        and isinstance(entry.get("module"), str)
+    }
+
+
 def validate_fragment_roots(
     roots: Any,
     module_sources: dict[str, Path],
     reachable_modules: set[str],
     certified_modules: set[str] = frozenset(),
+    closed_modules: set[str] = frozenset(),
 ) -> set[str]:
     if not isinstance(roots, list) or not roots:
         raise InventoryError("fragment_roots must be a nonempty array")
@@ -1882,7 +1896,7 @@ def validate_fragment_roots(
                 raise InventoryError(f"fragment root {identifier} needs explicit {field} text")
         seen_modules.add(module)
 
-    missing_modules = expected_modules - seen_modules - certified_modules
+    missing_modules = expected_modules - seen_modules - certified_modules - closed_modules
     if missing_modules:
         raise InventoryError(f"missing fragment roots for Lean modules: {sorted(missing_modules)}")
     return seen_ids
@@ -2440,7 +2454,11 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         coverage["artifact_certificates"], module_sources, reachable_modules
     )
     fragment_root_ids = validate_fragment_roots(
-        coverage["fragment_roots"], module_sources, reachable_modules, certified_modules
+        coverage["fragment_roots"],
+        module_sources,
+        reachable_modules,
+        certified_modules,
+        closed_obligation_modules(coverage),
     )
     fragment_declarations = {root["declaration"] for root in coverage["fragment_roots"]}
     overlap = fragment_declarations & certified_declarations

@@ -6,8 +6,9 @@ namespace Xsh.Core
 The structural membership decision does not inspect or execute those objects. -/
 structure ContractDecisions {Declaration Identity Source : Type}
     (world : MembershipWorld Declaration Identity Source) where
-  stream : ∀ reference type, Decidable (world.stream reference type)
-  callable : ∀ reference type, Decidable (world.callable reference type)
+  stream : ∀ reference type, Decidable (∃ retained, world.stream reference retained ∧ ViewChain retained type)
+  callable : ∀ reference type,
+    Decidable (∃ retained, world.callable reference retained ∧ SignatureChain retained type)
   scheme : ∀ reference declaration, Decidable (world.scheme reference declaration)
   generic : ∀ reference kind, Decidable (world.generic reference kind)
 

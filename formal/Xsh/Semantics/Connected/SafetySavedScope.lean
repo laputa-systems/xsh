@@ -44,11 +44,11 @@ theorem scheme_cells_survive_stable_store (cells : ActiveCells) (before after : 
     have nextValue : next.contents.value = .schemeFunction declaration scheme := by
       simpa [Connected.read, active, nextAt] using readAfter
     have nextTag : next.contents.typeTag = .schemeFunction := by
-      have typed := next.contents.wellTyped
+      have typed := next.contents.wellTyped.connected
       rw [nextValue] at typed
       cases tag : next.contents.typeTag <;> simp_all [HasType, valueType, typeFits]
     have oldType : valueType old.contents.value = some .schemeFunction := by
-      have typed := old.contents.wellTyped
+      have typed := old.contents.wellTyped.connected
       have oldTag : old.contents.typeTag = .schemeFunction := sameTag.symm.trans nextTag
       rw [oldTag] at typed
       cases actual : valueType old.contents.value with

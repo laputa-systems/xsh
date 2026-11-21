@@ -78,7 +78,7 @@ theorem missing_callable_rejected (functions : FunctionTable) (declaration : Dec
 theorem missing_callable_store_rejected (state : Machine) (globals : Scope)
     (storage : BindingStorageMap) (types : CellTypes) (declaration : DeclarationId)
     (cell : Xsh.Semantics.Environments.CellId)
-    (entry : Xsh.Semantics.Environments.StoreCell RuntimeType Value HasType)
+    (entry : Xsh.Semantics.Environments.StoreCell RuntimeType Value StoreTyped)
     (missing : state.functions declaration = none) (present : state.store cell = some entry)
     (value : entry.contents.value = .function declaration .argumentsEmpty .integer) :
     ¬ TypedMachine globals storage types state := by

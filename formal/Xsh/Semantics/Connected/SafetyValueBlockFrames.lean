@@ -204,7 +204,7 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
         exact (has_type_iff_compatible _ _).mpr
           ⟨actualRuntime, actualTyped, store_compatible_composes compatible storageType runtimeType actualRuntime storageClosed closed actualFits⟩
       obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
-        ⟨current, present, writable, member⟩
+        ⟨current, present, writable, StoreTyped.of_hasType member⟩
       exact ⟨_, by simpa [base] using Step.assignmentCommit base binding.binder value following cell next active written, by trivial⟩
   | discard following =>
     cases frameTyped with

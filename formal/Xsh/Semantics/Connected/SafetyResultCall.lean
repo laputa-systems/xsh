@@ -80,7 +80,7 @@ structure ResultCallWorld (state : Machine) (body : List StatementNode) where
 def calleeCell (state : Machine) : Environments.CellId := ⟨state.nextActivation, resultFirstBinder⟩
 
 def calleeStore (state : Machine) : Store := fun other =>
-  if other = calleeCell state then some ⟨⟨.integer, callOne, call_one_is_an_integer⟩, .immutable⟩
+  if other = calleeCell state then some ⟨⟨.integer, callOne, StoreTyped.of_hasType call_one_is_an_integer⟩, .immutable⟩
   else state.store other
 
 def calleeCells (state : Machine) : ActiveCells :=

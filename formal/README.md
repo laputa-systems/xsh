@@ -12,9 +12,11 @@ closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
 that is absent, not a theorem, or outside the project modules. `EFF-LATTICE`
-is closed. The finite Rust-conformance ledger holds only the named tests that
-ran against binaries built from that commit. Each case is evidence for its own
-test only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
+is closed. A module that holds a closed root needs no fragment row. The
+fragment roots below close no obligation; each row's boundary names its
+limits. The finite Rust-conformance ledger holds only the named tests that ran
+against binaries built from that commit. Each case is evidence for its own test
+only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
 per kernel-checked certificate: the artifact kind, the Lean definitions that
 hold the artifact's bytes, the certificate theorem, its supporting and
 rejection theorems, the proposition, and what it does not show. A certificate
@@ -144,7 +146,301 @@ The proofs quantify over the shared value domain. Controls exercise every
 reference kind, nested payloads and real store acceptance and rejection.
 This is not a proof of reference ownership, liveness, heap closure, contract
 authentication, type admissibility, machine integration or Rust conformance.
-Those obligations remain open. BASE-ENV and TYPE-MEMBER remain planned.
+Those obligations remain open. TYPE-MEMBER remains planned.
+
+[`Semantics/CoreWorld.lean`](Xsh/Semantics/CoreWorld.lean) is the semantic
+foundation interface. Its types and values are the Core types and values, its
+store is the Core store guarded by reference retention and Core membership, and
+its environments resolve names through binders to activation cells. Assignment
+and declaration return a committed store, a `type-error` failure with the old
+store, or an internal fault for a missing, immutable or occupied cell. `try`
+recovery catches only catchable failures and propagates `type-error`.
+[`Semantics/Connected/CoreEmbedding.lean`](Xsh/Semantics/Connected/CoreEmbedding.lean)
+embeds the connected machine's runtime types and values into Core, and a
+connected value with a connected type is a Core member of that type's image.
+The callable contract decision is noncomputable and uses classical proposition
+decidability. The connected store in
+[`Semantics/Connected/Store.lean`](Xsh/Semantics/Connected/Store.lean) is
+guarded by `StoreTyped`: every cell stores the Core typing
+(`CoreWorld.HasType`) of its embedded value at the embedded type, together with
+the connected typing the machine's lemmas pull back from that stored proof.
+The guard admits exactly the connected members, so connected steps are
+unchanged.
+[`Semantics/Connected/CoreBridge.lean`](Xsh/Semantics/Connected/CoreBridge.lean)
+adds checker monotypes and shows that an accepted connected write commits in
+the corresponding Core store from the stored Core typing. Connected nominal
+types over non-record bases, and row or argument sorts, have no Core image.
+Core record membership is wider than the connected check, so a connected
+rejection is not a Core rejection. The bridge is a fragment root, not a
+full-core obligation.
+
+The `environments_and_typed_stores` fragment root is in
+[`Proofs/Core/Env.lean`](Xsh/Proofs/Core/Env.lean). It quantifies over every
+Core world, type and value: lexical and activation resolution, captures, the
+lookup chain, the stored-member invariant, assignment and declaration
+acceptance and effects, and `type-error` failures that keep the store and
+escape `try`. Only whole-cell assignment is modelled; field and index path
+writes, compound assignment and patterns are not. Cleanup during the unwind belongs to the control machine and is
+not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
+store unchanged, keep NaN Float bits, and detect a store without its guard and
+a mutated binder.
+
+BASE-NUM is closed by `numeric_semantics` in
+[`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
+UInt and Duration results and IEEE Float equality. `%` fails with
+`integer-overflow` whenever `/` on the same operands would, so the minimum
+`Int` `% -1` fails rather than giving `0`; a remainder without that rule is
+rejected. The theorem adds `Duration / Duration`, the `time.millis` and
+`time.seconds` clamps from [`Values/DurationOps.lean`](Xsh/Values/DurationOps.lean),
+and the bitset methods from [`Values/IntegerOps.lean`](Xsh/Values/IntegerOps.lean):
+`.bit_and`, `.bit_or` and `.clear_bits` combine the operands bit by bit and
+fail with `integer-bitset` on a negative operand, as the runtime does.
+
+Float arithmetic, negation, comparisons and conversions come from
+[`Values/FloatOps.lean`](Xsh/Values/FloatOps.lean). `FloatMeaning` decodes each
+operand's raw bits to NaN, a signed infinity or a signed exact multiple of
+2^-1074. It specifies `+`, `-`, `*` and `/` through an outcome: a quiet NaN, a
+signed infinity, a signed zero, or the exact rational result with its sign. A
+rounded outcome below the overflow midpoint must be `BinaryNearest`: no finite
+binary64 encoding is closer, and a tie keeps the even encoding. At or above the
+midpoint it is the signed infinity. The proof in
+[`Values/FloatArith.lean`](Xsh/Values/FloatArith.lean) shows the selected
+encoding decodes to the uniform-grid rounding at the value's own binade, that
+every other finite candidate is on that grid or below the binade floor, and
+that magnitude decoding is strictly monotone. `floatApply` meets the meaning
+for every `NaNPolicy`, a policy being any choice of quiet NaN bits (bit 51
+set). The meaning fixes every non-NaN result and leaves the payload free, which
+the witnesses show with two policies; a signaling NaN result for 0/0 is
+rejected. Unary minus flips only the sign bit, so NaN keeps its payload and
+`-(+0)` is `-0` where `0 - 0` is `+0`. `<`, `<=`, `>` and `>=` are specified on
+exact values with infinities at the ends and are false when either operand is
+NaN; the implementation compares total-order keys and is proved to agree, and
+the total order itself is rejected as a comparison. `.float()` rounds an Int
+like arithmetic and is never infinite. `.floor()`, `.ceil()` and `.round()`
+return the unique integer satisfying the floor, ceiling or
+nearest-with-ties-away-from-zero bound, after the Int range check, and reject
+NaN and infinities.
+
+The special-value table (which operands give NaN, infinity or a signed zero) is
+part of the meaning and shared with `floatApply`. The proved content is the
+rounding, the overflow, the signed encodings, the comparison order and
+determinism. The witnesses compute 0.1 + 0.2, both tie directions at
+1 + 2^-53, the overflow midpoint at MAX + 2^970 against MAX + 2^969, subnormal
+ties, the signed-zero and infinity cases, and the conversions of 2.5, -2.5 and
+2^63. The rejected mutants are ties-away rounding, operand exponents decoded
+one too high, unsigned zero results, a non-NaN result for 0/0, `.round()` with
+ties to even, negation as `0 - x`, total-order comparison, and bitsets over
+magnitudes. Outside the model: Float literal and `parse_float` rounding, the
+Float math methods such as `atan2` and `format_number`, and the identity of the
+`float-conversion` error, which the conversions collapse to `none`. The model
+claims no Rust or hardware conformance. Witnesses that evaluate binary64
+rounding with `decide` raise `maxRecDepth` to 10000, because `Nat.log2`
+recursion follows the bit length of numerators up to 2^2200. They need no
+`exponentiation.threshold` change: the kernel evaluates the large powers, so
+the earlier `exponentiation.threshold 1100` settings were removed.
+
+The validated-type obligations use the Core types directly.
+[`Core/Views.lean`](Xsh/Core/Views.lean) names the four validation tags
+(`NonEmpty`, `RelPath`, a nominal declaration and a bounded interval), each
+base, and the base-view relation: a validated position at any depth of
+`NonEmpty`, a list, map value, stream element, optional, result, callable
+return, record field or union member may stand for its base. Record fields
+and union members are matched in any order, with each target member paired
+once. `RowsDistinct` requires distinct labels in every nested row, and
+`eraseValidations` replaces validated positions with their bases. The erased
+equivalence `≈` (`ErasedEquiv`) is the least equivalence that is closed under
+the positions a view descends through and swaps adjacent record fields or
+union members. Equivalent types view each other in both directions, and a
+record keeps its field count. Core membership reads a retained
+stream or callable contract upward-closed under views, because stream items
+are checked against the retained type as they are produced.
+
+VAL-WIDEN is closed by `validated_widening` in
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean). Every view
+carries members to members in every world, a view into a validated type starts
+from the same tag with a base that views to the target's base, and no base
+views as its validated type. A view between types whose rows have distinct
+labels is precise: erasing validations on both sides gives equivalent types,
+and equivalent types have the same members in every world. Such a view also
+introduces no validation at any depth: `validationTags` lists the tag of every
+validated position, and for each tag the target has at most as many
+occurrences as the source. So `List[narrowPort]` does not view as
+`List[widePort]`, and the witness shows that the tag clause alone rejects that
+pair. Counts cannot place a tag, so the theorem also inverts every congruence:
+a view between two lists, `NonEmpty`s, streams, optionals, maps with the same
+key, results, callables with the same policy and parameters, records or unions
+is a view between their matching parts, with record fields matched by label
+and union members by the one-to-one pairing, and a view between two sets, two
+modules or two nominal types relates only equal types. A validated source
+viewed as a type with no validation tag is a view of its base, and a view from
+a type with no validation tag keeps its outer constructor. These clauses take
+every view apart from the outside in: the top-level tag rule settles a
+validated target position, the validated-source rule moves a validated source
+over an unvalidated target to its base, and the inversion for the shared outer
+constructor handles every other pair; leaf shapes have no validated positions.
+So each validated position of the target is matched with the same validation
+in the source. The witnesses reject `Result[narrowPort, widePort]` as
+`Result[widePort, Int]`, `NonEmpty[Result[narrowPort, widePort]]` as
+`List[Result[widePort, Int]]`, a module with exports `{x: narrowPort, y:
+widePort}` as one with `{x: widePort, y: Int}`, and a nominal type over `{p:
+RelPath}` as the same declaration over `{p: Path}`. In each pair the erasures
+are equal and the tag counts fit, yet each witness shows that any relation
+with the clauses it names rejects its pair. The label premise mirrors Rust,
+where a record type is a map keyed by label (`Type::Record` in
+`src/sema/types.rs`) and cannot repeat one, and a schema that repeats a field
+is rejected separately with `check.duplicate-record-field`; the premise is
+assumed, not derived from that code. A witness shows that a record view can
+drop a duplicate label, so the erased types differ in field count and are not
+equivalent. Nested intervals are not views, even though the
+interval-containment fragment relates them. A module contract entry must match
+its kind and full signature exactly.
+
+VAL-ERASE is closed by `validated_erasure` in
+[`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member
+read at its base is a base member, erasure is the identity for `NonEmpty`,
+`RelPath` and bounded integers, removes exactly the declaration wrapper of a
+nominal member, and keeps references and every base-view observation.
+
+The `validated_store` fragment in
+[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean) shows that a cell of a
+validated type accepts exactly members, any other write is a `type-error`
+that keeps the store, a validated value copied into a base-view cell keeps its
+value and references, and later writes to the wider cell leave the validated
+holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
+and rejects the same write to the `NonEmpty` cell. Store mutation through `+=` and path writes are not modelled. VAL-STORE remains planned.
+
+VAL-UNION is closed by `union_semantics` in
+[`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
+membership is membership in a listed member, runtime selection returns the
+first accepting member in written order, and membership is preserved when each member views as one of the other's
+in any order. General union fit and admissibility belong to G4/TYPE-*. Union admissibility, which
+rejects overlapping members, is a checker judgment and is not assumed; the
+overlap witness selects `UInt` for `5` and `Int` for `-5`, and a last-match
+selector, which picks `Int` for `5`, is refuted.
+
+The `narrowing` fragment root is in
+[`Validation/Core/Narrow.lean`](Xsh/Validation/Core/Narrow.lean). It shows that a type
+test is true exactly for members, a failed union member test narrows to the
+remaining members, a non-null optional value is a member of its element type,
+and cell facts learned from passing tests stay sound because assignment forgets
+the assigned cell's fact. The witness shows that retaining a `NonEmpty` fact
+after assigning `[]` is unsound.
+
+VAL-REQUIRE is closed by `recursive_require` in
+[`Validation/Core/Require.lean`](Xsh/Validation/Core/Require.lean), over every
+Core type, value and world, for `.require`, `.require_exact` and
+`.require_stripped`. `convert` is the boundary operation; `Converts` states the
+SPEC conversion rule by rule, and the theorem proves that the published `Ok`
+value is exactly `Converts` of the candidate, that it is unique and a member
+of the target, and that every `Err` is a `schema` error whose structured
+failure has no conversion and is located. The rules and their SPEC sources
+(`docs/templates/SPEC.md`):
+
+- Recursion: "Records are checked recursively, including inside lists, maps,
+  and optional slots, and the result is published only if the whole value
+  passes. Extra fields are kept. A `T?` field must still be present." The
+  policies apply "through declared record fields, lists, map values, optional
+  slots, ordered union alternatives, and validated bases. Maps keep their
+  keys. `Any` and erased `Record` slots declare no field set and remain
+  opaque." `Result`, streams, callables, error types, `RelPath` and bounded
+  integers are checked by Core membership and published unchanged.
+- Wire conversion: "Str-backed enum slots are converted from their wire
+  strings" and "Unknown strings report the field or index path". The wire
+  strings come from `Core.WireEnums`, Core's enum wire-declaration metadata.
+- Map publication: "A `Map[Str, V]` slot accepts a map or a record and
+  publishes a map of the record's fields ... maps with other key types accept
+  only maps."
+- Sets: "`.require(Set[T])` accepts a set, or an array whose elements are
+  distinct values of `T`; an array that repeats an element fails with
+  `schema`."
+- Unions: "a value belongs to the first member, in the order written, that
+  accepts it", and "If every union alternative fails, the error reports that
+  union's path."
+- Policies: "`value.require_exact(T)` rejects fields not declared by a
+  structural record schema; `value.require_stripped(T)` returns only its
+  declared fields", and "Rejection reports the unexpected field's path as a
+  `schema` error."
+- Modules: "A failed `.require(Contract)` on a module reports every violation
+  in one error", with `MissingExport`, `MismatchedExport` and
+  `UnexpectedExport` facets; `module_report` and `facets_report` prove both
+  directions for each kind.
+
+`Located` places each failure at a path into the candidate whose slot and
+value show the reason: an unadmitted shape, a missing or unexpected field, an
+unknown wire string, a rejected map key, a rejected or repeated set element, a
+union no alternative of which converts, or the complete module violation list.
+The premise `WellFormed` in
+[`Validation/Core/WellFormed.lean`](Xsh/Validation/Core/WellFormed.lean) is the
+type judgment that every record schema lists each field once (Rust
+`check.duplicate-record-field`) and every module contract names each export
+once (Rust `check.duplicate-name`); `WireWellFormed` requires each Str-backed
+enum to list each variant and wire string once. Without `WellFormed` a
+stripped publication of `{level: Level, level: Str}` is not a member.
+`rowsDistinct_of_wellFormed` shows that a `WellFormed` type is `RowsDistinct`,
+so it meets the label premise of VAL-WIDEN's precision and tag-count clauses.
+A value export rejects a callable, because SPEC 4.9 reports a `MismatchedExport`
+when "an export has another kind". A filesystem entry is converted as its field
+record under every policy, because "Choosing a field policy does not change
+which containers a slot admits". The error message renders the reported path,
+which for an unexpected field is the field's own path ("schema check failed at
+future"); its remaining wording is diagnostic.
+
+Boundaries: map and set publication keep the candidate's order, while SPEC 4.5
+orders maps by key and Rust sorts them; no Core operation reads that order
+today. The lexical codec mode is reachable only from `decode_lexical`, never
+from `.require`, and is not modelled. The expected and found export signatures
+that SPEC 4.9 puts in module failure messages are not modelled.
+
+The witnesses convert a wire string, report an unknown one at its field and
+list index, publish a map from a record, follow the SPEC's `Config` example for
+the three policies, report a union path, show that order decides enum
+conversion, reject a repeated set element, convert a filesystem entry under
+every policy, report three module violations with their facets, and report a
+callable under an `Any` value export as `.mismatched "f"`. Mutants detected: a
+check without conversion, a skipped enum conversion, a map published as a
+record and a dropped field path.
+
+The `nominal_provenance` fragment root is in
+[`Validation/Core/Nominal.lean`](Xsh/Validation/Core/Nominal.lean). Core
+membership alone admits a forged `.nominal d (.record [])`, so the theorem
+adds a provenance judgment over value-forming expressions: scalar, list and
+record literals, constructor calls, `.require`, store reads, field reads and
+spreads. Every nominal identity in a produced value came from the store or was
+named by a constructor or `.require` target in the expression, so a nominal
+member was introduced there or read from the store. Constructors check their
+schema; declarations that share a name and shape across modules stay distinct.
+Calls, iteration and the other expression forms are not in this language; a
+machine that adds them must show they are nominal-transparent. The witnesses
+include a constructor resolved to another module's declaration, which the
+theorem rejects.
+
+VAL-PRESERVE is closed by `validated_operations` in
+[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean): `push`,
+`extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
+without a filter and element replacement keep a `NonEmpty`; filtering, slicing
+and comprehensions with several clauses return only the base list; `.extend`
+returns a new `NonEmpty`, and `+=` on a `NonEmpty` variable is a store write
+that commits and keeps the type; and `.parent()` and `.normalize()` keep a
+`RelPath`. The path operations
+read a path by its non-trivial components, as `strip_prefix` does, in
+[`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean), so `a//b` and
+`a/./b` have parent `a`; `.normalize()` resolves `.` and `..` lexically, and
+both return `.` when nothing is left. The witnesses show `relative_to`,
+`with_ext`, `components` and `Port` arithmetic leaving their validated type,
+including `p"...b".with_ext("")`, which gives `..` and fails
+`.require(RelPath)`. A nominal spread `{...pkg, version: v}` gives a plain
+structural record that is not a nominal member. The witnesses also kill a
+result-type rule that keeps `NonEmpty` after filtering.
+These definitions follow the SPEC and claim no Rust correspondence.
+
+The `introduction_routes` fragment root is in
+[`Validation/Core/Intro.lean`](Xsh/Validation/Core/Intro.lean). It shows that a judged list
+literal of typed items is a `NonEmpty` and a rejected one is only plain
+splices; path and bounded-integer literals are members exactly when the rule
+or interval accepts them; an `fp` literal whose text passes the rule with each
+`RelPath` interpolation read as `.` renders to a `RelPath`; constructors and
+accepted `.require` results are members; and no view reaches a validated type
+from anything else. Constants and field defaults use the same judgments.
 
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
@@ -305,7 +601,7 @@ break an otherwise valid inclusion when replaced by an unknown contract.
 Source typing must establish the condition before using a substitution law.
 Restricted-call permission keeps its separate known-bound rule.
 The proof covers the shared effect domain, not source admission or Rust
-conformance. EFF-LATTICE and all other universal obligations remain planned.
+conformance. It closes no universal obligation.
 
 [`check-inventory.py`](scripts/check-inventory.py) and its
 [tests](tests/inventory/test_check_inventory.py) validate inventory structure,
@@ -323,7 +619,8 @@ the error to its `division-by-zero` or `integer-overflow` diagnostic.
 or `%` is a division-by-zero error. Otherwise the result is the exact sum,
 difference, product, truncating quotient (`Int.tdiv`) or truncating remainder
 (`Int.tmod`) when its witness fits signed 64 bits, and an overflow otherwise.
-The witness of `%` is its quotient, so `MIN % -1` overflows as in Rust.
+The witness of `%` is its quotient, so `%` fails with `integer-overflow`
+whenever `/` on the same operands would, and `MIN % -1` overflows as in Rust.
 `checked_zero_divisor`, `checked_ok` and `checked_overflow` characterize the
 outcome.
 

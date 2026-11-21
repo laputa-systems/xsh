@@ -2,10 +2,11 @@
 
 **Status:** active since the owner restarted the Lean lane on 2026-11-03. The
 connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,254 `SPEC_PROVED` fragment
+`formal/coverage.json` is the only inventory: 1,267 `SPEC_PROVED` fragment
 roots, thirteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
-at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and all 77
-universal obligations planned. `formal/README.md` describes each accepted
+at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and 77 universal
+obligations, of which seven are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
+VAL-PRESERVE, VAL-REQUIRE, VAL-UNION and VAL-WIDEN. `formal/README.md` describes each accepted
 fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
 validates the inventory against this plan. Completed slices are recorded in
 Git history, not here.
@@ -62,11 +63,18 @@ acceptance does not wait for this campaign.
   comparisons, conditionals and calls of let-free integer functions, scalar
   literals, identifiers, integer-field record literals and named record field reads,
   and one host request family (`time.now`). The machine has no assignment or declaration form, so typed store writes are
-  proved on the environment API, not through machine steps. Float arithmetic
-  and Float conversions are not modeled; the Float clauses state only exact
-  bits, IEEE value equality and the total order. BASE-ENV, BASE-NUM,
-  BASE-STEP, BASE-PROGRESS and BASE-RUNNER close only when their theorems hold
-  for the frozen core's syntax, values and host request families.
+  proved on the environment API, not through machine steps. BASE-NUM is
+  closed at the value level: Float arithmetic, negation, comparisons and
+  conversions are modeled on raw bits in `Xsh.Values.FloatOps`, but the base
+  machine's own steps still evaluate Int only, and Float literal and
+  `parse_float` rounding, the Float math methods and the `float-conversion`
+  error identity are outside the model. BASE-ENV, BASE-STEP, BASE-PROGRESS and
+  BASE-RUNNER close only when their theorems hold for the frozen core's syntax,
+  values and host request families. BASE-STEP also closes only when every
+  numeric step result satisfies the BASE-NUM meanings: `ArithmeticMeaning`,
+  `FloatMeaning` under some `NaNPolicy`, `NegationMeaning`,
+  `ComparisonMeaning`, `IntToFloatMeaning`, `ToIntMeaning`, `BitsetMeaning` and
+  the `DurationOps` results.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
   `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
   correspondence.

@@ -1,4 +1,5 @@
 import Xsh.Core.Values
+import Xsh.Core.Views
 import Xsh.Validation.RelPath
 
 namespace Xsh.Core
@@ -12,8 +13,10 @@ abbrev UnionTail (Declaration : Type) := TypeVariableFreeTerm 0 String Declarati
 abbrev SignatureType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .signature
 
 /-- Retained contracts describe semantic objects without inspecting suspended
-stream items or invoking callables. Establishing these predicates from source
-checking and preserving them during execution are separate obligations. -/
+stream items or invoking callables. `world.stream ref r` and `world.callable`
+assert that items or results are checked against the retained type or signature
+when produced. Establishing these predicates from source checking and preserving
+them during execution are separate obligations. -/
 structure MembershipWorld (Declaration Identity Source : Type) where
   entryFields : Reference Identity .filesystemEntry → List (String × Value Declaration Identity Source)
   stream : Reference Identity .stream → ValueType Declaration → Prop
@@ -70,7 +73,8 @@ def signatureKind : SignatureType Declaration → CallableKind
 def callable (world : MembershipWorld Declaration Identity Source)
     (type : SignatureType Declaration) (value : Value Declaration Identity Source) : Prop :=
   match value.eraseNominal with
-  | .callable reference kind => kind = signatureKind type ∧ world.callable reference type
+  | .callable reference kind => kind = signatureKind type ∧
+      ∃ retained, world.callable reference retained ∧ SignatureChain retained type
   | _ => False
 
 def generic (world : MembershipWorld Declaration Identity Source)
@@ -101,6 +105,11 @@ def key (type : ValueType Declaration) (value : MapKey) : Prop :=
       | _ => False
   | _ => False
 
+def isCallable (candidate : Value Declaration Identity Source) : Bool :=
+  match candidate.eraseNominal with
+  | .callable _ _ => true
+  | _ => false
+
 mutual
   def value (world : MembershipWorld Declaration Identity Source)
       (type : ValueType Declaration) (candidate : Value Declaration Identity Source) : Prop :=
@@ -123,7 +132,7 @@ mutual
         | _ => False
     | .stream element =>
         match candidate.eraseNominal with
-        | .stream reference => world.stream reference element
+        | .stream reference => ∃ retained, world.stream reference retained ∧ ViewChain retained element
         | _ => False
     | .record fields =>
         match recordFields world candidate with
@@ -204,7 +213,7 @@ mutual
     | .exportsEmpty => True
     | .exportValue name presence type rest =>
         (match fields.lookup name with
-         | some candidate => value world type candidate
+         | some candidate => isCallable candidate = false ∧ value world type candidate
          | none => absentAllowed presence) ∧ exports world rest fields
     | .exportCallable name presence signature rest =>
         (match fields.lookup name with
