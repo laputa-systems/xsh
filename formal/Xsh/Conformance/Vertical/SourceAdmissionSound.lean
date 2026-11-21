@@ -45,6 +45,61 @@ theorem lexeme_consumes_source {rest leading : List Nat} {token : Token}
   simp only [List.length_append]
   omega
 
+theorem tokenizer_complete_fuel {codes : List Nat} {tokens : List Token}
+    (lexical : Lexed codes tokens) : ∀ fuel, codes.length < fuel →
+      tokenize fuel codes = some tokens := by
+  induction lexical with
+  | empty => intro fuel enough; cases fuel <;> rfl
+  | @space codes tokens tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : codes.length < fuel := by simp at enough; omega
+      simpa [tokenize] using ih fuel bound
+  | @token leading rest token tokens lexeme tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : rest.length < fuel := by
+        have consumed := lexeme_consumes_source lexeme
+        omega
+      have parsed := ih fuel bound
+      cases lexeme with
+      | punctuation punctuation maximal =>
+        simp [Punctuation] at punctuation
+        rcases punctuation with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+        all_goals rcases h with ⟨rfl, rfl⟩
+        all_goals simp [tokenize, parsed] at *
+        all_goals cases rest with
+          | nil => simp [tokenize, parsed]
+          | cons head tail =>
+            cases head with
+            | zero => simp [tokenize, parsed]
+            | succ head =>
+              cases head <;> simp_all [tokenize]
+      | decimal nonempty allDigits boundary =>
+        cases leading with
+        | nil => contradiction
+        | cons head more =>
+          have digit : isDigitCode head = true := (List.all_eq_true.mp allDigits) head (by simp)
+          have bounds : 48 ≤ head ∧ head ≤ 57 := by simpa [isDigitCode] using digit
+          have taken := take_codes_complete isDigitCode (head :: more) rest allDigits boundary
+          simp only [List.cons_append] at taken ⊢
+          simp [tokenize, digit, taken, parsed, show head ≠ 32 by omega, show head ≠ 10 by omega, show head ≠ 40 by omega, show head ≠ 41 by omega, show head ≠ 123 by omega, show head ≠ 125 by omega, show head ≠ 91 by omega, show head ≠ 93 by omega, show head ≠ 61 by omega, show head ≠ 58 by omega, show head ≠ 44 by omega, show head ≠ 63 by omega, show head ≠ 62 by omega, show head ≠ 60 by omega, show head ≠ 43 by omega, show head ≠ 42 by omega, show head ≠ 47 by omega, show head ≠ 37 by omega, show head ≠ 45 by omega, show head ≠ 46 by omega]
+      | @word head more first letters boundary =>
+        have bounds : ((97 ≤ head ∧ head ≤ 122) ∨ (65 ≤ head ∧ head ≤ 90)) ∨ head = 95 := by
+          simpa [isWordStartCode, Bool.or_eq_true, Bool.and_eq_true] using first
+        have nondigit : isDigitCode head = false := by simp [isDigitCode]; omega
+        have taken := take_codes_complete isWordPartCode (head :: more) rest letters boundary
+        simp only [List.cons_append] at taken ⊢
+        simp [tokenize, first, nondigit, taken, parsed, show head ≠ 32 by omega, show head ≠ 10 by omega, show head ≠ 40 by omega, show head ≠ 41 by omega, show head ≠ 123 by omega, show head ≠ 125 by omega, show head ≠ 91 by omega, show head ≠ 93 by omega, show head ≠ 61 by omega, show head ≠ 58 by omega, show head ≠ 44 by omega, show head ≠ 63 by omega, show head ≠ 62 by omega, show head ≠ 60 by omega, show head ≠ 43 by omega, show head ≠ 42 by omega, show head ≠ 47 by omega, show head ≠ 37 by omega, show head ≠ 45 by omega, show head ≠ 46 by omega]
+
+theorem tokenizer_complete {codes : List Nat} {tokens : List Token}
+    (lexical : Lexed codes tokens) : tokenize (codes.length + 1) codes = some tokens :=
+  tokenizer_complete_fuel lexical _ (by omega)
+
 theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
     (derivation : AtomSyntax tokens atom rest) : parseAtom tokens = some (atom, rest) := by
   cases derivation with
