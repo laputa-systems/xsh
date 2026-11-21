@@ -15076,6 +15076,105 @@
       "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
     },
     {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "utf8ValidB decides the declarative ValidUtf8 predicate over every byte list.",
+      "boundary": "Decisions over arbitrary byte lists for Unicode Table 3-7 well-formedness. No Rust lexer correspondence or diagnostic rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The first-invalid-offset scan reports absence exactly when the whole list is well-formed UTF-8.",
+      "boundary": "The reported offset is the first place no well-formed prefix extends; it makes no claim about the Rust loader's span rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reported first-invalid offset names a well-formed prefix and is strictly interior to the input.",
+      "boundary": "The span is the valid prefix length; the Rust loader's reported offset and message are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanLine agrees with the declarative SafeLine reading of an unescaped closing quote for every escape state and line.",
+      "boundary": "The model covers the single-line string rule with its escapes; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanBody agrees with the declarative BodyScan reading for every body byte list and escape state.",
+      "boundary": "Covers the single-line body closure rule with escape syntax skipping; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanStrings agrees with the relational DeclaredString reading: an unterminated span runs from the opening quote to the line end, an invalid escape spans the escape, and a clean scan continues; the invalid case carries EscapeError.",
+      "boundary": "DeclaredString and EscapeError are the Lean scanner's relational reading, not an independent SPEC reading. They cover the Lean string scan over the declared envelope only; UTF-8 validity of the whole input and Rust diagnostic rendering are outside it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier accepts exactly the inputs in the declared domain D.",
+      "boundary": "Relates the Lean classifier and Lean domain over arbitrary bytes; it makes no claim about Rust parser acceptance or diagnostics."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier rejects with a string failure exactly on the declared envelope where the string scan fails.",
+      "boundary": "Uses the declared envelope E and the Lean scan; the SPEC claims inside E and the Rust diagnostic text are separate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "module": "Xsh.Conformance.Vertical.SourceTreeSpans",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A positioned token slice's span starts at least at the source offset and stops at most at the source end.",
+      "boundary": "Confines Lean token spans to the Lean source; the Rust span rendering and byte offsets are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over every byte list, the Lean source classifier accepts exactly the declared function-syntax domain D with a scope projection, rejects invalid UTF-8 at the least offset whose prefix is well-formed UTF-8 and where no well-formed sequence starts, rejects string failures inside the envelope E stated through the relations DeclaredString and EscapeError, and classifies everything else as outside.",
+      "boundary": "A fragment, not SRC-ADMIT: D has no string literals, comments or module inputs, there is no parse-failure judgment, the string rejection clauses are the Lean scanner's relational reading (DeclaredString and EscapeError), not an independent SPEC reading, and no Rust lexer correspondence or diagnostic code is shown."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every number token of an accepted input's positioned tokens reads as the decimal value of a digit run in the source and is within the integer literal bound.",
+      "boundary": "Relates the Lean decimal interpretation to the Lean positioned tokens; the Rust lexer's number decoding is outside this claim."
+    },
+    {
       "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
       "module": "Xsh.Semantics.Connected.CoreEmbedding",
       "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
@@ -15155,6 +15254,42 @@
       "status": "fragment",
       "scope": "A fuel-bounded statement machine over Syntax.Core for let/var/const, name and field-path assignment, environment assignment, expression and bare-block statements, if/else and if let, while and while let, for over a list, loop, break, continue, match with literal, binding, wildcard, record and list patterns and guards, return, assert and sugar expansions, with block function bodies evaluated in their defining environment: finished blocks and statement lists agree at every fuel, every outcome keeps the cells it started with at their types, blocks and control statements restore the environment and locals and keep any typing context the frame satisfied, while false completes unchanged, loops end normally on break while blocks pass it on, return skips the rest of a block and leaves a for loop, and pattern captures and for targets bind cells that resolve in the bound body and are dropped on exit.",
       "boundary": "Conditions are Bool only (no Status); for iterates List values only; break with a value, return without a value, index-selector assignment, defer, errdefer, cleanup, guard, with and resource scopes, yield, exit, use, declarations and commands are unsupported; a block function body may not write the caller's cells or the environment overlay; alternation, alias, constructor, type and text patterns are unsupported; the checker's binders, cells and types come from the resolution oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.deferred_cleanup",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.deferred_cleanup",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.7 defer and errdefer in the statement machine, and per-call activations: registration runs nothing and puts the newest action first; leaving a block runs its pending actions on normal completion, break, continue, return and failure, newest first and each once, on the store the block left, resolving names as registered and reading values at exit; an errdefer runs only when the block leaves with an error (a failure, an Err returned through it, or one of its own later actions failing); a failing action is a cleanup failure, an earlier failure stays primary and the cleanup failure is reported, and otherwise the first cleanup failure becomes primary and is never replaced; each call runs in an activation past its caller's with cells keyed by it, fresh in any store of earlier activations, the callee cannot write its caller's cells, and its cells end with the call.",
+      "boundary": "Cancellation, exit statuses, owned streams, process handles, network jobs, roots and locks, tempdir, with and resource scopes, retry attempts and try blocks are not modelled; a primary cleanup failure in a Result-returning function is a failure of the call rather than its Err return, and an internal fault skips the pending actions. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.error_handling",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.error_handling",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.1, 8.3, 8.5, 8.7 and 8.8 in the statement machine: ? and conversions unwrap Ok and raise the error of Err, in statements and inside expressions; a statement-position Err fails its statement; try { ... } is a value block whose raised failure becomes Err and whose completion is Ok of its tail, while runtime and type failures, return, break and continue pass on; a value block's Err tail is its value and leaves it normally, so its errdefers are not due; each retry attempt is a value block, a raised failure the on filter selects takes the next delay as an observation and runs again, and the result is Ok of the first success or Err of the last failure; a block function's return kind makes a raised failure, including a primary cleanup failure, its Err and wraps plain values in Ok, while a plain function fails the call.",
+      "boundary": "Ok and Err values come from the store, locals or function results: no constructor calls. Conversions are a parameter; retry backoff schedules, clocks, exit, cancellation, try before a run form, Result[Bool] conditions, ?? and handlers, and error contexts are not modelled; an expression-bodied function has no return kind, so its ? fails the call. Return, break and continue inside an effectful expression nested in another expression are unsupported. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.pure_forms_laws",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.pure_forms_laws",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The pure binding and Result forms of the statement machine: Result[Bool] conditions give their Bool and raise their Err; for iterates a Map's {key, value} items in key order, a Str's one-scalar strings and Bytes as Int; guard let binds a Result's Ok payload or a non-null optional; loop expressions take their break value; and alternation, alias and Ok/Err constructor patterns match as SPEC 6.10 says.",
+      "boundary": "Ok and Err constructor calls, expression-bodied return kinds, ?? handlers, guard let, index-selector assignment with the Map[UInt] key rule and every binding form's scope are checked by witnesses and leak or hide mutants, not by universal theorems beyond statement_control and deferred_cleanup. Text patterns, facets, tuples, error-variant patterns, guard let's else parameter, and and/or operands in control position are unsupported; type patterns take the checker's type from an oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.local_bindings",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.local_bindings",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Local function declarations bind their name in the current scope to a closure over the declaring environment that sees itself and reads captured cells at the call; the implicit . of a handler reads its error; collect yields its gathered list; and a canonical resolver gives each declaration the binder of its name at its lexical depth, so cells are binders in the current activation, distinct declarations get distinct binders within the name-table and nesting bounds, blocks deepen scope by one, and shadowing declarations get distinct cells.",
+      "boundary": "Writable captures are unsupported, since a call cannot write cells its caller holds; local functions are not first-class values; stream and cli-main declarations, defaults and rest parameters, type and error declarations as runtime binders, map and set comprehensions, text holes other than s and d, and use aliases are not modelled. The resolver is the canonical binder scheme over the machine's lexical depth, not a separate pass over the syntax, and declared types still come from an oracle. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
@@ -15674,7 +15809,7 @@
       "subject": "src/arith.rs::checked_int_binary, the shared Int +, -, *, / and % decision",
       "callers": [
         "src/sema/constants.rs::fold_constant_binary (constant preparation: folds Some(Ok), declines on Some(Err) and None)",
-        "src/runtime/eval/lowered_ops.rs::checked_int_binary (execution: expects Some, maps the error to its diagnostic with the operator span), called by lowered_binary_value and by the typed scalar ApplyIntBinary step in src/runtime/eval/lowered_run/indexed_run/values.rs"
+        "src/runtime/eval/lowered_ops.rs::checked_int_binary (execution: expects Some, maps the error to its diagnostic with the span it is given), called by lowered_binary_value (ExprBinary rows, the frame route of IntBinary rows, and compound assignment in a function through lowered_assign_value) and by the typed scalar ApplyIntBinary step in src/runtime/eval/lowered_run/indexed_run/values.rs (IntBinary rows in place); top-level compound assignment repeats the rules in src/runtime/eval.rs::compound_assignment_value instead of calling it (XSH-158)"
       ],
       "property": "For every BinaryOp and every pair of signed 64-bit operands, the extracted function returns ok (it does not fail or diverge in the Aeneas model), and its result decodes to Xsh.Core.Arith.checked for Add, Sub, Mul, Div and Rem and to none for every other operator; decode is injective, so the Ok value, DivisionByZero and Overflow are each the exact independent outcome",
       "domain": "all 18 BinaryOp constructors and all i64 operands; no premise",
@@ -15860,6 +15995,22 @@
             "dev/verify/aeneas/slice/Cargo.toml"
           ],
           "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--profile",
+            "verification",
+            "--target",
+            "x86_64-unknown-linux-musl",
+            "-p",
+            "xsh",
+            "--lib",
+            "runtime::eval::indexed::full::arith_route_tests::"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root; finite adapter conformance, not part of the proof"
         }
       ],
       "resources": {
@@ -15886,7 +16037,7 @@
         "source_mutants_wall_seconds": 23,
         "cold_harness_check_wall_seconds": 902
       },
-      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only. Its adapters are checked by finite Rust conformance, not proved: the route tests in src/runtime/eval/indexed/full/arith_route_tests.rs run the five operators over all 144 pairs of the arith_conformance grid in eight source forms, in both execution modes, and require the decision's value or error code and message, or a declined constant; FullVerifier::verify rejects an IntBinary operator other than + - * / % (XSH-155), so a verified program cannot reach the execution adapter's expect. Not shown: that execution reports the error at the operator span (the typed IntBinary route reports the enclosing call, XSH-157); pass-through off the grid and on routes outside the matrix; and that top-level compound assignment, which repeats the rules instead of calling this function, agrees off the grid (XSH-158). IMPL-REFINE stays planned."
     },
     {
       "id": "impl.duration.checked_duration_binary",
@@ -15902,7 +16053,7 @@
       "subject": "src/duration.rs::checked_duration_binary, the shared Duration arithmetic decision",
       "callers": [
         "src/sema/constants.rs::fold_constant_binary (constant preparation for + - * / with a Duration operand: folds Ok, declines on Err)",
-        "src/runtime/eval/lowered_ops.rs::lowered_binary_value (execution: maps Duration and Int operands and reports the error diagnostic with the operator span)"
+        "src/runtime/eval/lowered_ops.rs::lowered_binary_value (execution: maps Duration and Int operands and reports the error diagnostic with the span it is given), reached by ExprBinary rows in both execution modes and by compound assignment in a function through lowered_assign_value; top-level compound assignment does not reach it and rejects Duration operands (XSH-158)"
       ],
       "property": "For every BinaryOp and every pair of Millis(u64) or Count(i64) operands, the extracted function returns ok, and its result decodes to the SPEC 4.3 dimension table over Xsh.Values.DurationOps: add, subtract, multiply (either factor order), divideByInt and ratio, with InvalidDimensions for every other operator and dimension pair; decode is injective, so each of the six error identities and each value is the exact independent outcome",
       "domain": "all 18 BinaryOp constructors, all u64 millisecond values and all i64 counts in either operand position; no premise",
@@ -16090,6 +16241,22 @@
             "dev/verify/aeneas/slice/Cargo.toml"
           ],
           "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--profile",
+            "verification",
+            "--target",
+            "x86_64-unknown-linux-musl",
+            "-p",
+            "xsh",
+            "--lib",
+            "runtime::eval::indexed::full::arith_route_tests::"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root; finite adapter conformance, not part of the proof"
         }
       ],
       "resources": {
@@ -16116,7 +16283,7 @@
         "source_mutants_wall_seconds": 23,
         "cold_harness_check_wall_seconds": 902
       },
-      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only. Its adapters are checked by finite Rust conformance, not proved: the route tests in src/runtime/eval/indexed/full/arith_route_tests.rs run the six SPEC 4.3 dimension forms over a grid of eight millisecond values and eight counts in five source forms and function-local compound assignment, in both execution modes, and require the decision's value or error code and message, or a declined constant. Not shown: that execution reports the error at the operator span, pass-through off the grid and on routes outside the matrix, and top-level compound assignment, which fails on Duration operands with type-error (XSH-158). IMPL-REFINE stays planned."
     }
   ]
 }

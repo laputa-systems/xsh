@@ -125,7 +125,7 @@ test test_int_routes_report_each_failure_at_its_operator { |ctx|
     assert returned.stdout == "", returned.stdout
     let compound = test.expect(
       ctx,
-      "var value = " + failure.left + "\nvalue " + failure.op + "= " + failure.right + "\nprint $value\n",
+      "var value = " + failure.left + "\nvalue " + failure.op + "= " + failure.right + "\nprint \$value\n",
       status: 3,
       stderr: [diagnostic, ":2:1"],
     )?
