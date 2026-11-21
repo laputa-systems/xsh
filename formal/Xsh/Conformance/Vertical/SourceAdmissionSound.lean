@@ -374,6 +374,39 @@ theorem computed_fit_tokens {tokens rest : List Token} {bindings : List (String 
     have consumed := value_consumes_tokens value
     simp_all <;> omega
 
+theorem propagation_complete {tokens rest : List Token} {propagation : Option SourcePropagation}
+    (derivation : PropagationSyntax tokens propagation rest)
+    (boundary : propagation = none → ∀ target callee more,
+      tokens ≠ .word "let" :: .word target :: .equals :: .word callee :: .leftParen :: more) :
+    parsePropagation tokens = some (propagation, rest) := by
+  cases derivation with
+  | empty tokens =>
+    unfold parsePropagation
+    split
+    · rename_i after target callee same
+      exact False.elim (boundary rfl target callee same rfl)
+    · rfl
+  | @call target callee tokens rest arguments validTarget validCallee args =>
+    have bound := arguments_fit_tokens args
+    have parsed := arguments_complete args (tokens.length + 1) (by omega)
+    simp [parsePropagation, validTarget, validCallee, parsed]
+
+theorem assignment_complete {vars : List String} {tokens rest : List Token}
+    {assignment : Option (String × SourceValue)}
+    (derivation : AssignmentSyntax vars tokens assignment rest)
+    (boundary : assignment = none → ∀ target more, tokens ≠ .word target :: .equals :: more) :
+    parseAssignment vars tokens = some (assignment, rest) := by
+  cases derivation with
+  | empty tokens =>
+    unfold parseAssignment
+    split
+    · rename_i more target same
+      exact False.elim (boundary rfl target same rfl)
+    · rfl
+  | assign member value =>
+    have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
+    simp [parseAssignment, List.contains_iff_mem, member, parsed]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
