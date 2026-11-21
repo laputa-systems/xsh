@@ -23,30 +23,31 @@ theorem integer_operator_meaning (context : Context Declaration Identity Source)
     (op : IntegerOps.IntegerBinaryOp) (found : integerOperator operator = some op) (left right : IntValue) :
     ∃ result, ArithmeticMeaning op left right result ∧
       binary context operator (integer left) (integer right) = integerResult context.errors result :=
-  ⟨_, applied_operation_has_its_meaning op left right, by simp [binary, integer, found]⟩
+  ⟨_, applied_operation_has_its_meaning op left right, by simp [binary, integer, found, Value.eraseNominal]⟩
 
 theorem float_operator_meaning (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
     (op : FloatBinaryOp) (found : floatOperator operator = some op) (left right : FloatBits) :
     ∃ result, FloatMeaning op left right result ∧ binary context operator (float left) (float right) = .value (float result) :=
-  ⟨_, float_apply_meaning context.policy op left right, by simp [binary, float, found]⟩
+  ⟨_, float_apply_meaning context.policy op left right, by simp [binary, float, found, Value.eraseNominal]⟩
 
 theorem float_ordering_meaning (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
     (comparison : FloatComparison) (found : ordering operator = some comparison) (left right : FloatBits) :
     ∃ result, ComparisonMeaning comparison left right result ∧
       binary context operator (float left) (float right) = .value (boolean result) := by
   have noArithmetic : floatOperator operator = none := by cases operator <;> simp_all [ordering, floatOperator]
-  exact ⟨_, float_compare_meaning comparison left right, by simp [binary, float, noArithmetic, found]⟩
+  exact ⟨_, float_compare_meaning comparison left right, by simp [binary, float, noArithmetic, found, Value.eraseNominal]⟩
 
 theorem float_equality_meaning (context : Context Declaration Identity Source) (left right : FloatBits) :
     binary context .eq (float left) (float right) = .value (boolean (floatValueEq left right)) ∧
       (floatValueEq left right = true ↔ ieeeFloatEq left right) :=
-  ⟨by simp [binary, float, floatOperator, ordering], float_value_eq_spec left right⟩
+  ⟨by simp [binary, float, floatOperator, ordering, Value.eraseNominal], float_value_eq_spec left right⟩
 
 theorem negation_meaning (context : Context Declaration Identity Source) (value : IntValue) (bits : FloatBits) :
     (∃ result, IntegerExact (-value.val) result ∧
       unary context .neg (integer value) = integerResult context.errors result) ∧
     (∃ result, NegationMeaning bits result ∧ unary context .neg (float bits) = .value (float result)) :=
-  ⟨⟨_, negation_is_exact value, rfl⟩, ⟨_, float_negate_meaning bits, rfl⟩⟩
+  ⟨⟨_, negation_is_exact value, by simp [unary, integer, Value.eraseNominal]⟩,
+    ⟨_, float_negate_meaning bits, by simp [unary, float, Value.eraseNominal]⟩⟩
 
 theorem duration_operator_results (context : Context Declaration Identity Source) (left right : DurationValue)
     (factor : IntValue) :
@@ -58,7 +59,7 @@ theorem duration_operator_results (context : Context Declaration Identity Source
       durationResult context.errors (DurationOps.multiply left factor) ∧
     binary context .div (duration left) (integer factor) =
       durationResult context.errors (DurationOps.divideByInt left factor) := by
-  refine ⟨rfl, rfl, rfl, rfl, rfl⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> simp [binary, duration, integer, ordering, Value.eraseNominal]
 
 theorem not_scalar_of_listItems {candidate : Value Declaration Identity Source}
     {items : List (Value Declaration Identity Source)}
@@ -80,15 +81,15 @@ theorem list_addition_is_concatenation (context : Context Declaration Identity S
     have rightNot := not_scalar_of_listItems rightListed
     have leftValues : listValues left = some first := leftListed
     have rightValues : listValues right = some second := rightListed
+    have leftErased : ∀ scalar, left.eraseNominal ≠ .scalar scalar := by
+      intro scalar erased
+      simp [Xsh.Validation.Core.Preserve.listItems, erased] at leftListed
     unfold binary
     split
     all_goals first
-      | (exfalso; rename_i a b _ _; first | exact leftNot _ rfl | exact rightNot _ rfl)
+      | (rename_i a b leftShape _; exact absurd leftShape (leftErased _))
       | skip
-    all_goals first
-      | (rename_i h _; exact absurd h (leftNot _))
-      | skip
-    · simp [leftValues, rightValues]
+    simp [leftValues, rightValues]
   · simp at extended
 
 theorem operate_adds_lists (context : Context Declaration Identity Source) (fallback : Operate Declaration Identity Source)

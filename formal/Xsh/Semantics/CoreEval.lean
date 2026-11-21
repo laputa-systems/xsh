@@ -125,7 +125,7 @@ def scalarEqual : Scalar → Scalar → Option Bool
 /-- The value meaning of a binary operator on two evaluated operands. -/
 def binary (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
     (left right : Value Declaration Identity Source) : Result Declaration Identity Source (Value Declaration Identity Source) :=
-  match left, right with
+  match left.eraseNominal, right.eraseNominal with
   | .scalar (.integer a), .scalar (.integer b) =>
     match integerOperator operator, ordering operator with
     | some op, _ => integerResult context.errors (IntegerOps.applyBinary op a b)
@@ -169,17 +169,19 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     | .eq, some same => .value (boolean same)
     | .ne, some same => .value (boolean (!same))
     | _, _ => .unsupported
-  | left, right =>
+  | _, _ =>
     match operator, listValues left, listValues right with
     | .add, some first, some second => .value (.list (first ++ second))
     | _, _, _ => .unsupported
 
 def unary (context : Context Declaration Identity Source) :
     Xsh.Syntax.UnaryOp → Value Declaration Identity Source → Result Declaration Identity Source (Value Declaration Identity Source)
-  | .not, .scalar (.boolean value) => .value (boolean !value)
-  | .neg, .scalar (.integer value) => integerResult context.errors (IntegerOps.negate value)
-  | .neg, .scalar (.float bits) => .value (float (floatNegate bits))
-  | _, _ => .unsupported
+  | operator, operand =>
+    match operator, operand.eraseNominal with
+    | .not, .scalar (.boolean value) => .value (boolean !value)
+    | .neg, .scalar (.integer value) => integerResult context.errors (IntegerOps.negate value)
+    | .neg, .scalar (.float bits) => .value (float (floatNegate bits))
+    | _, _ => .unsupported
 
 def fieldOf (context : Context Declaration Identity Source) (name : Xsh.Syntax.RawName) :
     Value Declaration Identity Source → Result Declaration Identity Source (Value Declaration Identity Source)
@@ -247,7 +249,8 @@ def branches (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source 
     List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | [], otherwise => evaluate otherwise
   | (condition, value) :: rest, otherwise =>
-    (evaluate condition).bind fun
+    (evaluate condition).bind fun result =>
+      match result.eraseNominal with
       | .scalar (.boolean true) => evaluate value
       | .scalar (.boolean false) => branches evaluate rest otherwise
       | _ => .stuck
@@ -280,18 +283,22 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
       | key => (recurse locals key).bind fun selector => indexAt context false container selector
   | .unary operator operand => (recurse locals operand).bind (unary context operator)
   | .binary .and left right =>
-    (recurse locals left).bind fun
+    (recurse locals left).bind fun first =>
+      match first.eraseNominal with
       | .scalar (.boolean false) => .value (boolean false)
       | .scalar (.boolean true) =>
-        (recurse locals right).bind fun
+        (recurse locals right).bind fun second =>
+          match second.eraseNominal with
           | .scalar (.boolean value) => .value (boolean value)
           | _ => .stuck
       | _ => .stuck
   | .binary .or left right =>
-    (recurse locals left).bind fun
+    (recurse locals left).bind fun first =>
+      match first.eraseNominal with
       | .scalar (.boolean true) => .value (boolean true)
       | .scalar (.boolean false) =>
-        (recurse locals right).bind fun
+        (recurse locals right).bind fun second =>
+          match second.eraseNominal with
           | .scalar (.boolean value) => .value (boolean value)
           | _ => .stuck
       | _ => .stuck
