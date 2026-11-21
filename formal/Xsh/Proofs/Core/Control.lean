@@ -1263,6 +1263,131 @@ theorem body_cells_dropped {world : World Declaration Identity Source} (machine 
 
 end Deferral
 
+section Errors
+
+/-- `?` unwraps `Ok` and raises the error of `Err` (SPEC 8.3). -/
+theorem propagate_cases (payload error : Value Declaration Identity Source) :
+    propagate (.ok payload) = .value payload ∧ propagate (.err error) = .failure (.raised error) := ⟨rfl, rfl⟩
+
+/-- `try { ... }` captures exactly the raised failures: they become `Err`,
+normal completion is `Ok` of the tail, and runtime and type failures and every
+other exit pass on uncaptured (SPEC 8.8). -/
+theorem capture_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
+    (expected : ValueType Declaration) (frame : Frame world) :
+    Xsh.Semantics.CoreControl.capture (.value value frame) = .value (.ok value) frame ∧
+    Xsh.Semantics.CoreControl.capture (.exec (.failed (.raised error) frame)) = .value (.err error) frame ∧
+    Xsh.Semantics.CoreControl.capture (.exec (.failed (.runtime error) frame)) = .exec (.failed (.runtime error) frame) ∧
+    Xsh.Semantics.CoreControl.capture (.exec (.failed (.typeError expected error) frame)) =
+      .exec (.failed (.typeError expected error) frame) ∧
+    Xsh.Semantics.CoreControl.capture (.exec (.returned value frame)) = .exec (.returned value frame) ∧
+    Xsh.Semantics.CoreControl.capture (.exec (.broke frame)) = .exec (.broke frame) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- A function's call result: a `Result` function returns a raised failure,
+including a primary cleanup failure, as its `Err` and wraps a plain value in
+`Ok`; any other function fails the call. -/
+theorem boundary_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
+    (failure : Failure Declaration Identity Source) (frame : Frame world) :
+    boundary .result (.failed (.raised error) frame) = .value (.err error) ∧
+    boundary .plain (.failed failure frame) = .failure failure ∧
+    boundary .result (.returned value frame) = .value (wrapOk value) ∧
+    boundary .plain (.returned value frame) = .value value ∧
+    (∀ inner, boundary .result (.failed (.runtime inner) frame) = .failure (.runtime inner)) :=
+  ⟨rfl, rfl, rfl, rfl, fun _ => rfl⟩
+
+/-- One `retry` attempt: success is `Ok`; a raised failure the filter selects
+takes the next delay, recorded as waited, and runs the next attempt; with no
+delay left, or when the filter does not select it, it is `Err`; anything else
+passes on. -/
+theorem retryStep_cases {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (pattern : Option Xsh.Syntax.Pattern) (next : Frame world → List (Value Declaration Identity Source) → Valued world)
+    (value error delay : Value Declaration Identity Source) (rest : List (Value Declaration Identity Source))
+    (after : Frame world) (inner : Value Declaration Identity Source) :
+    retryStep context pattern (delay :: rest) next (.value value after) = .value (.ok value) after ∧
+    (retryable context pattern error = some true →
+      retryStep context pattern (delay :: rest) next (.exec (.failed (.raised error) after)) =
+        next { after with waited := after.waited ++ [delay] } rest) ∧
+    (retryable context pattern error = some true →
+      retryStep context pattern [] next (.exec (.failed (.raised error) after)) = .value (.err error) after) ∧
+    (retryable context pattern error = some false →
+      retryStep context pattern (delay :: rest) next (.exec (.failed (.raised error) after)) = .value (.err error) after) ∧
+    retryStep context pattern (delay :: rest) next (.exec (.failed (.runtime inner) after)) =
+      .exec (.failed (.runtime inner) after) := by
+  refine ⟨rfl, fun selected => ?_, fun selected => ?_, fun unselected => ?_, rfl⟩
+  · simp [retryStep, selected]
+  · simp [retryStep, selected]
+  · simp [retryStep, unselected]
+
+/-- A value block's `Err` tail is its value: the block is left as a normal
+exit, so its `errdefer` actions are not due (SPEC 8.7). -/
+theorem value_block_leaves_normally {world : World Declaration Identity Source} (leave : Exec world → Exec world)
+    (value : Value Declaration Identity Source) (inner : Frame world) :
+    settle leave (.value value inner) =
+      (match leave (.normal inner) with
+        | .normal outer => .value value outer
+        | other => .exec other) ∧
+    exitsWithError (.normal inner) = false :=
+  ⟨rfl, rfl⟩
+
+variable [DecidableEq Declaration]
+
+/-- The error-handling forms: `?` and conversions propagate through
+`propagate`, `try` is `capture` of a value block, a value block settles through
+`leaveBlock`, and `retry` runs `retryStep` on each attempt. -/
+theorem error_forms {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (inner : Xsh.Syntax.Expr) (target : Xsh.Syntax.TypeExpr) (body : List Xsh.Syntax.Statement)
+    (pattern : Option Xsh.Syntax.Pattern) (delays : List (Value Declaration Identity Source)) :
+    runValue machine (fuel + 1) frame (.tryExpr inner) =
+      (runValue machine fuel frame inner).bind (fun value next => fromEval next (propagate value)) ∧
+    runValue machine (fuel + 1) frame (.convert inner target) =
+      (runValue machine fuel frame inner).bind (fun value next =>
+        match machine.conversion value target with
+        | some converted => fromEval next (propagate converted)
+        | none => .exec .unsupported) ∧
+    runValue machine (fuel + 1) frame (.capture body) = Xsh.Semantics.CoreControl.capture (valueScope machine fuel frame body) ∧
+    runValue machine (fuel + 1) frame (.valueBlock body) = valueScope machine fuel frame body ∧
+    valueScope machine (fuel + 1) frame body = settle (leaveBlock machine fuel frame) (runValueTail machine fuel frame.enter body) ∧
+    retryLoop machine (fuel + 1) frame pattern body delays =
+      retryStep machine.context pattern delays (fun after rest => retryLoop machine fuel after pattern body rest)
+        (valueScope machine fuel frame body) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- A statement-position `Result[Unit]` propagates its failure: an `Err`
+value fails the statement with its error, and any other value continues. -/
+theorem statement_result {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame next : Frame world) (value : Xsh.Syntax.Expr) (plain : ∀ body, value ≠ .valueBlock body)
+    (result error : Value Declaration Identity Source) (ran : runValue machine fuel frame value = .value result next) :
+    (result.eraseNominal = .err error →
+      runStatement machine (fuel + 1) frame (.expression value) = .failed (.raised error) next) ∧
+    ((∀ error, result.eraseNominal ≠ .err error) → runStatement machine (fuel + 1) frame (.expression value) = .normal next) := by
+  constructor
+  · intro isErr
+    cases value
+    case valueBlock body => exact absurd rfl (plain body)
+    all_goals simp [runStatement, ran, Valued.toExec, isErr]
+  · intro notErr
+    have normal : (match result.eraseNominal with
+        | .err error => (Exec.failed (.raised error) next : Exec world)
+        | _ => .normal next) = .normal next := by
+      split
+      · rename_i error same
+        exact absurd same (notErr error)
+      · rfl
+    cases value
+    case valueBlock body => exact absurd rfl (plain body)
+    all_goals (simp only [runStatement, ran, Valued.toExec]; try exact normal)
+
+/-- A call evaluates a block body in a fresh activation and applies its
+function's return kind. -/
+theorem call_boundary {world : World Declaration Identity Source} (machine : Machine world) (fuel activation : Nat)
+    (store : Store world) (defining : Environment) (parameters : Locals Declaration Identity Source)
+    (body : List Xsh.Syntax.Statement) (kind : ReturnKind) :
+    callBlock machine (fuel + 1) activation store defining parameters body kind =
+      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body) :=
+  rfl
+
+end Errors
+
 section Root
 
 /-- The statements that open their own scope around everything they bind:
@@ -1483,12 +1608,22 @@ def sumName : Xsh.Syntax.RawName := name 38 (by decide)
 def nName : Xsh.Syntax.RawName := name 39 (by decide)
 def accName : Xsh.Syntax.RawName := name 40 (by decide)
 def fName : Xsh.Syntax.RawName := name 41 (by decide)
+def rName : Xsh.Syntax.RawName := name 42 (by decide)
+def attemptsName : Xsh.Syntax.RawName := name 44 (by decide)
+def cleanupsName : Xsh.Syntax.RawName := name 45 (by decide)
+def errName : Xsh.Syntax.RawName := name 46 (by decide)
+def resultFnName : Xsh.Syntax.RawName := name 47 (by decide)
+def plainFnName : Xsh.Syntax.RawName := name 48 (by decide)
+def tailErrName : Xsh.Syntax.RawName := name 49 (by decide)
+def pName : Xsh.Syntax.RawName := name 50 (by decide)
 
 def int (lexeme : String) : Xsh.Syntax.Expr := .literal (.integer lexeme)
 def ident (target : Xsh.Syntax.RawName) : Xsh.Syntax.Expr := .ident target
 
 def program : Context Unit Unit Unit :=
   { Xsh.Proofs.Core.EvalStatements.Witness.context with
+    literals := { Xsh.Proofs.Core.EvalStatements.Witness.context.literals with
+      duration := fun lexeme => if lexeme = "1ms" then some ⟨1, by decide⟩ else none }
     functions := fun called =>
       if called = gName then
         some (⟨emptyLexicalEnvironment, []⟩, [],
@@ -1504,6 +1639,18 @@ def program : Context Unit Unit Unit :=
           .block [.binding .var (.name xName) none (int "1"),
             .defer .exit (.valueBlock [.assign (.name xName) .set (int "2")]),
             .returnValue (some (ident xName))] .plain)
+      else if called = resultFnName then
+        some (⟨emptyLexicalEnvironment, []⟩, [],
+          .block [.defer .exit (.valueBlock [.assert (.literal (.bool false)) (some (.literal (.string "cleanup")))]),
+            .expression (int "7")] .result)
+      else if called = plainFnName then
+        some (⟨emptyLexicalEnvironment, []⟩, [],
+          .block [.defer .exit (.valueBlock [.assert (.literal (.bool false)) (some (.literal (.string "cleanup")))]),
+            .expression (int "7")] .plain)
+      else if called = tailErrName then
+        some (⟨emptyLexicalEnvironment, []⟩, [pName],
+          .block [.defer .error (.valueBlock [.assert (.literal (.bool false)) (some (.literal (.string "ran")))]),
+            .expression (ident pName)] .result)
       else none }
 
 /-- The checker's resolution in these programs: one binder per name and scope
@@ -1809,6 +1956,177 @@ theorem errdefer_on_success_rejected :
 
 /-- Letting the cleanup failure win makes it primary. -/
 theorem masking_rejected : primaryText (masking (runLong precedence)) = some "cleanup" := by decide +kernel
+
+def errStart : Frame witnessWorld := { start with locals := [(errName, .err (.scalar (.string "boom")))] }
+
+def runErr (body : List Xsh.Syntax.Statement) : Exec witnessWorld := runStatements machine 80 errStart body
+
+def errText (target : Xsh.Syntax.RawName) (outcome : Exec witnessWorld) : Option String :=
+  match frameOf outcome with
+  | some frame =>
+    match frame.environment.cellOf target with
+    | .ok cell =>
+      (frame.store cell).bind fun found =>
+        match found.contents.value with
+        | .err (.scalar (.string text)) => some text
+        | _ => none
+    | .error _ => none
+  | none => none
+
+def okInt (target : Xsh.Syntax.RawName) (outcome : Exec witnessWorld) : Option Int :=
+  match frameOf outcome with
+  | some frame =>
+    match frame.environment.cellOf target with
+    | .ok cell =>
+      (frame.store cell).bind fun found =>
+        match found.contents.value with
+        | .ok (.scalar (.integer value)) => some value.val
+        | _ => none
+    | .error _ => none
+  | none => none
+
+def runtimeFailure : Exec witnessWorld → Option String
+  | .failed (.runtime (.scalar (.string text))) _ => some text
+  | _ => none
+
+def letR (value : Xsh.Syntax.Expr) : Xsh.Syntax.Statement := .binding .letBinding (.name rName) none value
+
+def questionSkips : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", varOf seenName "0",
+    letR (.capture [erring [set totalName "1"], .expression (.tryExpr (ident errName)), set seenName "1"])]
+
+/-- `?` on an `Err` skips the rest of the `try` body, runs its `errdefer`,
+and the `try` is that `Err`. -/
+theorem question_skips_rest :
+    errText rName (runErr questionSkips) = some "boom" ∧ readInt totalName (runErr questionSkips) = some 1 ∧
+      readInt seenName (runErr questionSkips) = some 0 := by
+  decide +kernel
+
+def capturesRaised : List Xsh.Syntax.Statement := [letR (.capture [failing "raised"])]
+def passesRuntime : List Xsh.Syntax.Statement :=
+  [varOf seenName "0", letR (.capture [.expression (.index (.list []) (int "0") false)]), set seenName "1"]
+
+/-- `try` captures a failed assertion as `Err`, but an `index-out-of-range`
+passes through it and stops the statements after it. -/
+theorem try_captures_raised_only :
+    errText rName (runErr capturesRaised) = some "raised" ∧
+      runtimeFailure (runErr passesRuntime) = some "index-out-of-range" ∧ readAny seenName (runErr passesRuntime) = some 0 := by
+  decide +kernel
+
+def retrying : List Xsh.Syntax.Statement :=
+  [varOf attemptsName "0", varOf cleanupsName "0",
+    letR (.retry .delays [.literal (.duration "1ms"), .literal (.duration "1ms")] none
+      [bump attemptsName (int "1"), erring [bump cleanupsName (int "1")],
+        .assert (.binary .gt (ident attemptsName) (int "2")) none, .expression (ident attemptsName)])]
+
+def waitedCount : Exec witnessWorld → Nat
+  | .normal frame => frame.waited.length
+  | _ => 0
+
+/-- `retry [1ms, 1ms]` whose third attempt succeeds runs the attempt
+`errdefer` twice, waits both delays, and is `Ok(3)`. -/
+theorem retry_third_attempt :
+    okInt rName (runErr retrying) = some 3 ∧ readInt attemptsName (runErr retrying) = some 3 ∧
+      readInt cleanupsName (runErr retrying) = some 2 ∧ waitedCount (runErr retrying) = 2 := by
+  decide +kernel
+
+def resultCleanup : List Xsh.Syntax.Statement := [letR (.call (ident resultFnName) [])]
+def plainCleanup : List Xsh.Syntax.Statement := [letR (.call (ident plainFnName) [])]
+def plainCleanupTried : List Xsh.Syntax.Statement := [letR (.capture [.expression (.call (ident plainFnName) [])])]
+
+/-- A cleanup failure in a `Result` function is the `Err` its caller binds; in
+any other function it fails the call, and `try` captures it. -/
+theorem cleanup_failure_boundary :
+    errText rName (runErr resultCleanup) = some "cleanup" ∧ primaryText (runErr plainCleanup) = some "cleanup" ∧
+      errText rName (runErr plainCleanupTried) = some "cleanup" := by
+  decide +kernel
+
+def tailErr : List Xsh.Syntax.Statement := [letR (.call (ident tailErrName) [.positional (ident errName)])]
+def tailErrBlock : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", letR (.valueBlock [erring [set totalName "1"], .expression (ident errName)])]
+
+/-- A function whose tail is an `Err` leaves its body with an error, so its
+`errdefer` runs (and its failure becomes the `Err`); a value block whose tail
+is an `Err` leaves normally and its `errdefer` does not run. -/
+theorem tail_err_function_and_block :
+    errText rName (runErr tailErr) = some "ran" ∧ errText rName (runErr tailErrBlock) = some "boom" ∧
+      readInt totalName (runErr tailErrBlock) = some 0 := by
+  decide +kernel
+
+/-- A `try` that also captures runtime failures. -/
+def greedyCapture : Valued witnessWorld → Valued witnessWorld
+  | .exec (.failed (.runtime error) frame) => .value (.err error) frame
+  | other => Xsh.Semantics.CoreControl.capture other
+
+def capturedValue : Valued witnessWorld → Bool
+  | .value _ _ => true
+  | _ => false
+
+/-- The greedy `try` turns the `index-out-of-range` into a value, which SPEC
+8.8 forbids. -/
+theorem greedy_try_rejected :
+    capturedValue (greedyCapture (valueScope machine 60 errStart [.expression (.index (.list []) (int "0") false)])) = true ∧
+      capturedValue (Xsh.Semantics.CoreControl.capture
+        (valueScope machine 60 errStart [.expression (.index (.list []) (int "0") false)])) = false := by
+  decide +kernel
+
+/-- `tailErr`'s body left as if its `Err` tail were a normal exit: the
+`errdefer` is skipped and the caller sees `boom`. -/
+def tailAsNormal : Option String :=
+  let frame : Frame witnessWorld :=
+    ⟨⟨emptyLexicalEnvironment, []⟩, fun _ => none, [], [(pName, .err (.scalar (.string "boom")))], some (fun _ => none), 1,
+      [], [], []⟩
+  match runStatements machine 60 frame.enter [erring [failing "ran"]] with
+  | .normal inner =>
+    match leaveBlock machine 60 frame (.normal inner) with
+    | .normal _ => some "boom"
+    | .failed (.raised (.scalar (.string text))) _ => some text
+    | _ => none
+  | _ => none
+
+theorem tail_err_errdefer_skip_rejected : tailAsNormal = some "boom" := by decide +kernel
+
+/-- A `retry` whose attempts drop their defers without running them. -/
+def skippingRetry (frame : Frame witnessWorld) (body : List Xsh.Syntax.Statement) :
+    List (Value Unit Unit Unit) → Exec witnessWorld
+  | [] =>
+    match runValueTail machine 60 frame.enter body with
+    | .value _ inner | .exec (.failed (.raised _) inner) => .normal (frame.restore inner)
+    | _ => .stuck
+  | _ :: rest =>
+    match runValueTail machine 60 frame.enter body with
+    | .value _ inner => .normal (frame.restore inner)
+    | .exec (.failed (.raised _) inner) => skippingRetry (frame.restore inner) body rest
+    | _ => .stuck
+
+def retryBody : List Xsh.Syntax.Statement :=
+  [bump attemptsName (int "1"), erring [bump cleanupsName (int "1")],
+    .assert (.binary .gt (ident attemptsName) (int "2")) none, .expression (ident attemptsName)]
+
+def afterTwoVars : Frame witnessWorld :=
+  match runStatements machine 20 start [varOf attemptsName "0", varOf cleanupsName "0"] with
+  | .normal frame => frame
+  | _ => start
+
+/-- Skipping the attempt defers never counts a cleanup. -/
+theorem retry_skipping_defers_rejected :
+    readInt cleanupsName (skippingRetry afterTwoVars retryBody [integer intOne, integer intOne]) = some 0 := by
+  decide +kernel
+
+/-- The `Result` function treated as a plain one: its cleanup failure escapes
+as a call failure instead of the `Err` its caller binds. -/
+def plainKinded : Machine witnessWorld :=
+  { machine with
+    context := { program with
+      functions := fun called =>
+        if called = resultFnName then
+          some (⟨emptyLexicalEnvironment, []⟩, [], .block [deferring [failing "cleanup"], .expression (int "7")] .plain)
+        else program.functions called } }
+
+theorem cleanup_escape_rejected :
+    primaryText (runStatements plainKinded 80 errStart resultCleanup) = some "cleanup" ∧
+      errText rName (runStatements plainKinded 80 errStart resultCleanup) = none := by
+  decide +kernel
 
 end Witness
 
