@@ -323,6 +323,42 @@ theorem lets_complete {tokens rest : List Token} {lets : List (String × Nat)} {
       have bound : lets.length < fuel := by simp at enough; omega
       simp [parseLets, ih boundary fuel bound]
 
+def ComputedBoundary (tokens : List Token) : Prop :=
+  ∀ name op left right valueTokens after,
+    tokens = .word "let" :: .word name :: .equals :: valueTokens →
+    isKeyword name = false →
+    ValueSyntax valueTokens (.binary op left right) (.newline :: after) → False
+
+theorem computed_complete {tokens rest : List Token} {bindings : List (String × SourceValue)}
+    (derivation : ComputedSyntax tokens bindings rest) (boundary : ComputedBoundary rest) :
+    ∀ fuel, bindings.length < fuel → parseComputedLets fuel tokens = some (bindings, rest) := by
+  induction derivation with
+  | empty tokens =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      unfold parseComputedLets
+      split
+      · rename_i tail name same
+        split
+        · rfl
+        · rename_i valid
+          split
+          · rename_i op left right after parsed
+            exfalso
+            exact boundary name op left right same after rfl (by simpa using valid) (value_syntax parsed)
+          · rfl
+      · rfl
+  | @cons name op left right tokens afterValue rest others valid value tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : others.length < fuel := by simp at enough; omega
+      have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
+      simp [parseComputedLets, valid, parsed, ih boundary fuel bound]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
