@@ -1,0 +1,13 @@
+{
+  "id": "held-log-rotate",
+  "split": "held",
+  "track": "native",
+  "families": ["small-reusable-script", "file-inventory", "resource-handling"],
+  "origin": "new",
+  "description": "Write a log rotation command. Its command line is `[--keep N] [--min-bytes N] DIR`, with options before the one operand. `--keep` (default 3) is how many compressed generations to keep and must be at least 1; `--min-bytes` (default 1024) is the size from which a log is rotated and must be at least 0. Both take a decimal integer. An unknown option, a malformed or out-of-range value, or a number of operands other than one is a usage error: print a usage message to standard error, change nothing, and exit with status 2.\n\nThe logs are the regular files directly inside `DIR` (not in its subdirectories) whose names end in `.log`, hidden names included; symbolic links are never logs. A log is rotated when its size is at least `--min-bytes` and at least 1 byte. Other logs, and everything else in `DIR`, are left untouched.\n\nThe generations of a log `NAME` are the files in `DIR` named `NAME.K.gz`, where `K` is one or more decimal digits not starting with `0`. To rotate `NAME`:\n\n1. Renumber its generations, highest `K` first: each `NAME.K.gz` becomes `NAME.(K+1).gz` if `K+1` is at most `--keep`, and is deleted otherwise.\n2. Write the log's current content, gzip-compressed, to `NAME.1.gz`.\n3. Truncate the log to zero bytes in place: it stays the same file, with the same mode, because a running service holds it open.\n\nPrint one JSON line per rotated log, sorted by name in byte order: `{\"log\": NAME, \"bytes\": SIZE, \"deleted\": [GENERATION, ...]}`, where `SIZE` is the log's size before rotation and `deleted` lists the names of the generation files deleted for it, by increasing `K`. Exit with status 0.",
+  "variants": ["public", "gaps", "zero", "usage"],
+  "exit_codes": [0, 2],
+  "timeout_s": 60,
+  "xsh_api": ["language:core.cli-main", "api:fs.children", "api:archive.compress", "method:Path.truncate", "method:Path.rename", "method:Path.remove", "method:Str.parse_int"],
+  "ts_modules": ["node:fs", "node:path", "node:util", "node:zlib"]
+}

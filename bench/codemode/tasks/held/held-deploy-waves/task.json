@@ -1,0 +1,21 @@
+{
+  "id": "held-deploy-waves",
+  "split": "held",
+  "track": "shared",
+  "families": ["bounded-parallel-work", "local-service-orchestration", "json"],
+  "origin": "new",
+  "description": "Roll a release out to a fleet in waves. The plan is `/work/rollout.json`, a JSON object `{\"release\": STRING, \"waves\": [[HOST, ...], ...]}`: the release to deploy and a list of waves, each a list of host names.\n\nStart the deploy of each host with `deploy_start` (`svc.deployStart` in TypeScript), passing the host and the plan's release, with a 1 second timeout on each call. A call that fails, for any reason, means that host failed; never retry a deploy, since starting one twice is not safe.\n\n- Waves run in plan order. A wave starts only after every call of the previous wave has answered or timed out.\n- Within a wave, run up to two deploys at once: there are never more than two calls in flight, and while a wave still has hosts waiting, two calls are in flight. Every host of a wave is attempted, even when another host of the same wave fails.\n- A host may appear more than once in the plan. Only its first appearance counts; ignore the later ones. A wave left with no hosts is complete at once.\n- If any host of a wave failed, start no later wave. The hosts of the waves that were not started are skipped.\n\nPrint one line to standard output: a JSON object with three fields. `deployed` is a list of `{\"host\": HOST, \"revision\": REVISION}` objects, one per host whose deploy started, with the revision the service returned. `failed` is a list of `{\"host\": HOST, \"kind\": KIND}` objects, one per failed host, where `KIND` is the failure kind (`Timeout`, `Unavailable`, `RateLimited`, `NotFound`, `PermissionDenied`, `Invalid`, `Conflict`, or `Failed`). `skipped` is the list of skipped host names. Every list is in plan order, by each host's first appearance, and holds each host once.\n\nExit with status 0 when no host failed, and 4 otherwise.",
+  "variants": ["public", "failing", "slow", "repeats"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "types": {
+    "Started": {"type": "{host: Str, revision: Int}", "doc": "A deploy that has started on a host."}
+  },
+  "capabilities": [
+    {"id": "deploy.start", "effect": "write", "idempotent": false,
+     "input": {"host": "Str", "release": "Str"}, "output": "Started",
+     "description": "Starts deploying the release on one host and returns the revision it was given."}
+  ],
+  "xsh_api": ["api:json.read", "api:json.encode", "language:stream.par-map", "language:core.exit"],
+  "ts_modules": ["node:fs"]
+}
