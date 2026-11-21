@@ -303,7 +303,7 @@ def taxonomy_draft(args: argparse.Namespace) -> int:
 
 
 def render_report(args: argparse.Namespace) -> int:
-    print(report.render([Path(p).resolve() for p in args.runs], args.taxonomy), end="")
+    print(report.render([Path(p).resolve() for p in args.runs], args.taxonomy, args.thresholds), end="")
     return 0
 
 
@@ -380,6 +380,7 @@ def main() -> int:
     p = sub.add_parser("report", help="report saved trials")
     p.add_argument("runs", nargs="+")
     p.add_argument("--taxonomy", type=Path, action="append")
+    p.add_argument("--thresholds", type=Path, help="judge xsh-selected against xsh-baseline by this file")
     p.set_defaults(func=render_report)
 
     args = parser.parse_args()

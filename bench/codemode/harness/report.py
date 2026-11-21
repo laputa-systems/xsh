@@ -368,7 +368,53 @@ def session_rows(runs: list[Path]) -> list[str]:
     return rows + [""]
 
 
-def render(runs: list[Path], taxonomy_paths: list[Path] | None) -> str:
+def threshold_rows(cells: list[Cell], thresholds: dict) -> list[str]:
+    rule = thresholds["selected_guide_beats_current_docs"]
+    a = [c for c in cells if c.condition == "xsh-selected"]
+    b = [c for c in cells if c.condition == "xsh-baseline"]
+    tasks = sorted({c.task for c in a} & {c.task for c in b})
+    if not tasks:
+        return ["No matched xsh-selected and xsh-baseline trials."]
+
+    def diff(sample: list[str], key: str) -> float | None:
+        x, y = rate(a, sample, key), rate(b, sample, key)
+        return None if x is None or y is None else x - y
+
+    def reduction(sample: list[str]) -> float | None:
+        x, y = per_solved(a, sample), per_solved(b, sample)
+        return None if x is None or y is None else 1 - x / y
+
+    first, final, cut = diff(tasks, "first"), diff(tasks, "final"), reduction(tasks)
+    first_ci = bootstrap(tasks, lambda s: diff(s, "first"))
+    final_ci = bootstrap(tasks, lambda s: diff(s, "final"))
+    cut_ci = bootstrap(tasks, reduction)
+    first_target = next(t["improvement_at_least"] for t in rule["targets"] if "first" in t["measure"])
+    token_target = next(t["reduction_at_least"] for t in rule["targets"] if "tokens" in t["measure"])
+    guard = rule["guard"]["loss_at_most"]
+    first_ok = first is not None and first >= first_target
+    token_ok = cut is not None and cut >= token_target
+    guard_ok = final is not None and final >= -guard
+    verdict = "PASSES" if (first_ok or token_ok) and guard_ok else "DOES NOT PASS"
+
+    def show(value: float | None, bounds: tuple[float, float] | None) -> str:
+        if value is None:
+            return "undefined"
+        text = f"{100 * value:+.1f} points" if bounds is None else f"{100 * value:+.1f} [{100 * bounds[0]:+.1f}, {100 * bounds[1]:+.1f}]"
+        return text
+
+    return [
+        "| Pre-registered test (thresholds.json) | Value, selected − current docs [95% CI] | Threshold | Met |",
+        "|---|---|---|---|",
+        f"| First-attempt correct | {show(first, first_ci)} points | ≥ +{100 * first_target:.0f} | {'yes' if first_ok else 'no'} |",
+        f"| Reduction in tokens per solved task | {show(cut, cut_ci)} % | ≥ {100 * token_target:.0f}% | {'yes' if token_ok else 'no'} |",
+        f"| Correct within 3 programs (guard) | {show(final, final_ci)} points | ≥ −{100 * guard:.0f} | {'yes' if guard_ok else 'no'} |",
+        "",
+        f"Point estimates over {len(tasks)} matched tasks: the selected guide {verdict} the pre-registered test. "
+        "An interval that spans the threshold makes the result a pilot indication, not a conclusion.",
+    ]
+
+
+def render(runs: list[Path], taxonomy_paths: list[Path] | None, thresholds_path: Path | None = None) -> str:
     cells: list[Cell] = []
     missing: list[dict] = []
     manifests = []
@@ -421,6 +467,8 @@ def render(runs: list[Path], taxonomy_paths: list[Path] | None) -> str:
         "## External commands", "", "Literal command heads in each trial's last program (`run CMD` in XSH, "
         "`spawn`/`execFile` with a literal program in TypeScript).", "", *command_rows(cells, conditions), "",
     ]
+    if thresholds_path is not None:
+        lines += ["## Pre-registered held-out test", "", *threshold_rows(cells, json.loads(thresholds_path.read_text())), ""]
     lines += sessions
     if taxonomy_paths:
         taxonomy = {"attempts": [e for p in taxonomy_paths for e in json.loads(p.read_text())["attempts"]]}
