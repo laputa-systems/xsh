@@ -85,11 +85,16 @@ variable [DecidableEq Declaration]
 `bigger`. -/
 structure Refining {world : World Declaration Identity Source} (machine : Machine world) (fuel bigger : Nat) :
     Prop where
-  expr : ∀ store environment locals expression,
-    Refines (evalExpr machine fuel store environment locals expression)
-      (evalExpr machine bigger store environment locals expression)
-  call : ∀ store environment locals body,
-    Refines (callBlock machine fuel store environment locals body) (callBlock machine bigger store environment locals body)
+  expr : ∀ activation store environment locals expression,
+    Refines (evalExpr machine fuel activation store environment locals expression)
+      (evalExpr machine bigger activation store environment locals expression)
+  call : ∀ activation store environment locals body,
+    Refines (callBlock machine fuel activation store environment locals body)
+      (callBlock machine bigger activation store environment locals body)
+  leaves : ∀ outer first second, Exec.Refines first second →
+    Exec.Refines (leaveBlock machine fuel outer first) (leaveBlock machine bigger outer second)
+  deferreds : ∀ status actions,
+    Exec.Refines (runDeferred machine fuel status actions) (runDeferred machine bigger status actions)
   body : ∀ frame statements,
     Exec.Refines (runBody machine fuel frame statements) (runBody machine bigger frame statements)
   tail : ∀ frame statements,
@@ -127,17 +132,30 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.loops _ _
   | exact inner.arms _ _ _
   | exact inner.tail _ _
-  | refine fromResult_refines _ (inner.expr _ _ _ _) fun _ => ?_
+  | refine fromResult_refines _ (inner.expr _ _ _ _ _) fun _ => ?_
+  | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
   | refine iterate_refines ?_ fun _ => ?_
   | refine withinScope_refines _ ?_
   | split))
 
+theorem runDeferred_outOfFuel {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ fuel actions, runDeferred machine fuel .outOfFuel actions = .outOfFuel
+  | 0, _ => by simp [runDeferred]
+  | fuel + 1, [] => by simp [runDeferred]
+  | fuel + 1, entry :: rest => by
+    simp only [runDeferred]
+    split
+    · exact runDeferred_outOfFuel machine fuel rest
+    · rfl
+
 theorem refining {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel extra, Refining machine fuel (fuel + extra)
   | 0, _ => {
-      expr := fun _ _ _ _ => Or.inl (by simp [evalExpr])
-      call := fun _ _ _ _ => Or.inl (by simp [callBlock])
+      expr := fun _ _ _ _ _ => Or.inl (by simp [evalExpr])
+      call := fun _ _ _ _ _ => Or.inl (by simp [callBlock])
+      leaves := fun _ _ _ _ => Or.inl (by simp [leaveBlock])
+      deferreds := fun _ _ => Or.inl (by simp [runDeferred])
       body := fun _ _ => Or.inl (by simp [runBody])
       tail := fun _ _ => Or.inl (by simp [runTail])
       statements := fun _ _ => Or.inl (by simp [runStatements])
@@ -153,15 +171,39 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
     have inner := refining machine fuel extra
     rw [show fuel + 1 + extra = (fuel + extra) + 1 by omega]
     exact {
-      expr := fun store environment locals expression => by
+      expr := fun activation store environment locals expression => by
         simp only [evalExpr]
-        exact step_refines machine.context environment store (inner.expr store) (inner.call store) locals expression
-      call := fun store environment locals body => by
+        exact step_refines machine.context environment store (inner.expr activation store)
+          (inner.call (activation + machine.activationStep) store) locals expression
+      call := fun activation store environment locals body => by
         simp only [callBlock]
         exact bodyValue_refines (inner.body _ _)
+      leaves := fun outer first second refined => by
+        simp only [leaveBlock]
+        rcases refined with out | same
+        · subst out
+          show Exec.Refines (withinScope outer (runDeferred machine fuel .outOfFuel [])) _
+          rw [runDeferred_outOfFuel]
+          exact Or.inl rfl
+        · subst same
+          exact withinScope_refines outer (inner.deferreds _ _)
+      deferreds := fun status actions => by
+        simp only [runDeferred]
+        split
+        · exact exec_refl _
+        · split
+          · exact inner.deferreds _ _
+          · split
+            · exact exec_refl _
+            · rename_i entry rest _ _ scope _
+              rcases inner.block (entry.frame scope) entry.body with out | same
+              · rw [out]
+                exact Or.inl rfl
+              · rw [← same]
+                split <;> first | exact inner.deferreds _ _ | exact exec_refl _
       body := fun frame statements => by
         simp only [runBody]
-        exact withinScope_refines frame (inner.tail _ _)
+        close_refines
       tail := fun frame statements => by simp only [runTail]; close_refines
       statements := fun frame statements => by simp only [runStatements]; close_refines
       block := fun frame statements => by simp only [runBlock]; close_refines
@@ -196,11 +238,6 @@ theorem persists_keep {world : World Declaration Identity Source} {before after 
   intro cell found present
   obtain ⟨kept, keptPresent, keptType⟩ := head cell found present
   exact ⟨kept, by simp [keep, present, keptPresent], keptType⟩
-
-def frameOf {world : World Declaration Identity Source} : Exec world → Option (Frame world)
-  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .internal _ frame =>
-    some frame
-  | _ => none
 
 /-- Every frame an outcome carries keeps the cells of `before`. -/
 def Keeps {world : World Declaration Identity Source} (before : Store world) (outcome : Exec world) : Prop :=
@@ -253,6 +290,15 @@ theorem self_persists {world : World Declaration Identity Source} (frame : Frame
   intro last present
   rw [same last present]
   exact persists_refl _
+
+theorem withStore_keeps {world : World Declaration Identity Source} {before store : Store world}
+    (kept : Persists before store) (status : Exec world) : Keeps before (status.withStore store) := by
+  cases status <;> (intro last present; cases present <;> exact kept)
+
+theorem cleanupFailed_keeps {world : World Declaration Identity Source} {before store : Store world}
+    (kept : Persists before store) (failure : Failure Declaration Identity Source) (status : Exec world) :
+    Keeps before (cleanupFailed failure store status) := by
+  cases status <;> (intro last present; cases present <;> exact kept)
 
 variable [DecidableEq Declaration]
 
@@ -340,6 +386,8 @@ theorem bindTarget_entered {world : World Declaration Identity Source} (machine 
 /-- The statement functions at `fuel` keep every cell of the frame they start
 from. -/
 structure Persisting {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  leaves : ∀ outer inner, Keeps outer.store inner → Keeps outer.store (leaveBlock machine fuel outer inner)
+  deferreds : ∀ before status actions, Keeps before status → Keeps before (runDeferred machine fuel status actions)
   statements : ∀ frame statements, Keeps frame.store (runStatements machine fuel frame statements)
   block : ∀ frame statements, Keeps frame.store (runBlock machine fuel frame statements)
   bound : ∀ frame captures statements, Keeps frame.store (runBound machine fuel frame captures statements)
@@ -369,6 +417,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact bindCaptures_entered _ _ _
   | exact bindTarget_entered _ _ _ _ _
   | refine fromResult_persists _ _ fun _ => ?_
+  | refine inner.leaves _ _ ?_
   | refine andThen_persists ?_ fun _ => ?_
   | refine iterate_persists ?_ fun _ => ?_
   | refine withinScope_persists _ ?_
@@ -377,6 +426,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
+      leaves := fun _ _ _ => by simp only [leaveBlock]; exact fun _ present => by cases present
+      deferreds := fun _ _ _ _ => by simp only [runDeferred]; exact fun _ present => by cases present
       statements := fun _ _ => by simp only [runStatements]; exact fun _ present => by cases present
       block := fun _ _ => by simp only [runBlock]; exact fun _ present => by cases present
       bound := fun _ _ _ => by simp only [runBound]; exact fun _ present => by cases present
@@ -389,6 +440,33 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
+      leaves := fun outer innerOutcome kept => by
+        simp only [leaveBlock]
+        exact withinScope_persists outer (inner.deferreds _ _ _ kept)
+      deferreds := fun before status actions kept => by
+        simp only [runDeferred]
+        split
+        · exact kept
+        · rename_i entry rest
+          split
+          · exact inner.deferreds _ _ _ kept
+          · cases scoping : frameOf status with
+            | none => exact kept
+            | some scope =>
+              dsimp only
+              have reached := kept scope scoping
+              have ran := inner.block (entry.frame scope) entry.body
+              cases result : runBlock machine fuel (entry.frame scope) entry.body with
+              | normal after =>
+                exact inner.deferreds _ _ _ (withStore_keeps (persists_trans reached (ran after (by rw [result]; rfl))) _)
+              | failed failure after =>
+                exact inner.deferreds _ _ _
+                  (cleanupFailed_keeps (persists_trans reached (ran after (by rw [result]; rfl))) _ _)
+              | internal fault after =>
+                intro last present
+                cases present
+                exact persists_trans reached (ran after (by rw [result]; rfl))
+              | _ => exact fun _ present => by cases present
       statements := fun frame statements => by simp only [runStatements]; close_persists
       block := fun frame statements => by simp only [runBlock]; close_persists
       bound := fun frame captures statements => by simp only [runBound]; close_persists
@@ -437,6 +515,11 @@ theorem fromResult_restores {world : World Declaration Identity Source} (frame :
 
 variable [DecidableEq Declaration]
 
+theorem leave_restores {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ fuel outer inner, Restores outer (leaveBlock machine fuel outer inner)
+  | 0, _, _ => fun _ present => by simp [leaveBlock, frameOf] at present
+  | _ + 1, outer, _ => withinScope_restores outer _
+
 /-- The scoped statement forms at `fuel` leave their frame's environment and
 locals in place: a block, a pattern-bound body, `if`, `while`, `for`, `loop`
 and `match`. -/
@@ -459,9 +542,11 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact inner.loops _ _
   | exact inner.arms _ _ _
   | exact withinScope_restores _ _
+  | exact leave_restores _ _ _ _
   | exact fun _ present => by cases present <;> exact ⟨rfl, rfl⟩
   | refine fromResult_restores _ _ fun _ => ?_
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
+  | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
   | refine iterate_restores ?_ fun _ => ?_
   | split))
 
@@ -570,7 +655,7 @@ theorem loop_ends_on_break {world : World Declaration Identity Source} (machine 
 theorem for_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame next : Frame world) (target : Xsh.Syntax.BindingTarget) (item : Value Declaration Identity Source)
     (rest : List (Value Declaration Identity Source)) (body : List Xsh.Syntax.Statement)
-    (broke : withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+    (broke : leaveBlock machine fuel frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
       runStatements machine fuel bound body) = .broke next) :
     runFor machine (fuel + 1) frame target (item :: rest) body = .normal next := by
   simp only [runFor, broke, Exec.iterate]
@@ -578,10 +663,10 @@ theorem for_ends_on_break {world : World Declaration Identity Source} (machine :
 theorem while_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame next : Frame world) (condition : Xsh.Syntax.Expr) (body : List Xsh.Syntax.Statement)
     (plain : ∀ subject pattern, condition ≠ .patternCondition subject pattern)
-    (holds : ∀ tested, evalExpr machine fuel frame.store frame.environment frame.locals condition = .value tested →
+    (holds : ∀ tested, evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition = .value tested →
       tested.eraseNominal = .scalar (.boolean true))
     (tested : Value Declaration Identity Source)
-    (evaluated : evalExpr machine fuel frame.store frame.environment frame.locals condition = .value tested)
+    (evaluated : evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition = .value tested)
     (broke : runBlock machine fuel frame body = .broke next) :
     runWhile machine (fuel + 1) frame condition body = .normal next := by
   have isTrue := holds tested evaluated
@@ -589,12 +674,13 @@ theorem while_ends_on_break {world : World Declaration Identity Source} (machine
   case patternCondition subject pattern => exact absurd rfl (plain subject pattern)
   all_goals simp only [runWhile, evaluated, fromResult, isTrue, broke, Exec.iterate]
 
-/-- A block passes a `break` out to the loop around it, restoring its scope. -/
+/-- A block with no deferred actions left passes a `break` out to the loop
+around it, restoring its scope. -/
 theorem block_passes_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame inner : Frame world) (body : List Xsh.Syntax.Statement)
-    (broke : runStatements machine fuel frame.enter body = .broke inner) :
-    runBlock machine (fuel + 1) frame body = .broke (frame.restore inner) := by
-  simp [runBlock, broke, withinScope]
+    (broke : runStatements machine (fuel + 2) frame.enter body = .broke inner) (settled : inner.deferred = []) :
+    runBlock machine (fuel + 3) frame body = .broke (frame.restore inner) := by
+  simp [runBlock, leaveBlock, broke, pendingOf, settled, runDeferred, withinScope]
 
 theorem return_skips_rest {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame last : Frame world) (statement : Xsh.Syntax.Statement) (rest : List Xsh.Syntax.Statement)
@@ -607,7 +693,7 @@ theorem for_passes_return {world : World Declaration Identity Source} (machine :
     (frame last : Frame world) (target : Xsh.Syntax.BindingTarget) (item : Value Declaration Identity Source)
     (rest : List (Value Declaration Identity Source)) (body : List Xsh.Syntax.Statement)
     (value : Value Declaration Identity Source)
-    (returned : withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+    (returned : leaveBlock machine fuel frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
       runStatements machine fuel bound body) = .returned value last) :
     runFor machine (fuel + 1) frame target (item :: rest) body = .returned value last := by
   simp only [runFor, returned, Exec.iterate]
@@ -651,7 +737,7 @@ its cell. -/
 theorem bindCaptures_binds {world : World Declaration Identity Source} (machine : Machine world) (frame next : Frame world)
     (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source))
     (bound : bindCaptures machine frame captures = .normal next) :
-    ∃ entries, resolveCaptures machine.resolution frame.environment captures = some entries ∧
+    ∃ entries, resolveCaptures (machine.namesAt frame.activation) frame.environment captures = some entries ∧
       entries.map (·.1.1) = captures.map Prod.fst ∧ entries.map (·.2.2.2) = captures.map Prod.snd ∧
       next.environment = extend frame.environment (entries.map Prod.fst) ∧
       next.locals = hide (captures.map Prod.fst) frame.locals ∧
@@ -663,7 +749,7 @@ theorem bindCaptures_binds {world : World Declaration Identity Source} (machine 
   split at bound
   · cases bound
   · rename_i entries resolved
-    obtain ⟨names, values, cells⟩ := resolveCaptures_aligned machine.resolution frame.environment captures entries resolved
+    obtain ⟨names, values, cells⟩ := resolveCaptures_aligned (machine.namesAt frame.activation) frame.environment captures entries resolved
     cases declared : declareAll world machine.decisions frame.store .immutable frame.store (entries.map Prod.snd) with
     | committed store =>
       rw [declared] at bound
@@ -688,7 +774,7 @@ resolves to its cell. -/
 theorem bindTarget_binds {world : World Declaration Identity Source} (machine : Machine world) (frame next : Frame world)
     (mutability : Mutability) (target : Xsh.Syntax.BindingTarget) (value : Value Declaration Identity Source)
     (bound : bindTarget machine frame mutability target value = .normal next) :
-    ∃ resolved declared, resolveTarget machine.names frame.environment target = some (resolved, declared) ∧
+    ∃ resolved declared, resolveTarget (machine.namesAt frame.activation) frame.environment target = some (resolved, declared) ∧
       declareTarget world machine.decisions frame.store mutability resolved value = .committed next.store ∧
       next.environment = extend frame.environment declared ∧
       next.locals = hide (declared.map Prod.fst) frame.locals ∧
@@ -787,19 +873,19 @@ theorem statement_control {world : World Declaration Identity Source} (machine :
     (∀ fuel frame next body, runBlock machine fuel frame body = .broke next →
       runLoop machine (fuel + 1) frame body = .normal next) ∧
     (∀ fuel frame next target item rest body,
-      withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      leaveBlock machine fuel frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
         runStatements machine fuel bound body) = .broke next →
           runFor machine (fuel + 1) frame target (item :: rest) body = .normal next) ∧
-    (∀ fuel frame inner body, runStatements machine fuel frame.enter body = .broke inner →
-      runBlock machine (fuel + 1) frame body = .broke (frame.restore inner)) ∧
+    (∀ fuel frame inner body, runStatements machine (fuel + 2) frame.enter body = .broke inner →
+      inner.deferred = [] → runBlock machine (fuel + 3) frame body = .broke (frame.restore inner)) ∧
     (∀ fuel frame last statement rest value, runStatement machine fuel frame statement = .returned value last →
       runStatements machine (fuel + 1) frame (statement :: rest) = .returned value last) ∧
     (∀ fuel frame last target item rest body value,
-      withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      leaveBlock machine fuel frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
         runStatements machine fuel bound body) = .returned value last →
           runFor machine (fuel + 1) frame target (item :: rest) body = .returned value last) ∧
     (∀ frame next captures, bindCaptures machine frame captures = .normal next →
-      ∃ entries, resolveCaptures machine.resolution frame.environment captures = some entries ∧
+      ∃ entries, resolveCaptures (machine.namesAt frame.activation) frame.environment captures = some entries ∧
         entries.map (·.1.1) = captures.map Prod.fst ∧ entries.map (·.2.2.2) = captures.map Prod.snd ∧
         next.environment = extend frame.environment (entries.map Prod.fst) ∧
         next.locals = hide (captures.map Prod.fst) frame.locals ∧
@@ -808,7 +894,7 @@ theorem statement_control {world : World Declaration Identity Source} (machine :
         (((entries.map Prod.fst).map Prod.fst).Nodup → ((entries.map Prod.fst).map (·.2.1)).Nodup →
           ∀ entry ∈ entries, next.environment.cellOf entry.1.1 = .ok entry.1.2.2)) ∧
     (∀ frame next mutability target value, bindTarget machine frame mutability target value = .normal next →
-      ∃ resolved declared, resolveTarget machine.names frame.environment target = some (resolved, declared) ∧
+      ∃ resolved declared, resolveTarget (machine.namesAt frame.activation) frame.environment target = some (resolved, declared) ∧
         declareTarget world machine.decisions frame.store mutability resolved value = .committed next.store ∧
         next.environment = extend frame.environment declared ∧
         next.locals = hide (declared.map Prod.fst) frame.locals ∧
@@ -863,14 +949,15 @@ def program : Context Unit Unit Unit :=
           .block [.forStmt (.name iName) (.list [int "1", int "2"]) [.returnValue (some (ident iName))], .expression (int "7")])
       else none }
 
-/-- The checker's resolution in these programs: one binder per name, a cell
-per scope depth, all at type `Any`. -/
+/-- The checker's resolution in these programs: one binder per name and scope
+depth, all at type `Any`. -/
 def resolution : Oracles witnessWorld where
   spelling := fun _ => ""
   evaluate := fun _ store _ => .error (.runtime (.scalar .null), store)
   selector := fun _ store _ _ => .error (.runtime (.scalar .null), store)
   declaration := fun environment declared =>
-    some (⟨declared.word⟩, ⟨environment.names.length, ⟨declared.word⟩⟩, .primitive .any)
+    let binder : BinderId := ⟨⟨(declared.word.val * 64 + environment.names.length) % 4294967296, Nat.mod_lt _ (by decide)⟩⟩
+    some (binder, ⟨0, binder⟩, .primitive .any)
   argv := fun _ => none
 
 def machine : Machine witnessWorld where
@@ -879,9 +966,10 @@ def machine : Machine witnessWorld where
   raises := Xsh.Proofs.Core.Writes.Witness.raises
   operate := operate program Xsh.Proofs.Core.Writes.Witness.pair
   resolution := resolution
-  assertion := fun _ => .scalar (.string "assertion")
+  assertion := fun message => message.getD (.scalar (.string "assertion"))
+  activationStep := 1
 
-def start : Frame witnessWorld := ⟨⟨emptyLexicalEnvironment, []⟩, fun _ => none, [], [], none⟩
+def start : Frame witnessWorld := ⟨⟨emptyLexicalEnvironment, []⟩, fun _ => none, [], [], none, 0, [], []⟩
 
 def run (body : List Xsh.Syntax.Statement) : Exec witnessWorld := runStatements machine 40 start body
 
