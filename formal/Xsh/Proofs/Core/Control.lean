@@ -1646,6 +1646,138 @@ theorem shadowing_cells_distinct (name : Xsh.Syntax.RawName) (outer inner activa
 
 end Resolver
 
+section StaticResolution
+
+/-- Lexical scopes as the resolution pass sees them: the names each scope
+declares, innermost first. -/
+abbrev StaticScopes := List (List Xsh.Syntax.RawName)
+
+/-- The pass's resolution of a use: the canonical binder of the innermost
+scope that declares the name. -/
+def staticResolve : StaticScopes → Xsh.Syntax.RawName → Option BinderId
+  | [], _ => none
+  | scope :: outer, name => if name ∈ scope then some (canonicalBinder name (outer.length + 1)) else staticResolve outer name
+
+/-- The scopes after a statement, for the declaring statements: a `let`,
+`var` or `const` of a name and a local function declare it in the innermost
+scope; every other covered statement leaves its scopes as it found them. -/
+def staticDeclare : StaticScopes → Xsh.Syntax.Statement → StaticScopes
+  | top :: outer, .binding _ (.name name) _ _ => (name :: top) :: outer
+  | top :: outer, .functionDef _ name _ _ _ _ _ _ => (name :: top) :: outer
+  | scopes, _ => scopes
+
+/-- The pass over a statement list: each use, in order, with the binder it
+resolves to, declarations taking effect after their statement and a nested
+block's uses resolved in a scope of its own. -/
+def staticUses (fuel : Nat) : StaticScopes → List Xsh.Syntax.Statement →
+    List (Xsh.Syntax.RawName × Option BinderId)
+  | _, [] => []
+  | scopes, statement :: rest =>
+    let here := (Xsh.Syntax.freeStatementsFuel fuel [] [statement]).map fun name => (name, staticResolve scopes name)
+    here ++ staticUses fuel (staticDeclare scopes statement) rest
+
+/-- A local function's capture set: its free names other than its
+parameters that resolve outside it. -/
+def staticCaptures (scopes : StaticScopes) (parameters : List Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
+    List Xsh.Syntax.RawName :=
+  (captureNames parameters body).filter fun name => (staticResolve scopes name).isSome
+
+/-- A runtime lexical environment carries the pass's scopes. -/
+def Represents (names : LexicalEnvironment) (scopes : StaticScopes) : Prop :=
+  names.length = scopes.length ∧ ∀ name, resolve names name = staticResolve scopes name
+
+theorem represents_enter {names : LexicalEnvironment} {scopes : StaticScopes} (carried : Represents names scopes) :
+    Represents (enterScope names) ([] :: scopes) := by
+  refine ⟨by simp [enterScope, carried.1], fun name => ?_⟩
+  rw [resolve_enter_scope, carried.2 name]
+  simp [staticResolve]
+
+theorem represents_declare {names : LexicalEnvironment} {top : List Xsh.Syntax.RawName} {outer : StaticScopes}
+    (carried : Represents names (top :: outer)) (name : Xsh.Syntax.RawName) :
+    Represents (bind names name (canonicalBinder name (outer.length + 1))) ((name :: top) :: outer) := by
+  obtain ⟨lengths, resolves⟩ := carried
+  refine ⟨?_, fun other => ?_⟩
+  · cases names with
+    | nil => simp at lengths
+    | cons frame rest => simpa [Xsh.Semantics.Environments.bind] using lengths
+  · by_cases same : other = name
+    · subst same
+      rw [resolve_after_bind]
+      simp [staticResolve]
+    · rw [resolve_bind_other _ _ _ _ same, resolves other]
+      simp [staticResolve, same]
+
+/-- A use resolves at run time to the binder the pass gave it. -/
+theorem represents_lookup {names : LexicalEnvironment} {scopes : StaticScopes} (carried : Represents names scopes)
+    (name : Xsh.Syntax.RawName) : resolve names name = staticResolve scopes name := carried.2 name
+
+/-- A closure's free names that resolve outside it are exactly its capture
+set. -/
+theorem staticCaptures_exact (scopes : StaticScopes) (parameters : List Xsh.Syntax.RawName)
+    (body : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    name ∈ staticCaptures scopes parameters body ↔
+      name ∈ Xsh.Syntax.freeStatementsFuel 256 parameters body ∧ (staticResolve scopes name).isSome := by
+  simp [staticCaptures, captureNames, List.mem_eraseDups]
+
+variable [DecidableEq Declaration]
+
+/-- Under the canonical resolution, binding a name target extends the pass's
+innermost scope with that name. -/
+theorem bindTarget_represents {world : World Declaration Identity Source} (machine : Machine world) (base : Oracles world)
+    (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (frame next : Frame world)
+    (mutability : Mutability) (name : Xsh.Syntax.RawName) (value : Value Declaration Identity Source)
+    (top : List Xsh.Syntax.RawName) (outer : StaticScopes) (carried : Represents frame.environment.names (top :: outer))
+    (bound : bindTarget machine frame mutability (.name name) value = .normal next) :
+    Represents next.environment.names ((name :: top) :: outer) := by
+  obtain ⟨target, declared, found, _, environment, _, _⟩ :=
+    bindTarget_binds machine frame next mutability (.name name) value bound
+  have depth : frame.environment.names.length = outer.length + 1 := by simpa using carried.1
+  have shaped := canonical_cells machine base types resolved frame.activation frame.environment name
+  simp only [resolveTarget] at found
+  rw [shaped] at found
+  cases typed : types frame.environment name with
+  | none => simp [typed] at found
+  | some type =>
+    simp only [typed, Option.map_some, Option.some.injEq, Prod.mk.injEq] at found
+    obtain ⟨_, same⟩ := found
+    subst same
+    rw [environment]
+    simp only [extend]
+    rw [depth]
+    exact represents_declare carried name
+
+omit [DecidableEq Declaration] in
+/-- The runtime capture set: every mutable cell a local function may write
+is the cell of a name in its static capture set. -/
+theorem writable_captured {world : World Declaration Identity Source} (frame : Frame world) (scopes : StaticScopes)
+    (carried : Represents frame.environment.names scopes) (parameters : List Xsh.Syntax.RawName)
+    (body : List Xsh.Syntax.Statement) (cell : CellId)
+    (writable : cell ∈ mutableCaptures frame (captureNames parameters body)) :
+    ∃ name ∈ staticCaptures scopes parameters body, frame.environment.cellOf name = .ok cell := by
+  simp only [mutableCaptures, List.mem_filterMap] at writable
+  obtain ⟨name, inside, chosen⟩ := writable
+  split at chosen
+  · rename_i found resolvedCell
+    split at chosen
+    · split at chosen
+      · simp only [Option.some.injEq] at chosen
+        subst chosen
+        refine ⟨name, ?_, resolvedCell⟩
+        simp only [staticCaptures, List.mem_filter]
+        refine ⟨inside, ?_⟩
+        rw [← represents_lookup carried name]
+        simp only [Environment.cellOf] at resolvedCell
+        split at resolvedCell
+        · cases resolvedCell
+        · rename_i binder resolvedBinder
+          simp [resolvedBinder]
+      · cases chosen
+    · cases chosen
+  · cases chosen
+
+end StaticResolution
+
 section Root
 
 /-- The statements that open their own scope around everything they bind:
@@ -3013,6 +3145,61 @@ theorem canonical_resolution_runs :
     readInt xName (runStatements canonicalMachine 40 start shadowed) = some 1 ∧
       readInt totalName (runStatements canonicalMachine 80 start countdown) = some 3 ∧
       readInt rName (runStatements canonicalMachine 90 fullStart capturing) = some 3 := by
+  decide +kernel
+
+def countName : Xsh.Syntax.RawName := name 90 (by decide)
+def bumpName : Xsh.Syntax.RawName := name 91 (by decide)
+
+def declareBump : Xsh.Syntax.Statement :=
+  .functionDef .proc bumpName [] none none [bump countName (int "1")] none false
+
+def counter : List Xsh.Syntax.Statement :=
+  [varOf countName "0", declareBump, .expression (call bumpName []), .expression (call bumpName [])]
+
+/-- A closure that increments a captured `var` writes it: two calls leave `2`. -/
+theorem counter_closure : readInt countName (runFull counter) = some 2 := by decide +kernel
+
+/-- Returning without the callee's writes loses them. -/
+def lostWrite : Exec witnessWorld :=
+  match runStatements fullMachine 40 fullStart [varOf countName "0", declareBump] with
+  | .normal frame =>
+    match localClosure frame.closures frame.environment bumpName with
+    | some (.mk cell defining captured writable parameters body) =>
+      match runBody fullMachine 40
+          { Frame.ofScope defining frame.store [] (some frame.store) ⟨1, (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+            writable } (bodyStatements body) with
+      | .returned _ _ => .normal frame
+      | other => other
+    | none => .stuck
+  | other => other
+
+theorem lost_write_rejected : readInt countName lostWrite = some 0 := by decide +kernel
+
+def shadowedCall : List Xsh.Syntax.Statement :=
+  [varOf countName "0", declareBump, varOf totalName "0",
+    block [varOf countName "7", .expression (call bumpName []), .assign (.name totalName) .set (ident countName)]]
+
+/-- The write goes to the captured `count`, not to the `count` the call site
+shadows it with. -/
+theorem write_reaches_captured :
+    readInt countName (runFull shadowedCall) = some 1 ∧ readInt totalName (runFull shadowedCall) = some 7 := by
+  decide +kernel
+
+/-- Running the body where it is called writes the call site's `count`. -/
+def callSiteWrite : Exec witnessWorld :=
+  match runStatements fullMachine 40 fullStart [varOf countName "0", declareBump, varOf totalName "0"] with
+  | .normal frame =>
+    (runStatements fullMachine 40 frame.enter [varOf countName "7", bump countName (int "1"),
+      .assign (.name totalName) .set (ident countName)]).andThen fun inner => .normal (frame.restore inner)
+  | other => other
+
+theorem uncaptured_write_rejected : readInt totalName callSiteWrite = some 8 := by decide +kernel
+
+/-- The pass resolves each use of a straight-line program to the binder the
+machine's canonical resolution gives it. -/
+theorem static_pass_uses :
+    staticUses 64 [[]] [letX "1", .expression (ident xName)] =
+      [(xName, some (canonicalBinder xName 1))] := by
   decide +kernel
 
 end Witness
