@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 172
+Next: 173
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -137,6 +137,15 @@ out of scope.
 - **Problem:** Explicit-server `dns.lookup` sets a blocking UDP socket timeout, but `dns_io_error` recognizes only `ErrorKind::TimedOut`. [Rust documents](https://doc.rust-lang.org/stable/std/net/struct.UdpSocket.html#method.set_read_timeout) that Unix socket timeouts typically return `WouldBlock`, which this code maps to `dns-lookup`, so callers cannot consistently identify a DNS deadline expiry. The test server handles both error kinds, but the DNS transport tests only exercise successful replies. This is a source finding; a native XSH reproducer is still required.
 - **Recommendation:** Extend the existing loopback DNS fixture to receive a query and withhold its reply, then reproduce the error through native `dns.lookup` on the pinned Linux/musl target. Normalize `WouldBlock` and `TimedOut` to `dns-timeout` at the configured blocking-socket timeout boundary, without reclassifying unrelated resolver errors. Cover both error kinds directly and assert the native timeout kind and a bounded completion time; retain the existing successful A/AAAA cases and bounded fixture cleanup. The regression must need no external DNS or new daemon. Run the applicable Linux gate and the existing macOS qualification path.
 - **Fix with:** error-model, os-boundaries
+- **Effort:** S
+
+### XSH-172 · P3 · lane/namespace-native always skips its 13 lsipc and lslocks tests
+
+- **Area:** Gates
+- **Where:** dev/gate_lane.xsh namespace_tests; core/tests/support/util_linux.xsh:187 (require_private_namespace); dev/util-linux/check.py:518
+- **Problem:** namespace_tests lists 13 core/tests/test-lsipc.xsh and test-lslocks.xsh tests, but they run only when XSH_UTIL_LINUX_PRIVATE=1 and the parent IPC, mount and PID namespace identities are exported, and only dev/util-linux/check.py sets those. In lane/namespace-native each one reports "requires private util-linux IPC, mount and PID namespaces", so the lane ends incomplete (84 passed, 13 skipped, exit 2) on every run, including master 3155adf2a before the capsule merge, and the tests run under no gate.
+- **Recommendation:** Have the namespace lane enter the private IPC, mount and PID namespaces the way dev/util-linux/check.py does and export the marker and parent identities, or move these tests to the group that names the util-linux harness as their owner. Acceptance: `cargo dev gate --case lane/namespace-native` exits 0 with the 13 tests passing, or the tests leave namespace_tests and the lane exits 0.
+- **Fix with:** none
 - **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
