@@ -309,9 +309,11 @@ type judgment that every record schema lists each field once (Rust
 `check.duplicate-record-field`) and every module contract names each export
 once (Rust `check.duplicate-name`); `WireWellFormed` requires each Str-backed
 enum to list each variant and wire string once. Without `WellFormed` a
-stripped publication of `{level: Level, level: Str}` is not a member. A value
-export rejects a callable, because SPEC 4.9 reports a `MismatchedExport` when
-"an export has another kind". A filesystem entry is converted as its field
+stripped publication of `{level: Level, level: Str}` is not a member.
+`rowsDistinct_of_wellFormed` shows that a `WellFormed` type is `RowsDistinct`,
+so it meets the label premise of VAL-WIDEN's precision and tag-count clauses.
+A value export rejects a callable, because SPEC 4.9 reports a `MismatchedExport`
+when "an export has another kind". A filesystem entry is converted as its field
 record under every policy, because "Choosing a field policy does not change
 which containers a slot admits". The error message renders the reported path,
 which for an unexpected field is the field's own path ("schema check failed at

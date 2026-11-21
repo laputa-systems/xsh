@@ -100,4 +100,100 @@ theorem wire_variant_unique {enums : WireEnums Declaration} (wellFormed : WireWe
     (firstPresent : (first, text) ∈ mapping) (secondPresent : (second, text) ∈ mapping) : first = second :=
   variant_unique_of_nodup (wellFormed declaration mapping declared).2.2 firstPresent secondPresent
 
+theorem rowNames_eq_rowEntries : ∀ row : RecordType Declaration, rowNames row = (rowEntries row).map Prod.fst
+  | .variable id => nomatch id
+  | .rowEmpty => by simp [rowNames, rowEntries]
+  | .rowField name _ rest => by simp only [rowNames, rowEntries, List.map_cons, rowNames_eq_rowEntries rest]
+
+mutual
+  theorem rowsDistinct_of_wellFormed : ∀ type : ValueType Declaration, WellFormed type → RowsDistinct type
+    | .variable id, _ => nomatch id
+    | .primitive _, _ | .functionClass _, _ | .schemeCallable _, _ | .tagged _, _ | .errorFamily _, _
+    | .errorVariant _ _, _ | .errorFacet _, _ | .relativePath, _ | .boundedInteger _, _ => trivial
+    | .list element, wellFormed | .nonEmpty element, wellFormed | .optional element, wellFormed
+    | .set element, wellFormed | .stream element, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact rowsDistinct_of_wellFormed element wellFormed
+    | .map key element, wellFormed | .result key element, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowsDistinct_of_wellFormed key wellFormed.1, rowsDistinct_of_wellFormed element wellFormed.2⟩
+    | .record fields, wellFormed | .nominal _ fields, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact row_rowsDistinct_of_wellFormed fields wellFormed
+    | .union first second rest, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowsDistinct_of_wellFormed first wellFormed.1, rowsDistinct_of_wellFormed second wellFormed.2.1,
+        members_rowsDistinct_of_wellFormed rest wellFormed.2.2⟩
+    | .module _ exports, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact exports_rowsDistinct_of_wellFormed exports wellFormed
+    | .callable signature, wellFormed => by
+      simp only [WellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact signature_rowsDistinct_of_wellFormed signature wellFormed
+
+  theorem row_rowsDistinct_of_wellFormed : ∀ row : RecordType Declaration, RowWellFormed row → RowsDistinct row
+    | .variable id, _ => nomatch id
+    | .rowEmpty, _ => trivial
+    | .rowField name type rest, wellFormed => by
+      simp only [RowWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowNames_eq_rowEntries rest ▸ wellFormed.1, rowsDistinct_of_wellFormed type wellFormed.2.1,
+        row_rowsDistinct_of_wellFormed rest wellFormed.2.2⟩
+
+  theorem members_rowsDistinct_of_wellFormed : ∀ members : UnionTail Declaration,
+      MembersWellFormed members → RowsDistinct members
+    | .variable id, _ => nomatch id
+    | .membersEmpty, _ => trivial
+    | .member type rest, wellFormed => by
+      simp only [MembersWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowsDistinct_of_wellFormed type wellFormed.1, members_rowsDistinct_of_wellFormed rest wellFormed.2⟩
+
+  theorem exports_rowsDistinct_of_wellFormed : ∀ exports : ExportType Declaration,
+      ExportsWellFormed exports → RowsDistinct exports
+    | .variable id, _ => nomatch id
+    | .exportsEmpty, _ => trivial
+    | .exportValue _ _ type rest, wellFormed => by
+      simp only [ExportsWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowsDistinct_of_wellFormed type wellFormed.2.1, exports_rowsDistinct_of_wellFormed rest wellFormed.2.2⟩
+    | .exportCallable _ _ signature rest, wellFormed => by
+      simp only [ExportsWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨signature_rowsDistinct_of_wellFormed signature wellFormed.2.1,
+        exports_rowsDistinct_of_wellFormed rest wellFormed.2.2⟩
+    | .exportGenericCallable _ _ _ rest, wellFormed => by
+      simp only [ExportsWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact exports_rowsDistinct_of_wellFormed rest wellFormed.2
+
+  theorem signature_rowsDistinct_of_wellFormed : ∀ signature : SignatureType Declaration,
+      SignatureWellFormed signature → RowsDistinct signature
+    | .variable id, _ => nomatch id
+    | .signature _ parameters output, wellFormed => by
+      simp only [SignatureWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨arguments_rowsDistinct_of_wellFormed parameters wellFormed.1,
+        rowsDistinct_of_wellFormed output wellFormed.2⟩
+
+  theorem arguments_rowsDistinct_of_wellFormed : ∀ arguments : TypeVariableFreeTerm 0 String Declaration .arguments,
+      ArgumentsWellFormed arguments → RowsDistinct arguments
+    | .variable id, _ => nomatch id
+    | .argumentsEmpty, _ => trivial
+    | .parameter _ _ type rest, wellFormed => by
+      simp only [ArgumentsWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact ⟨rowsDistinct_of_wellFormed type wellFormed.1, arguments_rowsDistinct_of_wellFormed rest wellFormed.2⟩
+    | .restParameter _ element, wellFormed => by
+      simp only [ArgumentsWellFormed] at wellFormed
+      simp only [RowsDistinct]
+      exact rowsDistinct_of_wellFormed element wellFormed
+end
+
 end Xsh.Validation.Core.WellFormed
