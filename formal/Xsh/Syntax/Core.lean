@@ -288,6 +288,8 @@ mutual
     | record (fields : List RecordField)
     | ifExpr (branches : List (Expr × Expr)) (otherwise : Expr)
     | matchExpr (subject : Expr) (arms : List (Pattern × Option Expr × Expr))
+    /-- `let pattern = subject` in an `if` or `while` condition. -/
+    | patternCondition (subject : Expr) (pattern : Pattern)
     | unary (op : UnaryOp) (value : Expr)
     | comparisonChain (first : Expr) (rest : List (BinaryOp × Expr))
     | binary (op : BinaryOp) (left right : Expr)
@@ -448,6 +450,11 @@ end
 def withoutBoundNames (bound : List RawName) (names : List RawName) : List RawName :=
   names.filter fun name => !(bound.contains name)
 
+/-- The names a condition binds in the branch or body it selects. -/
+def conditionBoundFuel (fuel : Nat) : Expr → List RawName
+  | .patternCondition _ pattern => pattern.boundNamesFuel fuel
+  | _ => []
+
 mutual
   /-- Depth-bounded traversal keeps this executable even before parser parity. -/
   def freeExprFuel : Nat → List RawName → Expr → List RawName
@@ -471,6 +478,8 @@ mutual
             withoutBoundNames bound (pattern.freeReferencesFuel fuel) ++
               guard.toList.flatMap (freeExprFuel fuel armBound) ++
                 freeExprFuel fuel armBound value)
+      | .patternCondition subject pattern =>
+          freeExprFuel fuel bound subject ++ withoutBoundNames bound (pattern.freeReferencesFuel fuel)
       | .unary _ value => freeExprFuel fuel bound value
       | .comparisonChain first rest =>
           freeExprFuel fuel bound first ++
@@ -549,11 +558,13 @@ mutual
       | .defer _ action => freeExprFuel fuel bound action ++ freeStatementsFuel fuel bound rest
       | .ifStmt branches otherwise =>
           branches.flatMap (fun (condition, body) =>
-            freeExprFuel fuel bound condition ++ freeStatementsFuel fuel bound body) ++
+            freeExprFuel fuel bound condition ++
+              freeStatementsFuel fuel (conditionBoundFuel fuel condition ++ bound) body) ++
               otherwise.toList.flatMap (freeStatementsFuel fuel bound) ++
                 freeStatementsFuel fuel bound rest
       | .whileStmt condition body =>
-          freeExprFuel fuel bound condition ++ freeStatementsFuel fuel bound body ++
+          freeExprFuel fuel bound condition ++
+            freeStatementsFuel fuel (conditionBoundFuel fuel condition ++ bound) body ++
             freeStatementsFuel fuel bound rest
       | .forStmt target iterable body =>
           freeExprFuel fuel bound iterable ++

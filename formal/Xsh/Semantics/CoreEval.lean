@@ -30,9 +30,15 @@ structure Errors (Declaration Identity Source : Type) where
   missingField : Value Declaration Identity Source
   mapMissing : Value Declaration Identity Source
 
-/-- A let-free function: the environment it was defined in, its parameter
-names and its result expression. -/
-abbrev Functions := Xsh.Syntax.RawName → Option (Environment × List Xsh.Syntax.RawName × Xsh.Syntax.Expr)
+/-- A function body: a result expression, or a statement block whose value is
+its `return` or its tail expression. -/
+inductive FunctionBody where
+  | expression (value : Xsh.Syntax.Expr)
+  | block (statements : List Xsh.Syntax.Statement)
+
+/-- A function: the environment it was defined in, its parameter names and its
+body. -/
+abbrev Functions := Xsh.Syntax.RawName → Option (Environment × List Xsh.Syntax.RawName × FunctionBody)
 
 structure Context (Declaration Identity Source : Type) where
   literals : Literals
@@ -261,11 +267,14 @@ def branches (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source 
       | _ => .stuck
 
 /-- One evaluation step over `recurse`, which evaluates a subterm one fuel
-level down in the given environment. Operands evaluate once, left to right; a
-function body evaluates in the environment the function was defined in. -/
+level down in the given environment, and `callBlock`, which runs a block
+function body. Operands evaluate once, left to right; a function body
+evaluates in the environment the function was defined in. -/
 def step (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
     (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
+      Result Declaration Identity Source (Value Declaration Identity Source))
+    (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
       Result Declaration Identity Source (Value Declaration Identity Source))
     (locals : Locals Declaration Identity Source) :
     Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
@@ -313,7 +322,11 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
     match locals.lookup name, context.functions name, positional arguments with
     | none, some (defining, parameters, body), some values =>
       (evaluateAll (recurse environment locals) values).bind fun evaluated =>
-        if parameters.length = evaluated.length then recurse defining (parameters.zip evaluated) body else .stuck
+        if parameters.length = evaluated.length then
+          match body with
+          | .expression result => recurse defining (parameters.zip evaluated) result
+          | .block statements => callBlock defining (parameters.zip evaluated) statements
+        else .stuck
     | _, _, _ => .unsupported
   | _ => .unsupported
 
@@ -322,7 +335,8 @@ def evaluate (context : Context Declaration Identity Source) {world : World Decl
     Nat → Locals Declaration Identity Source → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | 0, _, _ => .outOfFuel
   | fuel + 1, locals, expression =>
-    step context environment store (fun inner => evaluate context inner store fuel) locals expression
+    step context environment store (fun inner => evaluate context inner store fuel) (fun _ _ _ => .unsupported) locals
+      expression
 
 def compoundBinary : Xsh.Syntax.AssignOp → Option Xsh.Syntax.BinaryOp
   | .set => none
