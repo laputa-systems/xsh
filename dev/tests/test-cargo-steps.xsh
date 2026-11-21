@@ -181,16 +181,25 @@ test test_a_glibc_host_selects_the_musl_c_compiler_for_a_musl_target { |ctx|
       "x86_64-linux-gnu",
       "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,CC_x86_64_unknown_linux_musl",
       "-C target-feature=+crt-static",
+      "",
     ],
     [
       "x86_64-alpine-linux-musl",
       "default",
       "-C target-feature=+crt-static",
+      "",
     ],
     [
       "x86_64-linux-gnu",
       "CC_x86_64_unknown_linux_musl",
       "-C target-feature=+crt-static -C link-arg=-fuse-ld=mold",
+      "",
+    ],
+    [
+      "x86_64-linux-gnu",
+      "CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static",
+      "rust-lld",
     ],
   ] {
     let script = f"""use cargo_steps
@@ -221,6 +230,7 @@ printf '%s\\n' '{probe[0]}'
       env: {
         PATH: f"{tools}:{inherited_path}",
         XSH_MODULE_PATH: fp"{repository}/dev",
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: probe[3],
       },
     )?
   }
