@@ -1,0 +1,225 @@
+{
+  "schema": "codemode-manifest/1",
+  "phase": "dev-revision",
+  "split": "dev",
+  "created": "2026-11-21T08:23:09Z",
+  "model": "opencode-go/hy4-flash-free",
+  "thinking_requested": "medium",
+  "pi_version": "1.5.0",
+  "toolchain": {
+    "xsh": "08d7fe15e786931b9422a66df676de9477b0adfcfeb07611df360ca653985074",
+    "xsht": "a4a5c9be204a301886dcab45c07606d0e589d64e5f28b821ab04bb012cd94e54"
+  },
+  "images": {
+    "xsh": "oci.17166969.xyz/xsh/test@sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "xsh_id": "sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "ts_tag": "xsh-codemode-ts:local",
+    "ts_id": "sha256:b149f7ea2b99f98cf09a1fd7c12ae80794812d020618b1bca90d66314b50f958",
+    "ts_base": "node@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5"
+  },
+  "harness": {
+    "head": "4fac591cae8cbe241192511e3dffc15914d9718a",
+    "bench_dirty": true,
+    "lane_base": "c68ac9594",
+    "sx_revision": "9e9e4e5bf3fcb834748eafedd227e22f5c95b527"
+  },
+  "host": {
+    "platform": "Linux-7.2.9-2-stable-x86_64-with-musl1",
+    "python": "3.15.1"
+  },
+  "extraction_rule": "Take the first fenced code block whose info string's first word is the arm's tag (xsh: `xsh`; ts: `ts`, `typescript` or `mts`); otherwise the first fenced block of any tag; otherwise the whole reply. Strip surrounding whitespace. An empty result is no answer.",
+  "contexts": {
+    "xsh-revised": {
+      "file": "revised.md",
+      "sha256": "b000c759c7ce6523a27405b345923187b1b33a7d8762ebed3992d9a9e1f6d357",
+      "bytes": 8178
+    }
+  },
+  "tasks": {
+    "dev-audit-errors": "a1e643aca18bf4ccdbc7925b36f77193f08957c24c6c1022fbd88487c0405994",
+    "dev-ci-retry": "18c9c697811a02200059bff98cc0cf2ea16f4368f326e48e83136ba0bed8c9af",
+    "dev-config-set": "613709097975e4da26fb394747bf649b1404404c10f0c07d586a597b787b2eb6",
+    "dev-config-sync": "2c69b7db097ec932c9f216fcf424de4df05b25fe06815dd201ad4549f773ce5f",
+    "dev-file-inventory": "2b82dadc64f45a2e19425a2a03d297df4d9c3a6f9355d73f10d532b5731cb1f1",
+    "dev-host-probes": "b9ca6441fbc93930d534b35b3eff9fdbc877cb727d9297fd6047bc37954956fe",
+    "dev-log-bundle": "7bcf62c5cdf3b8b310da3cdb3381399aa4d67a355d2c27e24f3e3d334a742dd4",
+    "dev-parallel-sums": "b199eb77a606cbd86f203bfe49b138e8d987f14dd48a6023ca2b884c3a4a2d0a",
+    "dev-prune-backups": "3309e82f6921f1573091db6059f969f6bfd8448a455bfbd953291b30f49685fb",
+    "dev-restock": "b7efdb9b745038e5c2b6327b5bcb097a5a6a439533555efc96a2d12a28edb355",
+    "dev-run-jobs": "f406ddf6ae815f7e7f0a0b82c56601bc2c6d597319a669416e9e79e0fbc7a3d3",
+    "dev-ticket-import": "dc781ccd90d59efcd1de8338eb931b0f2e62c881a412304f027b8dfa9bc4fd71"
+  },
+  "samples": 2,
+  "seed": 20261121,
+  "jobs": 2,
+  "schedule": [
+    {
+      "cell": "dev-run-jobs/xsh-revised/1",
+      "task": "dev-run-jobs",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 0
+    },
+    {
+      "cell": "dev-audit-errors/xsh-revised/1",
+      "task": "dev-audit-errors",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 1
+    },
+    {
+      "cell": "dev-ci-retry/xsh-revised/1",
+      "task": "dev-ci-retry",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 2
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-revised/1",
+      "task": "dev-parallel-sums",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 3
+    },
+    {
+      "cell": "dev-config-set/xsh-revised/0",
+      "task": "dev-config-set",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 4
+    },
+    {
+      "cell": "dev-config-sync/xsh-revised/1",
+      "task": "dev-config-sync",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 5
+    },
+    {
+      "cell": "dev-file-inventory/xsh-revised/1",
+      "task": "dev-file-inventory",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 6
+    },
+    {
+      "cell": "dev-config-sync/xsh-revised/0",
+      "task": "dev-config-sync",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 7
+    },
+    {
+      "cell": "dev-run-jobs/xsh-revised/0",
+      "task": "dev-run-jobs",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 8
+    },
+    {
+      "cell": "dev-prune-backups/xsh-revised/1",
+      "task": "dev-prune-backups",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 9
+    },
+    {
+      "cell": "dev-log-bundle/xsh-revised/1",
+      "task": "dev-log-bundle",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 10
+    },
+    {
+      "cell": "dev-log-bundle/xsh-revised/0",
+      "task": "dev-log-bundle",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 11
+    },
+    {
+      "cell": "dev-ticket-import/xsh-revised/0",
+      "task": "dev-ticket-import",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 12
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-revised/0",
+      "task": "dev-parallel-sums",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 13
+    },
+    {
+      "cell": "dev-ticket-import/xsh-revised/1",
+      "task": "dev-ticket-import",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 14
+    },
+    {
+      "cell": "dev-audit-errors/xsh-revised/0",
+      "task": "dev-audit-errors",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 15
+    },
+    {
+      "cell": "dev-restock/xsh-revised/0",
+      "task": "dev-restock",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 16
+    },
+    {
+      "cell": "dev-host-probes/xsh-revised/0",
+      "task": "dev-host-probes",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 17
+    },
+    {
+      "cell": "dev-ci-retry/xsh-revised/0",
+      "task": "dev-ci-retry",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 18
+    },
+    {
+      "cell": "dev-restock/xsh-revised/1",
+      "task": "dev-restock",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 19
+    },
+    {
+      "cell": "dev-host-probes/xsh-revised/1",
+      "task": "dev-host-probes",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 20
+    },
+    {
+      "cell": "dev-file-inventory/xsh-revised/0",
+      "task": "dev-file-inventory",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 21
+    },
+    {
+      "cell": "dev-config-set/xsh-revised/1",
+      "task": "dev-config-set",
+      "condition": "xsh-revised",
+      "sample": 1,
+      "order": 22
+    },
+    {
+      "cell": "dev-prune-backups/xsh-revised/0",
+      "task": "dev-prune-backups",
+      "condition": "xsh-revised",
+      "sample": 0,
+      "order": 23
+    }
+  ]
+}

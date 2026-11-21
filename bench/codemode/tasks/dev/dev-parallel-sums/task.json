@@ -1,0 +1,13 @@
+{
+  "id": "dev-parallel-sums",
+  "split": "dev",
+  "track": "native",
+  "families": ["bounded-parallel-work", "process-invocation", "json"],
+  "origin": "new",
+  "description": "`/work/files.txt` lists files, one path per line; ignore blank lines and whitespace around a path. For each listed path, run the checksum tool `/work/bin/slowsum PATH`, passing the path exactly as listed. On success the tool prints the file's SHA-256 as 64 lowercase hex digits and a newline on standard output and exits with status 0. When it cannot read the file it prints a message on standard error and exits with a nonzero status.\n\nEach run of the tool takes a fraction of a second, so run it for several files at the same time, but never more than 3 runs at once. Run it exactly once per listed path.\n\nPrint one JSON object per line to standard output, one per listed path, in list order: `{\"file\": PATH, \"sha256\": HEX}` on success, or `{\"file\": PATH, \"error\": MESSAGE}`, where `MESSAGE` is the first line of the tool's standard error with surrounding whitespace removed. Exit with status 0 when every run succeeded and with status 4 otherwise.",
+  "variants": ["public", "spaces", "healthy"],
+  "exit_codes": [0, 4],
+  "timeout_s": 90,
+  "xsh_api": ["method:Path.lines", "method:Str.trim", "language:stream.par-map", "language:run.capture---text", "method:Status.exit_code", "api:json.encode"],
+  "ts_modules": ["node:fs", "node:child_process"]
+}

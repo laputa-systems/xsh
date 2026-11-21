@@ -1,0 +1,13 @@
+{
+  "id": "dev-log-bundle",
+  "split": "dev",
+  "track": "native",
+  "families": ["resource-handling", "file-inventory"],
+  "origin": "new; the publication rule follows SX bench/workflows/effects-blind/orders-export",
+  "description": "`/work/bundle.txt` names log files to bundle, one per line, as paths relative to `/work/logs`; ignore blank lines and whitespace around a name. Bundle exactly those files into the gzip-compressed tar archive `/work/out/logs.tar.gz`, storing each one under the member name `logs/NAME`, where `NAME` is the name as listed. Members for the directories on those paths are allowed; no other files may be in the archive. You may use the `tar` program or any facility of your language.\n\n`/work/out` already exists and may hold other files, including an older `logs.tar.gz`. A reader may open `/work/out/logs.tar.gz` at any moment, so never write it in place: build the new archive under another name in `/work/out`, then rename it to `logs.tar.gz`, replacing any older one. Leave no temporary file or directory anywhere under `/work`.\n\nIf any listed file does not exist, publish nothing: leave `/work/out` exactly as it was, print a message naming the first missing file to standard error, and exit with status 4. On success print the number of files bundled and exit with status 0.",
+  "variants": ["public", "missing", "replace"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "xsh_api": ["api:archive.create", "enum:archive.Format", "enum:archive.Collision", "method:Path.lines", "method:Str.trim", "method:Path.exists", "language:core.exit"],
+  "ts_modules": ["node:fs", "node:child_process", "node:path"]
+}

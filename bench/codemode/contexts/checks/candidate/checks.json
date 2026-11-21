@@ -1,0 +1,272 @@
+{
+  "guide": "candidate.md",
+  "checks": [
+    {
+      "file": "values.xsh",
+      "expect": "run",
+      "claims": [
+        "let/var/const and annotations for empty collections and optionals",
+        "constructors and record puns",
+        "as Int and parse_int fallback",
+        "durations",
+        "plain strings never interpolate",
+        "print forms",
+        "eprint writes standard error"
+      ]
+    },
+    {
+      "file": "inline-record.xsh",
+      "expect": "reject",
+      "code": "parse.expected-ident",
+      "claims": [
+        "List[{a: Int}] does not parse"
+      ]
+    },
+    {
+      "file": "if-branches.xsh",
+      "expect": "reject",
+      "code": "check.type-mismatch",
+      "claims": [
+        "both branches of an if have the same type"
+      ]
+    },
+    {
+      "file": "implicit-conversion.xsh",
+      "expect": "reject",
+      "code": "check.type-mismatch",
+      "claims": [
+        "\"8\" + 1 is an error"
+      ]
+    },
+    {
+      "file": "single-quotes.xsh",
+      "expect": "reject",
+      "code": "lex.unexpected-character",
+      "claims": [
+        "strings use double quotes only"
+      ]
+    },
+    {
+      "file": "list-in-fstring.xsh",
+      "expect": "reject",
+      "code": "check.display-conversion",
+      "claims": [
+        "lists cannot appear in f-strings"
+      ]
+    },
+    {
+      "file": "bare-print.xsh",
+      "expect": "reject",
+      "code": "check.bare-print-ident",
+      "claims": [
+        "print never takes a bare name"
+      ]
+    },
+    {
+      "file": "module-names.xsh",
+      "expect": "reject",
+      "code": "check.standard-module-shadow",
+      "claims": [
+        "bindings and parameters cannot take a standard module's name"
+      ]
+    },
+    {
+      "file": "paths.xsh",
+      "expect": "run",
+      "claims": [
+        "path literals and the listed Path methods"
+      ]
+    },
+    {
+      "file": "results.xsh",
+      "expect": "run",
+      "status": 4,
+      "claims": [
+        "?, ??, try, match, is, guard let",
+        "statement-position Result[Unit] failure fails its function",
+        "error families, construction, .message",
+        "optional narrowing",
+        "exit N unless ok"
+      ]
+    },
+    {
+      "file": "top-level-failure.xsh",
+      "expect": "run",
+      "status": 3,
+      "claims": [
+        "a top-level failure stops the script with status 3"
+      ]
+    },
+    {
+      "file": "top-level-return.xsh",
+      "expect": "reject",
+      "code": "check.return-outside-callable",
+      "claims": [
+        "return works only inside a function"
+      ]
+    },
+    {
+      "file": "json.xsh",
+      "expect": "run",
+      "claims": [
+        "require validates the whole value, allows extra fields, names the first mismatch",
+        "json.encode sorts record keys"
+      ]
+    },
+    {
+      "file": "pure-host.xsh",
+      "expect": "reject",
+      "claims": [
+        "pure functions cannot touch the host"
+      ]
+    },
+    {
+      "file": "functions.xsh",
+      "expect": "run",
+      "args": [
+        "a",
+        "b"
+      ],
+      "claims": [
+        "a proc with a value tail returns Result",
+        "args: List[Str]"
+      ]
+    },
+    {
+      "file": "cli.xsh",
+      "expect": "run",
+      "args": [
+        "--keep",
+        "2",
+        "--dry-run",
+        "/data"
+      ],
+      "claims": [
+        "cli main parses --keep N --dry-run DIR"
+      ]
+    },
+    {
+      "file": "cli.xsh",
+      "expect": "run",
+      "status": 2,
+      "args": [
+        "--keep",
+        "x",
+        "/data"
+      ],
+      "claims": [
+        "cli main exits 2 on bad input"
+      ],
+      "compare": false
+    },
+    {
+      "file": "modules.xsh",
+      "expect": "run",
+      "claims": [
+        "use NAME imports NAME.xsh beside the script; names and error families are qualified"
+      ]
+    },
+    {
+      "file": "processes.xsh",
+      "expect": "run",
+      "claims": [
+        "values are single arguments, no globbing",
+        "@ splices a bound list",
+        "run.capture keeps nonzero status as data",
+        "run.text fails on nonzero exit",
+        "try run.capture fails when the program cannot start",
+        "options come first",
+        "--timeout gives ProcessError.Timeout",
+        "$name interpolates inside quoted command words",
+        "cd and env scopes, Map[Str] env",
+        "tempdir"
+      ]
+    },
+    {
+      "file": "run-statement.xsh",
+      "expect": "run",
+      "status": 3,
+      "claims": [
+        "run as a statement fails on a nonzero exit"
+      ]
+    },
+    {
+      "file": "splice-field.xsh",
+      "expect": "reject",
+      "code": "check.splice-target",
+      "claims": [
+        "bind a list before splicing it"
+      ]
+    },
+    {
+      "file": "run-in-expression.xsh",
+      "expect": "reject",
+      "code": "parse.command-call-expr",
+      "claims": [
+        "bind a run result before using it in an expression"
+      ]
+    },
+    {
+      "file": "tempdir-removed.xsh",
+      "expect": "run",
+      "claims": [
+        "tempdir removes its directory afterwards"
+      ]
+    },
+    {
+      "file": "pipelines.xsh",
+      "expect": "run",
+      "claims": [
+        "the listed stages",
+        "par-map keeps input order",
+        "comprehensions, membership, slicing, map updates, key-ordered map iteration"
+      ]
+    },
+    {
+      "file": "cleanup.xsh",
+      "expect": "run",
+      "claims": [
+        "retry makes at most 1 + delays attempts and only retries matching errors",
+        "retry without on retries every failure",
+        "defer runs on failure"
+      ]
+    },
+    {
+      "file": "filesystem.xsh",
+      "expect": "run",
+      "claims": [
+        "fs.children includes hidden entries and reports kinds",
+        "fs.walk skips hidden entries and obeys .gitignore by default",
+        "fs.walk does not follow links",
+        "walk entry paths begin with the root passed"
+      ]
+    },
+    {
+      "file": "parallel.xsh",
+      "expect": "run",
+      "claims": [
+        "par-map(jobs: 3) runs at most 3 blocks at once and keeps input order"
+      ]
+    },
+    {
+      "file": "atomic.xsh",
+      "expect": "run",
+      "claims": [
+        "write_atomic writes a temporary sibling and renames it into place"
+      ]
+    }
+  ],
+  "api": [
+    "api:fs.walk",
+    "method:Path.write_atomic",
+    "language:core",
+    "api:fs.children",
+    "language:stream.par-map"
+  ],
+  "search": [
+    "timeout"
+  ],
+  "plain": [
+    "summary"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "held-catalog-export",
+  "split": "held",
+  "track": "shared",
+  "families": ["local-service-orchestration", "configuration-update", "resource-handling"],
+  "origin": "new",
+  "description": "Export the product catalog to `/work/export/catalog.csv`, replacing the previous export.\n\nRead the catalog with `catalog_list` (`svc.catalogList` in TypeScript), one page at a time: `limit` is always 20 and `offset` is 0, 20, 40, and so on. Stop after the first page that holds fewer than 20 products (possibly none). Give every call a 400 millisecond timeout.\n\nA page read that fails with a transient kind (`Timeout`, `Unavailable`, `RateLimited`) is tried again: wait 100 milliseconds after the failure and read the same page again; if that fails transiently too, wait 300 milliseconds and read it a third time. A page read that fails with any other kind, or fails three times, ends the export: print one line naming the failure to standard error, leave `/work/export/` exactly as it was, and exit with status 4.\n\nThe catalog changes while you read it, so a product (identified by `sku`) can appear on more than one page. Use, for each sku, the record with the highest `version`. Leave out every product whose chosen record has `active` false.\n\nThe export is CSV: a header line `sku,name,price`, then one line per product, sorted by sku in byte order. `price` is `price_cents` as a decimal with exactly two digits after the point (`1999` is `19.99`, `5` is `0.05`). A field that contains a comma, a double quote or a line break is enclosed in double quotes, with each double quote inside it doubled. Lines end with a newline.\n\nReplace the old `/work/export/catalog.csv` in one step, so that a reader sees either the old file or the complete new one, never a partial file; leave nothing else in `/work/export/`. On success print `exported N products` with the number of product lines and exit with status 0.",
+  "variants": ["public", "flaky", "broken", "denied"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "types": {
+    "Product": {"type": "{sku: Str, name: Str, price_cents: Int, version: Int, active: Bool}", "doc": "One catalog record; a higher version of the same sku is newer."}
+  },
+  "capabilities": [
+    {"id": "catalog.list", "effect": "read",
+     "input": {"offset": "Int", "limit": "Int"}, "output": "List[Product]",
+     "description": "Reads up to `limit` catalog records starting at `offset`."}
+  ],
+  "xsh_api": ["api:csv.encode", "method:Path.write_atomic", "language:core.try", "api:time.sleep"],
+  "ts_modules": ["node:fs", "node:timers/promises"]
+}

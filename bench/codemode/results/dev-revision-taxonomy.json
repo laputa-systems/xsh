@@ -1,0 +1,109 @@
+{
+  "run": "dev-revision",
+  "attempts": [
+    {
+      "cell": "dev-config-set/xsh-revised/1",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-config-set",
+      "status": "rejected",
+      "codes": [
+        "check.try-result"
+      ],
+      "category": "result/optional/error handling",
+      "note": "`?` applied to optionals and plain values"
+    },
+    {
+      "cell": "dev-config-set/xsh-revised/1",
+      "attempt": 1,
+      "condition": "xsh-revised",
+      "task": "dev-config-set",
+      "status": "failed",
+      "codes": [],
+      "category": "compiler/runtime defect",
+      "note": "`new_text += \"\\n\"` at top level checks but fails at run time: defect D3"
+    },
+    {
+      "cell": "dev-file-inventory/xsh-revised/0",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-file-inventory",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-expression",
+        "parse.expected-ident"
+      ],
+      "category": "syntax/binding",
+      "note": "`stream` used as a binding name (a reserved word) and `not` as negation"
+    },
+    {
+      "cell": "dev-host-probes/xsh-revised/0",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-host-probes",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-expression"
+      ],
+      "category": "syntax/binding",
+      "note": "`if not row.ok`: negation is `!`; `not` exists only in `not in`"
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-revised/1",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-parallel-sums",
+      "status": "wrong",
+      "codes": [],
+      "category": "task logic",
+      "note": "reported the whole stderr instead of its first line"
+    },
+    {
+      "cell": "dev-prune-backups/xsh-revised/0",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-prune-backups",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-expression"
+      ],
+      "category": "syntax/binding",
+      "note": "`if not ...`: negation is `!`"
+    },
+    {
+      "cell": "dev-prune-backups/xsh-revised/1",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-prune-backups",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-expression"
+      ],
+      "category": "syntax/binding",
+      "note": "`if not ...`: negation is `!`"
+    },
+    {
+      "cell": "dev-prune-backups/xsh-revised/1",
+      "attempt": 1,
+      "condition": "xsh-revised",
+      "task": "dev-prune-backups",
+      "status": "rejected",
+      "codes": [
+        "check.field-access"
+      ],
+      "category": "task logic",
+      "note": "mapped the backups to their names, then called `.path.remove()` on the names; the checker caught it"
+    },
+    {
+      "cell": "dev-run-jobs/xsh-revised/0",
+      "attempt": 0,
+      "condition": "xsh-revised",
+      "task": "dev-run-jobs",
+      "status": "failed",
+      "codes": [],
+      "category": "process/argv/path",
+      "note": "`run.capture` of a missing program propagated instead of being captured with `try`"
+    }
+  ],
+  "observation": "`not` as negation appears only after the revision, whose new redundant-parentheses example reads `if ok and id not in seen`; no further revision is allowed, so it is recorded for the published guide's follow-up"
+}

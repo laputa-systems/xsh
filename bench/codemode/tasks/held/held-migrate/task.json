@@ -1,0 +1,13 @@
+{
+  "id": "held-migrate",
+  "split": "held",
+  "track": "native",
+  "families": ["process-invocation", "configuration-update", "resource-handling"],
+  "origin": "new",
+  "description": "Apply the pending database migrations with the configured migration tool.\n\n`/work/migrate.json` is `{\"tool\": PATH, \"args\": [STRING, ...]}`. The migrations are the regular files directly in `/work/migrations` whose names are four decimal digits, a `-`, any text, and `.sql`, such as `0003-add index.sql`; the four digits are the migration's id. Ignore every other entry of that directory: other names, directories and symbolic links.\n\n`/work/state/applied` lists the ids already applied, one per line. It, and the directory `/work/state`, may not exist yet. A migration is pending when its id is not listed there.\n\nApply the pending migrations one at a time, in increasing id order. To apply one, run the tool directly, not through a shell, with exactly the arguments `ARGS... apply FILE`: the configured `args` in order (some may be empty strings), the word `apply`, and the migration's file name (the name only, not a path). Run it in the working directory `/work/migrations`, with the environment you were given plus `MIGRATION_ID` set to the migration's id, and capture its standard output and standard error separately.\n\n- After each run, append the tool's standard output, exactly, to `/work/state/migrate.log`.\n- If the tool exits with status 0, add the id to `/work/state/applied` before starting the next migration, and print `applied ID`.\n- If it exits with any other status, write its standard error, exactly, to `/work/state/last-error`, replacing any earlier one; print `failed ID: exit STATUS`; start no further migration; and exit with status 4.\n\nWhen no migration failed (including when none was pending), make sure `/work/state/last-error` does not exist, removing a stale one, and exit with status 0. Afterwards `/work/state/applied` holds the ids it held before, in their order, followed by the ids you applied, each on its own line ending with a newline. Change nothing else under `/work`.",
+  "variants": ["public", "resume", "uptodate", "spaced"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "xsh_api": ["api:json.read", "language:run.capture---text", "language:core.list-splicing", "api:fs.children", "method:Path.write", "method:Path.remove"],
+  "ts_modules": ["node:fs", "node:child_process"]
+}

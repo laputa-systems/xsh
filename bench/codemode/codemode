@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 -E -s "$(dirname "$0")/harness/codemode.py" "$@"

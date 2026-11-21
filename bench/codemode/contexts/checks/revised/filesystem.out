@@ -1,0 +1,4 @@
+.gitignore:file .hidden:file a.log:file link:symlink sub:dir
+link sub/b.txt
+.gitignore .hidden a.log link sub/b.txt
+true

@@ -1,0 +1,13 @@
+{
+  "id": "dev-prune-backups",
+  "split": "dev",
+  "track": "native",
+  "families": ["small-reusable-script", "file-inventory", "resource-handling"],
+  "origin": "adapted from SX bench/workflows/effects/backup-rotation",
+  "description": "Write a command-line tool invoked as `prune [--keep N] [--dry-run] DIR`, with the options before `DIR`.\n\n`DIR` holds one directory per service. A dated backup of a service is a regular file directly in that service's directory named `SERVICE-YYYY-MM-DD.tar.gz`, where `SERVICE` is the directory's name and `YYYY-MM-DD` is four, two, and two decimal digits. For each service, keep its `N` newest dated backups by the date in the name and delete every older one; `N` defaults to 3. Never delete anything that is not a dated backup: other files, symbolic links whatever their names, and directories stay. Leave a service alone entirely when its directory holds an entry named `.lock`. With `--dry-run`, delete nothing but report exactly what would have been deleted.\n\nPrint one JSON object to standard output with a key for every service directory directly in `DIR`, each holding the list of file names deleted (or, with `--dry-run`, to be deleted) from that service, sorted ascending; a locked service has an empty list. Exit with status 0.\n\nThese are usage errors: `N` that is not a positive decimal integer, an unknown option, a missing `DIR` or an extra operand, and a `DIR` that is not an existing directory. On a usage error delete nothing, print a message to standard error, and exit with status 2.",
+  "variants": ["public", "defaults", "dry-run", "bad-keep", "no-dir"],
+  "exit_codes": [0, 2],
+  "timeout_s": 60,
+  "xsh_api": ["language:core.cli-main", "api:fs.children", "record:FsEntry", "language:core.regex-literals", "method:Regex.captures", "method:Path.remove", "language:stream.sort-by", "api:json.encode"],
+  "ts_modules": ["node:fs", "node:path", "node:util"]
+}

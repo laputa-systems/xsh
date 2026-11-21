@@ -1,0 +1,13 @@
+{
+  "id": "held-dedupe-tree",
+  "split": "held",
+  "track": "native",
+  "families": ["file-inventory", "json", "resource-handling"],
+  "origin": "new",
+  "description": "`/work/photos` holds a tree of files that has collected duplicate copies. Move the extra copies out of the way.\n\n- Consider every regular file under `/work/photos`, at any depth, including hidden files and files inside hidden directories. Symbolic links are never followed and never moved, whether they point at files or at directories. Empty files are never duplicates.\n- Two files are duplicates when their contents are identical byte for byte. In each group of duplicates, keep the file whose path relative to `/work/photos` sorts first in byte order, and move every other file of the group to the same relative path under `/work/duplicates`, creating directories there as needed. Create `/work/duplicates` only if something is moved; it may already exist, holding other files.\n- Moving is renaming: a moved file keeps its content, mode and modification time. Leave directories where they are, even when they become empty, and change nothing else.\n\nPrint one line to standard output: a JSON object with two fields. `groups` is a list with one `{\"kept\": PATH, \"moved\": [PATH, ...]}` object per group of duplicates, where every path is relative to `/work/photos`; the groups are sorted by `kept` and each `moved` list is sorted, both in byte order. `moved_bytes` is the total size in bytes of the moved files. Exit with status 0.",
+  "variants": ["public", "tricky", "unique", "nested"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "xsh_api": ["api:fs.walk", "record:FsEntry", "method:Path.read_bytes", "method:Bytes.sha256", "method:Path.rename", "method:Path.relative_to", "method:Path.mkdir"],
+  "ts_modules": ["node:fs", "node:path", "node:crypto"]
+}

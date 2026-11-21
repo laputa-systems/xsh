@@ -1,0 +1,294 @@
+{
+  "run": "dev-initial",
+  "attempts": [
+    {
+      "cell": "dev-audit-errors/xsh-baseline/0",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-audit-errors",
+      "status": "wrong",
+      "codes": [],
+      "category": "task logic",
+      "note": "loop guarded by `while cursor != null` with the cursor starting null, so no page is read"
+    },
+    {
+      "cell": "dev-audit-errors/xsh-baseline/1",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-audit-errors",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "`and (event.id not in errors)`: redundant parentheses are an error"
+    },
+    {
+      "cell": "dev-audit-errors/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-audit-errors",
+      "status": "wrong",
+      "codes": [],
+      "category": "task logic",
+      "note": "`if cursor != null` guards every read with the cursor starting null, so no page is read"
+    },
+    {
+      "cell": "dev-ci-retry/xsh-baseline/1",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-ci-retry",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-token"
+      ],
+      "category": "syntax/binding",
+      "note": "`on (is svc.ServiceError.Timeout or is ...)`: retry patterns join variants with `|`"
+    },
+    {
+      "cell": "dev-ci-retry/xsh-baseline/1",
+      "attempt": 1,
+      "condition": "xsh-baseline",
+      "task": "dev-ci-retry",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "redundant parentheses"
+    },
+    {
+      "cell": "dev-config-set/xsh-candidate/0",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-config-set",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-token"
+      ],
+      "category": "syntax/binding",
+      "note": "`for i in 0..lines.len()`: ranges are `range(n)`"
+    },
+    {
+      "cell": "dev-config-set/xsh-candidate/0",
+      "attempt": 1,
+      "condition": "xsh-candidate",
+      "task": "dev-config-set",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens",
+        "check.unknown-method"
+      ],
+      "category": "missing/misunderstood API",
+      "note": "`Str.len()` does not exist (`byte_len`, `count_chars`), plus redundant parentheses"
+    },
+    {
+      "cell": "dev-file-inventory/xsh-candidate/0",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-file-inventory",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "a pipeline wrapped in redundant parentheses"
+    },
+    {
+      "cell": "dev-host-probes/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-host-probes",
+      "status": "rejected",
+      "codes": [
+        "check.named-arg"
+      ],
+      "category": "syntax/binding",
+      "note": "`par-map(3)`: stage options must be named"
+    },
+    {
+      "cell": "dev-log-bundle/xsh-baseline/0",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-log-bundle",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "redundant parentheses"
+    },
+    {
+      "cell": "dev-log-bundle/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-log-bundle",
+      "status": "rejected",
+      "codes": [
+        "check.module-member"
+      ],
+      "category": "missing/misunderstood API",
+      "note": "`archive.Format.Tar`: enum values are written `.Tar`"
+    },
+    {
+      "cell": "dev-log-bundle/xsh-candidate/1",
+      "attempt": 1,
+      "condition": "xsh-candidate",
+      "task": "dev-log-bundle",
+      "status": "rejected",
+      "codes": [
+        "check.unresolved-name"
+      ],
+      "category": "missing/misunderstood API",
+      "note": "`Format.Tar`: still not the leading-dot form"
+    },
+    {
+      "cell": "dev-log-bundle/xsh-candidate/1",
+      "attempt": 2,
+      "condition": "xsh-candidate",
+      "task": "dev-log-bundle",
+      "status": "failed",
+      "codes": [],
+      "category": "process/argv/path",
+      "note": "fell back to `tar --verbatim-files-from`, a GNU option the boundary's BusyBox tar lacks"
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-baseline/0",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-parallel-sums",
+      "status": "rejected",
+      "codes": [
+        "check.named-arg",
+        "check.standard-module-shadow"
+      ],
+      "category": "syntax/binding",
+      "note": "`par-map(3)` and a parameter named `path`, a standard module name"
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-candidate/0",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-parallel-sums",
+      "status": "rejected",
+      "codes": [
+        "check.named-arg"
+      ],
+      "category": "syntax/binding",
+      "note": "`par-map(3)`: stage options must be named"
+    },
+    {
+      "cell": "dev-parallel-sums/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-parallel-sums",
+      "status": "rejected",
+      "codes": [
+        "check.named-arg"
+      ],
+      "category": "syntax/binding",
+      "note": "`par-map(3)`: stage options must be named"
+    },
+    {
+      "cell": "dev-prune-backups/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-prune-backups",
+      "status": "rejected",
+      "codes": [
+        "check.type-mismatch"
+      ],
+      "category": "result/optional/error handling",
+      "note": "`dir.exists() == false`: the predicate returns a Result"
+    },
+    {
+      "cell": "dev-prune-backups/xsh-candidate/1",
+      "attempt": 1,
+      "condition": "xsh-candidate",
+      "task": "dev-prune-backups",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "`(dir.exists()?) == false`: redundant parentheses"
+    },
+    {
+      "cell": "dev-restock/xsh-candidate/0",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-restock",
+      "status": "rejected",
+      "codes": [
+        "parse.match-wildcard-arm"
+      ],
+      "category": "syntax/binding",
+      "note": "`_ =>` match arm; the catch-all is `else =>`"
+    },
+    {
+      "cell": "dev-run-jobs/xsh-baseline/1",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-run-jobs",
+      "status": "rejected",
+      "codes": [
+        "check.type-mismatch"
+      ],
+      "category": "result/optional/error handling",
+      "note": "`exit_code() ?? null` for an `Int?`: the fallback must have the success type"
+    },
+    {
+      "cell": "dev-run-jobs/xsh-candidate/0",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-run-jobs",
+      "status": "rejected",
+      "codes": [
+        "parse.expected-expression"
+      ],
+      "category": "harness/provider",
+      "note": "the reply was a tool-call transcript (`<tool_calls>... functions.bash`) instead of a program; the model had no tools"
+    },
+    {
+      "cell": "dev-run-jobs/xsh-candidate/0",
+      "attempt": 1,
+      "condition": "xsh-candidate",
+      "task": "dev-run-jobs",
+      "status": "rejected",
+      "codes": [
+        "check.field-access"
+      ],
+      "category": "result/optional/error handling",
+      "note": "a value-position `cd`/`env` block yields a Result; its fields were read without `?`"
+    },
+    {
+      "cell": "dev-ticket-import/xsh-baseline/0",
+      "attempt": 0,
+      "condition": "xsh-baseline",
+      "task": "dev-ticket-import",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "redundant parentheses"
+    },
+    {
+      "cell": "dev-ticket-import/xsh-candidate/1",
+      "attempt": 0,
+      "condition": "xsh-candidate",
+      "task": "dev-ticket-import",
+      "status": "rejected",
+      "codes": [
+        "check.redundant-parens"
+      ],
+      "category": "syntax/binding",
+      "note": "redundant parentheses"
+    }
+  ],
+  "infrastructure": {
+    "discarded_trials": 10,
+    "cause": "docker left check containers in the created state under host contention; each checker timed out after 120 s; rerun with the start-retry boundary of 0653e3d1b"
+  },
+  "typescript": "no TypeScript attempt failed"
+}

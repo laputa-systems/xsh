@@ -1,0 +1,27 @@
+{
+  "id": "held-dns-plan",
+  "split": "held",
+  "track": "shared",
+  "families": ["small-reusable-script", "local-service-orchestration", "json"],
+  "origin": "new",
+  "description": "Write a command that brings a DNS zone in line with a desired-state file. Its command line is `[--apply] ZONE DESIRED`: `ZONE` is the zone name and `DESIRED` the path of a JSON file; `--apply` is the only option. Any other option, or a number of operands other than two, is a usage error: print a usage message to standard error and exit with status 2 without calling the service.\n\nThe desired file is a JSON array of records `{\"name\": STRING, \"kind\": STRING, \"value\": STRING, \"ttl\": INTEGER}`. A record is identified by its `name` and `kind` together. If the file cannot be read, is not such an array, or holds two records with the same name and kind, print a message to standard error and exit with status 2 without calling the service.\n\nRead the zone's current records with `dns_records` (`svc.dnsRecords` in TypeScript). Records whose `owner` is `dnsplan` are managed by this command; all others belong to someone else. Plan one action per record identity:\n\n- `create`: desired, and absent from the zone.\n- `update`: desired and present with a different `value` or `ttl`, and the present record is managed.\n- `conflict`: desired and present with a different `value` or `ttl`, but the present record is not managed. Never change it.\n- `delete`: a managed record of the zone that is not desired.\n\nA desired record that is present with the same value and ttl needs no action, and records that belong to someone else and are not desired are left alone.\n\nWithout `--apply`, change nothing. With `--apply`, perform every `create` and `update` with one `dns_put` (`svc.dnsPut`) carrying the desired value and ttl, and every `delete` with one `dns_delete` (`svc.dnsDelete`). Do not retry a failed write.\n\nPrint one JSON line per action to standard output, sorted by `name` and then by `kind`, both in byte order: `{\"action\": ACTION, \"name\": NAME, \"kind\": KIND, \"result\": RESULT}`. `RESULT` is `planned` for a `create`, `update` or `delete` without `--apply`; `applied` for a write that succeeded; `failed` for a write that failed; and `skipped` for every `conflict`. Exit with status 0 when every result is `planned` or `applied`, and 4 otherwise.",
+  "variants": ["public", "dry-run", "failures", "usage", "duplicate"],
+  "exit_codes": [0, 2, 4],
+  "timeout_s": 60,
+  "types": {
+    "DnsRecord": {"type": "{name: Str, kind: Str, value: Str, ttl: Int, owner: Str}", "doc": "One record of a zone; `owner` names the tool that manages it."},
+    "Applied": {"type": "{name: Str, kind: Str}", "doc": "The identity of a record a write changed."}
+  },
+  "capabilities": [
+    {"id": "dns.records", "effect": "read", "input": {"zone": "Str"}, "output": "List[DnsRecord]",
+     "description": "Lists every record of a zone."},
+    {"id": "dns.put", "effect": "write", "idempotent": true,
+     "input": {"zone": "Str", "name": "Str", "kind": "Str", "value": "Str", "ttl": "Int"}, "output": "Applied",
+     "description": "Creates or replaces one record, owned by dnsplan."},
+    {"id": "dns.delete", "effect": "write", "idempotent": true,
+     "input": {"zone": "Str", "name": "Str", "kind": "Str"}, "output": "Applied",
+     "description": "Deletes one record."}
+  ],
+  "xsh_api": ["language:core.cli-main", "api:json.read", "api:json.encode", "language:stream.sort-by", "language:core.exit"],
+  "ts_modules": ["node:fs", "node:util"]
+}

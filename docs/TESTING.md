@@ -1207,9 +1207,10 @@ comparison with the earlier unqualified measurements.
 
 ## Generated docs
 
-`make docs` regenerates `docs/SPEC.md`, `docs/user-tour.md`, and
-`docs/reference/*.md` from `docs/templates/` and the command, diagnostic, API,
-and grammar sources. Edit the inputs, then run `make docs`. `make docs-check`
+`make docs` regenerates `docs/SPEC.md`, `docs/user-tour.md`,
+`docs/getting-started.md`, `docs/agent-context.md`, and `docs/reference/*.md`
+from `docs/templates/`, the snippets under `docs/snippets/` (`tour`, `spec`,
+and `guide`), and the command, diagnostic, API, and grammar sources. Edit the inputs, then run `make docs`. `make docs-check`
 renders into memory and checks the XSH snippets and tour project. Do not edit
 generated output directly.
 

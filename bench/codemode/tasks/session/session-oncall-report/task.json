@@ -1,0 +1,23 @@
+{
+  "id": "session-oncall-report",
+  "split": "session",
+  "track": "shared",
+  "families": ["local-service-orchestration", "json"],
+  "origin": "new",
+  "description": "Report who was paged during their on-call shifts this week. The program takes no arguments.\n\n`/work/teams.txt` lists team names, one per line. Trim spaces and tabs around each line, skip blank lines and lines starting with `#`, and report a team listed more than once only at its first position.\n\nFor each team, read its shifts with `oncall_shifts` (`svc.oncallShifts` in TypeScript) and its pages with `oncall_pages` (`svc.oncallPages`). Times are minutes since the start of the week. A shift covers the minutes from its `start` up to but not including its `end`, and a team's shifts never overlap. The pager can report the same page more than once: count each page `id` of a team once.\n\nA read that fails with a transient kind (`Timeout`, `Unavailable`, `RateLimited`) is tried again 200 milliseconds after it failed, up to 4 attempts in total. If either read of a team fails with `NotFound`, the team is unknown. If a read fails with any other kind, or fails 4 times, the team failed. Report unknown and failed teams by name only.\n\nFor every other team, give each person who has at least one shift a count of the pages whose `at` falls in one of their shifts, and a count of those pages whose `severity` is `critical`. A page that falls in no shift is unassigned.\n\nPrint one line to standard output: a JSON object with three fields. `teams` holds one `{\"team\": NAME, \"people\": [{\"person\": NAME, \"pages\": N, \"critical\": N}, ...], \"unassigned\": N}` object per reported team, in file order, with `people` sorted by `pages` from most to fewest and then by `person` in byte order. `unknown` and `failed` are lists of team names in file order. Exit with status 0 when no team failed, and 4 otherwise.",
+  "variants": ["public", "flaky", "quiet", "denied"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "types": {
+    "Shift": {"type": "{person: Str, start: Int, end: Int}", "doc": "One on-call shift, in minutes since the start of the week; `end` is exclusive."},
+    "PageEvent": {"type": "{id: Str, at: Int, severity: Str}", "doc": "One page sent to a team, at a minute since the start of the week."}
+  },
+  "capabilities": [
+    {"id": "oncall.shifts", "effect": "read", "input": {"team": "Str"}, "output": "List[Shift]",
+     "description": "Lists a team's on-call shifts for the week."},
+    {"id": "oncall.pages", "effect": "read", "input": {"team": "Str"}, "output": "List[PageEvent]",
+     "description": "Lists the pages a team received during the week."}
+  ],
+  "xsh_api": ["method:Path.read_text", "method:Str.trim", "api:json.encode", "language:stream.sort-by", "api:time.sleep"],
+  "ts_modules": ["node:fs", "node:timers/promises"]
+}

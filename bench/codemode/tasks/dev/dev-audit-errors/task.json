@@ -1,0 +1,20 @@
+{
+  "id": "dev-audit-errors",
+  "split": "dev",
+  "track": "shared",
+  "families": ["local-service-orchestration", "json"],
+  "origin": "adapted from SX bench/codemode/tasks/dev-events-pages",
+  "description": "The audit service returns its log one page at a time. Read the whole log with `audit_page` (`svc.auditPage` in TypeScript): ask for the first page with a `null` cursor, then pass each page's `next` cursor, and stop after the page whose `next` is `null`. The log never has more than 20 pages.\n\nThe log shifts while you read it, so an event can appear again on a later page. Collect the `id` of every event whose `kind` is exactly `error`, keeping each id once, at the position where it first appeared.\n\nPrint one line to standard output: a JSON object with two fields, `errors`, the list of collected ids in that order, and `pages`, the number of pages in the log. Exit with status 0.",
+  "variants": ["public", "shifting", "single"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "types": {
+    "Event": {"type": "{id: Str, kind: Str}", "doc": "One audit event."},
+    "Page": {"type": "{events: List[Event], next: Str?}", "doc": "One page of the audit log. `next` is the cursor of the following page, or null on the last page."}
+  },
+  "capabilities": [
+    {"id": "audit.page", "effect": "read", "input": {"cursor": "Str?"}, "output": "Page", "description": "Reads one page of the audit log. Pass null for the first page, then the previous page's `next`."}
+  ],
+  "xsh_api": ["api:json.encode", "language:core.membership"],
+  "ts_modules": []
+}

@@ -1,0 +1,25 @@
+{
+  "id": "held-payout-verify",
+  "split": "held",
+  "track": "shared",
+  "families": ["local-service-orchestration", "json", "resource-handling"],
+  "origin": "new",
+  "description": "Send a batch of payouts without ever paying anyone twice. `/work/payouts.json` is a JSON array of payouts, each `{\"ref\": STRING, \"account\": STRING, \"cents\": INTEGER}`; refs are unique.\n\nProcess the payouts one at a time, in file order, finishing each before starting the next. Send a payout with `payouts_send` (`svc.payoutsSend` in TypeScript), passing its ref, account and cents, with a 500 millisecond timeout on each send. `payouts_status` (`svc.payoutsStatus`) looks up what the service holds for a ref; use the default timeout for it.\n\nA send that fails with a transient kind (`Timeout`, `Unavailable`, `RateLimited`) may still have paid. After every such failure, look up the payout's status before doing anything else:\n\n- If the status shows a transfer, the payout is sent, with that transfer.\n- If it shows none and fewer than 3 sends of this payout have been made, wait 200 milliseconds after the lookup answered, then send it again.\n- If it shows none and 3 sends have been made, the payout failed, with the kind of its last send failure.\n- If the lookup itself fails, the payout is unknown. Do not send it again.\n\nA send that fails with any other kind is final: the payout failed, with that kind. A successful send means the payout is sent, with the receipt's transfer.\n\nWrite `/work/payout-report.json`, a JSON object with three fields: `sent`, a list of `{\"ref\": REF, \"transfer\": TRANSFER}` objects; `failed`, a list of `{\"ref\": REF, \"kind\": KIND}` objects, where `KIND` is the failure kind's name; and `unknown`, a list of refs. Each list is in file order. Then print one line to standard output, `sent=N failed=N unknown=N` with the three counts, and exit with status 0 when every payout was sent, or 4 otherwise.",
+  "variants": ["public", "exhausted", "ambiguous", "empty"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "types": {
+    "Receipt": {"type": "{ref: Str, transfer: Str}", "doc": "A payout the service has sent, with its transfer id."},
+    "PayoutState": {"type": "{ref: Str, transfer: Str?}", "doc": "What the service holds for a payout ref: its transfer id, or null when it was never sent."}
+  },
+  "capabilities": [
+    {"id": "payouts.send", "effect": "write", "idempotent": false,
+     "input": {"ref": "Str", "account": "Str", "cents": "Int"}, "output": "Receipt",
+     "description": "Pays a payout and returns its receipt."},
+    {"id": "payouts.status", "effect": "read",
+     "input": {"ref": "Str"}, "output": "PayoutState",
+     "description": "Looks up whether a payout with this ref has been sent."}
+  ],
+  "xsh_api": ["api:json.read", "api:json.write", "api:time.sleep", "language:core.results"],
+  "ts_modules": ["node:fs", "node:timers/promises"]
+}

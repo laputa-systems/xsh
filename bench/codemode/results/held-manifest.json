@@ -1,0 +1,563 @@
+{
+  "schema": "codemode-manifest/1",
+  "phase": "held",
+  "split": "held",
+  "created": "2026-11-21T10:46:07Z",
+  "model": "opencode-go/hy4-flash-free",
+  "thinking_requested": "medium",
+  "pi_version": "1.5.0",
+  "toolchain": {
+    "xsh": "08d7fe15e786931b9422a66df676de9477b0adfcfeb07611df360ca653985074",
+    "xsht": "a4a5c9be204a301886dcab45c07606d0e589d64e5f28b821ab04bb012cd94e54"
+  },
+  "images": {
+    "xsh": "oci.17166969.xyz/xsh/test@sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "xsh_id": "sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "ts_tag": "xsh-codemode-ts:local",
+    "ts_id": "sha256:b149f7ea2b99f98cf09a1fd7c12ae80794812d020618b1bca90d66314b50f958",
+    "ts_base": "node@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5"
+  },
+  "harness": {
+    "head": "6847016a866ac98d3895c5b7bdf72d066465a257",
+    "bench_dirty": false,
+    "lane_base": "c68ac9594",
+    "sx_revision": "9e9e4e5bf3fcb834748eafedd227e22f5c95b527"
+  },
+  "host": {
+    "platform": "Linux-7.2.9-2-stable-x86_64-with-musl1",
+    "python": "3.15.1"
+  },
+  "extraction_rule": "Take the first fenced code block whose info string's first word is the arm's tag (xsh: `xsh`; ts: `ts`, `typescript` or `mts`); otherwise the first fenced block of any tag; otherwise the whole reply. Strip surrounding whitespace. An empty result is no answer.",
+  "contexts": {
+    "xsh-baseline": {
+      "file": "baseline.md",
+      "sha256": "131a0dce99459c5a4f7acf05586567401c8725c418fffcc9e76ca8cc2f000487",
+      "bytes": 90824
+    },
+    "xsh-selected": {
+      "file": "selected.md",
+      "sha256": "b000c759c7ce6523a27405b345923187b1b33a7d8762ebed3992d9a9e1f6d357",
+      "bytes": 8178
+    },
+    "ts": null
+  },
+  "tasks": {
+    "held-catalog-export": "80ad03e1eac2049c4bb8fc4011f96548721615e124adc94596f87f4daec41d16",
+    "held-dedupe-tree": "779385dcb08cdebba6fa098275cb71899e6db539cc41138481b1868fa9f1bcb5",
+    "held-deploy-waves": "4db259d300e299ef645d42a93277c9e4bce83ce1770b9c4770360a3efc14a591",
+    "held-dns-plan": "c8db02d22a6a027f7126e2e16af19345c1d5ff10358a6c2baec178a04dbe630f",
+    "held-hosts-block": "c126f96bd0767705948c79e4ad14cd70d22cafa531cb917480df9726bd9f453b",
+    "held-log-rotate": "3cadc6469183fb4d444d9b08be2d56ee097cfd042e273a6336f2bc3465599669",
+    "held-migrate": "ae7ce50c0b09456f18b752904d9c7551f2091fe711952252cc133b025af032cb",
+    "held-payout-verify": "601080c4954854fc7ee4d17cf6799cbb2170ce5056b64735b5b69347e1554249"
+  },
+  "samples": 3,
+  "seed": 20261121,
+  "jobs": 2,
+  "schedule": [
+    {
+      "cell": "held-payout-verify/ts/0",
+      "task": "held-payout-verify",
+      "condition": "ts",
+      "sample": 0,
+      "order": 0
+    },
+    {
+      "cell": "held-payout-verify/xsh-selected/0",
+      "task": "held-payout-verify",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 1
+    },
+    {
+      "cell": "held-log-rotate/xsh-selected/0",
+      "task": "held-log-rotate",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 2
+    },
+    {
+      "cell": "held-catalog-export/xsh-baseline/2",
+      "task": "held-catalog-export",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 3
+    },
+    {
+      "cell": "held-migrate/xsh-selected/1",
+      "task": "held-migrate",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 4
+    },
+    {
+      "cell": "held-dedupe-tree/ts/2",
+      "task": "held-dedupe-tree",
+      "condition": "ts",
+      "sample": 2,
+      "order": 5
+    },
+    {
+      "cell": "held-hosts-block/xsh-selected/1",
+      "task": "held-hosts-block",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 6
+    },
+    {
+      "cell": "held-log-rotate/xsh-baseline/0",
+      "task": "held-log-rotate",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 7
+    },
+    {
+      "cell": "held-catalog-export/ts/0",
+      "task": "held-catalog-export",
+      "condition": "ts",
+      "sample": 0,
+      "order": 8
+    },
+    {
+      "cell": "held-hosts-block/xsh-baseline/0",
+      "task": "held-hosts-block",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 9
+    },
+    {
+      "cell": "held-deploy-waves/xsh-selected/0",
+      "task": "held-deploy-waves",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 10
+    },
+    {
+      "cell": "held-log-rotate/xsh-selected/2",
+      "task": "held-log-rotate",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 11
+    },
+    {
+      "cell": "held-catalog-export/xsh-selected/0",
+      "task": "held-catalog-export",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 12
+    },
+    {
+      "cell": "held-deploy-waves/ts/0",
+      "task": "held-deploy-waves",
+      "condition": "ts",
+      "sample": 0,
+      "order": 13
+    },
+    {
+      "cell": "held-payout-verify/xsh-selected/2",
+      "task": "held-payout-verify",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 14
+    },
+    {
+      "cell": "held-log-rotate/ts/0",
+      "task": "held-log-rotate",
+      "condition": "ts",
+      "sample": 0,
+      "order": 15
+    },
+    {
+      "cell": "held-hosts-block/xsh-selected/0",
+      "task": "held-hosts-block",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 16
+    },
+    {
+      "cell": "held-dedupe-tree/ts/1",
+      "task": "held-dedupe-tree",
+      "condition": "ts",
+      "sample": 1,
+      "order": 17
+    },
+    {
+      "cell": "held-log-rotate/xsh-baseline/2",
+      "task": "held-log-rotate",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 18
+    },
+    {
+      "cell": "held-dns-plan/xsh-baseline/1",
+      "task": "held-dns-plan",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 19
+    },
+    {
+      "cell": "held-hosts-block/ts/0",
+      "task": "held-hosts-block",
+      "condition": "ts",
+      "sample": 0,
+      "order": 20
+    },
+    {
+      "cell": "held-deploy-waves/xsh-baseline/0",
+      "task": "held-deploy-waves",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 21
+    },
+    {
+      "cell": "held-dns-plan/ts/1",
+      "task": "held-dns-plan",
+      "condition": "ts",
+      "sample": 1,
+      "order": 22
+    },
+    {
+      "cell": "held-hosts-block/xsh-baseline/1",
+      "task": "held-hosts-block",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 23
+    },
+    {
+      "cell": "held-migrate/xsh-baseline/1",
+      "task": "held-migrate",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 24
+    },
+    {
+      "cell": "held-dns-plan/xsh-selected/2",
+      "task": "held-dns-plan",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 25
+    },
+    {
+      "cell": "held-dns-plan/xsh-baseline/2",
+      "task": "held-dns-plan",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 26
+    },
+    {
+      "cell": "held-log-rotate/xsh-selected/1",
+      "task": "held-log-rotate",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 27
+    },
+    {
+      "cell": "held-log-rotate/ts/1",
+      "task": "held-log-rotate",
+      "condition": "ts",
+      "sample": 1,
+      "order": 28
+    },
+    {
+      "cell": "held-deploy-waves/xsh-baseline/1",
+      "task": "held-deploy-waves",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 29
+    },
+    {
+      "cell": "held-dns-plan/xsh-selected/1",
+      "task": "held-dns-plan",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 30
+    },
+    {
+      "cell": "held-catalog-export/ts/2",
+      "task": "held-catalog-export",
+      "condition": "ts",
+      "sample": 2,
+      "order": 31
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-baseline/2",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 32
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-selected/0",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 33
+    },
+    {
+      "cell": "held-hosts-block/xsh-selected/2",
+      "task": "held-hosts-block",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 34
+    },
+    {
+      "cell": "held-catalog-export/xsh-baseline/1",
+      "task": "held-catalog-export",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 35
+    },
+    {
+      "cell": "held-dns-plan/xsh-baseline/0",
+      "task": "held-dns-plan",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 36
+    },
+    {
+      "cell": "held-dns-plan/ts/0",
+      "task": "held-dns-plan",
+      "condition": "ts",
+      "sample": 0,
+      "order": 37
+    },
+    {
+      "cell": "held-log-rotate/ts/2",
+      "task": "held-log-rotate",
+      "condition": "ts",
+      "sample": 2,
+      "order": 38
+    },
+    {
+      "cell": "held-payout-verify/xsh-baseline/1",
+      "task": "held-payout-verify",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 39
+    },
+    {
+      "cell": "held-migrate/xsh-baseline/2",
+      "task": "held-migrate",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 40
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-selected/1",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 41
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-selected/2",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 42
+    },
+    {
+      "cell": "held-log-rotate/xsh-baseline/1",
+      "task": "held-log-rotate",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 43
+    },
+    {
+      "cell": "held-payout-verify/xsh-baseline/2",
+      "task": "held-payout-verify",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 44
+    },
+    {
+      "cell": "held-deploy-waves/xsh-baseline/2",
+      "task": "held-deploy-waves",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 45
+    },
+    {
+      "cell": "held-catalog-export/xsh-selected/2",
+      "task": "held-catalog-export",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 46
+    },
+    {
+      "cell": "held-dns-plan/xsh-selected/0",
+      "task": "held-dns-plan",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 47
+    },
+    {
+      "cell": "held-catalog-export/xsh-selected/1",
+      "task": "held-catalog-export",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 48
+    },
+    {
+      "cell": "held-deploy-waves/ts/2",
+      "task": "held-deploy-waves",
+      "condition": "ts",
+      "sample": 2,
+      "order": 49
+    },
+    {
+      "cell": "held-dedupe-tree/ts/0",
+      "task": "held-dedupe-tree",
+      "condition": "ts",
+      "sample": 0,
+      "order": 50
+    },
+    {
+      "cell": "held-catalog-export/ts/1",
+      "task": "held-catalog-export",
+      "condition": "ts",
+      "sample": 1,
+      "order": 51
+    },
+    {
+      "cell": "held-migrate/xsh-selected/0",
+      "task": "held-migrate",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 52
+    },
+    {
+      "cell": "held-migrate/xsh-baseline/0",
+      "task": "held-migrate",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 53
+    },
+    {
+      "cell": "held-migrate/ts/0",
+      "task": "held-migrate",
+      "condition": "ts",
+      "sample": 0,
+      "order": 54
+    },
+    {
+      "cell": "held-deploy-waves/ts/1",
+      "task": "held-deploy-waves",
+      "condition": "ts",
+      "sample": 1,
+      "order": 55
+    },
+    {
+      "cell": "held-migrate/ts/1",
+      "task": "held-migrate",
+      "condition": "ts",
+      "sample": 1,
+      "order": 56
+    },
+    {
+      "cell": "held-hosts-block/xsh-baseline/2",
+      "task": "held-hosts-block",
+      "condition": "xsh-baseline",
+      "sample": 2,
+      "order": 57
+    },
+    {
+      "cell": "held-migrate/xsh-selected/2",
+      "task": "held-migrate",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 58
+    },
+    {
+      "cell": "held-migrate/ts/2",
+      "task": "held-migrate",
+      "condition": "ts",
+      "sample": 2,
+      "order": 59
+    },
+    {
+      "cell": "held-payout-verify/ts/1",
+      "task": "held-payout-verify",
+      "condition": "ts",
+      "sample": 1,
+      "order": 60
+    },
+    {
+      "cell": "held-payout-verify/xsh-baseline/0",
+      "task": "held-payout-verify",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 61
+    },
+    {
+      "cell": "held-payout-verify/ts/2",
+      "task": "held-payout-verify",
+      "condition": "ts",
+      "sample": 2,
+      "order": 62
+    },
+    {
+      "cell": "held-deploy-waves/xsh-selected/2",
+      "task": "held-deploy-waves",
+      "condition": "xsh-selected",
+      "sample": 2,
+      "order": 63
+    },
+    {
+      "cell": "held-catalog-export/xsh-baseline/0",
+      "task": "held-catalog-export",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 64
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-baseline/0",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 65
+    },
+    {
+      "cell": "held-hosts-block/ts/1",
+      "task": "held-hosts-block",
+      "condition": "ts",
+      "sample": 1,
+      "order": 66
+    },
+    {
+      "cell": "held-dedupe-tree/xsh-baseline/1",
+      "task": "held-dedupe-tree",
+      "condition": "xsh-baseline",
+      "sample": 1,
+      "order": 67
+    },
+    {
+      "cell": "held-hosts-block/ts/2",
+      "task": "held-hosts-block",
+      "condition": "ts",
+      "sample": 2,
+      "order": 68
+    },
+    {
+      "cell": "held-dns-plan/ts/2",
+      "task": "held-dns-plan",
+      "condition": "ts",
+      "sample": 2,
+      "order": 69
+    },
+    {
+      "cell": "held-deploy-waves/xsh-selected/1",
+      "task": "held-deploy-waves",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 70
+    },
+    {
+      "cell": "held-payout-verify/xsh-selected/1",
+      "task": "held-payout-verify",
+      "condition": "xsh-selected",
+      "sample": 1,
+      "order": 71
+    }
+  ]
+}

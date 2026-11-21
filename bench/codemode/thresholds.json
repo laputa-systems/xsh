@@ -1,0 +1,23 @@
+{
+  "schema": "codemode-thresholds/1",
+  "registered_before": "any held-out or session task exists",
+  "evaluation": {
+    "split": "held",
+    "conditions": ["xsh-baseline", "xsh-selected", "ts"],
+    "samples": 3,
+    "unit": "task-clustered: samples are averaged within a task, then tasks are averaged; 95% percentile bootstrap over tasks, 4000 rounds, seed 7"
+  },
+  "selected_guide_beats_current_docs": {
+    "comparison": "xsh-selected minus xsh-baseline on matched held-out tasks and samples",
+    "passes_when": "either target holds and the guard holds",
+    "targets": [
+      {"measure": "first-attempt correct rate", "improvement_at_least": 0.10},
+      {"measure": "total tokens per solved task (all trials' tokens, failed ones included, over solved trials)", "reduction_at_least": 0.20}
+    ],
+    "guard": {"measure": "correct-within-three-programs rate", "loss_at_most": 0.05},
+    "undefined": "a condition with no solved trial has undefined tokens per solved task; the token target cannot then pass for it",
+    "reading": "pilot thresholds over 8 tasks: report the point estimates with their intervals; an interval that spans zero makes the result inconclusive, not negative"
+  },
+  "xsh_versus_typescript": "reported independently for xsh-baseline and xsh-selected against ts, per track; no pass/fail threshold",
+  "sessions": "reported separately from static rates; no threshold"
+}
