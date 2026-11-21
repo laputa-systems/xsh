@@ -5,6 +5,76 @@ namespace Xsh.Conformance.Vertical
 
 namespace SourceAdmission
 
+theorem decimal_step_preserves_failure (state : Nat × Bool) (code : Nat)
+    (successful : (decimalRunStep state code).2 = true) : state.2 = true := by
+  unfold decimalRunStep at successful
+  split at successful
+  · simp only [Bool.and_eq_true] at successful
+    exact successful.1
+  · exact successful
+
+theorem decimal_fold_preserves_failure (codes : List Nat) (state : Nat × Bool)
+    (successful : (codes.foldl decimalRunStep state).2 = true) : state.2 = true := by
+  induction codes generalizing state with
+  | nil => exact successful
+  | cons code rest ih =>
+    apply decimal_step_preserves_failure state code
+    exact ih (decimalRunStep state code) successful
+
+theorem decimal_digits_fold_value (digits : List Nat) (value : Nat) (ok : Bool)
+    (decimal : digits.all isDigitCode = true) :
+    (digits.foldl decimalRunStep (value, ok)).1 =
+      digits.foldl (fun current digit => current * 10 + (digit - 48)) value := by
+  induction digits generalizing value ok with
+  | nil => rfl
+  | cons digit rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at decimal
+    simp only [List.foldl_cons, decimalRunStep, decimal.1, ↓reduceIte]
+    exact ih _ _ decimal.2
+
+theorem decimal_digits_fold_monotone (digits : List Nat) (left right : Nat)
+    (ordered : left ≤ right) :
+    digits.foldl (fun current digit => current * 10 + (digit - 48)) left ≤
+      digits.foldl (fun current digit => current * 10 + (digit - 48)) right := by
+  induction digits generalizing left right with
+  | nil => exact ordered
+  | cons digit rest ih =>
+    simp only [List.foldl_cons]
+    apply ih
+    omega
+
+theorem nonempty_has_last {α : Type} (items : List α) (nonempty : items ≠ []) :
+    ∃ front last, items = front ++ [last] := by
+  induction items with
+  | nil => exact False.elim (nonempty rfl)
+  | cons head tail ih =>
+    cases tail with
+    | nil => exact ⟨[], head, rfl⟩
+    | cons second rest =>
+      obtain ⟨front, last, same⟩ := ih (by simp)
+      exact ⟨head :: front, last, by simp [same]⟩
+
+theorem decimal_digit_segment_bounded (before digits after : List Nat)
+    (nonempty : digits ≠ []) (decimal : digits.all isDigitCode = true)
+    (safe : decimalRunsInRange (before ++ digits ++ after) = true) :
+    digitsValue digits ≤ maxIntLiteral := by
+  unfold decimalRunsInRange at safe
+  simp only [List.foldl_append] at safe
+  let state := before.foldl decimalRunStep (0, true)
+  have middle : (digits.foldl decimalRunStep state).2 = true := by
+    exact decimal_fold_preserves_failure after _ safe
+  obtain ⟨front, last, same⟩ := nonempty_has_last digits nonempty
+  subst digits
+  have lastDigit : isDigitCode last = true := by
+    simpa using (List.all_eq_true.mp decimal last (by simp))
+  have bound : ((front ++ [last]).foldl decimalRunStep state).1 ≤ maxIntLiteral := by
+    simp only [List.foldl_append, List.foldl_cons, List.foldl_nil, decimalRunStep,
+      lastDigit, ↓reduceIte, Bool.and_eq_true, decide_eq_true_eq] at middle ⊢
+    exact middle.2
+  have lower := decimal_digits_fold_monotone (front ++ [last]) 0 state.1 (Nat.zero_le _)
+  rw [← decimal_digits_fold_value (front ++ [last]) state.1 state.2 decimal] at lower
+  exact Nat.le_trans lower bound
+
 theorem no_conflicting_adjacency_tail {head : Nat} {rest : List Nat}
     (safe : noConflictingAdjacency (head :: rest) = true) : noConflictingAdjacency rest = true := by
   cases rest with
@@ -113,6 +183,16 @@ theorem positioned_decimal_interpretation {offset : Nat} {codes : List Nat}
   | decimal nonempty digitCodes boundary =>
     exact ⟨before, digits, rest, same, first, last, nonempty, digitCodes, boundary, rfl⟩
 
+theorem guarded_positioned_decimal_bounded {codes : List Nat}
+    {tokens : List (Token × Nat × Nat)} (lexed : PositionedLexed 0 codes tokens)
+    (safe : decimalRunsInRange codes = true) {value start stop : Nat}
+    (member : (Token.number value, start, stop) ∈ tokens) : value ≤ maxIntLiteral := by
+  obtain ⟨before, digits, rest, same, _, _, nonempty, decimal, _, value⟩ :=
+    positioned_decimal_interpretation lexed member
+  rw [value]
+  apply decimal_digit_segment_bounded before digits rest nonempty decimal
+  simpa [same] using safe
+
 theorem ascii_byte_valid_utf8 (byte : UInt8) (ascii : byte.toNat < 128) :
     [byte].toByteArray.IsValidUTF8 := by
   let c := Char.ofNat byte.toNat
@@ -179,6 +259,44 @@ theorem check_sound_with_positions {bytes : List UInt8} {moduleInputs : List (Li
     check_has_token_positions accepted
   exact ⟨sound.1, check_has_valid_utf8 accepted, sound.2.1, sound.2.2.1, sound.2.2.2,
     tokens, positioned, positions, projection, grammar⟩
+
+theorem check_in_declarative_domain {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))}
+    (accepted : check bytes moduleInputs functions scopes = true) :
+    DeclarativeDomain bytes moduleInputs functions scopes := by
+  have wordGuard : supportedWords (bytes.map UInt8.toNat) = true := by
+    unfold check at accepted
+    simp only [Bool.and_eq_true] at accepted
+    exact accepted.1.1.1.1.2
+  have namesGuard : functions.all (fun function => !isRecordKeyword function.name) = true := by
+    unfold check at accepted
+    simp only [Bool.and_eq_true] at accepted
+    exact accepted.1.1.1.2
+  have parsed : parseSourceCodes (bytes.map UInt8.toNat) = some functions := by
+    unfold check at accepted
+    simp only [Bool.and_eq_true] at accepted
+    cases found : parseSourceCodes (bytes.map UInt8.toNat) with
+    | none => simp [found] at accepted
+    | some tree =>
+      simp only [found, Bool.and_eq_true, beq_iff_eq] at accepted
+      exact congrArg some accepted.2.1
+  have sound := check_sound accepted
+  have safeAdjacency := accepted_has_no_conflicting_adjacency accepted
+  have safeDecimals := accepted_decimal_runs_in_range accepted
+  have trees := parse_source_admitted parsed
+  unfold parseSourceCodes at parsed
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at parsed
+  obtain ⟨tokens, tokenized, ⟨found, functionsParsed, parsed⟩⟩ := parsed
+  split at parsed
+  · cases parsed
+    unfold supportedWords at wordGuard
+    rw [tokenized] at wordGuard
+    cases trees with
+    | admitted _ _ _ ordered recordOrdered recordAnywhere =>
+      exact ⟨sound.1, safeAdjacency, safeDecimals, sound.2.1, namesGuard, sound.2.2.2,
+        tokens, tokenizer_syntax _ tokenized, functions_syntax _ functionsParsed,
+        ordered, recordOrdered, recordAnywhere, wordGuard⟩
+  · cases parsed
 
 /-- The source admission boundary composes with the existing universal lowerer theorem. The
 artifact's entire function meaning is the meaning of the tree derived from these exact bytes. -/
@@ -285,6 +403,12 @@ theorem admitted_byte_domain_nonempty :
     ∃ bytes functions scopes, bytes ≠ [] ∧ functions ≠ [] ∧ check bytes [] functions scopes = true := by
   exact ⟨arithmeticBytes, arithmeticTree, [[("x", 0)]], by decide +kernel, by decide +kernel,
     arithmetic_bytes_admitted⟩
+
+theorem declarative_domain_nonempty :
+    ∃ bytes functions scopes, bytes ≠ [] ∧ functions ≠ [] ∧
+      DeclarativeDomain bytes [] functions scopes := by
+  exact ⟨arithmeticBytes, arithmeticTree, [[("x", 0)]], by decide +kernel, by decide +kernel,
+    check_in_declarative_domain arithmetic_bytes_admitted⟩
 
 theorem substituted_source_and_projection_refused :
     check (witnessBytes "pure f(x: Int) -> Int {\n  return x - 1\n}\n") []

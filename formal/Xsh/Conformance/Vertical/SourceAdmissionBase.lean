@@ -1253,20 +1253,36 @@ def noConflictingAdjacency : List Nat → Bool
       noConflictingAdjacency (second :: rest)
   | _ => true
 
+def decimalRunStep (state : Nat × Bool) (code : Nat) : Nat × Bool :=
+  if isDigitCode code then
+    let value := state.1 * 10 + (code - 48)
+    (value, state.2 && decide (value ≤ maxIntLiteral))
+  else (0, state.2)
+
 def decimalRunsInRange (codes : List Nat) : Bool :=
-  (codes.foldl (fun (state : Nat × Bool) code =>
-    if isDigitCode code then
-      let value := state.1 * 10 + (code - 48)
-      (value, state.2 && decide (value ≤ maxIntLiteral))
-    else (0, state.2)) (0, true)).2
+  (codes.foldl decimalRunStep (0, true)).2
+
+def supportedWordToken : Token → Bool
+  | .word name => !isRecordKeyword name || isKeyword name
+  | _ => true
 
 def supportedWords (codes : List Nat) : Bool :=
   match tokenize (codes.length + 1) codes with
   | none => false
-  | some tokens => tokens.all fun token =>
-      match token with
-      | .word name => !isRecordKeyword name || isKeyword name
-      | _ => true
+  | some tokens => tokens.all supportedWordToken
+
+def DeclarativeDomain (bytes : List UInt8) (moduleInputs : List (List UInt8))
+    (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Prop :=
+  let codes := bytes.map UInt8.toNat
+  moduleInputs = [] ∧ noConflictingAdjacency codes = true ∧ decimalRunsInRange codes = true ∧
+    (functions.map (·.name)).Nodup ∧ functions.all (fun function => !isRecordKeyword function.name) = true ∧
+    ScopesProjection functions scopes ∧
+    ∃ tokens, Lexed codes tokens ∧ FunctionsSyntax tokens functions ∧
+      FunctionsInOrder [] functions ∧ RecordCallsInOrder [] functions ∧ RecordCallsAnywhere functions ∧
+      tokens.all supportedWordToken = true
+
+def Domain (bytes : List UInt8) (moduleInputs : List (List UInt8)) : Prop :=
+  ∃ functions scopes, DeclarativeDomain bytes moduleInputs functions scopes
 
 /-- A witness checker for one module with no imported inputs. The submitted trees and slot
 projections are candidates; both are reconstructed from the original byte list. -/
