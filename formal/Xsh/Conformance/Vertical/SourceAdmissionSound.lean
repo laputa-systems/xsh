@@ -148,6 +148,49 @@ theorem record_value_line_complete {tokens rest : List Token} {value : RecordVal
     have parsedRight := record_operand_complete right (by intro label more impossible; cases impossible)
     simp [parseRecordValue, parsedLeft, valid, parsedRight]
 
+theorem value_consumes_tokens {tokens rest : List Token} {value : SourceValue}
+    (derivation : ValueSyntax tokens value rest) : rest.length < tokens.length := by
+  cases derivation with
+  | atom atom => cases atom <;> simp
+  | binary left valid right => cases left <;> cases right <;> simp <;> omega
+
+theorem record_fields_fit_tokens {tokens rest : List Token} {fields : List (String × SourceValue)}
+    (derivation : RecordFieldsSyntax tokens fields rest) : fields.length ≤ tokens.length := by
+  induction derivation with
+  | single => simp
+  | cons valid value tail ih =>
+    have consumed := value_consumes_tokens value
+    simp_all <;> omega
+
+theorem record_fields_complete {tokens rest : List Token} {fields : List (String × SourceValue)}
+    (derivation : RecordFieldsSyntax tokens fields rest) :
+    ∀ fuel, fields.length ≤ fuel → parseRecordFields fuel tokens = some (fields, rest) := by
+  induction derivation with
+  | @single name value tokens rest valid field =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have parsed := value_syntax_complete field (by intro op more impossible; cases impossible)
+      simp [parseRecordFields, valid, parsed]
+  | @cons name value tokens afterValue rest others valid field tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : others.length ≤ fuel := by simp at enough; omega
+      have parsed := value_syntax_complete field (by intro op more impossible; cases impossible)
+      simp [parseRecordFields, valid, parsed, ih fuel bound]
+
+theorem record_let_complete {tokens rest : List Token} {target : String}
+    {fields : List (String × SourceValue)} (derivation : RecordLetSyntax tokens target fields rest) :
+    parseRecordLet tokens = some ((target, fields), rest) := by
+  cases derivation with
+  | @record target fields tokens rest valid fieldSyntax =>
+    have bound := record_fields_fit_tokens fieldSyntax
+    have parsed := record_fields_complete fieldSyntax (tokens.length + 1) (by omega)
+    simp [parseRecordLet, valid, parsed]
+
 theorem arguments_fit_tokens {tokens rest : List Token} {arguments : List SourceAtom}
     (derivation : ArgumentsSyntax tokens arguments rest) : arguments.length ≤ tokens.length := by
   induction derivation with
