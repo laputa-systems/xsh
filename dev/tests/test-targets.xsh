@@ -872,3 +872,12 @@ test test_gate_docker_uses_linked_worktree_common_dir_despite_git_overrides { |c
     }
   }
 }
+
+test test_linux_root_caller_uses_unprivileged_native_identity {
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
+  let root = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 0, 0, "", [])?
+  assert "HOST_UID=1000" in root and "HOST_GID=1000" in root
+  assert "XSH_ROOT_NATIVE_TESTS=1" in root
+  let user = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 1001, 1001, "", [])?
+  assert "HOST_UID=1001" in user and "XSH_ROOT_NATIVE_TESTS=1" not in user
+}

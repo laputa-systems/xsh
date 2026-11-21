@@ -223,6 +223,10 @@ export pure internal_argv(
   }
   let target_environment = ["-e", f"{target_flags_variable}={target_rustflags}"]
   let target_dir = internal_target_dir(ctx, operation)
+  let root_native = host_uid == 0 and linux_test_operation(operation)
+  let test_uid = if root_native { 1000 } else { host_uid }
+  let test_gid = if root_native { 1000 } else { host_gid }
+  let root_native_environment = if root_native { ["-e", "XSH_ROOT_NATIVE_TESTS=1"] } else { [] }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
@@ -272,9 +276,10 @@ export pure internal_argv(
     "-e",
     "CARGO_BUILD_WARNINGS=deny",
     "-e",
-    f"HOST_UID={host_uid}",
+    f"HOST_UID={test_uid}",
     "-e",
-    f"HOST_GID={host_gid}",
+    f"HOST_GID={test_gid}",
+    @root_native_environment,
     @linker_mounts,
     @linker_environment,
     @target_environment,
