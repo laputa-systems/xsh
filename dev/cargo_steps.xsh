@@ -337,13 +337,27 @@ export proc mold_driver_spec(spec: contract.CommandSpec) [env, error] -> Result[
   {...spec, environment: {...environment, CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: target_policy.mold_driver_rustflags(flags)}}
 }
 
-## Runs a Cargo step that only compiles, under this machine's preload.
-export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
-  let spec = mold_driver_spec(spec)?
-  let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
-  let step = build_step(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?)
+## The environment override that compiles a musl target's C boundary against
+## musl headers. A host whose default C compiler already targets musl, and the
+## pinned image with its own compiler, keep the default.
+export proc musl_c_compiler_overlay(spec: contract.CommandSpec) [process, error] -> Result[Map[Str, Str]?, Error] {
+  if let compiler = target_policy.musl_c_compiler(spec.target) {
+    return null when compiler.variable in spec.environment.keys()
+    return null unless process.which("cc") is Ok(_)
+    let dumpmachine = run.text cc -dumpmachine
+    return null when dumpmachine.trim().ends_with("-musl")
+    guard process.which(compiler.tool) is Ok(_) else {
+      return Err(stages.StageError.MissingTool(tool: compiler.tool))
+    }
+    return {[compiler.variable]: compiler.tool}
+  }
+
+  null
+}
+
+proc execute_build_step(step: Step, linux_host: Bool) [fs, process, env, error, io] -> Result[Unit, Error] {
   if linux_host {
-    let lock_file = cargo_lock_path(spec.cwd)
+    let lock_file = cargo_lock_path(step.spec.cwd)
     ensure_cargo_lock_directory(lock_file)
     execute_with_cargo_lock(step, lock_file)
   } else {
@@ -351,11 +365,23 @@ export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] 
   }
 }
 
-## Runs a `cargo test` step: compiles under this machine's preload, then runs
-## the tests without it.
-export proc run_test(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
+## Runs a Cargo step that only compiles, under this machine's preload.
+export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
   let spec = mold_driver_spec(spec)?
+  let overlay = musl_c_compiler_overlay(spec)?
   let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
+  let step = build_step(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?)
+  if let selected = overlay {
+    env (selected) { execute_build_step(step, linux_host) }
+  } else {
+    execute_build_step(step, linux_host)
+  }
+}
+
+proc execute_test_step(
+  spec: contract.CommandSpec,
+  linux_host: Bool,
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let library = detect_preload()?
   let inherited = env.get_or("LD_PRELOAD", "")?
   if linux_host {
@@ -368,10 +394,24 @@ export proc run_test(spec: contract.CommandSpec) [fs, process, env, error, io] -
       let build = test_steps(spec, library, inherited)[0]
       execute_with_cargo_lock(build, lock_file)
     }
+
     execute_linux_test(Step(spec:, preload: null), lock_file, runner)
   } else {
     for step in test_steps(spec, library, inherited) {
       execute(step)
     }
+  }
+}
+
+## Runs a `cargo test` step: compiles under this machine's preload, then runs
+## the tests without it.
+export proc run_test(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
+  let spec = mold_driver_spec(spec)?
+  let overlay = musl_c_compiler_overlay(spec)?
+  let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
+  if let selected = overlay {
+    env (selected) { execute_test_step(spec, linux_host) }
+  } else {
+    execute_test_step(spec, linux_host)
   }
 }

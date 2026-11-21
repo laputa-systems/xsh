@@ -99,6 +99,25 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
   assert coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
 }
 
+test test_musl_c_compiler_selection_covers_the_native_linux_targets {
+  if let x86 = target_policy.musl_c_compiler("x86_64-unknown-linux-musl") {
+    assert x86.tool == "x86_64-linux-musl-gcc"
+    assert x86.variable == "CC_x86_64_unknown_linux_musl"
+  } else {
+    test.fail("x86-64 musl target has no C compiler")
+  }
+
+  if let arm = target_policy.musl_c_compiler("aarch64-unknown-linux-musl") {
+    assert arm.tool == "aarch64-linux-musl-gcc"
+    assert arm.variable == "CC_aarch64_unknown_linux_musl"
+  } else {
+    test.fail("aarch64 musl target has no C compiler")
+  }
+
+  assert target_policy.musl_c_compiler("aarch64-apple-darwin") == null
+  assert target_policy.musl_c_compiler("x86_64-unknown-linux-gnu") == null
+}
+
 test test_profiling_build_argv_and_environment_are_isolated {
   let target_dir = "/repo/.work/tmp/profiling-target"
   assert target_policy.profiling_argv("x86_64-unknown-linux-musl")? == [

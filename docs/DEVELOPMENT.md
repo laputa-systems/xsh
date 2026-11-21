@@ -21,6 +21,7 @@ The script installs these packages:
 | docker.io | Linux verification image |
 | git | Source checkout and verification |
 | git-lfs | Large-file-enabled checkouts |
+| musl-tools | Host C compiler for the product target's C boundary |
 | pkg-config | Native dependency discovery |
 | python3 | Development and test helpers |
 | ripgrep | Repository checks |
