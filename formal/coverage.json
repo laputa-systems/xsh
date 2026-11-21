@@ -2999,8 +2999,10 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store_writes"
     },
     {
       "id": "VAL-UNION",
@@ -12965,7 +12967,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For arbitrary effect scopes, agreement on every live parameter gives equal substituted contracts, including unknown replacements at unused parameters.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_included_iff",
@@ -12974,7 +12976,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given exact inclusion of arbitrary symbolic contracts, a mixed known/unknown substitution preserves inclusion exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_covered_iff",
@@ -12983,7 +12985,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given permission coverage of arbitrary symbolic contracts, a mixed known/unknown substitution preserves coverage exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
@@ -12992,7 +12994,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially included known expressions, inclusion survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
@@ -13001,7 +13003,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially covered known expressions, coverage survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
@@ -13010,7 +13012,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Value.referencesValid_mono",
@@ -13208,7 +13210,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The implication decision accepts identical predicates for every parameter scope.",
-      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. It closes no universal obligation; seven of the 77 are closed."
+      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.EffectPredicate.implies_sound",
@@ -13226,7 +13228,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A zero divisor of checked Int division or remainder is a division-by-zero error.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_ok",
@@ -13235,7 +13237,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "An accepted checked Int operation returns the exact mathematical result, its witness fits signed 64 bits, and a division or remainder divisor is nonzero.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_overflow",
@@ -13244,7 +13246,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A checked Int operation overflows exactly when its divisor is not a rejected zero and its witness leaves signed 64 bits.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.CleanupPolicy.disposition_contract",
@@ -15107,7 +15109,52 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
-      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes and unwinding are in store_writing_forms. Machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Writes.store_writing_forms",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.store_writing_forms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Destructuring declarations, field, key and index path writes, compound assignment, environment assignment and unwinding with cleanup and try over the Core-guarded store, with each selector and the right side given as an evaluation: whole-cell re-checking, no internal fault for typed paths and well-typed destructuring, key-sorted insertion and record-to-map conversion, negative Map[UInt, V] keys failing at their own selector, uncaught runtime failures, all-or-nothing declarations and primary-failure unwinding.",
+      "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. Deferred to BASE-STEP: the instantiation of Operate must show that list + is concatenate (SPEC 4.5), which VAL-STORE's += clauses assume. It does not close BASE-ENV for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "module": "Xsh.Proofs.Core.Statements",
+      "declaration": "Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The store-write meaning of the frozen core's let/var/const (also exported) and assignment statements over Statement, BindingTarget and AssignTarget syntax: declarations resolve their target, commit through declareTarget and bind each name so cellOf resolves it, assignments resolve their root through cellOf and run assignStatement on the flattened selector path, environment assignment sets the overlay, and a block restores name resolution on exit.",
+      "boundary": "Takes the name table's spellings, BASE-STEP expression and index evaluation, the checker's binder, cell and type for each declared name, and argv conversion as oracles. for, guard let, match and if-let pattern bindings, comprehension and retry targets, with, resource and tempdir scope bindings, function parameter binding at call, use aliases, declaration names and captures have no meaning here, and nested statement bodies belong to the control machine. It does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "module": "Xsh.Proofs.Core.Eval",
+      "declaration": "Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded evaluator for Syntax.Core literals, names through locals and Environment.cellOf, list and named-field record literals, field reads, list, map and record indexing where a negative literal index is BASE-NUM negation and counts from the end of a List only (so -0 is 0 and a map gets the negative key), not and negation, short-circuit and/or, Int, Float, Duration (including Int * Duration), Str and Bool operators, list +, if/else and positional calls of let-free functions whose bodies evaluate in their defining environment: results agree at every fuel that finishes, every failure is a runtime failure, binary operators evaluate left then right, and the operator results are BASE-NUM's ArithmeticMeaning, FloatMeaning, ComparisonMeaning, IEEE equality, IntegerExact and NegationMeaning, the DurationOps results in both scaling orders and list concatenate.",
+      "boundary": "Literal lexeme interpretation, runtime error values, the NaN policy and the let-free functions are parameters. Method calls (so IntToFloatMeaning, ToIntMeaning and BitsetMeaning), UInt arithmetic, ?, try and raised failures, ??, in, sets, guarded ?. and ?[], slices, map literals, record spread, shorthand, computed and path fields, comprehensions, pipelines, closures, named, spread and splice arguments and defaults, collection equality, host requests and the Map[UInt] key Schema failure have no meaning here. It does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalTyping.preservation",
+      "module": "Xsh.Proofs.Core.EvalTyping",
+      "declaration": "Xsh.Proofs.Core.EvalTyping.preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type preservation for the covered-expression evaluator: in a typing context whose names hold Core members of their types, through locals or Environment.cellOf and the store, with every let-free function's body typed at its signature in a typing context its own defining environment and the store satisfy, an evaluation that produces a value produces a member of the type the Typed judgment gives. Typed is defined from the SPEC 6.2 operator table, independently of the evaluator.",
+      "boundary": "Typed covers only the evaluator's forms: Int, Float, Duration, Str and Bool operators without UInt or union operands, lists, named-field records with distinct fields, list and map indexing, if/else and positional calls of named let-free functions. Unions, subtyping, generics, methods and the checker's own judgment are not modelled, and no correspondence with the Rust checker is claimed. It does not close BASE-STEP."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "module": "Xsh.Proofs.Core.EvalStatements",
+      "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "syntax_directed_store_writes with Oracles.evaluate and Operate answered by the covered-expression evaluator: the statement meaning holds for the instance, evaluator values and failures pass through with the store unchanged, every such failure propagates through try, declarations commit the evaluated value or fail with its failure, a well-typed initializer in a consistent context never reaches malformedTarget, and compound += on lists is concatenate, discharging the store_writing_forms deferral for this Operate.",
+      "boundary": "Forms the evaluator does not cover fall back to the given oracle and operator, and the selector, declaration, spelling and argv oracles stay parameters. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
@@ -15170,7 +15217,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
-      "boundary": "Store mutation through += and path writes are not modelled. Closes no full-core obligation."
+      "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
     }
   ],
   "artifact_certificates": [

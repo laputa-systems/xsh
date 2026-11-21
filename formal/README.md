@@ -185,6 +185,128 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
+The `store_writing_forms` fragment root is in
+[`Proofs/Core/Writes.lean`](Xsh/Proofs/Core/Writes.lean), over the forms of
+[`Semantics/CoreWrites.lean`](Xsh/Semantics/CoreWrites.lean). It is stated on
+the CoreWorld API over resolved targets with selectors and the right side
+already evaluated, so it does not close BASE-ENV, which needs a meaning over
+`Statement`, `AssignTarget` and `BindingTarget` syntax.
+
+- `let`/`var` with a `BindingTarget` is `declareTarget`. SPEC 7: "all fields
+  are selected before any name becomes visible"; the declaration commits every
+  cell or none, and `_` binds nothing. `..` (`hasRest`) is ignored because
+  records are width-compatible, which matches Rust.
+- `target sel… op= right` is `assignStatement` and `assignPath`. Selectors
+  evaluate in path order, and a negative key into `Map[UInt, V]` fails with the
+  catchable schema error at its own selector, before any later selector and the
+  right side run, as Rust does. The update
+  then commits on the store the right side left, re-checks the whole cell, and
+  a compound operator reads the target at commit (SPEC 7). An index outside
+  the list, a missing key under a deeper selector or a compound operator, and
+  an operator failure are runtime failures that `try` does not capture
+  (SPEC 8.8). A `=` write to a missing key inserts in key order (SPEC 4.5). A
+  field write on a filesystem entry publishes the entry's field record, which
+  follows Rust; the SPEC does not say. A key write into a record held in a
+  `Map[Str, V]` cell publishes a key-sorted map, and inserting into a
+  key-sorted map keeps it sorted. A present, mutable member cell with a typed
+  path never reaches an internal fault, a well-typed destructuring never
+  reaches `malformedTarget`, and a field write through a nominal type, which the checker
+  rejects (`check.assign-target`), is not a typed path. The operator meanings
+  and the runtime error values are parameters; Rust's write path raises
+  `missing-field` for a missing key. BASE-STEP owes the instantiation of
+  `Operate`, including that list `+` is `concatenate` (SPEC 4.5), which
+  VAL-STORE's `+=` clauses take as a premise.
+- `e"NAME" = value` is `setEnvironment`; a NUL value is the uncaught
+  `nul-argv` failure of argv conversion (SPEC 10.5, 11.4).
+- `unwind` runs the cleanups of a block in reverse order of registration on
+  the store the failure left; an earlier failure stays primary and, after a
+  committed body, the first cleanup failure becomes primary; `try` catches only
+  raised errors.
+
+The witnesses commit a field write and read it back, reject a negative `UInt`
+field, show that out-of-range indices, `/=` by zero and a missing key under
+`+=` are not caught, that a negative `Map[UInt, V]` key fails at its own selector before
+a later selector writes the store, that a missing key is inserted in key order,
+that `{b, a}` held in a `Map[Str, Int]` cell takes `"c"` as `a, b, c`, that `x += e` reads
+`x` after `e` while `x = x + e` reads it first, that an entry field write and
+a record-in-map key write publish values, and that the last registered
+cleanup runs first. Mutants that each falsify a conjunct: counting a negative
+index from the end, defaulting a missing key, appending an inserted key, a
+non-atomic destructuring, and a cleanup failure that replaces the primary one.
+
+The `syntax_directed_store_writes` fragment root is in
+[`Proofs/Core/Statements.lean`](Xsh/Proofs/Core/Statements.lean), over
+[`Semantics/CoreStatements.lean`](Xsh/Semantics/CoreStatements.lean). It gives
+the store-write meaning of `let`, `var` and `const` (also under `export`) and
+of assignment over the frozen core's `Statement`, `BindingTarget` and
+`AssignTarget` syntax. A declaration evaluates its initializer, resolves its
+target to cells and checker types, commits through `declareTarget`, and binds
+each name so that `Environment.cellOf` resolves it to its cell; a well-typed
+destructuring never reaches `malformedTarget`. An assignment resolves its root
+through `cellOf` and runs `assignStatement` on its flattened selector path, so
+every `store_writing_forms` fact applies; `e"NAME" = value` converts the value
+and sets the overlay. A block runs in a new lexical scope and leaving it
+restores name resolution. The oracles are the name table's spellings,
+BASE-STEP's expression and index evaluation, the checker's binder, cell and
+type for each declared name, and argv conversion (SPEC 11.4). The witness runs
+`var n: UInt = 0; n = 5; n = -1` as a block: the last write is a `type-error`
+that keeps `5`, and after the block `n` no longer resolves; a block without
+its scope exit still resolves `n`. BASE-ENV stays planned: `for`, `guard let`,
+`match`, `if let` and `while let` bindings, comprehension and `retry` targets,
+`with`, resource and `tempdir` scope bindings, parameter binding at call,
+`use` aliases, declaration names and captures have no meaning here.
+
+Three fragment roots cover the expression evaluator in
+[`Semantics/CoreEval.lean`](Xsh/Semantics/CoreEval.lean):
+`covered_expression_evaluation` in [`Proofs/Core/Eval.lean`](Xsh/Proofs/Core/Eval.lean),
+`preservation` in [`Proofs/Core/EvalTyping.lean`](Xsh/Proofs/Core/EvalTyping.lean)
+over the typing judgment in [`Typing/Core/Expressions.lean`](Xsh/Typing/Core/Expressions.lean),
+and `evaluated_store_writes` in [`Proofs/Core/EvalStatements.lean`](Xsh/Proofs/Core/EvalStatements.lean).
+The evaluator is fuel-bounded and covers `Syntax.Core` literals, names (locals,
+then `Environment.cellOf` and the store), list and named-field record
+literals, field reads, list, map and record indexing, `not` and negation,
+short-circuit `and` and `or`, the Int, Float, Duration, Str and Bool operators
+(with both `Duration * Int` and `Int * Duration`), list `+`, `if`/`else`, and
+positional calls of let-free functions. A negative literal index is evaluated
+by BASE-NUM negation and counts from the end of a `List` only, so `-0` is `0`
+and a map receives the negative key (SPEC 6.6). A function body evaluates in
+the environment the function was defined in. Operands and arguments evaluate
+once, left to right. A finished result is the same at every larger fuel.
+Every value is a member of the type the typing judgment gives, in a typing
+context whose names hold members and with every function typed at its
+signature in a context its own defining environment satisfies; the judgment is defined from the SPEC 6.2 operator table, not from
+the evaluator. Every failure is a runtime failure, which `try` propagates
+(SPEC 8.8). Operator results are BASE-NUM's `ArithmeticMeaning`,
+`FloatMeaning` under the context's `NaNPolicy`, `ComparisonMeaning`, IEEE
+equality, `IntegerExact` and `NegationMeaning`, the `DurationOps` results, and
+list `concatenate`. `evaluated_store_writes` answers BASE-ENV's
+`Oracles.evaluate` and `Operate` with the evaluator: declarations commit the
+evaluated value or fail with its failure, a well-typed initializer never
+reaches `malformedTarget`, and `+=` on lists is `concatenate`, discharging the
+`store_writing_forms` deferral for that `Operate`. The witnesses give
+`division-by-zero`, `integer-overflow`, `index-out-of-range`, `missing-field`
+and `missing-key`, each propagated by `try`, and give `[7, 8][-0]` as `7`,
+`m[-1]` as the `-1` entry, and `2 * 1s` as `2s`. Mutants each falsify a claim:
+`(1 / 0) + [][0]` with the right operand first reports `index-out-of-range`, a
+strict `and` fails on `false and [][0]`, the remainder BASE-NUM rejects gives
+`0` for the minimum `Int` `% -1`, reading a negative literal as a positive
+distance fails on `-0` and reads `m[1]`, and running a body in the caller's
+environment makes `let x = 1; fn f() { x }; { let x = 2; f() }` give `2`
+rather than `1`. BASE-STEP
+stays planned. Method calls (so `IntToFloatMeaning`, `ToIntMeaning` and
+`BitsetMeaning`), UInt arithmetic, `?`, `try` and raised failures, `??`, `in`,
+sets, guarded `?.` and `?[]`, slices, map literals, record spread, shorthand,
+computed and path fields, comprehensions, pipelines, closures, named, spread
+and splice arguments and defaults, collection equality, host requests and the
+`Map[UInt]` key Schema failure have no meaning here.
+
+The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
+has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
+the four function-definition kinds with parameters and defaults, signal hooks,
+sugar through its expansion, and command statements with their run forms.
+`TailBareIdent` is the existing `tailName`. Loader output, formatter-only
+flags and spans stay outside.
+
 BASE-NUM is closed by `numeric_semantics` in
 [`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
 UInt and Duration results and IEEE Float equality. `%` fails with
@@ -307,7 +429,20 @@ validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
-and rejects the same write to the `NonEmpty` cell. Store mutation through `+=` and path writes are not modelled. VAL-STORE remains planned.
+and rejects the same write to the `NonEmpty` cell.
+
+VAL-STORE is closed by `validated_store_writes` in the same module, over every
+store-writing form of `store_writing_forms`: a field, key or index write or a
+compound assignment commits exactly when the whole updated cell value is a
+member, and otherwise raises `type-error` with the store unchanged, so no write
+breaks a refinement or a nominal schema; a commit changes no other cell,
+including a validated holder. `names[i] = v` on a `NonEmpty` cell commits
+VAL-PRESERVE's `replaceAt` (SPEC 4.13). Where `operate .add` is list
+concatenation, an explicit premise that BASE-STEP must discharge when it
+instantiates `Operate` (SPEC 4.5), `+=` on a `NonEmpty` cell commits through
+`add_assign_commits` and `+=` into a `NonEmpty` field of a well-formed record
+keeps the field `NonEmpty`. The witness that empties a `NonEmpty` field is
+model-level: Rust rejects that program at check time.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
@@ -839,7 +974,7 @@ The comparison calls the same `value_matches_static_type` used by argument
 validation and its shared borrowed structural decision. Lean's `Membership.check`
 is proved equivalent to `Membership.value` by `check_iff`; agreement with Rust
 on this finite domain is evidence, not universal refinement. TYPE-MEMBER
-remains planned, with 69 other whole-core obligations; seven of the 77 are
+remains planned, with 68 other whole-core obligations; eight of the 77 are
 closed. Ordinary Rust tests do not need
 the corpus or Lean.
 

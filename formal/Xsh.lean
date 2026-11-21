@@ -76,6 +76,15 @@ import Xsh.Semantics.BaseInvariant
 import Xsh.Proofs.BaseInvariant
 import Xsh.Proofs.Base.Env
 import Xsh.Proofs.Core.Env
+import Xsh.Semantics.CoreWrites
+import Xsh.Proofs.Core.Writes
+import Xsh.Semantics.CoreStatements
+import Xsh.Proofs.Core.Statements
+import Xsh.Semantics.CoreEval
+import Xsh.Proofs.Core.Eval
+import Xsh.Typing.Core.Expressions
+import Xsh.Proofs.Core.EvalTyping
+import Xsh.Proofs.Core.EvalStatements
 import Xsh.Proofs.Base.Num
 import Xsh.Proofs.Base.Step
 import Xsh.Proofs.Base.Progress

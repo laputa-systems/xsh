@@ -2,11 +2,11 @@
 
 **Status:** active since the owner restarted the Lean lane on 2026-11-03. The
 connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,267 `SPEC_PROVED` fragment
+`formal/coverage.json` is the only inventory: 1,272 `SPEC_PROVED` fragment
 roots, thirteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
 at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and 77 universal
-obligations, of which seven are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
-VAL-PRESERVE, VAL-REQUIRE, VAL-UNION and VAL-WIDEN, plus two
+obligations, of which eight are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
+VAL-PRESERVE, VAL-REQUIRE, VAL-STORE, VAL-UNION and VAL-WIDEN, plus two
 `EXTRACTED_REFINEMENT` implementation proofs (schema 4, see
 `formal/IMPL.md`). `formal/README.md` describes each accepted
 fragment and its exclusions; `python3 formal/scripts/check-inventory.py`

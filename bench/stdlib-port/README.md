@@ -4,9 +4,7 @@
 workload scripts. It checks exit status, output, and persistent filesystem
 effects before measuring; each workload interleaves fresh reference and
 candidate processes. The JSON report retains raw samples, binary and fixture
-hashes, parity results, and the budget decision. Historical reports are kept
-beside the runner; their measurements apply only to their recorded binaries,
-fixtures, and host.
+hashes, parity results, and the budget decision.
 
 The gate allows a candidate-minus-reference increase of at most
 `max(5% of reference, 1 ms)` for cold-start workloads and
@@ -20,36 +18,10 @@ the rule.
 
 ## Historical reports
 
-These checked-in JSON reports retain the measurements for their recorded
-binaries and fixtures. The complete paired B0 (`37e1502ec928fb0bd1194f056e4f21c8e621d80b`)
-and B1 (`d0bbc6e74fa2d48e90e174bb6a5f0f4281c0bea2`) runs are
-[macOS B0](results-paired-b0.json), [macOS B1](results-paired-b1.json),
-[Linux B0](results-paired-linux-b0.json), and
-[Linux B1](results-paired-linux-b1.json). Later campaign reports retain their
-original identifiers:
-
-- B01 tooling: [accepted report](results-b01-tooling.json).
-- B02 native CLI: [macOS](results-b02-native-cli-macos-b0.json) and
-  [Linux](results-b02-native-cli-linux-b0.json).
-- B03 native dispositions: [report](results-b03-native-disposition.json).
-- B04 cost shapes: [report](results-b04-cost-shapes.json).
-- B05 cold workloads: [report](results-b05-cold.json).
-- B07 Linux modules: [native B0](results-linux-modules-native-b0.json),
-  [partial B0 stream cursor](results-linux-modules-partial-b0-stream-cursor.json),
-  and [full B0 stream cursor](results-linux-modules-full-b0-stream-cursor.json).
-- B11 cumulative results: [Linux](results-b11-cumulative-linux.json) and
-  [macOS](results-b11-cumulative-macos-final.json); copied-product reports:
-  [Linux](results-b11-copied-linux.json) and
-  [macOS](results-b11-copied-macos.json); Linux text results:
-  [prechange](results-b11-linux-text-prechange.json) and
-  [native](results-b11-linux-text-native.json), plus
-  [text wrapping](results-b11-text-wrap.json).
-
-Targeted text reports remain in [wrap](results-text-wrap-fastpath.json),
-[padding](results-text-pad-seed.json), and
-[small formatting](results-fmt-small-bytes.json) results.
-These JSON files are historical measurements; results apply only to their
-recorded binaries, fixtures, and host.
+The port campaign's paired B0/B1 reports and the B01–B11 follow-up reports
+are no longer checked in. They measured binaries and hosts that no longer
+exist; read them with `git show 49ef544c0:bench/stdlib-port/results-paired-b0.json`
+and `git ls-tree 49ef544c0 bench/stdlib-port/`.
 
 ## Host run
 
