@@ -206,19 +206,114 @@ inductive BodyResult where
 
 /-- Scan one single-line body. A line feed, a carriage return, the end of input, or a lone
 trailing backslash ends an open body; otherwise the first unescaped quote closes it. -/
-def scanBody (offset : Nat) : List UInt8 → BodyResult
+def scanBody : List UInt8 → BodyResult
   | [] => .open
   | 34 :: after => .closed after
   | 10 :: _ => .open
   | 13 :: _ => .open
-  | [92] => .open
-  | 92 :: rest => scanBody (offset + 1 + escapeSyntax rest) (rest.drop (escapeSyntax rest))
-  | _ :: rest => scanBody (offset + 1) rest
+  | 92 :: rest => scanBody (rest.drop (escapeSyntax rest))
+  | _ :: rest => scanBody rest
 termination_by bytes => bytes.length
 decreasing_by
   · simp only [List.length_cons, List.length_drop]; omega
   · simp
 
+theorem scan_body_eq (bytes : List UInt8) :
+    scanBody bytes =
+      (match bytes with
+      | [] => .open
+      | 34 :: after => .closed after
+      | 10 :: _ => .open
+      | 13 :: _ => .open
+      | 92 :: rest => scanBody (rest.drop (escapeSyntax rest))
+      | _ :: rest => scanBody rest) := by
+  rw [scanBody.eq_def]
+
+/-- The declarative reading of one string body. `closed after` means an unescaped quote ends
+it with `after` following; `open` means a line feed, a carriage return, the end of input, or a
+lone trailing backslash comes first. -/
+inductive BodyScan : List UInt8 → BodyResult → Prop where
+  | closed (after : List UInt8) : BodyScan (34 :: after) (.closed after)
+  | openNil : BodyScan [] .open
+  | openLine (rest : List UInt8) : BodyScan (10 :: rest) .open
+  | openCarriage (rest : List UInt8) : BodyScan (13 :: rest) .open
+  | escape {rest : List UInt8} {after : BodyResult} :
+      BodyScan (rest.drop (escapeSyntax rest)) after → BodyScan (92 :: rest) after
+  | text {byte : UInt8} {rest : List UInt8} {after : BodyResult} :
+      byte ≠ 34 → byte ≠ 92 → byte ≠ 10 → byte ≠ 13 →
+      BodyScan rest after → BodyScan (byte :: rest) after
+theorem scan_body_nil : scanBody [] = .open := by rw [scan_body_eq]
+
+theorem scan_body_quote (after : List UInt8) : scanBody (34 :: after) = .closed after := by
+  rw [scan_body_eq]; simp only
+
+theorem scan_body_line (rest : List UInt8) : scanBody (10 :: rest) = .open := by
+  rw [scan_body_eq]; simp only
+
+theorem scan_body_carriage (rest : List UInt8) : scanBody (13 :: rest) = .open := by
+  rw [scan_body_eq]; simp only
+
+theorem scan_body_escape (rest : List UInt8) :
+    scanBody (92 :: rest) = scanBody (rest.drop (escapeSyntax rest)) := by
+  rw [scan_body_eq]; simp only
+
+theorem scan_body_text (byte : UInt8) (rest : List UInt8) (notQuote : byte ≠ 34)
+    (notBackslash : byte ≠ 92) (notLine : byte ≠ 10) (notCarriage : byte ≠ 13) :
+    scanBody (byte :: rest) = scanBody rest := by
+  rw [scan_body_eq]; simp only [notQuote, notBackslash, notLine, notCarriage, ite_false]
+
+theorem body_scan_sound {bytes : List UInt8} {outcome : BodyResult}
+    (derivation : BodyScan bytes outcome) : scanBody bytes = outcome := by
+  induction derivation with
+  | closed => rw [scan_body_quote]
+  | openNil => rw [scan_body_nil]
+  | openLine => rw [scan_body_line]
+  | openCarriage => rw [scan_body_carriage]
+  | escape inner ih => rw [scan_body_escape]; exact ih
+  | text notQuote notBackslash notLine notCarriage inner ih =>
+      rw [scan_body_text _ _ notQuote notBackslash notLine notCarriage]; exact ih
+
+/-- The scanner's own outcome always has a declarative derivation. -/
+theorem body_scan_self (bytes : List UInt8) : BodyScan bytes (scanBody bytes) := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n →
+    BodyScan bytes (scanBody bytes)
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len
+      cases bytes with
+      | nil => rw [scan_body_nil]; exact .openNil
+      | cons byte rest =>
+        by_cases quote : byte = 34
+        · subst quote; rw [scan_body_quote]; exact .closed rest
+        · by_cases line : byte = 10
+          · subst line; rw [scan_body_line]; exact .openLine rest
+          · by_cases carriage : byte = 13
+            · subst carriage; rw [scan_body_carriage]; exact .openCarriage rest
+            · by_cases backslash : byte = 92
+              · subst backslash
+                rw [scan_body_escape]
+                have dropShorter :
+                    (rest.drop (escapeSyntax rest)).length < n := by
+                  simp only [List.length_cons] at len ⊢
+                  have := List.length_drop (l := rest) (i := escapeSyntax rest)
+                  omega
+                exact .escape (ih _ dropShorter _ rfl)
+              · rw [scan_body_text byte rest quote backslash line carriage]
+                have shorter : rest.length < n := by
+                  simp only [List.length_cons] at len; omega
+                exact .text quote backslash line carriage (ih _ shorter _ rfl)
+  exact key bytes.length bytes rfl
+
+theorem body_scan_complete {bytes : List UInt8} {outcome : BodyResult}
+    (scanned : scanBody bytes = outcome) : BodyScan bytes outcome := by
+  rw [← scanned]
+  exact body_scan_self bytes
+
+theorem body_scan_iff (bytes : List UInt8) (outcome : BodyResult) :
+    scanBody bytes = outcome ↔ BodyScan bytes outcome :=
+  ⟨body_scan_complete, body_scan_sound⟩
 end SourceAdmission
 
 end Xsh.Conformance.Vertical
