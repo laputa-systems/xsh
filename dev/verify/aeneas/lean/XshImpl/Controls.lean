@@ -139,6 +139,14 @@ def admitsComparison : XshImpl.Arith.Implementation
   | .Lt, _, _ => ok (some (.Ok (int 1)))
   | op, left, right => arith.checked_int_binary op left right
 
+def panickingDivision : XshImpl.Arith.Implementation
+  | .Div, left, right =>
+    if right = 0#i64 then ok (some (.Err .DivisionByZero))
+    else do
+      let quotient ← left / right
+      ok (some (.Ok quotient))
+  | op, left, right => arith.checked_int_binary op left right
+
 def alwaysOverflow : XshImpl.Arith.Implementation
   | op, _, _ => ok ((XshImpl.Arith.intOp? op).map fun _ => .Err .Overflow)
 
@@ -186,6 +194,14 @@ theorem admitted_comparison_rejected : ¬ XshImpl.Arith.Refines admitsComparison
   subst run
   revert decoded
   decide
+
+theorem panicking_division_rejected : ¬ XshImpl.Arith.Refines panickingDivision := by
+  intro claim
+  obtain ⟨out, run, _⟩ := claim .Div (int (-9223372036854775808)) (int (-1))
+  have negOne : ¬ int (-1) = 0#i64 := by decide
+  have panics : int (-9223372036854775808) / int (-1) = fail .integerOverflow := by
+    simp [HDiv.hDiv, IScalar.div, I64.min_eq]
+  simp [panickingDivision, negOne, panics] at run
 
 theorem always_overflow_rejected : ¬ XshImpl.Arith.Refines alwaysOverflow := by
   intro claim

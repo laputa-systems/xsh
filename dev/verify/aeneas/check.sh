@@ -53,6 +53,7 @@ theorems=(
   XshImpl.Controls.floored_division_rejected
   XshImpl.Controls.swapped_zero_error_rejected
   XshImpl.Controls.admitted_comparison_rejected
+  XshImpl.Controls.panicking_division_rejected
   XshImpl.Controls.always_overflow_rejected
   XshImpl.Controls.duration_success_and_truncation
   XshImpl.Controls.duration_error_branches

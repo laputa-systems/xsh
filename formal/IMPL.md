@@ -131,7 +131,9 @@ The translation leaves no axiom, opaque item or noncomputable section;
 `checked_add`, `checked_sub`, `checked_mul`, `checked_div` and `checked_rem`;
 `Option::ok_or`; `Result::map_err`; `Try::branch` and `FromResidual` for `?`;
 unsigned division; and the `as` casts `IScalar.hcast` and `UScalar.hcast`.
-Each was read. One was wrong: upstream `checked_rem` for signed integers is
+The proofs use the library's specification lemmas, which the kernel checks, so
+the trust is in each model definition matching Rust; each was read against
+the Rust documentation. One was wrong: upstream `checked_rem` for signed integers is
 `Option.ofResult (IScalar.rem x y)`, and `IScalar.rem` fails only on a zero
 divisor, so the model answers `Some(0)` for `i64::MIN.checked_rem(-1)`.
 Rust returns `None`, which the slice witness test checks with the production
@@ -167,7 +169,8 @@ Aeneas defaults; the hand-written modules set no option.
   rule, and Lean proves it violates the same refinement property: wrapping
   addition, the upstream remainder model, floored division, an overflow error
   for a zero divisor, an admitted comparison, an implementation that always
-  overflows, wrapping duration addition, saturating subtraction, a wrapped
+  overflows, a division that panics at `MIN / -1` instead of reporting
+  overflow, wrapping duration addition, saturating subtraction, a wrapped
   negative factor and a wrapping interval count, and an implementation that
   always reports a type error.
 - **Source mutant.** `mutant.sh` replaces `checked_add` with `wrapping_add` in a
@@ -181,10 +184,16 @@ The theorems prove the shared decisions, not their adapters. Native
 regressions in [`int-arithmetic-routes.xsh`](../tests/xsh/int-arithmetic-routes.xsh)
 and [`duration-arithmetic.xsh`](../tests/xsh/duration-arithmetic.xsh) check each
 behavior class (overflow of `+ - *`, both zero divisors, `MIN / -1`,
-`MIN % -1`, truncation toward zero, every duration error) through `let`
-bindings, returned expressions, compound assignment, literal operands and
-`const` initializers, with the error code and the operator's line and column.
-Which execution route each form takes is from reading the lowerer. Unproved:
+`MIN % -1`, truncation toward zero, every duration error) through
+unannotated and annotated `let` bindings, returned expressions, compound
+assignment, literal operands and `const` initializers, with the error code
+and, except on one route, the operator's line and column. Which execution
+route each form takes is from reading the lowerer. The exception is a
+reproduced blame defect (XSH-157): an unannotated `let result = left + right`
+over `Int` parameters takes the typed `IntBinary` route, which carries no
+operator span, and reports the failure at the caller's `apply(...)` instead
+of the operator that the annotated and returned forms report. That regression
+asserts the error code only until the span is carried. Unproved:
 that the adapters pass the operator and operands unchanged, that constant
 preparation's decline leaves the runtime to report the failure, and that the
 span is the operator's. The execution adapter's
@@ -212,12 +221,13 @@ python3 formal/scripts/check-inventory.py
 extraction image from `extract.Dockerfile`, extracts the slice and compares the
 translation with the committed file (without `--check` it installs it).
 `check.sh` fetches Mathlib's cache, applies the patch, builds `XshImpl`, audits
-the axioms of the 24 recorded theorems and runs `leanchecker --fresh XshImpl`.
+the axioms of the 25 recorded theorems and runs `leanchecker --fresh XshImpl`.
 
-Measured on the 32-CPU host in one 4-CPU Lean slot: extraction 5 s; warm
-`check.sh` 184 s; `leanchecker --fresh XshImpl` 172 s wall, 164 s user, 2.51
-GiB peak resident memory, over the whole import closure including the Mathlib
-and Aeneas modules it reaches; rebuilding the 60 Aeneas modules the patch
+Measured on the shared 32-CPU host in one 4-CPU Lean slot, over two runs:
+extraction 5 s; warm `check.sh` 184 and 228 s; `leanchecker --fresh XshImpl`
+172 and 204 s wall, 164 and 194 s user, 2.51 GiB peak resident memory both
+times, over the whole import closure including the Mathlib and Aeneas modules
+it reaches; rebuilding the 60 Aeneas modules the patch
 affects 44 s and 2.0 GiB; the source mutant 17 s. Mathlib v4.35.0
 (`56a00585`, Apache-2.0) and Aeneas (Apache-2.0) are dev-only dependencies of
 this harness, not of `formal/` or any product.
@@ -227,8 +237,8 @@ this harness, not of `formal/` or any product.
 One bounded investigation of the OSS Verify route used the harness
 [`dev/verify/binary/fuzz`](../dev/verify/binary/fuzz/fuzz_targets/checked_int_binary.rs):
 an `LLVMFuzzerTestOneInput` that decodes an operator and two `i64` values,
-calls the production `checked_int_binary`, compares it with an `i128` oracle of
-`Xsh.Core.Arith.checked`, and aborts on a difference. A halts proof of its plain
+calls the production `checked_int_binary`, compares it with an `i128`
+restatement of `Xsh.Core.Arith.checked`, and aborts on a difference. A halts proof of its plain
 build would prove the property for the binary. Built as a riscv64 musl static
 library with rustc nightly-2026-09-17 (`-Copt-level=s -Cpanic=abort
 -Zub-checks=no --cfg fuzzing`), the entry point keeps the guarded `div`,
@@ -240,7 +250,10 @@ rustc +nightly-2026-09-17 --edition 2024 --crate-type staticlib --crate-name xsh
   --target riscv64gc-unknown-linux-musl -C opt-level=s -C panic=abort -C debuginfo=1 \
   -Zub-checks=no --cfg fuzzing dev/verify/binary/fuzz/fuzz_targets/checked_int_binary.rs \
   -o .work/impl/binary/libxsh_arith_fuzz.a
-llvm-objdump -dr .work/impl/binary/libxsh_arith_fuzz.a | rg 'R_RISCV_CALL|\b(div|rem|mulh)\b'
+cd .work/impl/binary
+member=$(llvm-ar t libxsh_arith_fuzz.a | rg '^libxsh_arith_fuzz\.xsh_arith_fuzz\.')
+llvm-ar x libxsh_arith_fuzz.a "$member"
+llvm-objdump -dr "$member" | rg 'R_RISCV_CALL|\b(div|rem|mulh)\b'
 ```
 
 The route stops there. A statement exists only for binaries that the OSS Verify
@@ -264,15 +277,18 @@ binary built by another compiler, not the x86_64 and aarch64 products.
 | `ratio_case` closed by `simp` over unfolded bounds | tool limitation | The kernel reported deep recursion; the case now uses the model's own `ratio` lemmas |
 | Concrete witnesses by `decide` on `checked_div` and `checked_rem` | tool limitation | Reduction stops at the irreducible `IScalar.min`; the witnesses derive from the model's specification lemmas |
 
-No attempt exposed an XSH defect, and no production source changed.
+No proof attempt exposed an XSH defect, and no production source changed.
+Writing the adapter regressions exposed the typed-route blame defect
+(XSH-157); its repair is in the lowering and runtime owners, outside this
+increment.
 XSH-150 to XSH-154 concern paths, `.require`, module contracts and map writes,
 not these functions, and were not reused.
 
 ## Next
 
-Close the adapter gap: prove that both execution routes pass operators and
-operands to the shared decision and report its error at the operator span,
-which needs the lowering and indexed-execution steps for `IntBinary` and
-`ExprBinary` in the IR model, and add the `IntBinary` operator check to
-`FullVerifier::verify`. Then apply the same route to the membership decision
+Close the adapter gap: carry the operator span on `IntBinary` (XSH-157) and
+check its operator in `FullVerifier::verify` (XSH-155), then prove that both
+execution routes pass operators and operands to the shared decision and report
+its error at the operator span, which needs the lowering and indexed-execution
+steps for `IntBinary` and `ExprBinary` in the IR model. Then apply the same route to the membership decision
 behind `value_matches_static_type`.

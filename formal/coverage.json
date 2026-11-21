@@ -15673,6 +15673,7 @@
           "XshImpl.Controls.floored_division_rejected",
           "XshImpl.Controls.swapped_zero_error_rejected",
           "XshImpl.Controls.admitted_comparison_rejected",
+          "XshImpl.Controls.panicking_division_rejected",
           "XshImpl.Controls.always_overflow_rejected",
           "XshImpl.Controls.upstream_remainder_model_differs_at_min"
         ]
@@ -15706,9 +15707,18 @@
       ],
       "resources": {
         "extraction_check_wall_seconds": 5,
-        "harness_check_wall_seconds": 184,
-        "fresh_kernel_check_wall_seconds": 172,
-        "fresh_kernel_check_user_seconds": 164,
+        "harness_check_wall_seconds": [
+          184,
+          228
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194
+        ],
         "fresh_kernel_check_peak_rss_mib": 2575,
         "patched_library_rebuild_wall_seconds": 44,
         "patched_library_rebuild_peak_rss_mib": 2047,
@@ -15820,9 +15830,18 @@
       ],
       "resources": {
         "extraction_check_wall_seconds": 5,
-        "harness_check_wall_seconds": 184,
-        "fresh_kernel_check_wall_seconds": 172,
-        "fresh_kernel_check_user_seconds": 164,
+        "harness_check_wall_seconds": [
+          184,
+          228
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194
+        ],
         "fresh_kernel_check_peak_rss_mib": 2575,
         "patched_library_rebuild_wall_seconds": 44,
         "patched_library_rebuild_peak_rss_mib": 2047,
