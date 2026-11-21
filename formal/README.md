@@ -419,9 +419,9 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: writable captures through calls nested in expressions,
-which needs the expression evaluator to thread the store (P); local functions
-as first-class `Proc`/`Pure` values with `.call` (P).
+Writes and values: an assignment, inside a value block nested in an
+expression, to a cell that exists before the block (P); local functions as
+first-class `Proc`/`Pure` values with `.call` (P).
 
 Binders: declared types still come from the resolution oracle (P), and the
 resolution pass is tied to the machine through the operations
@@ -430,8 +430,8 @@ resolution pass is tied to the machine through the operations
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
 `Represents` link between the machine's lexical environment and the pass's
-scopes, and writable captures: a statement-level call of a local function
-returns with the caller's cells as the callee left them, and the callee may
+scopes, and writable captures: a call of a local function returns with the
+caller's cells as the callee left them, and the callee may
 write a caller-held cell only when it is one of the closure's captured mutable
 cells (SPEC 9.2). Its witnesses are a counter closure, a write that reaches the
 captured cell rather than the call site's shadowing one, and the pass on a
@@ -443,6 +443,40 @@ The `parameters_and_maps` fragment root adds default and rest parameters
 see other parameters, and run once per call for each omitted argument, in
 parameter order, after the supplied arguments") and map comprehensions, where
 the later projection of a key wins and the key is projected before the value.
+
+The `expression_store_threading` fragment root, in
+[`Proofs/Core/Threading.lean`](Xsh/Proofs/Core/Threading.lean), gives the
+statement machine its own store-threading expression step. `evalExpr` returns
+an `Evaluated` result, a value or a failure with the store it leaves, so a
+failure keeps the writes made before it. `threadStep` is `CoreEval.step` with
+the store threaded and the same `binary`, `unary`, `indexAt` and `fieldOf`:
+operands, list elements, record fields, branch tests, call arguments,
+assignment selectors and omitted defaults evaluate left to right, each in the
+store the one before it left (SPEC 1: "Evaluation order is source order").
+Every call that runs a body goes through `callBlock`, which returns through
+`returnTo`, so a captured mutable cell written by a call nested anywhere in an
+expression reaches the caller (SPEC 9.2: "A writable capture must refer to
+mutable storage with exactly that type"), and a call in statement position is
+the same evaluation. On a scope without local functions, wherever
+`CoreEval.evaluate` gives an `Evaluable` expression (its forms, without `??`)
+a meaning and every expression-bodied plain function's body is evaluable, the
+machine gives the evaluator's result with the store unchanged, so
+`covered_expression_evaluation`, `preservation` and `evaluated_store_writes`
+describe the machine's results there; with defaults that leave the store as
+it is, the threaded binder is `bindArguments`, which `parameters_and_maps`
+describes. Finished results agree at every fuel, and every result keeps the
+cells it started with at their types. The witnesses give `[counter(),
+counter()]` as `[1, 2]` with `count = 2`, `counter() * 7 + counter()` as `9`
+with `count = 2`, `[defaulted(), count]` as `[1, 1]` through a default that
+calls the counter, and the bridge's premises on `[7, 8][-0] + 2 * 2`. Three
+mutants are rejected: a list step that drops nested writes gives `[1, 1]` and
+leaves `count = 0`, right-to-left elements give `[2, 1]`, and a right-first
+`+` gives `15`. Threading restates `error_handling`'s `?` and call equations
+and its return-kind cases (now `returnTo`'s, with the kept store),
+`local_bindings`' `.item` equation and `deferred_cleanup`'s `call_activation`
+conjunct; the bridge excludes local-function calls, `Ok` and `Err`
+constructors, `??`, value blocks and every other form the evaluator leaves
+unsupported.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

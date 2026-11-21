@@ -58,27 +58,6 @@ theorem withinScope_refines {world : World Declaration Identity Source} (outer :
   · subst same
     exact Or.inr rfl
 
-theorem fromResult_refines {world : World Declaration Identity Source} (frame : Frame world)
-    {first second : Result Declaration Identity Source (Value Declaration Identity Source)}
-    {next next' : Value Declaration Identity Source → Exec world} (head : Refines first second)
-    (tail : ∀ value, Exec.Refines (next value) (next' value)) :
-    Exec.Refines (fromResult frame first next) (fromResult frame second next') := by
-  rcases head with out | same
-  · subst out
-    exact Or.inl rfl
-  · subst same
-    cases first with
-    | value value => exact tail value
-    | _ => exact Or.inr rfl
-
-theorem boundary_refines {world : World Declaration Identity Source} (kind : ReturnKind) {first second : Exec world}
-    (head : Exec.Refines first second) : Refines (boundary kind first) (boundary kind second) := by
-  rcases head with out | same
-  · subst out
-    cases kind <;> exact Or.inl rfl
-  · subst same
-    exact Or.inr rfl
-
 def Valued.Refines {world : World Declaration Identity Source} (first second : Valued world) : Prop :=
   first = .exec .outOfFuel ∨ first = second
 
@@ -120,23 +99,6 @@ theorem thenValued_refines {world : World Declaration Identity Source} {first se
     cases first with
     | normal frame => exact tail frame
     | _ => exact Or.inr rfl
-
-theorem resultThen_refines {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
-    {first second : Result Declaration Identity Source α} {next next' : α → Valued world}
-    (head : Refines first second) (tail : ∀ result, Valued.Refines (next result) (next' result)) :
-    Valued.Refines (resultThen frame first next) (resultThen frame second next') := by
-  rcases head with out | same
-  · subst out
-    exact Or.inl rfl
-  · subst same
-    cases first with
-    | value result => exact tail result
-    | _ => exact Or.inr rfl
-
-theorem fromEval_refines {world : World Declaration Identity Source} (frame : Frame world)
-    {first second : Result Declaration Identity Source (Value Declaration Identity Source)}
-    (head : Refines first second) : Valued.Refines (fromEval frame first) (fromEval frame second) :=
-  resultThen_refines frame head fun _ => valued_refl _
 
 theorem settle_refines {world : World Declaration Identity Source} {leave leave' : Exec world → Exec world}
     (leaving : ∀ first second, Exec.Refines first second → Exec.Refines (leave first) (leave' second))
@@ -205,31 +167,6 @@ theorem loopStep_refines {world : World Declaration Identity Source} {next next'
     | continued frame => exact tail frame
     | _ => exact valued_refl _
 
-theorem resultExec_refines {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
-    {first second : Result Declaration Identity Source α} {next next' : α → Exec world}
-    (head : Refines first second) (tail : ∀ result, Exec.Refines (next result) (next' result)) :
-    Exec.Refines (resultExec frame first next) (resultExec frame second next') := by
-  rcases head with out | same
-  · subst out
-    exact Or.inl rfl
-  · subst same
-    cases first with
-    | value result => exact tail result
-    | _ => exact Or.inr rfl
-
-theorem selectorsOf_refines {world : World Declaration Identity Source}
-    {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
-    ∀ type path, Refines (selectorsOf (world := world) evaluate type path) (selectorsOf evaluate' type path)
-  | _, [] => refines_refl _
-  | type, .field label :: rest => bind_refines (selectorsOf_refines each _ rest) fun _ => refines_refl _
-  | type, .index selector :: rest => by
-    simp only [selectorsOf]
-    refine bind_refines (each selector) fun index => ?_
-    split
-    · exact refines_refl _
-    · exact bind_refines (selectorsOf_refines each _ rest) fun _ => refines_refl _
-
 theorem bindArguments_refines
     {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
@@ -282,13 +219,202 @@ theorem returnTo_refines {world : World Declaration Identity Source} (caller : F
   · subst same
     exact valued_refl _
 
-theorem valuedResult_refines {world : World Declaration Identity Source} {first second : Valued world}
-    (head : Valued.Refines first second) : Refines (valuedResult first) (valuedResult second) := by
+def Evaluated.Refines {world : World Declaration Identity Source} {α : Type} (first second : Evaluated world α) :
+    Prop :=
+  first = .outOfFuel ∨ first = second
+
+theorem erefines_refl {world : World Declaration Identity Source} {α : Type} (result : Evaluated world α) :
+    Evaluated.Refines result result :=
+  Or.inr rfl
+
+theorem ebind_refines {world : World Declaration Identity Source} {α β : Type} {first second : Evaluated world α}
+    {next next' : α → Store world → Evaluated world β} (head : Evaluated.Refines first second)
+    (tail : ∀ value store, Evaluated.Refines (next value store) (next' value store)) :
+    Evaluated.Refines (first.bind next) (second.bind next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value value store => exact tail value store
+    | _ => exact Or.inr rfl
+
+theorem within_refines {world : World Declaration Identity Source} {α : Type} (before : Store world)
+    {first second : Evaluated world α} (head : Evaluated.Refines first second) :
+    Evaluated.Refines (first.within before) (second.within before) := by
   rcases head with out | same
   · subst out
     exact Or.inl rfl
   · subst same
     exact Or.inr rfl
+
+theorem exec_refines {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    {first second : Evaluated world α} {next next' : α → Frame world → Exec world}
+    (head : Evaluated.Refines first second) (tail : ∀ value frame, Exec.Refines (next value frame) (next' value frame)) :
+    Exec.Refines (first.exec frame next) (second.exec frame next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value value store => exact tail value _
+    | _ => exact Or.inr rfl
+
+theorem valued_refines {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    {first second : Evaluated world α} {next next' : α → Frame world → Valued world}
+    (head : Evaluated.Refines first second) (tail : ∀ value frame, Valued.Refines (next value frame) (next' value frame)) :
+    Valued.Refines (first.valued frame next) (second.valued frame next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value value store => exact tail value _
+    | _ => exact Or.inr rfl
+
+theorem stored_refines {world : World Declaration Identity Source} (frame : Frame world)
+    {first second : Evaluated world (Value Declaration Identity Source)} (head : Evaluated.Refines first second) :
+    Valued.Refines (stored frame first) (stored frame second) :=
+  valued_refines frame head fun _ _ => valued_refl _
+
+theorem fromValued_refines {world : World Declaration Identity Source} {first second : Valued world}
+    (head : Valued.Refines first second) : Evaluated.Refines (fromValued first) (fromValued second) := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    exact Or.inr rfl
+
+theorem threadAll_refines {world : World Declaration Identity Source} {α : Type}
+    {evaluate evaluate' : Store world → α → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, Evaluated.Refines (evaluate store source) (evaluate' store source)) :
+    ∀ store items, Evaluated.Refines (threadAll evaluate store items) (threadAll evaluate' store items)
+  | _, [] => erefines_refl _
+  | store, first :: rest => ebind_refines (each store first) fun _ after =>
+      ebind_refines (threadAll_refines each after rest) fun _ _ => erefines_refl _
+
+theorem threadFields_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate evaluate' : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, Evaluated.Refines (evaluate store source) (evaluate' store source)) :
+    ∀ store fields, Evaluated.Refines (threadFields context evaluate store fields) (threadFields context evaluate' store fields)
+  | _, [] => erefines_refl _
+  | store, .named _ operand :: rest => ebind_refines (each store operand) fun _ after =>
+      ebind_refines (threadFields_refines context each after rest) fun _ _ => erefines_refl _
+  | _, .computed _ _ :: _ | _, .path _ _ :: _ | _, .shorthand _ :: _ | _, .spread _ :: _ => erefines_refl _
+
+theorem threadBranches_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, Evaluated.Refines (evaluate store source) (evaluate' store source)) :
+    ∀ store conditions otherwise,
+      Evaluated.Refines (threadBranches evaluate store conditions otherwise) (threadBranches evaluate' store conditions otherwise)
+  | store, [], otherwise => each store otherwise
+  | store, (condition, value) :: rest, otherwise => by
+    simp only [threadBranches]
+    refine ebind_refines (each store condition) fun result after => ?_
+    split
+    · exact each after value
+    · exact threadBranches_refines each after rest otherwise
+    · exact erefines_refl _
+
+theorem threadStep_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+    (environment : Environment)
+    {recurse recurse' : Environment → Locals Declaration Identity Source → Store world → Xsh.Syntax.Expr →
+      Evaluated world (Value Declaration Identity Source)}
+    (inner : ∀ environment locals store expression,
+      Evaluated.Refines (recurse environment locals store expression) (recurse' environment locals store expression))
+    {callBlock callBlock' : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
+      Store world → Evaluated world (Value Declaration Identity Source)}
+    (blocks : ∀ environment locals statements kind store,
+      Evaluated.Refines (callBlock environment locals statements kind store) (callBlock' environment locals statements kind store))
+    (locals : Locals Declaration Identity Source) (store : Store world) (expression : Xsh.Syntax.Expr) :
+    Evaluated.Refines (threadStep context environment recurse callBlock locals store expression)
+      (threadStep context environment recurse' callBlock' locals store expression) := by
+  cases expression with
+  | list elements =>
+    exact ebind_refines (threadAll_refines (inner environment locals) store elements) fun _ _ => erefines_refl _
+  | record fields =>
+    exact ebind_refines (threadFields_refines context (inner environment locals) store fields) fun _ _ => erefines_refl _
+  | field base name => exact ebind_refines (inner environment locals store base) fun _ _ => erefines_refl _
+  | index base key guarded =>
+    cases guarded with
+    | true => exact erefines_refl _
+    | false =>
+      simp only [threadStep]
+      exact ebind_refines (inner environment locals store base) fun _ after =>
+        ebind_refines (inner environment locals after key) fun _ _ => erefines_refl _
+  | unary operator operand => exact ebind_refines (inner environment locals store operand) fun _ _ => erefines_refl _
+  | binary operator left right =>
+    cases operator
+    case and =>
+      simp only [threadStep]
+      refine ebind_refines (inner environment locals store left) fun value after => ?_
+      split
+      · exact erefines_refl _
+      · exact ebind_refines (inner environment locals after right) fun _ _ => erefines_refl _
+      · exact erefines_refl _
+    case or =>
+      simp only [threadStep]
+      refine ebind_refines (inner environment locals store left) fun value after => ?_
+      split
+      · exact erefines_refl _
+      · exact ebind_refines (inner environment locals after right) fun _ _ => erefines_refl _
+      · exact erefines_refl _
+    all_goals exact ebind_refines (inner environment locals store left) fun _ after =>
+      ebind_refines (inner environment locals after right) fun _ _ => erefines_refl _
+  | ifExpr conditions otherwise => exact threadBranches_refines (inner environment locals) store conditions otherwise
+  | call callee arguments =>
+    cases callee
+    case ident name =>
+      simp only [threadStep]
+      split
+      · exact ebind_refines (threadAll_refines (inner environment locals) store _) fun _ after => by
+          split
+          · split <;> first | exact inner _ _ _ _ | exact blocks _ _ _ _ _
+          · exact erefines_refl _
+      · exact erefines_refl _
+    all_goals exact erefines_refl _
+  | _ => exact erefines_refl _
+
+theorem bindArgumentsIn_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, Evaluated.Refines (evaluate store source) (evaluate' store source)) :
+    ∀ store parameters arguments,
+      Evaluated.Refines (bindArgumentsIn evaluate store parameters arguments)
+        (bindArgumentsIn evaluate' store parameters arguments)
+  | _, [], [] => erefines_refl _
+  | _, [], _ :: _ => by simp only [bindArgumentsIn]; exact erefines_refl _
+  | store, .mk name annotation default rest :: more, arguments => by
+    cases rest with
+    | true =>
+      cases more with
+      | nil => simp only [bindArgumentsIn]; exact erefines_refl _
+      | cons _ _ =>
+        cases arguments <;> (simp only [bindArgumentsIn]; exact erefines_refl _)
+    | false =>
+      cases arguments with
+      | cons argument others =>
+        simp only [bindArgumentsIn]
+        exact ebind_refines (bindArgumentsIn_refines each store more others) fun _ _ => erefines_refl _
+      | nil =>
+        cases default with
+        | none => simp only [bindArgumentsIn]; exact erefines_refl _
+        | some default =>
+          simp only [bindArgumentsIn]
+          exact ebind_refines (each store default) fun _ after =>
+            ebind_refines (bindArgumentsIn_refines each after more []) fun _ _ => erefines_refl _
+
+theorem selectorsOf_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, Evaluated.Refines (evaluate store source) (evaluate' store source)) :
+    ∀ store type path, Evaluated.Refines (selectorsOf evaluate store type path) (selectorsOf evaluate' store type path)
+  | _, _, [] => erefines_refl _
+  | store, type, .field label :: rest => ebind_refines (selectorsOf_refines each store _ rest) fun _ _ => erefines_refl _
+  | store, type, .index selector :: rest => by
+    simp only [selectorsOf]
+    refine ebind_refines (each store selector) fun index after => ?_
+    split
+    · exact erefines_refl _
+    · exact ebind_refines (selectorsOf_refines each after _ rest) fun _ _ => erefines_refl _
 
 variable [DecidableEq Declaration]
 
@@ -297,11 +423,11 @@ variable [DecidableEq Declaration]
 structure Refining {world : World Declaration Identity Source} (machine : Machine world) (fuel bigger : Nat) :
     Prop where
   expr : ∀ scope store environment locals expression,
-    Refines (evalExpr machine fuel scope store environment locals expression)
+    Evaluated.Refines (evalExpr machine fuel scope store environment locals expression)
       (evalExpr machine bigger scope store environment locals expression)
-  call : ∀ scope store environment locals body kind,
-    Refines (callBlock machine fuel scope store environment locals body kind)
-      (callBlock machine bigger scope store environment locals body kind)
+  call : ∀ scope store environment locals writable body kind,
+    Evaluated.Refines (callBlock machine fuel scope store environment locals writable body kind)
+      (callBlock machine bigger scope store environment locals writable body kind)
   value : ∀ frame expression, Valued.Refines (runValue machine fuel frame expression) (runValue machine bigger frame expression)
   scope : ∀ frame body, Valued.Refines (valueScope machine fuel frame body) (valueScope machine bigger frame body)
   valueTail : ∀ frame body,
@@ -362,12 +488,13 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.valueTail _ _
   | exact inner.retries _ _ _ _
   | exact valued_refl _
-  | refine fromResult_refines _ (inner.expr _ _ _ _ _) fun _ => ?_
+  | refine exec_refines _ (inner.expr _ _ _ _ _) fun _ _ => ?_
+  | refine exec_refines _ (within_refines _ (inner.expr _ _ _ _ _)) fun _ _ => ?_
   | refine toExec_refines ?_ fun _ _ => ?_
   | refine thenValued_refines ?_ fun _ => ?_
   | refine valued_bind_refines ?_ fun _ _ => ?_
-  | refine resultThen_refines _ (evaluateAll_refines (inner.expr _ _ _ _) _) fun _ => ?_
-  | exact fromEval_refines _ (inner.expr _ _ _ _ _)
+  | refine valued_refines _ (threadAll_refines (fun _ _ => inner.expr _ _ _ _ _) _ _) fun _ _ => ?_
+  | exact stored_refines _ (inner.expr _ _ _ _ _)
   | refine capture_refines ?_
   | refine retryStep_refines _ _ _ _ (fun _ _ => inner.retries _ _ _ _) ?_
   | exact inner.handlers _ _ _ _
@@ -378,8 +505,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine returnTo_refines _ _ ?_
   | exact inner.body _ _
   | refine loopStep_refines (fun _ => inner.loopValues _ _) ?_
-  | refine resultExec_refines _ (selectorsOf_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
-  | refine resultThen_refines _ (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
+  | refine exec_refines _ (selectorsOf_refines (fun _ _ => inner.expr _ _ _ _ _) _ _ _) fun _ _ => ?_
   | refine guardElse_refines ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
@@ -410,7 +536,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
     ∀ fuel extra, Refining machine fuel (fuel + extra)
   | 0, _ => {
       expr := fun _ _ _ _ _ => Or.inl (by simp [evalExpr])
-      call := fun _ _ _ _ _ kind => Or.inl (by cases kind <;> simp [callBlock])
+      call := fun _ _ _ _ _ _ _ => Or.inl (by simp [callBlock])
       value := fun _ _ => Or.inl (by simp [runValue])
       scope := fun _ _ => Or.inl (by simp [valueScope])
       valueTail := fun _ _ => Or.inl (by simp [runValueTail])
@@ -439,19 +565,20 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
       expr := fun scope store environment locals expression => by
         simp only [evalExpr]
         repeat' (first
-          | exact refines_refl _
-          | exact valuedResult_refines (inner.value _ _)
+          | exact erefines_refl _
+          | exact fromValued_refines (inner.value _ _)
           | exact inner.expr _ _ _ _ _
-          | exact inner.call _ _ _ _ _ _
-          | exact step_refines machine.context environment store (inner.expr scope store)
-              (inner.call _ store) locals _
-          | refine bind_refines (evaluateAll_refines (inner.expr _ _ _ _) _) fun _ => ?_
-          | refine bind_refines (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
-          | refine bind_refines (inner.expr _ _ _ _ _) fun _ => ?_
+          | exact inner.call _ _ _ _ _ _ _
+          | exact threadStep_refines machine.context environment
+              (fun environment locals store expression => inner.expr scope store environment locals expression)
+              (fun _ _ _ _ _ => inner.call _ _ _ _ _ _ _) locals store _
+          | refine ebind_refines (threadAll_refines (fun _ _ => inner.expr _ _ _ _ _) _ _) fun _ _ => ?_
+          | refine ebind_refines (bindArgumentsIn_refines (fun _ _ => inner.expr _ _ _ _ _) _ _ _) fun _ _ => ?_
+          | refine ebind_refines (inner.expr _ _ _ _ _) fun _ _ => ?_
           | split)
-      call := fun scope store environment locals body kind => by
+      call := fun scope store environment locals writable body kind => by
         simp only [callBlock]
-        exact boundary_refines kind (inner.body _ _)
+        exact fromValued_refines (returnTo_refines _ _ (inner.body _ _))
       value := fun frame expression => by simp only [runValue]; close_refines
       scope := fun frame body => by simp only [valueScope]; close_refines
       valueTail := fun frame body => by simp only [runValueTail]; close_refines
@@ -552,15 +679,6 @@ theorem withinScope_persists {world : World Declaration Identity Source} (outer 
   cases inner <;> first
     | (intro last present; cases present; exact persists_keep (head _ rfl))
     | exact head
-
-theorem fromResult_persists {world : World Declaration Identity Source} (frame : Frame world)
-    (result : Result Declaration Identity Source (Value Declaration Identity Source))
-    {next : Value Declaration Identity Source → Exec world} (tail : ∀ value, Keeps frame.store (next value)) :
-    Keeps frame.store (fromResult frame result next) := by
-  cases result with
-  | value value => exact tail value
-  | failure failure => intro last present; cases present; exact persists_refl _
-  | _ => intro last present; cases present
 
 theorem fromStep_persists {world : World Declaration Identity Source} (frame : Frame world) (environment : Environment)
     (locals : Locals Declaration Identity Source) (step : StoreStep world) (kept : Persists frame.store step.storeAfter) :
@@ -713,14 +831,6 @@ theorem loopStep_persists {world : World Declaration Identity Source} {before : 
   | broke frame => exact head frame rfl
   | _ => exact head
 
-theorem resultExec_persists {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
-    (result : Result Declaration Identity Source α) {next : α → Exec world}
-    (tail : ∀ result, Keeps frame.store (next result)) : Keeps frame.store (resultExec frame result next) := by
-  cases result with
-  | value result => exact tail result
-  | failure failure => intro last present; cases present; exact persists_refl _
-  | _ => intro last present; cases present
-
 theorem guardElse_persists {world : World Declaration Identity Source} {before : Store world} {first : Exec world}
     (head : Keeps before first) : Keeps before (guardElse first) := by
   cases first with
@@ -752,6 +862,226 @@ theorem returnTo_persists {world : World Declaration Identity Source} (caller : 
   · intro last present; cases present
   · intro last present; cases present
   · intro last present; cases present
+
+/-- A result keeps the cells of `before` in the store it leaves. -/
+def EKeeps {world : World Declaration Identity Source} {α : Type} (before : Store world) : Evaluated world α → Prop
+  | .value _ store => Persists before store
+  | .failure _ store => Persists before store
+  | _ => True
+
+theorem ekeeps_value {world : World Declaration Identity Source} {α : Type} {before store : Store world} (value : α)
+    (kept : Persists before store) : EKeeps before (Evaluated.value value store) := kept
+
+theorem ekeeps_lift {world : World Declaration Identity Source} {α : Type} (store : Store world)
+    (result : Result Declaration Identity Source α) : EKeeps store (Evaluated.lift store result) := by
+  cases result <;> first | exact persists_refl store | trivial
+
+theorem ebind_persists {world : World Declaration Identity Source} {α β : Type} {before : Store world}
+    {first : Evaluated world α} {next : α → Store world → Evaluated world β} (head : EKeeps before first)
+    (tail : ∀ value store, EKeeps store (next value store)) : EKeeps before (first.bind next) := by
+  cases first with
+  | value value store =>
+    have later := tail value store
+    simp only [Evaluated.bind]
+    cases result : next value store with
+    | value _ last => rw [result] at later; exact persists_trans head later
+    | failure _ last => rw [result] at later; exact persists_trans head later
+    | _ => trivial
+  | failure _ _ => exact head
+  | _ => trivial
+
+theorem within_persists {world : World Declaration Identity Source} {α : Type} {before middle : Store world}
+    (base : Persists before middle) {result : Evaluated world α} (head : EKeeps middle result) :
+    EKeeps before (result.within before) := by
+  cases result with
+  | value _ store => exact persists_keep (persists_trans base head)
+  | failure _ store => exact persists_keep (persists_trans base head)
+  | _ => trivial
+
+theorem exec_persists {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    {result : Evaluated world α} {next : α → Frame world → Exec world} (head : EKeeps frame.store result)
+    (tail : ∀ value store, Keeps { frame with store := store }.store (next value { frame with store := store })) :
+    Keeps frame.store (result.exec frame next) := by
+  cases result with
+  | value value store =>
+    intro last present
+    exact persists_trans head (tail value store last present)
+  | failure _ store => intro last present; cases present; exact head
+  | _ => intro last present; cases present
+
+theorem valued_persists {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    {result : Evaluated world α} {next : α → Frame world → Valued world} (head : EKeeps frame.store result)
+    (tail : ∀ value store, VKeeps { frame with store := store }.store (next value { frame with store := store })) :
+    VKeeps frame.store (result.valued frame next) := by
+  cases result with
+  | value value store =>
+    have later := tail value store
+    simp only [Evaluated.valued]
+    cases outcome : next value { frame with store := store } with
+    | value _ last => rw [outcome] at later; exact persists_trans head later
+    | exec _ =>
+      rw [outcome] at later
+      intro final present
+      exact persists_trans head (later final present)
+  | failure _ store => intro last present; cases present; exact head
+  | _ => intro last present; cases present
+
+theorem stored_persists {world : World Declaration Identity Source} (frame : Frame world)
+    {result : Evaluated world (Value Declaration Identity Source)} (head : EKeeps frame.store result) :
+    VKeeps frame.store (stored frame result) :=
+  valued_persists frame head fun _ _ => persists_refl _
+
+theorem fromValued_persists {world : World Declaration Identity Source} {before : Store world} {outcome : Valued world}
+    (head : VKeeps before outcome) : EKeeps before (fromValued outcome) := by
+  cases outcome with
+  | value _ frame => exact head
+  | exec inner =>
+    cases inner with
+    | failed _ frame => exact head frame rfl
+    | _ => trivial
+
+theorem threadAll_persists {world : World Declaration Identity Source} {α : Type}
+    {evaluate : Store world → α → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, EKeeps store (evaluate store source)) :
+    ∀ store items, EKeeps store (threadAll evaluate store items)
+  | store, [] => persists_refl store
+  | store, first :: rest => ebind_persists (each store first) fun _ after =>
+      ebind_persists (threadAll_persists each after rest) fun _ last => persists_refl last
+
+theorem threadFields_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, EKeeps store (evaluate store source)) :
+    ∀ store fields, EKeeps store (threadFields context evaluate store fields)
+  | store, [] => persists_refl store
+  | store, .named _ operand :: rest => ebind_persists (each store operand) fun _ after =>
+      ebind_persists (threadFields_persists context each after rest) fun _ last => persists_refl last
+  | _, .computed _ _ :: _ | _, .path _ _ :: _ | _, .shorthand _ :: _ | _, .spread _ :: _ => trivial
+
+theorem threadBranches_persists {world : World Declaration Identity Source}
+    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, EKeeps store (evaluate store source)) :
+    ∀ store conditions otherwise, EKeeps store (threadBranches evaluate store conditions otherwise)
+  | store, [], otherwise => each store otherwise
+  | store, (condition, value) :: rest, otherwise => by
+    simp only [threadBranches]
+    refine ebind_persists (each store condition) fun result after => ?_
+    split
+    · exact each after value
+    · exact threadBranches_persists each after rest otherwise
+    · trivial
+
+theorem threadStep_persists (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+    (environment : Environment)
+    {recurse : Environment → Locals Declaration Identity Source → Store world → Xsh.Syntax.Expr →
+      Evaluated world (Value Declaration Identity Source)}
+    (inner : ∀ environment locals store expression, EKeeps store (recurse environment locals store expression))
+    {callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
+      Store world → Evaluated world (Value Declaration Identity Source)}
+    (blocks : ∀ environment locals statements kind store, EKeeps store (callBlock environment locals statements kind store))
+    (locals : Locals Declaration Identity Source) (store : Store world) (expression : Xsh.Syntax.Expr) :
+    EKeeps store (threadStep context environment recurse callBlock locals store expression) := by
+  cases expression with
+  | literal value => exact ekeeps_lift store _
+  | ident name =>
+    simp only [threadStep]
+    split
+    · exact persists_refl store
+    · split
+      · split
+        · exact persists_refl store
+        · trivial
+      · trivial
+  | list elements =>
+    exact ebind_persists (threadAll_persists (inner environment locals) store elements) fun _ after => persists_refl after
+  | record fields =>
+    exact ebind_persists (threadFields_persists context (inner environment locals) store fields) fun _ after =>
+      persists_refl after
+  | field base name => exact ebind_persists (inner environment locals store base) fun _ after => ekeeps_lift after _
+  | index base key guarded =>
+    cases guarded with
+    | true => trivial
+    | false =>
+      simp only [threadStep]
+      exact ebind_persists (inner environment locals store base) fun _ after =>
+        ebind_persists (inner environment locals after key) fun _ last => ekeeps_lift last _
+  | unary operator operand => exact ebind_persists (inner environment locals store operand) fun _ after => ekeeps_lift after _
+  | binary operator left right =>
+    cases operator
+    case and =>
+      simp only [threadStep]
+      refine ebind_persists (inner environment locals store left) fun value after => ?_
+      split
+      · exact persists_refl after
+      · refine ebind_persists (inner environment locals after right) fun second last => ?_
+        split
+        · exact persists_refl last
+        · trivial
+      · trivial
+    case or =>
+      simp only [threadStep]
+      refine ebind_persists (inner environment locals store left) fun value after => ?_
+      split
+      · exact persists_refl after
+      · refine ebind_persists (inner environment locals after right) fun second last => ?_
+        split
+        · exact persists_refl last
+        · trivial
+      · trivial
+    all_goals exact ebind_persists (inner environment locals store left) fun _ after =>
+      ebind_persists (inner environment locals after right) fun _ last => ekeeps_lift last _
+  | ifExpr conditions otherwise => exact threadBranches_persists (inner environment locals) store conditions otherwise
+  | call callee arguments =>
+    cases callee
+    case ident name =>
+      simp only [threadStep]
+      split
+      · exact ebind_persists (threadAll_persists (inner environment locals) store _) fun _ after => by
+          split
+          · split <;> first | exact inner _ _ _ _ | exact blocks _ _ _ _ _
+          · trivial
+      · trivial
+    all_goals trivial
+  | _ => trivial
+
+theorem bindArgumentsIn_persists {world : World Declaration Identity Source}
+    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, EKeeps store (evaluate store source)) :
+    ∀ store parameters arguments, EKeeps store (bindArgumentsIn evaluate store parameters arguments)
+  | store, [], [] => persists_refl store
+  | _, [], _ :: _ => by simp only [bindArgumentsIn]; trivial
+  | store, .mk name annotation default rest :: more, arguments => by
+    cases rest with
+    | true =>
+      cases more with
+      | nil => simp only [bindArgumentsIn]; exact persists_refl store
+      | cons _ _ =>
+        cases arguments <;> (simp only [bindArgumentsIn]; trivial)
+    | false =>
+      cases arguments with
+      | cons argument others =>
+        simp only [bindArgumentsIn]
+        exact ebind_persists (bindArgumentsIn_persists each store more others) fun _ last => persists_refl last
+      | nil =>
+        cases default with
+        | none => simp only [bindArgumentsIn]; trivial
+        | some default =>
+          simp only [bindArgumentsIn]
+          exact ebind_persists (each store default) fun _ after =>
+            ebind_persists (bindArgumentsIn_persists each after more []) fun _ last => persists_refl last
+
+theorem selectorsOf_persists {world : World Declaration Identity Source}
+    {evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)}
+    (each : ∀ store source, EKeeps store (evaluate store source)) :
+    ∀ store type path, EKeeps store (selectorsOf evaluate store type path)
+  | store, _, [] => persists_refl store
+  | store, type, .field label :: rest =>
+    ebind_persists (selectorsOf_persists each store _ rest) fun _ after => persists_refl after
+  | store, type, .index selector :: rest => by
+    simp only [selectorsOf]
+    refine ebind_persists (each store selector) fun index after => ?_
+    split
+    · trivial
+    · exact ebind_persists (selectorsOf_persists each after _ rest) fun _ last => persists_refl last
 
 theorem withStore_keeps {world : World Declaration Identity Source} {before store : Store world}
     (kept : Persists before store) (status : Exec world) : Keeps before (status.withStore store) := by
@@ -848,6 +1178,10 @@ theorem bindTarget_entered {world : World Declaration Identity Source} (machine 
 /-- The statement functions at `fuel` keep every cell of the frame they start
 from. -/
 structure Persisting {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  expr : ∀ scope store environment locals expression,
+    EKeeps store (evalExpr machine fuel scope store environment locals expression)
+  call : ∀ scope store defining parameters writable body kind,
+    EKeeps store (callBlock machine fuel scope store defining parameters writable body kind)
   body : ∀ frame statements, Keeps frame.store (runBody machine fuel frame statements)
   tail : ∀ frame statements, Keeps frame.store (runTail machine fuel frame statements)
   value : ∀ frame expression, VKeeps frame.store (runValue machine fuel frame expression)
@@ -896,11 +1230,13 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.valueTail _ _
   | exact inner.retries _ _ _ _
   | exact fromEval_persists _ _
-  | refine fromResult_persists _ _ fun _ => ?_
+  | exact stored_persists _ (inner.expr _ _ _ _ _)
+  | refine exec_persists _ (inner.expr _ _ _ _ _) fun _ _ => ?_
+  | refine exec_persists _ (selectorsOf_persists (fun _ _ => inner.expr _ _ _ _ _) _ _ _) fun _ _ => ?_
+  | refine valued_persists _ (threadAll_persists (fun _ _ => inner.expr _ _ _ _ _) _ _) fun _ _ => ?_
   | refine toExec_persists ?_ fun _ _ => ?_
   | refine thenValued_persists ?_ fun _ => ?_
   | refine vbind_persists ?_ fun _ _ => ?_
-  | refine resultThen_persists _ _ fun _ => ?_
   | refine capture_persists ?_
   | refine retryStep_persists _ _ _ _ (fun _ _ => inner.retries _ _ _ _) ?_
   | exact inner.handlers _ _ _ _
@@ -912,7 +1248,6 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.body _ _
   | exact inner.tail _ _
   | refine loopStep_persists (fun _ => inner.loopValues _ _) ?_
-  | refine resultExec_persists _ _ fun _ => ?_
   | refine guardElse_persists ?_
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
@@ -922,9 +1257,68 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine withinScope_persists _ ?_
   | split))
 
+theorem persisting_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Persisting machine fuel) :
+    ∀ scope store environment locals expression,
+      EKeeps store (evalExpr machine (fuel + 1) scope store environment locals expression) := by
+  intro scope store environment locals expression
+  simp only [evalExpr]
+  repeat' (first
+    | exact ekeeps_lift _ _
+    | exact ekeeps_value _ (persists_refl _)
+    | exact fromValued_persists (inner.value _ _)
+    | exact inner.expr _ _ _ _ _
+    | exact inner.call _ _ _ _ _ _ _
+    | exact threadStep_persists machine.context environment
+        (fun environment locals store expression => inner.expr scope store environment locals expression)
+        (fun _ _ _ _ _ => inner.call _ _ _ _ _ _ _) locals store _
+    | refine ebind_persists (threadAll_persists (fun _ _ => inner.expr _ _ _ _ _) _ _) fun _ _ => ?_
+    | refine ebind_persists (bindArgumentsIn_persists (fun _ _ => inner.expr _ _ _ _ _) _ _ _) fun _ _ => ?_
+    | refine ebind_persists (inner.expr _ _ _ _ _) fun _ _ => ?_
+    | trivial
+    | split)
+
+theorem persisting_value {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Persisting machine fuel) :
+    ∀ frame expression, VKeeps frame.store (runValue machine (fuel + 1) frame expression) := by
+  intro frame expression
+  simp only [runValue]
+  close_persists
+
+theorem persisting_statement {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Persisting machine fuel) :
+    ∀ frame statement, Keeps frame.store (runStatement machine (fuel + 1) frame statement) := by
+  intro frame statement
+  simp only [runStatement]
+  close_persists
+
+theorem persisting_arms {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Persisting machine fuel) :
+    ∀ frame value arms, Keeps frame.store (runMatch machine (fuel + 1) frame value arms) := by
+  intro frame value arms
+  simp only [runMatch]
+  split
+  · exact fun _ present => by cases present
+  · split
+    · exact inner.arms _ _ _
+    · exact fun _ present => by cases present
+    · split
+      · exact inner.bound _ _ _
+      · split
+        · rename_i bound entered
+          refine exec_persists _ (within_persists
+            (bindCaptures_entered machine frame _ bound (by rw [entered]; rfl)) (inner.expr _ _ _ _ _)) fun _ _ => ?_
+          split
+          · exact inner.bound _ _ _
+          · exact inner.arms _ _ _
+          · exact fun _ present => by cases present
+        · exact inner.leaves _ _ (bindCaptures_entered _ _ _)
+
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
+      expr := fun _ _ _ _ _ => by simp only [evalExpr]; trivial
+      call := fun _ _ _ _ _ _ _ => by simp only [callBlock]; trivial
       body := fun _ _ => by simp only [runBody]; exact fun _ present => by cases present
       tail := fun _ _ => by simp only [runTail]; exact fun _ present => by cases present
       value := fun _ _ => by simp only [runValue]; exact fun _ present => by cases present
@@ -949,9 +1343,13 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
+      expr := persisting_expr machine fuel inner
+      call := fun scope store defining parameters writable body kind => by
+        simp only [callBlock]
+        exact fromValued_persists (returnTo_persists _ _ (inner.body _ _))
       body := fun frame statements => by simp only [runBody]; close_persists
       tail := fun frame statements => by simp only [runTail]; close_persists
-      value := fun frame expression => by simp only [runValue]; close_persists
+      value := persisting_value machine fuel inner
       scope := fun frame body => by simp only [valueScope]; close_persists
       valueTail := fun frame body => by simp only [runValueTail]; close_persists
       retries := fun frame pattern body delays => by simp only [retryLoop]; close_persists
@@ -989,12 +1387,12 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
       statements := fun frame statements => by simp only [runStatements]; close_persists
       block := fun frame statements => by simp only [runBlock]; close_persists
       bound := fun frame captures statements => by simp only [runBound]; close_persists
-      statement := fun frame statement => by simp only [runStatement]; close_persists
+      statement := persisting_statement machine fuel inner
       branches := fun frame branches otherwise => by simp only [runIf]; close_persists
       whiles := fun frame condition body => by simp only [runWhile]; close_persists
       fors := fun frame target items body => by simp only [runFor]; close_persists
       loops := fun frame body => by simp only [runLoop]; close_persists
-      arms := fun frame value arms => by simp only [runMatch]; close_persists }
+      arms := persisting_arms machine fuel inner }
 
 end Persistence
 
@@ -1024,13 +1422,14 @@ theorem iterate_restores {world : World Declaration Identity Source} {frame : Fr
     exact ⟨environment'.trans environment, locals'.trans locals⟩
   | _ => exact head
 
-theorem fromResult_restores {world : World Declaration Identity Source} (frame : Frame world)
-    (result : Result Declaration Identity Source (Value Declaration Identity Source))
-    {next : Value Declaration Identity Source → Exec world} (tail : ∀ value, Restores frame (next value)) :
-    Restores frame (fromResult frame result next) := by
+theorem exec_restores {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    (result : Evaluated world α) {next : α → Frame world → Exec world}
+    (tail : ∀ value store, Restores frame (next value { frame with store := store })) :
+    Restores frame (result.exec frame next) := by
   cases result with
-  | value value => exact tail value
-  | _ => intro last present; cases present <;> exact ⟨rfl, rfl⟩
+  | value value store => exact tail value store
+  | failure _ _ => intro last present; cases present; exact ⟨rfl, rfl⟩
+  | _ => intro last present; cases present
 
 variable [DecidableEq Declaration]
 
@@ -1063,7 +1462,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact withinScope_restores _ _
   | exact leave_restores _ _ _ _
   | exact fun _ present => by cases present <;> exact ⟨rfl, rfl⟩
-  | refine fromResult_restores _ _ fun _ => ?_
+  | refine exec_restores _ _ fun _ _ => ?_
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
   | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
   | refine iterate_restores ?_ fun _ => ?_
@@ -1163,7 +1562,8 @@ variable [DecidableEq Declaration]
 theorem while_false {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (body : List Xsh.Syntax.Statement) :
     runWhile machine (fuel + 2) frame (.literal (.bool false)) body = .normal frame := by
-  simp [runWhile, evalExpr, step, literal, fromResult, boolean, Value.eraseNominal, conditionValue]
+  simp [runWhile, evalExpr, threadStep, literal, Evaluated.lift, Evaluated.exec, boolean, Value.eraseNominal,
+    conditionValue]
 
 theorem loop_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame next : Frame world) (body : List Xsh.Syntax.Statement)
@@ -1182,14 +1582,14 @@ theorem for_ends_on_break {world : World Declaration Identity Source} (machine :
 theorem while_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame next : Frame world) (condition : Xsh.Syntax.Expr) (body : List Xsh.Syntax.Statement)
     (plain : ∀ subject pattern, condition ≠ .patternCondition subject pattern)
-    (tested : Value Declaration Identity Source)
-    (evaluated : evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition = .value tested)
+    (tested : Value Declaration Identity Source) (after : Store world)
+    (evaluated : evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition = .value tested after)
     (isTrue : conditionValue tested = some (.ok true))
-    (broke : runBlock machine fuel frame body = .broke next) :
+    (broke : runBlock machine fuel { frame with store := after } body = .broke next) :
     runWhile machine (fuel + 1) frame condition body = .normal next := by
   cases condition
   case patternCondition subject pattern => exact absurd rfl (plain subject pattern)
-  all_goals simp only [runWhile, evaluated, fromResult, isTrue, broke, Exec.iterate]
+  all_goals simp only [runWhile, evaluated, Evaluated.exec, isTrue, broke, Exec.iterate]
 
 /-- A block with no deferred actions left passes a `break` out to the loop
 around it, restoring its scope. -/
@@ -1427,13 +1827,16 @@ theorem primary_stays {world : World Declaration Identity Source} (machine : Mac
       · rename_i other _ _ _ _ _ _
         cases other <;> simp_all
 
-/-- Each call runs in an activation `activationStep` past its caller's, and a
-declared name's cell is its binder in the current activation. -/
+/-- Each call runs its body in the activation of the scope it is given, which
+the caller puts `activationStep` past its own, and returns through
+`returnTo`; a declared name's cell is its binder in the current activation. -/
 theorem call_activation {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (scope : Scope Declaration Identity Source) (store : Store world) (defining : Environment) (parameters : Locals Declaration Identity Source)
-    (body : List Xsh.Syntax.Statement) (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
-    callBlock machine (fuel + 1) scope store defining parameters body kind =
-      boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body) ∧
+    (writable : List CellId) (body : List Xsh.Syntax.Statement) (kind : ReturnKind) (environment : Environment)
+    (declared : Xsh.Syntax.RawName) :
+    callBlock machine (fuel + 1) scope store defining parameters writable body kind =
+      fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
+        (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body)) ∧
     (machine.namesAt scope.activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found =>
         (found.1, ⟨scope.activation, found.1⟩, found.2.2) :=
@@ -1501,17 +1904,20 @@ theorem capture_cases {world : World Declaration Identity Source} (value error :
     Xsh.Semantics.CoreControl.capture (.exec (.broke frame)) = .exec (.broke frame) :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-- A function's call result: a `Result` function returns a raised failure,
-including a primary cleanup failure, as its `Err` and wraps a plain value in
-`Ok`; any other function fails the call. -/
-theorem boundary_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
-    (failure : Failure Declaration Identity Source) (frame : Frame world) :
-    boundary .result (.failed (.raised error) frame) = .value (.err error) ∧
-    boundary .plain (.failed failure frame) = .failure failure ∧
-    boundary .result (.returned value frame) = .value (wrapOk value) ∧
-    boundary .plain (.returned value frame) = .value value ∧
-    (∀ inner, boundary .result (.failed (.runtime inner) frame) = .failure (.runtime inner)) :=
-  ⟨rfl, rfl, rfl, rfl, fun _ => rfl⟩
+/-- A function's call result, in the caller's store with the callee's writes
+to it kept: a `Result` function returns a raised failure, including a primary
+cleanup failure, as its `Err` and wraps a plain value in `Ok`; any other
+function fails the call. -/
+theorem return_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
+    (failure : Failure Declaration Identity Source) (caller callee : Frame world) :
+    fromValued (returnTo caller .result (.failed (.raised error) callee)) =
+      .value (.err error) (keep caller.store callee.store) ∧
+    fromValued (returnTo caller .plain (.failed failure callee)) = .failure failure (keep caller.store callee.store) ∧
+    fromValued (returnTo caller .result (.returned value callee)) = .value (wrapOk value) (keep caller.store callee.store) ∧
+    fromValued (returnTo caller .plain (.returned value callee)) = .value value (keep caller.store callee.store) ∧
+    (∀ inner, fromValued (returnTo caller .result (.failed (.runtime inner) callee)) =
+      .failure (.runtime inner) (keep caller.store callee.store)) :=
+  ⟨rfl, by cases failure <;> rfl, rfl, rfl, fun _ => rfl⟩
 
 /-- One `retry` attempt: success is `Ok`; a raised failure the filter selects
 takes the next delay, recorded as waited, and runs the next attempt; with no
@@ -1595,13 +2001,15 @@ theorem statement_result {world : World Declaration Identity Source} (machine : 
     case valueBlock body => exact absurd rfl (plain body)
     all_goals (simp only [runStatement, ran, Valued.toExec]; try exact normal)
 
-/-- A call evaluates a block body in a fresh activation and applies its
-function's return kind. -/
-theorem call_boundary {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
-    (scope : Scope Declaration Identity Source) (store : Store world) (defining : Environment) (parameters : Locals Declaration Identity Source)
-    (body : List Xsh.Syntax.Statement) (kind : ReturnKind) :
-    callBlock machine (fuel + 1) scope store defining parameters body kind =
-      boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body) :=
+/-- A call runs its block body in the activation it is given and returns
+through `returnTo` with its function's return kind. -/
+theorem call_returns {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (scope : Scope Declaration Identity Source) (store : Store world) (defining : Environment)
+    (parameters : Locals Declaration Identity Source) (writable : List CellId) (body : List Xsh.Syntax.Statement)
+    (kind : ReturnKind) :
+    callBlock machine (fuel + 1) scope store defining parameters writable body kind =
+      fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
+        (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body)) :=
   rfl
 
 end Errors
@@ -1827,13 +2235,13 @@ theorem control_restores {world : World Declaration Identity Source} (machine : 
     | loopStmt body => exact scopes.loops frame body
     | forStmt target iterable body =>
       simp only [runStatement]
-      refine fromResult_restores frame _ fun source => ?_
+      refine exec_restores frame _ fun source store => ?_
       split
-      · exact scopes.fors frame target _ body
+      · exact scopes.fors _ target _ body
       · exact fun _ present => by cases present
     | matchStmt subject arms =>
       simp only [runStatement]
-      exact fromResult_restores frame _ fun value => scopes.arms frame value arms
+      exact exec_restores frame _ fun value store => scopes.arms _ value arms
     | expression value =>
       cases value
       case valueBlock body => exact scopes.block frame body
@@ -1975,9 +2383,10 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
       ∀ status : Exec world, frameOf status ≠ none → exitsWithError (cleanupFailed failure store status) = true) ∧
     (∀ fuel primary (frame : Frame world) actions failure last,
       runDeferred machine fuel (.failed primary frame) actions = .failed failure last → failure = primary) ∧
-    (∀ fuel (scope : Scope Declaration Identity Source) store defining parameters body kind environment declared,
-      callBlock machine (fuel + 1) scope store defining parameters body kind =
-        boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body) ∧
+    (∀ fuel (scope : Scope Declaration Identity Source) store defining parameters writable body kind environment declared,
+      callBlock machine (fuel + 1) scope store defining parameters writable body kind =
+        fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
+          (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body)) ∧
       (machine.namesAt scope.activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
           (found.1, ⟨scope.activation, found.1⟩, found.2.2)) ∧
@@ -2000,8 +2409,8 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     unwind_cleanup_fails machine,
     cleanup_precedence,
     primary_stays machine,
-    fun fuel scope store defining parameters body kind environment declared =>
-      call_activation machine fuel scope store defining parameters body kind environment declared,
+    fun fuel scope store defining parameters writable body kind environment declared =>
+      call_activation machine fuel scope store defining parameters writable body kind environment declared,
     callee_cells_fresh,
     callee_cannot_write_caller machine,
     body_cells_dropped machine⟩
@@ -2023,7 +2432,8 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
       propagate payload.ok = .value payload ∧ propagate (.err error) = .failure (.raised error)) ∧
     (∀ fuel scope store environment locals inner,
       evalExpr machine (fuel + 1) scope store environment locals (.tryExpr inner) =
-        (evalExpr machine fuel scope store environment locals inner).bind propagate) ∧
+        (evalExpr machine fuel scope store environment locals inner).bind fun value after =>
+          Evaluated.lift after (propagate value)) ∧
     (∀ fuel frame inner target body pattern delays,
       runValue machine (fuel + 1) frame (.tryExpr inner) =
         (runValue machine fuel frame inner).bind (fun value next => fromEval next (propagate value)) ∧
@@ -2074,15 +2484,19 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
           .value (.err error) after) ∧
       retryStep machine.context machine.typeTest pattern (delay :: rest) next (.exec (.failed (.runtime inner) after)) =
         .exec (.failed (.runtime inner) after)) ∧
-    (∀ fuel (scope : Scope Declaration Identity Source) store defining parameters body kind,
-      callBlock machine (fuel + 1) scope store defining parameters body kind =
-        boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body)) ∧
-    (∀ (value error : Value Declaration Identity Source) failure (frame : Frame world),
-      boundary .result (.failed (.raised error) frame) = .value (.err error) ∧
-      boundary .plain (.failed failure frame) = .failure failure ∧
-      boundary .result (.returned value frame) = .value (wrapOk value) ∧
-      boundary .plain (.returned value frame) = .value value ∧
-      ∀ inner, boundary .result (.failed (.runtime inner) frame) = .failure (.runtime inner)) :=
+    (∀ fuel (scope : Scope Declaration Identity Source) store defining parameters writable body kind,
+      callBlock machine (fuel + 1) scope store defining parameters writable body kind =
+        fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
+          (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body))) ∧
+    (∀ (value error : Value Declaration Identity Source) failure (caller callee : Frame world),
+      fromValued (returnTo caller .result (.failed (.raised error) callee)) =
+        .value (.err error) (keep caller.store callee.store) ∧
+      fromValued (returnTo caller .plain (.failed failure callee)) = .failure failure (keep caller.store callee.store) ∧
+      fromValued (returnTo caller .result (.returned value callee)) =
+        .value (wrapOk value) (keep caller.store callee.store) ∧
+      fromValued (returnTo caller .plain (.returned value callee)) = .value value (keep caller.store callee.store) ∧
+      ∀ inner, fromValued (returnTo caller .result (.failed (.runtime inner) callee)) =
+        .failure (.runtime inner) (keep caller.store callee.store)) :=
   ⟨propagate_cases,
     fun _ _ _ _ _ _ => rfl,
     fun fuel frame inner target body pattern delays => error_forms machine fuel frame inner target body pattern delays,
@@ -2091,8 +2505,8 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     value_block_leaves_normally,
     fun pattern next value error delay rest after inner =>
       retryStep_cases machine.context machine.typeTest pattern next value error delay rest after inner,
-    call_boundary machine,
-    boundary_cases⟩
+    call_returns machine,
+    return_cases⟩
 
 omit [DecidableEq Declaration] in
 /-- The pure binding and `Result` forms of the statement machine: `Result[Bool]`
@@ -2163,7 +2577,7 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
                 (.block body (returnKindOf machine result))) ::
                 frame.closures }) ∧
     (∀ fuel (scope : Scope Declaration Identity Source) store environment locals value,
-      scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value) ∧
+      scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value store) ∧
     (∀ (outer inner : Frame world),
       collectWith outer (.normal inner) =
         .value (.list (inner.collected.getD [])) { inner with collected := outer.collected }) ∧
@@ -3316,16 +3730,17 @@ theorem default_cannot_see_parameters :
     readAny rName (runFull [declareSeeing, letR (call addName [int "1"])]) = none := by
   decide +kernel
 
-def boundLocal (target : Xsh.Syntax.RawName) : Result Unit Unit Unit (Locals Unit Unit Unit) → Bool
-  | .value bound => (bound.lookup target).isSome
+def boundLocal (target : Xsh.Syntax.RawName) : Evaluated witnessWorld (Locals Unit Unit Unit) → Bool
+  | .value bound _ => (bound.lookup target).isSome
   | _ => false
 
 /-- Evaluating the default with the supplied parameters in scope binds `k`. -/
 theorem default_seeing_parameters_rejected :
-    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment
-        [(pName, integer intOne)]) [.mk pName none none false, .mk kName none (some (ident pName)) false]
-      [integer intOne]) = true ∧
-    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment [])
+    boundLocal kName (bindArgumentsIn (fun current default => evalExpr fullMachine 20 ⟨1, [], none⟩ current
+        fullStart.environment [(pName, integer intOne)] default) fullStart.store
+        [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = true ∧
+    boundLocal kName (bindArgumentsIn (fun current default => evalExpr fullMachine 20 ⟨1, [], none⟩ current
+        fullStart.environment [] default) fullStart.store
       [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = false := by
   decide +kernel
 
