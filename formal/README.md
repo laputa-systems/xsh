@@ -212,8 +212,12 @@ The vertical source witness checker excludes adjacent identifier characters and
 hyphens, decimal digits followed by identifier starts or dots, `E>`, `==`,
 `=>`, `<=`, `>=`, `>>`, and `??`. It also requires each consecutive decimal
 digit run to fit in a signed 64-bit integer, even inside an identifier. These
-are conservative restrictions on checker acceptance; they do not establish
-production lexer agreement or parse-failure and source-position soundness.
+restrictions also exclude reserved words other than the six keywords used by
+the vertical grammar, and exclude reserved function names. They are
+conservative restrictions on checker acceptance; they do not establish full
+SPEC lexical agreement, parse-failure classification or tree-node spans.
+The local recursion-depth cap in the record admission witnesses accommodates
+kernel reduction of their concrete source byte lists.
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted

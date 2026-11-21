@@ -1260,12 +1260,21 @@ def decimalRunsInRange (codes : List Nat) : Bool :=
       (value, state.2 && decide (value ≤ maxIntLiteral))
     else (0, state.2)) (0, true)).2
 
+def supportedWords (codes : List Nat) : Bool :=
+  match tokenize (codes.length + 1) codes with
+  | none => false
+  | some tokens => tokens.all fun token =>
+      match token with
+      | .word name => !isRecordKeyword name || isKeyword name
+      | _ => true
+
 /-- A witness checker for one module with no imported inputs. The submitted trees and slot
 projections are candidates; both are reconstructed from the original byte list. -/
 def check (bytes : List UInt8) (moduleInputs : List (List UInt8))
     (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Bool :=
-  (noConflictingAdjacency (bytes.map UInt8.toNat) &&
-    decimalRunsInRange (bytes.map UInt8.toNat)) && moduleInputs.isEmpty &&
+  ((noConflictingAdjacency (bytes.map UInt8.toNat) &&
+    decimalRunsInRange (bytes.map UInt8.toNat)) && supportedWords (bytes.map UInt8.toNat) &&
+      functions.all (fun function => !isRecordKeyword function.name)) && moduleInputs.isEmpty &&
     decide (functions.map (·.name)).Nodup &&
     match parseSourceCodes (bytes.map UInt8.toNat) with
     | none => false
@@ -1314,7 +1323,7 @@ theorem accepted_has_no_conflicting_adjacency {bytes : List UInt8}
     noConflictingAdjacency (bytes.map UInt8.toNat) = true := by
   unfold check at accepted
   simp only [Bool.and_eq_true] at accepted
-  exact accepted.1.1.1.1
+  exact accepted.1.1.1.1.1.1
 
 theorem accepted_decimal_runs_in_range {bytes : List UInt8}
     {moduleInputs : List (List UInt8)} {functions : List SourceFunction}
@@ -1323,7 +1332,7 @@ theorem accepted_decimal_runs_in_range {bytes : List UInt8}
     decimalRunsInRange (bytes.map UInt8.toNat) = true := by
   unfold check at accepted
   simp only [Bool.and_eq_true] at accepted
-  exact accepted.1.1.1.2
+  exact accepted.1.1.1.1.1.2
 
 
 def witnessBytes (text : String) : List UInt8 := text.toUTF8.toList
