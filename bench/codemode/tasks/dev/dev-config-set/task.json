@@ -1,0 +1,13 @@
+{
+  "id": "dev-config-set",
+  "split": "dev",
+  "track": "native",
+  "families": ["configuration-update", "small-reusable-script", "resource-handling"],
+  "origin": "new; the edit shape follows the tour's sshd_config example and SX bench/workflows/workflows/yaml-manifests",
+  "description": "Update settings in `/work/app.conf`, an INI-style file with `\\n` line endings that ends with `\\n`. A line whose text after trimming is `[NAME]` is a section header. A line that is not a header and contains `=` and does not start with `#` or `;` after trimming is a setting line; its key is the text before the first `=`, trimmed. Other lines are comments or blank lines. Lines before the first header belong to no section and are never changed.\n\nThe program's arguments each have the form `SECTION.KEY=VALUE`: split the argument at its first `=` into the left side and `VALUE`, then split the left side at its first `.` into `SECTION` and `KEY`. An argument without `=`, or whose left side has no `.`, or whose `SECTION` or `KEY` is empty, is a usage error. Check every argument before changing anything; on a usage error print a message to standard error, leave the file untouched, and exit with status 2.\n\nApply the arguments in order. In section `SECTION`, replace the first setting line whose key is `KEY` with the line `KEY = VALUE`. If the section has no such line, insert `KEY = VALUE` right after the section's last setting line, or right after its header when it has none. If there is no such section, append the header line `[SECTION]` and then `KEY = VALUE` at the end of the file. Keep every other line exactly as it was.\n\nIf the new text equals the current file, do not write the file at all (its modification time must not change) and print `unchanged`. Otherwise publish the new text atomically: write it to a temporary file inside `/work`, then rename that file over `/work/app.conf`, leaving no temporary file behind. Print `changed`. Exit with status 0.",
+  "variants": ["public", "idempotent", "usage", "tricky"],
+  "exit_codes": [0, 2],
+  "timeout_s": 60,
+  "xsh_api": ["language:cli.xsh-SCRIPT", "method:Str.split", "method:Path.read_text", "method:Str.lines", "method:Str.trim", "method:Str.starts_with", "method:Path.write_atomic", "language:core.exit"],
+  "ts_modules": ["node:fs"]
+}

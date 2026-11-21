@@ -1,0 +1,13 @@
+{
+  "id": "dev-file-inventory",
+  "split": "dev",
+  "track": "native",
+  "families": ["file-inventory", "json"],
+  "origin": "new",
+  "description": "Inventory the directory tree under `/work/data`.\n\nVisit every entry below `/work/data`, hidden ones (names starting with `.`) included, and ignore any ignore files such as `.gitignore`: they are ordinary files here. Never follow a symbolic link: list it as a link and do not enter it, even when it points to a directory. Directories are entered but not listed themselves.\n\nPrint one JSON object per line to standard output, sorted by path in ascending byte order. `path` is the entry's path relative to `/work/data`, with `/` between components. A regular file prints `{\"path\": PATH, \"kind\": \"file\", \"size\": BYTES}`, and a symbolic link prints `{\"path\": PATH, \"kind\": \"symlink\", \"target\": TARGET}`, where `TARGET` is the link's text as stored, whether or not it points anywhere.\n\nThen write `/work/summary.json`, a JSON object `{\"files\": N, \"symlinks\": M, \"bytes\": TOTAL}`: the number of files, the number of links, and the total size of the files. Exit with status 0.",
+  "variants": ["public", "tricky", "flat"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "xsh_api": ["api:fs.walk", "record:FsEntry", "method:Path.readlink", "method:Path.relative_to", "method:Path.display", "api:json.encode", "method:Path.write", "language:stream.sort-by"],
+  "ts_modules": ["node:fs", "node:path"]
+}

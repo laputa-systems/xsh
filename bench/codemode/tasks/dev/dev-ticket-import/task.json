@@ -1,0 +1,19 @@
+{
+  "id": "dev-ticket-import",
+  "split": "dev",
+  "track": "shared",
+  "families": ["json", "local-service-orchestration"],
+  "origin": "new",
+  "description": "Import the tickets in `/work/tickets.jsonl` into the tracker.\n\nEach line of the file should hold one ticket. A line that is empty or only whitespace is not a ticket and is ignored. Any other line is valid when it is a JSON object whose `id` is a non-empty string, whose `title` is a string, and whose `priority` is an integer from 1 to 4; other fields are allowed and ignored. A line that is not valid is rejected with reason `invalid`. A valid line whose `id` already appeared on an earlier valid line is rejected with reason `duplicate`.\n\nCreate every remaining ticket with `tracker_create` (`svc.trackerCreate` in TypeScript), one at a time and in file order. `tracker_create` is not idempotent: call it at most once per ticket. A ticket whose creation fails is rejected with reason `failed`, and the import continues.\n\nWrite `/work/rejects.jsonl` with one JSON object per line for every rejected line, in file order: `{\"line\": N, \"reason\": REASON}`, where `N` is the line's 1-based number in the file. Write an empty file when nothing was rejected. Then print one JSON object to standard output, `{\"created\": C, \"rejected\": R}`, the number of tickets created and the number of lines rejected. Exit with status 0.",
+  "variants": ["public", "messy", "clean"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "types": {
+    "Ticket": {"type": "{id: Str, url: Str}", "doc": "A ticket the tracker created."}
+  },
+  "capabilities": [
+    {"id": "tracker.create", "effect": "write", "idempotent": false, "input": {"id": "Str", "title": "Str", "priority": "Int"}, "output": "Ticket", "description": "Creates one ticket."}
+  ],
+  "xsh_api": ["method:Path.lines", "method:Str.trim", "api:json.decode", "language:core.schema-validation", "api:json.encode", "method:Path.write"],
+  "ts_modules": ["node:fs"]
+}

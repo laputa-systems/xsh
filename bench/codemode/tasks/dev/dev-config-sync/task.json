@@ -1,0 +1,21 @@
+{
+  "id": "dev-config-sync",
+  "split": "dev",
+  "track": "shared",
+  "families": ["configuration-update", "local-service-orchestration", "json"],
+  "origin": "new",
+  "description": "Bring one service's configuration in the config store up to date with `/work/desired.json`, a JSON object `{\"service\": NAME, \"values\": {KEY: VALUE, ...}, \"drop\": [KEY, ...]}` whose values are strings.\n\nRead the current document with `config_get` (`svc.configGet` in TypeScript). Compute the new entry list from the document's entries: keep every entry in its position, giving a key listed in `values` its new value; remove every entry whose key is in `drop`; then append, in ascending key order, an entry for each key in `values` that the document did not have. If the new list equals the current one, change nothing and print `unchanged VERSION`, where `VERSION` is the document's version.\n\nOtherwise store the list with `config_put` (`svc.configPut`), passing the version you read. If it fails with `Conflict`, someone else changed the document: read it again, compute the list again from the fresh document, and store that with the fresh version. Call `config_put` at most twice. On success print `updated VERSION` with the version `config_put` returned, and exit with status 0. If the second `config_put` also fails with `Conflict`, print a message to standard error and exit with status 4.",
+  "variants": ["public", "conflict", "noop", "stubborn"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "types": {
+    "Entry": {"type": "{key: Str, value: Str}", "doc": "One configuration setting."},
+    "Doc": {"type": "{service: Str, version: Int, entries: List[Entry]}", "doc": "A service's configuration document. `version` grows by one with every change."}
+  },
+  "capabilities": [
+    {"id": "config.get", "effect": "read", "input": {"service": "Str"}, "output": "Doc", "description": "Reads a service's current configuration document."},
+    {"id": "config.put", "effect": "write", "idempotent": false, "input": {"service": "Str", "version": "Int", "entries": "List[Entry]"}, "output": "Doc", "description": "Replaces a document's entries if its current version is still `version`, and returns the new document; fails with Conflict otherwise."}
+  ],
+  "xsh_api": ["api:json.read", "language:core.schema-validation", "language:core.map-literals", "language:core.membership", "language:stream.sort"],
+  "ts_modules": ["node:fs"]
+}
