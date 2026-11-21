@@ -496,9 +496,10 @@ decreasing_by
     simp only [List.length_cons]; omega
   · simp
 
-/-- The first invalid escape in `content`, from absolute offset `offset`, stated declaratively.
-An escape's validity is decided by `classifyEscape`; this relation only fixes which one is
-first and the span the SPEC names: the backslash through the escape's syntax. -/
+/-- The first invalid escape in `content`, from absolute offset `offset`, stated relationally.
+This is the Lean scanner's relational reading, not an independent SPEC reading: an escape's
+validity is decided by the scanner's `classifyEscape`, and the relation only fixes which escape
+is first and the span the scanner names, the backslash through the escape's syntax. -/
 inductive EscapeError : List UInt8 → Nat → Span → Prop where
   | here {offset : Nat} {rest : List UInt8} {k : Nat} :
       classifyEscape rest = .invalid k → EscapeError (92 :: rest) offset ⟨offset, offset + 1 + k⟩
@@ -563,10 +564,11 @@ theorem decode_escapes_none_iff (content : List UInt8) (offset : Nat) :
     | some span => exact absurd ((decode_escapes_iff content offset span).mp found) (absent span)
 
 /-- The Lean scanner's relational reading of the whole-source string scan, in its three
-cases. This is not an independent SPEC reading; it relates the scanner's own decisions.
-`unterminated`'s span runs from the opening quote to the line end, excluding the line-end
-bytes, or to the end of input when no line end follows; `invalid`'s span is the escape;
-otherwise the scan continues after the closed string. -/
+cases. This is not an independent SPEC reading; it relates the scanner's own decisions, and
+its `invalid` case carries the `EscapeError` derivation. `unterminated`'s span runs from the
+opening quote to the line end, excluding the line-end bytes, or to the end of input when no
+line end follows; `invalid`'s span is the escape; otherwise the scan continues after the
+closed string. -/
 inductive DeclaredString : List UInt8 → Nat → StringResult → Prop where
   | cleanNil (offset : Nat) : DeclaredString [] offset .clean
   | outsideText {offset : Nat} {byte : UInt8} {rest : List UInt8} {result : StringResult} :

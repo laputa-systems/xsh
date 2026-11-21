@@ -7,12 +7,14 @@ namespace SourceAdmission
 /-! ## The source admission root
 
 `source_admission` combines the pieces the SRC-ADMIT row needs: the classifier's
-accepted range is exactly `D`, its UTF-8 range is exactly the inputs with a
-first invalid offset, and its string range is exactly the envelope's failing
-scans, with `outside` covering the rest. For any accepted input it also yields
-the positioned tokens, the independent grammar derivation, the decimal
+accepted range is exactly `D`, its UTF-8 range is exactly the spans where a
+valid prefix ends and no well-formed sequence starts, and its string range is
+stated through the scanner's relations `DeclaredString` and `EscapeError`, with
+`outside` covering the rest. For any accepted input it also yields the
+positioned tokens, the independent grammar derivation, the decimal
 interpretation of every number token, and the fact that each node's span is
-exactly its own tokens' span, inside the source. -/
+exactly its own tokens' span, inside the source. The string relations are the
+Lean scanner's relational reading, not an independent SPEC reading. -/
 
 theorem accepted_positioned_tokens {bytes : List UInt8} {moduleInputs : List (List UInt8)}
     {functions : List SourceFunction} {scopes : List (List (String × Nat))}
@@ -85,21 +87,32 @@ theorem source_admission (bytes : List UInt8) (moduleInputs : List (List UInt8))
         InvalidUtf8At bytes span) ∧
       (∀ failure, (∀ span, failure ≠ .invalidUtf8 span) →
         (classify bytes moduleInputs = .rejected failure ↔
-          InEnvelope bytes = true ∧ scanStrings 0 bytes = .failed failure)) ∧
+          InEnvelope bytes = true ∧ DeclaredString bytes 0 (.failed failure))) ∧
       (classify bytes moduleInputs = .outside ↔
         ¬ Domain bytes moduleInputs ∧ (∀ span, ¬ InvalidUtf8At bytes span) ∧
-          (InEnvelope bytes = false ∨ scanStrings 0 bytes = .clean)) ∧
+          (InEnvelope bytes = false ∨ DeclaredString bytes 0 .clean)) ∧
       (∀ functions scopes, classify bytes moduleInputs = .accepted functions scopes →
         ∃ positioned tokens, PositionedLexed 0 (bytes.map UInt8.toNat) positioned ∧
           positioned.map (fun entry => entry.1) = tokens ∧
           FunctionsSyntax tokens functions ∧
           (∀ span, TokenSpan positioned = some span → 0 ≤ span.start ∧
             span.stop ≤ bytes.length)) := by
-  exact ⟨domain_iff_classified_accepted bytes moduleInputs,
-    fun span => classify_invalid_utf8_iff bytes moduleInputs span,
-    fun failure notUtf8 => classify_string_iff bytes moduleInputs failure notUtf8,
-    classify_outside_iff bytes moduleInputs,
+  refine ⟨domain_iff_classified_accepted bytes moduleInputs,
+    fun span => classify_invalid_utf8_iff bytes moduleInputs span, ?_, ?_,
     fun functions scopes accepted => accepted_node_spans accepted⟩
+  · intro failure notUtf8
+    rw [classify_string_iff bytes moduleInputs failure notUtf8]
+    exact ⟨fun found => ⟨found.1, (declared_string_iff bytes 0 (.failed failure)).mp found.2⟩,
+      fun found => ⟨found.1, (declared_string_iff bytes 0 (.failed failure)).mpr found.2⟩⟩
+  · rw [classify_outside_iff bytes moduleInputs]
+    refine ⟨fun outside => ⟨outside.1, outside.2.1, ?_⟩,
+      fun outside => ⟨outside.1, outside.2.1, ?_⟩⟩
+    · rcases outside.2.2 with envelope | clean
+      · exact Or.inl envelope
+      · exact Or.inr ((declared_string_iff bytes 0 .clean).mp clean)
+    · rcases outside.2.2 with envelope | clean
+      · exact Or.inl envelope
+      · exact Or.inr ((declared_string_iff bytes 0 .clean).mpr clean)
 
 
 /-! ## Classifier witnesses
