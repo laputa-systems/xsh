@@ -13,7 +13,7 @@ else
   SUDO=sudo
 fi
 $SUDO apt-get update
-$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl git git-lfs pkg-config python3 ripgrep sudo zip
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl git git-lfs docker.io pkg-config python3 ripgrep sudo zip
 if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
 fi
