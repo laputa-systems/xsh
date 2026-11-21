@@ -28,7 +28,10 @@ proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTo
     fp"{cargo_home}/bin/kache"
   }
   let linker_adapter = fp"{ctx.root}/dev/musl-linker.sh"
-  return null unless mold.exists() and kache.exists() and linker_adapter.exists()
+  return null unless mold.exists() and kache.exists()
+  guard linker_adapter.exists() else {
+    return Err(stages.StageError.MissingTool(tool: "dev/musl-linker.sh"))
+  }
 
   {mold: mold, kache: kache}
 }
