@@ -312,6 +312,60 @@ theorem lookup_entry_mem {α : Type} : ∀ {entries : List (MapKey × α)} {key 
       simp only [List.lookup, differentKeys] at present
       exact List.mem_cons_of_mem _ (lookup_entry_mem present)
 
+theorem replaceEntry_mem (key : MapKey) (replacement : Value Declaration Identity Source) :
+    ∀ {entries : List (MapKey × Value Declaration Identity Source)} {entry},
+      entry ∈ replaceEntry key replacement entries → entry ∈ entries ∨ entry.2 = replacement
+  | [], _, inside => by simp [replaceEntry] at inside
+  | (other, value) :: rest, entry, inside => by
+    by_cases same : other = key
+    · simp only [replaceEntry, same, ite_true, List.mem_cons] at inside
+      rcases inside with rfl | later
+      · exact Or.inr rfl
+      · exact Or.inl (List.mem_cons_of_mem _ later)
+    · simp only [replaceEntry, same, ite_false, List.mem_cons] at inside
+      rcases inside with rfl | later
+      · exact Or.inl (by simp)
+      · rcases replaceEntry_mem key replacement later with kept | replaced
+        · exact Or.inl (List.mem_cons_of_mem _ kept)
+        · exact Or.inr replaced
+
+theorem insertOrdered_mem (key : MapKey) (inserted : Value Declaration Identity Source) :
+    ∀ {entries : List (MapKey × Value Declaration Identity Source)} {entry},
+      entry ∈ insertOrdered key inserted entries → entry ∈ entries ∨ entry = (key, inserted)
+  | [], _, inside => by simp [insertOrdered] at inside; exact Or.inr inside
+  | (other, value) :: rest, entry, inside => by
+    unfold insertOrdered at inside
+    split at inside
+    · simp only [List.mem_cons] at inside
+      rcases inside with rfl | rfl | later
+      · exact Or.inr rfl
+      · exact Or.inl (by simp)
+      · exact Or.inl (List.mem_cons_of_mem _ later)
+    · simp only [List.mem_cons] at inside
+      rcases inside with rfl | later
+      · exact Or.inl (by simp)
+      · rcases insertOrdered_mem key inserted later with kept | new
+        · exact Or.inl (List.mem_cons_of_mem _ kept)
+        · exact Or.inr new
+
+theorem sortedEntries_values : ∀ (fields : List (String × Value Declaration Identity Source)) entry,
+    entry ∈ sortedEntries fields → ∃ field ∈ fields, entry.2 = field.2
+  | [], _, inside => by simp [sortedEntries] at inside
+  | (name, value) :: rest, entry, inside => by
+    have earlier : ∀ entry, entry ∈ sortedEntries rest → ∃ field ∈ (name, value) :: rest, entry.2 = field.2 :=
+      fun entry inside => by
+        obtain ⟨field, present, same⟩ := sortedEntries_values rest entry inside
+        exact ⟨field, List.mem_cons_of_mem _ present, same⟩
+    change entry ∈ upsert (.string name) value (sortedEntries rest) at inside
+    unfold upsert at inside
+    split at inside
+    · rcases replaceEntry_mem _ value inside with kept | replaced
+      · exact earlier entry kept
+      · exact ⟨(name, value), by simp, replaced⟩
+    · rcases insertOrdered_mem _ value inside with kept | new
+      · exact earlier entry kept
+      · exact ⟨(name, value), by simp, by rw [new]⟩
+
 theorem mapTypes_some {type keyType element : ValueType Declaration}
     (found : mapTypes type = some (keyType, element)) : type = .map keyType element := by
   cases type <;> simp_all [mapTypes]
@@ -364,10 +418,10 @@ theorem update_never_malformed (world : MembershipWorld Declaration Identity Sou
       · rename_i fields erased
         obtain ⟨stringKey, members⟩ := member
         subst stringKey
-        refine ⟨fields.map fun field => (MapKey.string field.1, field.2), by simp [erased], ?_⟩
+        refine ⟨sortedEntries fields, by simp [erased], ?_⟩
         intro entry inside
-        obtain ⟨field, fieldInside, rfl⟩ := List.mem_map.mp inside
-        exact members field fieldInside
+        obtain ⟨field, fieldInside, same⟩ := sortedEntries_values fields entry inside
+        exact same ▸ members field fieldInside
       · exact absurd member id
     obtain ⟨present, listed, members⟩ := entries
     simp only [update, mapTypes]
@@ -390,13 +444,196 @@ end Paths
 
 section Selectors
 
-theorem keyFailure_negative (raises : Raises Declaration Identity Source) {type element : ValueType Declaration}
-    (key : Xsh.Values.IntValue) (rest : List Selector)
-    (typed : mapTypes type = some (.primitive .unsignedInteger, element)) (negative : key.val < 0) :
-    keyFailure raises type (.key (.integer key) :: rest) = some raises.schema := by
-  simp [keyFailure, typed, negativeUnsignedKey, negative]
+theorem stepFailure_negative (raises : Raises Declaration Identity Source) {type element : ValueType Declaration}
+    (key : Xsh.Values.IntValue) (typed : mapTypes type = some (.primitive .unsignedInteger, element))
+    (negative : key.val < 0) : stepFailure raises type (.key (.integer key)) = some raises.schema := by
+  simp [stepFailure, typed, negativeUnsignedKey, negative]
+
+theorem evaluateSelectors_stops {world : World Declaration Identity Source} (raises : Raises Declaration Identity Source)
+    (type : ValueType Declaration) (side : SelectorSide world) (rest : List (SelectorSide world)) (store after : Store world)
+    (selector : Selector) (error : Value Declaration Identity Source) (evaluated : side store = .ok (selector, after))
+    (failed : stepFailure raises type selector = some error) :
+    evaluateSelectors raises (some type) (side :: rest) store = .error (.raised error, after) := by
+  simp [evaluateSelectors, evaluated, failed]
+
+theorem evaluateSelectors_continues {world : World Declaration Identity Source}
+    (raises : Raises Declaration Identity Source) (type : ValueType Declaration) (side : SelectorSide world)
+    (rest : List (SelectorSide world)) (store after : Store world) (selector : Selector)
+    (evaluated : side store = .ok (selector, after)) (passed : stepFailure raises type selector = none) :
+    evaluateSelectors raises (some type) (side :: rest) store =
+      match evaluateSelectors raises (childType type selector) rest after with
+      | .error failure => .error failure
+      | .ok (selectors, final) => .ok (selector :: selectors, final) := by
+  simp only [evaluateSelectors, evaluated, Option.bind_some, passed]
+  cases evaluateSelectors raises (childType type selector) rest after <;> rfl
 
 end Selectors
+
+section Order
+
+theorem lexBefore_total : ∀ left right : List Nat,
+    lexBefore left right = false → lexBefore right left = false → left = right
+  | [], [], _, _ => rfl
+  | [], _ :: _, before, _ => by simp [lexBefore] at before
+  | _ :: _, [], _, after => by simp [lexBefore] at after
+  | first :: lefts, second :: rights, before, after => by
+    simp only [lexBefore, Bool.or_eq_false_iff, decide_eq_false_iff_not, Bool.and_eq_false_iff, beq_eq_false_iff_ne,
+      ne_eq] at before after
+    have same : first = second := by omega
+    subst same
+    have rest : lexBefore lefts rights = false := by
+      rcases before.2 with impossible | done
+      · exact absurd rfl impossible
+      · exact done
+    have back : lexBefore rights lefts = false := by
+      rcases after.2 with impossible | done
+      · exact absurd rfl impossible
+      · exact done
+    rw [lexBefore_total lefts rights rest back]
+
+theorem map_injective_of {α : Type} {f : α → Nat} (injective : ∀ a b, f a = f b → a = b) :
+    ∀ left right : List α, left.map f = right.map f → left = right
+  | [], [], _ => rfl
+  | [], _ :: _, same | _ :: _, [], same => by simp at same
+  | a :: as, b :: bs, same => by
+    simp only [List.map_cons, List.cons.injEq] at same
+    rw [injective a b same.1, map_injective_of injective as bs same.2]
+
+theorem keyBefore_total : ∀ left right : MapKey,
+    keyBefore left right = false → keyBefore right left = false → left = right
+  | .string left, .string right, before, after => by
+    have same := lexBefore_total _ _ before after
+    have chars := map_injective_of (f := Char.toNat) (fun a b equal => Char.ext (UInt32.toNat_inj.mp equal)) _ _ same
+    rw [String.data_injective chars]
+  | .integer left, .integer right, before, after => by
+    simp only [keyBefore, decide_eq_false_iff_not] at before after
+    have : left.val = right.val := by omega
+    rw [Subtype.ext this]
+  | .boolean left, .boolean right, before, after => by
+    cases left <;> cases right <;> simp_all [keyBefore]
+  | .bytes left, .bytes right, before, after => by
+    rw [map_injective_of (f := UInt8.toNat) (fun a b equal => UInt8.toNat_inj.mp equal) _ _
+      (lexBefore_total _ _ before after)]
+  | .path left, .path right, before, after => by
+    have bytes := map_injective_of (f := UInt8.toNat) (fun a b equal => UInt8.toNat_inj.mp equal) _ _
+      (lexBefore_total _ _ before after)
+    cases left
+    cases right
+    simp only at bytes
+    subst bytes
+    rfl
+  | .duration left, .duration right, before, after => by
+    simp only [keyBefore, decide_eq_false_iff_not] at before after
+    have : left.val = right.val := by omega
+    rw [Subtype.ext this]
+  | .string _, .integer _, before, _ | .string _, .boolean _, before, _ | .string _, .bytes _, before, _
+  | .string _, .path _, before, _ | .string _, .duration _, before, _ | .integer _, .boolean _, before, _
+  | .integer _, .bytes _, before, _ | .integer _, .path _, before, _ | .integer _, .duration _, before, _
+  | .boolean _, .bytes _, before, _ | .boolean _, .path _, before, _ | .boolean _, .duration _, before, _
+  | .bytes _, .path _, before, _ | .bytes _, .duration _, before, _ | .path _, .duration _, before, _ => by
+    simp [keyBefore, keyRank] at before
+  | .integer _, .string _, _, after | .boolean _, .string _, _, after | .bytes _, .string _, _, after
+  | .path _, .string _, _, after | .duration _, .string _, _, after | .boolean _, .integer _, _, after
+  | .bytes _, .integer _, _, after | .path _, .integer _, _, after | .duration _, .integer _, _, after
+  | .bytes _, .boolean _, _, after | .path _, .boolean _, _, after | .duration _, .boolean _, _, after
+  | .path _, .bytes _, _, after | .duration _, .bytes _, _, after | .duration _, .path _, _, after => by
+    simp [keyBefore, keyRank] at after
+
+def SortedKeys : List (MapKey × Value Declaration Identity Source) → Prop
+  | [] => True
+  | [_] => True
+  | first :: second :: rest => keyBefore first.1 second.1 = true ∧ SortedKeys (second :: rest)
+
+theorem sortedKeys_of_keys : ∀ (first second : List (MapKey × Value Declaration Identity Source)),
+    first.map Prod.fst = second.map Prod.fst → SortedKeys first → SortedKeys second
+  | [], [], _, _ => trivial
+  | [_], [_], _, _ => trivial
+  | a :: b :: rest, c :: d :: more, same, sorted => by
+    simp only [List.map_cons, List.cons.injEq] at same
+    simp only [SortedKeys] at sorted ⊢
+    rw [← same.1, ← same.2.1]
+    exact ⟨sorted.1, sortedKeys_of_keys (b :: rest) (d :: more) (by simp [same.2.1, same.2.2]) sorted.2⟩
+  | [], _ :: _, same, _ | _ :: _, [], same, _ => by simp at same
+  | [_], _ :: _ :: _, same, _ | _ :: _ :: _, [_], same, _ => by simp at same
+
+theorem replaceEntry_keys (key : MapKey) (replacement : Value Declaration Identity Source) :
+    ∀ entries : List (MapKey × Value Declaration Identity Source),
+      (replaceEntry key replacement entries).map Prod.fst = entries.map Prod.fst
+  | [] => rfl
+  | (other, value) :: rest => by
+    by_cases same : other = key
+    · simp [replaceEntry, same]
+    · simp [replaceEntry, same, replaceEntry_keys key replacement rest]
+
+theorem insertOrdered_head (key : MapKey) (inserted : Value Declaration Identity Source) :
+    ∀ entries : List (MapKey × Value Declaration Identity Source), ∀ head ∈ (insertOrdered key inserted entries).head?,
+      head.1 = key ∨ ∃ first ∈ entries.head?, head.1 = first.1
+  | [], head, inside => by simp [insertOrdered] at inside; exact Or.inl (by rw [← inside])
+  | (other, value) :: rest, head, inside => by
+    unfold insertOrdered at inside
+    split at inside
+    · simp at inside
+      exact Or.inl (by rw [← inside])
+    · simp at inside
+      exact Or.inr ⟨(other, value), by simp, by rw [← inside]⟩
+
+theorem insertOrdered_sorted (key : MapKey) (inserted : Value Declaration Identity Source) :
+    ∀ entries : List (MapKey × Value Declaration Identity Source), SortedKeys entries → entries.lookup key = none →
+      SortedKeys (insertOrdered key inserted entries)
+  | [], _, _ => by simp [insertOrdered, SortedKeys]
+  | (other, value) :: rest, sorted, absent => by
+    have different : key ≠ other := by
+      intro same
+      subst same
+      simp [List.lookup] at absent
+    have differentKeys : (key == other) = false := by simpa using different
+    simp only [List.lookup, differentKeys] at absent
+    unfold insertOrdered
+    split
+    · rename_i before
+      exact ⟨before, sorted⟩
+    · rename_i notBefore
+      have restSorted : SortedKeys rest := by
+        cases rest with
+        | nil => trivial
+        | cons next more => exact sorted.2
+      have inner := insertOrdered_sorted key inserted rest restSorted absent
+      cases shape : insertOrdered key inserted rest with
+      | nil =>
+        cases rest <;> simp [insertOrdered] at shape
+        split at shape <;> simp at shape
+      | cons head tail =>
+        rw [shape] at inner
+        refine ⟨?_, inner⟩
+        rcases insertOrdered_head key inserted rest head (by rw [shape]; simp) with isKey | ⟨first, firstHead, same⟩
+        · rw [isKey]
+          cases after : keyBefore other key with
+          | true => rfl
+          | false => exact absurd (keyBefore_total key other (by simpa using notBefore) after) different
+        · cases rest with
+          | nil => simp at firstHead
+          | cons next more =>
+            simp only [List.head?, Option.mem_def, Option.some.injEq] at firstHead
+            subst firstHead
+            rw [same]
+            exact sorted.1
+
+theorem upsert_sorted (key : MapKey) (value : Value Declaration Identity Source)
+    (entries : List (MapKey × Value Declaration Identity Source)) (sorted : SortedKeys entries) :
+    SortedKeys (upsert key value entries) := by
+  unfold upsert
+  split
+  · exact sortedKeys_of_keys entries _ (replaceEntry_keys key value entries).symm sorted
+  · rename_i absent
+    exact insertOrdered_sorted key value entries sorted absent
+
+theorem sortedEntries_sorted : ∀ fields : List (String × Value Declaration Identity Source),
+    SortedKeys (sortedEntries fields)
+  | [] => trivial
+  | (name, value) :: rest => upsert_sorted _ value _ (sortedEntries_sorted rest)
+
+end Order
+
 
 section Assignment
 
@@ -681,6 +918,113 @@ theorem declareTarget_name (world : World Declaration Identity Source) (decision
   | some _ => rfl
   | none => cases Xsh.Core.Store.allocate world decisions store cell mutability type source <;> rfl
 
+def targetRow : ValueType Declaration → Option (RecordType Declaration)
+  | .record row => some row
+  | .nominal _ row => some row
+  | _ => none
+
+mutual
+  def TargetTyped : ValueType Declaration → Target Declaration → Prop
+    | _, .name _ _ => True
+    | _, .discard => True
+    | type, .record fields _ => ∃ row, targetRow type = some row ∧ FieldsTyped row fields
+
+  def FieldsTyped (row : RecordType Declaration) : List (String × Target Declaration) → Prop
+    | [] => True
+    | (name, target) :: rest =>
+      (∃ type, (rowEntries row).lookup name = some type ∧ TargetTyped type target) ∧ FieldsTyped row rest
+end
+
+omit [DecidableEq Declaration] in
+theorem target_row_fields (world : MembershipWorld Declaration Identity Source) {type : ValueType Declaration}
+    {row : RecordType Declaration} {source : Value Declaration Identity Source} (rowFound : targetRow type = some row)
+    (member : Membership.value world type source) :
+    ∃ fields, Membership.recordFields world source = some fields ∧ Membership.row world row fields := by
+  cases type <;> simp only [targetRow, reduceCtorEq, Option.some.injEq] at rowFound <;> subst rowFound
+  · simp only [Membership.value] at member
+    cases fielded : Membership.recordFields world source with
+    | none => simp [fielded] at member
+    | some fields => simp only [fielded] at member; exact ⟨fields, rfl, member⟩
+  · cases source with
+    | nominal declaration contents =>
+      simp only [Membership.value] at member
+      cases fielded : Membership.recordFields world contents with
+      | none => simp [fielded] at member
+      | some fields =>
+        simp only [fielded] at member
+        refine ⟨fields, ?_, member.2⟩
+        simpa [Membership.recordFields, Value.eraseNominal] using fielded
+    | _ => simp [Membership.value] at member
+
+mutual
+  theorem select_typed (world : MembershipWorld Declaration Identity Source) :
+      ∀ (type : ValueType Declaration) (target : Target Declaration) (source : Value Declaration Identity Source),
+        Membership.value world type source → TargetTyped type target → select world target source ≠ none
+    | _, .name cell declared, source, _, _ => by simp [select]
+    | _, .discard, source, _, _ => by simp [select]
+    | type, .record fields rest, source, member, typed => by
+      simp only [TargetTyped] at typed
+      obtain ⟨row, rowFound, fieldsTyped⟩ := typed
+      obtain ⟨actual, fielded, rowMember⟩ := target_row_fields world rowFound member
+      simp only [select, fielded]
+      exact selectFields_typed world row fields actual rowMember fieldsTyped
+
+  theorem selectFields_typed (world : MembershipWorld Declaration Identity Source) (row : RecordType Declaration) :
+      ∀ (fields : List (String × Target Declaration)) (actual : List (String × Value Declaration Identity Source)),
+        Membership.row world row actual → FieldsTyped row fields → selectFields world fields actual ≠ none
+    | [], _, _, _ => by simp [selectFields]
+    | (name, target) :: rest, actual, rowMember, typed => by
+      simp only [FieldsTyped] at typed
+      obtain ⟨⟨type, typeFound, targetTyped⟩, restTyped⟩ := typed
+      obtain ⟨found, present, foundMember⟩ := row_lookup_member world row actual name type rowMember typeFound
+      simp only [selectFields, present]
+      have first := select_typed world type target found foundMember targetTyped
+      have others := selectFields_typed world row rest actual rowMember restTyped
+      cases selected : select world target found with
+      | none => exact absurd selected first
+      | some bindings =>
+        cases remaining : selectFields world rest actual with
+        | none => exact absurd remaining others
+        | some more => simp
+end
+
+theorem declare_internal (world : World Declaration Identity Source) (decisions : Decisions world)
+    (store after : Store world) (cell : CellId) (mutability : Mutability) (type : ValueType Declaration)
+    (value : Value Declaration Identity Source) (fault : InternalFault)
+    (internal : declare world decisions store cell mutability type value = .internal fault after) :
+    fault = .occupiedCell cell := by
+  unfold declare at internal
+  split at internal
+  · simp only [StoreStep.internal.injEq] at internal
+    exact internal.1.symm
+  · split at internal <;> simp at internal
+
+theorem declareAll_not_malformed (world : World Declaration Identity Source) (decisions : Decisions world)
+    (original : Store world) (mutability : Mutability) :
+    ∀ (current : Store world) (bindings : List (Binding Declaration Identity Source)) after,
+      declareAll world decisions original mutability current bindings ≠ .internal .malformedTarget after
+  | current, [], after => by simp [declareAll]
+  | current, (cell, type, value) :: rest, after => by
+    simp only [declareAll]
+    cases declared : declare world decisions current cell mutability type value with
+    | committed next => exact declareAll_not_malformed world decisions original mutability next rest after
+    | failed failure kept => simp
+    | internal fault kept =>
+      have := declare_internal world decisions current kept cell mutability type value fault declared
+      subst this
+      simp
+
+theorem declareTarget_never_malformed (world : World Declaration Identity Source) (decisions : Decisions world)
+    (store : Store world) (mutability : Mutability) (type : ValueType Declaration) (target : Target Declaration)
+    (source : Value Declaration Identity Source) (member : Membership.value world.membership type source)
+    (typed : TargetTyped type target) :
+    declareTarget world decisions store mutability target source ≠ .internal .malformedTarget store := by
+  have selected := select_typed world.membership type target source member typed
+  unfold declareTarget
+  cases found : select world.membership target source with
+  | none => exact absurd found selected
+  | some bindings => exact declareAll_not_malformed world decisions store mutability store bindings store
+
 theorem declareTarget_discard (world : World Declaration Identity Source) (decisions : Decisions world)
     (store : Store world) (mutability : Mutability) (source : Value Declaration Identity Source) :
     declareTarget world decisions store mutability .discard source = .committed store := rfl
@@ -734,32 +1078,53 @@ section Statements
 
 variable [DecidableEq Declaration]
 
-theorem assignStatement_key_failure (world : World Declaration Identity Source) (decisions : Decisions world)
+theorem assignStatement_selectors_fail (world : World Declaration Identity Source) (decisions : Decisions world)
     (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source)
-    (store : Store world) (cell : CellId) (path : List Selector) (op : Xsh.Syntax.AssignOp)
-    (current : Cell world) (present : store cell = some current) (error : Value Declaration Identity Source)
-    (failed : keyFailure raises current.contents.typeTag path = some error) (right : RightSide world) :
-    assignStatement world decisions raises operate store cell path op right = .failed (.raised error) store := by
+    (store after : Store world) (cell : CellId) (selectors : List (SelectorSide world)) (op : Xsh.Syntax.AssignOp)
+    (current : Cell world) (present : store cell = some current) (failure : Failure Declaration Identity Source)
+    (failed : evaluateSelectors raises (some current.contents.typeTag) selectors store = .error (failure, after))
+    (right : RightSide world) :
+    assignStatement world decisions raises operate store cell selectors op right = .failed failure after := by
   simp [assignStatement, present, failed]
 
 theorem assignStatement_commits_after_right (world : World Declaration Identity Source) (decisions : Decisions world)
     (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source)
-    (store after : Store world) (cell : CellId) (path : List Selector) (op : Xsh.Syntax.AssignOp)
-    (current : Cell world) (present : store cell = some current)
-    (checked : keyFailure raises current.contents.typeTag path = none) (right : RightSide world)
-    (value : Value Declaration Identity Source) (evaluated : right store = .ok (value, after)) :
-    assignStatement world decisions raises operate store cell path op right =
+    (store selected after : Store world) (cell : CellId) (selectors : List (SelectorSide world))
+    (path : List Selector) (op : Xsh.Syntax.AssignOp) (current : Cell world) (present : store cell = some current)
+    (evaluated : evaluateSelectors raises (some current.contents.typeTag) selectors store = .ok (path, selected))
+    (right : RightSide world) (value : Value Declaration Identity Source) (ran : right selected = .ok (value, after)) :
+    assignStatement world decisions raises operate store cell selectors op right =
       assignPath world decisions raises operate after cell path op value := by
-  simp [assignStatement, present, checked, evaluated]
+  simp [assignStatement, present, evaluated, ran]
 
 theorem assignStatement_right_fails (world : World Declaration Identity Source) (decisions : Decisions world)
     (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source)
-    (store after : Store world) (cell : CellId) (path : List Selector) (op : Xsh.Syntax.AssignOp)
-    (current : Cell world) (present : store cell = some current)
-    (checked : keyFailure raises current.contents.typeTag path = none) (right : RightSide world)
-    (failure : Failure Declaration Identity Source) (failed : right store = .error (failure, after)) :
-    assignStatement world decisions raises operate store cell path op right = .failed failure after := by
-  simp [assignStatement, present, checked, failed]
+    (store selected after : Store world) (cell : CellId) (selectors : List (SelectorSide world))
+    (path : List Selector) (op : Xsh.Syntax.AssignOp) (current : Cell world) (present : store cell = some current)
+    (evaluated : evaluateSelectors raises (some current.contents.typeTag) selectors store = .ok (path, selected))
+    (right : RightSide world) (failure : Failure Declaration Identity Source)
+    (failed : right selected = .error (failure, after)) :
+    assignStatement world decisions raises operate store cell selectors op right = .failed failure after := by
+  simp [assignStatement, present, evaluated, failed]
+
+theorem assignPath_never_malformed (world : World Declaration Identity Source) (decisions : Decisions world)
+    (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source)
+    (store : Store world) (cell : CellId) (path : List Selector) (op : Xsh.Syntax.AssignOp)
+    (right : Value Declaration Identity Source) (current : Cell world) (present : store cell = some current)
+    (mutableCell : current.mutability = .mutable) (typed : PathTyped current.contents.typeTag path) :
+    ∀ fault after, assignPath world decisions raises operate store cell path op right ≠ .internal fault after := by
+  have never := update_never_malformed world.membership raises operate op right path current.contents.typeTag
+    current.contents.value current.contents.wellTyped.2 typed
+  intro fault after internal
+  unfold assignPath at internal
+  simp only [present, mutableCell] at internal
+  split at internal
+  · simp at internal
+  · rename_i malformed
+    exact never malformed
+  · unfold assign at internal
+    simp only [present, mutableCell] at internal
+    split at internal <;> simp at internal
 
 end Statements
 
@@ -831,18 +1196,21 @@ section Root
 variable [DecidableEq Declaration]
 
 /-- The store-writing forms on the Core store API over every Core world, type
-and value, with selectors and the right side already evaluated. A path
-assignment commits exactly when its updated cell value is a member; the commit
-replaces only that cell and a `=` update reads back. A well-typed path never
-reaches a malformed state, and a field write through a nominal type is not a
-write. An index outside the list, a missing key under a deeper selector or a
-compound operator, and an operator failure are runtime failures; a missing key
-under `=` is inserted in key order. A negative key into `Map[UInt, V]` fails
-before the right side runs and the update commits on the store the right side
-left. A destructuring declaration commits all its cells or none. Every failure
-keeps the store; unwinding runs the last registered cleanup first, keeps an
-earlier failure primary, makes the first cleanup failure primary after a
-committed body, and `try` catches only raised errors. -/
+and value, with each selector and the right side given as an evaluation. A
+path assignment commits exactly when its updated cell value is a member; the
+commit replaces only that cell and a `=` update reads back. A present, mutable
+member cell with a typed path never reaches an internal fault, a well-typed
+destructuring never reaches `malformedTarget`, and a field write through a
+nominal type is not a write. An index outside the list, a missing key under a
+deeper selector or a compound operator, and an operator failure are runtime
+failures; a missing key under `=` is inserted in key order, inserting keeps a
+key-sorted map sorted, and a record held in a `Map[Str, V]` cell converts to a
+key-sorted map. A negative key into `Map[UInt, V]` fails at its own selector,
+before later selectors and the right side run, and the update commits on the
+store the right side left. A destructuring declaration commits all its cells or
+none. Every failure keeps the store; unwinding runs the last registered cleanup
+first, keeps an earlier failure primary, makes the first cleanup failure
+primary after a committed body, and `try` catches only raised errors. -/
 theorem store_writing_forms (world : World Declaration Identity Source) (decisions : Decisions world)
     (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source) :
     (∀ (store : Store world) cell right,
@@ -919,18 +1287,37 @@ theorem store_writing_forms (world : World Declaration Identity Source) (decisio
           match operate op current.contents.value right with
           | .ok result => assign world decisions store cell result
           | .error error => .failed (.runtime error) store) ∧
-    (∀ type element (key : Xsh.Values.IntValue) rest, mapTypes type = some (.primitive .unsignedInteger, element) →
-      key.val < 0 → keyFailure raises type (.key (.integer key) :: rest) = some raises.schema) ∧
-    (∀ (store : Store world) cell path op (current : Cell world) error right, store cell = some current →
-      keyFailure raises current.contents.typeTag path = some error →
-        assignStatement world decisions raises operate store cell path op right = .failed (.raised error) store) ∧
-    (∀ (store after : Store world) cell path op (current : Cell world) right value, store cell = some current →
-      keyFailure raises current.contents.typeTag path = none → right store = .ok (value, after) →
-        assignStatement world decisions raises operate store cell path op right =
+    (∀ type element (key : Xsh.Values.IntValue), mapTypes type = some (.primitive .unsignedInteger, element) →
+      key.val < 0 → stepFailure raises type (.key (.integer key)) = some raises.schema) ∧
+    (∀ type (side : SelectorSide world) rest (store after : Store world) selector error,
+      side store = .ok (selector, after) → stepFailure raises type selector = some error →
+        evaluateSelectors raises (some type) (side :: rest) store = .error (.raised error, after)) ∧
+    (∀ type (side : SelectorSide world) rest (store after : Store world) selector,
+      side store = .ok (selector, after) → stepFailure raises type selector = none →
+        evaluateSelectors raises (some type) (side :: rest) store =
+          match evaluateSelectors raises (childType type selector) rest after with
+          | .error failure => .error failure
+          | .ok (selectors, final) => .ok (selector :: selectors, final)) ∧
+    (∀ (store after : Store world) cell selectors op (current : Cell world) failure right, store cell = some current →
+      evaluateSelectors raises (some current.contents.typeTag) selectors store = .error (failure, after) →
+        assignStatement world decisions raises operate store cell selectors op right = .failed failure after) ∧
+    (∀ (store selected after : Store world) cell selectors path op (current : Cell world) right value,
+      store cell = some current →
+      evaluateSelectors raises (some current.contents.typeTag) selectors store = .ok (path, selected) →
+      right selected = .ok (value, after) →
+        assignStatement world decisions raises operate store cell selectors op right =
           assignPath world decisions raises operate after cell path op value) ∧
-    (∀ (store after : Store world) cell path op (current : Cell world) right failure, store cell = some current →
-      keyFailure raises current.contents.typeTag path = none → right store = .error (failure, after) →
-        assignStatement world decisions raises operate store cell path op right = .failed failure after) ∧
+    (∀ (store selected after : Store world) cell selectors path op (current : Cell world) right failure,
+      store cell = some current →
+      evaluateSelectors raises (some current.contents.typeTag) selectors store = .ok (path, selected) →
+      right selected = .error (failure, after) →
+        assignStatement world decisions raises operate store cell selectors op right = .failed failure after) ∧
+    (∀ (store : Store world) cell path op right (current : Cell world), store cell = some current →
+      current.mutability = .mutable → PathTyped current.contents.typeTag path →
+        ∀ fault after, assignPath world decisions raises operate store cell path op right ≠ .internal fault after) ∧
+    (∀ key (inserted : Value Declaration Identity Source) entries, SortedKeys entries → entries.lookup key = none →
+      SortedKeys (insertOrdered key inserted entries)) ∧
+    (∀ fields : List (String × Value Declaration Identity Source), SortedKeys (sortedEntries fields)) ∧
     (∀ (store : Store world) mutability target source,
       (∃ next, declareTarget world decisions store mutability target source = .committed next) ↔
         ∃ bindings, select world.membership target source = some bindings ∧
@@ -945,6 +1332,9 @@ theorem store_writing_forms (world : World Declaration Identity Source) (decisio
     (∀ (store : Store world) mutability target source,
       (∀ next, declareTarget world decisions store mutability target source ≠ .committed next) →
         (declareTarget world decisions store mutability target source).storeAfter = store) ∧
+    (∀ (store : Store world) mutability type target source, Membership.value world.membership type source →
+      TargetTyped type target → declareTarget world decisions store mutability target source ≠
+        .internal .malformedTarget store) ∧
     (∀ (store : Store world) mutability cell type source,
       declareTarget world decisions store mutability (.name cell type) source =
         declare world decisions store cell mutability type source) ∧
@@ -996,17 +1386,26 @@ theorem store_writing_forms (world : World Declaration Identity Source) (decisio
     fun store cell op right current compound present mutableCell =>
       assignPath_compound_reads_at_commit world decisions raises operate store cell op compound right current present
         mutableCell,
-    fun _ _ key rest typed negative => keyFailure_negative raises key rest typed negative,
-    fun store cell path op current error right present failed =>
-      assignStatement_key_failure world decisions raises operate store cell path op current present error failed right,
-    fun store after cell path op current right value present checked evaluated =>
-      assignStatement_commits_after_right world decisions raises operate store after cell path op current present
-        checked right value evaluated,
-    fun store after cell path op current right failure present checked failed =>
-      assignStatement_right_fails world decisions raises operate store after cell path op current present checked
-        right failure failed,
+    fun _ _ key typed negative => stepFailure_negative raises key typed negative,
+    fun type side rest store after selector error evaluated failed =>
+      evaluateSelectors_stops raises type side rest store after selector error evaluated failed,
+    fun type side rest store after selector evaluated passed =>
+      evaluateSelectors_continues raises type side rest store after selector evaluated passed,
+    fun store after cell selectors op current failure right present failed =>
+      assignStatement_selectors_fail world decisions raises operate store after cell selectors op current present
+        failure failed right,
+    fun store selected after cell selectors path op current right value present evaluated ran =>
+      assignStatement_commits_after_right world decisions raises operate store selected after cell selectors path op
+        current present evaluated right value ran,
+    fun store selected after cell selectors path op current right failure present evaluated failed =>
+      assignStatement_right_fails world decisions raises operate store selected after cell selectors path op current
+        present evaluated right failure failed,
+    fun store cell path op right current present mutableCell typed =>
+      assignPath_never_malformed world decisions raises operate store cell path op right current present mutableCell
+        typed,
+    insertOrdered_sorted, sortedEntries_sorted,
     declareTarget_committed_iff world decisions, ?_, declareTarget_keeps_store world decisions,
-    declareTarget_name world decisions, declareTarget_discard world decisions,
+    declareTarget_never_malformed world decisions, declareTarget_name world decisions, declareTarget_discard world decisions,
     setEnvironment_ok_iff raises, fun overlay next name value set => setEnvironment_effect raises overlay next name value set,
     fun overlay name value nul => setEnvironment_rejects_nul raises overlay name value nul,
     unwind_failed_primary, unwind_last_registered_runs_first, unwind_committed_first_failure,
@@ -1145,26 +1544,32 @@ theorem missing_key_set_inserts_in_key_order :
   simp [update, mapTypes, mapEntries, stringMap, Value.eraseNominal, List.lookup, different, leafUpdate, Except.map,
     insertOrdered, before]
 
-def unsignedMap : ValueType Unit := .map (.primitive .unsignedInteger) (.primitive .integer)
+def nestedMap : ValueType Unit := .map (.primitive .unsignedInteger) (.map (.primitive .string) (.primitive .integer))
 
 def keyedCell : Cell witnessWorld :=
-  ⟨⟨unsignedMap, .map [], ⟨fun _ _ => trivial, by simp [unsignedMap, Membership.value, Value.eraseNominal]⟩⟩, .mutable⟩
+  ⟨⟨nestedMap, .map [], ⟨fun _ _ => trivial, by simp [nestedMap, Membership.value, Value.eraseNominal]⟩⟩, .mutable⟩
 
 def keyedStore : Store witnessWorld := fun cell => if cell = counterCell then some keyedCell else none
 
-def assignTen : RightSide witnessWorld := fun store =>
-  match assign witnessWorld witnessDecisions store otherCell ten with
-  | .committed next => .ok (one, next)
-  | _ => .ok (one, store)
+def negativeKey : SelectorSide witnessWorld := fun store => .ok (.key (.integer ⟨-1, by decide⟩), store)
 
-theorem negative_unsigned_key_fails_before_the_right_side :
-    assignStatement witnessWorld witnessDecisions raises pair keyedStore counterCell
-        [.key (.integer ⟨-1, by decide⟩)] .set assignTen = .failed (.raised raises.schema) keyedStore ∧
+def writingKey : SelectorSide witnessWorld := fun store =>
+  match assign witnessWorld witnessDecisions store otherCell ten with
+  | .committed next => .ok (.key (.string "x"), next)
+  | _ => .ok (.key (.string "x"), store)
+
+def constant : RightSide witnessWorld := fun store => .ok (one, store)
+
+theorem negative_unsigned_key_fails_at_its_own_selector :
+    assignStatement witnessWorld witnessDecisions raises pair keyedStore counterCell [negativeKey, writingKey] .set
+        constant = .failed (.raised raises.schema) keyedStore ∧
       tryBlock [] (assignStatement witnessWorld witnessDecisions raises pair keyedStore counterCell
-        [.key (.integer ⟨-1, by decide⟩)] .set assignTen) = .caught raises.schema keyedStore := by
-  have failed := assignStatement_key_failure witnessWorld witnessDecisions raises pair keyedStore counterCell
-    [.key (.integer ⟨-1, by decide⟩)] .set keyedCell (by simp [keyedStore]) raises.schema
-    (by simp [keyFailure, keyedCell, unsignedMap, mapTypes, negativeUnsignedKey]) assignTen
+        [negativeKey, writingKey] .set constant) = .caught raises.schema keyedStore := by
+  have stopped := evaluateSelectors_stops raises nestedMap negativeKey [writingKey] keyedStore keyedStore _
+    raises.schema rfl (stepFailure_negative raises (element := .map (.primitive .string) (.primitive .integer)) _ rfl
+      (by decide))
+  have failed := assignStatement_selectors_fail witnessWorld witnessDecisions raises pair keyedStore keyedStore
+    counterCell [negativeKey, writingKey] .set keyedCell (by simp [keyedStore]) _ stopped constant
   exact ⟨failed, by rw [failed]; rfl⟩
 
 def increments : RightSide witnessWorld := fun store =>
@@ -1198,10 +1603,11 @@ theorem compound_reads_the_target_after_the_right_side :
   have tenMutable : tenCell.mutability = .mutable := tenMutability
   have tenType : tenCell.contents.typeTag = .primitive .any := tenType'
   have rightRan : increments oneStore = .ok (one, tenStore) := by simp [increments, tenCommitted]
-  have noKey : keyFailure raises (anyCell one).contents.typeTag [] = none := rfl
+  have noSelectors : evaluateSelectors raises (some (anyCell one).contents.typeTag) ([] : List (SelectorSide witnessWorld))
+      oneStore = .ok ([], oneStore) := rfl
   constructor
-  · rw [assignStatement_commits_after_right witnessWorld witnessDecisions raises pair oneStore tenStore counterCell []
-      .add (anyCell one) present noKey increments one rightRan]
+  · rw [assignStatement_commits_after_right witnessWorld witnessDecisions raises pair oneStore oneStore tenStore
+      counterCell [] [] .add (anyCell one) present noSelectors increments one rightRan]
     have tenPresent : tenStore counterCell = some tenCell := tenAt
     rw [assignPath_compound_reads_at_commit witnessWorld witnessDecisions raises pair tenStore counterCell .add
       (by decide) one tenCell tenPresent tenMutable, tenValue]
@@ -1213,8 +1619,8 @@ theorem compound_reads_the_target_after_the_right_side :
     exact ⟨next, committed, by simp [replacedAt, replacedValue]⟩
   · have desugared : readThenIncrement oneStore = .ok (.list [one, one], tenStore) := by
       simp [readThenIncrement, present, anyCell, rightRan]
-    rw [assignStatement_commits_after_right witnessWorld witnessDecisions raises pair oneStore tenStore counterCell []
-      .set (anyCell one) present noKey readThenIncrement _ desugared,
+    rw [assignStatement_commits_after_right witnessWorld witnessDecisions raises pair oneStore oneStore tenStore
+      counterCell [] [] .set (anyCell one) present noSelectors readThenIncrement _ desugared,
       assignPath_whole_cell witnessWorld witnessDecisions raises pair tenStore counterCell]
     obtain ⟨next, committed⟩ := (assign_committed_iff witnessWorld witnessDecisions tenStore counterCell
       (.list [one, one])).mpr ⟨tenCell, tenAt, tenMutable, by rw [tenType]; exact anyTyped _⟩
@@ -1245,8 +1651,23 @@ theorem record_held_in_a_string_map_takes_a_key_write :
       [.key (.string "b")] = .ok (.map [(.string "a", zero), (.string "b", five)]) := by
   have different : (MapKey.string "b" == MapKey.string "a") = false := by decide
   have notBefore : keyBefore (.string "b") (.string "a") = false := by decide
-  simp [update, mapTypes, mapEntries, stringMap, Value.eraseNominal, List.lookup, different, leafUpdate, Except.map,
-    insertOrdered, notBefore]
+  simp [update, mapTypes, mapEntries, stringMap, Value.eraseNominal, sortedEntries, upsert, List.lookup, different,
+    leafUpdate, Except.map, insertOrdered, notBefore]
+
+theorem record_in_a_string_map_converts_in_key_order :
+    update witnessWorld.membership raises (leafUpdate raises pair .set five) stringMap
+        (.record [("b", zero), ("a", zero)]) [.key (.string "c")] =
+      .ok (.map [(.string "a", zero), (.string "b", zero), (.string "c", five)]) := by
+  have ab : keyBefore (.string "a") (.string "b") = true := by decide
+  have ca : keyBefore (.string "c") (.string "a") = false := by decide
+  have cb : keyBefore (.string "c") (.string "b") = false := by decide
+  have ba : (MapKey.string "b" == MapKey.string "a") = false := by decide
+  have ca' : (MapKey.string "c" == MapKey.string "a") = false := by decide
+  have cb' : (MapKey.string "c" == MapKey.string "b") = false := by decide
+  have ab' : (MapKey.string "a" == MapKey.string "b") = false := by decide
+  have notBefore : keyBefore (.string "b") (.string "a") = false := by decide
+  simp [notBefore, update, mapTypes, mapEntries, stringMap, Value.eraseNominal, sortedEntries, upsert, List.lookup, insertOrdered,
+    ab, ca, cb, ba, ca', cb', ab', leafUpdate, Except.map]
 
 theorem nominal_field_write_is_not_a_typed_path :
     ¬ PathTyped (.nominal () (.rowField "jobs" (.primitive .unsignedInteger) .rowEmpty) : ValueType Unit)

@@ -47,13 +47,6 @@ def listValues (candidate : Value Declaration Identity Source) : Option (List (V
   | .environmentPaths paths => some (paths.map fun path => .scalar (.path path))
   | _ => none
 
-def mapEntries (keyType : ValueType Declaration) (candidate : Value Declaration Identity Source) :
-    Option (List (MapKey × Value Declaration Identity Source)) :=
-  match candidate.eraseNominal, keyType with
-  | .map entries, _ => some entries
-  | .record fields, .primitive .string => some (fields.map fun field => (.string field.1, field.2))
-  | _, _ => none
-
 def replaceField (name : String) (replacement : Value Declaration Identity Source) :
     List (String × Value Declaration Identity Source) → List (String × Value Declaration Identity Source)
   | [] => []
@@ -74,12 +67,18 @@ def keyRank : MapKey → Nat
   | .path _ => 4
   | .duration _ => 5
 
+def lexBefore : List Nat → List Nat → Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | left :: lefts, right :: rights => decide (left < right) || (left == right && lexBefore lefts rights)
+
 def keyBefore : MapKey → MapKey → Bool
-  | .string left, .string right => decide (left < right)
+  | .string left, .string right => lexBefore (left.toList.map Char.toNat) (right.toList.map Char.toNat)
   | .integer left, .integer right => decide (left.val < right.val)
   | .boolean left, .boolean right => !left && right
-  | .bytes left, .bytes right => decide (left < right)
-  | .path left, .path right => decide (left.bytes < right.bytes)
+  | .bytes left, .bytes right => lexBefore (left.map UInt8.toNat) (right.map UInt8.toNat)
+  | .path left, .path right => lexBefore (left.bytes.map UInt8.toNat) (right.bytes.map UInt8.toNat)
   | .duration left, .duration right => decide (left.val < right.val)
   | left, right => decide (keyRank left < keyRank right)
 
@@ -90,28 +89,39 @@ def insertOrdered (key : MapKey) (inserted : Value Declaration Identity Source) 
     if keyBefore key other then (key, inserted) :: (other, value) :: rest
     else (other, value) :: insertOrdered key inserted rest
 
+def upsert (key : MapKey) (value : Value Declaration Identity Source)
+    (entries : List (MapKey × Value Declaration Identity Source)) : List (MapKey × Value Declaration Identity Source) :=
+  match entries.lookup key with
+  | some _ => replaceEntry key value entries
+  | none => insertOrdered key value entries
+
+def sortedEntries (fields : List (String × Value Declaration Identity Source)) :
+    List (MapKey × Value Declaration Identity Source) :=
+  fields.foldr (fun field entries => upsert (.string field.1) field.2 entries) []
+
+def mapEntries (keyType : ValueType Declaration) (candidate : Value Declaration Identity Source) :
+    Option (List (MapKey × Value Declaration Identity Source)) :=
+  match candidate.eraseNominal, keyType with
+  | .map entries, _ => some entries
+  | .record fields, .primitive .string => some (sortedEntries fields)
+  | _, _ => none
+
 def negativeUnsignedKey : ValueType Declaration → MapKey → Bool
   | .primitive .unsignedInteger, .integer value => decide (value.val < 0)
   | _, _ => false
 
-def keyFailure (raises : Raises Declaration Identity Source) :
-    ValueType Declaration → List Selector → Option (Value Declaration Identity Source)
-  | _, [] => none
-  | type, .field name :: rest =>
-    match recordRow type with
-    | some row =>
-      match (rowEntries row).lookup name with
-      | some child => keyFailure raises child rest
-      | none => none
-    | none => none
-  | type, .index _ :: rest =>
-    match elementType type with
-    | some element => keyFailure raises element rest
-    | none => none
-  | type, .key key :: rest =>
+def childType : ValueType Declaration → Selector → Option (ValueType Declaration)
+  | type, .field name => (recordRow type).bind fun row => (rowEntries row).lookup name
+  | type, .index _ => elementType type
+  | type, .key _ => (mapTypes type).map Prod.snd
+
+def stepFailure (raises : Raises Declaration Identity Source) :
+    ValueType Declaration → Selector → Option (Value Declaration Identity Source)
+  | type, .key key =>
     match mapTypes type with
-    | some (keyType, element) => if negativeUnsignedKey keyType key then some raises.schema else keyFailure raises element rest
+    | some (keyType, _) => if negativeUnsignedKey keyType key then some raises.schema else none
     | none => none
+  | _, _ => none
 
 def update (world : MembershipWorld Declaration Identity Source) (raises : Raises Declaration Identity Source)
     (leaf : Option (Value Declaration Identity Source) → Except (PathError Declaration Identity Source)
@@ -197,20 +207,39 @@ def assignPath (world : World Declaration Identity Source) (decisions : Decision
 abbrev RightSide (world : World Declaration Identity Source) :=
   Store world → Except (Failure Declaration Identity Source × Store world) (Value Declaration Identity Source × Store world)
 
-/-- `target sel… op= right` with its selectors evaluated: a negative key into
-`Map[UInt, V]` fails while the selectors evaluate, before the right side runs;
-the update then commits on the store the right side left. -/
+abbrev SelectorSide (world : World Declaration Identity Source) :=
+  Store world → Except (Failure Declaration Identity Source × Store world) (Selector × Store world)
+
+/-- Selectors evaluate once in path order; a negative key into `Map[UInt, V]`
+fails at its own selector, before any later selector runs. -/
+def evaluateSelectors {world : World Declaration Identity Source} (raises : Raises Declaration Identity Source) :
+    Option (ValueType Declaration) → List (SelectorSide world) → Store world →
+      Except (Failure Declaration Identity Source × Store world) (List Selector × Store world)
+  | _, [], store => .ok ([], store)
+  | type, side :: rest, store =>
+    match side store with
+    | .error failure => .error failure
+    | .ok (selector, after) =>
+      match type.bind fun type => stepFailure raises type selector with
+      | some error => .error (.raised error, after)
+      | none =>
+        match evaluateSelectors raises (type.bind fun type => childType type selector) rest after with
+        | .error failure => .error failure
+        | .ok (selectors, final) => .ok (selector :: selectors, final)
+
+/-- `target sel… op= right`: selectors, then the right side, then the update
+commits on the store the right side left. -/
 def assignStatement (world : World Declaration Identity Source) (decisions : Decisions world)
     (raises : Raises Declaration Identity Source) (operate : Operate Declaration Identity Source)
-    (store : Store world) (cell : CellId) (path : List Selector) (op : Xsh.Syntax.AssignOp)
+    (store : Store world) (cell : CellId) (selectors : List (SelectorSide world)) (op : Xsh.Syntax.AssignOp)
     (right : RightSide world) : StoreStep world :=
   match store cell with
   | none => .internal (.missingCell cell) store
   | some current =>
-    match keyFailure raises current.contents.typeTag path with
-    | some error => .failed (.raised error) store
-    | none =>
-      match right store with
+    match evaluateSelectors raises (some current.contents.typeTag) selectors store with
+    | .error (failure, after) => .failed failure after
+    | .ok (path, selected) =>
+      match right selected with
       | .error (failure, after) => .failed failure after
       | .ok (value, after) => assignPath world decisions raises operate after cell path op value
 
