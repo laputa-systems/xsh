@@ -323,6 +323,13 @@ theorem lets_complete {tokens rest : List Token} {lets : List (String × Nat)} {
       have bound : lets.length < fuel := by simp at enough; omega
       simp [parseLets, ih boundary fuel bound]
 
+theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
+  intro domain
+  obtain ⟨functions, scopes, admitted⟩ := domain
+  rcases admitted with ⟨_, _, _, _, _, _, tokens, lexical, _⟩
+  have parsed := tokenizer_complete lexical
+  simp [tokenize, isDigitCode, isWordStartCode] at parsed
+
 theorem constructor_is_not_an_ordinary_call :
     ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
         (.call "Ok" [.var "x"]) [] ∧
