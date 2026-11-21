@@ -8105,6 +8105,12 @@ impl<'a> ProducerProof<'a> {
                     if !matches!(ty.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scalar string producer has a non-string slot")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
+                // Execution expects `crate::arith::checked_int_binary` to decide the row.
+                schema::IntView::Binary { op, .. } => {
+                    if !matches!(op, super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem) {
+                        return Err(IrVerifyError::new("integer binary row has a non-arithmetic operator"));
+                    }
+                }
                 _ => {}
             },
             schema::InstructionKind::Bool => match schema::BoolView::decode_from_decoder(decoder, tag, payload)? {

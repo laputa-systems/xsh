@@ -72,9 +72,10 @@ full domain.
   `Some(Ok)` and declines `Some(Err)`; a `const` initializer then reports
   `invalid constant operation or arithmetic overflow`. Execution
   (`src/runtime/eval/lowered_ops.rs::checked_int_binary`) expects `Some` and
-  reports the error's `division-by-zero` or `integer-overflow` diagnostic at
-  the operator span; `lowered_binary_value` and the typed scalar
-  `ApplyIntBinary` step call it.
+  reports the error's `division-by-zero` or `integer-overflow` diagnostic
+  with the span it is given; `lowered_binary_value` and the typed scalar
+  `ApplyIntBinary` step call it. Top-level compound assignment does not: it
+  repeats the rules in `compound_assignment_value` (XSH-158).
 - **Property.** `Xsh.Core.Arith.checked` for `+ - * / %`: exact sum,
   difference and product, `Int.tdiv` and `Int.tmod`, a zero divisor of `/` or
   `%` is `divisionByZero`, and a result whose witness (the quotient for `%`)
@@ -202,29 +203,91 @@ Aeneas defaults; the hand-written modules set no option.
 
 ## Adapters
 
-The theorems prove the shared decisions, not their adapters. Native
-regressions in [`int-arithmetic-routes.xsh`](../tests/xsh/int-arithmetic-routes.xsh)
-and [`duration-arithmetic.xsh`](../tests/xsh/duration-arithmetic.xsh) check each
-behavior class (overflow of `+ - *`, both zero divisors, `MIN / -1`,
-`MIN % -1`, truncation toward zero, every duration error) through
-unannotated and annotated `let` bindings, returned expressions, compound
-assignment, literal operands and `const` initializers, with the error code
-and, except on one route, the operator's line and column. Which execution
-route each form takes is from reading the lowerer. The exception is a
-reproduced blame defect (XSH-157): an unannotated `let result = left + right`
-over `Int` parameters takes the typed `IntBinary` route, which carries no
-operator span, and reports the failure at the caller's `apply(...)` instead
-of the operator that the annotated and returned forms report. That regression
-asserts the error code only until the span is carried. Unproved:
-that the adapters pass the operator and operands unchanged, that constant
-preparation's decline leaves the runtime to report the failure, and that the
-span is the operator's. The execution adapter's
-`expect("verified integer binary operation")` relies on the lowerer emitting
-only `+ - * / %` into `IntBinary` (`src/runtime/eval/lower/scalar.rs`);
-`FullVerifier::verify` does not check that operator (`verify_scalar` in
-`src/runtime/eval/indexed/full/verify_schemes/producers.rs`), so IR built
-another way could reach the panic. This was found by reading and is not
-reproduced (XSH-155).
+The theorems prove the shared decisions, not their adapters: the code that
+hands an operator and two operands to `checked_int_binary` or
+`checked_duration_binary` and turns the answer into a value, a diagnostic or a
+declined constant. The adapters are not extracted. They live in
+`src/runtime/eval` over `LoweredValue`, `RuntimeError`, `Span` and the indexed
+IR, which the slice cannot compile verbatim. No Kani harness was written
+either. Kani is not installed here, and a harness would need `#[cfg(kani)]`
+code inside the runtime modules to reach their `pub(super)` functions, a
+production change outside this increment. The evidence is finite Rust
+conformance, of the `RUST_CONFORMANCE` kind. It is not in the frozen ledger,
+which holds only tests run against binaries built from the frozen commit.
+
+The `*_route_conformance` tests in
+[`arith_route_tests.rs`](../src/runtime/eval/indexed/full/arith_route_tests.rs)
+take one source form each. A test first reads, from the lowered program,
+which rows carry the operation (table below). It then runs every Int
+operator, or every SPEC 4.3 Duration dimension form, over a fixed grid
+through parsing, checking, lowering, verification and execution, in both the
+in-place and the frame execution modes. Each outcome must equal the shared
+decision's outcome on the same operator and operands: the same value, the same
+error code and message, or, for `const`, a constant that preparation declines
+and the checker reports.
+
+| Source form | Lowered rows | Path to the decision |
+|---|---|---|
+| `let result = left OP right` over `Int` parameters | `IntBinary` under `StmtLetInt` | in place, `ApplyIntBinary` then `lowered_ops::checked_int_binary`; in frames, `BinaryRight` then `lowered_binary_value` |
+| `if left OP right < k` over `Int` parameters | `IntBinary` under `BoolIntCompare` in `StmtIfBool` | the same |
+| `let result: T = ...`, a returned `left OP right`, literal operands, and Duration `let result = ...` | `ExprBinary` | `lowered_binary_value` |
+| `value OP= right` in a function | `StmtAssign` carrying the `AssignOp` | `apply_indexed_assignment`, `lowered_assign_value`, `lowered_binary_value` |
+| `value OP= right` at top level | a driver `Assign` step | `compound_assignment_value` in `src/runtime/eval.rs`, which repeats the Int rules instead of calling `checked_int_binary` and has no Duration arm (XSH-158) |
+| `const C = left OP right` | none: the operation is folded | `fold_constant_binary` |
+
+The Int grid is the twelve values of `arith_conformance`, which Lean's
+`ArithCases` also enumerates: all 144 pairs for each of the five operators,
+720 cases per form, 5,760 over eight forms. The Duration grid pairs eight
+millisecond values (0, 1, 2, 7, 1000, 2^63 − 1, 2^64 − 2 and 2^64 − 1) with
+each other and with eight counts (`MIN`, −7, −1, 0, 1, 2, 7 and `MAX`): 384
+cases for each of five forms and 256 for function-local compound assignment,
+which keeps the left dimension, 2,176 in all. The 7,936 cases run as 4,029
+programs, in under a second of test time. Top-level Duration compound
+assignment fails at runtime with `type-error: += assignment cannot combine
+Duration and Duration` (XSH-158), so that form has no test until the fix.
+
+Three temporary source mutants were each caught by the forms they reach and by
+no others. Swapping the operands of `ApplyIntBinary` failed the unannotated
+`let` and comparison forms. Swapping them in the Duration branch of
+`lowered_binary_value` failed every runtime Duration form, but not the
+`const` form. Reporting a top-level `/= 0` as `integer-overflow` failed the
+top-level compound form.
+
+XSH-155 is closed. `verify_scalar` now rejects an `IntBinary` row whose
+operator is not `+ - * / %`, so a verified program cannot reach the execution
+adapter's `expect("verified integer binary operation")`. Before the check,
+rewriting the lowered `+` of `let result = left + right` to `<` passed
+`FullVerifier::verify`. In-place execution then panicked at that `expect`,
+and frame execution computed a `Bool` that failed later as `type-error:
+lowered return type mismatch`. `int_binary_rows_admit_only_the_arithmetic_operators`
+rewrites each of four `IntBinary` rows (under `StmtLetInt`, nested in another
+row, and under a `BoolIntCompare`) to each of the thirteen other operators and
+requires rejection, and requires the five arithmetic operators to verify.
+
+The remaining assumptions about the adapters are these:
+
+- **Reported at the operator.** Not shown. SPEC 4.2 and 4.3 place both
+  failures at the operator. The typed `IntBinary` route reports the enclosing
+  call in both modes, because its row carries no span (XSH-157). The route
+  tests compare no spans. The native regressions in
+  [`int-arithmetic-routes.xsh`](../tests/xsh/int-arithmetic-routes.xsh) and
+  [`duration-arithmetic.xsh`](../tests/xsh/duration-arithmetic.xsh) check the
+  line and column on the other forms.
+- **Off the grid.** An adapter fault that changes no outcome on the grids
+  passes the tests.
+- **Unlisted routes.** Field and path compound assignment (`StmtAssignField`,
+  `StmtAssignFieldInt`, `StmtAssignPath`), `UInt` bindings, and Int rows over
+  field reads, list indexes or byte access are not in the matrix. Each form's
+  route is read from its test fixtures, and other source shapes may lower
+  differently.
+- **Top-level compound assignment.** It is a second implementation of the Int
+  rules, outside the refinement theorem, which agrees with the decision at the
+  720 grid points. It rejects Duration operands (XSH-158).
+- **Typed comparisons.** `verify_scalar` does not check the operator of a
+  `BoolIntCompare` or `BoolLiteralCompareSlot` row. Rewritten to `+` or `<`,
+  such rows pass verification and then reach an `unreachable!` in the typed
+  evaluator (XSH-159). They are not arithmetic adapters, but a `BoolIntCompare`
+  consumes `IntBinary` rows.
 
 ## Reproduce
 
@@ -237,6 +300,8 @@ dev/verify/aeneas/extract.sh --check
 dev/verify/aeneas/check.sh
 dev/verify/aeneas/mutant.sh
 cargo test --locked --manifest-path dev/verify/aeneas/slice/Cargo.toml
+cargo test --locked --profile verification --target x86_64-unknown-linux-musl \
+  -p xsh --lib runtime::eval::indexed::full::arith_route_tests::
 python3 formal/scripts/check-inventory.py
 ```
 
@@ -303,18 +368,21 @@ binary built by another compiler, not the x86_64 and aarch64 products.
 | `ratio_case` closed by `simp` over unfolded bounds | tool limitation | The kernel reported deep recursion; the case now uses the model's own `ratio` lemmas |
 | Concrete witnesses by `decide` on `checked_div` and `checked_rem` | tool limitation | Reduction stops at the irreducible `IScalar.min`; the witnesses derive from the model's specification lemmas |
 
-No proof attempt exposed an XSH defect, and no production source changed.
+No proof attempt exposed an XSH defect, and no proved source changed.
 Writing the adapter regressions exposed the typed-route blame defect
-(XSH-157); its repair is in the lowering and runtime owners, outside this
-increment.
+(XSH-157), whose repair changes the `IntBinary` payload and so waits for the
+raw-IR lane. The route tests exposed the top-level compound route (XSH-158),
+and corruption probes beside them exposed the unchecked comparison operators
+(XSH-159). The one production change is XSH-155's check in `verify_scalar`.
 XSH-150 to XSH-154 concern paths, `.require`, module contracts and map writes,
 not these functions, and were not reused.
 
 ## Next
 
-Close the adapter gap: carry the operator span on `IntBinary` (XSH-157) and
-check its operator in `FullVerifier::verify` (XSH-155), then prove that both
-execution routes pass operators and operands to the shared decision and report
-its error at the operator span, which needs the lowering and indexed-execution
-steps for `IntBinary` and `ExprBinary` in the IR model. Then apply the same route to the membership decision
+Close the adapter gap: carry the operator span on `IntBinary` (XSH-157) after
+the raw-IR lane lands, route top-level compound assignment through the shared
+decisions (XSH-158), and check the comparison operators (XSH-159). Then prove
+that both execution routes pass operators and operands to the shared decision
+and report its error at the operator span, which needs the lowering and
+indexed-execution steps for `IntBinary` and `ExprBinary` in the IR model. Then apply the same route to the membership decision
 behind `value_matches_static_type`.

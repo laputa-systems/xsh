@@ -58428,6 +58428,9 @@ mod noncompletion_tests;
 mod consumer_defect_tests;
 
 #[cfg(test)]
+mod arith_route_tests;
+
+#[cfg(test)]
 mod namespace_error_body_tests {
     fn prepare(root: &std::path::Path, source: &str) -> super::FullProgram {
         let entry = root.join("entry.xsh");
