@@ -918,6 +918,24 @@ theorem scopes_projection_complete {functions : List SourceFunction}
   | cons head tail ih =>
     simp [List.mapM_cons, scope_projection_complete head, ih]
 
+theorem declarative_domain_complete {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))}
+    (domain : DeclarativeDomain bytes moduleInputs functions scopes) :
+    check bytes moduleInputs functions scopes = true := by
+  rcases domain with ⟨rfl, adjacency, decimal, distinct, names, projection,
+    tokens, lexical, grammar, order, records, anywhere, words⟩
+  have tokenized := tokenizer_complete lexical
+  simp only [List.length_map] at tokenized
+  have fuelBound := functions_fit_tokens grammar
+  have parsed := functions_syntax_complete grammar (tokens.length + 1) (by omega)
+  have ordered := functions_in_order_complete order
+  have recordOrdered := record_calls_in_order_complete records
+  have recordAnywhere := record_calls_anywhere_complete anywhere
+  have projected := scopes_projection_complete projection
+  simp [check, adjacency, decimal, supportedWords, tokenized, words, names, distinct,
+    parseSourceCodes, parsed, functionsAdmitted, ordered, functionsAvoidRecordCalls,
+    recordOrdered, recordAnywhere, projected]
+
 theorem decimal_step_preserves_failure (state : Nat × Bool) (code : Nat)
     (successful : (decimalRunStep state code).2 = true) : state.2 = true := by
   unfold decimalRunStep at successful
