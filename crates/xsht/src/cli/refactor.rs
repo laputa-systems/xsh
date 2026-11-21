@@ -7,7 +7,6 @@ use crate::xsht::grep::{
 };
 use std::cmp::Reverse;
 use std::fs;
-use std::path::Path;
 use xsh::frontend::source::SourceMap;
 use xsh::frontend::syntax::parser::Parser;
 

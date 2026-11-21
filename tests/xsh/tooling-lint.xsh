@@ -189,6 +189,7 @@ const target = p"target/debug/tool"
 let opts = {tool: target}
 run.status $target --flag $opts.tool
 print ${label}
+print ${shell}
 """),
   )?
   let linted = run.capture --text "xsht" lint $file
@@ -223,7 +224,7 @@ test test_lint_list_jsonl_names_every_selectable_code_with_a_summary {
 }
 
 test test_lint_explicit_directory_lints_xsh_files { |ctx|
-  let root = project(ctx, {"project/main.xsh": "const value = 1\n", "project/nested/helper.xsh": "const value = 2\n"})?
+  let root = project(ctx, {"project/main.xsh": "const value = 1\nprint \$value\n", "project/nested/helper.xsh": "const value = 2\nprint \$value\n"})?
   let linted = xsht(root, ["lint", fp"{root}/project".display()])?
   assert linted.status.exited_with(0), linted.stderr
 }

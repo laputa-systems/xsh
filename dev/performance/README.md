@@ -10,8 +10,7 @@ cleanup. It requires Python 3.11 or newer and adds no production dependency.
 XSH-19 retired the campaign receipt validators that `check.py` used to
 dispatch: functional close, the inherited baseline close, the representative
 measurement, and the inference performance runner. Each validated
-consolidation receipts through the gate tools under
-`dev/consolidation/winddown/gate-tools`. The owner-approved
+consolidation receipts through the former campaign gate tools. The owner-approved
 [performance baseline](../../docs/TESTING.md#performance-baseline) replaces
 them with ordinary readiness-checked interleaved measurements. Their code is in
 Git history at `d03e90f45`.

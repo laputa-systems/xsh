@@ -375,7 +375,7 @@ denominator or retained table, and do not mix it with practical-cohort results.
 | Eligible | 693 local annotations and 2,190 private parameter, return, and effect annotations |
 | Accepted view | 499 locals and 541 internal annotations removed; 149 `Map[...] = {}` annotations and all 202 private effect clauses retained |
 | Historical goals | 95% of locals and 85% of internal annotations, both unmet and unchanged |
-| Retained table and recipe | `15243e97f6fd751016ab28690ada2cadb6fc973a` (`dev/consolidation/typing-corpus/retained.tsv` at that commit). The current `retained.tsv` and `witnesses.tsv` belong to a later 877-removal checkpoint and are not 1,040 evidence |
+| Retained table and recipe | `15243e97f6fd751016ab28690ada2cadb6fc973a` (the retained table at that commit). The current `retained.tsv` and `witnesses.tsv` belong to a later 877-removal checkpoint and are not 1,040 evidence |
 | Sources | XSH `ddc17d3d53c819c343f9ecaa738ac67d59e9033a`, Laputa `ca658ce1da9d89c55209c25268dfdf687ff4fdc6` |
 | View digests | Original `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`, reduced `b67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9`, each 14,287 entries |
 | Accepting compiler | `0fe1469d1808b5f963bd841165af6c10f2c3e93b`, tree `79fdb956ee01e3bf4cced9b85ff109bcb8b7d662`. Products: `xsh` `38b848c828591d6aa46a902d0404dfe42298e36cc2a6c6512eb2af9c1f460736`, `xsht` `23ca0dd9ccb8b9723f41d199ab41d4a242c90c96277ce83e13b002e67b23a2b2` |
@@ -395,14 +395,14 @@ scratch="$PWD/.work/tmp/performance-inference-audit"
 mkdir -p "$scratch/original/xsh" "$scratch/original/laputa"
 git archive ddc17d3d53c819c343f9ecaa738ac67d59e9033a | tar -x -C "$scratch/original/xsh"
 git -C "$LAPUTA_ROOT" archive ca658ce1da9d89c55209c25268dfdf687ff4fdc6 | tar -x -C "$scratch/original/laputa"
-git show 15243e97:dev/consolidation/typing-corpus/retained.tsv > "$scratch/retained-1040.tsv"
-python3 dev/consolidation/typing-corpus/cohort.py \
+git show 15243e97:dev/""consolidation/typing-corpus/retained.tsv > "$scratch/retained-1040.tsv"
+python3 dev/performance/corpus/typing/cohort.py \
   "$scratch/original" --reduced "$scratch/reduced-1040" --retain "$scratch/retained-1040.tsv"
-python3 dev/consolidation/typing-corpus/apply_witness_fixture.py \
+python3 dev/performance/corpus/typing/apply_witness_fixture.py \
   "$scratch/original/xsh" "$scratch/reduced-1040/xsh"
-python3 dev/consolidation/typing-corpus/validate.py \
+python3 dev/performance/corpus/typing/validate.py \
   "$scratch/original" "$scratch/reduced-1040" --retain "$scratch/retained-1040.tsv"
-python3 dev/consolidation/typing-corpus/view_digest.py \
+python3 dev/performance/corpus/typing/view_digest.py \
   "$scratch/original" "$scratch/reduced-1040"
 ```
 

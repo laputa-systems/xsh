@@ -1,3 +1,0 @@
-running 1 tests
-core/tests/test-curl.xsh::test_curl_output_names ... ok 235ms
-test result: ok. 1 passed; 0 failed; 0 skipped

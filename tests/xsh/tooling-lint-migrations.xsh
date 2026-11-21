@@ -103,7 +103,7 @@ test test_removed_record_require_fix_rechecks_and_converges_in_stages { |ctx|
   let root = project(
     ctx,
     {
-      "entry.xsh": "##! Removed record require migration fixture.\n## A name.\nexport type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint \$value.name\n",
+      "entry.xsh": "##! Removed record require migration fixture.\n## A name.\nexport type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint \$value.name\nprint \$required.name\n",
     },
   )?
   let entry = fp"{root}/entry.xsh"

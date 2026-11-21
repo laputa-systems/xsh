@@ -269,7 +269,7 @@ theorem typed_assignment_commit (state : Machine) (scope : Scope) (name : NameId
     rw [sameType]
     exact typed
   obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
-    ⟨current, present, writable, member⟩
+    ⟨current, present, writable, StoreTyped.of_hasType member⟩
   exact ⟨next, Step.assignmentCommit state binding.binder value rest cell next active written,
     write_preserves_layout state.store next cell value written⟩
 
@@ -303,7 +303,7 @@ theorem typed_assignment_preserves_scope (state : Machine) (scope : Scope) (name
     rw [sameType]
     exact typed
   obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
-    ⟨current, present, writable, member⟩
+    ⟨current, present, writable, StoreTyped.of_hasType member⟩
   obtain ⟨step, retained⟩ := assignment_commit_preserves_scope_values state scope name binding binding.scheme.body
     value runtimeType rest cell next values unique distinct found monomorphic active written ordinary closed typed
   exact ⟨next, step, retained,

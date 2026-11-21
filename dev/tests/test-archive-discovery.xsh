@@ -18,11 +18,12 @@ proc xsht(ctx: TestContext, root: Path, arguments: List[Path]) [fs, process, err
 test test_project_discovery_skips_archived_xsh_and_keeps_explicit_files { |ctx|
   let root = test.temp_dir(ctx, name: "archive-discovery")?
   let active = fp"{root}/src/active.xsh"
-  let evidence_root = fp"{root}/dev/consolidation/evidence"
+  let evidence_root = fp"{root}/tests/fixtures/evidence"
   let archived_project = fp"{evidence_root}/procps-exit-races/integration-787/attempt3/generated-workspace"
   let archived = fp"{archived_project}/core/tests/test-procps.xsh"
   let project_config = fp"{ctx.core_dir.parent()}/xsht-config.ini".read_text()?
   fp"{root}/src".mkdir()
+  fp"{root}/dev".mkdir()
   fp"{root}/core".mkdir()
   archived_project.mkdir()
   archived.parent().mkdir()

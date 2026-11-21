@@ -7,7 +7,6 @@ const SEQUENCE = 1
 const PORT = 4242
 const RTM_NEWADDR = 20
 const RTM_GETLINK = 18
-const NLM_F_REQUEST_ACK = 5
 const NLM_F_CREATE_EXCL = 1536
 const NLMSG_ERROR = 2
 const NLMSG_DONE = 3

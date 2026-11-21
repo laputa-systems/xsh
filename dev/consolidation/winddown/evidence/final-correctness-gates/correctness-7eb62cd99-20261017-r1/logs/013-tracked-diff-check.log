@@ -1,7 +1,0 @@
-argv: ["git", "diff", "--check"]
-env: {}
-
-stdout:
-
-stderr:
-

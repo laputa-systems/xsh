@@ -255,6 +255,7 @@ lint_rules! {
     LintStringlyTypedMatch: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::Statement(StatementSite::StringlyMatch, lint_statement_stringly_match)]);
     LintUnsortedImports: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::ImportBlock, run_import_block_hook)]);
     LintUnusedCallable: (RuleSetting::DeadCode, [], FixPolicy::NoFix, [RuleHook::Root(RootStage::DeclarationReachability, run_unused_callable_hook)]);
+    LintUnusedConst: (RuleSetting::Always, [ResolvedBindings], FixPolicy::NoFix, [RuleHook::Root(RootStage::UnusedTypes, run_unused_const_hook)]);
     LintUnusedLocal: (RuleSetting::Always, [LocalBindingTypes], FixPolicy::NoFix, [RuleHook::ScopeExit(run_unused_local_hook)]);
     LintUnusedType: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::UnusedTypes, run_unused_types_hook)]);
     LintPreferInferredProcReturn: (RuleSetting::OptIn(RuleOption::InferredProcReturns), [CheckerDiagnostics, ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ParameterTypes, ReturnProofProbe], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::InferredProcReturns, run_inferred_proc_return_hook)]);
@@ -580,6 +581,10 @@ fn run_implicit_main_hook(
     statements: &[StmtId],
 ) {
     linter.lint_implicit_main(statements);
+}
+
+fn run_unused_const_hook(linter: &mut Linter<'_>, _: &CheckBundleView<'_>, statements: &[StmtId]) {
+    linter.lint_unused_consts(statements);
 }
 
 fn run_unused_types_hook(
@@ -2669,7 +2674,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 143);
+        assert_eq!(codes.len(), 144);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

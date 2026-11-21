@@ -41,8 +41,6 @@ export const IFF_MULTICAST = 4096
 ## The interface address is dynamic.
 export const IFF_DYNAMIC = 32768
 
-const ARPHRD_ETHER = 1
-const ARPHRD_TUNNEL = 768
 const ARPHRD_LOOPBACK = 772
 
 # The octet value that carries 0 to 8 leading one bits.

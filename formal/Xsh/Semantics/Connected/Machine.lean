@@ -1,4 +1,4 @@
-import Xsh.Semantics.Connected.Values
+import Xsh.Semantics.Connected.Store
 import Xsh.Typing.Connected.Validate
 import Xsh.Values.IntegerOps
 
@@ -550,7 +550,9 @@ theorem assignment_commit_requires_mutable_matching_cell
     (accepted : write store cell candidate = .accepted next) :
     ∃ current, store cell = some current ∧ current.mutability = .mutable ∧
       HasType current.contents.typeTag candidate := by
-  exact (write_accepted_iff (fun _ _ => inferInstance) store cell candidate).mp ⟨next, accepted⟩
+  obtain ⟨current, present, mutable, typed⟩ :=
+    (write_accepted_iff (fun _ _ => inferInstance) store cell candidate).mp ⟨next, accepted⟩
+  exact ⟨current, present, mutable, typed.connected⟩
 
 theorem rejected_assignment_does_not_change_store
     (store next : Store) (cell : CellId) (candidate : Value)
@@ -580,6 +582,13 @@ theorem allocate_fresh_typed_cell (store : Store) (cell : CellId) (mutability : 
       next cell = some current ∧ current.mutability = mutability ∧
       current.contents.typeTag = ty ∧ current.contents.value = value := by
   exact Xsh.Semantics.Environments.allocate_fresh_typed_cell (fun _ _ => inferInstance)
-    store cell mutability ty value fresh typed
+    store cell mutability ty value fresh (StoreTyped.of_hasType typed)
+
+theorem stored_cell_typed {store : Store} {cell : CellId} {entry : StoreCell RuntimeType Value StoreTyped}
+    (_ : store cell = some entry) :
+    HasType entry.contents.typeTag entry.contents.value ∧
+      ∀ core, CoreBridge.embedType entry.contents.typeTag = some core →
+        Xsh.Semantics.CoreWorld.HasType CoreBridge.world core (CoreBridge.embedValue entry.contents.value) :=
+  ⟨entry.contents.wellTyped.connected, entry.contents.wellTyped.core⟩
 
 end Xsh.Semantics.Connected

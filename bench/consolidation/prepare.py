@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import urllib.request
 
 from fixtures import digest
 
 HERE = Path(__file__).resolve().parent
+XSH = HERE.parents[1] / "target/debug/xsh"
 BUILD_CPU_QUOTA = 400_000
 BUILD_MEMORY_BYTES = 8 * 1024**3
 BUILD_MEMORY = "8g"
@@ -29,25 +29,10 @@ def prepare(args):
     if context == Path("/tmp") or Path("/tmp") in context.parents:
         raise ValueError("preparation artifacts must live on disk outside /tmp")
     context.mkdir(parents=True, exist_ok=True)
-    checksums = []
-    for name, source in lock["sources"].items():
-        artifact = source if "url" in source else source[args.arch]
-        filename = {"nushell": "nu"}.get(name, name) + ".tar.gz"
-        path = context / filename
-        if not path.exists():
-            staging = path.with_suffix(".download")
-            with urllib.request.urlopen(artifact["url"], timeout=120) as response, staging.open("wb") as destination:
-                shutil.copyfileobj(response, destination)
-            if digest(staging) != artifact["sha256"]:
-                raise ValueError(f"download checksum mismatch: {artifact['url']}")
-            staging.replace(path)
-        if digest(path) != artifact["sha256"]:
-            raise ValueError(f"cached artifact checksum mismatch: {path}")
-        checksums.append(f"{artifact['sha256']}  {filename}\n")
-    (context / "checksums").write_text("".join(checksums))
-    for filename in ("Dockerfile", "versions.lock.json"):
+    subprocess.run([str(XSH), str(HERE / "fetch.xsh"), "--", str(HERE / "sources.lock.json"), str(context), args.arch], check=True)
+    for filename in ("Dockerfile", "versions.lock.json", "sources.lock.json"):
         shutil.copyfile(HERE / filename, context / filename)
-    request = {"base_image": base, "architecture": args.arch, "dockerfile_sha256": digest(HERE / "Dockerfile"), "lock_sha256": digest(HERE / "versions.lock.json")}
+    request = {"base_image": base, "architecture": args.arch, "dockerfile_sha256": digest(HERE / "Dockerfile"), "lock_sha256": digest(HERE / "versions.lock.json"), "sources_lock_sha256": digest(HERE / "sources.lock.json")}
     (context / "preparation.json").write_text(json.dumps(request, indent=2) + "\n")
     if args.build:
         request["build_resources"] = {"cpu_quota": BUILD_CPU_QUOTA, "memory_bytes": BUILD_MEMORY_BYTES}

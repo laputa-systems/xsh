@@ -1,4 +1,0 @@
-repository	check	identical diagnostics; empty stdout; both exit 0
-repository	lint	identical diagnostics; empty stdout; both exit 0
-laputa	check	identical diagnostics; empty stdout; both exit 0
-laputa	lint	identical diagnostics; empty stdout; both exit 0

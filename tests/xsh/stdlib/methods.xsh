@@ -185,6 +185,8 @@ test test_collection_number_text_status_and_result_methods {
   assert 3.2.floor()? == 3
   assert 3.2.ceil()? == 4
   assert 3.5.round()? == 4
+  assert 2.5.round()? == 3
+  assert (0.0 - 2.5).round()? == -3
   assert "3.14159" as Float == 3.14159
   test.error_kind("not-a-number".parse_float(), "parse-float")
   assert 16.0.sqrt() == 4.0

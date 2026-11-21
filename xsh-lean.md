@@ -2,10 +2,13 @@
 
 **Status:** active since the owner restarted the Lean lane on 2026-11-03. The
 connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,254 `SPEC_PROVED` fragment
+`formal/coverage.json` is the only inventory: 1,283 `SPEC_PROVED` fragment
 roots, thirteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
-at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and all 77
-universal obligations planned. `formal/README.md` describes each accepted
+at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and 77 universal
+obligations, of which eight are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
+VAL-PRESERVE, VAL-REQUIRE, VAL-STORE, VAL-UNION and VAL-WIDEN, plus two
+`EXTRACTED_REFINEMENT` implementation proofs (schema 4, see
+`formal/IMPL.md`). `formal/README.md` describes each accepted
 fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
 validates the inventory against this plan. Completed slices are recorded in
 Git history, not here.
@@ -21,7 +24,7 @@ effect predicates and membership) closes no universal obligation.
 [functional-core pilot](docs/ROADMAP.md#internal-functional-cores), alongside
 the source, facts and IR work below. Complete one connected compiler proof
 milestone (see [the typing and formal successor
-requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
+requirements](#typing-and-formal-successor-requirements))
 while retaining the full-core obligations and the G0b source freeze. Typing
 acceptance does not wait for this campaign.
 
@@ -62,11 +65,18 @@ acceptance does not wait for this campaign.
   comparisons, conditionals and calls of let-free integer functions, scalar
   literals, identifiers, integer-field record literals and named record field reads,
   and one host request family (`time.now`). The machine has no assignment or declaration form, so typed store writes are
-  proved on the environment API, not through machine steps. Float arithmetic
-  and Float conversions are not modeled; the Float clauses state only exact
-  bits, IEEE value equality and the total order. BASE-ENV, BASE-NUM,
-  BASE-STEP, BASE-PROGRESS and BASE-RUNNER close only when their theorems hold
-  for the frozen core's syntax, values and host request families.
+  proved on the environment API, not through machine steps. BASE-NUM is
+  closed at the value level: Float arithmetic, negation, comparisons and
+  conversions are modeled on raw bits in `Xsh.Values.FloatOps`, but the base
+  machine's own steps still evaluate Int only, and Float literal and
+  `parse_float` rounding, the Float math methods and the `float-conversion`
+  error identity are outside the model. BASE-ENV, BASE-STEP, BASE-PROGRESS and
+  BASE-RUNNER close only when their theorems hold for the frozen core's syntax,
+  values and host request families. BASE-STEP also closes only when every
+  numeric step result satisfies the BASE-NUM meanings: `ArithmeticMeaning`,
+  `FloatMeaning` under some `NaNPolicy`, `NegationMeaning`,
+  `ComparisonMeaning`, `IntToFloatMeaning`, `ToIntMeaning`, `BitsetMeaning` and
+  the `DurationOps` results.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
   `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
   correspondence.
@@ -86,7 +96,7 @@ reachability does not establish adequacy.
 
 ## Deliverables
 
-1. A complete, drift-checked inventory of the post-consolidation core, its formal definitions, theorem roots, trusted boundaries, and four separate evidence classes.
+1. A complete, drift-checked inventory of the post-consolidation core, its formal definitions, theorem roots, trusted boundaries, and its separate evidence classes.
 2. A total independent Lean model, checker, operational semantics, and proofs for the whole inventoried core, including validation, effects, calls, control, cleanup, resources, streams, raw IR, and lowering.
 3. A development-only source/IR export and independently checked translation path, plus actual Rust conformance, fixed adversarial cases, minimized regressions, and kernel-certified canonical artifacts.
 4. Reproducible fixed gates, a bounded discovery runner, audit controls, current canonical documentation, and G10 aggregate theorems on a fresh checkout.
@@ -108,6 +118,7 @@ Keep evidence distinct in the ledger:
 - `RUST_CONFORMANCE`: actual Rust and formal behavior agree for named inputs, schedules, binaries, and gates; this is finite evidence.
 - `ARTIFACT_CERTIFIED`: a closed proposition about identified source/IR bytes has a kernel-checked certificate using the verified validator.
 - `EXTERNAL_ASSUMPTION`: an explicit named primitive, host, platform, or tool boundary contract.
+- `EXTRACTED_REFINEMENT`: a kernel-checked theorem relating a mechanically extracted model of identified production Rust source to the independent definitions, conditional on the named extraction pipeline and library models. Schema 4 records it in `implementation_proofs` with source, copy, translation, patch and toolchain identities; any change makes the record stale until it is regenerated and rechecked. It is not a proof of a shipped binary and closes no obligation by itself.
 
 Each class names its subject. A `SPEC_PROVED` theorem about a Lean model of an implementation proves that model, and the record says so. `RUST_CONFORMANCE` is reserved for evidence that actually ran Rust. An `ARTIFACT_CERTIFIED` record names its artifact kind (original source bytes with their module inputs, source document, raw-IR document, candidate fact set, or source/IR pair), the artifact identity, and the exact proposition checked. A certificate for emitted IR does not prove that the producing compiler is correct on other inputs, and does not prove that Rust or any other runtime executes that IR correctly.
 
@@ -411,6 +422,15 @@ indexed machine is the first instance; state its existing step-simulation and
 mode-equivalence obligations as instances rather than proving them twice.
 Require an inhabited instance and a mutant that drops a premise.
 
+Proofs about selected production functions or compiled harness artifacts are
+an experiment within this obligation; universal verification of Rust, LLVM,
+Linux, external commands and native libraries stays outside the completion
+criteria. The first are the extracted refinements of `checked_int_binary` and
+`checked_duration_binary` in `formal/IMPL.md`, related to BASE-NUM, BASE-STEP,
+LOWER-STEP and MODE-EQUIV. They prove the shared arithmetic decisions, not
+their constant-preparation and execution adapters, and IMPL-REFINE stays
+planned.
+
 ### G9 — Conformance and adversarial closure
 
 After G1–G8 capabilities, integrator and read-only reviewers close independent
@@ -634,3 +654,27 @@ dated log here.
 ## For the owner afterwards
 
 Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep each full theorem obligation planned until its complete proof and required evidence pass.
+
+## Typing and formal successor requirements
+
+The owner adopted these requirements on 2026-10-15. Phases A to E governed the
+consolidation and inference campaigns, which are closed (see [the
+roadmap](docs/ROADMAP.md)); the full adopted text is in Git history at
+`git show 7cd552301:dev/consolidation/CAMPAIGN.md`. Phase F governs this
+campaign and is kept here verbatim.
+
+### Phase F — connected Lean compiler milestone, deferred
+
+Keep Lean an independent specification/verification layer. No production dependency on Lean. Preserve the existing formal campaign's core scope and all universal obligations; coreutils, system-report, btop, and other application algorithms do not become proof targets here. They may supply minimized semantic counterexamples.
+
+Honor the post-consolidation source-freeze gate before claiming Rust correspondence. Do not optimize for number of roots, touched files, or fragment coverage. Choose a connected path with immediate relevance to this campaign and complete it before opening more disconnected model families.
+
+A suitable first path is resolved lexical names -> generated constraints -> solved substitutions/schemes -> elaborated typed core -> verified indexed instructions -> observable execution for an explicitly defined core fragment containing variables, functions/application, immutable and mutable local bindings, records/projection, Bool/Result control, and the relevant effect boundaries. Stage it if necessary, but make each stage's exact domain explicit.
+
+For that domain, state and prove the actual typing/substitution/generalization/elaboration obligations. Prove or independently check the translation from source constructs to modeled constraints; do not assume the checker selected the right operation or classified every effect and then describe a theorem about that assumed graph as checker soundness. Existing effect-lattice/solver fragments are useful inputs, not the missing translation proof itself.
+
+Bind executable correspondence witnesses to actual emitted checked facts/raw IR and the active schema. Add negative mutations that the independent checker rejects, not just round trips through the same encoder. Distinguish universally quantified Lean theorems, validated finite certificates, empirical differential tests, and unproved host assumptions in the existing ledger. Finite conformance witnesses do not prove universal Rust implementation correctness.
+
+Run the existing pinned Lean build, axiom/trust audit, kernel or external rechecking where required, and negative controls. Absence of `sorry` alone does not establish the desired theorem or implementation connection. Do not introduce compiler-trusting/native-evaluation axioms to evade the existing trust policy. Record necessary assumptions precisely rather than hiding them in bridge inputs.
+
+Complete one connected slice as an intermediate milestone while leaving broader obligations honestly open. Do not shrink the original full-core theorem inventory or close the whole formal campaign because the intermediate slice passed.

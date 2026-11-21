@@ -15,14 +15,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
     AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckSession, Checker,
 };
 use xsh::frontend::load as loader;
-use xsh::frontend::source::{SourceId, SourceMap, Span};
-use xsh::frontend::syntax::parser::Parser;
+use xsh::frontend::source::{SourceId, SourceMap};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AnnotationPolicy {

@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
 ADAPTER = ROOT / "dev/performance/corpus/check.sh"
-NATIVE_OUTPUT = ROOT / "dev/consolidation/evidence/typing-corpus-host-obligations/native-attempt-1/original/1.stdout"
+NATIVE_OUTPUT = ROOT / "dev/performance/corpus/typing/native-output.stdout"
 XSH_SOURCE = ROOT
 LAPUTA_SOURCE_VALUE = os.environ.get("XSH_LAPUTA_CORPUS")
 if not LAPUTA_SOURCE_VALUE:

@@ -1240,7 +1240,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += [focused_adapter_case_id] when focused_adapter_case_id not in selected_ids
       continue
     }
-    if changed_path in ["bench/consolidation/run.py", "bench/consolidation/test_harness.py", "bench/consolidation/fixtures.py", "bench/consolidation/prepare.py"] {
+    if changed_path in ["bench/consolidation/run.py", "bench/consolidation/test_harness.py", "bench/consolidation/fixtures.py", "bench/consolidation/prepare.py", "bench/consolidation/fetch.xsh", "bench/consolidation/sources.lock.json", "bench/consolidation/versions.lock.json", "bench/consolidation/Dockerfile", "bench/consolidation/README.md"] {
       selected_ids += ["verification/consolidation-harness"] when "verification/consolidation-harness" not in selected_ids
       if changed_path == "bench/consolidation/run.py" and "verification/core-workloads" not in selected_ids {
         selected_ids += ["verification/core-workloads"]

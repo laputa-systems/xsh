@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 
 use crate::xsht::trace::SyscallSummary;
 use xsh::execution::script::ScriptOutput;
@@ -114,7 +113,7 @@ pub use files::{
 };
 pub(crate) use files::{
     ConfigCache, DiscoveryFor, collect_xsh_files, discover_scripts, is_path_excluded,
-    load_config_from, nearest_config_for_file,
+    nearest_config_for_file,
 };
 pub use fmt::format_files;
 pub use grep::grep_scripts;
@@ -125,4 +124,4 @@ pub use syntax_tree::ast_script;
 pub use timing::StageTimings;
 pub use trace::trace_script;
 
-use xsh::frontend::load::{parse_script, parse_script_with_module_roots};
+use xsh::frontend::load::parse_script_with_module_roots;

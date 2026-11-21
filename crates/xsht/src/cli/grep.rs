@@ -4,7 +4,6 @@ use crate::xsht::cli::{
 };
 use crate::xsht::grep::{find_pattern_matches, line_at_offset, offset_to_line, parse_pattern};
 use std::fs;
-use std::path::Path;
 use xsh::frontend::source::SourceMap;
 use xsh::frontend::syntax::parser::Parser;
 

@@ -233,20 +233,20 @@ frozen_main() {
   git -C "$xsh_source" archive "$xsh_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/xsh"
   git -C "$laputa_source" archive "$laputa_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/laputa"
   local frozen_retained=$scratch/retained-1040.tsv
-  git -C "$repo" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/consolidation/typing-corpus/retained.tsv >"$frozen_retained"
-  if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \
+  git -C "$repo" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/""consolidation/typing-corpus/retained.tsv >"$frozen_retained"
+  if ! python3 "$repo/dev/performance/corpus/typing/cohort.py" \
     "$scratch/archive/original" --reduced "$scratch/archive/reduced-1040" \
     --retain "$frozen_retained" >"$scratch/accepted-cohort.log" 2>&1; then
     cat "$scratch/accepted-cohort.log" >&2
     return 1
   fi
-  if ! python3 "$repo/dev/consolidation/typing-corpus/apply_witness_fixture.py" \
+  if ! python3 "$repo/dev/performance/corpus/typing/apply_witness_fixture.py" \
     "$scratch/archive/original/xsh" "$scratch/archive/reduced-1040/xsh" \
     >"$scratch/fixture.log" 2>&1; then
     cat "$scratch/fixture.log" >&2
     return 1
   fi
-  if ! python3 "$repo/dev/consolidation/typing-corpus/validate.py" \
+  if ! python3 "$repo/dev/performance/corpus/typing/validate.py" \
     "$scratch/archive/original" "$scratch/archive/reduced-1040" \
     --retain "$frozen_retained" >"$scratch/accepted-validation.log" 2>&1; then
     cat "$scratch/accepted-validation.log" >&2
@@ -259,13 +259,13 @@ frozen_main() {
   fi
 
   mkdir -p "$scratch/expected"
-  if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \
+  if ! python3 "$repo/dev/performance/corpus/typing/cohort.py" \
     "$scratch/archive/original" --reduced "$scratch/expected/reduced" \
     --retain "$retained" >"$scratch/candidate-cohort.log" 2>&1; then
     cat "$scratch/candidate-cohort.log" >&2
     return 1
   fi
-  if ! python3 "$repo/dev/consolidation/typing-corpus/validate.py" \
+  if ! python3 "$repo/dev/performance/corpus/typing/validate.py" \
     "$scratch/archive/original" "$scratch/expected/reduced" \
     --retain "$retained" >"$scratch/candidate-validation.log" 2>&1; then
     cat "$scratch/candidate-validation.log" >&2

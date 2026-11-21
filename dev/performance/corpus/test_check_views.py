@@ -47,7 +47,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
         cls.retained = cls.scratch / "retained-1040.tsv"
         with cls.retained.open("wb") as retained:
             subprocess.run(
-                ["git", "-C", str(ROOT), "show", f"{CHECKPOINT}:dev/consolidation/typing-corpus/retained.tsv"],
+                ["git", "-C", str(ROOT), "show", f"{CHECKPOINT}:dev/" "consolidation/typing-corpus/retained.tsv"],
                 check=True,
                 stdout=retained,
             )
@@ -169,7 +169,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
         reduced = archived / "reduced-1040"
         subprocess.run(
             [
-                "python3", str(ROOT / "dev/consolidation/typing-corpus/cohort.py"),
+                "python3", str(ROOT / "dev/performance/corpus/typing/cohort.py"),
                 str(original), "--reduced", str(reduced), "--retain", str(cls.retained),
             ],
             check=True,
@@ -177,7 +177,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
         )
         subprocess.run(
             [
-                "python3", str(ROOT / "dev/consolidation/typing-corpus/apply_witness_fixture.py"),
+                "python3", str(ROOT / "dev/performance/corpus/typing/apply_witness_fixture.py"),
                 str(original_xsh), str(reduced / "xsh"),
             ],
             check=True,
@@ -185,7 +185,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
         )
         subprocess.run(
             [
-                "python3", str(ROOT / "dev/consolidation/typing-corpus/validate.py"),
+                "python3", str(ROOT / "dev/performance/corpus/typing/validate.py"),
                 str(original), str(reduced), "--retain", str(cls.retained),
             ],
             check=True,

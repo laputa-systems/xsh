@@ -45,7 +45,7 @@ theorem scope_values_survive_writable_contract (scope : Scope) (solution : Subst
         obtain ⟨next, nextAt, tag, _⟩ := layout cell old present
         refine ⟨next.contents.value, by simp [Connected.read, active, nextAt], Or.inr ?_⟩
         exact contract name binding cell old found notSchema active present kind next.contents.value
-          (by simpa [tag] using next.contents.wellTyped)
+          (by simpa [tag] using next.contents.wellTyped.connected)
 
 theorem scope_state_survives_writable_contract (before after : Machine) (scope : Scope)
     (solution : Substitution) (cells : ActiveCells)

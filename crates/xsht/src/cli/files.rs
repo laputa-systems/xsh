@@ -1,7 +1,5 @@
 use crate::xsht::format::DEFAULT_LINE_WIDTH;
 use rustc_hash::FxHashMap;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;

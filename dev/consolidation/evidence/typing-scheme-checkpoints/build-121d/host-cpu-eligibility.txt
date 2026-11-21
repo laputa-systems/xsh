@@ -1,2 +1,0 @@
-Cpus_allowed_list:	0-31
-pid 15976's current affinity list: 0-31

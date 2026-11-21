@@ -16,7 +16,7 @@ The syntax consolidation audit. It lists what the language spells more than one 
 
 Revisions counted: xsh `7e4586ee9dfd23e7ee8d3105330722a1d43d4b65` (master, clean tree) and Laputa `75b8701e33c421699e24a12e2fd8e8c67bc74c72` (master, clean tree). The corpus is every tracked `.xsh` file at those revisions: 2,137 in xsh and 602 in Laputa.
 
-Excluded: 60 files under `dev/consolidation/evidence/` (frozen copies of other corpus files and probe output) and 7 documentation snippets that are meant to fail to parse (`docs/snippets/spec/rejected/`). Counted: 2672 files, 600,760 lines. No file in either repository is generated or vendored XSH.
+Excluded: 60 archived campaign evidence files (frozen copies of other corpus files and probe output) and 7 documentation snippets that are meant to fail to parse (`docs/snippets/spec/rejected/`). Counted: 2672 files, 600,760 lines. No file in either repository is generated or vendored XSH.
 
 Every site count is four numbers, `S/T/D/L`, with the total first:
 

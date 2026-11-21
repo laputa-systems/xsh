@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "source_state": "frozen-post-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -2527,8 +2527,10 @@
       "id": "BASE-NUM",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.BASE-NUM"
+      "status": "closed",
+      "proof_root_id": "full.BASE-NUM",
+      "module": "Xsh.Proofs.Base.Num",
+      "declaration": "Xsh.Proofs.Base.Num.numeric_semantics"
     },
     {
       "id": "BASE-PROGRESS",
@@ -2653,8 +2655,10 @@
       "id": "EFF-LATTICE",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.EFF-LATTICE"
+      "status": "closed",
+      "proof_root_id": "full.EFF-LATTICE",
+      "module": "Xsh.Effects.Lattice",
+      "declaration": "Xsh.Effects.Lattice.finite_lattice_and_implication_closure"
     },
     {
       "id": "EFF-ORDER",
@@ -2821,10 +2825,8 @@
       "id": "SRC-ADMIT",
       "gate": "G1b",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.SRC-ADMIT",
-      "module": "Xsh.Conformance.Vertical.SourceAdmission",
-      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission"
+      "status": "planned",
+      "proof_root_id": "full.SRC-ADMIT"
     },
     {
       "id": "STREAM-CLOSE",
@@ -2949,8 +2951,10 @@
       "id": "VAL-ERASE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-ERASE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-ERASE",
+      "module": "Xsh.Validation.Core.Erase",
+      "declaration": "Xsh.Validation.Core.Erase.validated_erasure"
     },
     {
       "id": "VAL-INTRO",
@@ -2977,36 +2981,46 @@
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-PRESERVE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-PRESERVE",
+      "module": "Xsh.Validation.Core.Preserve",
+      "declaration": "Xsh.Validation.Core.Preserve.validated_operations"
     },
     {
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-REQUIRE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-REQUIRE",
+      "module": "Xsh.Validation.Core.Require",
+      "declaration": "Xsh.Validation.Core.Require.recursive_require"
     },
     {
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store_writes"
     },
     {
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-UNION"
+      "status": "closed",
+      "proof_root_id": "full.VAL-UNION",
+      "module": "Xsh.Validation.Core.Union",
+      "declaration": "Xsh.Validation.Core.Union.union_semantics"
     },
     {
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-WIDEN"
+      "status": "closed",
+      "proof_root_id": "full.VAL-WIDEN",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -3749,6 +3763,10 @@
     },
     {
       "class": "EXTERNAL_ASSUMPTION",
+      "status": "planned"
+    },
+    {
+      "class": "EXTRACTED_REFINEMENT",
       "status": "planned"
     }
   ],
@@ -10113,7 +10131,7 @@
       "declaration": "Xsh.Proofs.Base.Num.integer_exact_determines_the_result",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10122,7 +10140,7 @@
       "declaration": "Xsh.Proofs.Base.Num.checked_conversion_is_exact",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10131,7 +10149,7 @@
       "declaration": "Xsh.Proofs.Base.Num.applied_operation_has_its_meaning",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10140,7 +10158,7 @@
       "declaration": "Xsh.Proofs.Base.Num.the_meaning_determines_the_operation",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10149,7 +10167,7 @@
       "declaration": "Xsh.Proofs.Base.Num.negation_is_exact",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10158,7 +10176,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_addition_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10167,7 +10185,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_subtraction_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10176,7 +10194,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_multiplication_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10185,7 +10203,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_negation_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10194,7 +10212,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_division_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10203,7 +10221,7 @@
       "declaration": "Xsh.Proofs.Base.Num.exact_remainder_matches_hardware",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10212,7 +10230,7 @@
       "declaration": "Xsh.Proofs.Base.Num.unsigned_boundary_accepts_exactly_the_nonnegative_half",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10221,7 +10239,7 @@
       "declaration": "Xsh.Proofs.Base.Num.signed_value_is_unsigned_exactly_when_nonnegative",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10230,7 +10248,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_addition_is_exact_or_overflow",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10239,7 +10257,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_subtraction_is_exact_or_underflow",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10248,7 +10266,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_scaling_is_exact_or_faults",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10257,7 +10275,7 @@
       "declaration": "Xsh.Proofs.Base.Num.duration_division_is_exact_or_nonpositive",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10266,7 +10284,7 @@
       "declaration": "Xsh.Proofs.Base.Num.float_total_order_is_antisymmetric",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10275,7 +10293,7 @@
       "declaration": "Xsh.Proofs.Base.Num.float_bits_outside_the_word_are_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10284,7 +10302,7 @@
       "declaration": "Xsh.Proofs.Base.Num.nan_is_unequal_to_every_float",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10293,7 +10311,7 @@
       "declaration": "Xsh.Proofs.Base.Num.base_num_witness",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10302,7 +10320,7 @@
       "declaration": "Xsh.Proofs.Base.Num.wrapping_addition_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10311,7 +10329,7 @@
       "declaration": "Xsh.Proofs.Base.Num.floored_division_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10320,7 +10338,7 @@
       "declaration": "Xsh.Proofs.Base.Num.remainder_without_division_overflow_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10329,7 +10347,7 @@
       "declaration": "Xsh.Proofs.Base.Num.bitwise_float_equality_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10338,7 +10356,7 @@
       "declaration": "Xsh.Proofs.Base.Num.wrapping_duration_addition_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order. Float arithmetic is not modeled.",
+      "scope": "Exact checked Int arithmetic against two's-complement hardware, the UInt boundary, Duration arithmetic, and Float bit equality and order.",
       "boundary": "Covers only the Lean base machine and its stated premises; it proves no Rust evaluator equivalence, source typing, whole-language property, or host behavior."
     },
     {
@@ -10648,13 +10666,31 @@
       "boundary": "Store writes are proved on the environment API; the base machine has no declaration or assignment form. It does not close BASE-ENV for the core and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Values.FloatArith.roundEven_nearest",
+      "module": "Xsh.Values.FloatArith",
+      "declaration": "Xsh.Values.FloatArith.roundEven_nearest",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rounding a nonnegative rational to the nearest integer grid point, with ties to even, for a positive denominator.",
+      "boundary": "This proves uniform-grid rounding only; binary64 rounding, Float arithmetic and conversions are proved in Xsh.Values.FloatArith and Xsh.Values.FloatOps and closed by BASE-NUM. It claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Values.FloatOps.float_apply_meaning",
+      "module": "Xsh.Values.FloatOps",
+      "declaration": "Xsh.Values.FloatOps.float_apply_meaning",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Float addition, subtraction, multiplication and division on raw binary64 bits under every quiet-NaN policy, with exact rational rounding, signed zeros, infinities and NaN; Float negation, IEEE comparisons and Float conversions.",
+      "boundary": "Proves the Lean Float model only; it claims no Rust or hardware conformance. BASE-NUM closes through Xsh.Proofs.Base.Num.numeric_semantics."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Base.Num.base_num",
       "module": "Xsh.Proofs.Base.Num",
       "declaration": "Xsh.Proofs.Base.Num.base_num",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Checked Int, UInt and Duration arithmetic, signed encoding, Float bits, IEEE Float equality and the Float total order.",
-      "boundary": "Float arithmetic and Float conversions are not modeled. It does not close BASE-NUM for the core and claims no Rust conformance."
+      "boundary": "This declaration states no Float arithmetic or conversion; numeric_semantics in the same module closes BASE-NUM. It claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Base.Progress.base_progress",
@@ -11270,7 +11306,7 @@
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
-      "module": "Xsh.Semantics.Connected.Values",
+      "module": "Xsh.Semantics.Connected.Store",
       "declaration": "Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12931,7 +12967,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For arbitrary effect scopes, agreement on every live parameter gives equal substituted contracts, including unknown replacements at unused parameters.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_included_iff",
@@ -12940,7 +12976,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given exact inclusion of arbitrary symbolic contracts, a mixed known/unknown substitution preserves inclusion exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_covered_iff",
@@ -12949,7 +12985,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given permission coverage of arbitrary symbolic contracts, a mixed known/unknown substitution preserves coverage exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
@@ -12958,7 +12994,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially included known expressions, inclusion survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
@@ -12967,7 +13003,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially covered known expressions, coverage survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
@@ -12976,7 +13012,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Value.referencesValid_mono",
@@ -13174,7 +13210,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The implication decision accepts identical predicates for every parameter scope.",
-      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. All 77 universal obligations remain planned."
+      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.EffectPredicate.implies_sound",
@@ -13192,7 +13228,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A zero divisor of checked Int division or remainder is a division-by-zero error.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_ok",
@@ -13201,7 +13237,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "An accepted checked Int operation returns the exact mathematical result, its witness fits signed 64 bits, and a division or remainder divisor is nonzero.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_overflow",
@@ -13210,7 +13246,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A checked Int operation overflows exactly when its divisor is not a rejected zero and its witness leaves signed 64 bits.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.CleanupPolicy.disposition_contract",
@@ -15121,6 +15157,15 @@
       "boundary": "Confines Lean token spans to the Lean source; the Rust span rendering and byte offsets are outside this claim."
     },
     {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over every byte list, the Lean source classifier accepts exactly the declared function-syntax domain D, rejects invalid UTF-8 at its first offset, rejects string failures inside the envelope E, and classifies everything else as outside.",
+      "boundary": "A fragment, not SRC-ADMIT: D has no string literals, comments or module inputs, there is no parse-failure judgment, the string rejection clauses are stated over the Lean scanner itself, and no Rust lexer correspondence or diagnostic code is shown."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
       "module": "Xsh.Conformance.Vertical.SourceAdmission",
       "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
@@ -15128,6 +15173,150 @@
       "status": "fragment",
       "scope": "Every number token of an accepted input's positioned tokens reads as the decimal value of a digit run in the source and is within the integer literal bound.",
       "boundary": "Relates the Lean decimal interpretation to the Lean positioned tokens; the Rust lexer's number decoding is outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "module": "Xsh.Semantics.Connected.CoreEmbedding",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world.",
+      "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation. The callable contract decision is noncomputable and uses classical proposition decidability."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.has_type_iff_compatible",
+      "module": "Xsh.Semantics.Connected.Values",
+      "declaration": "Xsh.Semantics.Connected.has_type_iff_compatible",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A connected value has a runtime type exactly when its inferred value type fits that type.",
+      "boundary": "Connected runtime typing only; the store guard adds the Core membership of the embedded value. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "module": "Xsh.Semantics.Connected.CoreBridge",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted connected store write commits the embedded value to the corresponding Core store cell, using the Core typing each connected cell stores.",
+      "boundary": "Single-cell write projection under a supplied cell correspondence; no whole-store simulation, path writes or BASE-ENV closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "module": "Xsh.Proofs.Core.Env",
+      "declaration": "Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes and unwinding are in store_writing_forms. Machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Writes.store_writing_forms",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.store_writing_forms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Destructuring declarations, field, key and index path writes, compound assignment, environment assignment and unwinding with cleanup and try over the Core-guarded store, with each selector and the right side given as an evaluation: whole-cell re-checking, no internal fault for typed paths and well-typed destructuring, key-sorted insertion and record-to-map conversion, negative Map[UInt, V] keys failing at their own selector, uncaught runtime failures, all-or-nothing declarations and primary-failure unwinding.",
+      "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. Deferred to BASE-STEP: the instantiation of Operate must show that list + is concatenate (SPEC 4.5), which VAL-STORE's += clauses assume. It does not close BASE-ENV for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "module": "Xsh.Proofs.Core.Statements",
+      "declaration": "Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The store-write meaning of the frozen core's let/var/const (also exported) and assignment statements over Statement, BindingTarget and AssignTarget syntax: declarations resolve their target, commit through declareTarget and bind each name so cellOf resolves it, assignments resolve their root through cellOf and run assignStatement on the flattened selector path, environment assignment sets the overlay, and a block restores name resolution on exit.",
+      "boundary": "Takes the name table's spellings, BASE-STEP expression and index evaluation, the checker's binder, cell and type for each declared name, and argv conversion as oracles. for, guard let, match and if-let pattern bindings, comprehension and retry targets, with, resource and tempdir scope bindings, function parameter binding at call, use aliases, declaration names and captures have no meaning here, and nested statement bodies belong to the control machine. It does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "module": "Xsh.Proofs.Core.Eval",
+      "declaration": "Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded evaluator for Syntax.Core literals, names through locals and Environment.cellOf, list and named-field record literals, field reads, list, map and record indexing where a negative literal index is BASE-NUM negation and counts from the end of a List only (so -0 is 0 and a map gets the negative key), not and negation, short-circuit and/or, Int, Float, Duration (including Int * Duration), Str and Bool operators, list +, if/else and positional calls of let-free functions whose bodies evaluate in their defining environment: results agree at every fuel that finishes, every failure is a runtime failure, binary operators evaluate left then right, and the operator results are BASE-NUM's ArithmeticMeaning, FloatMeaning, ComparisonMeaning, IEEE equality, IntegerExact and NegationMeaning, the DurationOps results in both scaling orders and list concatenate.",
+      "boundary": "Literal lexeme interpretation, runtime error values, the NaN policy and the let-free functions are parameters. Method calls (so IntToFloatMeaning, ToIntMeaning and BitsetMeaning), UInt arithmetic, ?, try and raised failures, ??, in, sets, guarded ?. and ?[], slices, map literals, record spread, shorthand, computed and path fields, comprehensions, pipelines, closures, named, spread and splice arguments and defaults, collection equality, host requests and the Map[UInt] key Schema failure have no meaning here. It does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalTyping.preservation",
+      "module": "Xsh.Proofs.Core.EvalTyping",
+      "declaration": "Xsh.Proofs.Core.EvalTyping.preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type preservation for the covered-expression evaluator: in a typing context whose names hold Core members of their types, through locals or Environment.cellOf and the store, with every let-free function's body typed at its signature in a typing context its own defining environment and the store satisfy, an evaluation that produces a value produces a member of the type the Typed judgment gives. Typed is defined from the SPEC 6.2 operator table, independently of the evaluator.",
+      "boundary": "Typed covers only the evaluator's forms: Int, Float, Duration, Str and Bool operators without UInt or union operands, lists, named-field records with distinct fields, list and map indexing, if/else and positional calls of named let-free functions. Unions, subtyping, generics, methods and the checker's own judgment are not modelled, and no correspondence with the Rust checker is claimed. It does not close BASE-STEP."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "module": "Xsh.Proofs.Core.EvalStatements",
+      "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "syntax_directed_store_writes with Oracles.evaluate and Operate answered by the covered-expression evaluator: the statement meaning holds for the instance, evaluator values and failures pass through with the store unchanged, every such failure propagates through try, declarations commit the evaluated value or fail with its failure, a well-typed initializer in a consistent context never reaches malformedTarget, and compound += on lists is concatenate, discharging the store_writing_forms deferral for this Operate.",
+      "boundary": "Forms the evaluator does not cover fall back to the given oracle and operator, and the selector, declaration, spelling and argv oracles stay parameters. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
+      "module": "Xsh.Validation.Core.Nominal",
+      "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over a file-local value-forming expression evaluator, every nominal identity in a produced value was named by a constructor or .require target or came from the store.",
+      "boundary": "The evaluator is a local toy covering literals, constructors, .require, reads, field reads and spreads only; calls, returns, iteration, match, ?, dynamic Pure.call and Proc.call, checker static types and a top-level spread clause are missing. Assumes host filesystem-entry fields carry no nominal identity. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Narrow.narrowing",
+      "module": "Xsh.Validation.Core.Narrow",
+      "declaration": "Xsh.Validation.Core.Narrow.narrowing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type tests decide Core membership, failed union tests narrow to the remaining members, and per-cell facts stay sound because assignment forgets the assigned cell's fact.",
+      "boundary": "Per-cell facts only: no statement syntax, field paths, logical combinators, else chains, guards, loops, retry, call invalidation of captured vars or deferred blocks. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.WireEnums.variantOf_mem",
+      "module": "Xsh.Core.WireEnums",
+      "declaration": "Xsh.Core.WireEnums.variantOf_mem",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The wire lookup of a Str-backed enum returns a variant declared with that wire string.",
+      "boundary": "Lookup law over the declared (variant, wire) list only; uniqueness is the WellFormed wire judgment. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "module": "Xsh.Validation.Core.WellFormed",
+      "declaration": "Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under the wire well-formedness judgment, a wire string names at most one variant of its Str-backed enum.",
+      "boundary": "Consequence of the stated judgment only; the judgment mirrors the Rust declaration checks and is not derived from source checking. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Intro.introduction_routes",
+      "module": "Xsh.Validation.Core.Intro",
+      "declaration": "Xsh.Validation.Core.Intro.introduction_routes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require, .require_exact and .require_stripped results on well-formed targets are members.",
+      "boundary": "fp literals are modelled as components, not source text with format specs; adjacent-interpolation rejection, strip_prefix, constants and defaults, as T and type tests are missing; relies on the toy nominal evaluator. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.chain_primitive_iff",
+      "module": "Xsh.Core.Views",
+      "declaration": "Xsh.Core.chain_primitive_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A view chain from an unvalidated primitive type reaches only that type, so retained primitive stream and callable contracts are read exactly.",
+      "boundary": "Covers primitive starting points of the shared base-view relation only; the view relation's soundness is the widening obligation. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Store.validated_store",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
+      "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
     }
   ],
   "artifact_certificates": [
@@ -15559,5 +15748,469 @@
   "source_identity": {
     "commit": "1d27050bf739d72f9abefeba161b8768dad71c5c",
     "tree": "3b1253e27132f377ffab35e0232bd5835ed07e4a"
-  }
+  },
+  "implementation_proofs": [
+    {
+      "id": "impl.arith.checked_int_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/arith.rs::checked_int_binary, the shared Int +, -, *, / and % decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation: folds Some(Ok), declines on Some(Err) and None)",
+        "src/runtime/eval/lowered_ops.rs::checked_int_binary (execution: expects Some, maps the error to its diagnostic with the operator span), called by lowered_binary_value and by the typed scalar ApplyIntBinary step in src/runtime/eval/lowered_run/indexed_run/values.rs"
+      ],
+      "property": "For every BinaryOp and every pair of signed 64-bit operands, the extracted function returns ok (it does not fail or diverge in the Aeneas model), and its result decodes to Xsh.Core.Arith.checked for Add, Sub, Mul, Div and Rem and to none for every other operator; decode is injective, so the Ok value, DivisionByZero and Overflow are each the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors and all i64 operands; no premise",
+      "sources": [
+        {
+          "path": "src/arith.rs",
+          "sha256": "c05f8f96af99980925ff6e9a5db70cf50743f6874df7f9b26f395dea56e94680"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.arith.checked_int_binary"
+      },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0",
+        "library_patch": {
+          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
+          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
+        }
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Arith.checked_int_binary_refines",
+        "specification": [
+          "Xsh.Core.Arith.checked",
+          "Xsh.Core.Arith.exact",
+          "Xsh.Core.Arith.witness"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.int_success_and_truncation",
+          "XshImpl.Controls.int_error_branches",
+          "XshImpl.Controls.int_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_rejected",
+          "XshImpl.Controls.floored_division_rejected",
+          "XshImpl.Controls.swapped_zero_error_rejected",
+          "XshImpl.Controls.admitted_comparison_rejected",
+          "XshImpl.Controls.panicking_division_rejected",
+          "XshImpl.Controls.always_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_model_differs_at_min"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice"
+      ],
+      "reproduction": [
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": [
+          184,
+          228,
+          288
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204,
+          264
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194,
+          250
+        ],
+        "fresh_kernel_check_peak_rss_mib": 2575,
+        "patched_library_rebuild_wall_seconds": 44,
+        "patched_library_rebuild_peak_rss_mib": 2047,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
+    },
+    {
+      "id": "impl.duration.checked_duration_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/duration.rs::checked_duration_binary, the shared Duration arithmetic decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation for + - * / with a Duration operand: folds Ok, declines on Err)",
+        "src/runtime/eval/lowered_ops.rs::lowered_binary_value (execution: maps Duration and Int operands and reports the error diagnostic with the operator span)"
+      ],
+      "property": "For every BinaryOp and every pair of Millis(u64) or Count(i64) operands, the extracted function returns ok, and its result decodes to the SPEC 4.3 dimension table over Xsh.Values.DurationOps: add, subtract, multiply (either factor order), divideByInt and ratio, with InvalidDimensions for every other operator and dimension pair; decode is injective, so each of the six error identities and each value is the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors, all u64 millisecond values and all i64 counts in either operand position; no premise",
+      "sources": [
+        {
+          "path": "src/duration.rs",
+          "sha256": "b2c127b462d4eaa7903c7f61f6faf55107226d62c303c3e5c7a54131c25cec57"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.duration.checked_duration_binary"
+      },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0",
+        "library_patch": {
+          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
+          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
+        }
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Duration.checked_duration_binary_refines",
+        "specification": [
+          "Xsh.Values.DurationOps.add",
+          "Xsh.Values.DurationOps.subtract",
+          "Xsh.Values.DurationOps.multiply",
+          "Xsh.Values.DurationOps.divideByInt",
+          "Xsh.Values.DurationOps.ratio",
+          "Xsh.Values.DurationOps.checkedMillis"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.duration_success_and_truncation",
+          "XshImpl.Controls.duration_error_branches",
+          "XshImpl.Controls.duration_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_sum_rejected",
+          "XshImpl.Controls.saturating_difference_rejected",
+          "XshImpl.Controls.wrapped_factor_rejected",
+          "XshImpl.Controls.wrapping_count_rejected",
+          "XshImpl.Controls.always_type_error_rejected"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice",
+        "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument",
+        "the TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies in the translation are core's at the extraction nightly-2026-09-17, not at the production nightly-2026-11-09; the slice witness tests run the production toolchain's bodies on the same cases"
+      ],
+      "reproduction": [
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": [
+          184,
+          228,
+          288
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204,
+          264
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194,
+          250
+        ],
+        "fresh_kernel_check_peak_rss_mib": 2575,
+        "patched_library_rebuild_wall_seconds": 44,
+        "patched_library_rebuild_peak_rss_mib": 2047,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
+    }
+  ]
 }
