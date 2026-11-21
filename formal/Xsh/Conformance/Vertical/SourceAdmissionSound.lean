@@ -5,6 +5,42 @@ namespace Xsh.Conformance.Vertical
 
 namespace SourceAdmission
 
+theorem computed_scope_complete {parameter : String} {slot : Nat}
+    {bindings : List (String × SourceValue)} {scope : List (String × Nat)}
+    (projection : ComputedScope parameter slot bindings scope) :
+    computedLetsScope? parameter slot bindings = some scope := by
+  induction projection with
+  | empty => rfl
+  | cons distinct fresh tail ih =>
+    simp [computedLetsScope?, distinct, fresh, ih]
+
+theorem scope_projection_complete {function : SourceFunction} {scope : List (String × Nat)}
+    (projection : ScopeProjection function scope) : function.scope? = some scope := by
+  cases projection with
+  | record name parameter target fields value distinct =>
+    simp [SourceFunction.scope?, distinct]
+  | propagated name parameter propagation result distinct =>
+    simp [SourceFunction.scope?, distinct]
+  | literal => rfl
+  | parameterLiteral name parameter localName value result unassigned distinct =>
+    simp [SourceFunction.scope?, unassigned, distinct]
+  | computed name parameter localName value result distinct =>
+    simp [SourceFunction.scope?, distinct]
+  | computedSeveral name parameter bindings result scope projected =>
+    simp [SourceFunction.scope?, computed_scope_complete projected]
+  | single name parameter result ordinary =>
+    cases result <;> simp_all [SourceFunction.scope?, OrdinaryResult]
+  | several name first second rest result distinct =>
+    simp [SourceFunction.scope?, distinct]
+
+theorem scopes_projection_complete {functions : List SourceFunction}
+    {scopes : List (List (String × Nat))} (projection : ScopesProjection functions scopes) :
+    functions.mapM SourceFunction.scope? = some scopes := by
+  induction projection with
+  | empty => rfl
+  | cons head tail ih =>
+    simp [List.mapM_cons, scope_projection_complete head, ih]
+
 theorem decimal_step_preserves_failure (state : Nat × Bool) (code : Nat)
     (successful : (decimalRunStep state code).2 = true) : state.2 = true := by
   unfold decimalRunStep at successful
