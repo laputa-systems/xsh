@@ -64,7 +64,7 @@ inductive ExpressionSyntax : List Token → SourceExpression → List Token → 
       AtomSyntax tokens left (.operator op :: afterLeft) → op.isComparison = true →
       AtomSyntax afterLeft right rest → ExpressionSyntax tokens (.comparison op left right) rest
   | call {name : String} {tokens rest : List Token} {arguments : List SourceAtom} :
-      isKeyword name = false → ArgumentsSyntax tokens arguments rest →
+      isKeyword name = false → name ≠ "Ok" → name ≠ "Err" → ArgumentsSyntax tokens arguments rest →
       ExpressionSyntax (.word name :: .leftParen :: tokens) (.call name arguments) rest
   | ok {tokens rest : List Token} {value : SourceValue} :
       ValueSyntax tokens value (.rightParen :: rest) →
@@ -289,8 +289,14 @@ theorem expression_syntax {tokens rest : List Token} {expression : SourceExpress
       rcases parsed with ⟨⟨arguments, remaining⟩, argumentsParsed, parsed⟩
       dsimp only [Prod.fst, Prod.snd] at parsed
       cases parsed
-      exact .call (by simpa using (show ¬ _ = true from by assumption))
-        (arguments_syntax _ argumentsParsed)
+      apply ExpressionSyntax.call (by simpa using (show ¬ _ = true from by assumption))
+      · intro same
+        subst_vars
+        simp_all
+      · intro same
+        subst_vars
+        simp_all
+      · exact arguments_syntax _ argumentsParsed
   · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at parsed
     rcases parsed with ⟨⟨first, afterFirst⟩, firstParsed, parsed⟩
     dsimp only [Prod.fst, Prod.snd] at parsed
@@ -1242,11 +1248,59 @@ theorem scopes_projection {functions : List SourceFunction} {scopes : List (List
     cases projected
     exact .cons (scope_projection scopeProjected) (ih othersProjected)
 
+def noConflictingAdjacency : List Nat → Bool
+  | first :: second :: rest =>
+      !(isWordPartCode first && second == 45) &&
+      !(isDigitCode first && (isWordStartCode second || second == 46)) &&
+      !(first == 69 && second == 62) &&
+      !(first == 61 && (second == 61 || second == 62)) &&
+      !((first == 60 || first == 62) && second == 61) &&
+      !(first == 62 && second == 62) && !(first == 63 && second == 63) &&
+      noConflictingAdjacency (second :: rest)
+  | _ => true
+
+def decimalRunStep (state : Nat × Bool) (code : Nat) : Nat × Bool :=
+  if isDigitCode code then
+    let value := state.1 * 10 + (code - 48)
+    (value, state.2 && decide (value ≤ maxIntLiteral))
+  else (0, state.2)
+
+def decimalRunsInRange (codes : List Nat) : Bool :=
+  (codes.foldl decimalRunStep (0, true)).2
+
+def supportedWordToken : Token → Bool
+  | .word name => !isRecordKeyword name || isKeyword name
+  | _ => true
+
+def supportedWords (codes : List Nat) : Bool :=
+  match tokenize (codes.length + 1) codes with
+  | none => false
+  | some tokens => tokens.all supportedWordToken
+
+def supportedFunctionNames (function : SourceFunction) : Bool :=
+  !isRecordKeyword function.name && function.lets.all (fun binding => !isRecordKeyword binding.1)
+
+def DeclarativeDomain (bytes : List UInt8) (moduleInputs : List (List UInt8))
+    (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Prop :=
+  let codes := bytes.map UInt8.toNat
+  moduleInputs = [] ∧ noConflictingAdjacency codes = true ∧ decimalRunsInRange codes = true ∧
+    (functions.map (·.name)).Nodup ∧ functions.all supportedFunctionNames = true ∧
+    ScopesProjection functions scopes ∧
+    ∃ tokens, Lexed codes tokens ∧ FunctionsSyntax tokens functions ∧
+      FunctionsInOrder [] functions ∧ RecordCallsInOrder [] functions ∧ RecordCallsAnywhere functions ∧
+      tokens.all supportedWordToken = true
+
+def Domain (bytes : List UInt8) (moduleInputs : List (List UInt8)) : Prop :=
+  ∃ functions scopes, DeclarativeDomain bytes moduleInputs functions scopes
+
 /-- A witness checker for one module with no imported inputs. The submitted trees and slot
 projections are candidates; both are reconstructed from the original byte list. -/
 def check (bytes : List UInt8) (moduleInputs : List (List UInt8))
     (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Bool :=
-  moduleInputs.isEmpty && decide (functions.map (·.name)).Nodup &&
+  ((noConflictingAdjacency (bytes.map UInt8.toNat) &&
+    decimalRunsInRange (bytes.map UInt8.toNat)) && supportedWords (bytes.map UInt8.toNat) &&
+      functions.all supportedFunctionNames) && moduleInputs.isEmpty &&
+    decide (functions.map (·.name)).Nodup &&
     match parseSourceCodes (bytes.map UInt8.toNat) with
     | none => false
     | some parsed => parsed == functions && parsed.mapM SourceFunction.scope? == some scopes
@@ -1261,7 +1315,7 @@ theorem check_sound {bytes : List UInt8} {moduleInputs : List (List UInt8)}
       AdmittedSource (bytes.map UInt8.toNat) functions ∧ ScopesProjection functions scopes := by
   unfold check at accepted
   simp only [Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq] at accepted
-  rcases accepted with ⟨⟨noModules, distinct⟩, accepted⟩
+  rcases accepted with ⟨⟨⟨_, noModules⟩, distinct⟩, accepted⟩
   cases parsed : parseSourceCodes (bytes.map UInt8.toNat) with
   | none => simp [parsed] at accepted
   | some found =>
@@ -1286,6 +1340,24 @@ theorem accepted_projection_unique {bytes : List UInt8} {moduleInputs : List (Li
     subst second
     refine ⟨rfl, ?_⟩
     exact Option.some.inj (firstAccepted.2.2.symm.trans secondAccepted.2.2)
+
+theorem accepted_has_no_conflicting_adjacency {bytes : List UInt8}
+    {moduleInputs : List (List UInt8)} {functions : List SourceFunction}
+    {scopes : List (List (String × Nat))}
+    (accepted : check bytes moduleInputs functions scopes = true) :
+    noConflictingAdjacency (bytes.map UInt8.toNat) = true := by
+  unfold check at accepted
+  simp only [Bool.and_eq_true] at accepted
+  exact accepted.1.1.1.1.1.1
+
+theorem accepted_decimal_runs_in_range {bytes : List UInt8}
+    {moduleInputs : List (List UInt8)} {functions : List SourceFunction}
+    {scopes : List (List (String × Nat))}
+    (accepted : check bytes moduleInputs functions scopes = true) :
+    decimalRunsInRange (bytes.map UInt8.toNat) = true := by
+  unfold check at accepted
+  simp only [Bool.and_eq_true] at accepted
+  exact accepted.1.1.1.1.1.2
 
 
 def witnessBytes (text : String) : List UInt8 := text.toUTF8.toList

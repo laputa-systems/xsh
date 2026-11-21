@@ -15076,6 +15076,105 @@
       "boundary": "Only the Lean source admission rule is covered; no Rust parser or checker agreement is shown."
     },
     {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.valid_iff_valid_b",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "utf8ValidB decides the declarative ValidUtf8 predicate over every byte list.",
+      "boundary": "Decisions over arbitrary byte lists for Unicode Table 3-7 well-formedness. No Rust lexer correspondence or diagnostic rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_none_iff_valid",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The first-invalid-offset scan reports absence exactly when the whole list is well-formed UTF-8.",
+      "boundary": "The reported offset is the first place no well-formed prefix extends; it makes no claim about the Rust loader's span rendering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.first_invalid_stops",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reported first-invalid offset names a well-formed prefix and is strictly interior to the input.",
+      "boundary": "The span is the valid prefix length; the Rust loader's reported offset and message are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "module": "Xsh.Conformance.Vertical.SourceClassification",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.safe_line_iff_scan",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanLine agrees with the declarative SafeLine reading of an unescaped closing quote for every escape state and line.",
+      "boundary": "The model covers the single-line string rule with its escapes; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.body_scan_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanBody agrees with the declarative BodyScan reading for every body byte list and escape state.",
+      "boundary": "Covers the single-line body closure rule with escape syntax skipping; it does not model interpolation, triple-quoted layout, or the Rust scanner."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceStrings",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.declared_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "scanStrings agrees with the relational DeclaredString reading: an unterminated span runs from the opening quote to the line end, an invalid escape spans the escape, and a clean scan continues; the invalid case carries EscapeError.",
+      "boundary": "DeclaredString and EscapeError are the Lean scanner's relational reading, not an independent SPEC reading. They cover the Lean string scan over the declared envelope only; UTF-8 validity of the whole input and Rust diagnostic rendering are outside it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.domain_iff_classified_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier accepts exactly the inputs in the declared domain D.",
+      "boundary": "Relates the Lean classifier and Lean domain over arbitrary bytes; it makes no claim about Rust parser acceptance or diagnostics."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "module": "Xsh.Conformance.Vertical.SourceClassifier",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.classify_string_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The classifier rejects with a string failure exactly on the declared envelope where the string scan fails.",
+      "boundary": "Uses the declared envelope E and the Lean scan; the SPEC claims inside E and the Rust diagnostic text are separate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "module": "Xsh.Conformance.Vertical.SourceTreeSpans",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.token_span_within_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A positioned token slice's span starts at least at the source offset and stops at most at the source end.",
+      "boundary": "Confines Lean token spans to the Lean source; the Rust span rendering and byte offsets are outside this claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.source_admission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over every byte list, the Lean source classifier accepts exactly the declared function-syntax domain D with a scope projection, rejects invalid UTF-8 at the least offset whose prefix is well-formed UTF-8 and where no well-formed sequence starts, rejects string failures inside the envelope E stated through the relations DeclaredString and EscapeError, and classifies everything else as outside.",
+      "boundary": "A fragment, not SRC-ADMIT: D has no string literals, comments or module inputs, there is no parse-failure judgment, the string rejection clauses are the Lean scanner's relational reading (DeclaredString and EscapeError), not an independent SPEC reading, and no Rust lexer correspondence or diagnostic code is shown."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "module": "Xsh.Conformance.Vertical.SourceAdmission",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_decimal_interpretation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every number token of an accepted input's positioned tokens reads as the decimal value of a digit run in the source and is within the integer literal bound.",
+      "boundary": "Relates the Lean decimal interpretation to the Lean positioned tokens; the Rust lexer's number decoding is outside this claim."
+    },
+    {
       "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
       "module": "Xsh.Semantics.Connected.CoreEmbedding",
       "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",

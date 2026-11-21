@@ -697,6 +697,17 @@ preserving the stored value. The model checks qualified storage requirements
 and relates them to runtime compatibility; source-derived unique rows and
 runtime-relevant call-instance closure remain open. Source admission, lexical
 effect bounds, translation validation, and whole-machine correspondence remain open.
+The vertical source witness checker excludes adjacent identifier characters and
+hyphens, decimal digits followed by identifier starts or dots, `E>`, `==`,
+`=>`, `<=`, `>=`, `>>`, and `??`. It also requires each consecutive decimal
+digit run to fit in a signed 64-bit integer, even inside an identifier. These
+restrictions also exclude reserved words other than the six keywords used by
+the vertical grammar, and exclude reserved function names and literal-let
+bindings. They are
+conservative restrictions on checker acceptance; they do not establish full
+SPEC lexical agreement, parse-failure classification or tree-node spans.
+The local recursion-depth cap in the record admission witnesses accommodates
+kernel reduction of their concrete source byte lists.
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
@@ -800,6 +811,59 @@ owner coverage, root reachability, and evidence records. They do not test Lean
 theorem behavior or Rust conformance. [`xsh-lean.md`](../xsh-lean.md) is the
 owner-managed plan and is parsed by the inventory checker; preserve its
 G0–G10 structure when updating it.
+
+## Source admission
+
+[`Conformance/Vertical/SourceAdmission.lean`](Xsh/Conformance/Vertical/SourceAdmission.lean)
+proves the fragment root `Xsh.Conformance.Vertical.SourceAdmission.source_admission`.
+SRC-ADMIT stays planned: the root has no parse-failure judgment, its string
+rejection clauses are the Lean scanner's relational reading, `D` admits no
+string literals, comments or module inputs, and no Rust lexer correspondence is
+shown. The relations `DeclaredString` and `EscapeError` relate the scanner's own
+decisions; they are not an independent SPEC reading of source strings.
+It decides, for arbitrary source bytes and no imported inputs, one of three
+outcomes, each with an exact declarative range:
+
+- `accepted functions scopes` holds exactly on the declared domain `D`. `D`
+  fixes a module input list of `[]`, no conflicting adjacent bytes, decimal runs
+  within the integer bound, distinct function names, supported names, a slot
+  projection for every function, and a tokenization whose trees satisfy the
+  independent grammar, ordered propagation, record-call exclusion, and the
+  supported-word guard.
+- `rejected (.invalidUtf8 span)` holds exactly where the bytes before the span
+  are well-formed UTF-8 and no well-formed UTF-8 sequence starts at the span's
+  start, stated against `ValidUtf8` and `StartsSeq` rather than the detector.
+  The classifier's offset is the least such offset, and the span runs to the end
+  of input.
+- `rejected (.invalidEscape span)` and `rejected (.unterminatedString span)`
+  hold exactly over the declared string envelope `E`, through the relational
+  `DeclaredString` (whose invalid-escape case carries `EscapeError`): well-formed
+  UTF-8 with no
+  `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `g"`, `p"`, `rx"`, or `e"`
+  opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
+  An invalid escape spans the backslash through the
+  escape's syntax; a backslash before a line end spans the backslash and the
+  line-end bytes. An unterminated string spans the opening quote through
+  the line end, excluding the line-end bytes, or through the end of input when
+  no line end follows.
+- `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
+  outside `D`, and either outside `E` or scanning clean.
+
+The accepted outcome also yields a `ScopesProjection` from the accepted
+functions to the returned scopes, the positioned tokens of the exact bytes, the
+grammar derivation, the decimal interpretation of every number token within the
+bound, and a span for the token list that lies within the source. A node's span
+is its own tokens' span by construction. `D` contains no quote byte, so an
+input that fails the string scan is never in `D`; that disjointness makes the
+ranges exact rather than merely sufficient. The classifier decides `D` through
+`reconstruct`, so the accepted outcome names the very trees and scopes the
+domain requires.
+
+The boundary is the Lean model. It proves nothing about the Rust lexer,
+parser, or diagnostics, and `E` and `D` are narrower than the full source
+language: interpolation, triple-quoted layout, raw strings, and every
+production outside the integer fragment are outside both. The SPEC's claimed
+diagnostic codes and message text are not modelled.
 
 ## Checked Int arithmetic
 
