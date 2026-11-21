@@ -64,7 +64,7 @@ inductive ExpressionSyntax : List Token → SourceExpression → List Token → 
       AtomSyntax tokens left (.operator op :: afterLeft) → op.isComparison = true →
       AtomSyntax afterLeft right rest → ExpressionSyntax tokens (.comparison op left right) rest
   | call {name : String} {tokens rest : List Token} {arguments : List SourceAtom} :
-      isKeyword name = false → ArgumentsSyntax tokens arguments rest →
+      isKeyword name = false → name ≠ "Ok" → name ≠ "Err" → ArgumentsSyntax tokens arguments rest →
       ExpressionSyntax (.word name :: .leftParen :: tokens) (.call name arguments) rest
   | ok {tokens rest : List Token} {value : SourceValue} :
       ValueSyntax tokens value (.rightParen :: rest) →
@@ -289,8 +289,14 @@ theorem expression_syntax {tokens rest : List Token} {expression : SourceExpress
       rcases parsed with ⟨⟨arguments, remaining⟩, argumentsParsed, parsed⟩
       dsimp only [Prod.fst, Prod.snd] at parsed
       cases parsed
-      exact .call (by simpa using (show ¬ _ = true from by assumption))
-        (arguments_syntax _ argumentsParsed)
+      apply ExpressionSyntax.call (by simpa using (show ¬ _ = true from by assumption))
+      · intro same
+        subst_vars
+        simp_all
+      · intro same
+        subst_vars
+        simp_all
+      · exact arguments_syntax _ argumentsParsed
   · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at parsed
     rcases parsed with ⟨⟨first, afterFirst⟩, firstParsed, parsed⟩
     dsimp only [Prod.fst, Prod.snd] at parsed

@@ -5,6 +5,20 @@ namespace Xsh.Conformance.Vertical
 
 namespace SourceAdmission
 
+theorem constructor_is_not_an_ordinary_call :
+    ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
+        (.call "Ok" [.var "x"]) [] ∧
+      parseExpression [.word "Ok", .leftParen, .word "x", .rightParen] =
+        some (.constructed true (.atom (.var "x")), []) := by
+  constructor
+  · intro derivation
+    have callName {tokens rest : List Token} {name : String} {arguments : List SourceAtom}
+        (parsed : ExpressionSyntax tokens (.call name arguments) rest) : name ≠ "Ok" := by
+      cases parsed with
+      | call _ notOk _ _ => exact notOk
+    exact callName derivation rfl
+  · decide +kernel
+
 theorem computed_scope_complete {parameter : String} {slot : Nat}
     {bindings : List (String × SourceValue)} {scope : List (String × Nat)}
     (projection : ComputedScope parameter slot bindings scope) :
