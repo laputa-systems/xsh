@@ -120,8 +120,8 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1248, len(result["fragment_roots"]))
-        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair", "artifact.raw-ir-structure"}, result["artifact_certificates"])
+        self.assertEqual(1261, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair", "artifact.raw-ir-structure", "artifact.raw-ir-features"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual(["BASE-NUM", "EFF-LATTICE", "VAL-ERASE", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-STORE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
@@ -526,6 +526,19 @@ class InventoryCheckerTests(unittest.TestCase):
                 "fragment.Xsh.IR.Raw.readWords_success_length",
                 "fragment.Xsh.IR.Raw.readPayload_success_length_and_bounds",
                 "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
+                "fragment.Xsh.IR.Raw.decode_encode",
+                "fragment.Xsh.IR.Raw.document_decode_iff",
+                "fragment.Xsh.IR.Raw.decoded_document_is_canonical",
+                "fragment.Xsh.IR.Raw.fitFuel_iff",
+                "fragment.Xsh.IR.Raw.entryAt_mono",
+                "fragment.Xsh.IR.Raw.fitFuel_mono",
+                "fragment.Xsh.IR.Raw.verify_iff",
+                "fragment.Xsh.IR.Raw.structuralWF_iff_wellFormed",
+                "fragment.Xsh.IR.Raw.verify_iff_wellFormed",
+                "fragment.Xsh.IR.Raw.verify_rawSchema_iff",
+                "fragment.Xsh.IR.Raw.verifyCodes_iff",
+                "fragment.Xsh.IR.Raw.budget_suffices",
+                "fragment.Xsh.IR.Raw.rawSchema_budget_suffices",
             },
             raw_roots,
         )

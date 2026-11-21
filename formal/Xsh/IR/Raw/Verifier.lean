@@ -10,7 +10,8 @@ def rawSchema : Schema :=
   { instructions := instructionSchema, patterns := patternSchema, stages := stageSchema, values := valueSchema,
     drivers := driverSchema, recursive := recursiveShapes, assignOps := assignOpCount, binaryOps := binaryOpCount,
     runKinds := runKindCount, redirectionKinds := redirectionKindCount, deferKinds := deferKindCount,
-    textHoleKinds := textHoleKindCount }
+    textHoleKinds := textHoleKindCount, callableKinds := callableKindCount,
+    resourceTransfers := resourceTransferOrdinals }
 
 def lookupTag (table : List TagSchema) (tag : TagWord) : Option TagSchema :=
   match table.find? (fun entry => entry.ordinal == tag.2.val) with
@@ -39,42 +40,53 @@ def ownerSlots (doc : Document) : List Nat :=
 def ownerSegment (doc : Document) (owner : Nat) : Nat × Nat × Nat :=
   (((ownerStarts doc)[owner]?).getD 0, ((ownerEnds doc)[owner]?).getD 0, ((ownerSlots doc)[owner]?).getD 0)
 
+def driverOwnerBit : Nat := 2147483648
+
+def ownerWord (doc : Document) (owner : Nat) : Nat :=
+  if owner < doc.functions.length then owner + 1 else driverOwnerBit + (owner - doc.functions.length) + 1
+
 def scopeFor (doc : Document) (owner : Nat) (user : Option Nat) : Scope :=
   let (start, stop, slots) := ownerSegment doc owner
   { segStart := start, segEnd := stop, user, slots, patternBound := doc.patterns.length,
-    stageBound := doc.stages.length, valueBound := doc.values.length }
+    stageBound := doc.stages.length, valueBound := doc.values.length, owner := ownerWord doc owner, importer := none }
 
 structure Job where
   scope : Scope
   fields : List Shape
   start : Nat
   length : Nat
+  head : List Claim
+
+def instructionJob (env : Env) (owner row : Nat) : Option Job := do
+  let tag ← env.instructions[row]?
+  let (payload, length) ← payloadRange env.doc.data row env.doc.extra.length
+  pure ⟨scopeFor env.doc owner (some row), tag.fields, payload, length, []⟩
+
+def ownerRows (doc : Document) (owner : Nat) : List Nat :=
+  (List.range ((ownerSegment doc owner).2.1 - (ownerSegment doc owner).1)).map ((ownerSegment doc owner).1 + ·)
 
 def instructionJobs (env : Env) (owner : Nat) : Option (List Job) :=
-  let (start, stop, _) := ownerSegment env.doc owner
-  ((List.range (stop - start)).map (start + ·)).mapM fun row => do
-    let tag ← env.instructions[row]?
-    let (payload, length) ← payloadRange env.doc.data row env.doc.extra.length
-    pure { scope := scopeFor env.doc owner (some row), fields := tag.fields, start := payload, length := length }
+  (ownerRows env.doc owner).mapM (instructionJob env owner)
 
 def driverJob (env : Env) (step : Nat) : Option Job := do
   let tag ← env.drivers[step]?
   let (payload, length) ← payloadRange env.doc.driverSteps step env.doc.extra.length
-  pure { scope := scopeFor env.doc (env.doc.functions.length + step) none, fields := tag.fields, start := payload, length := length }
+  let scope := { scopeFor env.doc (env.doc.functions.length + step) none with importer := some step }
+  pure ⟨scope, tag.fields, payload, length, []⟩
 
 def bodyBlock (doc : Document) (function : Nat) : Nat := ((doc.functions[function]?).map (rowWord · 7)).getD 0
 
 def bodyJob (env : Env) (function : Nat) : Option Job := do
-  let (start, length) ← blockRange env.doc (bodyBlock env.doc function) true
-  pure { scope := scopeFor env.doc function none, fields := [.many (.word .stmt)], start := start, length := length }
+  let (start, length) ← blockRange env.doc (function + 1) (bodyBlock env.doc function) true
+  pure ⟨scopeFor env.doc function none, [.many (.word .stmt)], start, length, [.block (bodyBlock env.doc function - 1)]⟩
 
 def valueScope (value : Nat) : Scope :=
-  ⟨0, 0, none, 0, 0, 0, value⟩
+  ⟨0, 0, none, 0, 0, 0, value, irNone, none⟩
 
 def valueJob (env : Env) (value : Nat) : Option Job := do
   let tag ← env.values[value]?
   let (payload, length) ← payloadRange env.doc.valueData value env.doc.extra.length
-  pure { scope := valueScope value, fields := tag.fields, start := payload, length := length }
+  pure { scope := valueScope value, fields := tag.fields, start := payload, length := length, head := [] }
 
 def documentJobs (env : Env) : Option (List Job) := do
   let instructions ← (List.range (ownerStarts env.doc).length).mapM (instructionJobs env)
@@ -86,17 +98,24 @@ def documentJobs (env : Env) : Option (List Job) := do
 def budget (doc : Document) : Nat := (doc.patterns.length + doc.stages.length + 1) * (doc.extra.length + 1)
 
 def JobFits (env : Env) (job : Job) (claims : List Claim) : Prop :=
-  EntryFits (EntryAt env (budget env.doc + 1)) job.scope job.fields job.start job.length claims
+  ∃ inner, EntryFits (EntryAt env (budget env.doc + 1)) job.scope job.fields job.start job.length inner ∧
+    claims = job.head ++ inner
 
 def runJob (env : Env) (job : Job) : Option (List Claim) :=
-  entryFit (fitFuel env (budget env.doc + 1)) job.scope job.fields job.start job.length
+  (entryFit (fitFuel env (budget env.doc + 1)) job.scope job.fields job.start job.length).map (job.head ++ ·)
 
-def bodyClaims (doc : Document) : List Claim := (List.range doc.functions.length).map fun function =>
-  .block (bodyBlock doc function - 1)
+def programSteps (doc : Document) : List Claim :=
+  (List.range doc.driverPrograms.length).flatMap fun program =>
+    ((doc.driverPrograms[program]?).map fun row =>
+      (List.range (rowWord row 1)).map fun offset => Claim.step (rowWord row 0 + offset)).getD []
 
 def ClaimsWF (doc : Document) (claims : List Claim) : Prop :=
   claims.Nodup ∧ (∀ pattern, pattern < doc.patterns.length → Claim.pattern pattern ∈ claims) ∧
-    (∀ stage, stage < doc.stages.length → Claim.stage stage ∈ claims)
+    (∀ stage, stage < doc.stages.length → Claim.stage stage ∈ claims) ∧
+    (∀ instruction, instruction < doc.tags.length → Claim.instruction instruction ∈ claims) ∧
+    (∀ block, block < doc.blocks.length → rowWord (doc.blocks.getD block []) 3 ≠ irNone → Claim.block block ∈ claims) ∧
+    (∀ program, program < doc.driverPrograms.length → (Claim.program program ∈ claims ↔ program + 1 ≠ doc.driverRoot.val)) ∧
+    (∀ step, step < doc.driverSteps.length → Claim.step step ∈ claims)
 
 def continuation (byte : Nat) : Bool := 128 ≤ byte && byte ≤ 191
 
@@ -128,8 +147,6 @@ def slice (bytes : List WireByte) (start length : Nat) : List Nat := ((bytes.dro
 
 def RangeWithin (row : Row) (column limit : Nat) : Prop := rowWord row column + rowWord row (column + 1) ≤ limit
 
-def driverOwnerBit : Nat := 2147483648
-
 def BlockRowWF (doc : Document) (row : Row) : Prop :=
   RangeWithin row 0 doc.extra.length ∧ rowWord row 2 = irNone ∧ rowWord row 4 < 4 ∧
     rowWord row 5 = 0 ∧ rowWord row 6 = 0 ∧ rowWord row 7 = 0 ∧
@@ -145,10 +162,35 @@ def FunctionRowWF (doc : Document) (row : Row) : Prop :=
     (rowWord row 11 = irNone ∨ OneBased (rowWord row 11) (poolCount doc 0)) ∧
     1 ≤ rowWord row 7 ∧ ((doc.blocks[rowWord row 7 - 1]?).map (rowWord · 4)) = some 3
 
+def MetadataRowWF (schema : Schema) (doc : Document) (row : Row) : Prop :=
+  (rowWord row 0 = irNone ∨ OneBased (rowWord row 0) doc.strings.length) ∧ rowWord row 1 < 8 ∧
+    rowWord row 2 < schema.callableKinds ∧ rowWord row 3 = 0 ∧ rowWord row 4 = 0
+
+def ParamRowWF (doc : Document) (row : Row) : Prop :=
+  OneBased (rowWord row 0) doc.strings.length ∧ rowWord row 1 < 8 ∧ rowWord row 2 = 0 ∧ rowWord row 3 = 0 ∧
+    rowWord row 4 = 0
+
+def captureMutableBit : Nat := 2147483648
+
+def CaptureRowWF (doc : Document) (slots : Nat) (row : Row) : Prop :=
+  OneBased (rowWord row 0) doc.strings.length ∧ rowWord row 2 % captureMutableBit < slots ∧
+    rowWord row 3 ≠ irNone ∧ rowWord row 3 < doc.bindingIdentities.length
+
+def RowsIn (table : List Row) (start length : Nat) (holds : Row → Prop) : Prop :=
+  ∀ offset, offset < length → ∃ row, table[start + offset]? = some row ∧ holds row
+
+def FunctionTablesWF (doc : Document) (row : Row) : Prop :=
+  RowsIn doc.params (rowWord row 3) (rowWord row 4) (ParamRowWF doc) ∧
+    RowsIn doc.captures (rowWord row 5) (rowWord row 6) (CaptureRowWF doc (rowWord row 8))
+
 def DriverStepRowWF (doc : Document) (row : Row) : Prop :=
   RangeWithin row 2 doc.driverSlots.length ∧ RangeWithin row 4 doc.driverWriters.length ∧
-    (rowWord row 8 = irNone ∨ OneBased (rowWord row 8) doc.locations.length) ∧
+    OneBased (rowWord row 8) doc.locations.length ∧
     rowWord row 11 = 0 ∧ rowWord row 12 = 0 ∧ rowWord row 13 = 0
+
+def TransfersWF (schema : Schema) (doc : Document) : Prop :=
+  ∀ (index : Nat) (flag : Word32) (tag : TagWord), doc.resourceTransfers[index]? = some flag →
+    doc.tags[index]? = some tag → flag.val = 1 → tag.2.val ∈ schema.resourceTransfers
 
 def SegmentsWF (doc : Document) : Prop :=
   (ownerStarts doc = [] → doc.tags.length = 0) ∧ (ownerStarts doc ≠ [] → (ownerStarts doc).head? = some 0) ∧
@@ -169,10 +211,10 @@ def ScalarsWF (doc : Document) : Prop :=
     (doc.driverRoot.val = irNone ∨ OneBased doc.driverRoot.val doc.driverPrograms.length) ∧
     (∀ source ∈ doc.locationSources, source.val < doc.sourceCount.val)
 
-def RowsWF (doc : Document) : Prop :=
+def RowsWF (schema : Schema) (doc : Document) : Prop :=
   (∀ row ∈ doc.blocks, BlockRowWF doc row) ∧ (∀ row ∈ doc.functions, FunctionRowWF doc row) ∧
-    (∀ row ∈ doc.params, OneBased (rowWord row 0) doc.strings.length ∧ rowWord row 2 = 0 ∧ rowWord row 3 = 0 ∧
-      rowWord row 4 = 0) ∧
+    (∀ row ∈ doc.functionMetadata, MetadataRowWF schema doc row) ∧
+    (∀ row ∈ doc.functions, FunctionTablesWF doc row) ∧
     (∀ row ∈ doc.driverSteps, DriverStepRowWF doc row) ∧
     (∀ row ∈ doc.driverPrograms, RangeWithin row 0 doc.driverSteps.length ∧ RangeWithin row 2 doc.driverRegions.length) ∧
     (∀ row ∈ doc.driverRegions, RangeWithin row 0 doc.driverSteps.length ∧ RangeWithin row 2 doc.driverSync.length)
@@ -186,7 +228,7 @@ def PoolsWF (schema : Schema) (doc : Document) : Prop :=
     (∀ word ∈ doc.redirectionKinds, word.val < schema.redirectionKinds)
 
 def TablesWFOf (schema : Schema) (doc : Document) : Prop :=
-  LengthsWF doc ∧ ScalarsWF doc ∧ SegmentsWF doc ∧ RowsWF doc ∧ PoolsWF schema doc
+  LengthsWF doc ∧ ScalarsWF doc ∧ TransfersWF schema doc ∧ SegmentsWF doc ∧ RowsWF schema doc ∧ PoolsWF schema doc
 
 def TablesWF (env : Env) : Prop := TablesWFOf env.schema env.doc
 
@@ -212,10 +254,40 @@ def functionRowOk (doc : Document) (row : Row) : Bool :=
     (decide (rowWord row 11 = irNone) || oneBased (rowWord row 11) (poolCount doc 0)) &&
     decide (1 ≤ rowWord row 7) && decide (((doc.blocks[rowWord row 7 - 1]?).map (rowWord · 4)) = some 3)
 
+def metadataRowOk (schema : Schema) (doc : Document) (row : Row) : Bool :=
+  (decide (rowWord row 0 = irNone) || oneBased (rowWord row 0) doc.strings.length) && decide (rowWord row 1 < 8) &&
+    decide (rowWord row 2 < schema.callableKinds) && decide (rowWord row 3 = 0) && decide (rowWord row 4 = 0)
+
+def paramRowOk (doc : Document) (row : Row) : Bool :=
+  oneBased (rowWord row 0) doc.strings.length && decide (rowWord row 1 < 8) && decide (rowWord row 2 = 0) &&
+    decide (rowWord row 3 = 0) && decide (rowWord row 4 = 0)
+
+def captureRowOk (doc : Document) (slots : Nat) (row : Row) : Bool :=
+  oneBased (rowWord row 0) doc.strings.length && decide (rowWord row 2 % captureMutableBit < slots) &&
+    decide (rowWord row 3 ≠ irNone) && decide (rowWord row 3 < doc.bindingIdentities.length)
+
+def rowsIn (table : List Row) (start length : Nat) (holds : Row → Bool) : Bool :=
+  (List.range length).all fun offset =>
+    match table[start + offset]? with
+    | some row => holds row
+    | none => false
+
+def functionTablesOk (doc : Document) (row : Row) : Bool :=
+  rowsIn doc.params (rowWord row 3) (rowWord row 4) (paramRowOk doc) &&
+    rowsIn doc.captures (rowWord row 5) (rowWord row 6) (captureRowOk doc (rowWord row 8))
+
 def driverStepRowOk (doc : Document) (row : Row) : Bool :=
   rangeWithin row 2 doc.driverSlots.length && rangeWithin row 4 doc.driverWriters.length &&
-    (decide (rowWord row 8 = irNone) || oneBased (rowWord row 8) doc.locations.length) &&
+    oneBased (rowWord row 8) doc.locations.length &&
     decide (rowWord row 11 = 0) && decide (rowWord row 12 = 0) && decide (rowWord row 13 = 0)
+
+def transferOk (schema : Schema) : Option Word32 → Option TagWord → Bool
+  | some flag, some tag => decide (flag.val = 1 → tag.2.val ∈ schema.resourceTransfers)
+  | _, _ => true
+
+def transfersOk (schema : Schema) (doc : Document) : Bool :=
+  (List.range doc.resourceTransfers.length).all fun index =>
+    transferOk schema doc.resourceTransfers[index]? doc.tags[index]?
 
 def segmentsOk (doc : Document) : Bool :=
   (match ownerStarts doc with
@@ -240,10 +312,10 @@ def scalarsOk (doc : Document) : Bool :=
     (decide (doc.driverRoot.val = irNone) || oneBased doc.driverRoot.val doc.driverPrograms.length) &&
     doc.locationSources.all (fun source => decide (source.val < doc.sourceCount.val))
 
-def rowsOk (doc : Document) : Bool :=
+def rowsOk (schema : Schema) (doc : Document) : Bool :=
   doc.blocks.all (blockRowOk doc) && doc.functions.all (functionRowOk doc) &&
-    doc.params.all (fun row => oneBased (rowWord row 0) doc.strings.length && decide (rowWord row 2 = 0) &&
-      decide (rowWord row 3 = 0) && decide (rowWord row 4 = 0)) &&
+    doc.functionMetadata.all (metadataRowOk schema doc) &&
+    doc.functions.all (functionTablesOk doc) &&
     doc.driverSteps.all (driverStepRowOk doc) &&
     doc.driverPrograms.all (fun row => rangeWithin row 0 doc.driverSteps.length && rangeWithin row 2 doc.driverRegions.length) &&
     doc.driverRegions.all (fun row => rangeWithin row 0 doc.driverSteps.length && rangeWithin row 2 doc.driverSync.length)
@@ -258,7 +330,8 @@ def poolsOk (schema : Schema) (doc : Document) : Bool :=
     doc.redirectionKinds.all (fun word => decide (word.val < schema.redirectionKinds))
 
 def tablesOk (env : Env) : Bool :=
-  lengthsOk env.doc && scalarsOk env.doc && segmentsOk env.doc && rowsOk env.doc && poolsOk env.schema env.doc
+  lengthsOk env.doc && scalarsOk env.doc && transfersOk env.schema env.doc && segmentsOk env.doc &&
+    rowsOk env.schema env.doc && poolsOk env.schema env.doc
 
 def shapedOk (doc : Document) : Bool :=
   doc.data.all (fun row => decide (row.length = 2)) &&
@@ -285,7 +358,13 @@ def shapedOk (doc : Document) : Bool :=
 
 def claimsOk (doc : Document) (claims : List Claim) : Bool :=
   distinct claims && (List.range doc.patterns.length).all (fun pattern => claims.contains (.pattern pattern)) &&
-    (List.range doc.stages.length).all (fun stage => claims.contains (.stage stage))
+    (List.range doc.stages.length).all (fun stage => claims.contains (.stage stage)) &&
+    (List.range doc.tags.length).all (fun instruction => claims.contains (.instruction instruction)) &&
+    (List.range doc.blocks.length).all (fun block =>
+      decide (rowWord (doc.blocks.getD block []) 3 = irNone) || claims.contains (.block block)) &&
+    (List.range doc.driverPrograms.length).all (fun program =>
+      claims.contains (.program program) == decide (program + 1 ≠ doc.driverRoot.val)) &&
+    (List.range doc.driverSteps.length).all (fun step => claims.contains (.step step))
 
 inductive AllFit (env : Env) : List Job → List (List Claim) → Prop
   | nil : AllFit env [] []
@@ -294,7 +373,7 @@ inductive AllFit (env : Env) : List Job → List (List Claim) → Prop
 def StructuralWF (schema : Schema) (doc : Document) : Prop :=
   doc.WellShaped ∧ ∃ env, Env.resolve? schema doc = some env ∧ TablesWF env ∧
     ∃ jobs, documentJobs env = some jobs ∧ ∃ claims, AllFit env jobs claims ∧
-      ClaimsWF doc (claims.flatten ++ bodyClaims doc)
+      ClaimsWF doc (claims.flatten ++ programSteps doc)
 
 def verify (schema : Schema) (doc : Document) : Bool :=
   shapedOk doc &&
@@ -307,14 +386,11 @@ def verify (schema : Schema) (doc : Document) : Bool :=
           | some jobs =>
               match jobs.mapM (runJob env) with
               | none => false
-              | some claims => claimsOk doc (claims.flatten ++ bodyClaims doc)
+              | some claims => claimsOk doc (claims.flatten ++ programSteps doc)
 
 def verifyCodes (codes : ExchangeCodes) : Bool :=
   match decodeDocumentCodes codes with
   | some doc => verify rawSchema doc
   | none => false
-
-def AcceptedDocument (codes : ExchangeCodes) : Prop :=
-  ∃ doc, decodeDocumentCodes codes = some doc ∧ StructuralWF rawSchema doc
 
 end Xsh.IR.Raw

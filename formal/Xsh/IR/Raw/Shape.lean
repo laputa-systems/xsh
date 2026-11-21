@@ -70,4 +70,31 @@ structure RecursiveShape where
   variants : List Shape
   deriving Repr
 
+/-- The tag tables, recursive shapes and closed domains that a raw-IR document is checked against. -/
+structure Schema where
+  instructions : List TagSchema
+  patterns : List TagSchema
+  stages : List TagSchema
+  values : List TagSchema
+  drivers : List TagSchema
+  recursive : List RecursiveShape
+  assignOps : Nat
+  binaryOps : Nat
+  runKinds : Nat
+  redirectionKinds : Nat
+  deferKinds : Nat
+  textHoleKinds : Nat
+  callableKinds : Nat
+  resourceTransfers : List Nat
+
+/-- A table entry that a payload, a function body or a driver program takes as its own. -/
+inductive Claim where
+  | instruction (index : Nat)
+  | block (index : Nat)
+  | pattern (index : Nat)
+  | stage (index : Nat)
+  | program (index : Nat)
+  | step (index : Nat)
+  deriving DecidableEq, Repr
+
 end Xsh.IR.Raw

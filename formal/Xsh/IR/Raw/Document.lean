@@ -228,7 +228,11 @@ def Document.decode? : WireValue → Option Document
   | .object fields => if fields.map Prod.fst = documentFields then Document.ofValues? (fields.map Prod.snd) else none
   | _ => none
 
-def decodeDocumentCodes (codes : ExchangeCodes) : Option Document := (parseCodes codes).bind Document.decode?
+/-- A raw-IR document holds a whole program, so it is parsed without the 64 KiB exchange limit. -/
+def parseRawIrCodes (codes : ExchangeCodes) : Option WireValue :=
+  (lex codes .outside []).bind fun tokens => parseTokens tokens [] (.value false)
+
+def decodeDocumentCodes (codes : ExchangeCodes) : Option Document := (parseRawIrCodes codes).bind Document.decode?
 
 def Document.WellShaped (d : Document) : Prop :=
   (∀ row ∈ d.data, row.length = 2) ∧

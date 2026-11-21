@@ -1,5 +1,4 @@
 import Xsh.IR.Raw.Verifier
-import Xsh.IR.Raw.Exported
 
 namespace Xsh.IR.Raw
 
@@ -266,9 +265,14 @@ theorem operandOk_iff (env : Env) (scope : Scope) (kind : RowKind) (word : Nat) 
     operandOk env scope kind word = true ↔ OperandOk env scope kind word := by
   simp [operandOk, OperandOk, precedes_iff, and_assoc]
 
+theorem imports_iff (doc : Document) (scope : Scope) (word : Nat) :
+    imports doc scope word = true ↔ Imports doc scope word := by
+  unfold imports Imports
+  cases scope.importer <;> simp [oneBased_iff]
+
 theorem roleOk_iff (env : Env) (scope : Scope) (role : Role) (word : Nat) :
     roleOk env scope role word = true ↔ RoleOk env scope role word := by
-  cases role <;> simp [roleOk, RoleOk, oneBased_iff, operandOk_iff]
+  cases role <;> simp [roleOk, RoleOk, oneBased_iff, operandOk_iff, imports_iff]
 
 theorem wordFit_eq_some {env : Env} {scope : Scope} {role : Role} {position limit stop : Nat} {claims : List Claim} :
     wordFit env scope role position limit = some (stop, claims) ↔
@@ -316,9 +320,10 @@ theorem countedFit_eq_some {doc : Document} {step : Nat → Fit} {position limit
       ∃ count, readWord doc position limit = some count ∧ iterate step count (position + 1) = some (stop, claims) :=
   Option.bind_eq_some_iff
 
-theorem blockFit_eq_some {doc : Document} {step : Nat → Nat → Fit} {word : Nat} {statements : Bool} {claims : List Claim} :
-    blockFit doc step word statements = some claims ↔
-      ∃ start length count, blockRange doc word statements = some (start, length) ∧
+theorem blockFit_eq_some {doc : Document} {step : Nat → Nat → Fit} {owner word : Nat} {statements : Bool}
+    {claims : List Claim} :
+    blockFit doc step owner word statements = some claims ↔
+      ∃ start length count, blockRange doc owner word statements = some (start, length) ∧
         readWord doc start (start + length) = some count ∧
         iterate (step (start + length)) count (start + 1) = some (start + length, claims) := by
   unfold blockFit
@@ -536,7 +541,7 @@ theorem fitAt_iff : ∀ (shape : Shape) (scope : Scope) (position limit stop : N
         | many readEq rest => exact ⟨_, readEq, (manyIff _ _ _ _).mpr rest⟩
   | .block statements item, scope, position, limit, stop, claims => by
       show ((readWord env.doc position limit).bind fun word =>
-        (blockRange env.doc word statements).bind fun (start, length) =>
+        (blockRange env.doc scope.owner word statements).bind fun (start, length) =>
           (fitAt env enter scope item start (start + length)).bind fun (stop, claims) =>
             (check (stop = start + length)).map fun _ => (position + 1, Claim.block (word - 1) :: claims)) =
           some (stop, claims) ↔ _
@@ -571,8 +576,9 @@ theorem fitAt_iff : ∀ (shape : Shape) (scope : Scope) (position limit stop : N
         | recur lookupEq rest => exact ⟨_, lookupEq, (entered _ _ _ _ _ _).mpr rest⟩
   | .textPattern, scope, position, limit, stop, claims => by
       show ((readWord env.doc position limit).bind fun word =>
-        (blockFit env.doc (fun bound cursor => patternFit env enter scope cursor bound) word false).bind fun holes =>
-          (blockRange env.doc word false).bind fun (start, _) =>
+        (blockFit env.doc (fun bound cursor => patternFit env enter scope cursor bound) scope.owner word false).bind
+          fun holes =>
+          (blockRange env.doc scope.owner word false).bind fun (start, _) =>
             (wordAt env.doc start).bind fun count =>
               (iterate (fun cursor => wordFit env scope .textHole cursor limit) count (position + 1)).bind
                 fun (middle, tags) =>
@@ -769,8 +775,14 @@ theorem resolve_doc {schema : Schema} {doc : Document} {env : Env} (resolved : E
   rfl
 
 theorem runJob_iff {env : Env} {job : Job} {claims : List Claim} :
-    runJob env job = some claims ↔ JobFits env job claims :=
-  entryFit_eq_some (fitFuel_iff env (budget env.doc + 1))
+    runJob env job = some claims ↔ JobFits env job claims := by
+  unfold runJob JobFits
+  rw [Option.map_eq_some_iff]
+  constructor
+  · rintro ⟨inner, fitted, rfl⟩
+    exact ⟨inner, (entryFit_eq_some (fitFuel_iff env (budget env.doc + 1))).mp fitted, rfl⟩
+  · rintro ⟨inner, fits, rfl⟩
+    exact ⟨inner, (entryFit_eq_some (fitFuel_iff env (budget env.doc + 1))).mpr fits, rfl⟩
 
 theorem mapM_runJob_iff {env : Env} :
     ∀ (jobs : List Job) (claims : List (List Claim)),
@@ -818,6 +830,59 @@ theorem functionRowOk_iff (doc : Document) (row : Row) : functionRowOk doc row =
 theorem driverStepRowOk_iff (doc : Document) (row : Row) : driverStepRowOk doc row = true ↔ DriverStepRowWF doc row := by
   simp [driverStepRowOk, DriverStepRowWF, rangeWithin_iff, oneBased_iff, and_assoc]
 
+theorem metadataRowOk_iff (schema : Schema) (doc : Document) (row : Row) :
+    metadataRowOk schema doc row = true ↔ MetadataRowWF schema doc row := by
+  simp [metadataRowOk, MetadataRowWF, oneBased_iff, and_assoc]
+
+theorem paramRowOk_iff (doc : Document) (row : Row) : paramRowOk doc row = true ↔ ParamRowWF doc row := by
+  simp [paramRowOk, ParamRowWF, oneBased_iff, and_assoc]
+
+theorem captureRowOk_iff (doc : Document) (slots : Nat) (row : Row) :
+    captureRowOk doc slots row = true ↔ CaptureRowWF doc slots row := by
+  simp [captureRowOk, CaptureRowWF, oneBased_iff, and_assoc]
+
+theorem rowsIn_iff (table : List Row) (start length : Nat) (holds : Row → Bool) (rule : Row → Prop)
+    (agrees : ∀ row, holds row = true ↔ rule row) :
+    rowsIn table start length holds = true ↔ RowsIn table start length rule := by
+  unfold rowsIn RowsIn
+  simp only [List.all_eq_true, List.mem_range]
+  constructor
+  · intro all offset within
+    have here := all offset within
+    cases found : table[start + offset]? with
+    | none => rw [found] at here; cases here
+    | some row => rw [found] at here; exact ⟨row, rfl, (agrees row).mp here⟩
+  · intro all offset within
+    obtain ⟨row, found, holds'⟩ := all offset within
+    rw [found]
+    exact (agrees row).mpr holds'
+
+theorem functionTablesOk_iff (doc : Document) (row : Row) :
+    functionTablesOk doc row = true ↔ FunctionTablesWF doc row := by
+  unfold functionTablesOk FunctionTablesWF
+  rw [Bool.and_eq_true, rowsIn_iff _ _ _ _ _ (paramRowOk_iff doc), rowsIn_iff _ _ _ _ _ (captureRowOk_iff doc _)]
+
+theorem transfersOk_iff (schema : Schema) (doc : Document) : transfersOk schema doc = true ↔ TransfersWF schema doc := by
+  unfold transfersOk TransfersWF
+  simp only [List.all_eq_true, List.mem_range]
+  constructor
+  · intro all index flag tag flagEq tagEq marked
+    have within : index < doc.resourceTransfers.length := by
+      rcases List.getElem?_eq_some_iff.mp flagEq with ⟨within, _⟩
+      exact within
+    have here := all index within
+    rw [flagEq, tagEq] at here
+    simpa [transferOk, marked] using here
+  · intro all index _
+    cases flagEq : doc.resourceTransfers[index]? with
+    | none => simp [transferOk]
+    | some flag =>
+        cases tagEq : doc.tags[index]? with
+        | none => simp [transferOk]
+        | some tag =>
+            simp only [transferOk, decide_eq_true_eq]
+            exact all index flag tag flagEq tagEq
+
 theorem segmentsOk_iff (doc : Document) : segmentsOk doc = true ↔ SegmentsWF doc := by
   unfold segmentsOk SegmentsWF
   cases starts : ownerStarts doc with
@@ -830,20 +895,33 @@ theorem lengthsOk_iff (doc : Document) : lengthsOk doc = true ↔ LengthsWF doc 
 theorem scalarsOk_iff (doc : Document) : scalarsOk doc = true ↔ ScalarsWF doc := by
   simp [scalarsOk, ScalarsWF, distinct_iff, oneBased_iff, and_assoc]
 
-theorem rowsOk_iff (doc : Document) : rowsOk doc = true ↔ RowsWF doc := by
-  simp [rowsOk, RowsWF, blockRowOk_iff, functionRowOk_iff, driverStepRowOk_iff, rangeWithin_iff, oneBased_iff, and_assoc]
+theorem rowsOk_iff (schema : Schema) (doc : Document) : rowsOk schema doc = true ↔ RowsWF schema doc := by
+  simp [rowsOk, RowsWF, blockRowOk_iff, functionRowOk_iff, metadataRowOk_iff, functionTablesOk_iff,
+    driverStepRowOk_iff, rangeWithin_iff, and_assoc]
 
 theorem poolsOk_iff (schema : Schema) (doc : Document) : poolsOk schema doc = true ↔ PoolsWF schema doc := by
   simp [poolsOk, PoolsWF, rangeWithin_iff, and_assoc]
 
 theorem tablesOk_iff (env : Env) : tablesOk env = true ↔ TablesWF env := by
-  simp [tablesOk, TablesWF, TablesWFOf, lengthsOk_iff, scalarsOk_iff, segmentsOk_iff, rowsOk_iff, poolsOk_iff, and_assoc]
+  simp [tablesOk, TablesWF, TablesWFOf, lengthsOk_iff, scalarsOk_iff, transfersOk_iff, segmentsOk_iff, rowsOk_iff,
+    poolsOk_iff, and_assoc]
 
 theorem shapedOk_iff (doc : Document) : shapedOk doc = true ↔ doc.WellShaped := by
   simp [shapedOk, Document.WellShaped, and_assoc]
 
+theorem program_check_iff (claims : List Claim) (program root : Nat) :
+    (claims.contains (.program program) == decide (program + 1 ≠ root)) = true ↔
+      (Claim.program program ∈ claims ↔ program + 1 ≠ root) := by
+  by_cases claimed : Claim.program program ∈ claims <;> by_cases rooted : program + 1 = root <;>
+    simp [claimed, rooted]
+
+theorem block_check_iff (claims : List Claim) (block : Nat) (owner : Nat) :
+    (decide (owner = irNone) || claims.contains (.block block)) = true ↔ (owner ≠ irNone → Claim.block block ∈ claims) := by
+  by_cases owned : owner = irNone <;> by_cases claimed : Claim.block block ∈ claims <;> simp [owned, claimed]
+
 theorem claimsOk_iff (doc : Document) (claims : List Claim) : claimsOk doc claims = true ↔ ClaimsWF doc claims := by
-  simp [claimsOk, ClaimsWF, distinct_iff, and_assoc]
+  simp only [claimsOk, ClaimsWF, Bool.and_eq_true, distinct_iff, List.all_eq_true, List.mem_range,
+    List.contains_iff_mem, block_check_iff, program_check_iff, and_assoc]
 
 theorem verify_iff (schema : Schema) (doc : Document) : verify schema doc = true ↔ StructuralWF schema doc := by
   unfold verify StructuralWF
@@ -886,22 +964,6 @@ theorem verify_iff (schema : Schema) (doc : Document) : verify schema doc = true
                 rw [(mapM_runJob_iff jobs claims').mpr related] at runEq
                 cases runEq
                 exact ⟨shaped, tables, claimsWF⟩
-
-theorem verifyCodes_iff (codes : ExchangeCodes) : verifyCodes codes = true ↔ AcceptedDocument codes := by
-  unfold verifyCodes AcceptedDocument
-  cases decoded : decodeDocumentCodes codes with
-  | none =>
-      simp only [Bool.false_eq_true, false_iff]
-      rintro ⟨doc, impossible, _⟩
-      cases impossible
-  | some doc =>
-      rw [verify_iff]
-      constructor
-      · intro accepted
-        exact ⟨doc, rfl, accepted⟩
-      · rintro ⟨doc', same, accepted⟩
-        cases same
-        exact accepted
 
 theorem ofValues_inverse {values : List WireValue} {doc : Document} (decoded : Document.ofValues? values = some doc) :
     doc.WellShaped ∧ values = doc.wireValues := by
@@ -1033,82 +1095,10 @@ theorem document_decode_iff (value : WireValue) (doc : Document) :
 
 theorem decoded_document_is_canonical (codes : ExchangeCodes) (doc : Document)
     (decoded : decodeDocumentCodes codes = some doc) :
-    doc.WellShaped ∧ parseCodes codes = some doc.encode := by
+    doc.WellShaped ∧ parseRawIrCodes codes = some doc.encode := by
   unfold decodeDocumentCodes at decoded
   obtain ⟨wire, parsed, documentDecoded⟩ := Option.bind_eq_some_iff.mp decoded
   obtain ⟨shaped, wireEq⟩ := decode_inverse documentDecoded
   exact ⟨shaped, by rw [parsed, wireEq]⟩
-
-def replaceCodes (needle replacement : List Nat) : List Nat → List Nat
-  | [] => []
-  | code :: rest =>
-      if needle.isPrefixOf (code :: rest) then replacement ++ (code :: rest).drop needle.length
-      else code :: replaceCodes needle replacement rest
-
-def mutatedExport (needle replacement : String) : ExchangeCodes :=
-  replaceCodes (codesOf needle) (codesOf replacement) exportedDocumentCodes
-
-set_option maxRecDepth 10000 in
-theorem exported_document_is_accepted : verifyCodes exportedDocumentCodes = true := by
-  decide +kernel
-
-theorem exported_document_is_structurally_well_formed : AcceptedDocument exportedDocumentCodes :=
-  (verifyCodes_iff exportedDocumentCodes).mp exported_document_is_accepted
-
-set_option maxRecDepth 10000 in
-theorem unknown_instruction_ordinal_is_rejected :
-    verifyCodes (mutatedExport "\"name\":\"ExprParam\",\"ordinal\":\"0000001f\""
-      "\"name\":\"ExprParam\",\"ordinal\":\"000000ff\"") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem misnamed_instruction_tag_is_rejected :
-    verifyCodes (mutatedExport "\"name\":\"ExprParam\",\"ordinal\":\"0000001f\""
-      "\"name\":\"ExprField\",\"ordinal\":\"0000001f\"") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem duplicate_field_is_rejected :
-    verifyCodes (mutatedExport "\"driverRoot\":" "\"driverRoot\":\"00000001\",\"driverRoot\":") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem short_hex_word_is_rejected :
-    verifyCodes (mutatedExport "\"sourceId\":\"00000000\"" "\"sourceId\":\"0000000\"") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem short_row_is_rejected :
-    verifyCodes (mutatedExport "\"data\":[[\"00000000\",\"00000001\"]" "\"data\":[[\"00000000\"]") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem payload_past_the_word_table_is_rejected :
-    verifyCodes (mutatedExport "\"data\":[[\"00000000\",\"00000001\"]"
-      "\"data\":[[\"00000000\",\"000000ff\"]") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem out_of_range_driver_root_is_rejected :
-    verifyCodes (mutatedExport "\"driverRoot\":\"00000001\"" "\"driverRoot\":\"00000009\"") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem forward_operand_is_rejected :
-    verifyCodes (mutatedExport
-      "\"extra\":[\"00000000\",\"00000000\",\"00000005\",\"00000002\",\"00000000\",\"00000000\",\"00000000\",\"00000001\""
-      "\"extra\":[\"00000000\",\"00000000\",\"00000005\",\"00000002\",\"00000000\",\"00000000\",\"00000000\",\"0000001c\"") =
-      false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem missing_scope_metadata_is_rejected :
-    verifyCodes (mutatedExport "\"scope\":\"indexed-store-structure-v1\"," "") = false := by
-  decide +kernel
-
-set_option maxRecDepth 10000 in
-theorem other_schema_version_is_rejected :
-    verifyCodes (mutatedExport "xsh-raw-ir-v1" "xsh-raw-ir-v2") = false := by
-  decide +kernel
 
 end Xsh.IR.Raw

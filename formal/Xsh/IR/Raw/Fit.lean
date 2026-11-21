@@ -7,20 +7,6 @@ open Xsh.Foundation
 
 def irNone : Nat := 4294967295
 
-structure Schema where
-  instructions : List TagSchema
-  patterns : List TagSchema
-  stages : List TagSchema
-  values : List TagSchema
-  drivers : List TagSchema
-  recursive : List RecursiveShape
-  assignOps : Nat
-  binaryOps : Nat
-  runKinds : Nat
-  redirectionKinds : Nat
-  deferKinds : Nat
-  textHoleKinds : Nat
-
 structure Env where
   schema : Schema
   doc : Document
@@ -38,13 +24,8 @@ structure Scope where
   patternBound : Nat
   stageBound : Nat
   valueBound : Nat
-
-inductive Claim where
-  | instruction (index : Nat)
-  | block (index : Nat)
-  | pattern (index : Nat)
-  | stage (index : Nat)
-  deriving DecidableEq, Repr
+  owner : Nat
+  importer : Option Nat
 
 def wordAt (doc : Document) (position : Nat) : Option Nat := (doc.extra[position]?).map (·.val)
 
@@ -53,6 +34,21 @@ def rowWord (row : Row) (column : Nat) : Nat := ((row[column]?).map (·.val)).ge
 def poolCount (doc : Document) (pool : Nat) : Nat := ((doc.poolCounts[pool]?).map (·.val)).getD 0
 
 def OneBased (word count : Nat) : Prop := 1 ≤ word ∧ word ≤ count ∧ word ≠ irNone
+
+def oneBased (word count : Nat) : Bool := decide (1 ≤ word) && decide (word ≤ count) && decide (word ≠ irNone)
+
+def programEnd (doc : Document) (program : Nat) : Nat :=
+  ((doc.driverPrograms[program]?).map fun row => rowWord row 0 + rowWord row 1).getD 0
+
+def Imports (doc : Document) (scope : Scope) (word : Nat) : Prop :=
+  match scope.importer with
+  | none => False
+  | some step => OneBased word doc.driverPrograms.length ∧ programEnd doc (word - 1) ≤ step
+
+def imports (doc : Document) (scope : Scope) (word : Nat) : Bool :=
+  match scope.importer with
+  | none => false
+  | some step => oneBased word doc.driverPrograms.length && decide (programEnd doc (word - 1) ≤ step)
 
 def Precedes (scope : Scope) (word : Nat) : Prop :=
   match scope.user with
@@ -93,12 +89,10 @@ def RoleOk (env : Env) (scope : Scope) : Role → Nat → Prop
   | .runKind, word => word < env.doc.runKinds.length
   | .redirectionKind, word => word < env.doc.redirectionKinds.length
   | .bindingIdentity, word => word < env.doc.bindingIdentities.length
-  | .childProgram, word => OneBased word env.doc.driverPrograms.length
+  | .childProgram, word => Imports env.doc scope word
   | .deferKind, word => word < env.schema.deferKinds
   | .endDistance, word => word ≠ 0
   | .textHole, word => word < env.schema.textHoleKinds
-
-def oneBased (word count : Nat) : Bool := decide (1 ≤ word) && decide (word ≤ count) && decide (word ≠ irNone)
 
 def precedes (scope : Scope) (word : Nat) : Bool :=
   match scope.user with
@@ -139,7 +133,7 @@ def roleOk (env : Env) (scope : Scope) : Role → Nat → Bool
   | .runKind, word => decide (word < env.doc.runKinds.length)
   | .redirectionKind, word => decide (word < env.doc.redirectionKinds.length)
   | .bindingIdentity, word => decide (word < env.doc.bindingIdentities.length)
-  | .childProgram, word => oneBased word env.doc.driverPrograms.length
+  | .childProgram, word => imports env.doc scope word
   | .deferKind, word => decide (word < env.schema.deferKinds)
   | .endDistance, word => decide (word ≠ 0)
   | .textHole, word => decide (word < env.schema.textHoleKinds)
@@ -149,13 +143,15 @@ def wordClaims : Role → Nat → List Claim
   | .stmt, word => [.instruction word]
   | .int, word => [.instruction word]
   | .bool, word => [.instruction word]
+  | .childProgram, word => [.program (word - 1)]
   | _, _ => []
 
-def blockRange (doc : Document) (word : Nat) (statements : Bool) : Option (Nat × Nat) :=
+def blockRange (doc : Document) (owner word : Nat) (statements : Bool) : Option (Nat × Nat) :=
   if 1 ≤ word then
     match doc.blocks[word - 1]? with
     | some row =>
-        if rowWord row 4 % 2 = (if statements then 1 else 0) ∧ rowWord row 0 + rowWord row 1 ≤ doc.extra.length then
+        if rowWord row 4 % 2 = (if statements then 1 else 0) ∧ (rowWord row 3 = irNone ∨ rowWord row 3 = owner) ∧
+            rowWord row 0 + rowWord row 1 ≤ doc.extra.length then
           some (rowWord row 0, rowWord row 1)
         else
           none
@@ -214,8 +210,8 @@ def stageFit (env : Env) (enter : Enter) (scope : Scope) (position limit : Nat) 
 def countedFit (doc : Document) (step : Nat → Fit) (position limit : Nat) : Fit :=
   (readWord doc position limit).bind fun count => iterate step count (position + 1)
 
-def blockFit (doc : Document) (step : Nat → Nat → Fit) (word : Nat) (statements : Bool) : Option (List Claim) :=
-  (blockRange doc word statements).bind fun (start, length) =>
+def blockFit (doc : Document) (step : Nat → Nat → Fit) (owner word : Nat) (statements : Bool) : Option (List Claim) :=
+  (blockRange doc owner word statements).bind fun (start, length) =>
     (countedFit doc (step (start + length)) start (start + length)).bind fun (stop, claims) =>
       (check (stop = start + length)).map fun _ => claims
 
@@ -231,15 +227,15 @@ def fitAt (env : Env) (enter : Enter) (scope : Scope) : Shape → Nat → Nat �
       countedFit env.doc (fun cursor => fitAt env enter scope item cursor limit) position limit
   | .block statements item, position, limit =>
       (readWord env.doc position limit).bind fun word =>
-        (blockRange env.doc word statements).bind fun (start, length) =>
+        (blockRange env.doc scope.owner word statements).bind fun (start, length) =>
           (fitAt env enter scope item start (start + length)).bind fun (stop, claims) =>
             (check (stop = start + length)).map fun _ => (position + 1, .block (word - 1) :: claims)
   | .recur name, position, limit =>
       (lookupRecursive env.schema name).bind fun shape => enter scope (.choice shape.tags shape.variants) position limit
   | .textPattern, position, limit =>
       (readWord env.doc position limit).bind fun word =>
-        (blockFit env.doc (fun bound cursor => patternFit env enter scope cursor bound) word false).bind fun holes =>
-          (blockRange env.doc word false).bind fun (start, _) =>
+        (blockFit env.doc (fun bound cursor => patternFit env enter scope cursor bound) scope.owner word false).bind fun holes =>
+          (blockRange env.doc scope.owner word false).bind fun (start, _) =>
             (wordAt env.doc start).bind fun count =>
               (iterate (fun cursor => wordFit env scope .textHole cursor limit) count (position + 1)).bind
                 fun (middle, tags) =>
@@ -312,14 +308,14 @@ inductive Fits (env : Env) (entry : EntrySpec) : Scope → Shape → Nat → Nat
       FitsMany env entry scope item limit count (position + 1) stop claims →
       Fits env entry scope (.many item) position limit stop claims
   | block {scope statements item position limit word start length claims} :
-      readWord env.doc position limit = some word → blockRange env.doc word statements = some (start, length) →
+      readWord env.doc position limit = some word → blockRange env.doc scope.owner word statements = some (start, length) →
       Fits env entry scope item start (start + length) (start + length) claims →
       Fits env entry scope (.block statements item) position limit (position + 1) (.block (word - 1) :: claims)
   | recur {scope name position limit stop claims shape} : lookupRecursive env.schema name = some shape →
       entry scope (.choice shape.tags shape.variants) position limit stop claims →
       Fits env entry scope (.recur name) position limit stop claims
   | textPattern {scope position limit word start length count holes middle tags stop texts} :
-      readWord env.doc position limit = some word → blockRange env.doc word false = some (start, length) →
+      readWord env.doc position limit = some word → blockRange env.doc scope.owner word false = some (start, length) →
       readWord env.doc start (start + length) = some count →
       PatternRefs env entry scope (start + length) count (start + 1) (start + length) holes →
       WordsFit env scope .textHole limit count (position + 1) middle tags →

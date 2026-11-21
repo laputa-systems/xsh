@@ -40,25 +40,81 @@ Rust execution is observed in finite bridge tests, not modelled.
 [`IR/Raw/Structure.lean`](Xsh/IR/Raw/Structure.lean) models the structural
 `xsh-raw-ir-v1` document of an indexed store (scope `indexed-store-structure-v1`):
 instruction, pattern, stage, value and driver tables with their tags named by
-ordinal, payload words, blocks, functions, parameters, captures, strings, bytes,
-locations, copy pools and the counts of the semantic pools. The payload shape of
-every tag in [`IR/Raw/Schema.lean`](Xsh/IR/Raw/Schema.lean) is generated from the
-Rust schema macros by a test-only exporter, and a Rust test requires the generated
-text and the exported document in [`IR/Raw/Exported.lean`](Xsh/IR/Raw/Exported.lean)
-to match. `document_decode_iff` shows that decoding is exactly the inverse of
-encoding on documents whose rows have their declared arity. `StructuralWF` is an
-independent inductive specification of payload fitting (exact consumption, identity
-ranges, operand categories and precedence inside owner segments, slot bounds, block
-flags, descending pattern and stage entries, single claims) plus table conditions;
-`verifyCodes_iff` shows the fuel-indexed checker accepts exactly the decoded
-documents that satisfy it, and `fitFuel_mono` shows more fuel never changes an
-accepted payload. Every checker definition is structurally recursive. The exported
-points fixture is accepted, and ten one-fact mutations of it are rejected; those
-eleven theorems set `maxRecDepth` to 10000 locally because the kernel evaluates the
-whole 7.3 KB document. The model is structural only: semantic pools, scheme tables
-and prepared values appear as counts, and nothing here shows that Rust's
-`FullVerifier` makes the same decisions or that the IR executes correctly. It
-supersedes the earlier synthetic four-tag decoder model.
+ordinal, payload words, blocks, functions, function metadata, parameters,
+captures, strings, bytes, locations, copy pools, driver programs and the counts
+of the semantic pools. The payload shape of every tag, the closed domains and the
+resource-transferring instructions in [`IR/Raw/Schema.lean`](Xsh/IR/Raw/Schema.lean)
+are generated from the Rust schema macros and codecs by a test-only exporter; the
+width of each closed enumeration is the number of words its codec decodes. A Rust
+test requires the generated text and the exported documents in
+[`IR/Raw/Exported.lean`](Xsh/IR/Raw/Exported.lean) and
+[`IR/Raw/ExportedFeatures.lean`](Xsh/IR/Raw/ExportedFeatures.lean) to match.
+`document_decode_iff` shows that decoding is exactly the inverse of encoding on
+documents whose rows have their declared arity. Raw-IR documents hold whole
+programs, so `decodeDocumentCodes` parses them without the 64 KiB limit of the
+other exchange documents, and the Rust raw-IR decoder does the same.
+`decode_encode` sets `simp` `maxSteps` to 4000000 because its goal unfolds all 47
+document fields at once.
+
+[`IR/Raw/Spec.lean`](Xsh/IR/Raw/Spec.lean) states structural well-formedness,
+`Spec.WellFormed`, without the checker. It imports only the document and shape
+types and has no fuel, job list, scope, owner segment or budget. Each payload is a
+sentence of its tag's shape grammar over the words of the table, and the rules
+follow the raw-IR plan: exact tags, payload widths, one-based identities and the
+`u32::MAX` sentinel, ranges, pools, patterns and stages entered at descending
+indexes, owners and blocks, driver programs and steps, locations, and single
+ownership of every claimed entry. [`IR/Raw/Agreement.lean`](Xsh/IR/Raw/Agreement.lean)
+proves `verify_iff_wellFormed`: for every `Regular` schema the structural checker
+accepts exactly the documents that satisfy `Spec.WellFormed`. A regular schema has
+distinct tag ordinals and recursive shape names, and its recursive shapes reach no
+pattern, stage, text pattern or recursion inside a block. `rawSchema_regular`
+holds by evaluation, so `verify_rawSchema_iff` holds for the generated schema.
+`budget_suffices` shows that the entry budget `(patterns + stages + 1) * (words + 1)`
+is enough for every payload that fits with any fuel; a schema that recurs inside a
+block can need more, which is why the theorem requires regularity. `verify_iff`
+relates the Bool checker to its own Prop transcription `StructuralWF`, and
+`fitFuel_mono` shows that more fuel never changes an accepted payload. These are
+fragment roots about the Lean model.
+
+The model enforces these rules of Rust's `FullVerifier`: function metadata with
+zero reserved bytes, defined flags and a callable kind; parameter flags below 8 and
+capture slots and binding identities inside the owning function; a present
+location on every driver step; resource-transfer marks only on the eight
+transferring instructions; every instruction read by its owner, every block read
+only by its owner and every owned block read; and every driver program except the
+root imported once, never the root. The model is also stricter than Rust on
+properties of how the builder emits IR, which real exported programs satisfy and
+Rust does not check:
+
+- an operand precedes the instruction that reads it;
+- every pattern and stage row is read;
+- block and parameter reserved bytes are zero;
+- an unowned block is read at most once, and a value reads only unowned blocks;
+- a `Use` step imports a program whose steps all come before it, which also rules
+  out driver-program cycles;
+- every driver step is checked, also when the document has no driver root;
+- the decoder requires the document fields in the exported order.
+
+Rust accepts documents that break these, so each is a retained difference, not a
+Rust rule. The model does not check the semantic tables (types, signatures,
+schemes, prepared values, validations, slot type facts, checked call targets and
+binding-identity contents), source spans, or which runtime operations a program
+may use.
+
+[`IR/Raw/Certificate.lean`](Xsh/IR/Raw/Certificate.lean) certifies the exported
+points fixture and rejects 27 changes to it; the changes are listed in the
+`artifact.raw-ir-structure` record. [`IR/Raw/FeaturesCertificate.lean`](Xsh/IR/Raw/FeaturesCertificate.lean)
+certifies the export of `tests/fixtures/raw-ir-features.xsh`, which imports a
+module and has patterns with a text pattern, a pipeline stage, prepared values and a
+`Use` step, and rejects a pattern cycle, a driver-program cycle and a text hole kind
+outside its domain. An imported module is named by its canonical path, so the
+exporter replaces the checkout directory with `/xsh` in that document. These
+theorems set `maxRecDepth` to 10000 locally because the kernel evaluates the whole
+document. The model is structural only: nothing here shows that Rust's
+`FullVerifier` makes the same decisions beyond these documents, or that the IR
+executes correctly. No obligation id names the raw-IR structure work, and these
+results close no obligation. They supersede the earlier synthetic four-tag
+decoder model.
 
 The independent base machine models integer-field record construction in source
 order and field reads through named bindings. Its proofs cover preservation,
