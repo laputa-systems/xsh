@@ -162,6 +162,12 @@ pub(crate) fn unused_export_diagnostics(
     let mut contract_exempt: Vec<FxHashSet<String>> =
         (0..modules.len()).map(|_| FxHashSet::default()).collect();
     for contract in &contracts {
+        // A contract with no required entries is satisfied by every module,
+        // so it cannot identify an implementer and would exempt its names
+        // everywhere.
+        if contract.required.is_empty() {
+            continue;
+        }
         for (index, exports) in module_exports.iter().enumerate() {
             if contract.required.iter().all(|name| exports.contains(name)) {
                 contract_exempt[index].extend(contract.names.iter().cloned());

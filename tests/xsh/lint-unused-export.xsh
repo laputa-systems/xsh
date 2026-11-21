@@ -92,22 +92,25 @@ test test_unused_export_follows_a_reexport_chain { |ctx|
 test test_unused_export_exempts_only_a_satisfied_contract { |ctx|
   let root = test.temp_dir(ctx, name: "unused-export-contract")?
   fp"{root}/contracts.xsh".write(
-    "##! Dynamic contracts.\ntype Loaded = module {\n  export let name: Str\n  export pure mark(text: Str) -> Int\n}\n",
+    "##! Dynamic contracts.\ntype Loaded = module {\n  export let name: Str\n  export let ver: Str\n  export pure mark(text: Str) -> Int\n}\n\ntype Loose = module {\n  export optional let name: Str\n}\n",
   )
   fp"{root}/worker.xsh".write(
-    "##! Worker.\n\n## Contract value.\nexport const name = \"worker\"\n\n## Contract surface.\nexport pure mark(text: Str) -> Int {\n  text.byte_len()\n}\n\n## Unreferenced.\nexport pure truly_dead() -> Int {\n  return 1\n}\n",
+    "##! Worker.\n\n## Contract value.\nexport const name = \"worker\"\n\n## Contract version.\nexport const ver = \"1\"\n\n## Contract surface.\nexport pure mark(text: Str) -> Int {\n  text.byte_len()\n}\n\n## Unreferenced.\nexport pure truly_dead() -> Int {\n  return 1\n}\n",
   )
   fp"{root}/partial.xsh".write(
-    "##! Partial implementation.\n\n## Contract entry without the required value.\nexport pure mark(text: Str) -> Int {\n  text.byte_len()\n}\n",
+    "##! Partial implementation.\n\n## Contract value without the required version.\nexport const name = \"partial\"\n\n## Contract surface.\nexport pure mark(text: Str) -> Int {\n  text.byte_len()\n}\n",
   )
   let reported = lint_dir(root, ["--only", "lint.unused-export"])?
   let found = headers(reported.stderr)
   assert "warn[lint.unused-export]: unused export `truly_dead`" in found, reported.stderr
   assert "warn[lint.unused-export]: unused export `mark`" in found, reported.stderr
-  assert found.len() == 2, reported.stderr
+  assert "warn[lint.unused-export]: unused export `name`" in found, reported.stderr
+  assert found.len() == 3, reported.stderr
   assert "partial.xsh:4:1\n" in reported.stderr, reported.stderr
+  assert "partial.xsh:7:1\n" in reported.stderr, reported.stderr
   assert "worker.xsh:4:1\n" not in reported.stderr, reported.stderr
   assert "worker.xsh:7:1\n" not in reported.stderr, reported.stderr
+  assert "worker.xsh:10:1\n" not in reported.stderr, reported.stderr
 }
 
 test test_unused_export_exempts_only_members_of_an_unresolved_alias { |ctx|

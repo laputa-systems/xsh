@@ -236,9 +236,10 @@ analysis to the next ordinary lint because its rewrites can change which
 modules reference an export. A module that exports every required entry of a
 `module { ... }` contract is treated as implementing it, and only that module's
 exports named by the contract are dynamic interface names; a module that does
-not implement the contract is reported normally. An unresolved import exempts
-only the members reached through its alias, such as `alias.name`, because that
-is the reference the rule cannot follow.
+not implement the contract is reported normally. A contract with no required
+entry cannot identify an implementer and is ignored. An unresolved import
+exempts only the members reached through its alias, such as `alias.name`,
+because that is the reference the rule cannot follow.
 
 `lint.prefer-inferred-proc-return` remains opt-in. A private return annotation
 can make a helper's result easier to read even when inference preserves its
