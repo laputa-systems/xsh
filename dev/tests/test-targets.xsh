@@ -104,6 +104,7 @@ test test_musl_c_compiler_selection_covers_the_native_linux_targets {
     assert x86.tool == "x86_64-linux-musl-gcc"
     assert x86.variable == "CC_x86_64_unknown_linux_musl"
     assert x86.linker_variable == "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"
+    assert x86.rustflags_variable == "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
   } else {
     test.fail("x86-64 musl target has no C compiler")
   }
@@ -112,6 +113,7 @@ test test_musl_c_compiler_selection_covers_the_native_linux_targets {
     assert arm.tool == "aarch64-linux-musl-gcc"
     assert arm.variable == "CC_aarch64_unknown_linux_musl"
     assert arm.linker_variable == "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"
+    assert arm.rustflags_variable == "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
   } else {
     test.fail("aarch64 musl target has no C compiler")
   }

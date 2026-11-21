@@ -176,12 +176,29 @@ test test_a_glibc_host_selects_the_musl_c_compiler_for_a_musl_target { |ctx|
   fp"{tools}/rust-lld".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let repository = fs.cwd()?
   let inherited_path = env.get_or("PATH", "")?
-  let script = f"""use cargo_steps
+  for probe in [
+    [
+      "x86_64-linux-gnu",
+      "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static",
+    ],
+    [
+      "x86_64-alpine-linux-musl",
+      "default",
+      "-C target-feature=+crt-static",
+    ],
+    [
+      "x86_64-linux-gnu",
+      "CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static -C link-arg=-fuse-ld=mold",
+    ],
+  ] {
+    let script = f"""use cargo_steps
 use stage as stages
 
 let spec = stages.command(
   "build", "x86_64-unknown-linux-musl", "cargo", ["cargo", "build"], p"{root}",
-  {{CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C target-feature=+crt-static"}},
+  {{CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "{probe[2]}"}},
 )
 if let selected = cargo_steps.musl_c_compiler_overlay(spec)? {{
   print f"{{selected.keys().join(",")}}"
@@ -189,10 +206,6 @@ if let selected = cargo_steps.musl_c_compiler_overlay(spec)? {{
   print "default"
 }}
 """
-  for probe in [
-    ["x86_64-linux-gnu", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,CC_x86_64_unknown_linux_musl"],
-    ["x86_64-alpine-linux-musl", "default"],
-  ] {
     fp"{tools}/cc".write(
       f"""#!/bin/sh
 printf '%s\\n' '{probe[0]}'

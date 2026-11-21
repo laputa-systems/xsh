@@ -340,15 +340,25 @@ export proc mold_driver_spec(spec: contract.CommandSpec) [env, error] -> Result[
 ## The environment override that compiles a musl target's C boundary against
 ## musl headers. A host whose default C compiler already targets musl, and the
 ## pinned image with its own compiler, keep the default.
-export proc musl_c_compiler_overlay(spec: contract.CommandSpec) [process, error] -> Result[Map[Str, Str]?, Error] {
+export proc musl_c_compiler_overlay(spec: contract.CommandSpec) [process, env, error] -> Result[Map[Str, Str]?, Error] {
   if let compiler = target_policy.musl_c_compiler(spec.target) {
     return null when compiler.variable in spec.environment.keys()
-    return null when compiler.linker_variable in spec.environment.keys()
+    return null when env.get_or(compiler.variable, "")? != ""
+    let flags = if compiler.rustflags_variable in spec.environment.keys() {
+      spec.environment.get(compiler.rustflags_variable)?.require(Str)?
+    } else {
+      ""
+    }
+    let selected_linker = compiler.linker_variable in spec.environment.keys()
+      or env.get_or(compiler.linker_variable, "")? != ""
     return null unless process.which("cc") is Ok(_)
     let dumpmachine = run.text cc -dumpmachine
     return null when dumpmachine.trim().ends_with("-musl")
     guard process.which(compiler.tool) is Ok(_) else {
       return Err(stages.StageError.MissingTool(tool: compiler.tool))
+    }
+    if selected_linker or "-fuse-ld=" in flags or "link-arg=-Wl," in flags {
+      return {[compiler.variable]: compiler.tool}
     }
     guard process.which("rust-lld") is Ok(_) else {
       return Err(stages.StageError.MissingTool(tool: "rust-lld"))
