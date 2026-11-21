@@ -87,8 +87,22 @@ Verification runs Docker containers. Where the host is itself a container,
 start a daemon inside it and run the capsule privileged. A nested host that
 cannot use the overlay storage driver fails to extract an image layer with
 `failed to convert whiteout file ...: operation not permitted`; start the inner
-daemon with `dockerd --storage-driver=vfs` instead. This is a nested-Docker
-detail only; a normal host uses its default storage driver.
+daemon with `dockerd --storage-driver=vfs` instead. On a cgroup v2 host the
+outer container must also delegate its cgroup controllers before anything else
+runs in it, or the memory-limited containers verification starts fail with
+`cannot enter cgroupv2 "/sys/fs/cgroup/docker" with domain controllers`. Start
+it the way the official `docker:dind` image does:
+
+```sh
+docker run -d --privileged --cgroupns private ubuntu:24.04 sh -c '
+  mkdir -p /sys/fs/cgroup/init
+  xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+  sed -e "s/ / +/g" -e "s/^/+/" < /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control
+  exec sleep infinity'
+```
+
+These are nested-Docker details only; a normal host uses its default storage
+driver and cgroup layout.
 
 ## Optional tools
 
