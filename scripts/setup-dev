@@ -14,8 +14,10 @@ if [ "$(id -u)" -eq 0 ]; then
 elif command -v sudo >/dev/null 2>&1; then
   sudo apt-get update
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
+  sudo usermod -aG docker "$(id -un)"
 else
-  su -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y $packages"
+  account=$(id -un)
+  su -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y $packages && usermod -aG docker $account"
 fi
 if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
