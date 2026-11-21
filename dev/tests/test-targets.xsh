@@ -679,12 +679,12 @@ test test_dev_main_target_override_reaches_context { |ctx|
   let root = fs.cwd()?
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target \
-    x86_64-unknown-linux-musl > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- gate --plan --json --target \
+    aarch64-unknown-linux-musl crates/xsht/src/cli/grep.rs > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "system-report coverage manifest" in output.read_text()?
+  assert "aarch64-unknown-linux-musl" in output.read_text()?
 }
 
 test test_rustybench_override_stays_a_direct_argv_prefix { |ctx|
