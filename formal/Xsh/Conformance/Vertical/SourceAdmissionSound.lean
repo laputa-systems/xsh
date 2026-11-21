@@ -291,6 +291,38 @@ theorem expression_line_complete {tokens rest : List Token} {expression : Source
     have parsedElse := value_syntax_complete elseValue (by intro op more impossible; cases impossible)
     simp [parseExpression, atom_syntax_complete left, valid, atom_syntax_complete right, parsedThen, parsedElse]
 
+def beginsLiteralLet : List Token → Bool
+  | .word keyword :: .word _ :: .equals :: .number _ :: .newline :: _ =>
+      keyword == "let" || keyword == "var"
+  | _ => false
+
+theorem lets_complete {tokens rest : List Token} {lets : List (String × Nat)} {vars : List String}
+    (derivation : LetsSyntax tokens lets vars rest) (boundary : beginsLiteralLet rest = false) :
+    ∀ fuel, lets.length < fuel → parseLets fuel tokens = some (lets, vars, rest) := by
+  induction derivation with
+  | empty tokens =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      unfold beginsLiteralLet at boundary
+      unfold parseLets
+      split <;> simp_all
+  | @immutable name value tokens rest lets vars tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : lets.length < fuel := by simp at enough; omega
+      simp [parseLets, ih boundary fuel bound]
+  | @mutable name value tokens rest lets vars tail ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : lets.length < fuel := by simp at enough; omega
+      simp [parseLets, ih boundary fuel bound]
+
 theorem constructor_is_not_an_ordinary_call :
     ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
         (.call "Ok" [.var "x"]) [] ∧
