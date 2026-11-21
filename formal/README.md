@@ -213,7 +213,8 @@ hyphens, decimal digits followed by identifier starts or dots, `E>`, `==`,
 `=>`, `<=`, `>=`, `>>`, and `??`. It also requires each consecutive decimal
 digit run to fit in a signed 64-bit integer, even inside an identifier. These
 restrictions also exclude reserved words other than the six keywords used by
-the vertical grammar, and exclude reserved function names. They are
+the vertical grammar, and exclude reserved function names and literal-let
+bindings. They are
 conservative restrictions on checker acceptance; they do not establish full
 SPEC lexical agreement, parse-failure classification or tree-node spans.
 The local recursion-depth cap in the record admission witnesses accommodates

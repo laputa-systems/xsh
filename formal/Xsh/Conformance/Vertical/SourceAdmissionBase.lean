@@ -1277,11 +1277,14 @@ def supportedWords (codes : List Nat) : Bool :=
   | none => false
   | some tokens => tokens.all supportedWordToken
 
+def supportedFunctionNames (function : SourceFunction) : Bool :=
+  !isRecordKeyword function.name && function.lets.all (fun binding => !isRecordKeyword binding.1)
+
 def DeclarativeDomain (bytes : List UInt8) (moduleInputs : List (List UInt8))
     (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Prop :=
   let codes := bytes.map UInt8.toNat
   moduleInputs = [] ∧ noConflictingAdjacency codes = true ∧ decimalRunsInRange codes = true ∧
-    (functions.map (·.name)).Nodup ∧ functions.all (fun function => !isRecordKeyword function.name) = true ∧
+    (functions.map (·.name)).Nodup ∧ functions.all supportedFunctionNames = true ∧
     ScopesProjection functions scopes ∧
     ∃ tokens, Lexed codes tokens ∧ FunctionsSyntax tokens functions ∧
       FunctionsInOrder [] functions ∧ RecordCallsInOrder [] functions ∧ RecordCallsAnywhere functions ∧
@@ -1296,7 +1299,7 @@ def check (bytes : List UInt8) (moduleInputs : List (List UInt8))
     (functions : List SourceFunction) (scopes : List (List (String × Nat))) : Bool :=
   ((noConflictingAdjacency (bytes.map UInt8.toNat) &&
     decimalRunsInRange (bytes.map UInt8.toNat)) && supportedWords (bytes.map UInt8.toNat) &&
-      functions.all (fun function => !isRecordKeyword function.name)) && moduleInputs.isEmpty &&
+      functions.all supportedFunctionNames) && moduleInputs.isEmpty &&
     decide (functions.map (·.name)).Nodup &&
     match parseSourceCodes (bytes.map UInt8.toNat) with
     | none => false

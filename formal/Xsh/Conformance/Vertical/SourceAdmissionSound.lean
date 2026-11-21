@@ -364,7 +364,7 @@ theorem check_in_declarative_domain {bytes : List UInt8} {moduleInputs : List (L
     unfold check at accepted
     simp only [Bool.and_eq_true] at accepted
     exact accepted.1.1.1.1.2
-  have namesGuard : functions.all (fun function => !isRecordKeyword function.name) = true := by
+  have namesGuard : functions.all supportedFunctionNames = true := by
     unfold check at accepted
     simp only [Bool.and_eq_true] at accepted
     exact accepted.1.1.1.2
@@ -528,6 +528,12 @@ theorem substituted_source_mutant_exposed :
 theorem reserved_word_source_refused :
     check (witnessBytes "pure f(x: Int) -> Int {\n  return while\n}\n") []
       [⟨"f", ["x"], [], none, .value (.atom (.var "while"))⟩] [[("x", 0)]] = false := by
+  decide +kernel
+
+theorem reserved_literal_binding_refused :
+    check (witnessBytes "pure f(x: Int) -> Int {\n  let if = 1\n  return x\n}\n") []
+      [⟨"f", ["x"], [("if", 1)], none, .value (.atom (.var "x"))⟩]
+      [[("x", 0), ("if", 2)]] = false := by
   decide +kernel
 
 theorem adjacent_word_hyphen_refused :
