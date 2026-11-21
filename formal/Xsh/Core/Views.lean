@@ -71,6 +71,10 @@ mutual
         {sourceRest targetRest : ViewMembers Declaration} :
         MembersCovered (sourceFirst :: sourceSecond :: tailMembers sourceRest)
           (targetFirst :: targetSecond :: tailMembers targetRest) →
+        (sourceFirst :: sourceSecond :: tailMembers sourceRest).length =
+          (targetFirst :: targetSecond :: tailMembers targetRest).length →
+        TargetMembersCovered (targetFirst :: targetSecond :: tailMembers targetRest)
+          (sourceFirst :: sourceSecond :: tailMembers sourceRest) →
           BaseView (.union sourceFirst sourceSecond sourceRest) (.union targetFirst targetSecond targetRest)
     | callable {source target : ViewSignature Declaration} :
         SignatureView source target → BaseView (.callable source) (.callable target)
@@ -97,6 +101,17 @@ mutual
     | nil (target : List (ViewType Declaration)) : MembersCovered [] target
     | cons {member : ViewType Declaration} {rest target : List (ViewType Declaration)} :
         MemberCovered member target → MembersCovered rest target → MembersCovered (member :: rest) target
+
+  inductive TargetMemberCovered : ViewType Declaration → List (ViewType Declaration) → Prop where
+    | here {source target : ViewType Declaration} (rest : List (ViewType Declaration)) :
+        BaseView source target → TargetMemberCovered target (source :: rest)
+    | there {target : ViewType Declaration} (other : ViewType Declaration) {rest : List (ViewType Declaration)} :
+        TargetMemberCovered target rest → TargetMemberCovered target (other :: rest)
+
+  inductive TargetMembersCovered : List (ViewType Declaration) → List (ViewType Declaration) → Prop where
+    | nil (source : List (ViewType Declaration)) : TargetMembersCovered [] source
+    | cons {member : ViewType Declaration} {rest source : List (ViewType Declaration)} :
+        TargetMemberCovered member source → TargetMembersCovered rest source → TargetMembersCovered (member :: rest) source
 
   inductive SignatureView : ViewSignature Declaration → ViewSignature Declaration → Prop where
     | result (policy : InvocationPolicy 0) (parameters : TypeVariableFreeTerm 0 String Declaration .arguments)

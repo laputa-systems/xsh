@@ -2993,10 +2993,8 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-STORE",
-      "module": "Xsh.Validation.Core.Store",
-      "declaration": "Xsh.Validation.Core.Store.validated_store"
+      "status": "planned",
+      "proof_root_id": "full.VAL-STORE"
     },
     {
       "id": "VAL-UNION",
@@ -3011,10 +3009,8 @@
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-WIDEN",
-      "module": "Xsh.Validation.Core.Widen",
-      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
+      "status": "planned",
+      "proof_root_id": "full.VAL-WIDEN"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -15054,7 +15050,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world; an accepted connected store write commits the embedded value through the Core store guard.",
-      "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation."
+      "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation. The callable contract decision is noncomputable and uses classical proposition decidability."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Env.environments_and_typed_stores",
@@ -15109,6 +15105,24 @@
       "status": "fragment",
       "scope": "A view chain from an unvalidated primitive type reaches only that type, so retained primitive stream and callable contracts are read exactly.",
       "boundary": "Covers primitive starting points of the shared base-view relation only; the view relation's soundness is the widening obligation. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Store.validated_store",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
+      "boundary": "Store mutation through .extend or += and path writes are not modelled. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Widen.validated_widening",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Base views preserve Core membership and cannot reverse a validated base view.",
+      "boundary": "The erased-position precision theorem is not proved; duplicate row labels are not ruled out by the raw view relation. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [

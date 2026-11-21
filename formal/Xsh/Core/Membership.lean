@@ -13,8 +13,10 @@ abbrev UnionTail (Declaration : Type) := TypeVariableFreeTerm 0 String Declarati
 abbrev SignatureType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .signature
 
 /-- Retained contracts describe semantic objects without inspecting suspended
-stream items or invoking callables. Establishing these predicates from source
-checking and preserving them during execution are separate obligations. -/
+stream items or invoking callables. `world.stream ref r` and `world.callable`
+assert that items or results are checked against the retained type or signature
+when produced. Establishing these predicates from source checking and preserving
+them during execution are separate obligations. -/
 structure MembershipWorld (Declaration Identity Source : Type) where
   entryFields : Reference Identity .filesystemEntry → List (String × Value Declaration Identity Source)
   stream : Reference Identity .stream → ValueType Declaration → Prop

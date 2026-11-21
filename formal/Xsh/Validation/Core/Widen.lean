@@ -119,7 +119,7 @@ mutual
           | exact member.elim
           | exact view_member world valueView _ member
           | exact view_member world errorView _ member
-    | _, _, .union covered, candidate, member => by
+    | _, _, .union covered _ _, candidate, member => by
         have sourceListed := (union_member_iff world (union := .union _ _ _) rfl candidate).mp member
         exact (union_member_iff world (union := .union _ _ _) rfl candidate).mpr
           (members_member world covered candidate sourceListed)
@@ -310,9 +310,11 @@ theorem reordered_union_and_record_are_views :
         (.record (.rowField "a" .relativePath (.rowField "b" (.primitive .string) .rowEmpty)))
         (.record (.rowField "b" (.primitive .string) (.rowField "a" (.primitive .path) .rowEmpty))) := by
   constructor
-  · refine .union ?_
-    simp only [tailMembers]
-    exact .cons (.there _ (.here _ (.validated rfl (.refl _)))) (.cons (.here _ (.refl _)) (.nil _))
+  · refine .union ?_ (by simp [tailMembers]) ?_
+    · simp only [tailMembers]
+      exact .cons (.there _ (.here _ (.validated rfl (.refl _)))) (.cons (.here _ (.refl _)) (.nil _))
+    · simp only [tailMembers]
+      exact .cons (.there _ (.here _ (.refl _))) (.cons (.here _ (.validated rfl (.refl _))) (.nil _))
   · refine .record ?_ (by simp [rowEntries])
     simp only [rowEntries]
     exact .cons (.there _ (.here _ _ (.refl _))) (.cons (.here _ _ (.validated rfl (.refl _))) (.nil _))
@@ -359,6 +361,38 @@ theorem distinct_validations_never_view :
 
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)
+
+theorem union_cannot_gain_member :
+    ¬ BaseView (Declaration := Unit)
+      (.list (.union (.primitive .integer) (.primitive .string) .membersEmpty))
+      (.list (.union (.primitive .integer) (.primitive .string) (.member (.primitive .path) .membersEmpty))) := by
+  intro view
+  cases view with
+  | validated hasBase _ => simp [base] at hasBase
+  | list inner =>
+    cases inner with
+    | validated hasBase _ => simp [base] at hasBase
+    | union _ length _ => simp [tailMembers] at length
+
+theorem record_cannot_drop_field :
+    ¬ BaseView (Declaration := Unit)
+      (.record (.rowField "a" .relativePath (.rowField "b" (.primitive .integer) .rowEmpty)))
+      (.record (.rowField "a" (.primitive .path) .rowEmpty)) := by
+  intro view
+  cases view with
+  | validated hasBase _ => simp [base] at hasBase
+  | record _ names =>
+    have present := names "b" (by simp [rowEntries])
+    simp [rowEntries] at present
+
+theorem list_string_cannot_view_list_any :
+    ¬ BaseView (Declaration := Unit) (.list (.primitive .string)) (.list (.primitive .any)) := by
+  intro view
+  cases view with
+  | validated hasBase _ => simp [base] at hasBase
+  | list inner =>
+    have := view_from_primitive inner
+    cases this
 
 theorem callable_return_view_is_derived :
     BaseView (Declaration := Unit) (.list (pureReturning .relativePath)) (.list (pureReturning (.primitive .path))) :=

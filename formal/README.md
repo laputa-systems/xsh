@@ -158,7 +158,8 @@ Core. A connected value with a connected type is a Core member of that type's
 image, and an accepted connected write commits through the Core guard. Connected
 nominal types over non-record bases, and row or argument sorts, have no Core
 image. Core record membership is wider than the connected check, so a connected
-rejection is not a Core rejection. The connected machine still runs on its own
+rejection is not a Core rejection. The callable contract decision is noncomputable
+and uses classical proposition decidability. The connected machine still runs on its own
 store; the bridge is a fragment root, not a full-core obligation.
 
 The `environments_and_typed_stores` fragment root is in
@@ -181,13 +182,12 @@ return, record field or union member may stand for its base. Record fields
 and union members are matched in any order. Core membership reads a retained
 stream or callable contract upward-closed under views, because stream items
 are checked against the retained type as they are produced.
-VAL-WIDEN is closed by `validated_widening` in
-[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean): every view
+The `validated_widening` fragment in
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean) shows that every view
 carries members to members in every world, a view into a validated type starts
 from the same tag with a base that views to the target's base, and no base
-views as its validated type. Nested intervals are not views, even though the
-interval-containment fragment relates them. Module export types are not yet
-viewed.
+views as its validated type. Erased-position precision is not proved, and the raw row relation permits duplicate labels. VAL-WIDEN remains planned. Nested intervals are not views, even though the
+interval-containment fragment relates them. A module contract entry must match its kind and full signature exactly.
 
 VAL-ERASE is closed by `validated_erasure` in
 [`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member
@@ -195,19 +195,19 @@ read at its base is a base member, erasure is the identity for `NonEmpty`,
 `RelPath` and bounded integers, removes exactly the declaration wrapper of a
 nominal member, and keeps references and every base-view observation.
 
-VAL-STORE is closed by `validated_store` in
-[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean). It shows that a cell of a
+The `validated_store` fragment in
+[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean) shows that a cell of a
 validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
-and rejects the same write to the `NonEmpty` cell.
+and rejects the same write to the `NonEmpty` cell. Store mutation through .extend or += and path writes are not modelled. VAL-STORE remains planned.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
 membership is membership in a listed member, runtime selection returns the
-first accepting member in written order, and a union fits another when each
-member views as one of the other's in any order. Union admissibility, which
+first accepting member in written order, and membership is preserved when each member views as one of the other's
+in any order. General union fit and admissibility belong to G4/TYPE-*. Union admissibility, which
 rejects overlapping members, is a checker judgment and is not assumed; the
 overlap witness selects `UInt` for `5` and `Int` for `-5`, and a last-match
 selector, which picks `Int` for `5`, is refuted.
