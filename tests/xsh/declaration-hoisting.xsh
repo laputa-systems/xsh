@@ -63,3 +63,15 @@ print (read())
   assert result.status == 2, f"status {result.status}: {result.errors}"
   assert "count" in result.errors, result.errors
 }
+
+test test_a_hoisted_callable_still_captures_a_var_it_only_writes { |ctx|
+  let result = run_script(ctx, "write-only-capture", r"""var count = 0
+proc reset() {
+  count = 9
+}
+reset()
+print (count)
+""")
+  assert result.status == 0, f"status {result.status}: {result.errors}"
+  assert result.output == "9\n", result.output
+}
