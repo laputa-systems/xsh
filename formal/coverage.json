@@ -2988,8 +2988,10 @@
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-REQUIRE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-REQUIRE",
+      "module": "Xsh.Validation.Core.Require",
+      "declaration": "Xsh.Validation.Core.Require.recursive_require"
     },
     {
       "id": "VAL-STORE",

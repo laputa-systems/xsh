@@ -216,6 +216,19 @@ and cell facts learned from passing tests stay sound because assignment forgets
 the assigned cell's fact. The witness shows that retaining a `NonEmpty` fact
 after assigning `[]` is unsound.
 
+VAL-REQUIRE is closed by `recursive_require` in
+[`Validation/Core/Require.lean`](Xsh/Validation/Core/Require.lean). On a
+target whose record schemas list each field once, an accepted result is a
+member. On a target without nominal positions, `.require` accepts exactly the
+members and returns them unchanged, keeping nominal wrappers and extra fields.
+A nominal target checks the fields as its schema does and introduces the
+declaration, at every nested slot. Unions ask members in written order. Any
+nested rejection rejects the whole value as recoverable `Err` data. The
+witnesses introduce a nested `Package`, reject a nested field without
+publishing anything, contrast `.require(UInt)` with the `type-error` of a
+typed store, and detect a check that skips nested conversion. Error paths,
+`require_exact` and `require_stripped` are not modelled.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws
