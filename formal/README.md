@@ -185,6 +185,60 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
+BASE-NUM is closed by `numeric_semantics` in
+[`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
+UInt and Duration results and IEEE Float equality. `%` fails with
+`integer-overflow` whenever `/` on the same operands would, so the minimum
+`Int` `% -1` fails rather than giving `0`; a remainder without that rule is
+rejected. The theorem adds `Duration / Duration`, the `time.millis` and
+`time.seconds` clamps from [`Values/DurationOps.lean`](Xsh/Values/DurationOps.lean),
+and the bitset methods from [`Values/IntegerOps.lean`](Xsh/Values/IntegerOps.lean):
+`.bit_and`, `.bit_or` and `.clear_bits` combine the operands bit by bit and
+fail with `integer-bitset` on a negative operand, as the runtime does.
+
+Float arithmetic, negation, comparisons and conversions come from
+[`Values/FloatOps.lean`](Xsh/Values/FloatOps.lean). `FloatMeaning` decodes each
+operand's raw bits to NaN, a signed infinity or a signed exact multiple of
+2^-1074. It specifies `+`, `-`, `*` and `/` through an outcome: a quiet NaN, a
+signed infinity, a signed zero, or the exact rational result with its sign. A
+rounded outcome below the overflow midpoint must be `BinaryNearest`: no finite
+binary64 encoding is closer, and a tie keeps the even encoding. At or above the
+midpoint it is the signed infinity. The proof in
+[`Values/FloatArith.lean`](Xsh/Values/FloatArith.lean) shows the selected
+encoding decodes to the uniform-grid rounding at the value's own binade, that
+every other finite candidate is on that grid or below the binade floor, and
+that magnitude decoding is strictly monotone. `floatApply` meets the meaning
+for every `NaNPolicy`, a policy being any choice of quiet NaN bits (bit 51
+set). The meaning fixes every non-NaN result and leaves the payload free, which
+the witnesses show with two policies; a signaling NaN result for 0/0 is
+rejected. Unary minus flips only the sign bit, so NaN keeps its payload and
+`-(+0)` is `-0` where `0 - 0` is `+0`. `<`, `<=`, `>` and `>=` are specified on
+exact values with infinities at the ends and are false when either operand is
+NaN; the implementation compares total-order keys and is proved to agree, and
+the total order itself is rejected as a comparison. `.float()` rounds an Int
+like arithmetic and is never infinite. `.floor()`, `.ceil()` and `.round()`
+return the unique integer satisfying the floor, ceiling or
+nearest-with-ties-away-from-zero bound, after the Int range check, and reject
+NaN and infinities.
+
+The special-value table (which operands give NaN, infinity or a signed zero) is
+part of the meaning and shared with `floatApply`. The proved content is the
+rounding, the overflow, the signed encodings, the comparison order and
+determinism. The witnesses compute 0.1 + 0.2, both tie directions at
+1 + 2^-53, the overflow midpoint at MAX + 2^970 against MAX + 2^969, subnormal
+ties, the signed-zero and infinity cases, and the conversions of 2.5, -2.5 and
+2^63. The rejected mutants are ties-away rounding, operand exponents decoded
+one too high, unsigned zero results, a non-NaN result for 0/0, `.round()` with
+ties to even, negation as `0 - x`, total-order comparison, and bitsets over
+magnitudes. Outside the model: Float literal and `parse_float` rounding, the
+Float math methods such as `atan2` and `format_number`, and the identity of the
+`float-conversion` error, which the conversions collapse to `none`. The model
+claims no Rust or hardware conformance. Witnesses that evaluate binary64
+rounding with `decide` raise `maxRecDepth` to 10000, because `Nat.log2`
+recursion follows the bit length of numerators up to 2^2200. They need no
+`exponentiation.threshold` change: the kernel evaluates the large powers, so
+the earlier `exponentiation.threshold 1100` settings were removed.
+
 The validated-type obligations use the Core types directly.
 [`Core/Views.lean`](Xsh/Core/Views.lean) names the four validation tags
 (`NonEmpty`, `RelPath`, a nominal declaration and a bounded interval), each
@@ -564,7 +618,8 @@ the error to its `division-by-zero` or `integer-overflow` diagnostic.
 or `%` is a division-by-zero error. Otherwise the result is the exact sum,
 difference, product, truncating quotient (`Int.tdiv`) or truncating remainder
 (`Int.tmod`) when its witness fits signed 64 bits, and an overflow otherwise.
-The witness of `%` is its quotient, so `MIN % -1` overflows as in Rust.
+The witness of `%` is its quotient, so `%` fails with `integer-overflow`
+whenever `/` on the same operands would, and `MIN % -1` overflows as in Rust.
 `checked_zero_divisor`, `checked_ok` and `checked_overflow` characterize the
 outcome.
 

@@ -62,11 +62,18 @@ acceptance does not wait for this campaign.
   comparisons, conditionals and calls of let-free integer functions, scalar
   literals, identifiers, integer-field record literals and named record field reads,
   and one host request family (`time.now`). The machine has no assignment or declaration form, so typed store writes are
-  proved on the environment API, not through machine steps. Float arithmetic
-  and Float conversions are not modeled; the Float clauses state only exact
-  bits, IEEE value equality and the total order. BASE-ENV, BASE-NUM,
-  BASE-STEP, BASE-PROGRESS and BASE-RUNNER close only when their theorems hold
-  for the frozen core's syntax, values and host request families.
+  proved on the environment API, not through machine steps. BASE-NUM is
+  closed at the value level: Float arithmetic, negation, comparisons and
+  conversions are modeled on raw bits in `Xsh.Values.FloatOps`, but the base
+  machine's own steps still evaluate Int only, and Float literal and
+  `parse_float` rounding, the Float math methods and the `float-conversion`
+  error identity are outside the model. BASE-ENV, BASE-STEP, BASE-PROGRESS and
+  BASE-RUNNER close only when their theorems hold for the frozen core's syntax,
+  values and host request families. BASE-STEP also closes only when every
+  numeric step result satisfies the BASE-NUM meanings: `ArithmeticMeaning`,
+  `FloatMeaning` under some `NaNPolicy`, `NegationMeaning`,
+  `ComparisonMeaning`, `IntToFloatMeaning`, `ToIntMeaning`, `BitsetMeaning` and
+  the `DurationOps` results.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
   `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
   correspondence.
