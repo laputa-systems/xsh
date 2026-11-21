@@ -131,7 +131,11 @@ import Xsh.Effects.SolverEdgeOrder
 import Xsh.IR.Raw.Witnesses
 import Xsh.Conformance.Transport.Codecs
 import Xsh.Conformance.Transport.Laws
-import Xsh.IR.Raw.DecoderSoundness
+import Xsh.IR.Raw.Structure
+import Xsh.IR.Raw.Spec
+import Xsh.IR.Raw.Agreement
+import Xsh.IR.Raw.Certificate
+import Xsh.IR.Raw.FeaturesCertificate
 import Xsh.Conformance.Transport.Json
 import Xsh.Conformance.Vertical.Artifact
 import Xsh.Conformance.Vertical.Meaning

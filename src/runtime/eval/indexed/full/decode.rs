@@ -839,6 +839,13 @@ macro_rules! struct_schema {
                 Ok($view { $($field: <$field_ty>::borrow(context, input)?,)* program: PhantomData })
             }
         }
+        #[cfg(test)]
+        impl super::wire_shape::PayloadWords for $ty {
+            fn shape() -> super::wire_shape::PayloadShape {
+                super::wire_shape::PayloadShape::Named(stringify!($ty), || super::wire_shape::PayloadShape::Fields(
+                    vec![$(<$field_ty as super::wire_shape::PayloadWords>::shape()),*]))
+            }
+        }
         impl FullCodec for $ty {
             fn encode(&self, builder: &mut super::FullBuilder, output: &mut Vec<u32>)
             -> Result<(), super::IrBuildError> {
@@ -885,6 +892,12 @@ macro_rules! decode_field {
     };
 }
 
+#[cfg(test)]
+macro_rules! enum_field_shape {
+    ($ty:ty) => { <$ty as super::wire_shape::PayloadWords>::shape() };
+    ($ty:ty as $wire:ty) => { <$wire as super::wire_shape::PayloadWords>::shape() };
+}
+
 macro_rules! enum_schema {
     (
         $(#[$view_attribute:meta])*
@@ -918,6 +931,17 @@ macro_rules! enum_schema {
                     )*
                     _ => return Err(IrVerifyError::new($message)),
                 })
+            }
+        }
+        #[cfg(test)]
+        impl super::wire_shape::PayloadWords for $ty {
+            fn shape() -> super::wire_shape::PayloadShape {
+                super::wire_shape::PayloadShape::Named(stringify!($ty), || super::wire_shape::PayloadShape::Choice(vec![$(
+                    ($tag, super::wire_shape::PayloadShape::Fields(vec![
+                        $($(enum_field_shape!($tuple_ty $(as $wire_ty)?),)*)?
+                        $($(<$field_ty as super::wire_shape::PayloadWords>::shape(),)*)?
+                    ])),
+                )*]))
             }
         }
         impl FullCodec for $ty {

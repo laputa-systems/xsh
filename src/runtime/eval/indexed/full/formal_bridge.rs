@@ -191,6 +191,10 @@ fn parse_wire_document(input: &str) -> Result<WireValue, String> {
     if input.len() > MAX_TRANSPORT_DOCUMENT_BYTES {
         return Err("wire document exceeds the private transport byte limit".to_string());
     }
+    parse_wire_value(input)
+}
+
+fn parse_wire_value(input: &str) -> Result<WireValue, String> {
     let mut context = deser::Context::with(deser::de::Limits::builder()
         .max_depth(MAX_JSON_CONTAINER_DEPTH).build());
     context.set(deser::de::DuplicateKeys::Error);

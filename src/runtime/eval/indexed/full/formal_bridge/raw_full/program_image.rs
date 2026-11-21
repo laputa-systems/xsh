@@ -21,11 +21,48 @@ fn unsupported<T>(message: impl Into<String>) -> ImageResult<T> {
 }
 
 #[derive(Default)]
+enum SymbolCanon {
+    #[default]
+    Raw,
+    Collect(BTreeSet<Name>),
+    Canonical(FxHashMap<u32, u32>),
+}
+
+fn first_dynamic_symbol() -> u32 {
+    static FIRST: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *FIRST.get_or_init(|| (0..u32::MAX).find(|raw| !Name::from_symbol(Symbol::from_raw(*raw)).is_preloaded())
+        .expect("the symbol space has dynamic identities"))
+}
+
+#[derive(Default)]
 pub(super) struct ImageWriter {
     bytes: Vec<u8>,
+    type_ids: BTreeMap<u64, u64>,
+    effect_ids: BTreeMap<u64, u64>,
+    owners: BTreeMap<u64, u64>,
+    symbols: SymbolCanon,
 }
 
 impl ImageWriter {
+    fn symbol(&mut self, name: Name) -> ImageResult<u32> {
+        let raw = name.symbol().raw();
+        if name.is_preloaded() {
+            return Ok(raw);
+        }
+        match &mut self.symbols {
+            SymbolCanon::Raw => Ok(raw),
+            SymbolCanon::Collect(names) => {
+                if name.as_str().as_str() == INVALID_SYMBOL_TEXT {
+                    return unsupported(format!("symbol {raw} has no live spelling"));
+                }
+                names.insert(name);
+                Ok(raw)
+            }
+            SymbolCanon::Canonical(table) => table.get(&raw).copied()
+                .map_or_else(|| unsupported(format!("symbol `{}` is missing from the image table", name.as_str())), Ok),
+        }
+    }
+
     pub(super) fn position(&self) -> usize {
         self.bytes.len()
     }
@@ -62,11 +99,24 @@ impl ImageWriter {
 pub(super) struct ImageReader<'a> {
     input: &'a [u8],
     depth: u32,
+    type_ids: BTreeMap<u64, crate::sema::constraints::TypeVariableId>,
+    effect_ids: BTreeMap<u64, crate::sema::constraints::EffectVariableId>,
+    owners: BTreeMap<u64, crate::sema::scheme_callable::SchemeCallableOwner>,
+    symbols: Option<Vec<Name>>,
 }
 
 impl<'a> ImageReader<'a> {
     fn new(input: &'a [u8]) -> Self {
-        Self { input, depth: 0 }
+        Self { input, depth: 0, type_ids: BTreeMap::new(), effect_ids: BTreeMap::new(), owners: BTreeMap::new(), symbols: None }
+    }
+
+    fn symbol(&self, word: u32) -> ImageResult<Name> {
+        let Some(table) = &self.symbols else { return Ok(Name::from_symbol(Symbol::from_raw(word))) };
+        let first = first_dynamic_symbol();
+        if word < first {
+            return Ok(Name::from_symbol(Symbol::from_raw(word)));
+        }
+        table.get((word - first) as usize).copied().map_or_else(|| malformed(format!("symbol word {word} names no image table entry")), Ok)
     }
 
     fn array<const N: usize>(&mut self) -> ImageResult<[u8; N]> {
@@ -365,12 +415,14 @@ impl<K: ImageCodec + Ord> ImageCodec for BTreeSet<K> {
 
 impl ImageCodec for Name {
     fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
-        output.u32(self.symbol().raw());
+        let word = output.symbol(*self)?;
+        output.u32(word);
         Ok(())
     }
 
     fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
-        Ok(Name::from_symbol(Symbol::from_raw(input.u32()?)))
+        let word = input.u32()?;
+        input.symbol(word)
     }
 }
 
@@ -466,8 +518,16 @@ image_scheme_ids!(
     schemes::FullSchemeSchemaExpectationId => raw,
 );
 
+pub(super) trait UnitVariants: Sized + 'static {
+    const ALL: &'static [Self];
+}
+
 macro_rules! image_unit_enums {
     ($($ty:ty { $($variant:ident),* $(,)? })*) => {$(
+        impl UnitVariants for $ty {
+            const ALL: &'static [Self] = &[$(<$ty>::$variant),*];
+        }
+
         impl ImageCodec for $ty {
             fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
                 type This = $ty;
@@ -517,6 +577,12 @@ image_unit_enums! {
     crate::sema::sealed_operation::TypeDomain { SortKey, CountKey, CollectItem, MinMaxItem, OrderingOperand, NegationOperand }
     crate::sema::sealed_operation::SliceBounds { Unbounded, Start, End, Both }
     xsh_registry::signature::ArithmeticOperator { Add, Subtract, Multiply, Divide, Remainder }
+    xsh_registry::signature::ArithmeticSignature { Integer, Float, StringConcatenation, ListConcatenation, SetDifference, DurationPair, DurationScale, IntegerScale, DurationRatio }
+    crate::sema::sealed_operation::MembershipDomain { List, Set, Map, UnsignedMap, Record, Str, Bytes, Path, EnvPath }
+    crate::sema::wrapper_operation::WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
+    crate::syntax::arena::UnknownFields { Preserve, Reject, Strip }
+    xsh_registry::types::BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
+    crate::modules::MethodReceiver { PathConstructor, Result, EnvPathList, Path, Int, Float, List, Map, Record, Stream, Str, Bytes, Status, Digest, Regex, ProcessHandle, NetJob, FsRoot, NonEmpty, RelPath, Set }
     CheckedPatternVariantKind { Tag, Error }
     Effect { Fs, Net, Process, Env, Time, Error, Io }
     AssignOp { Set, Add, Sub, Mul, Div, Rem }
@@ -665,6 +731,10 @@ macro_rules! image_enums {
 }
 
 image_structs! {
+    crate::sema::types::TypedCallable { kind, sig }
+    crate::sema::types::CallableType { params, return_ty, effects }
+    crate::sema::types::CallableParamType { name, ty, defaulted, rest }
+    crate::sema::types::ModuleType { exports, exact }
     IrData { lhs, rhs }
     IrRange { start, len }
     IrLocation { start, len }
@@ -751,6 +821,18 @@ image_structs! {
 }
 
 image_enums! {
+    crate::sema::types::ModuleExportType { Value { ty, optional } = 0, Callable { kind, sig, optional } = 1, GenericCallable { kind, optional } = 2 }
+    crate::sema::validated::Validation { NonEmpty = 0, RelPath = 1, Nominal(name) = 2, Range(range) = 3 }
+    crate::sema::schemes::RegisteredArgumentCheck { Unsigned(ty) = 0, UIntMapKey = 1 }
+    schemes::FullOperationBinding { Selected(signature) = 0, Forwarded(ordinal) = 1 }
+    schemes::FullMethodBinding { Selected(id) = 0, SelectedFunction(id) = 1, Forwarded(ordinal) = 2 }
+    schemes::FullWrapperBinding { Selected(selection) = 0, Forwarded(ordinal) = 1 }
+    crate::sema::sealed_operation::SealedOperationSignature {
+        TypePredicate(domain) = 0, Binary(signature) = 1, Field = 2, IndexList = 3, IndexMap = 4,
+        IndexRecord = 5, IndexModule = 6, StoreValue = 7, SliceList = 8, SliceStr = 9,
+        SliceBytes = 10, RecordOverride = 11, TargetVariant = 12, Equality = 13,
+        Membership(domain) = 14, MapKey = 15,
+    }
     FullCallableContract { Ground(signature) = 0, Scheme(scheme) = 1 }
     FullCheckedExprPurpose { CheckedContract { function_ref } = 0, ProducerContext(owner) = 1, CapturedErrorContract(owner) = 2 }
     ExecutableOwner { Function(function) = 0, Driver(step) = 1 }
@@ -798,6 +880,47 @@ image_enums! {
     guard_schemes::FullGuardCallTarget { Scope(index) = 0, Call(index) = 1 }
     crate::sema::sealed_operation::IndexSyntax { Ordinary = 0, NegativeLiteral(index) = 1 }
     crate::map_key::MapKey { Str(text) = 0, Int(value) = 1, Bool(value) = 2, Bytes(bytes) = 3, Path(bytes) = 4, Duration(millis) = 5 }
+}
+
+macro_rules! registered_id_codec {
+    ($($ty:ty),* $(,)?) => {$(
+        impl ImageCodec for $ty {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                self.raw().put(output)
+            }
+
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                Ok(Self::from_raw(u32::take(input)?))
+            }
+        }
+    )*};
+}
+
+registered_id_codec! {
+    xsh_registry::signature::RegisteredMethodId,
+    xsh_registry::signature::RegisteredFunctionId,
+}
+
+#[test]
+fn binding_images_round_trip_and_reject_invalid_tags() {
+    fn check<T: ImageCodec + std::fmt::Debug + PartialEq>(value: T) {
+        let mut output = ImageWriter::default();
+        value.put(&mut output).unwrap();
+        let mut input = ImageReader::new(&output.bytes);
+        assert_eq!(T::take(&mut input).unwrap(), value);
+        input.finish().unwrap();
+        assert!(T::take(&mut ImageReader::new(&[255])).is_err());
+    }
+
+    use crate::sema::sealed_operation::{MembershipDomain, SealedOperationSignature};
+    use crate::sema::wrapper_operation::WrapperSelection;
+    check(schemes::FullOperationBinding::Selected(SealedOperationSignature::Membership(MembershipDomain::EnvPath)));
+    check(schemes::FullOperationBinding::Forwarded(u32::MAX));
+    check(schemes::FullMethodBinding::Selected(xsh_registry::signature::RegisteredMethodId::from_raw(37)));
+    check(schemes::FullMethodBinding::SelectedFunction(xsh_registry::signature::RegisteredFunctionId::from_raw(42)));
+    check(schemes::FullMethodBinding::Forwarded(u32::MAX));
+    check(schemes::FullWrapperBinding::Selected(WrapperSelection::ProcCompletion));
+    check(schemes::FullWrapperBinding::Forwarded(u32::MAX));
 }
 
 impl ImageCodec for FloatValue {
@@ -955,32 +1078,511 @@ impl ImageCodec for PreparedConstantValue<TypeId> {
     }
 }
 
-macro_rules! image_unsupported {
-    ($($ty:ty => $pool:literal),* $(,)?) => {$(
-        impl ImageCodec for $ty {
-            fn put(&self, _output: &mut ImageWriter) -> ImageResult<()> {
-                unsupported(concat!("the image does not encode ", $pool))
-            }
-
-            fn take(_input: &mut ImageReader<'_>) -> ImageResult<Self> {
-                unsupported(concat!("the image does not decode ", $pool))
-            }
-        }
-    )*};
+fn put_runtime_value(value: &crate::runtime::value::Value, output: &mut ImageWriter) -> ImageResult<()> {
+    crate::runtime::eval::lowered_ops::lowered_value_from_runtime_any(value)
+        .map_or_else(|| unsupported(format!("runtime value {} has no lowered image", value.type_name())), Ok)?
+        .put(output)
 }
 
-image_unsupported! {
-    schemes::FullOperationBinding => "sealed operation bindings",
-    schemes::FullMethodBinding => "sealed method bindings",
-    schemes::FullWrapperBinding => "wrapper bindings",
-    crate::runtime::eval::require::PreparedSchema => "prepared schemas",
-    crate::runtime::eval::ModuleCallPlan => "prepared module call plans",
-    crate::sema::schemes::RegisteredCallPlan => "registered call plans",
+fn take_runtime_value(input: &mut ImageReader<'_>) -> ImageResult<crate::runtime::value::Value> {
+    Ok(LoweredValue::take(input)?.into_value())
+}
+
+impl ImageCodec for crate::modules::cli::image::Atom {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::modules::cli::image::Atom;
+        match self {
+            Atom::Flag(value) => { 0u8.put(output)?; value.put(output) }
+            Atom::Int(value) => { 1u8.put(output)?; value.put(output) }
+            Atom::Count(value) => { 2u8.put(output)?; value.put(output) }
+            Atom::Text(value) => { 3u8.put(output)?; value.put(output) }
+            Atom::Value(value) => { 4u8.put(output)?; put_runtime_value(value, output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::modules::cli::image::Atom;
+        input.nested(|input| Ok(match u8::take(input)? {
+            0 => Atom::Flag(ImageCodec::take(input)?),
+            1 => Atom::Int(ImageCodec::take(input)?),
+            2 => Atom::Count(ImageCodec::take(input)?),
+            3 => Atom::Text(ImageCodec::take(input)?),
+            4 => Atom::Value(take_runtime_value(input)?),
+            _ => return malformed("CLI plan atom tag is invalid"),
+        }))
+    }
+}
+
+impl ImageCodec for crate::modules::cli::CliDescriptorPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        crate::modules::cli::image::put_plan(self).put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let atoms = Vec::<crate::modules::cli::image::Atom>::take(input)?;
+        let mut reader = crate::modules::cli::image::Reader(atoms.into_iter());
+        let plan = crate::modules::cli::image::take_plan(&mut reader).map_err(ImageError::Malformed)?;
+        reader.finish().map_err(ImageError::Malformed)?;
+        Ok(plan)
+    }
+}
+
+impl ImageCodec for crate::runtime::eval::ModuleCallPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        match self {
+            Self::SignatureCli(plan) => { 0u8.put(output)?; plan.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        match u8::take(input)? {
+            0 => Ok(Self::SignatureCli(ImageCodec::take(input)?)),
+            _ => malformed("module call plan tag is invalid"),
+        }
+    }
+}
+
+impl ImageCodec for crate::modules::cli::SignatureDefault {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        match self {
+            Self::Value(value) => { 0u8.put(output)?; put_runtime_value(value, output) }
+            Self::Computed(text) => { 1u8.put(output)?; text.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        match u8::take(input)? {
+            0 => Ok(Self::Value(take_runtime_value(input)?)),
+            1 => Ok(Self::Computed(ImageCodec::take(input)?)),
+            _ => malformed("signature default tag is invalid"),
+        }
+    }
+}
+
+image_structs! {
+    crate::sema::cli_entry::CliParameterMetadata { form, min }
+    crate::modules::cli::SignatureParameter { name, type_name, default, rest, metadata }
+    crate::modules::cli::SignatureCommand { path, summary, parser }
+    crate::modules::cli::PreparedSignatureCommands { commands, description, span }
+}
+
+impl ImageCodec for crate::modules::cli::PreparedSignatureCli {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let (parameters, description) = self.image_inputs();
+        parameters.to_vec().put(output)?;
+        description.to_owned().put(output)?;
+        self.name.put(output)?;
+        self.help.put(output)?;
+        self.span.put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let parameters = ImageCodec::take(input)?;
+        let description = ImageCodec::take(input)?;
+        let metadata = crate::sema::cli_entry::CliEntryMetadata { name: ImageCodec::take(input)?, help: ImageCodec::take(input)? };
+        let span = ImageCodec::take(input)?;
+        Self::prepare(parameters, description, &metadata, span).or_else(|error| malformed(format!("signature CLI image does not prepare: {}", error.message)))
+    }
+}
+
+fn registered_signatures() -> &'static [&'static crate::modules::ModuleFnSig] {
+    static SIGNATURES: std::sync::OnceLock<Vec<&'static crate::modules::ModuleFnSig>> = std::sync::OnceLock::new();
+    SIGNATURES.get_or_init(|| {
+        let spec = crate::modules::api_spec();
+        let mut signatures: Vec<&'static crate::modules::ModuleFnSig> = spec.module_entries()
+            .flat_map(|(_, module)| module.functions.iter()).flat_map(|function| function.overloads.iter())
+            .chain(spec.method_entries().flat_map(|(_, methods)| methods.iter())
+                .flat_map(|method| method.overloads.iter().map(|overload| &overload.sig)))
+            .collect();
+        let mut operations = registered_runtime_ops().iter().collect::<Vec<_>>();
+        operations.sort_unstable_by_key(|(raw, _)| **raw);
+        for (_, &op) in operations {
+            for signature in crate::modules::signature::native_static_operation_signatures(op) {
+                if !signatures.iter().any(|existing| std::ptr::eq(*existing, signature)) {
+                    signatures.push(signature);
+                }
+            }
+        }
+        signatures
+    })
+}
+
+impl ImageCodec for crate::sema::schemes::RegisteredCallPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let Some(index) = registered_signatures().iter().position(|signature| std::ptr::eq(*signature, self.signature)) else {
+            return unsupported("call plan signature is not registered");
+        };
+        let Ok(index) = u32::try_from(index) else { return unsupported("registered signature index exceeds u32") };
+        self.receiver.put(output)?;
+        self.name.put(output)?;
+        index.put(output)?;
+        self.argument_slots.put(output)?;
+        self.argument_checks.put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let receiver = ImageCodec::take(input)?;
+        let name = ImageCodec::take(input)?;
+        let index = u32::take(input)? as usize;
+        let Some(&signature) = registered_signatures().get(index) else { return malformed("registered signature index is invalid") };
+        Ok(Self { receiver, name, signature, argument_slots: ImageCodec::take(input)?, argument_checks: ImageCodec::take(input)? })
+    }
+}
+
+#[test]
+fn registered_call_plan_image_preserves_signature_identity() {
+    use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan};
+    use crate::sema::types::Type;
+    let spec = crate::modules::api_spec();
+    let function = &spec.module_overloads("json", "decode").unwrap()[0];
+    let method = &spec.method_overloads(crate::modules::MethodReceiver::List, "push").unwrap()[0].sig;
+    for (receiver, name, signature) in [
+        (None, "decode", function),
+        (Some(crate::modules::MethodReceiver::List), "push", method),
+    ] {
+        let plan = RegisteredCallPlan {
+            receiver,
+            name: Arc::from(name),
+            signature,
+            argument_slots: Arc::from([0usize]),
+            argument_checks: Arc::from([Some(RegisteredArgumentCheck::Unsigned(Type::UInt)), Some(RegisteredArgumentCheck::UIntMapKey)]),
+        };
+        let mut output = ImageWriter::default();
+        plan.put(&mut output).unwrap();
+        let mut input = ImageReader::new(&output.bytes);
+        let decoded = RegisteredCallPlan::take(&mut input).unwrap();
+        input.finish().unwrap();
+        assert_eq!(decoded, plan);
+        let mut reencoded = ImageWriter::default();
+        decoded.put(&mut reencoded).unwrap();
+        assert_eq!(reencoded.bytes, output.bytes);
+        assert!(RegisteredCallPlan::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+    }
+}
+
+macro_rules! image_identity {
+    ($ty:ty, $field:ident) => {
+        impl ImageCodec for $ty {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                let next = output.$field.len() as u64 + 1;
+                let canonical = *output.$field.entry(self.image_raw()).or_insert(next);
+                canonical.put(output)
+            }
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                let canonical = u64::take(input)?;
+                if canonical == 0 || (!input.$field.contains_key(&canonical) && canonical != input.$field.len() as u64 + 1) {
+                    return malformed("identity is not canonical");
+                }
+                Ok(*input.$field.entry(canonical).or_insert_with(Self::fresh_image_id))
+            }
+        }
+    };
+}
+
+image_identity!(crate::sema::constraints::TypeVariableId, type_ids);
+image_identity!(crate::sema::constraints::EffectVariableId, effect_ids);
+
+fn put_owner(owner: u64, output: &mut ImageWriter) -> ImageResult<()> {
+    let next = output.owners.len() as u64 + 1;
+    let canonical = *output.owners.entry(owner).or_insert(next);
+    canonical.put(output)
+}
+
+fn take_owner(input: &mut ImageReader<'_>) -> ImageResult<crate::sema::scheme_callable::SchemeCallableOwner> {
+    let canonical = u64::take(input)?;
+    if canonical == 0 || (!input.owners.contains_key(&canonical) && canonical != input.owners.len() as u64 + 1) {
+        return malformed("scheme callable owner is not canonical");
+    }
+    Ok(*input.owners.entry(canonical).or_insert_with(crate::sema::scheme_callable::SchemeCallableOwner::fresh))
+}
+
+impl ImageCodec for crate::sema::types::SchemeCallableId {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let (owner, index) = self.image_raw();
+        put_owner(owner, output)?;
+        index.put(output)
+    }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let owner = take_owner(input)?;
+        Ok(owner.id(u32::take(input)?))
+    }
+}
+
+impl ImageCodec for crate::sema::validated::IntRange {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.low().put(output)?; self.high().put(output) }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        Self::new(i64::take(input)?, i64::take(input)?).map_or_else(|| malformed("integer range is empty"), Ok)
+    }
+}
+
+impl ImageCodec for crate::sema::validated::ValidatedType {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.validation().put(output)?; self.base().put(output) }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        Self::new(ImageCodec::take(input)?, ImageCodec::take(input)?).map_err(ImageError::Malformed)
+    }
+}
+
+impl ImageCodec for crate::sema::effects::CallableEffects {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::sema::effects::EffectContract;
+        match self.contract() {
+            EffectContract::Unknown => 0u8.put(output),
+            EffectContract::Known(expression) => {
+                1u8.put(output)?;
+                expression.direct().bits().put(output)?;
+                let mut variables = Vec::new();
+                for (id, mask) in expression.variables() {
+                    let next = output.effect_ids.len() as u64 + 1;
+                    let canonical = *output.effect_ids.entry(id.image_raw()).or_insert(next);
+                    variables.push((canonical, mask.bits()));
+                }
+                variables.sort_unstable_by_key(|entry| entry.0);
+                variables.put(output)
+            }
+        }
+    }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::sema::effects::{EffectContract, EffectExpr, EffectSet};
+        match u8::take(input)? {
+            0 => Ok(Self::unknown()),
+            1 => {
+                let direct = EffectSet::from_bits(u8::take(input)?).ok_or_else(|| ImageError::Malformed("invalid effect bits".into()))?;
+                let variables = BTreeMap::<crate::sema::constraints::EffectVariableId, u8>::take(input)?;
+                let mut expression = EffectExpr::finite(direct);
+                for (variable, bits) in variables {
+                    let mask = EffectSet::from_bits(bits).filter(|mask| !mask.is_empty()).ok_or_else(|| ImageError::Malformed("invalid effect mask".into()))?;
+                    expression = expression.union(EffectExpr::variable(variable).masked(mask));
+                }
+                Ok(Self::from_contract(EffectContract::Known(expression)))
+            }
+            _ => malformed("callable effects tag is invalid"),
+        }
+    }
+}
+
+macro_rules! image_type {
+    ($($variant:ident $(($($tuple:ident),*))? $({$($named:ident),*})? = $index:literal),* $(,)?) => {
+        impl ImageCodec for crate::sema::types::Type {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                use crate::sema::types::Type as T;
+                match self {
+                    $(T::$variant $(($($tuple),*))? $({$($named),*})? => {
+                        output.u8($index);
+                        $($(ImageCodec::put($tuple, output)?;)*)?
+                        $($(ImageCodec::put($named, output)?;)*)?
+                    })*
+                }
+                Ok(())
+            }
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                use crate::sema::types::Type as T;
+                input.nested(|input| match input.u8()? {
+                    $($index => Ok(T::$variant $(($(image_field!($tuple, input)),*))? $({$($named: ImageCodec::take(input)?),*})?),)*
+                    _ => malformed("semantic type tag is invalid"),
+                })
+            }
+        }
+    };
+}
+
+image_type! {
+    BuiltinParameter(parameter) = 0, Inference(variable) = 1, Any = 2, Unknown = 3, Invalid = 4,
+    Null = 5, Bool = 6, Int = 7, UInt = 8, Float = 9, Duration = 10, Str = 11, Bytes = 12,
+    Digest = 13, Regex = 14, Path = 15, List(item) = 16, Map(key, value) = 17, Stream(item) = 18,
+    Set(item) = 19, ErasedRecord = 20, Record(fields) = 21, Module(module) = 22, DynamicModule = 23,
+    Result(value, error) = 24, Status = 25, EnvPathList = 26, Error = 27, ErrorFamily(name) = 28,
+    ErrorVariant { family, variant } = 29, ErrorFacet(name) = 30, ProcessError = 31,
+    Function(kind) = 32, Command = 33, ProcessHandle = 34, NetJob = 35, FsRoot = 36, FsLock = 37,
+    SshSession = 38, Unit = 39, Tag(name) = 40, Optional(item) = 41, Union(members) = 42,
+    Callable(callable) = 43, SchemeCallable(id) = 44, Validated(validated) = 45,
+}
+
+#[test]
+fn semantic_type_images_preserve_recovery_and_foreign_identities() {
+    use crate::sema::types::{CallableKind, CallableParamType, CallableType, ModuleExportType, ModuleType, Type, TypedCallable};
+    use crate::sema::effects::{CallableEffects, EffectContract, EffectExpr, EffectSet};
+    let symbols = SymbolOwner::new();
+    symbols.with_current(|| {
+        let name = Name::intern("image_recovery");
+        let variable = crate::sema::constraints::TypeVariableId::from_image_raw(412);
+        let effect = crate::sema::constraints::EffectVariableId::from_image_raw(501);
+        let identity = crate::sema::types::SchemeCallableId::from_image_raw(619, 3).unwrap();
+        let effects = CallableEffects::from_contract(EffectContract::Known(
+            EffectExpr::variable(effect).masked(EffectSet::singleton(Effect::Net))));
+        let callable = Type::Callable(Arc::new(TypedCallable { kind: CallableKind::Proc, sig: CallableType {
+            params: vec![CallableParamType { name, ty: Type::Inference(variable), defaulted: true, rest: false }],
+            return_ty: Box::new(Type::SchemeCallable(identity)), effects,
+        } }));
+        let module = Type::Module(Arc::new(ModuleType::exact(BTreeMap::from([
+            (name, ModuleExportType::Value { ty: callable, optional: false }),
+        ]))));
+        let cases = [Type::Unknown, Type::Invalid, Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Value),
+            Type::Inference(variable), Type::SchemeCallable(identity), Type::List(Box::new(module))];
+        for ty in cases {
+            let mut output = ImageWriter::default();
+            ty.put(&mut output).unwrap();
+            let mut input = ImageReader::new(&output.bytes);
+            let restored = Type::take(&mut input).unwrap();
+            input.finish().unwrap();
+            if !matches!(ty, Type::Inference(_) | Type::SchemeCallable(_) | Type::List(_)) { assert_eq!(restored, ty); }
+            let mut reencoded = ImageWriter::default();
+            restored.put(&mut reencoded).unwrap();
+            assert_eq!(reencoded.bytes, output.bytes);
+            assert!(Type::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+        }
+        assert!(Type::take(&mut ImageReader::new(&[44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).is_err());
+        assert!(Type::take(&mut ImageReader::new(&[16; 65])).is_err());
+    });
+}
+
+#[test]
+fn decoded_semantic_identities_do_not_alias_allocated_ids() {
+    use crate::sema::constraints::{EffectVariableId, TypeVariableId};
+    use crate::sema::scheme_callable::SchemeCallableOwner;
+    let original = (TypeVariableId::fresh_image_id(), EffectVariableId::fresh_image_id(), SchemeCallableOwner::fresh().id(3));
+    let mut output = ImageWriter::default();
+    let original_pair = (original.0, (original.1, original.2));
+    (original_pair, original_pair).put(&mut output).unwrap();
+    let allocated = (TypeVariableId::fresh_image_id(), EffectVariableId::fresh_image_id(), SchemeCallableOwner::fresh().id(3));
+    let mut input = ImageReader::new(&output.bytes);
+    type Ids = (TypeVariableId, (EffectVariableId, crate::sema::types::SchemeCallableId));
+    let (first, second): (Ids, Ids) = ImageCodec::take(&mut input).unwrap();
+    assert_eq!(first, second);
+    let decoded = (first.0, (first.1).0, (first.1).1);
+    input.finish().unwrap();
+    assert_ne!(decoded.0, original.0);
+    assert_ne!(decoded.0, allocated.0);
+    assert_ne!(decoded.1, original.1);
+    assert_ne!(decoded.1, allocated.1);
+    assert_ne!(decoded.2, original.2);
+    assert_ne!(decoded.2, allocated.2);
+    let mut reencoded = ImageWriter::default();
+    (first, second).put(&mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
+    assert!(TypeVariableId::take(&mut ImageReader::new(&2u64.to_le_bytes())).is_err());
+}
+
+#[test]
+fn effect_images_order_previously_seen_identities_canonically() {
+    use crate::sema::constraints::EffectVariableId;
+    use crate::sema::effects::{CallableEffects, EffectContract, EffectExpr};
+    let earlier = EffectVariableId::fresh_image_id();
+    let later = EffectVariableId::fresh_image_id();
+    let effects = CallableEffects::from_contract(EffectContract::Known(EffectExpr::variable(earlier).union(EffectExpr::variable(later))));
+    let original = (later, effects);
+    let mut output = ImageWriter::default();
+    original.put(&mut output).unwrap();
+    let mut input = ImageReader::new(&output.bytes);
+    let decoded: (EffectVariableId, CallableEffects) = ImageCodec::take(&mut input).unwrap();
+    input.finish().unwrap();
+    let mut reencoded = ImageWriter::default();
+    decoded.put(&mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
+}
+
+#[test]
+fn semantic_pool_image_preserves_scheme_callable_owner() {
+    use crate::runtime::eval::indexed::semantic::{SemanticPoolBuilder, SemanticPools};
+    use crate::sema::types::Type;
+    let symbols = SymbolOwner::new();
+    let mut pools = SemanticPools::default();
+    let identity = pools.register_scheme_callable().unwrap();
+    let id = SemanticPoolBuilder::default().intern_type(&mut pools, &Type::SchemeCallable(identity)).unwrap();
+    let mut output = ImageWriter::default();
+    put_semantic(&pools.export_raw(&symbols), &mut output).unwrap();
+    let mut input = ImageReader::new(&output.bytes);
+    let raw = take_semantic(&mut input, symbols).unwrap();
+    input.finish().unwrap();
+    let (decoded, symbols) = SemanticPools::from_raw(raw);
+    decoded.verify().unwrap();
+    let Type::SchemeCallable(restored) = decoded.to_type(id).unwrap() else { panic!("expected scheme callable") };
+    assert_ne!(restored, identity);
+    assert!(decoded.scheme_callable_index(identity).is_err());
+    assert_eq!(decoded.scheme_callable_index(restored).unwrap(), 0);
+    let mut reencoded = ImageWriter::default();
+    put_semantic(&decoded.export_raw(&symbols), &mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
+}
+
+impl ImageCodec for crate::runtime::eval::require::PreparedSchema {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::runtime::eval::require::PreparedSchema as S;
+        match self {
+            S::UnknownFields(policy, schema) => { 0u8.put(output)?; policy.put(output)?; schema.put(output) }
+            S::Validate(ty) => { 1u8.put(output)?; ty.put(output) }
+            S::Record(fields) => { 2u8.put(output)?; fields.put(output) }
+            S::List(schema) => { 3u8.put(output)?; schema.put(output) }
+            S::Map(key, schema) => { 4u8.put(output)?; key.put(output)?; schema.put(output) }
+            S::Optional(schema) => { 5u8.put(output)?; schema.put(output) }
+            S::WireEnum(mapping) => { 6u8.put(output)?; mapping.put(output) }
+            S::Union(ty, members) => { 7u8.put(output)?; ty.put(output)?; members.put(output) }
+            S::Validated(ty, schema) => { 8u8.put(output)?; ty.put(output)?; schema.put(output) }
+            S::Set(ty) => { 9u8.put(output)?; ty.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::runtime::eval::require::PreparedSchema as S;
+        input.nested(|input| Ok(match input.u8()? {
+            0 => S::UnknownFields(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            1 => S::Validate(ImageCodec::take(input)?),
+            2 => S::Record(ImageCodec::take(input)?),
+            3 => S::List(ImageCodec::take(input)?),
+            4 => S::Map(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            5 => S::Optional(ImageCodec::take(input)?),
+            6 => S::WireEnum(ImageCodec::take(input)?),
+            7 => S::Union(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            8 => S::Validated(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            9 => S::Set(ImageCodec::take(input)?),
+            _ => return malformed("prepared schema tag is invalid"),
+        }))
+    }
+}
+
+#[test]
+fn prepared_schema_image_round_trip_and_malformed_inputs() {
+    use crate::runtime::eval::require::PreparedSchema as S;
+    use crate::sema::types::Type;
+    use crate::sema::wire_enums::WireEnumMapping;
+    use crate::syntax::arena::UnknownFields;
+
+    let symbols = SymbolOwner::new();
+    symbols.with_current(|| {
+        let name = Name::intern("schema_image_field");
+        let leaf = Arc::new(S::Validate(Type::Int));
+        let mapping = Arc::new(WireEnumMapping { type_name: name, variants: BTreeMap::from([(name, Arc::from("value"))]) });
+        let schemas = [
+            S::UnknownFields(UnknownFields::Reject, Arc::clone(&leaf)),
+            S::Validate(Type::Str),
+            S::Record(vec![(name, Arc::clone(&leaf))]),
+            S::List(Arc::clone(&leaf)),
+            S::Map(Type::Str, Arc::clone(&leaf)),
+            S::Optional(Arc::clone(&leaf)),
+            S::WireEnum(mapping),
+            S::Union(Type::Union(vec![Type::Int, Type::Str]), vec![Arc::clone(&leaf)]),
+            S::Validated(Type::non_empty(Type::Int), Arc::clone(&leaf)),
+            S::Set(Type::Str),
+        ];
+        for schema in schemas {
+            let mut output = ImageWriter::default();
+            schema.put(&mut output).unwrap();
+            let mut input = ImageReader::new(&output.bytes);
+            let decoded = S::take(&mut input).unwrap();
+            input.finish().unwrap();
+            assert_eq!(decoded, schema);
+            let mut reencoded = ImageWriter::default();
+            decoded.put(&mut reencoded).unwrap();
+            assert_eq!(reencoded.bytes, output.bytes);
+            assert!(S::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+        }
+        assert!(S::take(&mut ImageReader::new(&[255])).is_err());
+        assert!(S::take(&mut ImageReader::new(&[3; 65])).is_err());
+    });
 }
 
 pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter) -> ImageResult<()> {
     let RawSemanticTables {
-        scheme_callable_owner: _,
+        scheme_callable_owner,
         scheme_callable_count,
         type_tags,
         type_data,
@@ -990,6 +1592,7 @@ pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter
         shapes,
         shape_fields,
     } = &semantic.tables;
+    put_owner(scheme_callable_owner.image_raw(), output)?;
     scheme_callable_count.put(output)?;
     type_tags.put(output)?;
     type_data.put(output)?;
@@ -1004,7 +1607,7 @@ pub(super) fn take_semantic(input: &mut ImageReader<'_>, symbols: SymbolOwner) -
     Ok(RawSemanticPools {
         symbols,
         tables: RawSemanticTables {
-            scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner::fresh(),
+            scheme_callable_owner: take_owner(input)?,
             scheme_callable_count: ImageCodec::take(input)?,
             type_tags: ImageCodec::take(input)?,
             type_data: ImageCodec::take(input)?,
@@ -1019,62 +1622,69 @@ pub(super) fn take_semantic(input: &mut ImageReader<'_>, symbols: SymbolOwner) -
 
 const IMAGE_MAGIC: &[u8; 8] = b"XSHIMG01";
 const INVALID_SYMBOL_TEXT: &str = "<invalid-symbol>";
-const SYMBOL_PROBE: &str = "\u{0}xsh-program-image-probe";
 
-struct SymbolKeeper(#[expect(dead_code)] SymbolOwner);
-
-fn retain_live_symbols() -> (Vec<(u32, String)>, SymbolKeeper) {
-    let keeper = SymbolOwner::new();
-    let (live, _) = crate::symbol::dynamic_symbol_stats();
-    let first = (0..u32::MAX).find(|raw| !Name::from_symbol(Symbol::from_raw(*raw)).is_preloaded()).unwrap();
-    let mut symbols = Vec::with_capacity(live);
-    let mut vacant = 0usize;
-    for raw in first..u32::MAX {
-        if vacant >= 1 << 20 || (symbols.len() >= live && vacant >= 1 << 12) {
-            break;
-        }
-        let text = Name::from_symbol(Symbol::from_raw(raw)).as_str();
-        if text.as_str() == INVALID_SYMBOL_TEXT {
-            vacant += 1;
-            continue;
-        }
-        vacant = 0;
-        let retained = keeper.intern(text.as_str()).symbol().raw();
-        symbols.push((retained, text.as_str().to_owned()));
-    }
-    symbols.sort_unstable();
-    symbols.dedup_by_key(|(raw, _)| *raw);
-    (symbols, SymbolKeeper(keeper))
+fn packed_symbol_positions(rows: &RawFullRows) -> ImageResult<(BTreeSet<usize>, Vec<shapes::SemanticSymbol>)> {
+    let extra = shapes::extra_symbol_positions(rows).map_err(ImageError::Malformed)?;
+    let semantic = shapes::semantic_symbol_positions(&rows.semantic.tables).map_err(ImageError::Malformed)?;
+    Ok((extra, semantic))
 }
 
-fn restore_symbols(symbols: &[(u32, String)], owner: &SymbolOwner) -> ImageResult<()> {
-    let fillers = SymbolOwner::new();
-    for (raw, text) in symbols {
-        loop {
-            let probe = SymbolOwner::new();
-            let next = probe.intern(SYMBOL_PROBE).symbol().raw();
-            drop(probe);
-            if next >= *raw {
-                break;
-            }
-            fillers.intern(&format!("{SYMBOL_PROBE}-{next}"));
-        }
-        if owner.intern(text).symbol().raw() != *raw {
-            return malformed(format!("symbol `{text}` cannot take its recorded identity {raw}"));
-        }
+fn map_packed_symbols(rows: &mut RawFullRows, mut map: impl FnMut(u32) -> ImageResult<u32>) -> ImageResult<()> {
+    let (extra, semantic) = packed_symbol_positions(rows)?;
+    for position in extra {
+        rows.extra[position] = map(rows.extra[position])?;
+    }
+    for position in semantic {
+        let word = position.word(&mut rows.semantic.tables);
+        *word = map(*word)?;
     }
     Ok(())
 }
 
+fn canonical_symbol_table(rows: &RawFullRows, encode: impl Fn(&mut ImageWriter) -> ImageResult<()>) -> ImageResult<Vec<Name>> {
+    let mut collector = ImageWriter { symbols: SymbolCanon::Collect(BTreeSet::new()), ..ImageWriter::default() };
+    let mut packed = rows.clone();
+    map_packed_symbols(&mut packed, |word| {
+        collector.symbol(Name::from_symbol(Symbol::from_raw(word)))?;
+        Ok(word)
+    })?;
+    encode(&mut collector)?;
+    let SymbolCanon::Collect(names) = collector.symbols else { unreachable!("the collector keeps its mode") };
+    Ok(names.into_iter().collect())
+}
+
+fn canonical_packed_rows(rows: RawFullRows, table: &[Name]) -> ImageResult<(FxHashMap<u32, u32>, RawFullRows)> {
+    let first = first_dynamic_symbol();
+    let canonical = table.iter().enumerate().map(|(index, name)| {
+        u32::try_from(index).ok().and_then(|index| first.checked_add(index)).map(|word| (name.symbol().raw(), word))
+            .map_or_else(|| unsupported("the symbol table exceeds the symbol word space"), Ok)
+    }).collect::<ImageResult<FxHashMap<u32, u32>>>()?;
+    let mut packed = rows;
+    map_packed_symbols(&mut packed, |word| {
+        if word < first { return Ok(word) }
+        canonical.get(&word).copied().map_or_else(|| unsupported(format!("packed symbol {word} is missing from the image table")), Ok)
+    })?;
+    Ok((canonical, packed))
+}
+
+pub(super) fn canonical_document(program: &FullProgram) -> ImageResult<super::document::Document> {
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let table = canonical_symbol_table(&rows, |collector| rows.put_image(collector).map(drop))?;
+    let (_, packed) = canonical_packed_rows(rows, &table)?;
+    let symbols = table.iter().map(|name| name.as_str().as_str().to_owned()).collect();
+    super::document::project(&packed, program.sources.files().len(), first_dynamic_symbol(), symbols).map_err(ImageError::Unsupported)
+}
+
 pub(super) struct EncodedImage {
     pub(super) bytes: Vec<u8>,
-    pub(super) rows: std::ops::Range<usize>,
     pub(super) sizes: Vec<(&'static str, usize)>,
 }
 
 struct ImageRunState {
     tag_variants: Vec<(Name, usize)>,
     error_families: Vec<Name>,
+    signature_cli: Option<(crate::modules::cli::PreparedSignatureCommands, Vec<Name>)>,
 }
 
 fn source_digests(sources: &SourceMap) -> Vec<(String, [u8; 32])> {
@@ -1086,40 +1696,45 @@ fn encode_image(
     evaluator: &Evaluator,
     plan: &CompactIndexedRunPlan,
     byte_arguments: bool,
-    symbols: &[(u32, String)],
 ) -> ImageResult<EncodedImage> {
     if byte_arguments {
         return unsupported("byte script arguments");
     }
-    if plan.signature_cli.is_some() {
-        return unsupported("signature CLI entries");
-    }
-    let mut output = ImageWriter::default();
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let mut state = ImageRunState {
+        tag_variants: evaluator.tag_variants.iter().map(|(name, arity)| (*name, *arity)).collect(),
+        error_families: evaluator.error_families.keys().copied().collect(),
+        signature_cli: plan.signature_cli.as_ref().map(|cli| (cli.commands.clone(), cli.functions.clone())),
+    };
+    state.tag_variants.sort_unstable();
+    state.error_families.sort_unstable();
+    let put_named = |output: &mut ImageWriter, rows: &RawFullRows| -> ImageResult<Vec<(&'static str, usize)>> {
+        let mut sizes = Vec::new();
+        let start = output.position();
+        program.function_definition_spans.put(output)?;
+        sizes.push(("function definition spans", output.position() - start));
+        sizes.extend(rows.put_image(output)?);
+        let start = output.position();
+        state.tag_variants.put(output)?;
+        state.error_families.put(output)?;
+        state.signature_cli.put(output)?;
+        sizes.push(("runtime declarations", output.position() - start));
+        Ok(sizes)
+    };
+    let table = canonical_symbol_table(&rows, |collector| put_named(collector, &rows).map(drop))?;
+    let (canonical, packed) = canonical_packed_rows(rows, &table)?;
+    let mut output = ImageWriter { symbols: SymbolCanon::Canonical(canonical), ..ImageWriter::default() };
     output.bytes.extend_from_slice(IMAGE_MAGIC);
     let mut sizes = Vec::new();
     let start = output.position();
     source_digests(&program.sources).put(&mut output)?;
     sizes.push(("source digests", output.position() - start));
     let start = output.position();
-    symbols.to_vec().put(&mut output)?;
+    table.iter().map(|name| name.as_str().as_str().to_owned()).collect::<Vec<String>>().put(&mut output)?;
     sizes.push(("symbol table", output.position() - start));
-    let start = output.position();
-    program.function_definition_spans.put(&mut output)?;
-    sizes.push(("function definition spans", output.position() - start));
-    let rows_start = output.position();
-    sizes.extend(RawFullRows::capture(program).put_image(&mut output)?);
-    let rows = rows_start..output.position();
-    let mut state = ImageRunState {
-        tag_variants: evaluator.tag_variants.iter().map(|(name, arity)| (*name, *arity)).collect(),
-        error_families: evaluator.error_families.keys().copied().collect(),
-    };
-    state.tag_variants.sort_unstable_by_key(|(name, _)| name.symbol().raw());
-    state.error_families.sort_unstable_by_key(|name| name.symbol().raw());
-    let start = output.position();
-    state.tag_variants.put(&mut output)?;
-    state.error_families.put(&mut output)?;
-    sizes.push(("runtime declarations", output.position() - start));
-    Ok(EncodedImage { bytes: output.bytes, rows, sizes })
+    sizes.extend(put_named(&mut output, &packed)?);
+    Ok(EncodedImage { bytes: output.bytes, sizes })
 }
 
 fn decode_image(bytes: &[u8], sources: Arc<SourceMap>) -> ImageResult<(FullProgram, ImageRunState)> {
@@ -1130,15 +1745,25 @@ fn decode_image(bytes: &[u8], sources: Arc<SourceMap>) -> ImageResult<(FullProgr
     if Vec::<(String, [u8; 32])>::take(&mut input)? != source_digests(&sources) {
         return malformed("image sources differ from the loaded closure");
     }
-    let table = Vec::<(u32, String)>::take(&mut input)?;
-    if !table.is_sorted_by(|left, right| left.0 < right.0) {
-        return malformed("image symbol table is not strictly ordered");
+    let table = Vec::<String>::take(&mut input)?;
+    if !table.is_sorted_by(|left, right| left < right) {
+        return malformed("image symbol table is not strictly ordered by spelling");
     }
     let symbols = SymbolOwner::new();
-    restore_symbols(&table, &symbols)?;
+    let names = table.iter().map(|text| {
+        let name = symbols.intern(text);
+        if name.is_preloaded() { malformed(format!("image symbol `{text}` is a preloaded spelling")) } else { Ok(name) }
+    }).collect::<ImageResult<Vec<_>>>()?;
+    input.symbols = Some(names);
+    let _current = symbols.enter();
     let function_definition_spans = ImageCodec::take(&mut input)?;
-    let rows = RawFullRows::take_image(&mut input, symbols)?;
-    let state = ImageRunState { tag_variants: ImageCodec::take(&mut input)?, error_families: ImageCodec::take(&mut input)? };
+    let mut rows = RawFullRows::take_image(&mut input, symbols.clone())?;
+    let state = ImageRunState {
+        tag_variants: ImageCodec::take(&mut input)?,
+        error_families: ImageCodec::take(&mut input)?,
+        signature_cli: ImageCodec::take(&mut input)?,
+    };
+    map_packed_symbols(&mut rows, |word| input.symbol(word).map(|name| name.symbol().raw()))?;
     input.finish()?;
     let program = RawFullProgram {
         rows,
@@ -1218,15 +1843,26 @@ fn install_image_program(
     if program.driver_step_count().or_else(|error| malformed(error.message.clone()))? != root.len() {
         return malformed("decoded driver statement count differs from the loaded source");
     }
-    let auto_main_required = eval::compact_root_proc_main_requires_auto_call_indexed(arena, &root, &program)
+    let signature_cli = state.signature_cli.map(|(commands, functions)| {
+        let argv = evaluator.lookup(Name::intern("args")).and_then(|binding| match &binding.value {
+            crate::runtime::value::Value::List(values) => values.iter().map(|value| match value {
+                crate::runtime::value::Value::Str(text) => Some(text.to_string()),
+                _ => None,
+            }).collect::<Option<Vec<_>>>(),
+            _ => None,
+        }).map_or_else(|| malformed("incoming script arguments must be a List[Str]"), Ok)?;
+        Ok(eval::SignatureCliRunPlan { commands, functions, argv })
+    }).transpose()?;
+    let auto_main_required = signature_cli.is_some() || eval::compact_root_proc_main_requires_auto_call_indexed(arena, &root, &program)
         .or_else(|diagnostic| malformed(diagnostic.message))?;
-    if auto_main_required && !program.contains_function(LoweredFunctionKey::Name(Name::intern("main")), CallableKind::Proc) {
-        return malformed("proc main is missing from the decoded program");
+    let entry_functions = signature_cli.as_ref().map_or_else(|| vec![Name::intern("main")], |cli| cli.functions.clone());
+    if auto_main_required && !entry_functions.iter().all(|name| program.contains_function(LoweredFunctionKey::Name(*name), CallableKind::Proc)) {
+        return malformed("an entry proc is missing from the decoded program");
     }
     let program = Arc::new(program);
     evaluator.indexed_program = Some(Arc::clone(&program));
     evaluator.prune_binding_values();
-    let compact_auto_main_args = if auto_main_required {
+    let compact_auto_main_args = if auto_main_required && signature_cli.is_none() {
         evaluator.compact_auto_main_args().map_or_else(|| malformed("script arguments could not be converted for main"), Ok)?
     } else {
         Vec::new()
@@ -1245,7 +1881,7 @@ fn install_image_program(
         statements,
         auto_main_required,
         compact_auto_main_args,
-        signature_cli: None,
+        signature_cli,
     })
 }
 
@@ -1286,10 +1922,25 @@ fn installed_from_image(image: &[u8]) -> ImageResult<(Evaluator, CompactIndexedR
     Ok(prepare_from_image(AWK_SCRIPT, &[AWK_PROGRAM], image, ImageStage::Install)?.expect("installation returns the prepared run"))
 }
 
-fn encode_checked(entry: &CheckedEntry, symbols: &[(u32, String)]) -> EncodedImage {
+fn encode_checked(entry: &CheckedEntry) -> EncodedImage {
     let program = entry.evaluator.indexed_program.as_ref().unwrap();
     FullVerifier::verify(program).unwrap();
-    encode_image(program, &entry.evaluator, &entry.plan, entry.byte_arguments, symbols).unwrap()
+    encode_image(program, &entry.evaluator, &entry.plan, entry.byte_arguments).unwrap()
+}
+
+fn reencode_installed(evaluator: &Evaluator, plan: &CompactIndexedRunPlan) -> Vec<u8> {
+    encode_image(evaluator.indexed_program.as_ref().unwrap(), evaluator, plan, false).unwrap().bytes
+}
+
+fn packed_symbol_spellings(program: &FullProgram) -> Vec<(u32, String)> {
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let (extra, semantic) = packed_symbol_positions(&rows).unwrap();
+    let mut tables = rows.semantic.tables.clone();
+    extra.into_iter().map(|position| rows.extra[position])
+        .chain(semantic.into_iter().map(|position| *position.word(&mut tables)))
+        .map(|raw| (raw, Name::from_symbol(Symbol::from_raw(raw)).as_str().as_str().to_owned()))
+        .collect()
 }
 
 fn transfer_marks(evaluator: &Evaluator) -> usize {
@@ -1307,18 +1958,14 @@ fn awk_options() -> crate::execution::script::RunOptions {
 #[test]
 fn awk_program_image_round_trip_matches_the_checked_run() {
     super::super::super::tests::run_with_large_stack(|| {
-        let (image, transfers, keeper) = {
+        let (image, transfers) = {
             let entry = prepare_checked(AWK_SCRIPT, &[AWK_PROGRAM]);
-            let (symbols, keeper) = retain_live_symbols();
-            let image = encode_checked(&entry, &symbols);
-            (image, transfer_marks(&entry.evaluator), keeper)
+            (encode_checked(&entry), transfer_marks(&entry.evaluator))
         };
         assert!(transfers > 0);
         let (evaluator, plan) = installed_from_image(&image.bytes).unwrap();
         assert_eq!(transfer_marks(&evaluator), transfers);
-        let mut reencoded = ImageWriter::default();
-        RawFullRows::capture(evaluator.indexed_program.as_ref().unwrap()).put_image(&mut reencoded).unwrap();
-        assert!(reencoded.bytes == image.bytes[image.rows.clone()], "decoded rows encode differently");
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "the decoded program encodes differently");
         let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("decoded AWK program failed to execute"));
         let expected = crate::runner::run_script(awk_options());
         assert_eq!(actual.status, expected.status);
@@ -1328,8 +1975,242 @@ fn awk_program_image_round_trip_matches_the_checked_run() {
         let mut truncated = image.bytes.clone();
         truncated.pop();
         assert!(matches!(installed_from_image(&truncated), Err(ImageError::Malformed(_))));
-        drop(keeper);
     });
+}
+
+const COLLISION_SCRIPT: &str = "tests/fixtures/runtime/formal-raw-ir-collision.xsh";
+
+#[test]
+fn program_image_rekeys_symbols_reallocated_to_other_spellings() {
+    super::super::super::tests::run_with_large_stack(|| {
+        let (image, spellings) = {
+            let entry = prepare_checked(COLLISION_SCRIPT, &[]);
+            let spellings = packed_symbol_spellings(entry.evaluator.indexed_program.as_ref().unwrap());
+            (encode_checked(&entry), spellings)
+        };
+        assert!(spellings.iter().any(|(_, text)| text.starts_with("formal_raw_ir_collision")));
+        let squatters = SymbolOwner::new();
+        for index in 0..spellings.len() * 4 + 4096 {
+            squatters.intern(&format!("program-image-squatter-{index}"));
+        }
+        let taken = spellings.iter().filter(|(raw, text)| {
+            let current = Name::from_symbol(Symbol::from_raw(*raw)).as_str();
+            current.as_str() != text.as_str() && current.as_str().starts_with("program-image-squatter-")
+        }).count();
+        assert!(taken > 0, "no recorded symbol identity was reallocated to another spelling");
+        let (evaluator, plan) = prepare_from_image(COLLISION_SCRIPT, &[], &image.bytes, ImageStage::Install).unwrap().expect("installation returns the prepared run");
+        let decoded = packed_symbol_spellings(evaluator.indexed_program.as_ref().unwrap());
+        assert_eq!(decoded.iter().map(|(_, text)| text).collect::<Vec<_>>(), spellings.iter().map(|(_, text)| text).collect::<Vec<_>>());
+        assert!(decoded.iter().zip(&spellings).any(|(decoded, original)| decoded.0 != original.0));
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "the rekeyed program encodes differently");
+        let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("the rekeyed program failed to execute"));
+        assert_eq!((actual.status, actual.stdout.as_slice(), actual.stderr.as_slice()), (0, b"42\n".as_slice(), b"".as_slice()));
+        drop(squatters);
+    });
+}
+
+const EXPORTED_SCRIPT: &str = "tests/fixtures/runtime/formal-raw-ir-points.xsh";
+const FEATURES_SCRIPT: &str = "formal/tests/fixtures/raw-ir-features.xsh";
+const LEAN_RAW_SCHEMA: &str = "formal/Xsh/IR/Raw/Schema.lean";
+const LEAN_RAW_EXPORTS: [(&str, &str, &str); 2] = [
+    (EXPORTED_SCRIPT, "formal/Xsh/IR/Raw/Exported.lean", "exportedDocumentCodes"),
+    (FEATURES_SCRIPT, "formal/Xsh/IR/Raw/ExportedFeatures.lean", "featuresDocumentCodes"),
+];
+const CHECKOUT_LABEL: &str = "/xsh";
+
+fn relabel_checkout(document: &mut super::document::Document) {
+    use super::document::Field;
+    let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap().to_string_lossy().into_owned();
+    let mentions_root = document.iter().any(|(_, field)| match field {
+        Field::Texts(texts) => texts.iter().any(|text| text.contains(root.as_str())),
+        Field::Bytes(bytes) => String::from_utf8_lossy(bytes).contains(root.as_str()),
+        _ => false,
+    });
+    if !mentions_root {
+        return;
+    }
+    let relabel = |text: &str| text.replace(root.as_str(), CHECKOUT_LABEL);
+    let mut ranges = Vec::new();
+    let mut bytes = Vec::new();
+    for (name, field) in document.iter_mut() {
+        match (*name, field) {
+            ("symbols", Field::Texts(texts)) => texts.iter_mut().for_each(|text| *text = relabel(text)),
+            ("strings", Field::Rows(_, rows)) => ranges = std::mem::take(rows),
+            ("stringBytes", Field::Bytes(pool)) => bytes = std::mem::take(pool),
+            _ => {}
+        }
+    }
+    let mut pool = Vec::new();
+    let rows = ranges.iter().map(|range| {
+        let start = range[0] as usize;
+        let text = std::str::from_utf8(&bytes[start..start + range[1] as usize]).unwrap();
+        let relabeled = relabel(text);
+        let row = vec![u32::try_from(pool.len()).unwrap(), u32::try_from(relabeled.len()).unwrap()];
+        pool.extend_from_slice(relabeled.as_bytes());
+        row
+    }).collect::<Vec<_>>();
+    for (name, field) in document.iter_mut() {
+        match (*name, field) {
+            ("strings", Field::Rows(_, table)) => *table = rows.clone(),
+            ("stringBytes", Field::Bytes(table)) => *table = pool.clone(),
+            _ => {}
+        }
+    }
+}
+
+fn checked_document(path: &'static str) -> super::document::Document {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    super::super::super::tests::run_with_large_stack(move || {
+        let entry = prepare_checked(path, &[]);
+        sender.send(canonical_document(entry.evaluator.indexed_program.as_ref().unwrap()).unwrap()).unwrap();
+    });
+    receiver.recv().unwrap()
+}
+
+const LEAN_DOCUMENT_CHUNK: usize = 1000;
+
+fn lean_export_module(definition: &str, document: &str) -> String {
+    assert!(document.is_ascii(), "the exported raw-IR document is ASCII");
+    let chunks = document.as_bytes().chunks(LEAN_DOCUMENT_CHUNK)
+        .map(|chunk| std::str::from_utf8(chunk).expect("ASCII chunks are UTF-8")).collect::<Vec<_>>();
+    let mut output = String::from("namespace Xsh.IR.Raw\n\n");
+    for (index, chunk) in chunks.iter().enumerate() {
+        output.push_str(&lean_definition(&format!("{definition}{index}"), chunk));
+        output.push('\n');
+    }
+    let parts = (0..chunks.len()).map(|index| format!("{definition}{index}")).collect::<Vec<_>>().join(" ++ ");
+    output.push_str(&format!("def {definition} : List Nat :=\n  {parts}\n\nend Xsh.IR.Raw\n"));
+    output
+}
+
+fn lean_raw_ir_modules() -> Vec<(&'static str, String)> {
+    let mut modules = vec![(LEAN_RAW_SCHEMA, super::document::lean_schema_module())];
+    for (script, module, definition) in LEAN_RAW_EXPORTS {
+        let mut document = checked_document(script);
+        relabel_checkout(&mut document);
+        modules.push((module, lean_export_module(definition, &super::document::encode(&document).unwrap())));
+    }
+    modules
+}
+
+fn lean_module_path(path: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+#[test]
+fn raw_ir_document_round_trips_and_rejects_malformed_tables() {
+    use super::document::{decode, encode, Field};
+    for path in [EXPORTED_SCRIPT, FEATURES_SCRIPT, COLLISION_SCRIPT, "tests/fixtures/runtime/cli-simple.xsh", AWK_SCRIPT] {
+        let document = checked_document(path);
+        let text = encode(&document).unwrap();
+        let decoded = decode(&text, &document).unwrap();
+        assert_eq!(decoded, document, "{path}: the document decodes to other tables");
+        assert_eq!(encode(&decoded).unwrap(), text, "{path}: the decoded document encodes differently");
+        assert!(document.iter().any(|(name, field)| *name == "tags" && matches!(field, Field::Tags(tags) if !tags.is_empty())));
+    }
+    let document = checked_document(EXPORTED_SCRIPT);
+    let text = encode(&document).unwrap();
+    let missing = text.replacen("\"driverRoot\":", "\"driverRout\":", 1);
+    assert!(decode(&missing, &document).is_err());
+    let duplicate = text.replacen("\"driverRoot\":", "\"driverRoot\":\"00000000\",\"driverRoot\":", 1);
+    assert!(decode(&duplicate, &document).is_err());
+    let short_word = text.replacen("\"sourceId\":\"0000000", "\"sourceId\":\"000000", 1);
+    assert!(decode(&short_word, &document).is_err());
+    let upper = text.replacen("\"symbolBase\":\"", "\"symbolBase\":\"A", 1).replacen("\"symbolBase\":\"A0", "\"symbolBase\":\"A", 1);
+    assert!(decode(&upper, &document).is_err());
+    let schema = text.replacen(super::document::DOCUMENT_SCHEMA, "xsh-raw-ir-v2", 1);
+    assert!(decode(&schema, &document).is_err());
+    let short_row = text.replacen("\"data\":[[\"", "\"data\":[[\"00000000\"],[\"", 1);
+    assert!(decode(&short_row, &document).is_err());
+}
+
+#[test]
+fn lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export() {
+    let stale = lean_raw_ir_modules().into_iter()
+        .filter(|(path, text)| std::fs::read_to_string(lean_module_path(path)).ok().as_deref() != Some(text.as_str()))
+        .map(|(path, _)| path).collect::<Vec<_>>();
+    assert!(stale.is_empty(), "the generated Lean raw-IR modules {stale:?} are stale; run the ignored test write_lean_raw_ir_modules");
+}
+
+#[test]
+#[ignore = "writes the generated Lean raw-IR schema and exported document modules"]
+fn write_lean_raw_ir_modules() {
+    for (path, text) in lean_raw_ir_modules() {
+        std::fs::write(lean_module_path(path), text).unwrap();
+    }
+}
+
+const ARCH_SCRIPT: &str = "core/arch.xsh";
+const LARGEST_FILES_SCRIPT: &str = "docs/snippets/tour/02-largest-files.xsh";
+
+struct Reconstructed {
+    image: Vec<u8>,
+    module_call_plans: usize,
+    signature_cli: bool,
+    status: u8,
+    stdout: Vec<u8>,
+}
+
+fn reconstruct_and_compare(path: &'static str, args: Vec<String>) -> Reconstructed {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    super::super::super::tests::run_with_large_stack(move || {
+        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let (image, module_call_plans, signature_cli) = {
+            let entry = prepare_checked(path, &args);
+            let program = entry.evaluator.indexed_program.as_ref().unwrap();
+            (encode_checked(&entry), program.store.prepared_module_call_plans.len(), entry.plan.signature_cli.is_some())
+        };
+        let (evaluator, plan) = prepare_from_image(path, &args, &image.bytes, ImageStage::Install).unwrap().expect("installation returns the prepared run");
+        assert_eq!(evaluator.indexed_program.as_ref().unwrap().store.prepared_module_call_plans.len(), module_call_plans);
+        assert_eq!(plan.signature_cli.is_some(), signature_cli);
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "{path}: the decoded program encodes differently");
+        let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("{path}: the decoded program failed to execute"));
+        let expected = crate::runner::run_script(crate::execution::script::RunOptions {
+            script: path.to_owned(),
+            args: args.iter().map(|arg| (*arg).into()).collect(),
+            coverage_trace_dir: None,
+        });
+        assert_eq!(actual.status, expected.status, "{path}: status differs");
+        assert_eq!(actual.stdout, expected.stdout, "{path}: stdout differs");
+        assert_eq!(actual.stderr, expected.stderr, "{path}: stderr differs");
+        let mut truncated = image.bytes.clone();
+        truncated.pop();
+        assert!(matches!(prepare_from_image(path, &args, &truncated, ImageStage::Install), Err(ImageError::Malformed(_))));
+        sender.send(Reconstructed { image: image.bytes, module_call_plans, signature_cli, status: actual.status, stdout: actual.stdout }).unwrap();
+    });
+    receiver.recv().unwrap()
+}
+
+#[test]
+fn arch_program_image_reconstructs_its_prepared_cli_descriptor() {
+    let run = reconstruct_and_compare(ARCH_SCRIPT, Vec::new());
+    assert!(run.module_call_plans > 0);
+    assert_eq!(run.status, 0);
+    assert_eq!(String::from_utf8(run.stdout).unwrap().trim(), std::env::consts::ARCH);
+    let help = reconstruct_and_compare(ARCH_SCRIPT, vec!["--help".into()]);
+    assert_eq!(help.image, run.image);
+    assert!(help.stdout.starts_with(b"Usage: arch"));
+}
+
+#[test]
+fn signature_cli_program_image_reconstructs_its_entry_plan() {
+    let root = std::env::temp_dir().join(format!("xsh-program-image-largest-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for (name, size) in [("small", 3), ("large", 40), ("middle", 17)] {
+        std::fs::write(root.join(name), vec![b'x'; size]).unwrap();
+    }
+    let root_arg = root.to_str().unwrap().to_owned();
+    let run = reconstruct_and_compare(LARGEST_FILES_SCRIPT, vec![root_arg.clone(), "--limit".into(), "2".into()]);
+    assert!(run.signature_cli);
+    assert_eq!(run.status, 0);
+    let stdout = String::from_utf8(run.stdout).unwrap();
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].trim_start().starts_with("40 ") && lines[0].ends_with("large"));
+    assert!(lines[1].trim_start().starts_with("17 ") && lines[1].ends_with("middle"));
+    let usage = reconstruct_and_compare(LARGEST_FILES_SCRIPT, vec![root_arg, "--limit".into(), "many".into()]);
+    assert_ne!(usage.status, 0);
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1338,13 +2219,12 @@ fn awk_program_image_write() {
     let path = std::env::var_os(IMAGE_PATH_ENV).expect("XSH_PROGRAM_IMAGE names the image to write");
     super::super::super::tests::run_with_large_stack(move || {
         let entry = prepare_checked(AWK_SCRIPT, &[AWK_PROGRAM]);
-        let (symbols, _keeper) = retain_live_symbols();
-        let image = encode_checked(&entry, &symbols);
+        let image = encode_checked(&entry);
         std::fs::write(&path, &image.bytes).unwrap();
         for (pool, size) in image.sizes.iter().filter(|(_, size)| *size > 4) {
             eprintln!("PROGRAM_IMAGE pool {pool} {size}");
         }
-        eprintln!("PROGRAM_IMAGE bytes={} symbols={} transfers={}", image.bytes.len(), symbols.len(), transfer_marks(&entry.evaluator));
+        eprintln!("PROGRAM_IMAGE bytes={} transfers={}", image.bytes.len(), transfer_marks(&entry.evaluator));
     });
 }
 

@@ -2895,6 +2895,257 @@ fn cli_commands_error(message: impl Into<String>, span: Span) -> RuntimeError {
 }
 
 #[cfg(test)]
+impl PreparedSignatureCli {
+    pub(crate) fn image_inputs(&self) -> (&[SignatureParameter], &str) {
+        (&self.parameters, &self.description)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod image {
+    use super::{ArgValueType, BTreeMap, CliDescriptorPlan, CommandSpec, GnuConfig, LongNames, OnceLock, OptionSpec, ParsePolicy, Value};
+
+    #[derive(Clone, Debug)]
+    pub(crate) enum Atom {
+        Flag(bool),
+        Int(i64),
+        Count(usize),
+        Text(String),
+        Value(Value),
+    }
+
+    pub(crate) struct Writer(pub(crate) Vec<Atom>);
+
+    impl Writer {
+        pub(super) fn flag(&mut self, value: bool) { self.0.push(Atom::Flag(value)); }
+        pub(super) fn int(&mut self, value: i64) { self.0.push(Atom::Int(value)); }
+        pub(super) fn count(&mut self, value: usize) { self.0.push(Atom::Count(value)); }
+        pub(super) fn text(&mut self, value: &str) { self.0.push(Atom::Text(value.to_owned())); }
+        pub(super) fn value(&mut self, value: &Value) { self.0.push(Atom::Value(value.clone())); }
+
+        pub(super) fn optional<T>(&mut self, value: Option<&T>, put: impl FnOnce(&mut Self, &T)) {
+            self.flag(value.is_some());
+            if let Some(value) = value {
+                put(self, value);
+            }
+        }
+
+        pub(super) fn texts(&mut self, values: &[String]) {
+            self.count(values.len());
+            for value in values {
+                self.text(value);
+            }
+        }
+    }
+
+    pub(crate) struct Reader(pub(crate) std::vec::IntoIter<Atom>);
+
+    impl Reader {
+        fn next(&mut self, kind: &str) -> Result<Atom, String> {
+            self.0.next().ok_or_else(|| format!("CLI plan image ends before a {kind}"))
+        }
+
+        pub(super) fn flag(&mut self) -> Result<bool, String> {
+            match self.next("flag")? { Atom::Flag(value) => Ok(value), other => Err(format!("CLI plan image has {other:?} where a flag belongs")) }
+        }
+
+        pub(super) fn int(&mut self) -> Result<i64, String> {
+            match self.next("integer")? { Atom::Int(value) => Ok(value), other => Err(format!("CLI plan image has {other:?} where an integer belongs")) }
+        }
+
+        pub(super) fn count(&mut self) -> Result<usize, String> {
+            match self.next("count")? { Atom::Count(value) => Ok(value), other => Err(format!("CLI plan image has {other:?} where a count belongs")) }
+        }
+
+        pub(super) fn text(&mut self) -> Result<String, String> {
+            match self.next("text")? { Atom::Text(value) => Ok(value), other => Err(format!("CLI plan image has {other:?} where text belongs")) }
+        }
+
+        pub(super) fn value(&mut self) -> Result<Value, String> {
+            match self.next("value")? { Atom::Value(value) => Ok(value), other => Err(format!("CLI plan image has {other:?} where a value belongs")) }
+        }
+
+        pub(super) fn optional<T>(&mut self, take: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<Option<T>, String> {
+            if self.flag()? { take(self).map(Some) } else { Ok(None) }
+        }
+
+        pub(super) fn texts(&mut self) -> Result<Vec<String>, String> {
+            (0..self.count()?).map(|_| self.text()).collect()
+        }
+
+        pub(crate) fn finish(mut self) -> Result<(), String> {
+            match self.0.next() { None => Ok(()), Some(atom) => Err(format!("CLI plan image has trailing {atom:?}")) }
+        }
+    }
+
+    const VALUE_TYPES: [ArgValueType; 6] = [ArgValueType::Str, ArgValueType::Int, ArgValueType::UInt, ArgValueType::Bool, ArgValueType::Path, ArgValueType::Duration];
+
+    fn put_value_type(output: &mut Writer, value: &ArgValueType) {
+        output.count(VALUE_TYPES.iter().position(|candidate| candidate == value).expect("every argument type has an image ordinal"));
+    }
+
+    fn take_value_type(input: &mut Reader) -> Result<ArgValueType, String> {
+        let ordinal = input.count()?;
+        VALUE_TYPES.get(ordinal).cloned().ok_or_else(|| format!("argument type ordinal {ordinal} is unknown"))
+    }
+
+    fn put_option(output: &mut Writer, spec: &OptionSpec) {
+        let OptionSpec {
+            value_ty, repeated, required, flag, positional, long, long_names, short, form, help, hidden, deprecated,
+            optional_value, optional_default, choices, conflicts, requires, required_group, env, min, max, positive,
+            nonzero, exists, file, dir, default, positional_order, numeric, stop,
+        } = spec;
+        put_value_type(output, value_ty);
+        for value in [*repeated, *required, *flag, *positional] { output.flag(value); }
+        output.texts(long);
+        output.flag(*long_names == LongNames::DeclaredAliases);
+        output.texts(short);
+        output.optional(form.as_ref(), |output, value| output.text(value));
+        output.optional(help.as_ref(), |output, value| output.text(value));
+        output.flag(*hidden);
+        output.optional(deprecated.as_ref(), |output, value| output.text(value));
+        output.flag(*optional_value);
+        output.optional(optional_default.as_ref(), Writer::value);
+        output.texts(choices);
+        output.texts(conflicts);
+        output.texts(requires);
+        output.optional(required_group.as_ref(), |output, value| output.text(value));
+        output.optional(env.as_ref(), |output, value| output.text(value));
+        output.optional(min.as_ref(), |output, value| output.int(*value));
+        output.optional(max.as_ref(), |output, value| output.int(*value));
+        for value in [*positive, *nonzero, *exists, *file, *dir] { output.flag(value); }
+        output.optional(default.as_ref(), Writer::value);
+        output.optional(positional_order.as_ref(), |output, value| output.count(*value));
+        output.flag(*numeric);
+        output.flag(*stop);
+    }
+
+    fn take_option(input: &mut Reader) -> Result<OptionSpec, String> {
+        Ok(OptionSpec {
+            value_ty: take_value_type(input)?,
+            repeated: input.flag()?,
+            required: input.flag()?,
+            flag: input.flag()?,
+            positional: input.flag()?,
+            long: input.texts()?,
+            long_names: if input.flag()? { LongNames::DeclaredAliases } else { LongNames::FieldOrAlias },
+            short: input.texts()?,
+            form: input.optional(Reader::text)?,
+            help: input.optional(Reader::text)?,
+            hidden: input.flag()?,
+            deprecated: input.optional(Reader::text)?,
+            optional_value: input.flag()?,
+            optional_default: input.optional(Reader::value)?,
+            choices: input.texts()?,
+            conflicts: input.texts()?,
+            requires: input.texts()?,
+            required_group: input.optional(Reader::text)?,
+            env: input.optional(Reader::text)?,
+            min: input.optional(Reader::int)?,
+            max: input.optional(Reader::int)?,
+            positive: input.flag()?,
+            nonzero: input.flag()?,
+            exists: input.flag()?,
+            file: input.flag()?,
+            dir: input.flag()?,
+            default: input.optional(Reader::value)?,
+            positional_order: input.optional(Reader::count)?,
+            numeric: input.flag()?,
+            stop: input.flag()?,
+        })
+    }
+
+    fn put_options(output: &mut Writer, specs: &BTreeMap<String, OptionSpec>) {
+        output.count(specs.len());
+        for (name, spec) in specs {
+            output.text(name);
+            put_option(output, spec);
+        }
+    }
+
+    fn take_options(input: &mut Reader) -> Result<BTreeMap<String, OptionSpec>, String> {
+        let mut specs = BTreeMap::new();
+        for _ in 0..input.count()? {
+            let name = input.text()?;
+            if specs.insert(name.clone(), take_option(input)?).is_some() {
+                return Err(format!("CLI plan image repeats option {name}"));
+            }
+        }
+        Ok(specs)
+    }
+
+    fn put_command(output: &mut Writer, spec: &CommandSpec) {
+        let CommandSpec { canonical, aliases, positionals, types, options, rest, min_rest, command_like } = spec;
+        output.text(canonical);
+        output.texts(aliases);
+        output.texts(positionals);
+        output.count(types.len());
+        for (name, value) in types {
+            output.text(name);
+            put_value_type(output, value);
+        }
+        put_options(output, options);
+        output.optional(rest.as_ref(), |output, value| output.text(value));
+        output.count(*min_rest);
+        output.flag(*command_like);
+    }
+
+    fn take_command(input: &mut Reader) -> Result<CommandSpec, String> {
+        let canonical = input.text()?;
+        let aliases = input.texts()?;
+        let positionals = input.texts()?;
+        let mut types = BTreeMap::new();
+        for _ in 0..input.count()? {
+            let name = input.text()?;
+            if types.insert(name.clone(), take_value_type(input)?).is_some() {
+                return Err(format!("CLI plan image repeats command type {name}"));
+            }
+        }
+        Ok(CommandSpec {
+            canonical, aliases, positionals, types,
+            options: take_options(input)?,
+            rest: input.optional(Reader::text)?,
+            min_rest: input.count()?,
+            command_like: input.flag()?,
+        })
+    }
+
+    pub(crate) fn put_plan(plan: &CliDescriptorPlan) -> Vec<Atom> {
+        let CliDescriptorPlan { specs, gnu, policy, commands, types: _ } = plan;
+        let mut output = Writer(Vec::new());
+        put_options(&mut output, specs);
+        output.optional(gnu.as_ref(), GnuConfig::put_image);
+        output.flag(*policy == ParsePolicy::Applet);
+        output.optional(commands.as_ref(), |output, (commands, fallback)| {
+            output.count(commands.len());
+            for (name, spec) in commands {
+                output.text(name);
+                put_command(output, spec);
+            }
+            output.optional(fallback.as_ref(), put_command);
+        });
+        output.0
+    }
+
+    pub(crate) fn take_plan(input: &mut Reader) -> Result<CliDescriptorPlan, String> {
+        let specs = take_options(input)?;
+        let gnu = input.optional(GnuConfig::take_image)?;
+        let policy = if input.flag()? { ParsePolicy::Applet } else { ParsePolicy::Strict };
+        let commands = input.optional(|input| {
+            let mut commands = BTreeMap::new();
+            for _ in 0..input.count()? {
+                let name = input.text()?;
+                if commands.insert(name.clone(), take_command(input)?).is_some() {
+                    return Err(format!("CLI plan image repeats command {name}"));
+                }
+            }
+            Ok((commands, input.optional(take_command)?))
+        })?;
+        Ok(CliDescriptorPlan { specs, gnu, policy, commands, types: OnceLock::new() })
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{ArgTokenKind, ArgValueType, CliDescriptorPlan, ParsePolicy, parse_type_name};
     use crate::runtime::value::{RecordMap, Value};

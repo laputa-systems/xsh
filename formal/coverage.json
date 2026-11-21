@@ -9235,114 +9235,6 @@
       "boundary": "Independent Int and finite List (Fin 256) definitions for widths 1, 2, 4, and 8. This fragment proves no XSH runtime behavior, host API behavior, or Rust correspondence."
     },
     {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.decode_success_respects_tag_payload_schema",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.decode_success_respects_tag_payload_schema",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A successful decode implies aligned row tables and raw fields that satisfy the finite tag and payload schema.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.successful_words_row_payload_has_length_and_bounds",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.successful_words_row_payload_has_length_and_bounds",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A successful words row uses exactly its declared payload length within the auxiliary table bounds.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.unaligned_tables_are_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.unaligned_tables_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Unequal tag and row-data table lengths make decoding fail.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.aligned_row_index_and_reference_metadata_errors_are_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.aligned_row_index_and_reference_metadata_errors_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Concrete out-of-range row indices and nonzero reference metadata are rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_range_reference_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.out_of_range_reference_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A concrete reference index outside the supplied reference count is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_bounds_payload_start_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.out_of_bounds_payload_start_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A concrete payload range starting beyond the auxiliary table is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.payload_range_past_table_end_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.payload_range_past_table_end_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A concrete payload range extending past the auxiliary table end is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.unknown_tag_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.unknown_tag_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A concrete tag ordinal outside the four modeled variants is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.singleton_tag_with_wrong_payload_length_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.singleton_tag_with_wrong_payload_length_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A singleton row with a payload length other than one is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_tag_with_nonzero_payload_length_is_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.immediate_tag_with_nonzero_payload_length_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An immediate row with nonzero payload length is rejected.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.valid_singleton_payload_is_accepted",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.valid_singleton_payload_is_accepted",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A valid one-word singleton payload is accepted with the decoded value.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_payload_guard_mutation_is_detected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.immediate_payload_guard_mutation_is_detected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A mutation that drops the immediate-row payload guard accepts malformed data rejected by the model.",
-      "boundary": "Independent finite decoder over immediate, reference, singleton, and words tags with raw words and finite tables. It proves only the listed schema conditions and malformed fixtures; it excludes remaining raw IR coverage, Rust decoder or verifier correspondence, G7a closure, and XSH runtime behavior."
-    },
-    {
       "id": "fragment.Xsh.Semantics.Effects.CheckerBridge.resolved_network_summary_projects_at_body_site",
       "module": "Xsh.Effects.CheckerBridge",
       "declaration": "Xsh.Semantics.Effects.CheckerBridge.resolved_network_summary_projects_at_body_site",
@@ -9728,87 +9620,6 @@
       "status": "fragment",
       "scope": "Dropping the producer network request changes the two-event pull trace to only the callback filesystem read.",
       "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A row with a declared ordinal and matching payload width round-trips through the finite schema decoder.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Successful decoding preserves the input ordinal and payload and proves the schema declares that payload width.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "The finite decoder accepts a row exactly when its ordinal declares the row payload length.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An ordinal with no declared payload width is rejected for every payload list.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A declared ordinal is rejected when the row payload length differs from its declared width.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A reserved array slot with no payload width is rejected as an unknown ordinal.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An ordinal at or beyond the schema array length is rejected without a valid entry.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "The concrete sample schema accepts a row whose ordinal has a two-word payload width.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
-    },
-    {
-      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
-      "module": "Xsh.IR.Raw.DecoderSoundness",
-      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "The width-checking decoder rejects a malformed row accepted by the mutation that ignores declared width.",
-      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
     },
     {
       "id": "fragment.Xsh.Validation.IdentityStorage.same_validation_identity_assigns",
@@ -15416,6 +15227,123 @@
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
       "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.decode_encode",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.decode_encode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Decoding the encoding of a raw-IR document whose rows have their declared arity returns the document.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.document_decode_iff",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.document_decode_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A wire value decodes to a raw-IR document exactly when the document is well shaped and the value is its encoding.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.decoded_document_is_canonical",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.decoded_document_is_canonical",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A decoded raw-IR code list parses to the encoding of the decoded document; canonical for the parsed value, not for the bytes.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.fitFuel_iff",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.fitFuel_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fuel-indexed payload checker agrees with its inductive transcription at every fuel.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.entryAt_mono",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.entryAt_mono",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An entry accepted at some fuel is accepted at the next fuel.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.fitFuel_mono",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.fitFuel_mono",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "More fuel never changes an accepted payload result.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.verify_iff",
+      "module": "Xsh.IR.Raw.Structure",
+      "declaration": "Xsh.IR.Raw.verify_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Bool structural checker accepts exactly the documents that satisfy its own Prop transcription StructuralWF.",
+      "boundary": "StructuralWF reuses the checker's jobs, scopes, segments and fuel; independence is the separate agreement with Spec.WellFormed. A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.structuralWF_iff_wellFormed",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.structuralWF_iff_wellFormed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every regular schema, the checker's transcription StructuralWF holds exactly when the independent fuel-free specification Spec.WellFormed holds.",
+      "boundary": "Regular requires distinct tag ordinals and recursive names and recursive shapes that reach no pattern, stage, text pattern or recursion inside a block. A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.verify_iff_wellFormed",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.verify_iff_wellFormed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every regular schema, the structural checker is sound and complete against the independent specification Spec.WellFormed.",
+      "boundary": "Structural well-formedness only: semantic pools, scheme tables, prepared values and checked facts are counts. A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.verify_rawSchema_iff",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.verify_rawSchema_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over the generated rawSchema, the structural checker accepts exactly the documents that satisfy Spec.WellFormed.",
+      "boundary": "The schema is generated from the Rust schema macros and codecs; that agreement is Rust-side evidence. A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.verifyCodes_iff",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.verifyCodes_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "verifyCodes accepts exactly the code lists that decode to a document satisfying Spec.WellFormed over rawSchema.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.budget_suffices",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.budget_suffices",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every regular schema, a payload inside the word table that fits with any fuel fits within the entry budget (patterns + stages + 1) * (words + 1).",
+      "boundary": "A schema that recurs inside a block can need more fuel than the budget; such schemas are not regular. A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.rawSchema_budget_suffices",
+      "module": "Xsh.IR.Raw.Agreement",
+      "declaration": "Xsh.IR.Raw.rawSchema_budget_suffices",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "With the generated rawSchema, the entry budget is enough for every payload that fits with any fuel.",
+      "boundary": "A theorem about the Lean raw-IR document model and its checker; it does not show that Rust's encoder, decoder or FullVerifier behaves this way."
     }
   ],
   "artifact_certificates": [
@@ -15842,6 +15770,82 @@
       ],
       "proposition": "The identified source and raw-IR documents decode; the source parses to a one-parameter function with an immutable integer-field record local; Lean lowering reproduces the recorded rows, blocks, operation pool, string pool and canonical label table with span words taken from the IR; the artifact validates and the four recorded calls produce 10, -8, division-by-zero and integer-overflow. Source and IR agree on those recorded calls, and the universal Lean lowering theorem equates their function programs. The listed changed sources and trees are refused by the applicable checks.",
       "boundary": "Only these two documents and four recorded calls are certified. The unread wide entry is evaluated, but a changed wide constant that preserves these outcomes is detected by exact lowering rather than observation agreement. The parser and lowerer are Lean definitions; this does not show that Rust parses other sources, emits other rows, or executes the IR. No Rust conformance or universal obligation follows."
+    },
+    {
+      "id": "artifact.raw-ir-structure",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "raw-ir-document",
+      "artifact_module": "Xsh.IR.Raw.Exported",
+      "artifact_definitions": [
+        "Xsh.IR.Raw.exportedDocumentCodes"
+      ],
+      "module": "Xsh.IR.Raw.Certificate",
+      "certificate": "Xsh.IR.Raw.exported_document_is_accepted",
+      "supporting_theorems": [
+        "Xsh.IR.Raw.exported_document_is_well_formed"
+      ],
+      "rejection_theorems": [
+        "Xsh.IR.Raw.unknown_instruction_ordinal_is_rejected",
+        "Xsh.IR.Raw.reserved_instruction_ordinal_is_rejected",
+        "Xsh.IR.Raw.misnamed_instruction_tag_is_rejected",
+        "Xsh.IR.Raw.duplicate_field_is_rejected",
+        "Xsh.IR.Raw.short_hex_word_is_rejected",
+        "Xsh.IR.Raw.short_row_is_rejected",
+        "Xsh.IR.Raw.payload_past_the_word_table_is_rejected",
+        "Xsh.IR.Raw.misaligned_column_is_rejected",
+        "Xsh.IR.Raw.overflowing_payload_range_is_rejected",
+        "Xsh.IR.Raw.out_of_range_driver_root_is_rejected",
+        "Xsh.IR.Raw.zero_string_id_is_rejected",
+        "Xsh.IR.Raw.absent_string_id_is_rejected",
+        "Xsh.IR.Raw.slot_past_the_owner_is_rejected",
+        "Xsh.IR.Raw.invalid_utf8_string_is_rejected",
+        "Xsh.IR.Raw.out_of_domain_operator_is_rejected",
+        "Xsh.IR.Raw.doubly_claimed_operand_is_rejected",
+        "Xsh.IR.Raw.block_kind_mismatch_is_rejected",
+        "Xsh.IR.Raw.forward_operand_is_rejected",
+        "Xsh.IR.Raw.reserved_function_metadata_is_rejected",
+        "Xsh.IR.Raw.capture_slot_past_the_function_is_rejected",
+        "Xsh.IR.Raw.undefined_parameter_flag_is_rejected",
+        "Xsh.IR.Raw.absent_driver_location_is_rejected",
+        "Xsh.IR.Raw.resource_transfer_on_ordinary_instruction_is_rejected",
+        "Xsh.IR.Raw.orphan_instruction_is_rejected",
+        "Xsh.IR.Raw.block_of_another_owner_is_rejected",
+        "Xsh.IR.Raw.missing_scope_metadata_is_rejected",
+        "Xsh.IR.Raw.other_schema_version_is_rejected"
+      ],
+      "proposition": "The recorded `xsh-raw-ir-v1` document with scope `indexed-store-structure-v1`, exported from `tests/fixtures/runtime/formal-raw-ir-points.xsh`, decodes and satisfies `Spec.WellFormed rawSchema`, the independent structural specification: every table has its declared arity and alignment, every tag word names a schema entry by ordinal and name, owner ranges tile the instruction table, every instruction, driver-step, function-body and value payload reads exactly its words under its tag's shape grammar, with one-based identities in range, `u32::MAX` only where the shape admits it, operands of the declared kind in the same owner and before their user, slots below the owner's slot count, blocks of the requested kind read only by their owner, patterns and stages entered at descending indexes, and imported programs whose steps precede the importing step; metadata, parameter, capture, block, driver-step, driver-slot, writer, program and region rows, UTF-8 strings and operator pools are in their domains; every driver slot has zero reserved bytes, defined flags and a slot below its step's slot count, a program's regions partition its steps in order, and each region's sync rows are exactly its shared slot names in increasing order with their type and read and write flags; and no instruction, block, pattern, stage, program, step, region, slot, writer or sync row is taken twice, while every one of them is taken and every program except the root is imported. The rejection theorems change the recorded document: an unknown, reserved (ordinal 32) or misnamed tag; a duplicate field, a seven-digit word, a short row, a payload past the word table, a missing column entry and a range whose end overflows 32 bits; an out-of-range driver root; a zero and an absent string identity, a slot past the function, invalid UTF-8 and an operator outside its domain; an operand taken twice, a block of the wrong kind and an operand after its user (two rows exchanged with their operand words); reserved function metadata, a capture slot past the function, an undefined parameter flag, an absent driver-step location, a resource-transfer mark on an ordinary instruction, an instruction nothing reads and a block owned by another owner; and missing scope metadata or another schema version. The orphan witness changes four columns together and the double claim also leaves an instruction unread; the others change one word or field.",
+      "boundary": "The identity is the bytes of `exportedDocumentCodes`, which the Rust test `lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export` requires the test-only exporter to reproduce, together with the generated payload shapes in `Xsh.IR.Raw.Schema`. The shapes are derived from the Rust schema macros and codecs, so their agreement with Rust decoding is Rust-side evidence, not a Lean theorem. The document has no patterns, stages, values or `Use` step; `artifact.raw-ir-features` covers those. The theorems about the model (`verify_rawSchema_iff`, `document_decode_iff`, the fuel lemmas) are fragment roots, not part of this certificate. `Spec.WellFormed` is structural only: semantic pools, scheme tables and prepared values are counts, and type, effect, scheme, guard and provenance well-formedness, checked facts and execution are outside it. It is stricter than Rust's `FullVerifier` on builder invariants (operand order, every pattern and stage read, zero block and parameter reserved bytes, unowned blocks read once, children imported before their importer), and Rust is not proved to accept or reject the same documents. Unchecked: the semantic content of driver writers (their payload names, binding-identity owners and locations, and the slot each names), and the effect words of driver steps, regions and programs."
+    },
+    {
+      "id": "artifact.raw-ir-features",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "raw-ir-document",
+      "artifact_module": "Xsh.IR.Raw.ExportedFeatures",
+      "artifact_definitions": [
+        "Xsh.IR.Raw.featuresDocumentCodes"
+      ],
+      "module": "Xsh.IR.Raw.FeaturesCertificate",
+      "certificate": "Xsh.IR.Raw.features_document_is_accepted",
+      "supporting_theorems": [
+        "Xsh.IR.Raw.features_document_is_well_formed"
+      ],
+      "rejection_theorems": [
+        "Xsh.IR.Raw.pattern_cycle_is_rejected",
+        "Xsh.IR.Raw.driver_program_cycle_is_rejected",
+        "Xsh.IR.Raw.text_hole_kind_out_of_domain_is_rejected",
+        "Xsh.IR.Raw.pattern_descent_is_rejected",
+        "Xsh.IR.Raw.reserved_driver_slot_byte_is_rejected",
+        "Xsh.IR.Raw.undefined_driver_slot_flag_is_rejected",
+        "Xsh.IR.Raw.driver_slot_past_the_step_is_rejected",
+        "Xsh.IR.Raw.unowned_driver_slot_is_rejected",
+        "Xsh.IR.Raw.driver_writer_identity_out_of_range_is_rejected",
+        "Xsh.IR.Raw.doubly_owned_driver_writer_is_rejected",
+        "Xsh.IR.Raw.inexact_sync_flags_are_rejected",
+        "Xsh.IR.Raw.reserved_sync_byte_is_rejected",
+        "Xsh.IR.Raw.empty_driver_region_is_rejected"
+      ],
+      "proposition": "The recorded `xsh-raw-ir-v1` document exported from `formal/tests/fixtures/raw-ir-features.xsh`, which imports `raw-ir-features-provider` and has six patterns (bind, text, two literals, an alternation and a wildcard), a `Where` stage, two prepared string values, a `Use` driver step and two driver programs, decodes and satisfies `Spec.WellFormed rawSchema`, the independent structural specification: every table has its declared arity and alignment, every tag word names a schema entry by ordinal and name, owner ranges tile the instruction table, every instruction, driver-step, function-body and value payload reads exactly its words under its tag's shape grammar, with one-based identities in range, `u32::MAX` only where the shape admits it, operands of the declared kind in the same owner and before their user, slots below the owner's slot count, blocks of the requested kind read only by their owner, patterns and stages entered at descending indexes, and imported programs whose steps precede the importing step; metadata, parameter, capture, block, driver-step, driver-slot, writer, program and region rows, UTF-8 strings and operator pools are in their domains; every driver slot has zero reserved bytes, defined flags and a slot below its step's slot count, a program's regions partition its steps in order, and each region's sync rows are exactly its shared slot names in increasing order with their type and read and write flags; and no instruction, block, pattern, stage, program, step, region, slot, writer or sync row is taken twice, while every one of them is taken and every program except the root is imported. Each rejection theorem changes the recorded document and breaks the rules named here. An alternation that lists itself breaks the descending-pattern rule and leaves pattern 2 unread. A `Use` step that imports the root program breaks the import-ordering rule, takes the root program and leaves program 1 unimported. A text-pattern hole kind of 6 breaks the hole-kind domain. Exchanging pattern rows 3 and 4 together with the two words that name them breaks only the descending-pattern rule, at the match arm's alternation. A nonzero driver-slot reserved byte, a slot flag word with bit 5 set, and slot 999 each break only the driver-slot row rule. Shortening the last step's slot range leaves a slot row with no owner. A writer identity of 2 breaks the writer row rule, and a second step taking writer row 0 takes it twice. A sync row that also writes breaks the sync flag rule, and a nonzero sync reserved byte breaks the sync row rule. Emptying region 2 breaks the region rule, as an empty region that also leaves step 2 outside every region.",
+      "boundary": "The identity is the bytes of `featuresDocumentCodes`, which the Rust test `lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export` requires the test-only exporter to reproduce after one relabeling: an imported module is named by its canonical path, so the exporter replaces the checkout directory with `/xsh` in the symbol table and the string pool and lays the string pool out again. `Spec.WellFormed` is structural only, as for `artifact.raw-ir-structure`; Rust is not proved to accept or reject the same documents, and nothing here shows that the IR executes correctly. Unchecked: the semantic content of driver writers (their payload names, binding-identity owners and locations, and the slot each names), and the effect words of driver steps, regions and programs."
     }
   ],
   "source_identity": {
