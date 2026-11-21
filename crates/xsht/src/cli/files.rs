@@ -382,6 +382,10 @@ pub struct CoverageConfig {
 #[derive(Clone, Debug, Default)]
 pub struct DeadCodeConfig {
     pub exclude: Vec<String>,
+    /// Modules whose exports are a published interface consumed outside the
+    /// project, named as glob patterns relative to the config directory. The
+    /// workspace unused-export rule reports nothing in them.
+    pub public_api: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -638,6 +642,7 @@ fn parse_dead_code_ini(fields: &xsh::execution::value::RecordMap) -> DeadCodeCon
     };
     DeadCodeConfig {
         exclude: ini_string_list(dead_code, "exclude").unwrap_or_default(),
+        public_api: ini_string_list(dead_code, "public-api").unwrap_or_default(),
     }
 }
 

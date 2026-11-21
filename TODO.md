@@ -49,15 +49,6 @@ out of scope.
 - **Fix with:** api-surface-and-module-boundaries
 - **Effort:** M
 
-### XSH-147 · P2 · xsht lint misses unused constants and unreferenced exports
-
-- **Area:** Tooling
-- **Where:** `crates/xsht/src/cli/lint.rs` (`lint.unused-callable`, `lint.unused-type`, `lint.unused-local`), Laputa `guest/asterinas/device/entry.xsh:2` (`const case_dir`), Laputa `xinfra/lib/infra/mutate.xsh:15` (`const nul`), Laputa `pm/types.xsh:177,414,669` and 15 other exports with no reference
-- **Problem:** `xsht lint` flags unused private callables, types and locals, but not an unused private `const`: `case_dir` and `nul` in Laputa produce no diagnostic. It has no project-wide check for exports: an exported proc, type or const that no module in the project imports and uses (Laputa has 18 with no reference anywhere, and 102 used only inside their own file) is invisible to it, because `lint.unused-callable` stops at unexported callables. A script found these instead. The owner wants xsht's dead-code detection to be correct and thorough.
-- **Recommendation:** Add `lint.unused-const` for private constants. Add a workspace-level unused-export lint that resolves `use ... as` aliases across every module under the project's module and test roots. It reports exports referenced nowhere, separately notes exports referenced only by tests or only inside their own module, and exempts modules declared as a public API in `xsht-config.ini`, such as stdlib and published libraries. Prove it against fixtures that reproduce Laputa's 18 dead exports, aliased imports, same-named exports in two modules, and re-export chains.
-- **Fix with:** design-cli, dead-code-archaeology
-- **Effort:** M
-
 ### XSH-149 · P2 · The whole-project paranoid kernel recheck exceeds its time cap
 
 - **Area:** Formal
