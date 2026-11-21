@@ -353,7 +353,8 @@ class HarnessTests(unittest.TestCase):
         source = self.root / "suite"
         source.mkdir()
         base = "sha256:" + "a" * 64
-        (source / "versions.lock.json").write_text(json.dumps({"base_images": {"amd64": base}, "sources": {}}))
+        (source / "versions.lock.json").write_text(json.dumps({"base_images": {"amd64": base}}))
+        (source / "sources.lock.json").write_text(json.dumps({"schema_version": 1, "inputs": []}))
         (source / "Dockerfile").write_text("ARG BASE_REFERENCE\nFROM ${BASE_REFERENCE}\n")
         args = argparse.Namespace(destination=self.root / "context", base_image=None, arch="amd64", build=True, tag="xsh-comparative:test")
         inspect = json.dumps([{"Architecture": "amd64", "Id": base}]).encode()
@@ -366,12 +367,15 @@ class HarnessTests(unittest.TestCase):
         source = self.root / "suite"
         source.mkdir()
         base = "sha256:" + "a" * 64
-        (source / "versions.lock.json").write_text(json.dumps({"base_images": {"amd64": base}, "sources": {}}))
+        (source / "versions.lock.json").write_text(json.dumps({"base_images": {"amd64": base}}))
+        (source / "sources.lock.json").write_text(json.dumps({"schema_version": 1, "inputs": []}))
         (source / "Dockerfile").write_text("ARG BASE_REFERENCE\nFROM ${BASE_REFERENCE}\n")
         args = argparse.Namespace(destination=self.root / "context", base_image=None, arch="amd64", build=True, tag="xsh-comparative:test")
         inspect = json.dumps([{"Architecture": "amd64", "Id": base}]).encode()
         with patch("prepare.HERE", source), patch("prepare.subprocess.run") as run, patch("prepare.subprocess.check_output", side_effect=[inspect, base, "sha256:" + "c" * 64]), redirect_stdout(io.StringIO()):
             prepare(args)
+        fetch = next(call.args[0] for call in run.call_args_list if call.args[0][1] == str(source / "fetch.xsh"))
+        self.assertEqual(fetch[3:], [str(source / "sources.lock.json"), str(args.destination.resolve()), "amd64"])
         build = next(call.args[0] for call in run.call_args_list if call.args[0][1] == "build")
         self.assertIn("BASE_REFERENCE=xsh-comparative-base:amd64-" + "a" * 64, build)
         self.assertIn("BASE_IMAGE=" + base, build)

@@ -288,6 +288,8 @@ def inside(args):
         raise ValueError("comparator image parent differs from the committed architecture pin")
     if digest(HERE / "versions.lock.json") != digest(Path("/opt/comparators/source/versions.lock.json")):
         raise ValueError("comparator image was prepared with a different version lock")
+    if digest(HERE / "sources.lock.json") != digest(Path("/opt/comparators/source/sources.lock.json")):
+        raise ValueError("comparator image was prepared with a different source lock")
     cpu_id = int(args.cpuset_cpus)
     container_resources = validate_container_resources(cpu_id, args.memory_bytes, sorted(os.sched_getaffinity(0)), cgroup_memory_limit(), cgroup_memory_swap_limit())
     fixture_hash = validate_fixtures(args.fixtures)
@@ -308,6 +310,7 @@ def inside(args):
         "resources": {"host_allowed_cpus": [int(cpu) for cpu in args.host_cpus_allowed.split(",")], **container_resources},
         "fixtures_sha256": fixture_hash,
         "lock_sha256": digest(HERE / "versions.lock.json"),
+        "sources_lock_sha256": digest(HERE / "sources.lock.json"),
         "harness_sha256": digest(Path(__file__)),
         "fixture_generator_sha256": digest(HERE / "fixtures.py"),
         "tools": identities_record,

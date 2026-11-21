@@ -3,7 +3,7 @@ FROM ${BASE_REFERENCE}
 ARG BASE_IMAGE
 ARG TARGETARCH
 LABEL org.xsh.comparative.base=${BASE_IMAGE}
-COPY dash.tar.gz oils.tar.gz nu.tar.gz elvish.tar.gz versions.lock.json /opt/comparators/source/
+COPY dash.tar.gz oils.tar.gz nu.tar.gz elvish.tar.gz versions.lock.json sources.lock.json /opt/comparators/source/
 COPY checksums /opt/comparators/source/checksums
 RUN cd /opt/comparators/source && sha256sum -c checksums
 RUN mkdir -p /opt/comparators/bin /opt/comparators/build \

@@ -32,7 +32,8 @@ are part of the timed command and their executable hashes are recorded.
 
 The overlay starts from the immutable `Dockerfile.test` image ID and adds the
 other pinned tool versions. URLs, SHA-256 pins, and architecture choices live
-in `versions.lock.json`. The overlay does not mutate its base image.
+in `sources.lock.json`. Benchmark metadata and base images remain in
+`versions.lock.json`. The overlay does not mutate its base image.
 
 Prepare inputs and the overlay under ignored `.work/`. Set `TMPDIR` there for
 any temporary files:
@@ -40,6 +41,7 @@ any temporary files:
 ```sh
 mkdir -p .work/tmp .work/consolidation
 export TMPDIR="$PWD/.work/tmp"
+cargo dev build
 python3 -B bench/consolidation/fixtures.py .work/consolidation/comparative-fixtures
 python3 -B bench/consolidation/prepare.py .work/consolidation/comparative-overlay --build
 ```
