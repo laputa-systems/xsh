@@ -112,27 +112,22 @@ theorem ties_away_mutant_rejected : ¬ NearestEven 5 2 (roundAway 5 2) := by
 theorem ties_even_conversion_mutant_rejected : roundEven 5 2 ≠ roundAway 5 2 := by
   decide
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem zero_rounds_to_positive_zero : roundMagnitudeBits 0 1 = 0 := by
   decide
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem one_rounds_to_one : roundMagnitudeBits 1 1 = 4607182418800017408 := by
   decide
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem two_rounds_to_two : roundMagnitudeBits 2 1 = 4611686018427387904 := by
   decide
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem tiny_subnormal_rounds_to_zero : roundMagnitudeBits 1 (2 ^ 1075) = 0 := by
   decide
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem least_subnormal_rounds_exactly : roundMagnitudeBits 1 (2 ^ 1074) = 1 := by
   decide
@@ -157,7 +152,6 @@ def exponentOffByOne (raw : Nat) : Nat :=
   if exponent = 0 then fraction
   else (floatFractionWidth + fraction) * 2 ^ exponent
 
-set_option exponentiation.threshold 1100 in
 set_option maxRecDepth 10000 in
 theorem exponent_off_by_one_rejected :
     exponentOffByOne 4607182418800017408 ≠ magnitudeUnits 4607182418800017408 := by

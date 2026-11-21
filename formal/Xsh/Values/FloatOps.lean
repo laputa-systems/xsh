@@ -126,6 +126,8 @@ theorem float_class_finite_iff (bits : FloatBits) (negative : Bool) (units : Nat
     · have below : floatMagnitudeRaw bits < infinityRaw := by omega
       simp [above, exact, below]
 
+def floatIsQuietNaN (bits : FloatBits) : Prop := floatIsNaN bits ∧ bits.val / 2 ^ 51 % 2 = 1
+
 def signedUnits (negative : Bool) (units : Nat) : Int :=
   if negative then -(units : Int) else units
 
@@ -136,7 +138,7 @@ inductive FloatOutcome where
   | rounded (negative : Bool) (numerator denominator : Nat)
 
 def FloatOutcome.Holds : FloatOutcome → FloatBits → Prop
-  | .nan, result => floatIsNaN result
+  | .nan, result => floatIsQuietNaN result
   | .infinite negative, result =>
     floatNegative result = negative ∧ floatMagnitudeRaw result = infinityRaw
   | .zero negative, result => floatNegative result = negative ∧ floatMagnitudeRaw result = 0
@@ -202,7 +204,7 @@ def FloatMeaning (operator : FloatBinaryOp) (left right result : FloatBits) : Pr
 
 structure NaNPolicy where
   choose : FloatBinaryOp → FloatBits → FloatBits → FloatBits
-  chooses_nan : ∀ operator left right, floatIsNaN (choose operator left right)
+  chooses_quiet_nan : ∀ operator left right, floatIsQuietNaN (choose operator left right)
 
 def FloatOutcome.realize (nan : FloatBits) : FloatOutcome → FloatBits
   | .nan => nan
@@ -225,7 +227,7 @@ theorem outcome_well_formed (operator : FloatBinaryOp) (left right : FloatClass)
     (try split) <;> (try split) <;>
     simp [FloatOutcome.WellFormed, Nat.two_pow_pos] <;> omega
 
-theorem realized_outcome_holds (nan : FloatBits) (isNaN : floatIsNaN nan)
+theorem realized_outcome_holds (nan : FloatBits) (isNaN : floatIsQuietNaN nan)
     (outcome : FloatOutcome) (wellFormed : outcome.WellFormed) :
     outcome.Holds (outcome.realize nan) := by
   cases outcome with
@@ -247,7 +249,7 @@ theorem outcome_holds_unique (outcome : FloatOutcome) (wellFormed : outcome.Well
     (secondHolds : outcome.Holds second) :
     (floatIsNaN first ∧ floatIsNaN second) ∨ first = second := by
   cases outcome with
-  | nan => exact Or.inl ⟨firstHolds, secondHolds⟩
+  | nan => exact Or.inl ⟨firstHolds.1, secondHolds.1⟩
   | infinite negative =>
     exact Or.inr (float_bits_ext (firstHolds.1.trans secondHolds.1.symm)
       (firstHolds.2.trans secondHolds.2.symm))
@@ -267,7 +269,7 @@ theorem outcome_holds_unique (outcome : FloatOutcome) (wellFormed : outcome.Well
 theorem float_apply_meaning (policy : NaNPolicy) (operator : FloatBinaryOp)
     (left right : FloatBits) :
     FloatMeaning operator left right (floatApply policy operator left right) :=
-  realized_outcome_holds _ (policy.chooses_nan operator left right) _
+  realized_outcome_holds _ (policy.chooses_quiet_nan operator left right) _
     (outcome_well_formed operator _ _)
 
 theorem float_meaning_determines_result (operator : FloatBinaryOp) (left right : FloatBits)
@@ -508,16 +510,16 @@ def intToFloat (value : IntValue) : FloatBits :=
 def IntToFloatMeaning (value : IntValue) (result : FloatBits) : Prop :=
   (FloatOutcome.rounded (decide (value.val < 0)) value.val.natAbs 1).Holds result
 
-theorem quiet_nan_is_nan : floatIsNaN floatQuietNaN := by
-  unfold floatIsNaN
+theorem quiet_nan_is_quiet : floatIsQuietNaN floatQuietNaN := by
+  unfold floatIsQuietNaN floatIsNaN
   decide
 
-theorem negative_quiet_nan_is_nan : floatIsNaN floatNegativeQuietNaN := by
-  unfold floatIsNaN
+theorem negative_quiet_nan_is_quiet : floatIsQuietNaN floatNegativeQuietNaN := by
+  unfold floatIsQuietNaN floatIsNaN
   decide
 
 theorem int_to_float_meaning (value : IntValue) : IntToFloatMeaning value (intToFloat value) :=
-  realized_outcome_holds floatQuietNaN quiet_nan_is_nan
+  realized_outcome_holds floatQuietNaN quiet_nan_is_quiet
     (.rounded (decide (value.val < 0)) value.val.natAbs 1) Nat.one_pos
 
 theorem int_to_float_unique (value : IntValue) {first second : FloatBits}
@@ -547,10 +549,240 @@ theorem int_to_float_unique (value : IntValue) {first second : FloatBits}
   · exact (finite first firstMeaning isNaN).elim
   · exact same
 
-def quietNaNPolicy : NaNPolicy := ⟨fun _ _ _ => floatQuietNaN, fun _ _ _ => quiet_nan_is_nan⟩
+def floatNegate (bits : FloatBits) : FloatBits :=
+  ⟨(bits.val + floatSign) % signed64Width, Nat.mod_lt _ (by decide)⟩
+
+def NegationMeaning (operand result : FloatBits) : Prop :=
+  floatNegative result = !floatNegative operand ∧
+    floatMagnitudeRaw result = floatMagnitudeRaw operand
+
+theorem float_negate_meaning (bits : FloatBits) : NegationMeaning bits (floatNegate bits) := by
+  have bound := bits.isLt
+  unfold signed64Width at bound
+  unfold NegationMeaning floatNegate floatNegative floatMagnitudeRaw
+  unfold floatSign signed64Width
+  by_cases negative : 2 ^ 63 ≤ bits.val
+  · have flipped : ¬ 2 ^ 63 ≤ (bits.val + 2 ^ 63) % 2 ^ 64 := by omega
+    simp only [negative, flipped, decide_true, decide_false, Bool.not_true, true_and]
+    omega
+  · have flipped : 2 ^ 63 ≤ (bits.val + 2 ^ 63) % 2 ^ 64 := by omega
+    simp only [negative, flipped, decide_true, decide_false, Bool.not_false, true_and]
+    omega
+
+theorem negation_meaning_unique (operand : FloatBits) {first second : FloatBits}
+    (firstMeaning : NegationMeaning operand first) (secondMeaning : NegationMeaning operand second) :
+    first = second :=
+  float_bits_ext (firstMeaning.1.trans secondMeaning.1.symm)
+    (firstMeaning.2.trans secondMeaning.2.symm)
+
+theorem negation_negates_class (bits : FloatBits) :
+    floatClass (floatNegate bits) = (floatClass bits).negate := by
+  obtain ⟨sign, magnitude⟩ := float_negate_meaning bits
+  unfold floatClass
+  rw [sign, magnitude]
+  by_cases above : infinityRaw < floatMagnitudeRaw bits
+  · simp [above, FloatClass.negate]
+  · by_cases exact : floatMagnitudeRaw bits = infinityRaw
+    · simp [exact, FloatClass.negate]
+    · simp [above, exact, FloatClass.negate]
+
+inductive FloatComparison where
+  | less
+  | lessEqual
+  | greater
+  | greaterEqual
+  deriving DecidableEq
+
+inductive ExtendedReal where
+  | negativeInfinity
+  | finite (units : Int)
+  | positiveInfinity
+  deriving DecidableEq
+
+def ExtendedReal.Less : ExtendedReal → ExtendedReal → Prop
+  | .negativeInfinity, .negativeInfinity => False
+  | .negativeInfinity, _ => True
+  | .finite _, .negativeInfinity => False
+  | .finite left, .finite right => left < right
+  | .finite _, .positiveInfinity => True
+  | .positiveInfinity, _ => False
+
+def floatExtended (bits : FloatBits) : Option ExtendedReal :=
+  match floatClass bits with
+  | .nan => none
+  | .infinite negative => some (if negative then .negativeInfinity else .positiveInfinity)
+  | .finite negative units => some (.finite (signedUnits negative units))
+
+def ComparisonHolds : FloatComparison → ExtendedReal → ExtendedReal → Prop
+  | .less, left, right => left.Less right
+  | .lessEqual, left, right => left.Less right ∨ left = right
+  | .greater, left, right => right.Less left
+  | .greaterEqual, left, right => right.Less left ∨ left = right
+
+def ComparisonMeaning (comparison : FloatComparison) (left right : FloatBits) (result : Bool) :
+    Prop :=
+  match floatExtended left, floatExtended right with
+  | some leftValue, some rightValue => (result = true ↔ ComparisonHolds comparison leftValue rightValue)
+  | _, _ => result = false
+
+def floatCompare (comparison : FloatComparison) (left right : FloatBits) : Bool :=
+  if floatClass left = .nan ∨ floatClass right = .nan then false
+  else
+    let zeros := floatMagnitudeRaw left = 0 ∧ floatMagnitudeRaw right = 0
+    match comparison with
+    | .less => decide (¬ zeros ∧ floatTotalKey left < floatTotalKey right)
+    | .lessEqual => decide (zeros ∨ floatTotalKey left ≤ floatTotalKey right)
+    | .greater => decide (¬ zeros ∧ floatTotalKey right < floatTotalKey left)
+    | .greaterEqual => decide (zeros ∨ floatTotalKey right ≤ floatTotalKey left)
+
+def floatRank (bits : FloatBits) : Int :=
+  signedUnits (floatNegative bits) (magnitudeUnits (floatMagnitudeRaw bits))
+
+theorem magnitude_units_lt_iff (left right : Nat) :
+    magnitudeUnits left < magnitudeUnits right ↔ left < right := by
+  constructor
+  · intro lower
+    rcases Nat.lt_trichotomy left right with smaller | same | larger
+    · exact smaller
+    · subst same
+      omega
+    · have := magnitude_units_strict_mono larger
+      omega
+  · exact magnitude_units_strict_mono
+
+theorem magnitude_units_zero : magnitudeUnits 0 = 0 := by
+  decide
+
+theorem not_nan_magnitude (bits : FloatBits) (notNaN : floatClass bits ≠ .nan) :
+    floatMagnitudeRaw bits ≤ infinityRaw := by
+  unfold floatClass at notNaN
+  by_cases above : infinityRaw < floatMagnitudeRaw bits
+  · simp [above] at notNaN
+  · omega
+
+theorem extended_cases (bits : FloatBits) (notNaN : floatClass bits ≠ .nan) :
+    (floatExtended bits = some (.finite (floatRank bits)) ∧
+      -(magnitudeUnits infinityRaw : Int) < floatRank bits ∧
+      floatRank bits < magnitudeUnits infinityRaw) ∨
+    (floatExtended bits = some .positiveInfinity ∧
+      floatRank bits = magnitudeUnits infinityRaw) ∨
+    (floatExtended bits = some .negativeInfinity ∧
+      floatRank bits = -(magnitudeUnits infinityRaw : Int)) := by
+  unfold floatExtended
+  cases classified : floatClass bits with
+  | nan => exact (notNaN classified).elim
+  | infinite negative =>
+    obtain ⟨magnitude, sign⟩ := (float_class_infinite_iff bits negative).1 classified
+    unfold floatRank signedUnits
+    rw [magnitude, sign]
+    cases negative <;> simp
+  | finite negative units =>
+    obtain ⟨below, sign, decoded⟩ := (float_class_finite_iff bits negative units).1 classified
+    have smaller := (magnitude_units_lt_iff _ _).2 below
+    left
+    unfold floatRank
+    rw [sign, decoded]
+    rw [decoded] at smaller
+    refine ⟨rfl, ?_⟩
+    unfold signedUnits
+    cases negative <;> simp <;> omega
+
+theorem extended_order (left right : FloatBits) (leftNotNaN : floatClass left ≠ .nan)
+    (rightNotNaN : floatClass right ≠ .nan) {leftValue rightValue : ExtendedReal}
+    (leftExtended : floatExtended left = some leftValue)
+    (rightExtended : floatExtended right = some rightValue) :
+    (leftValue.Less rightValue ↔ floatRank left < floatRank right) ∧
+      (leftValue = rightValue ↔ floatRank left = floatRank right) := by
+  have infinitePositive : (0 : Int) < magnitudeUnits infinityRaw := by
+    have := (magnitude_units_lt_iff 0 infinityRaw).2 (by unfold infinityRaw; decide)
+    rw [magnitude_units_zero] at this
+    exact_mod_cast this
+  rcases extended_cases left leftNotNaN with ⟨leftIs, leftRank⟩ | ⟨leftIs, leftRank⟩ |
+      ⟨leftIs, leftRank⟩ <;>
+    rcases extended_cases right rightNotNaN with ⟨rightIs, rightRank⟩ | ⟨rightIs, rightRank⟩ |
+      ⟨rightIs, rightRank⟩ <;>
+    rw [leftIs] at leftExtended <;> rw [rightIs] at rightExtended <;>
+    cases leftExtended <;> cases rightExtended <;>
+    refine ⟨⟨fun holds => ?_, fun holds => ?_⟩, ⟨fun holds => ?_, fun holds => ?_⟩⟩ <;>
+    simp only [ExtendedReal.Less, ExtendedReal.finite.injEq, reduceCtorEq] at holds ⊢ <;>
+    first
+    | omega
+    | trivial
+
+theorem total_key_order (left right : FloatBits) (leftNotNaN : floatClass left ≠ .nan)
+    (rightNotNaN : floatClass right ≠ .nan) :
+    ((¬ (floatMagnitudeRaw left = 0 ∧ floatMagnitudeRaw right = 0) ∧
+        floatTotalKey left < floatTotalKey right) ↔ floatRank left < floatRank right) ∧
+      ((floatMagnitudeRaw left = 0 ∧ floatMagnitudeRaw right = 0 ∨
+        floatTotalKey left ≤ floatTotalKey right) ↔ floatRank left ≤ floatRank right) := by
+  have leftBound := not_nan_magnitude left leftNotNaN
+  have rightBound := not_nan_magnitude right rightNotNaN
+  have increasing := magnitude_units_lt_iff (floatMagnitudeRaw left) (floatMagnitudeRaw right)
+  have decreasing := magnitude_units_lt_iff (floatMagnitudeRaw right) (floatMagnitudeRaw left)
+  have leftZero : floatMagnitudeRaw left = 0 ↔ magnitudeUnits (floatMagnitudeRaw left) = 0 := by
+    have := magnitude_units_lt_iff 0 (floatMagnitudeRaw left)
+    rw [magnitude_units_zero] at this
+    omega
+  have rightZero : floatMagnitudeRaw right = 0 ↔
+      magnitudeUnits (floatMagnitudeRaw right) = 0 := by
+    have := magnitude_units_lt_iff 0 (floatMagnitudeRaw right)
+    rw [magnitude_units_zero] at this
+    omega
+  have leftBits := left.isLt
+  have rightBits := right.isLt
+  unfold infinityRaw floatExponentLimit floatFractionWidth at leftBound rightBound
+  unfold floatRank signedUnits floatTotalKey
+  unfold floatNegative floatMagnitudeRaw at *
+  unfold floatSign signed64Width at *
+  generalize magnitudeUnits (left.val % 2 ^ 63) = leftUnits at *
+  generalize magnitudeUnits (right.val % 2 ^ 63) = rightUnits at *
+  by_cases leftSign : 2 ^ 63 ≤ left.val <;> by_cases rightSign : 2 ^ 63 ≤ right.val <;>
+    simp only [leftSign, rightSign, decide_true, decide_false, ite_true, ite_false,
+      Bool.false_eq_true] <;> omega
+
+theorem float_compare_meaning (comparison : FloatComparison) (left right : FloatBits) :
+    ComparisonMeaning comparison left right (floatCompare comparison left right) := by
+  unfold ComparisonMeaning floatCompare
+  by_cases nan : floatClass left = .nan ∨ floatClass right = .nan
+  · rw [ite_eq_left nan]
+    rcases nan with leftNaN | rightNaN
+    · have : floatExtended left = none := by unfold floatExtended; rw [leftNaN]
+      rw [this]
+    · have : floatExtended right = none := by unfold floatExtended; rw [rightNaN]
+      rw [this]
+      cases floatExtended left <;> rfl
+  · rw [ite_eq_right nan]
+    have leftNotNaN : floatClass left ≠ .nan := fun same => nan (Or.inl same)
+    have rightNotNaN : floatClass right ≠ .nan := fun same => nan (Or.inr same)
+    have keys := total_key_order left right leftNotNaN rightNotNaN
+    have reversed := total_key_order right left rightNotNaN leftNotNaN
+    have leftSome : ∃ value, floatExtended left = some value := by
+      rcases extended_cases left leftNotNaN with ⟨is, _⟩ | ⟨is, _⟩ | ⟨is, _⟩ <;> exact ⟨_, is⟩
+    have rightSome : ∃ value, floatExtended right = some value := by
+      rcases extended_cases right rightNotNaN with ⟨is, _⟩ | ⟨is, _⟩ | ⟨is, _⟩ <;> exact ⟨_, is⟩
+    obtain ⟨leftValue, leftIs⟩ := leftSome
+    obtain ⟨rightValue, rightIs⟩ := rightSome
+    have order := extended_order left right leftNotNaN rightNotNaN leftIs rightIs
+    have flipped := extended_order right left rightNotNaN leftNotNaN rightIs leftIs
+    rw [leftIs, rightIs]
+    cases comparison <;> simp only [ComparisonHolds, decide_eq_true_iff, order.1, order.2,
+      flipped.1] <;> omega
+
+theorem comparison_meaning_unique (comparison : FloatComparison) (left right : FloatBits)
+    {first second : Bool} (firstMeaning : ComparisonMeaning comparison left right first)
+    (secondMeaning : ComparisonMeaning comparison left right second) : first = second := by
+  unfold ComparisonMeaning at firstMeaning secondMeaning
+  generalize floatExtended left = leftValue at firstMeaning secondMeaning
+  generalize floatExtended right = rightValue at firstMeaning secondMeaning
+  cases leftValue <;> cases rightValue <;>
+    first
+    | exact firstMeaning.trans secondMeaning.symm
+    | cases first <;> cases second <;> simp_all
+
+def quietNaNPolicy : NaNPolicy := ⟨fun _ _ _ => floatQuietNaN, fun _ _ _ => quiet_nan_is_quiet⟩
 
 def negativeNaNPolicy : NaNPolicy :=
-  ⟨fun _ _ _ => floatNegativeQuietNaN, fun _ _ _ => negative_quiet_nan_is_nan⟩
+  ⟨fun _ _ _ => floatNegativeQuietNaN, fun _ _ _ => negative_quiet_nan_is_quiet⟩
 
 def floatOfBits (raw : Nat) (fits : raw < signed64Width := by decide) : FloatBits := ⟨raw, fits⟩
 
@@ -574,6 +806,9 @@ def floatNegativeTwoAndHalf : FloatBits := floatOfBits 0xC004000000000000
 def floatTwoPow53 : FloatBits := floatOfBits 0x4340000000000000
 def floatTwoPow63 : FloatBits := floatOfBits 0x43E0000000000000
 def floatNegativeTwoPow63 : FloatBits := floatOfBits 0xC3E0000000000000
+def floatTwoPow970 : FloatBits := floatOfBits 0x7C90000000000000
+def floatTwoPow969 : FloatBits := floatOfBits 0x7C80000000000000
+def floatSignalingNaN : FloatBits := floatOfBits 0x7FF0000000000001
 
 def intValue (value : Int) (inRange : signed64Min ≤ value ∧ value < signed64Limit := by
     unfold signed64Min signed64Limit; omega) : IntValue := ⟨value, inRange⟩
@@ -617,8 +852,9 @@ theorem float_nan_witnesses (policy : NaNPolicy) :
     floatIsNaN (floatApply policy .multiply floatPositiveInfinity floatPositiveZero) ∧
     floatIsNaN (floatApply policy .divide floatPositiveInfinity floatNegativeInfinity) ∧
     floatIsNaN (floatApply policy .add floatQuietNaN floatOne) := by
-  refine ⟨policy.chooses_nan _ _ _, policy.chooses_nan _ _ _, policy.chooses_nan _ _ _,
-    policy.chooses_nan _ _ _, policy.chooses_nan _ _ _⟩
+  refine ⟨(policy.chooses_quiet_nan _ _ _).1, (policy.chooses_quiet_nan _ _ _).1,
+    (policy.chooses_quiet_nan _ _ _).1, (policy.chooses_quiet_nan _ _ _).1,
+    (policy.chooses_quiet_nan _ _ _).1⟩
 
 theorem nan_payload_is_unconstrained :
     floatApply quietNaNPolicy .divide floatPositiveZero floatPositiveZero ≠
@@ -745,5 +981,84 @@ theorem cancellation_is_ieee_equal_to_negative_zero :
     decide
   rw [cancelled]
   exact ieee_signed_zeros_equal
+
+set_option maxRecDepth 10000 in
+theorem float_special_value_witnesses :
+    floatApply quietNaNPolicy .add floatLargest floatTwoPow970 = floatPositiveInfinity ∧
+    floatApply quietNaNPolicy .add floatLargest floatTwoPow969 = floatLargest ∧
+    floatApply quietNaNPolicy .divide floatPositiveInfinity floatPositiveZero =
+      floatPositiveInfinity ∧
+    floatApply quietNaNPolicy .divide floatPositiveZero floatNegativeInfinity =
+      floatNegativeZero ∧
+    floatApply quietNaNPolicy .multiply floatPositiveInfinity floatNegativeInfinity =
+      floatNegativeInfinity ∧
+    floatApply quietNaNPolicy .add floatNegativeInfinity floatNegativeInfinity =
+      floatNegativeInfinity ∧
+    floatApply quietNaNPolicy .subtract floatNegativeZero floatNegativeZero = floatPositiveZero ∧
+    floatApply quietNaNPolicy .multiply floatNegativeZero floatNegativeZero = floatPositiveZero := by
+  decide
+
+theorem signaling_nan_result_rejected :
+    ¬ FloatMeaning .divide floatPositiveZero floatPositiveZero floatSignalingNaN := by
+  unfold FloatMeaning
+  intro holds
+  have quiet := holds.2
+  revert quiet
+  decide
+
+theorem negation_witnesses :
+    floatNegate floatPositiveZero = floatNegativeZero ∧
+    floatNegate floatNegativeZero = floatPositiveZero ∧
+    floatApply quietNaNPolicy .subtract floatPositiveZero floatPositiveZero = floatPositiveZero ∧
+    floatNegate floatPositiveZero ≠
+      floatApply quietNaNPolicy .subtract floatPositiveZero floatPositiveZero ∧
+    floatNegate floatQuietNaN = floatNegativeQuietNaN ∧
+    floatNegate floatOne = floatNegativeOne ∧
+    floatNegate floatPositiveInfinity = floatNegativeInfinity := by
+  decide
+
+theorem subtraction_from_zero_negation_mutant_rejected :
+    ¬ ∀ operand, NegationMeaning operand
+      (floatApply quietNaNPolicy .subtract floatPositiveZero operand) := by
+  intro accepted
+  have unique := negation_meaning_unique floatPositiveZero (accepted floatPositiveZero)
+    (float_negate_meaning floatPositiveZero)
+  revert unique
+  decide
+
+theorem comparison_witnesses :
+    (∀ comparison : FloatComparison,
+      floatCompare comparison floatQuietNaN floatOne = false ∧
+      floatCompare comparison floatOne floatQuietNaN = false ∧
+      floatCompare comparison floatQuietNaN floatQuietNaN = false ∧
+      floatCompare comparison floatNegativeQuietNaN floatPositiveInfinity = false) ∧
+    floatCompare .less floatNegativeZero floatPositiveZero = false ∧
+    floatCompare .lessEqual floatNegativeZero floatPositiveZero = true ∧
+    floatCompare .greaterEqual floatNegativeZero floatPositiveZero = true ∧
+    floatCompare .greater floatPositiveZero floatNegativeZero = false ∧
+    floatCompare .less floatNegativeInfinity floatNegativeOne = true ∧
+    floatCompare .less floatNegativeOne floatNegativeZero = true ∧
+    floatCompare .less floatTenth floatFifth = true ∧
+    floatCompare .greater floatPositiveInfinity floatLargest = true ∧
+    floatCompare .lessEqual floatOne floatOne = true ∧
+    floatCompare .greater floatOne floatOne = false :=
+  ⟨fun comparison => by cases comparison <;> decide, by decide⟩
+
+def totalOrderCompare (comparison : FloatComparison) (left right : FloatBits) : Bool :=
+  match comparison with
+  | .less => decide (floatTotalKey left < floatTotalKey right)
+  | .lessEqual => decide (floatTotalKey left ≤ floatTotalKey right)
+  | .greater => decide (floatTotalKey right < floatTotalKey left)
+  | .greaterEqual => decide (floatTotalKey right ≤ floatTotalKey left)
+
+theorem total_order_comparison_mutant_rejected :
+    ¬ ∀ comparison left right,
+      ComparisonMeaning comparison left right (totalOrderCompare comparison left right) := by
+  intro accepted
+  have nanEqual := comparison_meaning_unique .lessEqual floatQuietNaN floatQuietNaN
+    (accepted .lessEqual floatQuietNaN floatQuietNaN)
+    (float_compare_meaning .lessEqual floatQuietNaN floatQuietNaN)
+  revert nanEqual
+  decide
 
 end Xsh.Values.FloatOps

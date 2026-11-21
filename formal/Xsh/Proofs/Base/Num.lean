@@ -15,8 +15,9 @@ def IntegerExact (exact : Int) : IntegerResult → Prop
   | .fault fault => fault = .overflow ∧ (exact < signed64Min ∨ signed64Limit ≤ exact)
 
 /-- The specified result of each checked integer operation on exact integers. Division and
-remainder truncate toward zero. A zero divisor has its own fault, and the minimum value divided by
-negative one overflows for both operations. -/
+remainder truncate toward zero. A zero divisor has its own fault. `%` fails with
+`integer-overflow` whenever `/` on the same operands would, so the minimum `Int` `% -1` fails
+rather than giving `0`. -/
 def ArithmeticMeaning : IntegerBinaryOp → IntValue → IntValue → IntegerResult → Prop
   | .add, left, right, result => IntegerExact (left.val + right.val) result
   | .subtract, left, right, result => IntegerExact (left.val - right.val) result
@@ -504,7 +505,10 @@ nearest finite binary64 value with ties to even, overflow to a signed infinity a
 overflow midpoint, keep the IEEE signed-zero and infinity rules, and return a NaN under every
 NaN-payload policy; the meaning determines every non-NaN result. `.float()` rounds an `Int` the
 same way. `.floor()`, `.ceil()` and `.round()` return the exact floor, ceiling and nearest integer
-with ties away from zero, and reject NaN, infinities and results outside `Int`. -/
+with ties away from zero, and reject NaN, infinities and results outside `Int`. Unary minus flips
+only the sign bit, the relational operators compare exact values and are false with a NaN, and
+`Duration / Duration`, `time.millis`, `time.seconds` and the non-negative bitset methods meet their
+rules. -/
 theorem numeric_semantics :
     IntegerDurationAndEqualityFacts ∧
     (∀ (policy : NaNPolicy) operator left right,
@@ -597,7 +601,101 @@ theorem numeric_semantics :
       FloatMeaning operator left right (unsignedZeroApply operator left right)) ∧
     (¬ ∀ operator left right,
       FloatMeaning operator left right (floatApplyWith floatPositiveZero operator left right)) ∧
-    (¬ ∀ bits, ToIntMeaning RoundAwayBound bits (floatRoundTiesEven bits)) :=
+    (¬ ∀ bits, ToIntMeaning RoundAwayBound bits (floatRoundTiesEven bits)) ∧
+    (floatApply quietNaNPolicy .add floatLargest floatTwoPow970 = floatPositiveInfinity ∧
+      floatApply quietNaNPolicy .add floatLargest floatTwoPow969 = floatLargest ∧
+      floatApply quietNaNPolicy .divide floatPositiveInfinity floatPositiveZero =
+        floatPositiveInfinity ∧
+      floatApply quietNaNPolicy .divide floatPositiveZero floatNegativeInfinity =
+        floatNegativeZero ∧
+      floatApply quietNaNPolicy .multiply floatPositiveInfinity floatNegativeInfinity =
+        floatNegativeInfinity ∧
+      floatApply quietNaNPolicy .add floatNegativeInfinity floatNegativeInfinity =
+        floatNegativeInfinity ∧
+      floatApply quietNaNPolicy .subtract floatNegativeZero floatNegativeZero =
+        floatPositiveZero ∧
+      floatApply quietNaNPolicy .multiply floatNegativeZero floatNegativeZero =
+        floatPositiveZero) ∧
+    ¬ FloatMeaning .divide floatPositiveZero floatPositiveZero floatSignalingNaN ∧
+    (∀ bits, NegationMeaning bits (floatNegate bits)) ∧
+    (∀ bits first second, NegationMeaning bits first → NegationMeaning bits second →
+      first = second) ∧
+    (∀ bits, floatClass (floatNegate bits) = (floatClass bits).negate) ∧
+    (floatNegate floatPositiveZero = floatNegativeZero ∧
+      floatNegate floatNegativeZero = floatPositiveZero ∧
+      floatApply quietNaNPolicy .subtract floatPositiveZero floatPositiveZero =
+        floatPositiveZero ∧
+      floatNegate floatPositiveZero ≠
+        floatApply quietNaNPolicy .subtract floatPositiveZero floatPositiveZero ∧
+      floatNegate floatQuietNaN = floatNegativeQuietNaN ∧
+      floatNegate floatOne = floatNegativeOne ∧
+      floatNegate floatPositiveInfinity = floatNegativeInfinity) ∧
+    (¬ ∀ operand, NegationMeaning operand
+      (floatApply quietNaNPolicy .subtract floatPositiveZero operand)) ∧
+    (∀ comparison left right,
+      ComparisonMeaning comparison left right (floatCompare comparison left right)) ∧
+    (∀ comparison left right first second, ComparisonMeaning comparison left right first →
+      ComparisonMeaning comparison left right second → first = second) ∧
+    ((∀ comparison : FloatComparison,
+        floatCompare comparison floatQuietNaN floatOne = false ∧
+        floatCompare comparison floatOne floatQuietNaN = false ∧
+        floatCompare comparison floatQuietNaN floatQuietNaN = false ∧
+        floatCompare comparison floatNegativeQuietNaN floatPositiveInfinity = false) ∧
+      floatCompare .less floatNegativeZero floatPositiveZero = false ∧
+      floatCompare .lessEqual floatNegativeZero floatPositiveZero = true ∧
+      floatCompare .greaterEqual floatNegativeZero floatPositiveZero = true ∧
+      floatCompare .greater floatPositiveZero floatNegativeZero = false ∧
+      floatCompare .less floatNegativeInfinity floatNegativeOne = true ∧
+      floatCompare .less floatNegativeOne floatNegativeZero = true ∧
+      floatCompare .less floatTenth floatFifth = true ∧
+      floatCompare .greater floatPositiveInfinity floatLargest = true ∧
+      floatCompare .lessEqual floatOne floatOne = true ∧
+      floatCompare .greater floatOne floatOne = false) ∧
+    (¬ ∀ comparison left right,
+      ComparisonMeaning comparison left right (totalOrderCompare comparison left right)) ∧
+    (∀ (numerator denominator : DurationValue) (count : IntValue),
+      DurationOps.ratio numerator denominator = .count count ↔
+        denominator.val ≠ 0 ∧
+          validateInt? (Int.ofNat (numerator.val / denominator.val)) = some count) ∧
+    (∀ numerator denominator : DurationValue, denominator.val = 0 →
+      DurationOps.ratio numerator denominator = .fault .nonpositiveDivisor) ∧
+    (∀ numerator denominator : DurationValue,
+      DurationOps.ratio numerator denominator = .fault .intervalOverflow ↔
+        denominator.val ≠ 0 ∧
+          validateInt? (Int.ofNat (numerator.val / denominator.val)) = none) ∧
+    DurationOps.ratio durationMax durationOne = .fault .intervalOverflow ∧
+    ((∀ count, count < 0 → DurationOps.timeMillis count = durationZero) ∧
+      (∀ count (_nonnegative : 0 ≤ count) (inRange : count.toNat < signed64Width),
+        DurationOps.timeMillis count = ⟨count.toNat, inRange⟩) ∧
+      (∀ count, 0 ≤ count → signed64Width ≤ count.toNat →
+        DurationOps.timeMillis count = durationMax) ∧
+      DurationOps.timeMillis (Int.ofNat signed64Width) = durationMax) ∧
+    ((∀ seconds, seconds < 0 → DurationOps.timeSeconds seconds = durationZero) ∧
+      (∀ seconds (_nonnegative : 0 ≤ seconds)
+          (_inRange : seconds.toNat * 1000 < signed64Width),
+        (DurationOps.timeSeconds seconds).val = seconds.toNat * 1000) ∧
+      (∀ seconds, 0 ≤ seconds → signed64Width ≤ seconds.toNat * 1000 →
+        DurationOps.timeSeconds seconds = durationMax) ∧
+      DurationOps.timeSeconds intMax.val = durationMax) ∧
+    (∀ operator value mask, BitsetMeaning operator value mask (applyBitset operator value mask)) ∧
+    (∀ operator value mask first second, BitsetMeaning operator value mask first →
+      BitsetMeaning operator value mask second → first = second) ∧
+    (applyBitset .bitAnd (⟨12, by decide⟩ : IntValue) ⟨10, by decide⟩ = .value ⟨8, by decide⟩ ∧
+      applyBitset .bitOr (⟨12, by decide⟩ : IntValue) ⟨10, by decide⟩ =
+        .value ⟨14, by decide⟩ ∧
+      applyBitset .clearBits (⟨12, by decide⟩ : IntValue) ⟨10, by decide⟩ =
+        .value ⟨4, by decide⟩ ∧
+      applyBitset .bitAnd intNegativeOne intOne = .negativeOperand ∧
+      applyBitset .clearBits intOne intNegativeOne = .negativeOperand ∧
+      applyBitset .bitOr intMax intZero = .value intMax) ∧
+    (¬ ∀ operator value mask,
+      BitsetMeaning operator value mask (bitsetOnMagnitudes operator value mask)) ∧
+    (¬ ∀ left right, ArithmeticMeaning .add left right (wrappingAddition left right)) ∧
+    (¬ ∀ left right, ArithmeticMeaning .divide left right (flooredDivision left right)) ∧
+    (¬ ∀ left right,
+      ArithmeticMeaning .remainder left right (remainderWithoutDivisionOverflow left right)) ∧
+    ArithmeticMeaning .remainder intMin intNegativeOne (.fault .overflow) ∧
+    (¬ ∀ left right, bitwiseFloatEquality left right = true ↔ ieeeFloatEq left right) :=
   ⟨base_num, float_apply_meaning,
     fun operator left right _ _ => float_meaning_determines_result operator left right,
     fun numerator denominator positive =>
@@ -618,6 +716,19 @@ theorem numeric_semantics :
     nan_payload_is_unconstrained, cancellation_is_ieee_equal_to_negative_zero,
     float_conversion_witnesses, ties_away_arithmetic_mutant_rejected,
     off_by_one_exponent_mutant_rejected, unsigned_zero_mutant_rejected,
-    non_nan_policy_mutant_rejected, ties_even_round_mutant_rejected⟩
+    non_nan_policy_mutant_rejected, ties_even_round_mutant_rejected,
+    float_special_value_witnesses, signaling_nan_result_rejected, float_negate_meaning,
+    fun bits _ _ => negation_meaning_unique bits, negation_negates_class, negation_witnesses,
+    subtraction_from_zero_negation_mutant_rejected, float_compare_meaning,
+    fun comparison left right _ _ => comparison_meaning_unique comparison left right,
+    comparison_witnesses, total_order_comparison_mutant_rejected,
+    DurationOps.ratio_returns_validated_count, DurationOps.ratio_rejects_zero_denominator,
+    DurationOps.ratio_overflow_iff_validator_rejects, DurationOps.duration_max_ratio_overflows_int,
+    DurationOps.time_millis_clamp_exact_saturation_laws,
+    DurationOps.time_seconds_clamp_exact_saturation_laws, apply_bitset_meaning,
+    fun operator value mask _ _ => bitset_meaning_unique operator value mask, bitset_witnesses,
+    magnitude_bitset_mutant_rejected, wrapping_addition_is_rejected, floored_division_is_rejected,
+    remainder_without_division_overflow_is_rejected, base_num_witness.2.1,
+    bitwise_float_equality_is_rejected⟩
 
 end Xsh.Proofs.Base.Num

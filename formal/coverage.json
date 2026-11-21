@@ -10682,7 +10682,7 @@
       "declaration": "Xsh.Values.FloatOps.float_apply_meaning",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Float addition, subtraction, multiplication and division on raw binary64 bits under every NaN-payload policy, with exact rational rounding, signed zeros, infinities and NaN.",
+      "scope": "Float addition, subtraction, multiplication and division on raw binary64 bits under every quiet-NaN policy, with exact rational rounding, signed zeros, infinities and NaN; Float negation, IEEE comparisons and Float conversions.",
       "boundary": "Proves the Lean Float model only; it claims no Rust or hardware conformance. BASE-NUM closes through Xsh.Proofs.Base.Num.numeric_semantics."
     },
     {
