@@ -745,7 +745,8 @@ for floating conversions, so rounding and hexadecimal representations vary by ta
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
-NaN, infinities, and out-of-range values. Float equality follows IEEE 754:
+NaN, infinities, and out-of-range values. `.round()` rounds a value halfway
+between two integers away from zero, so `2.5` gives `3` and `-2.5` gives `-3`. Float equality follows IEEE 754:
 positive and negative zero are equal, and NaN is unequal to every Float,
 including itself. Relational comparisons with NaN are false. Non-finite values
 display as `NaN`, `Infinity`, and `-Infinity`. Float is not a stream sort key;
