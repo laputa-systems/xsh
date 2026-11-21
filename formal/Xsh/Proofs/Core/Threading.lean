@@ -41,6 +41,18 @@ inductive Evaluable : Xsh.Syntax.Expr → Prop
       (∀ value, Xsh.Syntax.CallArgument.positional value ∈ arguments → Evaluable value) →
         Evaluable (.call (.ident name) arguments)
 
+/-- Every name `environment` resolves to a cell has its cell in `store`: the
+statement that declares it has run. -/
+def Initialized {world : World Declaration Identity Source} (environment : Environment) (store : Store world) : Prop :=
+  ∀ name cell, environment.cellOf name = .ok cell → store cell ≠ none
+
+/-- Every expression-bodied plain function's defining environment is
+initialized in `store`. -/
+def DefinitionsInitialized {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (store : Store world) : Prop :=
+  ∀ name defining parameters result,
+    context.functions name = some (defining, parameters, .expression result .plain) → Initialized defining store
+
 /-- The body of every expression-bodied plain function is evaluable. -/
 def BodiesEvaluable (context : Context Declaration Identity Source) : Prop :=
   ∀ name defining parameters result,
@@ -204,8 +216,10 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
     (inner : ∀ expression, Evaluable expression →
       reference frame.environment frame.locals expression ≠ .unsupported →
         recurse frame expression = fromEval frame (reference frame.environment frame.locals expression))
-    (calls : ∀ defining locals result, Evaluable result → reference defining locals result ≠ .unsupported →
-      callFunction defining locals (.expression result .plain) frame = fromEval frame (reference defining locals result))
+    (calls : ∀ name defining parameters locals result,
+      context.functions name = some (defining, parameters, .expression result .plain) → Evaluable result →
+        reference defining locals result ≠ .unsupported →
+          callFunction defining locals (.expression result .plain) frame = fromEval frame (reference defining locals result))
     (expression : Xsh.Syntax.Expr) (evaluable : Evaluable expression)
     (supported : step context frame.environment frame.store reference (fun _ _ _ _ => .unsupported) frame.locals
       expression ≠ .unsupported) :
@@ -283,7 +297,9 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
             | expression result kind =>
               cases kind with
               | result => exact absurd rfl evaluatedSupported
-              | plain => exact calls defining _ result (bodies name defining parameters result hf) evaluatedSupported
+              | plain =>
+                exact calls name defining parameters _ result hf (bodies name defining parameters result hf)
+                  evaluatedSupported
             | block statements kind => exact absurd rfl evaluatedSupported
           · simp only [same, ↓reduceIte]
             rfl
@@ -379,23 +395,24 @@ evaluable expression a meaning, the machine's frame-threading step gives the
 same result with the frame unchanged. -/
 theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : Machine world)
     (bodies : BodiesEvaluable machine.context) :
-    ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+    ∀ fuel (frame : Frame world) expression, frame.closures = [] → Initialized frame.environment frame.store →
+      DefinitionsInitialized machine.context frame.store → Evaluable expression →
       evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
         evalExpr machine fuel frame expression =
           fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)
-  | 0, _, _, _, _, _ => rfl
-  | fuel + 1, frame, expression, closureFree, evaluable, supported => by
+  | 0, _, _, _, _, _, _, _ => rfl
+  | fuel + 1, frame, expression, closureFree, initialized, definitions, evaluable, supported => by
     have agrees := threadStep_agrees machine.context frame
       (recurse := evalExpr machine fuel)
       (callFunction := callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel))
       (reference := fun environment locals => evaluate machine.context environment frame.store fuel locals) bodies
       (fun source evaluated sourceSupported =>
-        evalExpr_agrees machine bodies fuel frame source closureFree evaluated sourceSupported)
-      (fun defining locals result evaluated resultSupported => by
+        evalExpr_agrees machine bodies fuel frame source closureFree initialized definitions evaluated sourceSupported)
+      (fun name defining parameters locals result found evaluated resultSupported => by
         simp only [callFunctionWith]
         rw [evalExpr_agrees machine bodies fuel
           { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] }
-          result closureFree evaluated resultSupported]
+          result closureFree (definitions name defining parameters result found) definitions evaluated resultSupported]
         exact returnValue_fromEval frame
           { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] } rfl _)
       expression evaluable supported
@@ -413,7 +430,16 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
       cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr]
     | ident name =>
       simp only [evalExpr, closureFree, localClosure_none]
-      cases frame.locals.lookup name <;> rfl
+      cases frame.locals.lookup name with
+      | some _ => rfl
+      | none =>
+        cases resolved : frame.environment.cellOf name with
+        | error _ => rfl
+        | ok cell =>
+          dsimp only
+          cases held : frame.store cell with
+          | none => exact absurd held (initialized name cell resolved)
+          | some _ => rfl
     | _ => simp only [evalExpr]
 
 end Bridge
@@ -460,8 +486,9 @@ theorem closure_call_threads {world : World Declaration Identity Source} (machin
 /-- Store threading through the statement machine's expressions (SPEC 9.2: "A
 writable capture must refer to mutable storage with exactly that type";
 SPEC 1: "Evaluation order is source order"). On a frame without local
-functions, wherever `CoreEval.evaluate` gives an evaluable expression a
-meaning, the machine's step gives the same result with the frame unchanged,
+functions whose names, and those of every expression-bodied function's
+defining environment, are initialized, wherever `CoreEval.evaluate` gives an
+evaluable expression a meaning, the machine's step gives the same result with the frame unchanged,
 so the evaluator's operator, failure and typing results hold for the
 machine's values there. A finished expression result is the same at every
 fuel, and every result keeps the cells it started with at their types and
@@ -477,7 +504,8 @@ anywhere in an expression; and a call in statement position is the same
 evaluation. -/
 theorem expression_store_threading {world : World Declaration Identity Source} (machine : Machine world) :
     (BodiesEvaluable machine.context →
-      ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+      ∀ fuel (frame : Frame world) expression, frame.closures = [] → Initialized frame.environment frame.store →
+        DefinitionsInitialized machine.context frame.store → Evaluable expression →
         evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
           evalExpr machine fuel frame expression =
             fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)) ∧

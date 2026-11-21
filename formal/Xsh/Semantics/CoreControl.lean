@@ -58,6 +58,9 @@ structure Machine (world : World Declaration Identity Source) where
   parameters, given the parameters a call fills by position and the
   positional arguments it was given. -/
   argumentError : ArgumentFault → Nat → Nat → Value Declaration Identity Source
+  /-- The runtime error a callable raises when it reads a top-level binding
+  whose statement has not run yet (SPEC 3.1). -/
+  uninitialized : Xsh.Syntax.RawName → Value Declaration Identity Source
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -1208,9 +1211,17 @@ mutual
           | .listComp _ _ | .mapComp _ _ _ =>
         runValue machine fuel frame expression
       | .ident name =>
-        match frame.locals.lookup name, localClosure frame.closures frame.environment name with
-        | none, some (.mk cell callable _ _ _ _ _) => .value (.callable (machine.callableReference cell) callable) frame
-        | _, _ =>
+        match frame.locals.lookup name, localClosure frame.closures frame.environment name,
+            frame.environment.cellOf name with
+        | none, some (.mk cell callable _ _ _ _ _), _ =>
+          .value (.callable (machine.callableReference cell) callable) frame
+        | none, none, .ok cell =>
+          match frame.store cell with
+          | none => .exec (.failed (.runtime (machine.uninitialized name)) frame)
+          | some _ =>
+            threadStep machine.context (evalExpr machine fuel)
+              (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+        | _, _, _ =>
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
             expression
       | .call (.field receiver method) arguments =>
@@ -1703,5 +1714,62 @@ mutual
                   | _ => .unsupported
             | other => leaveBlock machine fuel frame other
 end
+
+/-- The functions a script declares at its top level. -/
+def hoistedNames : List Xsh.Syntax.Statement → List Xsh.Syntax.RawName
+  | [] => []
+  | .functionDef kind name _ _ _ _ _ _ :: rest =>
+    if (callableKind kind).isSome then name :: hoistedNames rest else hoistedNames rest
+  | _ :: rest => hoistedNames rest
+
+/-- Bind each hoisted function's name, as its declaration will. -/
+def hoistNames {world : World Declaration Identity Source} (machine : Machine world) (activation : Nat) :
+    Environment → List Xsh.Syntax.RawName → Option Environment
+  | environment, [] => some environment
+  | environment, name :: rest =>
+    match (machine.namesAt activation).declaration environment name with
+    | some (binder, cell, _) => hoistNames machine activation (extend environment [(name, binder, cell)]) rest
+    | none => none
+
+/-- Each top-level function's closure before any statement runs: over the
+environment at its declaration, which holds the top-level bindings declared
+before it, with the `var`s among them writable. -/
+def hoistClosures {world : World Declaration Identity Source} (machine : Machine world) (activation : Nat) :
+    Environment → List CellId → List (CellId × Closure) → List Xsh.Syntax.Statement → Option (List (CellId × Closure))
+  | _, _, closures, [] => some closures
+  | environment, mutable, closures, .binding kind target _ _ :: rest =>
+    match resolveTarget (machine.namesAt activation) environment target with
+    | some (_, declared) =>
+      hoistClosures machine activation (extend environment declared)
+        (if kind = .var then mutable ++ declared.map fun entry => entry.2.2 else mutable) closures rest
+    | none => none
+  | environment, mutable, closures, .functionDef kind name parameters _ result body _ _ :: rest =>
+    match callableKind kind, (machine.namesAt activation).declaration environment name with
+    | some callable, some (binder, cell, _) =>
+      hoistClosures machine activation (extend environment [(name, binder, cell)]) mutable
+        ((cell, .mk cell callable (extend environment [(name, binder, cell)]) closures
+          ((captureNames (parameterNames parameters) body).filterMap fun captured =>
+            match (extend environment [(name, binder, cell)]).cellOf captured with
+            | .ok found => if mutable.contains found then some found else none
+            | .error _ => none)
+          parameters (.block body (returnKindOf machine result))) :: closures) rest
+    | _, _ => hoistClosures machine activation environment mutable closures rest
+  | environment, mutable, closures, _ :: rest => hoistClosures machine activation environment mutable closures rest
+
+/-- A script's frame with its top-level functions hoisted (SPEC 3.1:
+"Declarations are visible throughout their script or module, including the
+statements before them"). -/
+def hoist {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (body : List Xsh.Syntax.Statement) : Option (Frame world) :=
+  (hoistNames machine frame.activation frame.environment (hoistedNames body)).bind fun environment =>
+    (hoistClosures machine frame.activation environment [] frame.closures body).map fun closures =>
+      { frame with environment, locals := hide (hoistedNames body) frame.locals, closures }
+
+/-- A script: its top-level functions hoisted, then its statements in order. -/
+def runScript {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (body : List Xsh.Syntax.Statement) : Exec world :=
+  match hoist machine frame body with
+  | some hoisted => runStatements machine fuel hoisted body
+  | none => .internal .malformedTarget frame
 
 end Xsh.Semantics.CoreControl

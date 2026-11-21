@@ -1227,6 +1227,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
   simp only [evalExpr]
   repeat' (first
     | exact vkeeps_value _ (persists_refl _)
+    | exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
     | exact vkeeps_exec fun _ present => by cases present
     | exact fromEval_persists _ _
     | exact inner.value _ _
@@ -3207,6 +3208,7 @@ def machine : Machine witnessWorld where
       .scalar (.string ("expected " ++ toString expected ++ " arguments, found " ++ toString found))
     | .unknownName label => .scalar (.string ("unknown argument " ++ label))
     | .duplicate label => .scalar (.string ("argument " ++ label ++ " supplied twice"))
+  uninitialized := fun _ => .scalar (.string "unknown captured name")
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 

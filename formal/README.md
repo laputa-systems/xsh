@@ -418,8 +418,8 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: calls of a top-level function before its declaration,
-which Rust allows (P); `.Variant` constructors, which need a leading-dot
+Writes and values: mutual calls between hoisted top-level functions, and
+stream and enum declarations used above their line (P); `.Variant` constructors, which need a leading-dot
 syntax form and the checker's expected type (P).
 
 Binders: declared types still come from the resolution oracle (P); the
@@ -514,10 +514,7 @@ count }; let fns = [bump]` and give `fns[0].call()?` as `1`, then `2`, with
 `count = 2` (the verification binary prints the same), call `bump` through a
 record and through a `twice(action)` parameter, and call a pure `double` for
 `14`; a call that snapshots the store when the value is made gives `[1, 1]`
-and is rejected, and a `proc` declared in a block is refused. Rust also lets a
-top-level proc be called before its declaration, and reading a `var` not yet
-declared that way is a runtime `unknown captured name`; the SPEC's in-order
-rule does not say so, and the machine does not model it.
+and is rejected, and a `proc` declared in a block is refused. Calls before a declaration are `declaration_hoisting`'s.
 
 The `declared_constructors` fragment root, in
 [`Proofs/Core/Constructors.lean`](Xsh/Proofs/Core/Constructors.lean), covers
@@ -565,6 +562,25 @@ captures bound in a fresh scope and comprehension and `for` targets declare
 their names in a new innermost static scope, and a bound body's statements
 carry `Represents` from there. A pass that declares captures in the enclosing
 scope is rejected.
+
+The `declaration_hoisting` fragment root, in
+[`Proofs/Core/Hoisting.lean`](Xsh/Proofs/Core/Hoisting.lean), models SPEC 3.1
+hoisting ("Declarations are visible throughout their script or module,
+including the statements before them"). `runScript` binds a script's
+top-level functions before any statement runs, each closure over the
+environment at its declaration with the earlier top-level `var`s writable, so
+a binding declared after a callable stays unresolved in its body, and reading
+a captured top-level binding whose statement has not run is a runtime failure
+(`unknown captured name`) that `try` does not capture. The witnesses follow
+`tests/xsh/declaration-hoisting.xsh` on the verification binary: `early()`,
+`double(7)` and `Point(x: 1).y` above their declarations give `1`, `14` and
+`7`, `read()` before `var count` fails, and a `count` declared after `read`
+stays unresolved; a hoisted `bump` writes `count`. An unhoisted machine and
+mutants that read the uninitialized binding as stuck or as a default value
+are rejected. Because an uninitialized read is now a failure rather than
+stuck, `expression_store_threading`'s bridge assumes the frame's resolved
+names, and those of every expression-bodied function's defining environment,
+are initialized.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the
