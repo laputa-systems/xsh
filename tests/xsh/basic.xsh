@@ -52,6 +52,15 @@ value /= 0
   )?
   assert ! division.success, division.stderr
   assert "division-by-zero" in division.stderr
+
+  let remainder = test.run_script(
+    ctx,
+    """var value: Int = 0 - 9223372036854775807 - 1
+value %= 0 - 1
+""",
+  )?
+  assert ! remainder.success, remainder.stderr
+  assert "integer-overflow" in remainder.stderr
 }
 
 pure negated_floats(values: List[Float]) -> List[Float] {
