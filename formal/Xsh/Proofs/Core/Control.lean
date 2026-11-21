@@ -71,8 +71,129 @@ theorem fromResult_refines {world : World Declaration Identity Source} (frame : 
     | value value => exact tail value
     | _ => exact Or.inr rfl
 
-theorem bodyValue_refines {world : World Declaration Identity Source} {first second : Exec world}
-    (head : Exec.Refines first second) : Refines (bodyValue first) (bodyValue second) := by
+theorem boundary_refines {world : World Declaration Identity Source} (kind : ReturnKind) {first second : Exec world}
+    (head : Exec.Refines first second) : Refines (boundary kind first) (boundary kind second) := by
+  rcases head with out | same
+  · subst out
+    cases kind <;> exact Or.inl rfl
+  · subst same
+    exact Or.inr rfl
+
+def Valued.Refines {world : World Declaration Identity Source} (first second : Valued world) : Prop :=
+  first = .exec .outOfFuel ∨ first = second
+
+theorem valued_refl {world : World Declaration Identity Source} (outcome : Valued world) :
+    Valued.Refines outcome outcome := Or.inr rfl
+
+theorem valued_bind_refines {world : World Declaration Identity Source} {first second : Valued world}
+    {next next' : Value Declaration Identity Source → Frame world → Valued world} (head : Valued.Refines first second)
+    (tail : ∀ value frame, Valued.Refines (next value frame) (next' value frame)) :
+    Valued.Refines (first.bind next) (second.bind next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value value frame => exact tail value frame
+    | exec _ => exact Or.inr rfl
+
+theorem toExec_refines {world : World Declaration Identity Source} {first second : Valued world}
+    {next next' : Value Declaration Identity Source → Frame world → Exec world} (head : Valued.Refines first second)
+    (tail : ∀ value frame, Exec.Refines (next value frame) (next' value frame)) :
+    Exec.Refines (first.toExec next) (second.toExec next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value value frame => exact tail value frame
+    | exec _ => exact Or.inr rfl
+
+theorem thenValued_refines {world : World Declaration Identity Source} {first second : Exec world}
+    {next next' : Frame world → Valued world} (head : Exec.Refines first second)
+    (tail : ∀ frame, Valued.Refines (next frame) (next' frame)) :
+    Valued.Refines (first.thenValued next) (second.thenValued next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | normal frame => exact tail frame
+    | _ => exact Or.inr rfl
+
+theorem resultThen_refines {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    {first second : Result Declaration Identity Source α} {next next' : α → Valued world}
+    (head : Refines first second) (tail : ∀ result, Valued.Refines (next result) (next' result)) :
+    Valued.Refines (resultThen frame first next) (resultThen frame second next') := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value result => exact tail result
+    | _ => exact Or.inr rfl
+
+theorem fromEval_refines {world : World Declaration Identity Source} (frame : Frame world)
+    {first second : Result Declaration Identity Source (Value Declaration Identity Source)}
+    (head : Refines first second) : Valued.Refines (fromEval frame first) (fromEval frame second) :=
+  resultThen_refines frame head fun _ => valued_refl _
+
+theorem settle_refines {world : World Declaration Identity Source} {leave leave' : Exec world → Exec world}
+    (leaving : ∀ first second, Exec.Refines first second → Exec.Refines (leave first) (leave' second))
+    (leaveOut : leave .outOfFuel = .outOfFuel) {first second : Valued world} (head : Valued.Refines first second) :
+    Valued.Refines (settle leave first) (settle leave' second) := by
+  rcases head with out | same
+  · subst out
+    simp only [settle, leaveOut]
+    exact Or.inl rfl
+  · subst same
+    cases first with
+    | value result inner =>
+      simp only [settle]
+      rcases leaving (.normal inner) (.normal inner) (exec_refl _) with out | same
+      · rw [out]
+        exact Or.inl rfl
+      · rw [← same]
+        exact valued_refl _
+    | exec other =>
+      simp only [settle]
+      rcases leaving other other (exec_refl _) with out | same
+      · rw [out]
+        exact Or.inl rfl
+      · rw [← same]
+        exact valued_refl _
+
+theorem capture_refines {world : World Declaration Identity Source} {first second : Valued world}
+    (head : Valued.Refines first second) : Valued.Refines (capture first) (capture second) := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    exact valued_refl _
+
+theorem retryStep_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (pattern : Option Xsh.Syntax.Pattern) (delays : List (Value Declaration Identity Source))
+    {next next' : Frame world → List (Value Declaration Identity Source) → Valued world}
+    (tail : ∀ frame rest, Valued.Refines (next frame rest) (next' frame rest)) {first second : Valued world}
+    (head : Valued.Refines first second) :
+    Valued.Refines (retryStep context pattern delays next first) (retryStep context pattern delays next' second) := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    unfold retryStep
+    split
+    · exact valued_refl _
+    · split
+      · split
+        · exact tail _ _
+        · exact valued_refl _
+      · exact valued_refl _
+      · exact valued_refl _
+    · exact valued_refl _
+
+theorem valuedResult_refines {world : World Declaration Identity Source} {first second : Valued world}
+    (head : Valued.Refines first second) : Refines (valuedResult first) (valuedResult second) := by
   rcases head with out | same
   · subst out
     exact Or.inl rfl
@@ -88,9 +209,15 @@ structure Refining {world : World Declaration Identity Source} (machine : Machin
   expr : ∀ activation store environment locals expression,
     Refines (evalExpr machine fuel activation store environment locals expression)
       (evalExpr machine bigger activation store environment locals expression)
-  call : ∀ activation store environment locals body,
-    Refines (callBlock machine fuel activation store environment locals body)
-      (callBlock machine bigger activation store environment locals body)
+  call : ∀ activation store environment locals body kind,
+    Refines (callBlock machine fuel activation store environment locals body kind)
+      (callBlock machine bigger activation store environment locals body kind)
+  value : ∀ frame expression, Valued.Refines (runValue machine fuel frame expression) (runValue machine bigger frame expression)
+  scope : ∀ frame body, Valued.Refines (valueScope machine fuel frame body) (valueScope machine bigger frame body)
+  valueTail : ∀ frame body,
+    Valued.Refines (runValueTail machine fuel frame body) (runValueTail machine bigger frame body)
+  retries : ∀ frame pattern body delays,
+    Valued.Refines (retryLoop machine fuel frame pattern body delays) (retryLoop machine bigger frame pattern body delays)
   leaves : ∀ outer first second, Exec.Refines first second →
     Exec.Refines (leaveBlock machine fuel outer first) (leaveBlock machine bigger outer second)
   deferreds : ∀ status actions,
@@ -132,7 +259,20 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.loops _ _
   | exact inner.arms _ _ _
   | exact inner.tail _ _
+  | exact inner.value _ _
+  | exact inner.scope _ _
+  | exact inner.valueTail _ _
+  | exact inner.retries _ _ _ _
+  | exact valued_refl _
   | refine fromResult_refines _ (inner.expr _ _ _ _ _) fun _ => ?_
+  | refine toExec_refines ?_ fun _ _ => ?_
+  | refine thenValued_refines ?_ fun _ => ?_
+  | refine valued_bind_refines ?_ fun _ _ => ?_
+  | refine resultThen_refines _ (evaluateAll_refines (inner.expr _ _ _ _) _) fun _ => ?_
+  | exact fromEval_refines _ (inner.expr _ _ _ _ _)
+  | refine capture_refines ?_
+  | refine retryStep_refines _ _ _ (fun _ _ => inner.retries _ _ _ _) ?_
+  | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
   | refine iterate_refines ?_ fun _ => ?_
@@ -149,11 +289,23 @@ theorem runDeferred_outOfFuel {world : World Declaration Identity Source} (machi
     · exact runDeferred_outOfFuel machine fuel rest
     · rfl
 
+theorem leaveBlock_outOfFuel {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ fuel (outer : Frame world), leaveBlock machine fuel outer .outOfFuel = .outOfFuel
+  | 0, _ => by simp [leaveBlock]
+  | fuel + 1, outer => by
+    show withinScope outer (runDeferred machine fuel .outOfFuel []) = .outOfFuel
+    rw [runDeferred_outOfFuel]
+    rfl
+
 theorem refining {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel extra, Refining machine fuel (fuel + extra)
   | 0, _ => {
       expr := fun _ _ _ _ _ => Or.inl (by simp [evalExpr])
-      call := fun _ _ _ _ _ => Or.inl (by simp [callBlock])
+      call := fun _ _ _ _ _ kind => Or.inl (by cases kind <;> simp [callBlock])
+      value := fun _ _ => Or.inl (by simp [runValue])
+      scope := fun _ _ => Or.inl (by simp [valueScope])
+      valueTail := fun _ _ => Or.inl (by simp [runValueTail])
+      retries := fun _ _ _ _ => Or.inl (by simp [retryLoop])
       leaves := fun _ _ _ _ => Or.inl (by simp [leaveBlock])
       deferreds := fun _ _ => Or.inl (by simp [runDeferred])
       body := fun _ _ => Or.inl (by simp [runBody])
@@ -173,11 +325,22 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
     exact {
       expr := fun activation store environment locals expression => by
         simp only [evalExpr]
-        exact step_refines machine.context environment store (inner.expr activation store)
-          (inner.call (activation + machine.activationStep) store) locals expression
-      call := fun activation store environment locals body => by
+        split
+        · exact bind_refines (inner.expr _ _ _ _ _) fun _ => refines_refl _
+        · refine bind_refines (inner.expr _ _ _ _ _) fun _ => ?_
+          split <;> exact refines_refl _
+        · exact valuedResult_refines (inner.value _ _)
+        · exact valuedResult_refines (inner.value _ _)
+        · exact valuedResult_refines (inner.value _ _)
+        · exact step_refines machine.context environment store (inner.expr activation store)
+            (inner.call (activation + machine.activationStep) store) locals expression
+      call := fun activation store environment locals body kind => by
         simp only [callBlock]
-        exact bodyValue_refines (inner.body _ _)
+        exact boundary_refines kind (inner.body _ _)
+      value := fun frame expression => by simp only [runValue]; close_refines
+      scope := fun frame body => by simp only [valueScope]; close_refines
+      valueTail := fun frame body => by simp only [runValueTail]; close_refines
+      retries := fun frame pattern body delays => by simp only [retryLoop]; close_refines
       leaves := fun outer first second refined => by
         simp only [leaveBlock]
         rcases refined with out | same
@@ -291,6 +454,118 @@ theorem self_persists {world : World Declaration Identity Source} (frame : Frame
   rw [same last present]
   exact persists_refl _
 
+/-- A value keeps the cells of `before` in the frame it leaves, an outcome in
+every frame it carries. -/
+def VKeeps {world : World Declaration Identity Source} (before : Store world) : Valued world → Prop
+  | .value _ frame => Persists before frame.store
+  | .exec outcome => Keeps before outcome
+
+theorem vkeeps_exec {world : World Declaration Identity Source} {before : Store world} {outcome : Exec world}
+    (kept : Keeps before outcome) : VKeeps before (.exec outcome) := kept
+
+theorem vkeeps_value {world : World Declaration Identity Source} {before : Store world}
+    (value : Value Declaration Identity Source) {frame : Frame world} (kept : Persists before frame.store) :
+    VKeeps before (.value value frame) := kept
+
+theorem toExec_persists {world : World Declaration Identity Source} {before : Store world} {first : Valued world}
+    {next : Value Declaration Identity Source → Frame world → Exec world} (head : VKeeps before first)
+    (tail : ∀ value frame, Keeps frame.store (next value frame)) : Keeps before (first.toExec next) := by
+  cases first with
+  | value value frame =>
+    intro last present
+    exact persists_trans head (tail value frame last present)
+  | exec outcome => exact head
+
+theorem thenValued_persists {world : World Declaration Identity Source} {before : Store world} {first : Exec world}
+    {next : Frame world → Valued world} (head : Keeps before first)
+    (tail : ∀ frame, VKeeps frame.store (next frame)) : VKeeps before (first.thenValued next) := by
+  cases first with
+  | normal frame =>
+    have reached := head frame rfl
+    have later := tail frame
+    simp only [Exec.thenValued]
+    cases result : next frame with
+    | value value last => rw [result] at later; exact persists_trans reached later
+    | exec outcome =>
+      rw [result] at later
+      intro final present
+      exact persists_trans reached (later final present)
+  | _ => exact head
+
+theorem vbind_persists {world : World Declaration Identity Source} {before : Store world} {first : Valued world}
+    {next : Value Declaration Identity Source → Frame world → Valued world} (head : VKeeps before first)
+    (tail : ∀ value frame, VKeeps frame.store (next value frame)) : VKeeps before (first.bind next) := by
+  cases first with
+  | value value frame =>
+    have later := tail value frame
+    simp only [Valued.bind]
+    cases result : next value frame with
+    | value result last => rw [result] at later; exact persists_trans head later
+    | exec outcome =>
+      rw [result] at later
+      intro final present
+      exact persists_trans head (later final present)
+  | exec outcome => exact head
+
+theorem resultThen_persists {world : World Declaration Identity Source} {α : Type} (frame : Frame world)
+    (result : Result Declaration Identity Source α) {next : α → Valued world}
+    (tail : ∀ result, VKeeps frame.store (next result)) : VKeeps frame.store (resultThen frame result next) := by
+  cases result with
+  | value result => exact tail result
+  | failure failure => intro last present; cases present; exact persists_refl _
+  | _ => intro last present; cases present
+
+theorem fromEval_persists {world : World Declaration Identity Source} (frame : Frame world)
+    (result : Result Declaration Identity Source (Value Declaration Identity Source)) :
+    VKeeps frame.store (fromEval frame result) :=
+  resultThen_persists frame result fun _ => persists_refl _
+
+theorem settle_persists {world : World Declaration Identity Source} {before : Store world}
+    {leave : Exec world → Exec world} (leaving : ∀ outcome, Keeps before outcome → Keeps before (leave outcome))
+    {first : Valued world} (head : VKeeps before first) : VKeeps before (settle leave first) := by
+  cases first with
+  | value result inner =>
+    have left := leaving (.normal inner) (fun last present => by cases present; exact head)
+    simp only [settle]
+    cases result : leave (.normal inner) with
+    | normal outer => rw [result] at left; exact left outer rfl
+    | _ => rw [result] at left; exact left
+  | exec other => exact leaving other head
+
+theorem capture_persists {world : World Declaration Identity Source} {before : Store world} {first : Valued world}
+    (head : VKeeps before first) : VKeeps before (capture first) := by
+  unfold Xsh.Semantics.CoreControl.capture
+  split
+  · exact head
+  · exact head _ rfl
+  · exact head
+
+theorem retryStep_persists {world : World Declaration Identity Source} {before : Store world}
+    (context : Context Declaration Identity Source) (pattern : Option Xsh.Syntax.Pattern)
+    (delays : List (Value Declaration Identity Source))
+    {next : Frame world → List (Value Declaration Identity Source) → Valued world}
+    (tail : ∀ frame rest, VKeeps frame.store (next frame rest)) {first : Valued world}
+    (head : VKeeps before first) : VKeeps before (retryStep context pattern delays next first) := by
+  unfold retryStep
+  split
+  · exact head
+  · rename_i error after
+    have reached : Persists before after.store := head after rfl
+    split
+    · split
+      · rename_i delay rest
+        have later := tail { after with waited := after.waited ++ [delay] } rest
+        cases result : next { after with waited := after.waited ++ [delay] } rest with
+        | value result last => rw [result] at later; exact persists_trans reached later
+        | exec outcome =>
+          rw [result] at later
+          intro final present
+          exact persists_trans reached (later final present)
+      · exact reached
+    · exact reached
+    · intro last present; cases present
+  · exact head
+
 theorem withStore_keeps {world : World Declaration Identity Source} {before store : Store world}
     (kept : Persists before store) (status : Exec world) : Keeps before (status.withStore store) := by
   cases status <;> (intro last present; cases present <;> exact kept)
@@ -386,6 +661,10 @@ theorem bindTarget_entered {world : World Declaration Identity Source} (machine 
 /-- The statement functions at `fuel` keep every cell of the frame they start
 from. -/
 structure Persisting {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  value : ∀ frame expression, VKeeps frame.store (runValue machine fuel frame expression)
+  scope : ∀ frame body, VKeeps frame.store (valueScope machine fuel frame body)
+  valueTail : ∀ frame body, VKeeps frame.store (runValueTail machine fuel frame body)
+  retries : ∀ frame pattern body delays, VKeeps frame.store (retryLoop machine fuel frame pattern body delays)
   leaves : ∀ outer inner, Keeps outer.store inner → Keeps outer.store (leaveBlock machine fuel outer inner)
   deferreds : ∀ before status actions, Keeps before status → Keeps before (runDeferred machine fuel status actions)
   statements : ∀ frame statements, Keeps frame.store (runStatements machine fuel frame statements)
@@ -413,10 +692,24 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.arms _ _ _
   | exact bindTarget_persists _ _ _ _ _
   | exact fromStep_persists _ _ _ _ (assignPath_persists _ _ _ _ _ _ _ _ _)
+  | exact vkeeps_value _ (persists_refl _)
   | exact fun _ present => by cases present <;> exact persists_refl _
   | exact bindCaptures_entered _ _ _
   | exact bindTarget_entered _ _ _ _ _
+  | exact inner.value _ _
+  | exact inner.scope _ _
+  | exact inner.valueTail _ _
+  | exact inner.retries _ _ _ _
+  | exact fromEval_persists _ _
   | refine fromResult_persists _ _ fun _ => ?_
+  | refine toExec_persists ?_ fun _ _ => ?_
+  | refine thenValued_persists ?_ fun _ => ?_
+  | refine vbind_persists ?_ fun _ _ => ?_
+  | refine resultThen_persists _ _ fun _ => ?_
+  | refine capture_persists ?_
+  | refine retryStep_persists _ _ _ (fun _ _ => inner.retries _ _ _ _) ?_
+  | refine settle_persists (inner.leaves _) ?_
+  | exact vkeeps_exec fun _ present => by cases present
   | refine inner.leaves _ _ ?_
   | refine andThen_persists ?_ fun _ => ?_
   | refine iterate_persists ?_ fun _ => ?_
@@ -426,6 +719,10 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
+      value := fun _ _ => by simp only [runValue]; exact fun _ present => by cases present
+      scope := fun _ _ => by simp only [valueScope]; exact fun _ present => by cases present
+      valueTail := fun _ _ => by simp only [runValueTail]; exact fun _ present => by cases present
+      retries := fun _ _ _ _ => by simp only [retryLoop]; exact fun _ present => by cases present
       leaves := fun _ _ _ => by simp only [leaveBlock]; exact fun _ present => by cases present
       deferreds := fun _ _ _ _ => by simp only [runDeferred]; exact fun _ present => by cases present
       statements := fun _ _ => by simp only [runStatements]; exact fun _ present => by cases present
@@ -440,6 +737,10 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
+      value := fun frame expression => by simp only [runValue]; close_persists
+      scope := fun frame body => by simp only [valueScope]; close_persists
+      valueTail := fun frame body => by simp only [runValueTail]; close_persists
+      retries := fun frame pattern body delays => by simp only [retryLoop]; close_persists
       leaves := fun outer innerOutcome kept => by
         simp only [leaveBlock]
         exact withinScope_persists outer (inner.deferreds _ _ _ kept)
@@ -914,9 +1215,9 @@ theorem primary_stays {world : World Declaration Identity Source} (machine : Mac
 declared name's cell is its binder in the current activation. -/
 theorem call_activation {world : World Declaration Identity Source} (machine : Machine world) (fuel activation : Nat)
     (store : Store world) (defining : Environment) (parameters : Locals Declaration Identity Source)
-    (body : List Xsh.Syntax.Statement) (environment : Environment) (declared : Xsh.Syntax.RawName) :
-    callBlock machine (fuel + 1) activation store defining parameters body =
-      bodyValue (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], []⟩ body) ∧
+    (body : List Xsh.Syntax.Statement) (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
+    callBlock machine (fuel + 1) activation store defining parameters body kind =
+      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body) ∧
     (machine.namesAt activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found => (found.1, ⟨activation, found.1⟩, found.2.2) :=
   ⟨rfl, rfl⟩
@@ -1131,9 +1432,9 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
       ∀ status : Exec world, frameOf status ≠ none → exitsWithError (cleanupFailed failure store status) = true) ∧
     (∀ fuel primary (frame : Frame world) actions failure last,
       runDeferred machine fuel (.failed primary frame) actions = .failed failure last → failure = primary) ∧
-    (∀ fuel activation store defining parameters body environment declared,
-      callBlock machine (fuel + 1) activation store defining parameters body =
-        bodyValue (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], []⟩ body) ∧
+    (∀ fuel activation store defining parameters body kind environment declared,
+      callBlock machine (fuel + 1) activation store defining parameters body kind =
+        boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body) ∧
       (machine.namesAt activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
           (found.1, ⟨activation, found.1⟩, found.2.2)) ∧
@@ -1156,8 +1457,8 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     unwind_cleanup_fails machine,
     cleanup_precedence,
     primary_stays machine,
-    fun fuel activation store defining parameters body environment declared =>
-      call_activation machine fuel activation store defining parameters body environment declared,
+    fun fuel activation store defining parameters body kind environment declared =>
+      call_activation machine fuel activation store defining parameters body kind environment declared,
     callee_cells_fresh,
     callee_cannot_write_caller machine,
     body_cells_dropped machine⟩
@@ -1191,18 +1492,18 @@ def program : Context Unit Unit Unit :=
     functions := fun called =>
       if called = gName then
         some (⟨emptyLexicalEnvironment, []⟩, [],
-          .block [.forStmt (.name iName) (.list [int "1", int "2"]) [.returnValue (some (ident iName))], .expression (int "7")])
+          .block [.forStmt (.name iName) (.list [int "1", int "2"]) [.returnValue (some (ident iName))], .expression (int "7")] .plain)
       else if called = sumName then
         some (⟨emptyLexicalEnvironment, []⟩, [nName],
           .block [.binding .var (.name accName) none (ident nName),
             .ifStmt [(.binary .eq (ident nName) (int "0"), [.returnValue (some (int "0"))])] none,
             .assign (.name accName) .add (.call (ident sumName) [.positional (.binary .sub (ident nName) (int "1"))]),
-            .expression (ident accName)])
+            .expression (ident accName)] .plain)
       else if called = fName then
         some (⟨emptyLexicalEnvironment, []⟩, [],
           .block [.binding .var (.name xName) none (int "1"),
             .defer .exit (.valueBlock [.assign (.name xName) .set (int "2")]),
-            .returnValue (some (ident xName))])
+            .returnValue (some (ident xName))] .plain)
       else none }
 
 /-- The checker's resolution in these programs: one binder per name and scope
@@ -1224,8 +1525,9 @@ def machine : Machine witnessWorld where
   resolution := resolution
   assertion := fun message => message.getD (.scalar (.string "assertion"))
   activationStep := 1
+  conversion := fun _ _ => none
 
-def start : Frame witnessWorld := ⟨⟨emptyLexicalEnvironment, []⟩, fun _ => none, [], [], none, 0, [], []⟩
+def start : Frame witnessWorld := ⟨⟨emptyLexicalEnvironment, []⟩, fun _ => none, [], [], none, 0, [], [], []⟩
 
 def run (body : List Xsh.Syntax.Statement) : Exec witnessWorld := runStatements machine 40 start body
 
