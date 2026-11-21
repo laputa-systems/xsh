@@ -600,7 +600,7 @@ break an otherwise valid inclusion when replaced by an unknown contract.
 Source typing must establish the condition before using a substitution law.
 Restricted-call permission keeps its separate known-bound rule.
 The proof covers the shared effect domain, not source admission or Rust
-conformance. EFF-LATTICE and all other universal obligations remain planned.
+conformance. It closes no universal obligation.
 
 [`check-inventory.py`](scripts/check-inventory.py) and its
 [tests](tests/inventory/test_check_inventory.py) validate inventory structure,
