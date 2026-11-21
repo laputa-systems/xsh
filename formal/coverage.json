@@ -15126,6 +15126,33 @@
       "boundary": "Takes the name table's spellings, BASE-STEP expression and index evaluation, the checker's binder, cell and type for each declared name, and argv conversion as oracles. for, guard let, match and if-let pattern bindings, comprehension and retry targets, with, resource and tempdir scope bindings, function parameter binding at call, use aliases, declaration names and captures have no meaning here, and nested statement bodies belong to the control machine. It does not close BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "module": "Xsh.Proofs.Core.Eval",
+      "declaration": "Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded evaluator for Syntax.Core literals, names through locals and Environment.cellOf, list and named-field record literals, field reads, list, map and record indexing where a negative literal index is BASE-NUM negation and counts from the end of a List only (so -0 is 0 and a map gets the negative key), not and negation, short-circuit and/or, Int, Float, Duration (including Int * Duration), Str and Bool operators, list +, if/else and positional calls of let-free functions whose bodies evaluate in their defining environment: results agree at every fuel that finishes, every failure is a runtime failure, binary operators evaluate left then right, and the operator results are BASE-NUM's ArithmeticMeaning, FloatMeaning, ComparisonMeaning, IEEE equality, IntegerExact and NegationMeaning, the DurationOps results in both scaling orders and list concatenate.",
+      "boundary": "Literal lexeme interpretation, runtime error values, the NaN policy and the let-free functions are parameters. Method calls (so IntToFloatMeaning, ToIntMeaning and BitsetMeaning), UInt arithmetic, ?, try and raised failures, ??, in, sets, guarded ?. and ?[], slices, map literals, record spread, shorthand, computed and path fields, comprehensions, pipelines, closures, named, spread and splice arguments and defaults, collection equality, host requests and the Map[UInt] key Schema failure have no meaning here. It does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalTyping.preservation",
+      "module": "Xsh.Proofs.Core.EvalTyping",
+      "declaration": "Xsh.Proofs.Core.EvalTyping.preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type preservation for the covered-expression evaluator: in a typing context whose names hold Core members of their types, through locals or Environment.cellOf and the store, with every let-free function's body typed at its signature in a typing context its own defining environment and the store satisfy, an evaluation that produces a value produces a member of the type the Typed judgment gives. Typed is defined from the SPEC 6.2 operator table, independently of the evaluator.",
+      "boundary": "Typed covers only the evaluator's forms: Int, Float, Duration, Str and Bool operators without UInt or union operands, lists, named-field records with distinct fields, list and map indexing, if/else and positional calls of named let-free functions. Unions, subtyping, generics, methods and the checker's own judgment are not modelled, and no correspondence with the Rust checker is claimed. It does not close BASE-STEP."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "module": "Xsh.Proofs.Core.EvalStatements",
+      "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "syntax_directed_store_writes with Oracles.evaluate and Operate answered by the covered-expression evaluator: the statement meaning holds for the instance, evaluator values and failures pass through with the store unchanged, every such failure propagates through try, declarations commit the evaluated value or fail with its failure, a well-typed initializer in a consistent context never reaches malformedTarget, and compound += on lists is concatenate, discharging the store_writing_forms deferral for this Operate.",
+      "boundary": "Forms the evaluator does not cover fall back to the given oracle and operator, and the selector, declaration, spelling and argv oracles stay parameters. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
       "module": "Xsh.Validation.Core.Nominal",
       "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance",

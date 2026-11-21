@@ -256,6 +256,50 @@ its scope exit still resolves `n`. BASE-ENV stays planned: `for`, `guard let`,
 `with`, resource and `tempdir` scope bindings, parameter binding at call,
 `use` aliases, declaration names and captures have no meaning here.
 
+Three fragment roots cover the expression evaluator in
+[`Semantics/CoreEval.lean`](Xsh/Semantics/CoreEval.lean):
+`covered_expression_evaluation` in [`Proofs/Core/Eval.lean`](Xsh/Proofs/Core/Eval.lean),
+`preservation` in [`Proofs/Core/EvalTyping.lean`](Xsh/Proofs/Core/EvalTyping.lean)
+over the typing judgment in [`Typing/Core/Expressions.lean`](Xsh/Typing/Core/Expressions.lean),
+and `evaluated_store_writes` in [`Proofs/Core/EvalStatements.lean`](Xsh/Proofs/Core/EvalStatements.lean).
+The evaluator is fuel-bounded and covers `Syntax.Core` literals, names (locals,
+then `Environment.cellOf` and the store), list and named-field record
+literals, field reads, list, map and record indexing, `not` and negation,
+short-circuit `and` and `or`, the Int, Float, Duration, Str and Bool operators
+(with both `Duration * Int` and `Int * Duration`), list `+`, `if`/`else`, and
+positional calls of let-free functions. A negative literal index is evaluated
+by BASE-NUM negation and counts from the end of a `List` only, so `-0` is `0`
+and a map receives the negative key (SPEC 6.6). A function body evaluates in
+the environment the function was defined in. Operands and arguments evaluate
+once, left to right. A finished result is the same at every larger fuel.
+Every value is a member of the type the typing judgment gives, in a typing
+context whose names hold members and with every function typed at its
+signature in a context its own defining environment satisfies; the judgment is defined from the SPEC 6.2 operator table, not from
+the evaluator. Every failure is a runtime failure, which `try` propagates
+(SPEC 8.8). Operator results are BASE-NUM's `ArithmeticMeaning`,
+`FloatMeaning` under the context's `NaNPolicy`, `ComparisonMeaning`, IEEE
+equality, `IntegerExact` and `NegationMeaning`, the `DurationOps` results, and
+list `concatenate`. `evaluated_store_writes` answers BASE-ENV's
+`Oracles.evaluate` and `Operate` with the evaluator: declarations commit the
+evaluated value or fail with its failure, a well-typed initializer never
+reaches `malformedTarget`, and `+=` on lists is `concatenate`, discharging the
+`store_writing_forms` deferral for that `Operate`. The witnesses give
+`division-by-zero`, `integer-overflow`, `index-out-of-range`, `missing-field`
+and `missing-key`, each propagated by `try`, and give `[7, 8][-0]` as `7`,
+`m[-1]` as the `-1` entry, and `2 * 1s` as `2s`. Mutants each falsify a claim:
+`(1 / 0) + [][0]` with the right operand first reports `index-out-of-range`, a
+strict `and` fails on `false and [][0]`, the remainder BASE-NUM rejects gives
+`0` for the minimum `Int` `% -1`, reading a negative literal as a positive
+distance fails on `-0` and reads `m[1]`, and running a body in the caller's
+environment makes `let x = 1; fn f() { x }; { let x = 2; f() }` give `2`
+rather than `1`. BASE-STEP
+stays planned. Method calls (so `IntToFloatMeaning`, `ToIntMeaning` and
+`BitsetMeaning`), UInt arithmetic, `?`, `try` and raised failures, `??`, `in`,
+sets, guarded `?.` and `?[]`, slices, map literals, record spread, shorthand,
+computed and path fields, comprehensions, pipelines, closures, named, spread
+and splice arguments and defaults, collection equality, host requests and the
+`Map[UInt]` key Schema failure have no meaning here.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,
