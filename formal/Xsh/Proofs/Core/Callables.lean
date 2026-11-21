@@ -31,7 +31,8 @@ through `returnTo`, so the call writes the captured top-level `var`s through
 the caller's frame; "First-class `Proc` values have `.call(...) ->
 Result[Any]` and `Pure` values `.call(...) -> Any`": a `Proc` value's call is
 the proc's own `Result` or `Ok` of its value, and a `Pure` value's call is its
-value. Where the identity oracle names each declaration's own cell, a callable
+value; a receiver naming a declared error family's variant is a constructor
+instead. Where the identity oracle names each declaration's own cell, a callable
 value made from a declaration calls that declaration. -/
 theorem callable_values {world : World Declaration Identity Source} (machine : Machine world) :
     (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test caller,
@@ -50,6 +51,7 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
             .value (.callable (machine.callableReference cell) callable) frame) ∧
     (∀ fuel (frame : Frame world) receiver method arguments values reference kind after cell callable defining captured
         writable parameters body,
+      errorConstructor machine frame receiver method = none →
       machine.context.spelling method = "call" → positional arguments = some values →
         evalExpr machine fuel frame receiver = .value (.callable reference kind) after →
           (machine.callableCell reference).bind (fun found => after.closures.lookup found) =
@@ -85,8 +87,8 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
   · intro fuel frame name cell callable defining captured writable parameters body unshadowed found
     simp only [evalExpr, unshadowed, found]
   · intro fuel frame receiver method arguments values reference kind after cell callable defining captured writable
-      parameters body spelled supplied received named
-    simp only [evalExpr, spelled, supplied, Outcome.bind, received, Value.eraseNominal, named]
+      parameters body notError spelled supplied received named
+    simp only [evalExpr, notError, spelled, supplied, Outcome.bind, received, Value.eraseNominal, named]
 
 end Root
 

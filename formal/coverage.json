@@ -15337,6 +15337,15 @@
       "boundary": "The declaration identity is an oracle (callableReference and callableCell); the witness world has one callable identity, so each witness machine names the one declaration it calls through values. Rust calls a top-level proc before its declaration (hoisting), which the SPEC's in-order rule does not state and the machine does not model: such a call is unsupported here. Named, spread and splice arguments to .call, the optional-chaining receiver rules and runtime argument checks are not modelled. The witnesses store bump in a list and a record, pass it to twice and call a pure double, and reject a call that snapshots the store at value creation. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Constructors.declared_constructors",
+      "module": "Xsh.Proofs.Core.Constructors",
+      "declaration": "Xsh.Proofs.Core.Constructors.declared_constructors",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 4.7 and 4.10 constructors from type and error declarations in the statement machine: the declarations are top-level only (SPEC 3.1) and bind no runtime name, since their constructors come from the program's declarations, visible throughout as the runtime makes them; a record constructor evaluates its arguments once in written order, places positional ones in declaration order and named ones by label, fills a missing field from its default and builds the record in declaration order, nominal under the declaration identity for a nominal schema; an error constructor Family.Variant(...) builds an Error with the family's declaration identity, variant, facets and payload, a payload-free variant taking its message as one optional positional argument or Family.Variant, and a payload variant's message its message field or Family.Variant.",
+      "boundary": "The checker's declaration identity is an oracle (Machine.identity), and the program's declarations are a machine parameter rather than collected from the script. An error's kind is the family's spelling, which the SPEC does not fix. Puns, field spreads, generic schemas, module-qualified and .Variant constructors, error causes, spans and contexts, payload field reads other than through patterns, and the checker's argument rules (positional overlap, unknown or missing fields), which the machine leaves stuck, are not modelled. Witnesses match the verification binary on defaults before the declaration, written-order named arguments, positional fields and error messages, payloads and facets, and reject declaration-order evaluation, label-free placement and a variant-only default message. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",

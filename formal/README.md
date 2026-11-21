@@ -396,8 +396,7 @@ Statements:
 - `for` over a `Stream` (E)
 - stream producers and their `yield` (E)
 - `use` aliases, which need module loading (E)
-- `export` of anything but a binding; `type` and `error` declarations as
-  runtime binders (record and error constructors) (P); `stream` and `cli main`
+- `export` of anything but a binding (P); `stream` and `cli main`
   declarations, which need the stream and host argument models (E)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
@@ -518,6 +517,26 @@ and is rejected, and a `proc` declared in a block is refused. Rust also lets a
 top-level proc be called before its declaration, and reading a `var` not yet
 declared that way is a runtime `unknown captured name`; the SPEC's in-order
 rule does not say so, and the machine does not model it.
+
+The `declared_constructors` fragment root, in
+[`Proofs/Core/Constructors.lean`](Xsh/Proofs/Core/Constructors.lean), covers
+SPEC 4.7 and 4.10 constructors. `type` and `error` declarations are top-level
+only and bind no runtime name: the machine takes the program's declarations
+as a parameter, visible throughout as the runtime makes them, and the
+checker's declaration identity as the oracle `Machine.identity`. A record
+constructor evaluates its arguments once in written order, places positional
+ones in declaration order and named ones by label, fills a missing field from
+its default and builds the record in declaration order, nominal for a nominal
+schema. `Family.Variant(...)` builds an `Error` whose message is its one
+optional positional argument or `Family.Variant` for a payload-free variant,
+and its `message` field or `Family.Variant` for a payload variant. The
+witnesses match the verification binary: `Point(x: 1)` before `type Point`
+gives `{x: 1, y: 7}`, `Pair(right: bump(), left: bump())` gives left `2` and
+right `1`, `Labelled("x", 2)` fills fields positionally, and the `Fetch`
+errors carry `Fetch.Usage`, `custom`, `Fetch.Missing` with payload `where` and
+facet `NotFound`, and `boom`, which a variant pattern and a facet pattern then
+match. Declaration-order evaluation, label-free placement and a variant-only
+default message are rejected.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

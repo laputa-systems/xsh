@@ -365,6 +365,27 @@ theorem bindArgumentsIn_refines {world : World Declaration Identity Source}
           exact valued_bind_refines (each frame default) fun _ after =>
             valued_bind_refines (bindArgumentsIn_refines each after more []) fun _ _ => valued_refl _
 
+theorem fillFields_refines {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
+    ∀ frame fields placed,
+      Valued.Refines (fillFields spelling evaluate frame fields placed) (fillFields spelling evaluate' frame fields placed)
+  | _, [], [] => valued_refl _
+  | _, [], _ :: _ => by simp only [fillFields]; exact valued_refl _
+  | _, _ :: _, [] => by simp only [fillFields]; exact valued_refl _
+  | frame, (name, default) :: rest, value :: values => by
+    cases value with
+    | some value =>
+      simp only [fillFields]
+      exact valued_bind_refines (fillFields_refines spelling each frame rest values) fun _ _ => valued_refl _
+    | none =>
+      cases default with
+      | none => simp only [fillFields]; exact valued_refl _
+      | some default =>
+        simp only [fillFields]
+        exact valued_bind_refines (each frame default) fun _ after =>
+          valued_bind_refines (fillFields_refines spelling each after rest values) fun _ _ => valued_refl _
+
 theorem selectorsOf_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -557,6 +578,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
               fun _ _ => ?_
           | refine valued_bind_refines (inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
+          | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
           | split)
       call := fun caller scope defining parameters writable body kind => by
         simp only [callBlock]
@@ -938,6 +960,26 @@ theorem bindArgumentsIn_persists {world : World Declaration Identity Source}
           exact vbind_persists (each frame default) fun _ after =>
             vbind_persists (bindArgumentsIn_persists each after more []) fun _ last => persists_refl last.store
 
+theorem fillFields_persists {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
+    ∀ frame fields placed, VKeeps frame.store (fillFields spelling evaluate frame fields placed)
+  | frame, [], [] => persists_refl frame.store
+  | _, [], _ :: _ => by simp only [fillFields]; exact vkeeps_exec fun _ present => by cases present
+  | _, _ :: _, [] => by simp only [fillFields]; exact vkeeps_exec fun _ present => by cases present
+  | frame, (name, default) :: rest, value :: values => by
+    cases value with
+    | some value =>
+      simp only [fillFields]
+      exact vbind_persists (fillFields_persists spelling each frame rest values) fun _ last => persists_refl last.store
+    | none =>
+      cases default with
+      | none => simp only [fillFields]; exact vkeeps_exec fun _ present => by cases present
+      | some default =>
+        simp only [fillFields]
+        exact vbind_persists (each frame default) fun _ after =>
+          vbind_persists (fillFields_persists spelling each after rest values) fun _ last => persists_refl last.store
+
 theorem selectorsOf_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1160,6 +1202,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (bindArgumentsIn_persists (fun current default => ?_) _ _ _) fun _ _ => ?_
     | refine vbind_persists (inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
+    | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
     | split)
 
 theorem persisting_value {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
@@ -1579,6 +1622,26 @@ theorem bindArgumentsIn_restores {world : World Declaration Identity Source}
           exact vbind_restores (each frame default) fun _ after =>
             vbind_restores (bindArgumentsIn_restores each after more []) fun _ _ => ⟨rfl, rfl⟩
 
+theorem fillFields_restores {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source)) :
+    ∀ frame fields placed, VRestores frame (fillFields spelling evaluate frame fields placed)
+  | _, [], [] => ⟨rfl, rfl⟩
+  | _, [], _ :: _ => by simp only [fillFields]; exact vrestores_none rfl
+  | _, _ :: _, [] => by simp only [fillFields]; exact vrestores_none rfl
+  | frame, (name, default) :: rest, value :: values => by
+    cases value with
+    | some value =>
+      simp only [fillFields]
+      exact vbind_restores (fillFields_restores spelling each frame rest values) fun _ _ => ⟨rfl, rfl⟩
+    | none =>
+      cases default with
+      | none => simp only [fillFields]; exact vrestores_none rfl
+      | some default =>
+        simp only [fillFields]
+        exact vbind_restores (each frame default) fun _ after =>
+          vbind_restores (fillFields_restores spelling each after rest values) fun _ _ => ⟨rfl, rfl⟩
+
 theorem selectorsOf_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -1728,12 +1791,20 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (inner.value _ _) fun _ _ => ?_
   | refine vbind_restores (callBlock_restores _ _ _ _ _ _ _ _ _) fun _ _ => ?_
+  | refine vbind_restores (fillFields_restores _ inner.expr _ _ _) fun _ _ => ?_
   | refine toExec_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine toExec_restores (inner.expr _ _) fun _ _ => ?_
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
   | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
   | refine iterate_restores ?_ fun _ => ?_
   | split))
+
+theorem restoring_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Restoring machine fuel) :
+    ∀ frame expression, VRestores frame (evalExpr machine (fuel + 1) frame expression) := by
+  intro frame expression
+  simp only [evalExpr]
+  close_restores
 
 theorem restoring {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Restoring machine fuel
@@ -1757,7 +1828,7 @@ theorem restoring {world : World Declaration Identity Source} (machine : Machine
   | fuel + 1 => by
     have inner := restoring machine fuel
     exact {
-      expr := fun frame expression => by simp only [evalExpr]; close_restores
+      expr := restoring_expr machine fuel inner
       value := fun frame expression => by simp only [runValue]; close_restores
       scope := fun frame body => by simp only [valueScope]; close_restores
       retries := fun frame pattern body delays => by simp only [retryLoop]; close_restores
@@ -3072,6 +3143,8 @@ def machine : Machine witnessWorld where
   resultSubject := fun _ _ => true
   callableReference := fun _ => ⟨()⟩
   callableCell := fun _ => none
+  declarations := []
+  identity := fun _ => ()
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 

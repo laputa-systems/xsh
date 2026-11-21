@@ -303,6 +303,18 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
         obtain ⟨_, _, _, _, _, finished⟩ := toExec_normal (scopes.value frame value) ran
         cases finished
     | continueStmt => simp only [runStatement] at ran; cases ran
+    | typeDef name parameters body nominal bounds =>
+      simp only [runStatement] at ran
+      split at ran
+      · cases ran
+        exact carried
+      · cases ran
+    | errorDef name variants =>
+      simp only [runStatement] at ran
+      split at ran
+      · cases ran
+        exact carried
+      · cases ran
     | _ => simp only [runStatement] at ran; cases ran
 
 /-- Under the canonical resolution, a statement list that completes normally
