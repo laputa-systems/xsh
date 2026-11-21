@@ -345,6 +345,10 @@ mutual
     | loopStmt (body : List Statement)
     | guardStmt (target : BindingTarget) (annotation : Option TypeExpr)
         (initializer : Expr) (otherwise : List Statement)
+    /-- `guard let target = initializer else { |failure| ... }`: the `Result` form
+    whose else block names the error. -/
+    | guardHandled (target : BindingTarget) (annotation : Option TypeExpr)
+        (initializer : Expr) (failure : RawName) (otherwise : List Statement)
     | assert (condition : Expr) (message : Option Expr)
     | breakStmt (value : Option Expr)
     | continueStmt
@@ -581,6 +585,9 @@ mutual
           freeStatementsFuel fuel bound body ++ freeStatementsFuel fuel bound rest
       | .guardStmt target _ initializer otherwise =>
           freeExprFuel fuel bound initializer ++ freeStatementsFuel fuel bound otherwise ++
+          freeStatementsFuel fuel (target.namesFuel fuel ++ bound) rest
+      | .guardHandled target _ initializer failure otherwise =>
+          freeExprFuel fuel bound initializer ++ freeStatementsFuel fuel (failure :: bound) otherwise ++
           freeStatementsFuel fuel (target.namesFuel fuel ++ bound) rest
       | .assert condition message =>
           freeExprFuel fuel bound condition ++

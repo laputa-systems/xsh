@@ -52,6 +52,22 @@ structure Deferred (Declaration Identity Source : Type) where
   environment : Environment
   locals : Locals Declaration Identity Source
 
+/-- A local function (SPEC 9): the cell its name is bound to, the environment
+it was declared in, the local functions visible there, its parameters and
+body. Its captured names are read through that environment when it is
+called, so a captured `var` is read as it is at the call. -/
+inductive Closure where
+  | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure))
+      (parameters : List Xsh.Syntax.RawName) (body : FunctionBody)
+
+/-- What an expression sees besides its environment, store and locals: the
+call activation, the local functions in scope, and the implicit `.` of the
+innermost handler block. -/
+structure Scope (Declaration Identity Source : Type) where
+  activation : Nat
+  closures : List (CellId × Closure)
+  item : Option (Value Declaration Identity Source)
+
 /-- A statement runs in an environment, a store, an environment-variable
 overlay and the locals of the function it is in. Inside a function body
 `callerStore` is the store at the call: its cells are read but not written.
@@ -72,6 +88,23 @@ structure Frame (world : World Declaration Identity Source) where
   waited : List (Value Declaration Identity Source)
   /-- The value a `break` gives the `loop` expression it leaves. -/
   breakValue : Option (Value Declaration Identity Source)
+  /-- The local functions in scope, by the cell their name is bound to. -/
+  closures : List (CellId × Closure)
+  /-- The implicit `.` of the innermost handler block. -/
+  item : Option (Value Declaration Identity Source)
+  /-- What the enclosing `collect` has gathered from `yield`, if there is one. -/
+  collected : Option (List (Value Declaration Identity Source))
+
+def Frame.scope {world : World Declaration Identity Source} (frame : Frame world) : Scope Declaration Identity Source :=
+  ⟨frame.activation, frame.closures, frame.item⟩
+
+/-- A frame with nothing pending, in `scope`. -/
+def Frame.ofScope {world : World Declaration Identity Source} (environment : Environment) (store : Store world)
+    (locals : Locals Declaration Identity Source) (callerStore : Option (Store world))
+    (scope : Scope Declaration Identity Source) : Frame world :=
+  { environment, store, overlay := [], locals, callerStore, activation := scope.activation, deferred := [],
+    reported := [], waited := [], breakValue := none, closures := scope.closures, item := scope.item,
+    collected := none }
 
 /-- The outcome of running statements. -/
 inductive Exec (world : World Declaration Identity Source) where
@@ -126,7 +159,9 @@ def Frame.restore {world : World Declaration Identity Source} (outer inner : Fra
     environment := outer.environment
     locals := outer.locals
     store := keep outer.store inner.store
-    deferred := outer.deferred }
+    deferred := outer.deferred
+    closures := outer.closures
+    item := outer.item }
 
 /-- After a scope's deferred actions, leaving it restores the outer
 environment, locals and deferred actions and drops the cells allocated inside
@@ -214,6 +249,68 @@ def Match.both : Match Declaration Identity Source → (Unit → Match Declarati
     | other => other
   | other, _ => other
 
+/-- The first position at which `needle` occurs in `haystack`. -/
+def firstIndex (needle : List Char) : List Char → Option Nat
+  | [] => if needle.isEmpty then some 0 else none
+  | character :: rest =>
+    if needle.isPrefixOf (character :: rest) then some 0 else (firstIndex needle rest).map (· + 1)
+
+/-- Decimal digits with an optional sign. -/
+def decimal : List Char → Option Int
+  | '-' :: digits => (natural digits).map fun value => -(value : Int)
+  | '+' :: digits => (natural digits).map fun value => (value : Int)
+  | digits => (natural digits).map fun value => (value : Int)
+where
+  natural (digits : List Char) : Option Nat :=
+    if digits.isEmpty then none
+    else digits.foldl (fun total digit =>
+      total.bind fun sum => if digit.isDigit then some (sum * 10 + (digit.toNat - '0'.toNat)) else none) (some 0)
+
+/-- The value a text-pattern hole takes (SPEC 6.10): a `Str`, or for `d` an
+`Int` of decimal digits with an optional sign; other specs are not modelled. -/
+def holeValue (spelling : Xsh.Syntax.RawName → String) (spec : Option Xsh.Syntax.RawName) (taken : List Char) :
+    Match Declaration Identity Source :=
+  match spec.map spelling with
+  | none | some "s" => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.string (String.ofList taken)))]
+  | some "d" =>
+    match (decimal taken).bind validateInt? with
+    | some value => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.integer value))]
+    | none => .failed
+  | some _ => .unsupported
+
+/-- A hole's capture under its name, or none for `{_}`. -/
+def holeCapture (spelling : Xsh.Syntax.RawName → String) (name : Option Xsh.Syntax.RawName)
+    (spec : Option Xsh.Syntax.RawName) (taken : List Char) : Match Declaration Identity Source :=
+  match holeValue spelling spec taken, name with
+  | .matched [(_, value)], some bound => .matched [(bound, value)]
+  | .matched _, none => .matched []
+  | other, _ => other
+
+/-- A text pattern (SPEC 6.10): literal parts occur in order, a hole ends at
+the first place the literal after it occurs, the literal that ends the pattern
+is matched at the end of the text, and the last hole takes the rest; no other
+split is tried. -/
+def matchText (spelling : Xsh.Syntax.RawName → String) :
+    List Xsh.Syntax.TextPatternPart → List Char → Match Declaration Identity Source
+  | [], [] => .matched []
+  | [], _ :: _ => .failed
+  | .text literal :: rest, characters =>
+    if literal.toList.isPrefixOf characters then matchText spelling rest (characters.drop literal.length) else .failed
+  | .hole name spec :: rest, characters =>
+    match rest with
+    | [] => holeCapture spelling name spec characters
+    | [.text literal] =>
+      if literal.toList.isSuffixOf characters then
+        holeCapture spelling name spec (characters.take (characters.length - literal.length))
+      else .failed
+    | .text literal :: more =>
+      match firstIndex literal.toList characters with
+      | none => .failed
+      | some position =>
+        (holeCapture spelling name spec (characters.take position)).both fun _ =>
+          matchText spelling (.text literal :: more) (characters.drop position)
+    | .hole _ _ :: _ => .unsupported
+
 mutual
   /-- The SPEC 6.10 matcher for wildcard, binding, literal, record, list,
   alternation, alias, `Ok`/`Err` and variant constructor and type patterns and
@@ -237,10 +334,25 @@ mutual
         if variant = actual then
           match argument, fields with
           | none, [] => .matched []
+          | some (.tuple elements), fields =>
+            if elements.length = fields.length then matchItems context test elements fields else .failed
           | some inner, [field] => matchPattern context test inner field
           | _, _ => .unsupported
         else .failed
       | _, _ => .unsupported
+    | .errorVariant _ variant fields, value =>
+      match value.eraseNominal with
+      | .error data =>
+        if context.spelling variant = data.variant then matchFields context test fields data.payload else .failed
+      | _ => .failed
+    | .facet name, value =>
+      match value.eraseNominal with
+      | .error data => if data.facets.contains (context.spelling name) then .matched [] else .failed
+      | _ => .failed
+    | .text parts, value =>
+      match value.eraseNominal with
+      | .scalar (.string text) => matchText context.spelling parts text.toList
+      | _ => .failed
     | .testName name type, value =>
       match test type value with
       | some true => .matched [(name, value)]
@@ -567,6 +679,38 @@ def retryStep {world : World Declaration Identity Source} (context : Context Dec
     | none => .exec .unsupported
   | other => other
 
+/-- The local function a name resolves to. -/
+def localClosure (closures : List (CellId × Closure)) (environment : Environment) (name : Xsh.Syntax.RawName) :
+    Option Closure :=
+  match environment.cellOf name with
+  | .ok cell => closures.lookup cell
+  | .error _ => none
+
+/-- The parameter names of a declaration whose parameters have no defaults,
+annotations aside, and no rest parameter. -/
+def plainParameters : List Xsh.Syntax.Parameter → Option (List Xsh.Syntax.RawName)
+  | [] => some []
+  | .mk name _ none false :: rest => (plainParameters rest).map (name :: ·)
+  | _ :: _ => none
+
+/-- A declared return type's kind: a `Result` type or any other. -/
+def returnKindOf {world : World Declaration Identity Source} (machine : Machine world) (result : Option Xsh.Syntax.TypeExpr) :
+    ReturnKind :=
+  match result.bind machine.typeOf with
+  | some (.result _ _) => .result
+  | _ => .plain
+
+/-- The value of `collect { ... }` (SPEC 6.9): the list its `yield`s gathered,
+when its block completes; any other exit leaves and no list is produced. -/
+def collectWith {world : World Declaration Identity Source} (outer : Frame world) : Exec world → Valued world
+  | .normal inner => .value (.list (inner.collected.getD [])) { inner with collected := outer.collected }
+  | .broke inner => .exec (.broke { inner with collected := outer.collected })
+  | .continued inner => .exec (.continued { inner with collected := outer.collected })
+  | .returned value inner => .exec (.returned value { inner with collected := outer.collected })
+  | .failed failure inner => .exec (.failed failure { inner with collected := outer.collected })
+  | .internal fault inner => .exec (.internal fault { inner with collected := outer.collected })
+  | other => .exec other
+
 /-- After one iteration of a `loop` expression: `break` gives the loop its
 value. -/
 def loopStep {world : World Declaration Identity Source} (next : Frame world → Valued world) : Exec world → Valued world
@@ -577,49 +721,68 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
 mutual
   /-- Expressions, with block function bodies run as statements. -/
   def evalExpr {world : World Declaration Identity Source} (machine : Machine world) :
-      Nat → Nat → Store world → Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
-        Result Declaration Identity Source (Value Declaration Identity Source)
+      Nat → Scope Declaration Identity Source → Store world → Environment → Locals Declaration Identity Source →
+        Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
     | 0, _, _, _, _, _ => .outOfFuel
-    | fuel + 1, activation, store, environment, locals, expression =>
+    | fuel + 1, scope, store, environment, locals, expression =>
       match expression with
-      | .tryExpr inner => (evalExpr machine fuel activation store environment locals inner).bind propagate
+      | .tryExpr inner => (evalExpr machine fuel scope store environment locals inner).bind propagate
       | .convert inner target =>
-        (evalExpr machine fuel activation store environment locals inner).bind fun value =>
+        (evalExpr machine fuel scope store environment locals inner).bind fun value =>
           match machine.conversion value target with
           | some converted => propagate converted
           | none => .unsupported
-      | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ =>
-        valuedResult
-          (runValue machine fuel ⟨environment, store, [], locals, some store, activation, [], [], [], none⟩ expression)
+      | .item =>
+        match scope.item with
+        | some value => .value value
+        | none => .unsupported
+      | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
+          | .listComp _ _ =>
+        valuedResult (runValue machine fuel (Frame.ofScope environment store locals (some store) scope) expression)
       | .call (.ident name) arguments =>
-        match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
-        | none, none, "Ok", [] => .value (.ok (.scalar .unit))
-        | none, none, "Ok", [.positional payload] =>
-          (evalExpr machine fuel activation store environment locals payload).bind fun value => .value (.ok value)
-        | none, none, "Err", [.positional payload] =>
-          (evalExpr machine fuel activation store environment locals payload).bind fun value => .value (.err value)
-        | _, _, _, _ =>
-          step machine.context environment store
-            (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
-            (fun defining parameters body kind =>
-              callBlock machine fuel (activation + machine.activationStep) store defining parameters body kind)
-            locals expression
+        match locals.lookup name, localClosure scope.closures environment name, positional arguments with
+        | none, some (.mk cell defining captured parameters body), some values =>
+          (evaluateAll (evalExpr machine fuel scope store environment locals) values).bind fun evaluated =>
+            if parameters.length = evaluated.length then
+              let callee : Scope Declaration Identity Source :=
+                ⟨scope.activation + machine.activationStep, (cell, .mk cell defining captured parameters body) :: captured,
+                  none⟩
+              match body with
+              | .expression result .plain => evalExpr machine fuel callee store defining (parameters.zip evaluated) result
+              | .expression result .result =>
+                callBlock machine fuel callee store defining (parameters.zip evaluated) [.expression result] .result
+              | .block statements kind => callBlock machine fuel callee store defining (parameters.zip evaluated) statements kind
+            else .stuck
+        | _, _, _ =>
+          match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
+          | none, none, "Ok", [] => .value (.ok (.scalar .unit))
+          | none, none, "Ok", [.positional payload] =>
+            (evalExpr machine fuel scope store environment locals payload).bind fun value => .value (.ok value)
+          | none, none, "Err", [.positional payload] =>
+            (evalExpr machine fuel scope store environment locals payload).bind fun value => .value (.err value)
+          | _, _, _, _ =>
+            step machine.context environment store
+              (fun inner innerLocals => evalExpr machine fuel scope store inner innerLocals)
+              (fun defining parameters body kind =>
+                callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ store defining parameters body
+                  kind)
+              locals expression
       | _ =>
         step machine.context environment store
-          (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
+          (fun inner innerLocals => evalExpr machine fuel scope store inner innerLocals)
           (fun defining parameters body kind =>
-            callBlock machine fuel (activation + machine.activationStep) store defining parameters body kind)
+            callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ store defining parameters body kind)
           locals expression
 
   /-- A block function body runs in its own activation, in its defining
   environment with its parameters as locals; it may not write the caller's
   cells, and its own cells end with the call. -/
   def callBlock {world : World Declaration Identity Source} (machine : Machine world) :
-      Nat → Nat → Store world → Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
-        ReturnKind → Result Declaration Identity Source (Value Declaration Identity Source)
+      Nat → Scope Declaration Identity Source → Store world → Environment → Locals Declaration Identity Source →
+        List Xsh.Syntax.Statement → ReturnKind → Result Declaration Identity Source (Value Declaration Identity Source)
     | 0, _, _, _, _, _, _ => .outOfFuel
-    | fuel + 1, activation, store, defining, parameters, body, kind =>
-      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], [], none⟩ body)
+    | fuel + 1, scope, store, defining, parameters, body, kind =>
+      boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
   conversions on them run here with the frame they change; anything else is
@@ -632,7 +795,7 @@ mutual
       | .valueBlock body => valueScope machine fuel frame body
       | .capture body => capture (valueScope machine fuel frame body)
       | .retry .delays delays pattern body =>
-        resultThen frame (evaluateAll (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals) delays)
+        resultThen frame (evaluateAll (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals) delays)
           fun scheduled => retryLoop machine fuel frame pattern body scheduled
       | .tryExpr inner =>
         (runValue machine fuel frame inner).bind fun value next => fromEval next (propagate value)
@@ -647,13 +810,17 @@ mutual
           match value.eraseNominal, right with
           | .ok payload, _ => .value payload next
           | .err error, .handlerBlock parameter body =>
-            handlerScope machine fuel next (parameter.toList.map fun bound => (bound, error)) body
-          | .scalar .null, .handlerBlock none body => handlerScope machine fuel next [] body
+            handlerScope machine fuel next (if parameter.isNone then some error else next.item)
+              (parameter.toList.map fun bound => (bound, error)) body
+          | .scalar .null, .handlerBlock none body => handlerScope machine fuel next next.item [] body
           | .scalar .null, .handlerBlock (some _) _ => .exec .unsupported
           | .err _, fallback | .scalar .null, fallback => runValue machine fuel next fallback
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
-      | expression => fromEval frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals expression)
+      | .listComp value qualifiers => comprehend machine fuel frame qualifiers value
+      | .collect body =>
+        collectWith frame (runBlock machine fuel { frame with collected := some [] } body)
+      | expression => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
 
   /-- A value block (SPEC 6.9): its tail is computed before its defers run, and
   an `Err` tail is its value, so it leaves without an error. -/
@@ -666,12 +833,52 @@ mutual
   /-- A `??` handler block: the error bound to its parameter in its own scope,
   with its tail as the value. -/
   def handlerScope {world : World Declaration Identity Source} (machine : Machine world) :
-      Nat → Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) →
-        List Xsh.Syntax.Statement → Valued world
-    | 0, _, _, _ => .exec .outOfFuel
-    | fuel + 1, frame, captures, body =>
+      Nat → Frame world → Option (Value Declaration Identity Source) →
+        List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world
+    | 0, _, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, item, captures, body =>
       settle (leaveBlock machine fuel frame)
-        ((bindCaptures machine frame.enter captures).thenValued fun bound => runValueTail machine fuel bound body)
+        ((bindCaptures machine { frame.enter with item := item } captures).thenValued fun bound =>
+          runValueTail machine fuel bound body)
+
+  /-- A list comprehension's qualifiers (SPEC 6.5): each `for` target is bound
+  per item in its own scope, visible in later qualifiers and the value; a
+  `when` filters. -/
+  def comprehend {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.Qualifier → Xsh.Syntax.Expr → Valued world
+    | 0, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, qualifiers, value =>
+      match qualifiers with
+      | [] => (runValue machine fuel frame value).bind fun result next => .value (.list [result]) next
+      | .when condition :: rest =>
+        fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) |>.bind
+          fun tested next =>
+            match tested.eraseNominal with
+            | .scalar (.boolean true) => comprehend machine fuel next rest value
+            | .scalar (.boolean false) => .value (.list []) next
+            | _ => .exec .unsupported
+      | .each target iterable :: rest =>
+        fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable) |>.bind
+          fun source next =>
+            match iterationItems source with
+            | some items => comprehendItems machine fuel next target items rest value
+            | none => .exec .unsupported
+
+  def comprehendItems {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → Xsh.Syntax.BindingTarget → List (Value Declaration Identity Source) →
+        List Xsh.Syntax.Qualifier → Xsh.Syntax.Expr → Valued world
+    | 0, _, _, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, target, items, rest, value =>
+      match items with
+      | [] => .value (.list []) frame
+      | item :: others =>
+        (settle (leaveBlock machine fuel frame)
+          ((bindTarget machine frame.enter .immutable target item).thenValued fun bound =>
+            comprehend machine fuel bound rest value)).bind fun first next =>
+          (comprehendItems machine fuel next target others rest value).bind fun later last =>
+            match first, later with
+            | .list head, .list tail => .value (.list (head ++ tail)) last
+            | _, _ => .exec .stuck
 
   /-- `loop { ... }` as an expression: its value is what `break` gives it. -/
   def loopValue {world : World Declaration Identity Source} (machine : Machine world) :
@@ -805,7 +1012,7 @@ mutual
             | none, none => .internal (.missingCell cell) frame
             | none, some current =>
               resultExec frame
-                (selectorsOf (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals)
+                (selectorsOf (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals)
                   (some current.contents.typeTag) path) fun sides =>
                 (runValue machine fuel frame value).toExec fun result next =>
                   match evaluateSelectors machine.raises (some current.contents.typeTag) sides next.store with
@@ -825,7 +1032,7 @@ mutual
       | .ifStmt branches otherwise => runIf machine fuel frame branches otherwise
       | .whileStmt condition body => runWhile machine fuel frame condition body
       | .forStmt target iterable body =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals iterable) fun source =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable) fun source =>
           match iterationItems source with
           | some items => runFor machine fuel frame target items body
           | none => .unsupported
@@ -833,6 +1040,33 @@ mutual
       | .breakStmt none => .broke frame
       | .breakStmt (some value) =>
         (runValue machine fuel frame value).toExec fun result next => .broke { next with breakValue := some result }
+      | .guardHandled target _ initializer failure otherwise =>
+        (runValue machine fuel frame initializer).toExec fun subject next =>
+          match subject.eraseNominal with
+          | .ok payload => bindTarget machine next .immutable target payload
+          | .err error => guardElse (runBound machine fuel next [(failure, error)] otherwise)
+          | _ => .unsupported
+      | .yield value =>
+        (runValue machine fuel frame value).toExec fun result next =>
+          match next.collected with
+          | some gathered => .normal { next with collected := some (gathered ++ [result]) }
+          | none => .unsupported
+      | .yieldDelegate value =>
+        (runValue machine fuel frame value).toExec fun result next =>
+          match next.collected, listValues result with
+          | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
+          | _, _ => .unsupported
+      | .functionDef kind name parameters _ result body _ _ =>
+        match kind, plainParameters parameters, (machine.namesAt frame.activation).declaration frame.environment name with
+        | .stream, _, _ | .cliMain, _, _ | _, none, _ => .unsupported
+        | _, _, none => .internal .malformedTarget frame
+        | _, some names, some (binder, cell, _) =>
+          let environment := extend frame.environment [(name, binder, cell)]
+          .normal { frame with
+            environment
+            locals := hide [name] frame.locals
+            closures := (cell, .mk cell environment frame.closures names (.block body (returnKindOf machine result))) ::
+              frame.closures }
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
           match guardValue (machine.resultSubject next.environment initializer) subject with
@@ -840,17 +1074,17 @@ mutual
           | none => guardElse (runBlock machine fuel next otherwise)
       | .continueStmt => .continued frame
       | .matchStmt subject arms =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
           runMatch machine fuel frame value arms
       | .assert condition message =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition) fun tested =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
           match tested.eraseNominal with
           | .scalar (.boolean true) => .normal frame
           | .scalar (.boolean false) =>
             match message with
             | none => .failed (.raised (machine.assertion none)) frame
             | some text =>
-              fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals text) fun written =>
+              fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals text) fun written =>
                 .failed (.raised (machine.assertion (some written))) frame
           | _ => .unsupported
       | .defer kind action =>
@@ -868,13 +1102,13 @@ mutual
       | [], none => .normal frame
       | [], some fallback => runBlock machine fuel frame fallback
       | (.patternCondition subject pattern, body) :: rest, otherwise =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
           match conditionMatch machine.context machine.typeTest pattern value with
           | .matched captures => runBound machine fuel frame captures body
           | .failed => runIf machine fuel frame rest otherwise
           | .unsupported => .unsupported
       | (condition, body) :: rest, otherwise =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition) fun tested =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
           match conditionValue tested with
           | some (.ok true) => runBlock machine fuel frame body
           | some (.ok false) => runIf machine fuel frame rest otherwise
@@ -889,7 +1123,7 @@ mutual
     | fuel + 1, frame, condition, body =>
       match condition with
       | .patternCondition subject pattern =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
           match conditionMatch machine.context machine.typeTest pattern value with
           | .matched captures =>
             (runBound machine fuel frame captures body).iterate fun next =>
@@ -897,7 +1131,7 @@ mutual
           | .failed => .normal frame
           | .unsupported => .unsupported
       | condition =>
-        fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition) fun tested =>
+        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
           match conditionValue tested with
           | some (.ok true) =>
             (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
@@ -942,7 +1176,7 @@ mutual
           | some condition =>
             match bindCaptures machine frame.enter captures with
             | .normal bound =>
-              fromResult frame (evalExpr machine fuel bound.activation bound.store bound.environment bound.locals condition)
+              fromResult frame (evalExpr machine fuel bound.scope bound.store bound.environment bound.locals condition)
                 fun tested =>
                   match tested.eraseNominal with
                   | .scalar (.boolean true) => runBound machine fuel frame captures body
