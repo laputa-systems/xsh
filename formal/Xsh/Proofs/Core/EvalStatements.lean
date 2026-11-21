@@ -162,6 +162,9 @@ def integerMessage : IntegerOps.IntegerFault → WitnessValue
 def integerLexeme : String → Option IntValue
   | "0" => validateInt? 0
   | "1" => validateInt? 1
+  | "2" => validateInt? 2
+  | "7" => validateInt? 7
+  | "8" => validateInt? 8
   | "9223372036854775807" => validateInt? 9223372036854775807
   | _ => none
 
@@ -297,6 +300,136 @@ theorem evaluation_order :
 theorem short_circuit :
     run [] shortCircuit = .value (boolean false) ∧ strictAnd [] shortCircuit = runtime "index-out-of-range" :=
   ⟨of_booleanResult (by decide +kernel), of_runtimeText (by decide +kernel)⟩
+
+def stringResult : Result Unit Unit Unit WitnessValue → Option String
+  | .value (.scalar (.string text)) => some text
+  | _ => none
+
+theorem of_stringResult {result : Result Unit Unit Unit WitnessValue} {text : String}
+    (found : stringResult result = some text) : result = .value (message text) := by
+  unfold stringResult at found
+  split at found
+  · simp only [Option.some.injEq] at found
+    subst found
+    rfl
+  · simp at found
+
+def negativeZero : Xsh.Syntax.Expr := .index (.list [int "7", int "8"]) (.unary .neg (int "0")) false
+
+def computedNegative : Xsh.Syntax.Expr := .index (.list [int "7", int "8"]) (.binary .sub (int "0") (int "1")) false
+
+def negativeKey : Xsh.Syntax.Expr := .index (.ident mName) (.unary .neg (int "1")) false
+
+def minusOne : IntValue := ⟨-1, by unfold signed64Min signed64Limit; omega⟩
+
+def signedLocals : Locals Unit Unit Unit :=
+  [(mName, .map [(.integer minusOne, message "minus"), (.integer intOne, message "plus")])]
+
+/-- The previous indexing: a negative literal is read as a positive distance
+from the end of a list, and any other receiver gets that positive distance as
+its key. -/
+def positiveDistance (locals : Locals Unit Unit Unit) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
+  | .index base (.unary .neg (.literal (.integer lexeme))) false =>
+    (evaluate context environment store 7 locals base).bind fun container =>
+      (literal context.literals (.integer lexeme)).bind fun distance =>
+        match listValues container, distance with
+        | some items, .scalar (.integer position) =>
+          let index : Int := (items.length : Int) - position.val.natAbs
+          if inRange : 0 ≤ index ∧ index < items.length then .value (items[index.toNat]'(by omega))
+          else .failure (.runtime context.errors.indexOutOfRange)
+        | _, _ => indexAt context false container distance
+  | expression => run locals expression
+
+/-- `[7, 8][-0]` reads item 0, `[7, 8][0 - 1]` fails because only a literal
+counts from the end, and a map's `m[-1]` reads key `-1` (SPEC 6.6); the
+previous indexing fails on `-0` and reads key `1`. -/
+theorem negative_literal_index :
+    run [] negativeZero = .value (integer ⟨7, by decide⟩) ∧
+    run [] computedNegative = runtime "index-out-of-range" ∧
+    positiveDistance [] negativeZero = runtime "index-out-of-range" ∧
+    run signedLocals negativeKey = .value (message "minus") ∧
+    positiveDistance signedLocals negativeKey = .value (message "plus") :=
+  ⟨of_integerResultValue (by decide +kernel), of_runtimeText (by decide +kernel), of_runtimeText (by decide +kernel),
+    of_stringResult (by decide +kernel), of_stringResult (by decide +kernel)⟩
+
+def xName : Xsh.Syntax.RawName := ⟨⟨20, by decide⟩⟩
+def fName : Xsh.Syntax.RawName := ⟨⟨21, by decide⟩⟩
+def outerCell : CellId := ⟨0, binder 5 (by decide)⟩
+def innerCell : CellId := ⟨0, binder 6 (by decide)⟩
+
+def cells : ActivationEnvironment :=
+  bindCell (bindCell [] (binder 5 (by decide)) outerCell) (binder 6 (by decide)) innerCell
+
+/-- `let x = 1` at the top level. -/
+def outer : Environment := ⟨bind emptyLexicalEnvironment xName (binder 5 (by decide)), cells⟩
+
+/-- `{ let x = 2 ... }` inside it. -/
+def inner : Environment := ⟨bind (enterScope outer.names) xName (binder 6 (by decide)), cells⟩
+
+def holding (value : Int) (inRange : signed64Min ≤ value ∧ value < signed64Limit) (nonnegative : 0 ≤ value) :
+    Cell witnessWorld :=
+  ⟨⟨.primitive .unsignedInteger, Xsh.Proofs.Core.Env.Witness.integer value inRange,
+    member_of_nonnegative value inRange nonnegative⟩, .mutable⟩
+
+def scopeStore : Store witnessWorld := fun cell =>
+  if cell = outerCell then some (holding 1 (by decide) (by decide))
+  else if cell = innerCell then some (holding 2 (by decide) (by decide))
+  else none
+
+/-- `fn f() { x }`, defined at the top level. -/
+def scopeContext : Context Unit Unit Unit :=
+  { context with functions := fun name => if name = fName then some (outer, [], .ident xName) else none }
+
+def callF : Xsh.Syntax.Expr := .call (.ident fName) []
+
+/-- An evaluator that runs a function body in the caller's environment. -/
+def dynamicScope (callSite : Environment) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
+  | .call (.ident name) arguments =>
+    match scopeContext.functions name, positional arguments with
+    | some (_, parameters, body), some values =>
+      (evaluateAll (evaluate scopeContext callSite scopeStore 7 []) values).bind fun evaluated =>
+        evaluate scopeContext callSite scopeStore 7 (parameters.zip evaluated) body
+    | _, _ => .unsupported
+  | expression => evaluate scopeContext callSite scopeStore 8 [] expression
+
+/-- `let x = 1; fn f() { x }; { let x = 2; f() }` gives `1`: the body reads `x`
+where `f` was defined. Running the body in the caller's environment gives
+`2`. -/
+theorem lexical_function_body :
+    evaluate scopeContext inner scopeStore 8 [] callF = .value (integer intOne) ∧
+    dynamicScope inner callF = .value (integer ⟨2, by decide⟩) ∧
+    evaluate scopeContext inner scopeStore 8 [] (.ident xName) = .value (integer ⟨2, by decide⟩) :=
+  ⟨of_integerResultValue (by decide +kernel), of_integerResultValue (by decide +kernel),
+    of_integerResultValue (by decide +kernel)⟩
+
+def scaled : Xsh.Syntax.Expr := .binary .mul (int "2") (.ident mName)
+def durationLocals : Locals Unit Unit Unit := [(mName, duration ⟨1000, by decide⟩)]
+
+def durationResultValue : Result Unit Unit Unit WitnessValue → Option Nat
+  | .value (.scalar (.duration value)) => some value.val
+  | _ => none
+
+theorem of_durationResultValue {result : Result Unit Unit Unit WitnessValue} {value : DurationValue}
+    (found : durationResultValue result = some value.val) : result = .value (duration value) := by
+  unfold durationResultValue at found
+  split at found
+  · rename_i inner
+    simp only [Option.some.injEq] at found
+    have same : inner = value := Subtype.ext found
+    subst same
+    rfl
+  · simp at found
+
+/-- `2 * 1s` is `2s`, as `1s * 2` is; `2 / 1s` stays a type error. -/
+theorem integer_times_duration :
+    run durationLocals scaled = .value (duration ⟨2000, by decide⟩) ∧
+    run durationLocals (.binary .mul (.ident mName) (int "2")) = .value (duration ⟨2000, by decide⟩) ∧
+    run durationLocals (.binary .div (int "2") (.ident mName)) = .unsupported :=
+  ⟨of_durationResultValue (by decide +kernel), of_durationResultValue (by decide +kernel), by
+    have unsupported : (run durationLocals (.binary .div (int "2") (.ident mName)) matches .unsupported) = true := by
+      decide +kernel
+    revert unsupported
+    cases run durationLocals (.binary .div (int "2") (.ident mName)) <;> simp⟩
 
 /-- `%` at the integer minimum by minus one overflows as BASE-NUM's
 `ArithmeticMeaning` requires; the unguarded remainder returns zero, and
