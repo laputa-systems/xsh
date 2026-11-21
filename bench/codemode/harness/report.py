@@ -290,7 +290,8 @@ def diagnostics_rows(cells: list[Cell]) -> list[str]:
                 seen[key] += 1
                 fixed[key] += code not in after["codes"]
     rows = ["| Condition | Diagnostic | Seen before a repair | Gone in the next program |", "|---|---|---|---|"]
-    rows += [f"| {c} | `{code}` | {n} | {fixed[(c, code)]} |" for (c, code), n in seen.most_common()]
+    ranked = sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
+    rows += [f"| {c} | `{code}` | {n} | {fixed[(c, code)]} |" for (c, code), n in ranked]
     return rows if seen else ["No repaired program carried a diagnostic code."]
 
 
@@ -317,7 +318,7 @@ def command_rows(cells: list[Cell], conditions: list[str]) -> list[str]:
             commands = cell.attempts[-1]["commands"]
             users += bool(commands)
             used.update(set(commands))
-        shown = ", ".join(f"`{name}` {n}" for name, n in used.most_common()) or "none"
+        shown = ", ".join(f"`{name}` {n}" for name, n in sorted(used.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
         rows.append(f"| {condition} | {users}/{len(mine)} | {shown} |")
     return rows
 
@@ -332,17 +333,57 @@ def taxonomy_rows(taxonomy: dict, conditions: list[str]) -> list[str]:
     return rows
 
 
+def session_rows(runs: list[Path]) -> list[str]:
+    records = [json.loads(p.read_text()) for out in runs for p in sorted(out.glob("sessions/*/*/session.json"))]
+    if not records:
+        return []
+    rows = [
+        "## Sessions", "",
+        "Reported separately from the static trials. Tokens are summed over the session's model turns; "
+        "`xsht api` bytes are the reference text the session's queries returned.", "",
+        "| Session | Verdict | Turns | Stopped by | api | edit | check | run | api bytes | Input | Output | Model s | Tool s | Effects on the public fixture |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in records:
+        tree = r["session_effects"]["tree"]
+        changed = sum(len(tree[k]) for k in ("created", "deleted", "modified"))
+        tools = r["tools"]
+        rows.append(
+            f"| {r['cell']} | {r['verdict']} | {len(r['turns'])} | {r['stopped_by']} | {tools['api']} | {tools['edit']} "
+            f"| {tools['check']} | {tools['run']} | {r['doc_bytes']:,} | {r['usage']['input']:,} | {r['usage']['output']:,} "
+            f"| {r['model_seconds']:.0f} | {r['tool_seconds']:.0f} | {changed} paths, {r['session_effects']['service_calls']} service calls |"
+        )
+    by_condition: dict[str, list[dict]] = defaultdict(list)
+    for r in records:
+        by_condition[r["condition"]].append(r)
+    rows += ["", "| Condition | Sessions | Correct | Mean turns | Mean api queries | Mean checks | Mean runs | Mean tokens |",
+             "|---|---|---|---|---|---|---|---|"]
+    for condition, mine in sorted(by_condition.items()):
+        rows.append(
+            f"| {condition} | {len(mine)} | {sum(r['verdict'] == 'correct' for r in mine)} "
+            f"| {mean(len(r['turns']) for r in mine):.1f} | {mean(r['tools']['api'] for r in mine):.1f} "
+            f"| {mean(r['tools']['check'] for r in mine):.1f} | {mean(r['tools']['run'] for r in mine):.1f} "
+            f"| {mean(r['usage']['input'] + r['usage']['output'] for r in mine):,.0f} |"
+        )
+    return rows + [""]
+
+
 def render(runs: list[Path], taxonomy_paths: list[Path] | None) -> str:
     cells: list[Cell] = []
     missing: list[dict] = []
     manifests = []
     for out in runs:
+        if not (out / "manifest.json").exists() or not list(out.glob("trials/*/*/trial.json")):
+            continue
         loaded, found, absent = load_cells(out)
         manifests.append((out, loaded))
         cells += found
         missing += absent
     conditions = sorted({c.condition for c in cells}, key=lambda c: (c == "ts", c))
     lines = ["# Code mode report", ""]
+    sessions = session_rows(runs)
+    if not cells:
+        return "\n".join(lines + (sessions or ["No trial or session records."])) + "\n"
     for out, loaded in manifests:
         lines.append(
             f"- `{out.name}`: phase {loaded['phase']}, split {loaded['split']}, model `{loaded['model']}`, thinking requested "
@@ -380,6 +421,7 @@ def render(runs: list[Path], taxonomy_paths: list[Path] | None) -> str:
         "## External commands", "", "Literal command heads in each trial's last program (`run CMD` in XSH, "
         "`spawn`/`execFile` with a literal program in TypeScript).", "", *command_rows(cells, conditions), "",
     ]
+    lines += sessions
     if taxonomy_paths:
         taxonomy = {"attempts": [e for p in taxonomy_paths for e in json.loads(p.read_text())["attempts"]]}
         lines += ["## Failure taxonomy", "", "Every program that was not correct, classified by hand "

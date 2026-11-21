@@ -99,25 +99,25 @@ Each cell lists the attempts of each sample: ✓ correct, W completed but wrong,
 
 | Condition | Diagnostic | Seen before a repair | Gone in the next program |
 |---|---|---|---|
-| xsh-candidate | `check.redundant-parens` | 4 | 4 |
 | xsh-baseline | `check.redundant-parens` | 4 | 4 |
+| xsh-candidate | `check.redundant-parens` | 4 | 4 |
 | xsh-revised | `parse.expected-expression` | 4 | 4 |
 | xsh-candidate | `check.named-arg` | 3 | 3 |
-| xsh-candidate | `check.type-mismatch` | 1 | 1 |
-| xsh-candidate | `check.module-member` | 1 | 1 |
-| xsh-candidate | `check.unresolved-name` | 1 | 1 |
-| xsh-baseline | `check.standard-module-shadow` | 1 | 1 |
 | xsh-baseline | `check.named-arg` | 1 | 1 |
-| xsh-candidate | `parse.match-wildcard-arm` | 1 | 1 |
-| xsh-candidate | `parse.expected-token` | 1 | 1 |
-| xsh-candidate | `check.unknown-method` | 1 | 1 |
-| xsh-baseline | `parse.expected-token` | 1 | 1 |
+| xsh-baseline | `check.standard-module-shadow` | 1 | 1 |
 | xsh-baseline | `check.type-mismatch` | 1 | 1 |
-| xsh-candidate | `parse.expected-expression` | 1 | 1 |
+| xsh-baseline | `parse.expected-token` | 1 | 1 |
 | xsh-candidate | `check.field-access` | 1 | 1 |
+| xsh-candidate | `check.module-member` | 1 | 1 |
+| xsh-candidate | `check.type-mismatch` | 1 | 1 |
+| xsh-candidate | `check.unknown-method` | 1 | 1 |
+| xsh-candidate | `check.unresolved-name` | 1 | 1 |
+| xsh-candidate | `parse.expected-expression` | 1 | 1 |
+| xsh-candidate | `parse.expected-token` | 1 | 1 |
+| xsh-candidate | `parse.match-wildcard-arm` | 1 | 1 |
 | xsh-revised | `check.field-access` | 1 | 1 |
-| xsh-revised | `parse.expected-ident` | 1 | 1 |
 | xsh-revised | `check.try-result` | 1 | 1 |
+| xsh-revised | `parse.expected-ident` | 1 | 1 |
 
 ## External commands
 
@@ -125,8 +125,8 @@ Literal command heads in each trial's last program (`run CMD` in XSH, `spawn`/`e
 
 | Condition | Final programs that start external commands | Commands (programs using them) |
 |---|---|---|
-| xsh-baseline | 4/24 | `/work/bin/slowsum` 2, `mv` 1, `mktemp` 1, `sleep` 1 |
-| xsh-candidate | 4/24 | `/work/bin/slowsum` 2, `mv` 2, `rm` 2, `tar` 2, `mktemp` 2 |
+| xsh-baseline | 4/24 | `/work/bin/slowsum` 2, `mktemp` 1, `mv` 1, `sleep` 1 |
+| xsh-candidate | 4/24 | `/work/bin/slowsum` 2, `mktemp` 2, `mv` 2, `rm` 2, `tar` 2 |
 | xsh-revised | 2/24 | `/work/bin/slowsum` 2 |
 | ts | 2/24 | `/work/bin/slowsum` 2 |
 
