@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 155
+Next: 157
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -119,5 +119,23 @@ out of scope.
 - **Problem:** Reading a missing key fails with `map-missing`, but a compound update or deeper path write through a missing key (`m["k"] += 1`, `m["k"].x = 1`) fails with `missing-field` and a message rendering the key as `Str("k")`. The two paths name the same condition differently and the write message leaks Rust Debug formatting.
 - **Recommendation:** Raise the read path's kind and message for a missing key on the write path, state the kind in the SPEC's map-assignment rules, and add native tests for compound and nested writes through a missing key.
 - **Fix with:** none
+- **Effort:** S
+
+### XSH-155 · P3 · FullVerifier accepts a non-arithmetic operator in IntBinary
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`verify_scalar`, the `_ => {}` arm for `IntView::Binary`); `src/runtime/eval/lowered_ops.rs` (`checked_int_binary`, `.expect("verified integer binary operation")`); `src/runtime/eval/lower/scalar.rs` (the lowerer emits only `+ - * / %`)
+- **Problem:** Found by reading while proving `checked_int_binary`; not reproduced. Verification checks the operands of an `IntBinary` row but not its operator. The lowerer only emits arithmetic operators, so lowered programs are safe, but IR built another way (corruption tests, the formal bridge's foreign raw-IR decoder) with `IntBinary { op: Lt }` would pass verification, then panic at the `expect` on the in-place typed route and yield a `Bool` in an `Int` position on the frame route.
+- **Recommendation:** Reproduce with a verifier corruption test that rewrites a lowered `IntBinary` operator to `Lt` and runs both execution modes. Then reject any operator other than `Add`, `Sub`, `Mul`, `Div` and `Rem` in `verify_scalar`, which removes the reachable `expect`.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-156 · P3 · Aeneas models signed `checked_rem` and `%` as succeeding at `MIN % -1`
+
+- **Area:** Formal
+- **Where:** Aeneas `backends/lean/Aeneas/Std/Scalar/CheckedOps/Rem.lean` and `Ops/Rem.lean` at 5a392f4b80a4 and current main 2e3d4488280b; local fix `dev/verify/aeneas/patches/signed-checked-rem.patch`
+- **Problem:** Upstream `core.num.checked_rem_IScalar` is `Option.ofResult (IScalar.rem x y)`, and `IScalar.rem` fails only on a zero divisor, so the model proves `i64::MIN.checked_rem(-1) = Some(0)`; Rust returns `None` (and `%` panics). The XSH refinement of `checked_int_binary` is false under the upstream model, and the harness carries a local patch. The standing third-party policy calls for a laputa-systems fork, consuming it, and an `Upstream draft:` issue, which this lane could not do because it may not push.
+- **Recommendation:** Fork AeneasVerif/aeneas into laputa-systems, apply the patch on a branch from 5a392f4b80a4 with a regression (`#guard` or theorem for `MIN % -1`), also fix `IScalar.rem` for the `%` panic, switch `dev/verify/aeneas/lean/lakefile.toml` to the fork, and file the upstream draft with the bug-report skill.
+- **Fix with:** bug-report
 - **Effort:** S
 

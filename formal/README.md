@@ -630,6 +630,14 @@ and their neighbours, -7, -2, -1, 0, 1, 2, 3 and 7: 720 rows, SHA-256
 integers. It is finite evidence, not universal Rust refinement, and it closes
 none of the 77 universal obligations.
 
+[IMPL.md](IMPL.md) records an `EXTRACTED_REFINEMENT` of this function and of
+`src/duration.rs::checked_duration_binary`: Lean theorems over the Charon and
+Aeneas translation of the production source, for every operator and every
+signed or unsigned 64-bit operand, against `Core/Arith.lean` and
+`Values/DurationOps.lean`. They are conditional on that pipeline and its
+audited library models, are not about the shipping binary, and leave
+`IMPL-REFINE` planned.
+
 ```sh
 LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
 XSH_ARITH_CASES="$TMPDIR/arith-cases.txt" cargo test --locked --profile verification -p xsh --lib -- --ignored --exact runtime::eval::arith_conformance::production_matches_lean_int_arithmetic
@@ -830,8 +838,9 @@ the finite test separately compares Rust outcomes for the stated fixtures.
 The comparison calls the same `value_matches_static_type` used by argument
 validation and its shared borrowed structural decision. Lean's `Membership.check`
 is proved equivalent to `Membership.value` by `check_iff`; agreement with Rust
-on this finite domain is evidence, not universal refinement. TYPE-MEMBER and
-all 77 whole-core obligations remain planned. Ordinary Rust tests do not need
+on this finite domain is evidence, not universal refinement. TYPE-MEMBER
+remains planned, with 69 other whole-core obligations; seven of the 77 are
+closed. Ordinary Rust tests do not need
 the corpus or Lean.
 
 Host verification with Lean 4.35.0 used these commands from the repository root:
