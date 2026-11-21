@@ -335,6 +335,27 @@ without one, index-selector assignment, `defer`, `errdefer` and cleanup,
 declarations, commands, and alternation, alias, constructor, type and text
 patterns have no meaning here.
 
+The `deferred_cleanup` fragment root, also in
+[`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean), covers SPEC 8.7.
+`defer` and `errdefer` register their action, newest first, with the names it
+resolves; leaving a block runs the pending actions on normal completion,
+`break`, `continue`, `return` and failure, newest first and each once, on the
+store the block left. An `errdefer` runs only when the block leaves with an
+error: a failure, an `Err` returned through it, or one of its own later
+actions failing. A failing action is a cleanup failure: an earlier failure
+stays primary and the cleanup failure is reported, and otherwise the first
+cleanup failure becomes primary and is never replaced. Each call runs in its
+own activation, a declared name's cell being its binder in that activation, so
+a recursive block body gets fresh cells; the callee cannot write its caller's
+cells, and its cells end with the call. The witnesses compute `sum(2) = 3`
+through a body that declares `var acc`, run a loop body's `defer` once per
+iteration and on `break`, return `1` from `var x = 1; defer { x = 2 }; return x`
+before the defer sets `x`, skip an `errdefer` on a normal exit and run it on a
+failure, run two defers newest first, and keep the original failure primary
+over a cleanup failure. Five mutants are rejected: calls sharing the caller's
+activation, registration-order unwinding, skipping defers on `break`, running
+`errdefer` on success, and a cleanup failure masking the original one.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,

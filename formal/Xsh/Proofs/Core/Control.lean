@@ -796,6 +796,172 @@ theorem bindTarget_binds {world : World Declaration Identity Source} (machine : 
 
 end Bindings
 
+section Deferral
+
+variable [DecidableEq Declaration]
+
+/-- `defer` and `errdefer` register their action, newest first, with the
+environment and locals the action resolves its names in; registration runs
+nothing. -/
+theorem defer_registers {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (kind : Xsh.Syntax.DeferKind) (action : Xsh.Syntax.Expr) :
+    runStatement machine (fuel + 1) frame (.defer kind action) =
+      .normal { frame with deferred := ⟨kind, action, frame.environment, frame.locals⟩ :: frame.deferred } := by
+  simp [runStatement]
+
+/-- Leaving a block runs its pending actions on every exit: normal completion,
+`break`, `continue`, `return` and failure. -/
+theorem every_exit_unwinds {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (outer frame : Frame world) (value : Value Declaration Identity Source)
+    (failure : Failure Declaration Identity Source) :
+    (∀ inner, leaveBlock machine (fuel + 1) outer inner = withinScope outer (runDeferred machine fuel inner (pendingOf inner))) ∧
+    pendingOf (.normal frame) = frame.deferred ∧ pendingOf (.broke frame) = frame.deferred ∧
+    pendingOf (.continued frame) = frame.deferred ∧ pendingOf (.returned value frame) = frame.deferred ∧
+    pendingOf (.failed failure frame) = frame.deferred :=
+  ⟨fun _ => rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Unwinding ends when no action is left. -/
+theorem unwind_done {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (status : Exec world) : runDeferred machine (fuel + 1) status [] = status := by
+  simp [runDeferred]
+
+/-- The newest pending action runs first, once, on the store the block left;
+the rest then unwind on the store it left. -/
+theorem unwind_runs_newest {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (status : Exec world) (entry : Deferred Declaration Identity Source) (rest : List (Deferred Declaration Identity Source))
+    (scope after : Frame world) (due : entry.kind = .exit ∨ exitsWithError status = true)
+    (scoping : frameOf status = some scope) (ran : runBlock machine fuel (entry.frame scope) entry.body = .normal after) :
+    runDeferred machine (fuel + 1) status (entry :: rest) = runDeferred machine fuel (status.withStore after.store) rest := by
+  have notSkipped : ¬ (entry.kind = .error ∧ exitsWithError status = false) := by
+    rintro ⟨isError, clean⟩
+    rcases due with isExit | errored
+    · rw [isExit] at isError; cases isError
+    · rw [errored] at clean; cases clean
+  simp only [runDeferred, notSkipped, ite_false, scoping, ran]
+
+/-- An `errdefer` whose block leaves without an error is skipped in its place. -/
+theorem errdefer_skipped {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (status : Exec world) (entry : Deferred Declaration Identity Source) (rest : List (Deferred Declaration Identity Source))
+    (isError : entry.kind = .error) (clean : exitsWithError status = false) :
+    runDeferred machine (fuel + 1) status (entry :: rest) = runDeferred machine fuel status rest := by
+  simp [runDeferred, isError, clean]
+
+omit [DecidableEq Declaration] in
+/-- A block leaves with an error exactly when a failure leaves it or the
+function returns an `Err` through it. -/
+theorem errdefer_due {world : World Declaration Identity Source} (frame : Frame world)
+    (value : Value Declaration Identity Source) (failure : Failure Declaration Identity Source) :
+    exitsWithError (.failed failure frame) = true ∧ exitsWithError (.returned value frame) = isErr value ∧
+    exitsWithError (.normal frame) = false ∧ exitsWithError (.broke frame) = false ∧
+    exitsWithError (.continued frame) = false :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- A failing action is a cleanup failure, and the remaining actions still
+run. -/
+theorem unwind_cleanup_fails {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (status : Exec world) (entry : Deferred Declaration Identity Source) (rest : List (Deferred Declaration Identity Source))
+    (scope after : Frame world) (failure : Failure Declaration Identity Source)
+    (due : entry.kind = .exit ∨ exitsWithError status = true)
+    (scoping : frameOf status = some scope) (ran : runBlock machine fuel (entry.frame scope) entry.body = .failed failure after) :
+    runDeferred machine (fuel + 1) status (entry :: rest) =
+      runDeferred machine fuel (cleanupFailed failure after.store status) rest := by
+  have notSkipped : ¬ (entry.kind = .error ∧ exitsWithError status = false) := by
+    rintro ⟨isError, clean⟩
+    rcases due with isExit | errored
+    · rw [isExit] at isError; cases isError
+    · rw [errored] at clean; cases clean
+  simp only [runDeferred, notSkipped, ite_false, scoping, ran]
+
+omit [DecidableEq Declaration] in
+/-- The precedence law: an earlier failure stays primary and the cleanup
+failure is reported; without one the cleanup failure becomes primary, and
+any later `errdefer` of the block is then due. -/
+theorem cleanup_precedence {world : World Declaration Identity Source} (failure primary : Failure Declaration Identity Source)
+    (store : Store world) (frame : Frame world) (value : Value Declaration Identity Source) :
+    cleanupFailed failure store (.failed primary frame) =
+      .failed primary { frame with store := store, reported := frame.reported ++ [failure] } ∧
+    cleanupFailed failure store (.normal frame) = .failed failure { frame with store := store } ∧
+    cleanupFailed failure store (.broke frame) = .failed failure { frame with store := store } ∧
+    cleanupFailed failure store (.continued frame) = .failed failure { frame with store := store } ∧
+    cleanupFailed failure store (.returned value frame) = .failed failure { frame with store := store } ∧
+    ∀ status : Exec world, frameOf status ≠ none → exitsWithError (cleanupFailed failure store status) = true :=
+  ⟨rfl, rfl, rfl, rfl, rfl, fun status present => by cases status <;> simp_all [cleanupFailed, exitsWithError, frameOf]⟩
+
+/-- Once a failure is primary, unwinding never replaces it. -/
+theorem primary_stays {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ fuel (primary : Failure Declaration Identity Source) (frame : Frame world) actions failure last,
+      runDeferred machine fuel (.failed primary frame) actions = .failed failure last → failure = primary
+  | 0, _, _, _, _, _, unwound => by simp [runDeferred] at unwound
+  | fuel + 1, primary, frame, [], failure, last, unwound => by
+    simp only [runDeferred, Exec.failed.injEq] at unwound
+    exact unwound.1.symm
+  | fuel + 1, primary, frame, entry :: rest, failure, last, unwound => by
+    simp only [runDeferred] at unwound
+    split at unwound
+    · exact primary_stays machine fuel primary frame rest failure last unwound
+    · simp only [frameOf] at unwound
+      split at unwound
+      · exact primary_stays machine fuel primary _ rest failure last unwound
+      · exact primary_stays machine fuel primary _ rest failure last unwound
+      · cases unwound
+      · cases unwound
+      · cases unwound
+      · cases unwound
+      · rename_i other _ _ _ _ _ _
+        cases other <;> simp_all
+
+/-- Each call runs in an activation `activationStep` past its caller's, and a
+declared name's cell is its binder in the current activation. -/
+theorem call_activation {world : World Declaration Identity Source} (machine : Machine world) (fuel activation : Nat)
+    (store : Store world) (defining : Environment) (parameters : Locals Declaration Identity Source)
+    (body : List Xsh.Syntax.Statement) (environment : Environment) (declared : Xsh.Syntax.RawName) :
+    callBlock machine (fuel + 1) activation store defining parameters body =
+      bodyValue (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], []⟩ body) ∧
+    (machine.namesAt activation).declaration environment declared =
+      (machine.resolution.declaration environment declared).map fun found => (found.1, ⟨activation, found.1⟩, found.2.2) :=
+  ⟨rfl, rfl⟩
+
+omit [DecidableEq Declaration] in
+/-- A callee's cells are fresh: when every cell of the caller's store belongs
+to an activation at most the caller's, a cell of a later activation is free. -/
+theorem callee_cells_fresh {world : World Declaration Identity Source} (store : Store world) (activation step : Nat)
+    (binder : BinderId) (below : ∀ cell found, store cell = some found → cell.activation ≤ activation)
+    (later : 0 < step) : store ⟨activation + step, binder⟩ = none := by
+  cases present : store ⟨activation + step, binder⟩ with
+  | none => rfl
+  | some found =>
+    have bound := below _ found present
+    simp at bound
+    omega
+
+/-- A callee cannot write a cell its caller holds. -/
+theorem callee_cannot_write_caller {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (target : Xsh.Syntax.AssignTarget) (op : Xsh.Syntax.AssignOp) (value : Xsh.Syntax.Expr)
+    (root : Xsh.Syntax.RawName) (path : List Selector) (cell : CellId) (caller : Store world) (held : Cell world)
+    (fielded : fieldPath machine.context.spelling target = some (root, path))
+    (resolved : frame.environment.cellOf root = .ok cell) (calling : frame.callerStore = some caller)
+    (holds : caller cell = some held) :
+    runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported := by
+  cases target with
+  | env key => simp [fieldPath] at fielded
+  | _ => simp [runStatement, fielded, resolved, calling, holds]
+
+/-- A function body's cells end with the call: a cell absent from the store
+at the call is absent from every frame the body leaves with. -/
+theorem body_cells_dropped {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (body : List Xsh.Syntax.Statement) (last : Frame world)
+    (left : frameOf (runBody machine (fuel + 1) frame body) = some last) (cell : CellId)
+    (absent : frame.store cell = none) : last.store cell = none := by
+  simp only [runBody] at left
+  cases fuel with
+  | zero => simp [leaveBlock, frameOf] at left
+  | succ fuel =>
+    simp only [leaveBlock] at left
+    generalize runDeferred machine fuel _ _ = unwound at left
+    cases unwound <;> simp [withinScope, frameOf] at left <;> (subst left; simp [Frame.restore, keep, absent])
+
+end Deferral
+
 section Root
 
 /-- The statements that open their own scope around everything they bind:
@@ -921,6 +1087,81 @@ theorem statement_control {world : World Declaration Identity Source} (machine :
     fun fuel => (restoring machine fuel).bound,
     fun fuel => (restoring machine fuel).fors⟩
 
+omit [DecidableEq Declaration] in
+/-- SPEC 8.7 cleanup and per-call activations in the statement machine:
+`defer` and `errdefer` register newest first and run nothing; leaving a block
+runs its pending actions on every exit (normal, `break`, `continue`, `return`
+and failure), newest first and each once, on the store the block left; an
+`errdefer` is skipped unless the block leaves with an error, which is a
+failure or an `Err` returned through it or a cleanup failure of its own; a
+failing action is a cleanup failure, an earlier failure stays primary with
+the cleanup failure reported, and without one the cleanup failure becomes
+primary and is never replaced; each call runs `activationStep` activations
+past its caller with its cells keyed by that activation, so they are free in
+any store of earlier activations, the callee cannot write a cell its caller
+holds, and its cells end with the call. -/
+theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableEq Declaration] (machine : Machine world) :
+    (∀ fuel frame kind action, runStatement machine (fuel + 1) frame (.defer kind action) =
+      .normal { frame with deferred := ⟨kind, action, frame.environment, frame.locals⟩ :: frame.deferred }) ∧
+    (∀ fuel outer (inner : Exec world),
+      leaveBlock machine (fuel + 1) outer inner = withinScope outer (runDeferred machine fuel inner (pendingOf inner))) ∧
+    (∀ (frame : Frame world) value failure, pendingOf (.normal frame) = frame.deferred ∧
+      pendingOf (.broke frame) = frame.deferred ∧ pendingOf (.continued frame) = frame.deferred ∧
+      pendingOf (.returned value frame) = frame.deferred ∧ pendingOf (.failed failure frame) = frame.deferred) ∧
+    (∀ fuel (status : Exec world), runDeferred machine (fuel + 1) status [] = status) ∧
+    (∀ fuel status entry rest scope after, (entry.kind = .exit ∨ exitsWithError status = true) →
+      frameOf status = some scope → runBlock machine fuel (entry.frame scope) entry.body = .normal after →
+        runDeferred machine (fuel + 1) status (entry :: rest) = runDeferred machine fuel (status.withStore after.store) rest) ∧
+    (∀ fuel status (entry : Deferred Declaration Identity Source) rest, entry.kind = .error →
+      exitsWithError status = false → runDeferred machine (fuel + 1) status (entry :: rest) = runDeferred machine fuel status rest) ∧
+    (∀ (frame : Frame world) value failure, exitsWithError (.failed failure frame) = true ∧
+      exitsWithError (.returned value frame) = isErr value ∧ exitsWithError (.normal frame) = false ∧
+      exitsWithError (.broke frame) = false ∧ exitsWithError (.continued frame) = false) ∧
+    (∀ fuel status entry rest scope after failure, (entry.kind = .exit ∨ exitsWithError status = true) →
+      frameOf status = some scope → runBlock machine fuel (entry.frame scope) entry.body = .failed failure after →
+        runDeferred machine (fuel + 1) status (entry :: rest) =
+          runDeferred machine fuel (cleanupFailed failure after.store status) rest) ∧
+    (∀ failure primary (store : Store world) (frame : Frame world) value,
+      cleanupFailed failure store (.failed primary frame) =
+        .failed primary { frame with store := store, reported := frame.reported ++ [failure] } ∧
+      cleanupFailed failure store (.normal frame) = .failed failure { frame with store := store } ∧
+      cleanupFailed failure store (.broke frame) = .failed failure { frame with store := store } ∧
+      cleanupFailed failure store (.continued frame) = .failed failure { frame with store := store } ∧
+      cleanupFailed failure store (.returned value frame) = .failed failure { frame with store := store } ∧
+      ∀ status : Exec world, frameOf status ≠ none → exitsWithError (cleanupFailed failure store status) = true) ∧
+    (∀ fuel primary (frame : Frame world) actions failure last,
+      runDeferred machine fuel (.failed primary frame) actions = .failed failure last → failure = primary) ∧
+    (∀ fuel activation store defining parameters body environment declared,
+      callBlock machine (fuel + 1) activation store defining parameters body =
+        bodyValue (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], []⟩ body) ∧
+      (machine.namesAt activation).declaration environment declared =
+        (machine.resolution.declaration environment declared).map fun found =>
+          (found.1, ⟨activation, found.1⟩, found.2.2)) ∧
+    (∀ (store : Store world) activation step binder,
+      (∀ cell found, store cell = some found → cell.activation ≤ activation) → 0 < step →
+        store ⟨activation + step, binder⟩ = none) ∧
+    (∀ fuel frame target op value root path cell caller held,
+      fieldPath machine.context.spelling target = some (root, path) → frame.environment.cellOf root = .ok cell →
+        frame.callerStore = some caller → caller cell = some held →
+          runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported) ∧
+    (∀ fuel frame body last, frameOf (runBody machine (fuel + 1) frame body) = some last →
+      ∀ cell, frame.store cell = none → last.store cell = none) :=
+  ⟨defer_registers machine,
+    fun fuel outer inner => (every_exit_unwinds machine fuel outer outer (.scalar .null) (.runtime (.scalar .null))).1 inner,
+    fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl⟩,
+    unwind_done machine,
+    unwind_runs_newest machine,
+    errdefer_skipped machine,
+    errdefer_due,
+    unwind_cleanup_fails machine,
+    cleanup_precedence,
+    primary_stays machine,
+    fun fuel activation store defining parameters body environment declared =>
+      call_activation machine fuel activation store defining parameters body environment declared,
+    callee_cells_fresh,
+    callee_cannot_write_caller machine,
+    body_cells_dropped machine⟩
+
 end Root
 
 namespace Witness
@@ -937,6 +1178,10 @@ def seenName : Xsh.Syntax.RawName := name 34 (by decide)
 def gName : Xsh.Syntax.RawName := name 35 (by decide)
 def aName : Xsh.Syntax.RawName := name 36 (by decide)
 def bName : Xsh.Syntax.RawName := name 37 (by decide)
+def sumName : Xsh.Syntax.RawName := name 38 (by decide)
+def nName : Xsh.Syntax.RawName := name 39 (by decide)
+def accName : Xsh.Syntax.RawName := name 40 (by decide)
+def fName : Xsh.Syntax.RawName := name 41 (by decide)
 
 def int (lexeme : String) : Xsh.Syntax.Expr := .literal (.integer lexeme)
 def ident (target : Xsh.Syntax.RawName) : Xsh.Syntax.Expr := .ident target
@@ -947,6 +1192,17 @@ def program : Context Unit Unit Unit :=
       if called = gName then
         some (⟨emptyLexicalEnvironment, []⟩, [],
           .block [.forStmt (.name iName) (.list [int "1", int "2"]) [.returnValue (some (ident iName))], .expression (int "7")])
+      else if called = sumName then
+        some (⟨emptyLexicalEnvironment, []⟩, [nName],
+          .block [.binding .var (.name accName) none (ident nName),
+            .ifStmt [(.binary .eq (ident nName) (int "0"), [.returnValue (some (int "0"))])] none,
+            .assign (.name accName) .add (.call (ident sumName) [.positional (.binary .sub (ident nName) (int "1"))]),
+            .expression (ident accName)])
+      else if called = fName then
+        some (⟨emptyLexicalEnvironment, []⟩, [],
+          .block [.binding .var (.name xName) none (int "1"),
+            .defer .exit (.valueBlock [.assign (.name xName) .set (int "2")]),
+            .returnValue (some (ident xName))])
       else none }
 
 /-- The checker's resolution in these programs: one binder per name and scope
@@ -1113,6 +1369,144 @@ theorem match_list_pattern : readInt totalName (run matching) = some 15 := by de
 theorem if_let_optional : readInt totalName (run ifLet) = some 7 := by decide +kernel
 /-- A block function body returns from inside its `for` loop. -/
 theorem block_body_return : readInt totalName (run calling) = some 1 := by decide +kernel
+
+def readAny (target : Xsh.Syntax.RawName) (outcome : Exec witnessWorld) : Option Int :=
+  match frameOf outcome with
+  | some frame =>
+    match frame.environment.cellOf target with
+    | .ok cell =>
+      (frame.store cell).bind fun found =>
+        match found.contents.value with
+        | .scalar (.integer value) => some value.val
+        | _ => none
+    | .error _ => none
+  | none => none
+
+def primaryText : Exec witnessWorld → Option String
+  | .failed (.raised (.scalar (.string text))) _ => some text
+  | _ => none
+
+def reportedTexts : Exec witnessWorld → List String
+  | .failed _ frame => frame.reported.filterMap fun failure =>
+    match failure with
+    | .raised (.scalar (.string text)) => some text
+    | _ => none
+  | _ => []
+
+def set (target : Xsh.Syntax.RawName) (lexeme : String) : Xsh.Syntax.Statement := .assign (.name target) .set (int lexeme)
+def deferring (body : List Xsh.Syntax.Statement) : Xsh.Syntax.Statement := .defer .exit (.valueBlock body)
+def erring (body : List Xsh.Syntax.Statement) : Xsh.Syntax.Statement := .defer .error (.valueBlock body)
+def block (body : List Xsh.Syntax.Statement) : Xsh.Syntax.Statement := .expression (.valueBlock body)
+def failing (text : String) : Xsh.Syntax.Statement := .assert (.literal (.bool false)) (some (.literal (.string text)))
+
+def runLong (body : List Xsh.Syntax.Statement) : Exec witnessWorld := runStatements machine 80 start body
+
+def countdown : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", bump totalName (.call (ident sumName) [.positional (int "2")])]
+
+/-- The same machine with every call in its caller's activation. -/
+def sharing : Machine witnessWorld := { machine with activationStep := 0 }
+
+/-- `sum(2)`, whose block body declares `var acc = n` before recursing, is
+`2 + 1 + 0`: each call has its own `acc`. -/
+theorem recursion_fresh_cells : readInt totalName (runLong countdown) = some 3 := by decide +kernel
+
+/-- Sharing the activation makes the inner call find its caller's `acc` cell
+occupied, so the call is stuck. -/
+theorem shared_activation_rejected : readInt totalName (runStatements sharing 80 start countdown) = none := by
+  decide +kernel
+
+def perIteration : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", .forStmt (.name iName) (items ["1", "2", "7"]) [deferring [bump totalName (int "1")]]]
+
+/-- A `defer` in a loop body runs once per iteration. -/
+theorem defer_per_iteration : readInt totalName (runLong perIteration) = some 3 := by decide +kernel
+
+def returnFirst : List Xsh.Syntax.Statement :=
+  [varOf xName "1", block [deferring [set xName "2"], .returnValue (some (ident xName))]]
+
+/-- `return x` computes its value before the block's defers run: the block
+returns `1` and the defer then sets `x` to `2`. -/
+theorem return_before_defers : returnedInt (runLong returnFirst) = some 1 ∧ readAny xName (runLong returnFirst) = some 2 := by
+  decide +kernel
+
+def callReturnFirst : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", bump totalName (.call (ident fName) [])]
+
+/-- The same through a block function body: `f()` returns `1`. -/
+theorem call_return_before_defers : readInt totalName (runLong callReturnFirst) = some 1 := by decide +kernel
+
+def errdeferClean : List Xsh.Syntax.Statement := [varOf totalName "0", block [erring [set totalName "1"]]]
+def errdeferFailing : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", block [erring [set totalName "1"], failing "original"]]
+
+/-- `errdefer` is skipped on a normal exit and runs on a failure exit. -/
+theorem errdefer_on_error_only :
+    readInt totalName (runLong errdeferClean) = some 0 ∧ readAny totalName (runLong errdeferFailing) = some 1 := by
+  decide +kernel
+
+def lifoBody : List Xsh.Syntax.Statement := [deferring [set xName "1"], deferring [set xName "2"]]
+def lifo : List Xsh.Syntax.Statement := [varOf xName "0", block lifoBody]
+
+/-- Two defers run newest first, so the first one registered writes last. -/
+theorem defers_newest_first : readInt xName (runLong lifo) = some 1 := by decide +kernel
+
+def breakDefer : List Xsh.Syntax.Statement :=
+  [varOf totalName "0", .forStmt (.name iName) (items ["1", "2"]) [deferring [bump totalName (int "1")], .breakStmt none]]
+
+/-- A `break` still runs the iteration's defer. -/
+theorem defer_on_break : readInt totalName (runLong breakDefer) = some 1 := by decide +kernel
+
+def precedence : List Xsh.Syntax.Statement := [block [deferring [failing "cleanup"], failing "original"]]
+
+/-- The original failure stays primary and the cleanup failure is reported. -/
+theorem original_failure_primary :
+    primaryText (runLong precedence) = some "original" ∧ reportedTexts (runLong precedence) = ["cleanup"] := by
+  decide +kernel
+
+/-- Leave a block running its actions in registration order. -/
+def fifoBlock (outer : Frame witnessWorld) (body : List Xsh.Syntax.Statement) : Exec witnessWorld :=
+  let inner := runStatements machine 60 outer.enter body
+  withinScope outer (runDeferred machine 60 inner (pendingOf inner).reverse)
+
+/-- Leave a block running every action, `errdefer` included, as a `defer`. -/
+def eagerBlock (outer : Frame witnessWorld) (body : List Xsh.Syntax.Statement) : Exec witnessWorld :=
+  let inner := runStatements machine 60 outer.enter body
+  withinScope outer (runDeferred machine 60 inner ((pendingOf inner).map fun entry => { entry with kind := .exit }))
+
+/-- A `for` whose iterations skip their defers on `break`. -/
+def skippingFor (frame : Frame witnessWorld) (target : Xsh.Syntax.BindingTarget) :
+    List (Value Unit Unit Unit) → List Xsh.Syntax.Statement → Exec witnessWorld
+  | [], _ => .normal frame
+  | item :: rest, body =>
+    let inner := (bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      runStatements machine 60 bound body
+    match inner with
+    | .broke last => .normal (frame.restore last)
+    | _ => (leaveBlock machine 60 frame inner).iterate fun next => skippingFor next target rest body
+
+/-- An unwinding in which a cleanup failure replaces the original one. -/
+def masking : Exec witnessWorld → Exec witnessWorld
+  | .failed primary frame =>
+    match frame.reported with
+    | cleanup :: _ => .failed cleanup frame
+    | [] => .failed primary frame
+  | other => other
+
+/-- Running the defers in registration order leaves `x` as `2`. -/
+theorem fifo_rejected : readInt xName (fifoBlock (afterVar xName "0") lifoBody) = some 2 := by decide +kernel
+
+/-- Skipping the defer on `break` never counts. -/
+theorem skipped_on_break_rejected :
+    readInt totalName (skippingFor (afterVar totalName "0") (.name iName) (values ["1", "2"])
+      [deferring [bump totalName (int "1")], .breakStmt none]) = some 0 := by decide +kernel
+
+/-- Running `errdefer` on a normal exit sets the flag. -/
+theorem errdefer_on_success_rejected :
+    readInt totalName (eagerBlock (afterVar totalName "0") [erring [set totalName "1"]]) = some 1 := by decide +kernel
+
+/-- Letting the cleanup failure win makes it primary. -/
+theorem masking_rejected : primaryText (masking (runLong precedence)) = some "cleanup" := by decide +kernel
 
 end Witness
 
