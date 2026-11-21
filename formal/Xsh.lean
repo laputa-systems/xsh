@@ -87,6 +87,7 @@ import Xsh.Proofs.Core.EvalTyping
 import Xsh.Proofs.Core.EvalStatements
 import Xsh.Semantics.CoreControl
 import Xsh.Proofs.Core.Control
+import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Base.Num
 import Xsh.Proofs.Base.Step
 import Xsh.Proofs.Base.Progress

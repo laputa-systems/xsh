@@ -135,15 +135,6 @@ def Exec.iterate {world : World Declaration Identity Source} :
   | .broke frame, _ => .normal frame
   | other, _ => other
 
-def fromResult {world : World Declaration Identity Source} (frame : Frame world) :
-    Result Declaration Identity Source (Value Declaration Identity Source) →
-      (Value Declaration Identity Source → Exec world) → Exec world
-  | .value value, next => next value
-  | .failure failure, _ => .failed failure frame
-  | .stuck, _ => .stuck
-  | .unsupported, _ => .unsupported
-  | .outOfFuel, _ => .outOfFuel
-
 /-- A store write: committed continues in `environment` and `locals`. -/
 def fromStep {world : World Declaration Identity Source} (frame : Frame world) (environment : Environment)
     (locals : Locals Declaration Identity Source) : StoreStep world → Exec world
@@ -529,14 +520,6 @@ def guardValue (result : Bool) (subject : Value Declaration Identity Source) : O
     | .scalar .null => none
     | _ => some subject
 
-def resultExec {world : World Declaration Identity Source} {α : Type} (frame : Frame world) :
-    Result Declaration Identity Source α → (α → Exec world) → Exec world
-  | .value result, next => next result
-  | .failure failure, _ => .failed failure frame
-  | .stuck, _ => .stuck
-  | .unsupported, _ => .unsupported
-  | .outOfFuel, _ => .outOfFuel
-
 /-- The selector an index value names in a container of static type `type`:
 a list position, a map key, or a record field. -/
 def selectorOf (type : Option (ValueType Declaration)) (index : Value Declaration Identity Source) : Option Selector :=
@@ -545,23 +528,6 @@ def selectorOf (type : Option (ValueType Declaration)) (index : Value Declaratio
   | none, some _, _ => (mapKeyOf index).map .key
   | none, none, .scalar (.string label) => some (.field label)
   | _, _, _ => none
-
-/-- The selectors of an assignment path, index expressions evaluated through
-`evaluate`, each given the static type of the container it selects in. -/
-def selectorsOf {world : World Declaration Identity Source}
-    (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
-    Option (ValueType Declaration) → List PathSpec → Result Declaration Identity Source (List (SelectorSide world))
-  | _, [] => .value []
-  | type, .field label :: rest =>
-    (selectorsOf evaluate (staticChild type (.field label)) rest).bind fun others =>
-      .value ((fun store => .ok (.field label, store)) :: others)
-  | type, .index selector :: rest =>
-    (evaluate selector).bind fun index =>
-      match selectorOf type index with
-      | none => .unsupported
-      | some chosen =>
-        (selectorsOf evaluate (staticChild type (.index selector)) rest).bind fun others =>
-          .value ((fun store => .ok (chosen, store)) :: others)
 
 /-- A type pattern's test: the checker's type for the written type, decided on
 the value. -/
@@ -608,19 +574,6 @@ def wrapOk (value : Value Declaration Identity Source) : Value Declaration Ident
   match value.eraseNominal with
   | .ok _ | .err _ => value
   | _ => .ok value
-
-/-- A function's call result from its body's outcome: a `Result` function
-returns a raised failure, whether from `?`, an assertion or a primary cleanup
-failure, as its `Err`; any other function fails the call with it. -/
-def boundary {world : World Declaration Identity Source} :
-    ReturnKind → Exec world → Result Declaration Identity Source (Value Declaration Identity Source)
-  | .result, .returned value _ => .value (wrapOk value)
-  | .plain, .returned value _ => .value value
-  | .result, .failed (.raised error) _ => .value (.err error)
-  | _, .failed failure _ => .failure failure
-  | _, .unsupported => .unsupported
-  | _, .outOfFuel => .outOfFuel
-  | _, _ => .stuck
 
 /-- An expression's value with the frame it leaves, or the outcome that
 leaves instead. -/
@@ -679,14 +632,209 @@ def capture {world : World Declaration Identity Source} : Valued world → Value
   | .exec (.failed (.raised error) frame) => .value (.err error) frame
   | other => other
 
-/-- The value of an effectful expression used inside a pure one. -/
-def valuedResult {world : World Declaration Identity Source} :
-    Valued world → Result Declaration Identity Source (Value Declaration Identity Source)
-  | .value value _ => .value value
-  | .exec (.failed failure _) => .failure failure
+/-- An expression's result with the store it leaves: its value, or the
+failure that leaves instead. Either way the store holds what the calls it ran
+wrote to the cells present before it. -/
+inductive Evaluated (world : World Declaration Identity Source) (α : Type) where
+  | value (value : α) (store : Store world)
+  | failure (failure : Failure Declaration Identity Source) (store : Store world)
+  | stuck
+  | unsupported
+  | outOfFuel
+
+def Evaluated.bind {world : World Declaration Identity Source} {α β : Type} :
+    Evaluated world α → (α → Store world → Evaluated world β) → Evaluated world β
+  | .value result store, next => next result store
+  | .failure reason store, _ => .failure reason store
+  | .stuck, _ => .stuck
+  | .unsupported, _ => .unsupported
+  | .outOfFuel, _ => .outOfFuel
+
+/-- A store-free result, which leaves `store` as it is. -/
+def Evaluated.lift {world : World Declaration Identity Source} {α : Type} (store : Store world) :
+    Result Declaration Identity Source α → Evaluated world α
+  | .value result => .value result store
+  | .failure reason => .failure reason store
+  | .stuck => .stuck
+  | .unsupported => .unsupported
+  | .outOfFuel => .outOfFuel
+
+/-- The cells of `before` as the result leaves them; cells allocated since
+are dropped. -/
+def Evaluated.within {world : World Declaration Identity Source} {α : Type} (before : Store world) :
+    Evaluated world α → Evaluated world α
+  | .value result store => .value result (keep before store)
+  | .failure reason store => .failure reason (keep before store)
+  | .stuck => .stuck
+  | .unsupported => .unsupported
+  | .outOfFuel => .outOfFuel
+
+/-- Go on from an expression's result in `frame`, with the store it leaves. -/
+def Evaluated.exec {world : World Declaration Identity Source} {α : Type} (frame : Frame world) :
+    Evaluated world α → (α → Frame world → Exec world) → Exec world
+  | .value result store, next => next result { frame with store := store }
+  | .failure reason store, _ => .failed reason { frame with store := store }
+  | .stuck, _ => .stuck
+  | .unsupported, _ => .unsupported
+  | .outOfFuel, _ => .outOfFuel
+
+def Evaluated.valued {world : World Declaration Identity Source} {α : Type} (frame : Frame world) :
+    Evaluated world α → (α → Frame world → Valued world) → Valued world
+  | .value result store, next => next result { frame with store := store }
+  | .failure reason store, _ => .exec (.failed reason { frame with store := store })
+  | .stuck, _ => .exec .stuck
+  | .unsupported, _ => .exec .unsupported
+  | .outOfFuel, _ => .exec .outOfFuel
+
+/-- An expression's value in `frame`, with the store it leaves. -/
+def stored {world : World Declaration Identity Source} (frame : Frame world)
+    (result : Evaluated world (Value Declaration Identity Source)) : Valued world :=
+  result.valued frame fun value next => .value value next
+
+/-- The value and store of an effectful expression used inside another
+expression. -/
+def fromValued {world : World Declaration Identity Source} :
+    Valued world → Evaluated world (Value Declaration Identity Source)
+  | .value value frame => .value value frame.store
+  | .exec (.failed failure frame) => .failure failure frame.store
   | .exec .outOfFuel => .outOfFuel
   | .exec .stuck | .exec (.internal _ _) => .stuck
   | .exec _ => .unsupported
+
+/-- Operands evaluated once each, left to right, each in the store the one
+before it left. -/
+def threadAll {world : World Declaration Identity Source} {α : Type}
+    (evaluate : Store world → α → Evaluated world (Value Declaration Identity Source)) :
+    Store world → List α → Evaluated world (List (Value Declaration Identity Source))
+  | store, [] => .value [] store
+  | store, first :: rest =>
+    (evaluate store first).bind fun value after =>
+      (threadAll evaluate after rest).bind fun values last => .value (value :: values) last
+
+def threadFields {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)) :
+    Store world → List Xsh.Syntax.RecordField → Evaluated world (List (String × Value Declaration Identity Source))
+  | store, [] => .value [] store
+  | store, .named name operand :: rest =>
+    (evaluate store operand).bind fun value after =>
+      (threadFields context evaluate after rest).bind fun fields last => .value ((context.spelling name, value) :: fields) last
+  | _, _ :: _ => .unsupported
+
+def threadBranches {world : World Declaration Identity Source}
+    (evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)) :
+    Store world → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr →
+      Evaluated world (Value Declaration Identity Source)
+  | store, [], otherwise => evaluate store otherwise
+  | store, (condition, value) :: rest, otherwise =>
+    (evaluate store condition).bind fun result after =>
+      match result.eraseNominal with
+      | .scalar (.boolean true) => evaluate after value
+      | .scalar (.boolean false) => threadBranches evaluate after rest otherwise
+      | _ => .stuck
+
+/-- `CoreEval.step` with the store threaded: the same forms and operator
+meanings (`binary`, `unary`, `indexAt`, `fieldOf`), each operand evaluated in
+the store the one before it left, in source order. `recurse` evaluates a
+subterm one fuel level down, and `callBlock` runs a block function body and
+returns through `returnTo`. -/
+def threadStep (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+    (environment : Environment)
+    (recurse : Environment → Locals Declaration Identity Source → Store world → Xsh.Syntax.Expr →
+      Evaluated world (Value Declaration Identity Source))
+    (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
+      Store world → Evaluated world (Value Declaration Identity Source))
+    (locals : Locals Declaration Identity Source) (store : Store world) :
+    Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)
+  | .literal value => .lift store (literal context.literals value)
+  | .ident name =>
+    match locals.lookup name with
+    | some value => .value value store
+    | none =>
+      match environment.cellOf name with
+      | .ok cell => match store cell with
+        | some found => .value found.contents.value store
+        | none => .stuck
+      | .error _ => .stuck
+  | .list elements =>
+    (threadAll (recurse environment locals) store elements).bind fun values after => .value (.list values) after
+  | .record fields =>
+    (threadFields context (recurse environment locals) store fields).bind fun values after => .value (.record values) after
+  | .field base name => (recurse environment locals store base).bind fun value after => .lift after (fieldOf context name value)
+  | .index base key false =>
+    (recurse environment locals store base).bind fun container after =>
+      (recurse environment locals after key).bind fun selector last =>
+        .lift last (indexAt context (negativeLiteral key) container selector)
+  | .unary operator operand =>
+    (recurse environment locals store operand).bind fun value after => .lift after (unary context operator value)
+  | .binary .and left right =>
+    (recurse environment locals store left).bind fun first after =>
+      match first.eraseNominal with
+      | .scalar (.boolean false) => .value (boolean false) after
+      | .scalar (.boolean true) =>
+        (recurse environment locals after right).bind fun second last =>
+          match second.eraseNominal with
+          | .scalar (.boolean value) => .value (boolean value) last
+          | _ => .stuck
+      | _ => .stuck
+  | .binary .or left right =>
+    (recurse environment locals store left).bind fun first after =>
+      match first.eraseNominal with
+      | .scalar (.boolean true) => .value (boolean true) after
+      | .scalar (.boolean false) =>
+        (recurse environment locals after right).bind fun second last =>
+          match second.eraseNominal with
+          | .scalar (.boolean value) => .value (boolean value) last
+          | _ => .stuck
+      | _ => .stuck
+  | .binary operator left right =>
+    (recurse environment locals store left).bind fun first after =>
+      (recurse environment locals after right).bind fun second last => .lift last (binary context operator first second)
+  | .ifExpr conditions otherwise => threadBranches (recurse environment locals) store conditions otherwise
+  | .call (.ident name) arguments =>
+    match locals.lookup name, context.functions name, positional arguments with
+    | none, some (defining, parameters, body), some values =>
+      (threadAll (recurse environment locals) store values).bind fun evaluated after =>
+        if parameters.length = evaluated.length then
+          match body with
+          | .expression result .plain => recurse defining (parameters.zip evaluated) after result
+          | .expression result .result => callBlock defining (parameters.zip evaluated) [.expression result] .result after
+          | .block statements kind => callBlock defining (parameters.zip evaluated) statements kind after
+        else .stuck
+    | _, _, _ => .unsupported
+  | _ => .unsupported
+
+/-- `bindArguments` with the store threaded through the defaults it
+evaluates, in parameter order after the supplied arguments. -/
+def bindArgumentsIn {world : World Declaration Identity Source}
+    (evaluateDefault : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)) :
+    Store world → List Xsh.Syntax.Parameter → List (Value Declaration Identity Source) →
+      Evaluated world (Locals Declaration Identity Source)
+  | store, [], [] => .value [] store
+  | store, [.mk name _ _ true], arguments => .value [(name, .list arguments)] store
+  | store, .mk name _ _ false :: rest, argument :: arguments =>
+    (bindArgumentsIn evaluateDefault store rest arguments).bind fun bound after => .value ((name, argument) :: bound) after
+  | store, .mk name _ (some default) false :: rest, [] =>
+    (evaluateDefault store default).bind fun value after =>
+      (bindArgumentsIn evaluateDefault after rest []).bind fun bound last => .value ((name, value) :: bound) last
+  | _, _, _ => .stuck
+
+/-- The selectors of an assignment path, index expressions evaluated in path
+order through `evaluate`, each in the store the one before it left and each
+given the static type of the container it selects in. -/
+def selectorsOf {world : World Declaration Identity Source}
+    (evaluate : Store world → Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)) :
+    Store world → Option (ValueType Declaration) → List PathSpec → Evaluated world (List (SelectorSide world))
+  | store, _, [] => .value [] store
+  | store, type, .field label :: rest =>
+    (selectorsOf evaluate store (staticChild type (.field label)) rest).bind fun others after =>
+      .value ((fun current => .ok (.field label, current)) :: others) after
+  | store, type, .index selector :: rest =>
+    (evaluate store selector).bind fun index after =>
+      match selectorOf type index with
+      | none => .unsupported
+      | some chosen =>
+        (selectorsOf evaluate after (staticChild type (.index selector)) rest).bind fun others last =>
+          .value ((fun current => .ok (chosen, current)) :: others) last
 
 /-- Whether `retry ... on (pattern)` retries an error. -/
 def retryable (context : Context Declaration Identity Source)
@@ -732,9 +880,11 @@ def mutableCaptures {world : World Declaration Identity Source} (frame : Frame w
       | none => none
     | .error _ => none
 
-/-- A statement-level call of a local function returns to its caller with the
-caller's cells as the callee left them, so a write to a captured mutable cell
-is kept; the callee's own cells end with the call. -/
+/-- A call returns to its caller with the caller's cells as the callee left
+them, so a write to a captured mutable cell is kept; the callee's own cells
+end with the call. A `Result` function returns a raised failure, whether from
+`?`, an assertion or a primary cleanup failure, as its `Err` and wraps a plain
+value in `Ok`; any other function fails the call with it. -/
 def returnTo {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind) :
     Exec world → Valued world
   | .returned value callee =>
@@ -818,76 +968,76 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
   | other => .exec other
 
 mutual
-  /-- Expressions, with block function bodies run as statements. -/
+  /-- Expressions, with the store threaded through them: operands, arguments,
+  indices and branches evaluate left to right, each in the store the one
+  before it left, and every call that runs a body returns through `returnTo`,
+  so a nested call's writes to captured cells reach the caller. -/
   def evalExpr {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Scope Declaration Identity Source → Store world → Environment → Locals Declaration Identity Source →
-        Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
+        Xsh.Syntax.Expr → Evaluated world (Value Declaration Identity Source)
     | 0, _, _, _, _, _ => .outOfFuel
     | fuel + 1, scope, store, environment, locals, expression =>
       match expression with
-      | .tryExpr inner => (evalExpr machine fuel scope store environment locals inner).bind propagate
+      | .tryExpr inner =>
+        (evalExpr machine fuel scope store environment locals inner).bind fun value after => .lift after (propagate value)
       | .convert inner target =>
-        (evalExpr machine fuel scope store environment locals inner).bind fun value =>
+        (evalExpr machine fuel scope store environment locals inner).bind fun value after =>
           match machine.conversion value target with
-          | some converted => propagate converted
+          | some converted => .lift after (propagate converted)
           | none => .unsupported
       | .item =>
         match scope.item with
-        | some value => .value value
+        | some value => .value value store
         | none => .unsupported
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
           | .listComp _ _ | .mapComp _ _ _ =>
-        valuedResult (runValue machine fuel (Frame.ofScope environment store locals (some store) scope) expression)
+        fromValued (runValue machine fuel (Frame.ofScope environment store locals (some store) scope) expression)
       | .call (.ident name) arguments =>
         match locals.lookup name, localClosure scope.closures environment name, positional arguments with
         | none, some (.mk cell defining captured writable parameters body), some values =>
-          (evaluateAll (evalExpr machine fuel scope store environment locals) values).bind fun evaluated =>
-            (bindArguments
-                (evalExpr machine fuel ⟨scope.activation + machine.activationStep,
-                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining [])
-                parameters evaluated).bind fun bound =>
-              match body with
-              | .expression result .plain =>
-                evalExpr machine fuel ⟨scope.activation + machine.activationStep,
-                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound result
-              | .expression result .result =>
+          (threadAll (fun current => evalExpr machine fuel scope current environment locals) store values).bind
+            fun evaluated after =>
+              (bindArgumentsIn
+                  (fun current default => evalExpr machine fuel ⟨scope.activation + machine.activationStep,
+                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ current defining []
+                    default)
+                  after parameters evaluated).bind fun bound last =>
                 callBlock machine fuel ⟨scope.activation + machine.activationStep,
-                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
-                  [.expression result] .result
-              | .block statements kind =>
-                callBlock machine fuel ⟨scope.activation + machine.activationStep,
-                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
-                  statements kind
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ last defining bound
+                  writable (bodyStatements body) (bodyKind body)
         | _, _, _ =>
           match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
-          | none, none, "Ok", [] => .value (.ok (.scalar .unit))
+          | none, none, "Ok", [] => .value (.ok (.scalar .unit)) store
           | none, none, "Ok", [.positional payload] =>
-            (evalExpr machine fuel scope store environment locals payload).bind fun value => .value (.ok value)
+            (evalExpr machine fuel scope store environment locals payload).bind fun value after => .value (.ok value) after
           | none, none, "Err", [.positional payload] =>
-            (evalExpr machine fuel scope store environment locals payload).bind fun value => .value (.err value)
+            (evalExpr machine fuel scope store environment locals payload).bind fun value after => .value (.err value) after
           | _, _, _, _ =>
-            step machine.context environment store
-              (fun inner innerLocals => evalExpr machine fuel scope store inner innerLocals)
-              (fun defining parameters body kind =>
-                callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ store defining parameters body
-                  kind)
-              locals expression
+            threadStep machine.context environment
+              (fun inner innerLocals current => evalExpr machine fuel scope current inner innerLocals)
+              (fun defining parameters body kind current =>
+                callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ current defining parameters []
+                  body kind)
+              locals store expression
       | _ =>
-        step machine.context environment store
-          (fun inner innerLocals => evalExpr machine fuel scope store inner innerLocals)
-          (fun defining parameters body kind =>
-            callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ store defining parameters body kind)
-          locals expression
+        threadStep machine.context environment
+          (fun inner innerLocals current => evalExpr machine fuel scope current inner innerLocals)
+          (fun defining parameters body kind current =>
+            callBlock machine fuel ⟨scope.activation + machine.activationStep, [], none⟩ current defining parameters []
+              body kind)
+          locals store expression
 
-  /-- A block function body runs in its own activation, in its defining
-  environment with its parameters as locals; it may not write the caller's
-  cells, and its own cells end with the call. -/
+  /-- A call runs its body in its own activation, in its defining environment
+  with its parameters as locals and `writable` as the caller's cells it may
+  write, and returns through `returnTo`: the caller's cells as the body left
+  them, the body's own cells ending with the call. -/
   def callBlock {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Scope Declaration Identity Source → Store world → Environment → Locals Declaration Identity Source →
-        List Xsh.Syntax.Statement → ReturnKind → Result Declaration Identity Source (Value Declaration Identity Source)
-    | 0, _, _, _, _, _, _ => .outOfFuel
-    | fuel + 1, scope, store, defining, parameters, body, kind =>
-      boundary kind (runBody machine fuel (Frame.ofScope defining store parameters (some store) scope) body)
+        List CellId → List Xsh.Syntax.Statement → ReturnKind → Evaluated world (Value Declaration Identity Source)
+    | 0, _, _, _, _, _, _, _ => .outOfFuel
+    | fuel + 1, scope, store, defining, parameters, writable, body, kind =>
+      fromValued (returnTo { Frame.ofScope defining store parameters (some store) scope with writable } kind
+        (runBody machine fuel { Frame.ofScope defining store parameters (some store) scope with writable } body))
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
   conversions on them run here with the frame they change; anything else is
@@ -900,8 +1050,8 @@ mutual
       | .valueBlock body => valueScope machine fuel frame body
       | .capture body => capture (valueScope machine fuel frame body)
       | .retry .delays delays pattern body =>
-        resultThen frame (evaluateAll (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals) delays)
-          fun scheduled => retryLoop machine fuel frame pattern body scheduled
+        (threadAll (fun current => evalExpr machine fuel frame.scope current frame.environment frame.locals) frame.store
+          delays).valued frame fun scheduled next => retryLoop machine fuel next pattern body scheduled
       | .tryExpr inner =>
         (runValue machine fuel frame inner).bind fun value next => fromEval next (propagate value)
       | .convert inner target =>
@@ -931,27 +1081,9 @@ mutual
             | some entries => .value (.map entries) next
             | none => .exec .unsupported
           | none => .exec .stuck
-      | .call (.ident name) arguments =>
-        match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
-        | none, some (.mk cell defining captured writable parameters body), some values =>
-          resultThen frame (evaluateAll (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals) values)
-            fun evaluated =>
-              resultThen frame
-                (bindArguments
-                  (evalExpr machine fuel ⟨frame.activation + machine.activationStep,
-                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ frame.store defining [])
-                  parameters evaluated) fun bound =>
-                returnTo frame (bodyKind body)
-                  (runBody machine fuel
-                    { Frame.ofScope defining frame.store bound (some frame.store)
-                        ⟨frame.activation + machine.activationStep,
-                          (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
-                      writable }
-                    (bodyStatements body))
-        | _, _, _ => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
       | .collect body =>
         collectWith frame (runBlock machine fuel { frame with collected := some [] } body)
-      | expression => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
+      | expression => stored frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
 
   /-- A value block (SPEC 6.9): its tail is computed before its defers run, and
   an `Err` tail is its value, so it leaves without an error. -/
@@ -982,14 +1114,14 @@ mutual
       match qualifiers with
       | [] => (runValue machine fuel frame value).bind fun result next => .value (.list [result]) next
       | .when condition :: rest =>
-        fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) |>.bind
+        stored frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) |>.bind
           fun tested next =>
             match tested.eraseNominal with
             | .scalar (.boolean true) => comprehend machine fuel next rest value
             | .scalar (.boolean false) => .value (.list []) next
             | _ => .exec .unsupported
       | .each target iterable :: rest =>
-        fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable) |>.bind
+        stored frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable) |>.bind
           fun source next =>
             match iterationItems source with
             | some items => comprehendItems machine fuel next target items rest value
@@ -1142,10 +1274,9 @@ mutual
             | some _, false, _ => .unsupported
             | _, _, none => .internal (.missingCell cell) frame
             | _, _, some current =>
-              resultExec frame
-                (selectorsOf (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals)
-                  (some current.contents.typeTag) path) fun sides =>
-                (runValue machine fuel frame value).toExec fun result next =>
+              (selectorsOf (fun current => evalExpr machine fuel frame.scope current frame.environment frame.locals)
+                  frame.store (some current.contents.typeTag) path).exec frame fun sides selected =>
+                (runValue machine fuel selected value).toExec fun result next =>
                   match evaluateSelectors machine.raises (some current.contents.typeTag) sides next.store with
                   | .error (failure, _) => .failed failure next
                   | .ok (selectors, _) =>
@@ -1163,9 +1294,9 @@ mutual
       | .ifStmt branches otherwise => runIf machine fuel frame branches otherwise
       | .whileStmt condition body => runWhile machine fuel frame condition body
       | .forStmt target iterable body =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable) fun source =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals iterable).exec frame fun source next =>
           match iterationItems source with
-          | some items => runFor machine fuel frame target items body
+          | some items => runFor machine fuel next target items body
           | none => .unsupported
       | .loopStmt body => runLoop machine fuel frame body
       | .breakStmt none => .broke frame
@@ -1206,18 +1337,18 @@ mutual
           | none => guardElse (runBlock machine fuel next otherwise)
       | .continueStmt => .continued frame
       | .matchStmt subject arms =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
-          runMatch machine fuel frame value arms
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject).exec frame fun value next =>
+          runMatch machine fuel next value arms
       | .assert condition message =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition).exec frame fun tested next =>
           match tested.eraseNominal with
-          | .scalar (.boolean true) => .normal frame
+          | .scalar (.boolean true) => .normal next
           | .scalar (.boolean false) =>
             match message with
-            | none => .failed (.raised (machine.assertion none)) frame
+            | none => .failed (.raised (machine.assertion none)) next
             | some text =>
-              fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals text) fun written =>
-                .failed (.raised (machine.assertion (some written))) frame
+              (evalExpr machine fuel next.scope next.store next.environment next.locals text).exec next fun written last =>
+                .failed (.raised (machine.assertion (some written))) last
           | _ => .unsupported
       | .defer kind action =>
         .normal { frame with deferred := ⟨kind, action, frame.environment, frame.locals⟩ :: frame.deferred }
@@ -1234,17 +1365,17 @@ mutual
       | [], none => .normal frame
       | [], some fallback => runBlock machine fuel frame fallback
       | (.patternCondition subject pattern, body) :: rest, otherwise =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject).exec frame fun value next =>
           match conditionMatch machine.context machine.typeTest pattern value with
-          | .matched captures => runBound machine fuel frame captures body
-          | .failed => runIf machine fuel frame rest otherwise
+          | .matched captures => runBound machine fuel next captures body
+          | .failed => runIf machine fuel next rest otherwise
           | .unsupported => .unsupported
       | (condition, body) :: rest, otherwise =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition).exec frame fun tested next =>
           match conditionValue tested with
-          | some (.ok true) => runBlock machine fuel frame body
-          | some (.ok false) => runIf machine fuel frame rest otherwise
-          | some (.error error) => .failed (.raised error) frame
+          | some (.ok true) => runBlock machine fuel next body
+          | some (.ok false) => runIf machine fuel next rest otherwise
+          | some (.error error) => .failed (.raised error) next
           | none => .unsupported
 
   /-- `while` and `while let`: each iteration's body is its own scope; `break`
@@ -1255,20 +1386,20 @@ mutual
     | fuel + 1, frame, condition, body =>
       match condition with
       | .patternCondition subject pattern =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject) fun value =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals subject).exec frame fun value tested =>
           match conditionMatch machine.context machine.typeTest pattern value with
           | .matched captures =>
-            (runBound machine fuel frame captures body).iterate fun next =>
+            (runBound machine fuel tested captures body).iterate fun next =>
               runWhile machine fuel next (.patternCondition subject pattern) body
-          | .failed => .normal frame
+          | .failed => .normal tested
           | .unsupported => .unsupported
       | condition =>
-        fromResult frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition) fun tested =>
+        (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals condition).exec frame fun tested after =>
           match conditionValue tested with
           | some (.ok true) =>
-            (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
-          | some (.ok false) => .normal frame
-          | some (.error error) => .failed (.raised error) frame
+            (runBlock machine fuel after body).iterate fun next => runWhile machine fuel next condition body
+          | some (.ok false) => .normal after
+          | some (.error error) => .failed (.raised error) after
           | none => .unsupported
 
   /-- `for` over a list snapshot: each item is bound immutably in that
@@ -1308,11 +1439,11 @@ mutual
           | some condition =>
             match bindCaptures machine frame.enter captures with
             | .normal bound =>
-              fromResult frame (evalExpr machine fuel bound.scope bound.store bound.environment bound.locals condition)
-                fun tested =>
+              ((evalExpr machine fuel bound.scope bound.store bound.environment bound.locals condition).within
+                frame.store).exec frame fun tested next =>
                   match tested.eraseNominal with
-                  | .scalar (.boolean true) => runBound machine fuel frame captures body
-                  | .scalar (.boolean false) => runMatch machine fuel frame value rest
+                  | .scalar (.boolean true) => runBound machine fuel next captures body
+                  | .scalar (.boolean false) => runMatch machine fuel next value rest
                   | _ => .unsupported
             | other => leaveBlock machine fuel frame other
 end
