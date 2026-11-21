@@ -201,9 +201,7 @@ theorem step_refines (context : Context Declaration Identity Source) {world : Wo
       split
       · exact bind_refines (evaluateAll_refines (inner environment locals) _) fun _ => by
           split
-          · split
-            · exact inner _ _ _
-            · exact blocks _ _ _ _
+          · split <;> first | exact inner _ _ _ | exact blocks _ _ _ _
           · exact refines_refl _
       · exact refines_refl _
     all_goals exact refines_refl _
@@ -427,9 +425,7 @@ theorem step_runtimeOnly (context : Context Declaration Identity Source) {world 
       split
       · exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) _) fun _ => by
           split
-          · split
-            · exact inner _ _ _
-            · exact blocks _ _ _ _
+          · split <;> first | exact inner _ _ _ | exact blocks _ _ _ _
           · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
     all_goals exact runtimeOnly_of_no_failure (by simp [step])

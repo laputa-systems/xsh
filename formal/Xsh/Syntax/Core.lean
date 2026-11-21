@@ -315,6 +315,8 @@ mutual
     | retry (schedule : RetrySchedule) (delays : List Expr)
         (pattern : Option Pattern) (body : List Statement)
     | valueBlock (body : List Statement)
+    /-- An error handler block `{ |name| ... }` after `??`. -/
+    | handlerBlock (parameter : Option RawName) (body : List Statement)
     | errorContext (message : Expr) (body : List Statement)
     | contextScope (kind : ContextScopeKind) (input : Expr) (body : List Statement)
     | tempDirScope (path : Option Expr) (parameter : Option RawName) (body : List Statement)
@@ -518,6 +520,7 @@ mutual
             freeStatementsFuel fuel
               (pattern.toList.flatMap (fun item => item.boundNamesFuel fuel) ++ bound) body
       | .valueBlock body => freeStatementsFuel fuel bound body
+      | .handlerBlock parameter body => freeStatementsFuel fuel (parameter.toList ++ bound) body
       | .errorContext message body =>
           freeExprFuel fuel bound message ++ freeStatementsFuel fuel bound body
       | .contextScope _ input body =>

@@ -28,6 +28,11 @@ structure Machine (world : World Declaration Identity Source) where
   activationStep : Nat
   /-- The `Result` a conversion `value as T` gives (SPEC 6.11). -/
   conversion : Value Declaration Identity Source → Xsh.Syntax.TypeExpr → Option (Value Declaration Identity Source)
+  /-- The checker's type for a type pattern's written type. -/
+  typeOf : Xsh.Syntax.TypeExpr → Option (ValueType Declaration)
+  /-- Whether the checker gives a `guard let` subject an outermost `Result`
+  type (SPEC 8.6). -/
+  resultSubject : Environment → Xsh.Syntax.Expr → Bool
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -65,6 +70,8 @@ structure Frame (world : World Declaration Identity Source) where
   /-- The delays `retry` attempts waited, in order; a delay is observed, not
   slept. -/
   waited : List (Value Declaration Identity Source)
+  /-- The value a `break` gives the `loop` expression it leaves. -/
+  breakValue : Option (Value Declaration Identity Source)
 
 /-- The outcome of running statements. -/
 inductive Exec (world : World Declaration Identity Source) where
@@ -208,13 +215,42 @@ def Match.both : Match Declaration Identity Source → (Unit → Match Declarati
   | other, _ => other
 
 mutual
-  /-- The SPEC 6.10 matcher for wildcard, binding, literal, record and list
-  patterns and groups. -/
-  def matchPattern (context : Context Declaration Identity Source) :
+  /-- The SPEC 6.10 matcher for wildcard, binding, literal, record, list,
+  alternation, alias, `Ok`/`Err` and variant constructor and type patterns and
+  groups; `test` decides a type pattern. -/
+  def matchPattern (context : Context Declaration Identity Source)
+      (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
       Xsh.Syntax.Pattern → Value Declaration Identity Source → Match Declaration Identity Source
     | .wildcard, _ => .matched []
     | .binding name, value => .matched [(name, value)]
-    | .group inner, value => matchPattern context inner value
+    | .group inner, value => matchPattern context test inner value
+    | .alias inner name, value => (matchPattern context test inner value).both fun _ => .matched [(name, value)]
+    | .alternation members, value => matchAlternatives context test members value
+    | .constructor name argument, value =>
+      match context.spelling name, value.eraseNominal with
+      | "Ok", .ok payload | "Err", .err payload =>
+        match argument with
+        | none => .unsupported
+        | some inner => matchPattern context test inner payload
+      | "Ok", _ | "Err", _ => .failed
+      | variant, .tagged _ actual fields =>
+        if variant = actual then
+          match argument, fields with
+          | none, [] => .matched []
+          | some inner, [field] => matchPattern context test inner field
+          | _, _ => .unsupported
+        else .failed
+      | _, _ => .unsupported
+    | .testName name type, value =>
+      match test type value with
+      | some true => .matched [(name, value)]
+      | some false => .failed
+      | none => .unsupported
+    | .typeBind name type, value =>
+      match test type value with
+      | some true => .matched (name.toList.map fun bound => (bound, value))
+      | some false => .failed
+      | none => .unsupported
     | .literal written, value =>
       match literal context.literals written with
       | .value expected =>
@@ -228,35 +264,49 @@ mutual
       | _ => .unsupported
     | .record fields _, value =>
       match value.eraseNominal with
-      | .record actual => matchFields context fields actual
+      | .record actual => matchFields context test fields actual
       | _ => .failed
     | .list elements rest, value =>
       match listValues value with
       | some items =>
         match rest with
-        | none => if elements.length = items.length then matchItems context elements items else .failed
+        | none => if elements.length = items.length then matchItems context test elements items else .failed
         | some tail =>
           if elements.length ≤ items.length then
-            (matchItems context elements (items.take elements.length)).both fun _ =>
-              matchPattern context tail (.list (items.drop elements.length))
+            (matchItems context test elements (items.take elements.length)).both fun _ =>
+              matchPattern context test tail (.list (items.drop elements.length))
           else .failed
       | none => .failed
     | _, _ => .unsupported
 
-  def matchFields (context : Context Declaration Identity Source) :
+  def matchFields (context : Context Declaration Identity Source)
+      (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
       List (Xsh.Syntax.RawName × Xsh.Syntax.Pattern) → List (String × Value Declaration Identity Source) →
         Match Declaration Identity Source
     | [], _ => .matched []
     | (label, pattern) :: rest, actual =>
       match actual.lookup (context.spelling label) with
       | none => .failed
-      | some found => (matchPattern context pattern found).both fun _ => matchFields context rest actual
+      | some found => (matchPattern context test pattern found).both fun _ => matchFields context test rest actual
 
-  def matchItems (context : Context Declaration Identity Source) :
+  def matchItems (context : Context Declaration Identity Source)
+      (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
       List Xsh.Syntax.Pattern → List (Value Declaration Identity Source) → Match Declaration Identity Source
     | [], _ => .matched []
-    | pattern :: rest, item :: items => (matchPattern context pattern item).both fun _ => matchItems context rest items
+    | pattern :: rest, item :: items =>
+      (matchPattern context test pattern item).both fun _ => matchItems context test rest items
     | _ :: _, [] => .failed
+
+  /-- `p | q`: the first alternative that matches. -/
+  def matchAlternatives (context : Context Declaration Identity Source)
+      (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
+      List Xsh.Syntax.Pattern → Value Declaration Identity Source → Match Declaration Identity Source
+    | [], _ => .failed
+    | member :: rest, value =>
+      match matchPattern context test member value with
+      | .matched captures => .matched captures
+      | .failed => matchAlternatives context test rest value
+      | .unsupported => .unsupported
 end
 
 def catchAll : Xsh.Syntax.Pattern → Bool
@@ -266,13 +316,14 @@ def catchAll : Xsh.Syntax.Pattern → Bool
 
 /-- `if let` and `while let`: a pattern that cannot fail is an optional
 binding, which takes the other branch on `null` (SPEC 8.6). -/
-def conditionMatch (context : Context Declaration Identity Source) (pattern : Xsh.Syntax.Pattern)
+def conditionMatch (context : Context Declaration Identity Source)
+    (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) (pattern : Xsh.Syntax.Pattern)
     (value : Value Declaration Identity Source) : Match Declaration Identity Source :=
   if catchAll pattern then
     match value.eraseNominal with
     | .scalar .null => .failed
-    | _ => matchPattern context pattern value
-  else matchPattern context pattern value
+    | _ => matchPattern context test pattern value
+  else matchPattern context test pattern value
 
 /-- The checker's binder, cell and type for each capture. -/
 def resolveCaptures {world : World Declaration Identity Source} (resolution : Oracles world)
@@ -286,6 +337,89 @@ def resolveCaptures {world : World Declaration Identity Source} (resolution : Or
     | _, _ => none
 
 variable [DecidableEq Declaration]
+
+/-- A condition's value: a `Bool`, or a `Result[Bool]`, whose `Err` leaves as
+under `?` (SPEC 8.3). -/
+def conditionValue (tested : Value Declaration Identity Source) : Option (Except (Value Declaration Identity Source) Bool) :=
+  match tested.eraseNominal with
+  | .scalar (.boolean value) => some (.ok value)
+  | .ok inner =>
+    match inner.eraseNominal with
+    | .scalar (.boolean value) => some (.ok value)
+    | _ => none
+  | .err error => some (.error error)
+  | _ => none
+
+def keyValue (key : MapKey) : Value Declaration Identity Source := .scalar key.scalar
+
+/-- What `for` iterates (SPEC 8.6): a list's items, a map's `{key, value}`
+items in key order, a string's one-scalar strings, and the bytes of `Bytes`
+as `Int`. -/
+def iterationItems (source : Value Declaration Identity Source) : Option (List (Value Declaration Identity Source)) :=
+  match listValues source with
+  | some items => some items
+  | none =>
+    match source.eraseNominal with
+    | .map entries =>
+      some ((entries.foldr (fun entry ordered => insertOrdered entry.1 entry.2 ordered) []).map fun entry =>
+        .record [("key", keyValue entry.1), ("value", entry.2)])
+    | .scalar (.string text) => some (text.toList.map fun character => .scalar (.string character.toString))
+    | .scalar (.bytes bytes) =>
+      some (bytes.filterMap fun byte => (validateInt? byte.toNat).map fun value => .scalar (.integer value))
+    | _ => none
+
+/-- What a `guard let` binds (SPEC 8.6): the `Ok` payload of a `Result`
+subject, or a non-`null` optional value; `none` runs the else block. -/
+def guardValue (result : Bool) (subject : Value Declaration Identity Source) : Option (Value Declaration Identity Source) :=
+  if result then
+    match subject.eraseNominal with
+    | .ok payload => some payload
+    | _ => none
+  else
+    match subject.eraseNominal with
+    | .scalar .null => none
+    | _ => some subject
+
+def resultExec {world : World Declaration Identity Source} {α : Type} (frame : Frame world) :
+    Result Declaration Identity Source α → (α → Exec world) → Exec world
+  | .value result, next => next result
+  | .failure failure, _ => .failed failure frame
+  | .stuck, _ => .stuck
+  | .unsupported, _ => .unsupported
+  | .outOfFuel, _ => .outOfFuel
+
+/-- The selector an index value names in a container of static type `type`:
+a list position, a map key, or a record field. -/
+def selectorOf (type : Option (ValueType Declaration)) (index : Value Declaration Identity Source) : Option Selector :=
+  match type.bind elementType, type.bind mapTypes, index.eraseNominal with
+  | some _, _, .scalar (.integer position) => some (.index position.val)
+  | none, some _, _ => (mapKeyOf index).map .key
+  | none, none, .scalar (.string label) => some (.field label)
+  | _, _, _ => none
+
+/-- The selectors of an assignment path, index expressions evaluated through
+`evaluate`, each given the static type of the container it selects in. -/
+def selectorsOf {world : World Declaration Identity Source}
+    (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    Option (ValueType Declaration) → List PathSpec → Result Declaration Identity Source (List (SelectorSide world))
+  | _, [] => .value []
+  | type, .field label :: rest =>
+    (selectorsOf evaluate (staticChild type (.field label)) rest).bind fun others =>
+      .value ((fun store => .ok (.field label, store)) :: others)
+  | type, .index selector :: rest =>
+    (evaluate selector).bind fun index =>
+      match selectorOf type index with
+      | none => .unsupported
+      | some chosen =>
+        (selectorsOf evaluate (staticChild type (.index selector)) rest).bind fun others =>
+          .value ((fun store => .ok (chosen, store)) :: others)
+
+/-- A type pattern's test: the checker's type for the written type, decided on
+the value. -/
+def Machine.typeTest {world : World Declaration Identity Source} (machine : Machine world)
+    (written : Xsh.Syntax.TypeExpr) (value : Value Declaration Identity Source) : Option Bool :=
+  (machine.typeOf written).map fun type =>
+    @decide (HasType world type value) (Xsh.Core.Store.decideHasType world machine.decisions type value)
 
 /-- Bind pattern captures as immutable cells in `frame`, which has already
 entered its scope. -/
@@ -306,6 +440,12 @@ def bindTarget {world : World Declaration Identity Source} (machine : Machine wo
   | some (resolved, declared) =>
     fromStep frame (extend frame.environment declared) (hide (declared.map Prod.fst) frame.locals)
       (declareTarget world machine.decisions frame.store mutability resolved value)
+
+/-- A `guard let` else block must leave the enclosing continuation; one that
+completes is stuck (SPEC 8.6, `check.guard-fallthrough`). -/
+def guardElse {world : World Declaration Identity Source} : Exec world → Exec world
+  | .normal _ => .stuck
+  | other => other
 
 /-- A name or field-path assignment target: its root and field labels. -/
 def fieldPath (spelling : Xsh.Syntax.RawName → String) :
@@ -400,11 +540,12 @@ def valuedResult {world : World Declaration Identity Source} :
   | .exec _ => .unsupported
 
 /-- Whether `retry ... on (pattern)` retries an error. -/
-def retryable (context : Context Declaration Identity Source) :
+def retryable (context : Context Declaration Identity Source)
+    (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) :
     Option Xsh.Syntax.Pattern → Value Declaration Identity Source → Option Bool
   | none, _ => some true
   | some pattern, error =>
-    match matchPattern context pattern error with
+    match matchPattern context test pattern error with
     | .matched _ => some true
     | .failed => some false
     | .unsupported => none
@@ -413,11 +554,11 @@ def retryable (context : Context Declaration Identity Source) :
 takes the next delay and goes on through `next`, and the last or an
 unselected one is `Err`. -/
 def retryStep {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
-    (pattern : Option Xsh.Syntax.Pattern) (delays : List (Value Declaration Identity Source))
+    (test : Xsh.Syntax.TypeExpr → Value Declaration Identity Source → Option Bool) (pattern : Option Xsh.Syntax.Pattern) (delays : List (Value Declaration Identity Source))
     (next : Frame world → List (Value Declaration Identity Source) → Valued world) : Valued world → Valued world
   | .value result after => .value (.ok result) after
   | .exec (.failed (.raised error) after) =>
-    match retryable context pattern error with
+    match retryable context test pattern error with
     | some true =>
       match delays with
       | delay :: rest => next { after with waited := after.waited ++ [delay] } rest
@@ -425,6 +566,13 @@ def retryStep {world : World Declaration Identity Source} (context : Context Dec
     | some false => .value (.err error) after
     | none => .exec .unsupported
   | other => other
+
+/-- After one iteration of a `loop` expression: `break` gives the loop its
+value. -/
+def loopStep {world : World Declaration Identity Source} (next : Frame world → Valued world) : Exec world → Valued world
+  | .normal frame | .continued frame => next frame
+  | .broke frame => .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none }
+  | other => .exec other
 
 mutual
   /-- Expressions, with block function bodies run as statements. -/
@@ -440,8 +588,22 @@ mutual
           match machine.conversion value target with
           | some converted => propagate converted
           | none => .unsupported
-      | .valueBlock _ | .capture _ | .retry _ _ _ _ =>
-        valuedResult (runValue machine fuel ⟨environment, store, [], locals, some store, activation, [], [], []⟩ expression)
+      | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ =>
+        valuedResult
+          (runValue machine fuel ⟨environment, store, [], locals, some store, activation, [], [], [], none⟩ expression)
+      | .call (.ident name) arguments =>
+        match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
+        | none, none, "Ok", [] => .value (.ok (.scalar .unit))
+        | none, none, "Ok", [.positional payload] =>
+          (evalExpr machine fuel activation store environment locals payload).bind fun value => .value (.ok value)
+        | none, none, "Err", [.positional payload] =>
+          (evalExpr machine fuel activation store environment locals payload).bind fun value => .value (.err value)
+        | _, _, _, _ =>
+          step machine.context environment store
+            (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
+            (fun defining parameters body kind =>
+              callBlock machine fuel (activation + machine.activationStep) store defining parameters body kind)
+            locals expression
       | _ =>
         step machine.context environment store
           (fun inner innerLocals => evalExpr machine fuel activation store inner innerLocals)
@@ -457,7 +619,7 @@ mutual
         ReturnKind → Result Declaration Identity Source (Value Declaration Identity Source)
     | 0, _, _, _, _, _, _ => .outOfFuel
     | fuel + 1, activation, store, defining, parameters, body, kind =>
-      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], []⟩ body)
+      boundary kind (runBody machine fuel ⟨defining, store, [], parameters, some store, activation, [], [], [], none⟩ body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
   conversions on them run here with the frame they change; anything else is
@@ -480,6 +642,17 @@ mutual
           | some converted => fromEval next (propagate converted)
           | none => .exec .unsupported
       | .retry .backoff _ _ _ => .exec .unsupported
+      | .binary .resultFallback left right =>
+        (runValue machine fuel frame left).bind fun value next =>
+          match value.eraseNominal, right with
+          | .ok payload, _ => .value payload next
+          | .err error, .handlerBlock parameter body =>
+            handlerScope machine fuel next (parameter.toList.map fun bound => (bound, error)) body
+          | .scalar .null, .handlerBlock none body => handlerScope machine fuel next [] body
+          | .scalar .null, .handlerBlock (some _) _ => .exec .unsupported
+          | .err _, fallback | .scalar .null, fallback => runValue machine fuel next fallback
+          | _, _ => .value value next
+      | .loopExpr body => loopValue machine fuel frame body
       | expression => fromEval frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals expression)
 
   /-- A value block (SPEC 6.9): its tail is computed before its defers run, and
@@ -489,6 +662,22 @@ mutual
     | 0, _, _ => .exec .outOfFuel
     | fuel + 1, frame, body =>
       settle (leaveBlock machine fuel frame) (runValueTail machine fuel frame.enter body)
+
+  /-- A `??` handler block: the error bound to its parameter in its own scope,
+  with its tail as the value. -/
+  def handlerScope {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) →
+        List Xsh.Syntax.Statement → Valued world
+    | 0, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, captures, body =>
+      settle (leaveBlock machine fuel frame)
+        ((bindCaptures machine frame.enter captures).thenValued fun bound => runValueTail machine fuel bound body)
+
+  /-- `loop { ... }` as an expression: its value is what `break` gives it. -/
+  def loopValue {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.Statement → Valued world
+    | 0, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, body => loopStep (fun next => loopValue machine fuel next body) (runBlock machine fuel frame body)
 
   def runValueTail {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Valued world
@@ -510,7 +699,7 @@ mutual
         List (Value Declaration Identity Source) → Valued world
     | 0, _, _, _, _ => .exec .outOfFuel
     | fuel + 1, frame, pattern, body, delays =>
-      retryStep machine.context pattern delays (fun after rest => retryLoop machine fuel after pattern body rest)
+      retryStep machine.context machine.typeTest pattern delays (fun after rest => retryLoop machine fuel after pattern body rest)
         (valueScope machine fuel frame body)
 
   /-- A function body: its statements in a scope, the last one a tail
@@ -605,18 +794,25 @@ mutual
               | .ok overlay => .normal { next with overlay := overlay }
               | .error failure => .failed failure next
       | .assign target op value =>
-        match fieldPath machine.context.spelling target with
+        match flatten machine.context.spelling target with
         | none => .unsupported
         | some (root, path) =>
           match frame.environment.cellOf root with
           | .error fault => .internal (.unresolvedName fault) frame
           | .ok cell =>
-            match frame.callerStore.bind fun caller => caller cell with
-            | some _ => .unsupported
-            | none =>
-              (runValue machine fuel frame value).toExec fun result next =>
-                fromStep next next.environment next.locals
-                  (assignPath world machine.decisions machine.raises machine.operate next.store cell path op result)
+            match frame.callerStore.bind fun caller => caller cell, frame.store cell with
+            | some _, _ => .unsupported
+            | none, none => .internal (.missingCell cell) frame
+            | none, some current =>
+              resultExec frame
+                (selectorsOf (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals)
+                  (some current.contents.typeTag) path) fun sides =>
+                (runValue machine fuel frame value).toExec fun result next =>
+                  match evaluateSelectors machine.raises (some current.contents.typeTag) sides next.store with
+                  | .error (failure, _) => .failed failure next
+                  | .ok (selectors, _) =>
+                    fromStep next next.environment next.locals
+                      (assignPath world machine.decisions machine.raises machine.operate next.store cell selectors op result)
       | .expression (.valueBlock body) => runBlock machine fuel frame body
       | .expression value =>
         (runValue machine fuel frame value).toExec fun result next =>
@@ -630,11 +826,18 @@ mutual
       | .whileStmt condition body => runWhile machine fuel frame condition body
       | .forStmt target iterable body =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals iterable) fun source =>
-          match listValues source with
+          match iterationItems source with
           | some items => runFor machine fuel frame target items body
           | none => .unsupported
       | .loopStmt body => runLoop machine fuel frame body
       | .breakStmt none => .broke frame
+      | .breakStmt (some value) =>
+        (runValue machine fuel frame value).toExec fun result next => .broke { next with breakValue := some result }
+      | .guardStmt target _ initializer otherwise =>
+        (runValue machine fuel frame initializer).toExec fun subject next =>
+          match guardValue (machine.resultSubject next.environment initializer) subject with
+          | some bound => bindTarget machine next .immutable target bound
+          | none => guardElse (runBlock machine fuel next otherwise)
       | .continueStmt => .continued frame
       | .matchStmt subject arms =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
@@ -666,16 +869,17 @@ mutual
       | [], some fallback => runBlock machine fuel frame fallback
       | (.patternCondition subject pattern, body) :: rest, otherwise =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
-          match conditionMatch machine.context pattern value with
+          match conditionMatch machine.context machine.typeTest pattern value with
           | .matched captures => runBound machine fuel frame captures body
           | .failed => runIf machine fuel frame rest otherwise
           | .unsupported => .unsupported
       | (condition, body) :: rest, otherwise =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition) fun tested =>
-          match tested.eraseNominal with
-          | .scalar (.boolean true) => runBlock machine fuel frame body
-          | .scalar (.boolean false) => runIf machine fuel frame rest otherwise
-          | _ => .unsupported
+          match conditionValue tested with
+          | some (.ok true) => runBlock machine fuel frame body
+          | some (.ok false) => runIf machine fuel frame rest otherwise
+          | some (.error error) => .failed (.raised error) frame
+          | none => .unsupported
 
   /-- `while` and `while let`: each iteration's body is its own scope; `break`
   ends this loop and `continue` starts its next test. -/
@@ -686,7 +890,7 @@ mutual
       match condition with
       | .patternCondition subject pattern =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals subject) fun value =>
-          match conditionMatch machine.context pattern value with
+          match conditionMatch machine.context machine.typeTest pattern value with
           | .matched captures =>
             (runBound machine fuel frame captures body).iterate fun next =>
               runWhile machine fuel next (.patternCondition subject pattern) body
@@ -694,11 +898,12 @@ mutual
           | .unsupported => .unsupported
       | condition =>
         fromResult frame (evalExpr machine fuel frame.activation frame.store frame.environment frame.locals condition) fun tested =>
-          match tested.eraseNominal with
-          | .scalar (.boolean true) =>
+          match conditionValue tested with
+          | some (.ok true) =>
             (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
-          | .scalar (.boolean false) => .normal frame
-          | _ => .unsupported
+          | some (.ok false) => .normal frame
+          | some (.error error) => .failed (.raised error) frame
+          | none => .unsupported
 
   /-- `for` over a list snapshot: each item is bound immutably in that
   iteration's scope. -/
@@ -728,7 +933,7 @@ mutual
       match arms with
       | [] => .stuck
       | (pattern, guard, body) :: rest =>
-        match matchPattern machine.context pattern value with
+        match matchPattern machine.context machine.typeTest pattern value with
         | .failed => runMatch machine fuel frame value rest
         | .unsupported => .unsupported
         | .matched captures =>

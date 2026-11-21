@@ -40,7 +40,7 @@ inductive ReturnKind where
 /-- A function body: a result expression, or a statement block whose value is
 its `return` or its tail expression. -/
 inductive FunctionBody where
-  | expression (value : Xsh.Syntax.Expr)
+  | expression (value : Xsh.Syntax.Expr) (kind : ReturnKind)
   | block (statements : List Xsh.Syntax.Statement) (kind : ReturnKind)
 
 /-- A function: the environment it was defined in, its parameter names and its
@@ -331,7 +331,8 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
       (evaluateAll (recurse environment locals) values).bind fun evaluated =>
         if parameters.length = evaluated.length then
           match body with
-          | .expression result => recurse defining (parameters.zip evaluated) result
+          | .expression result .plain => recurse defining (parameters.zip evaluated) result
+          | .expression result .result => callBlock defining (parameters.zip evaluated) [.expression result] .result
           | .block statements kind => callBlock defining (parameters.zip evaluated) statements kind
         else .stuck
     | _, _, _ => .unsupported
