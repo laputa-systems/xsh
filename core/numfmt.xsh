@@ -100,7 +100,6 @@ type NumfmtOptions = {
 # is the empty list.
 const BASE = 1000000000
 
-
 # Fields are separated by single-byte locale blanks, not Unicode whitespace.
 const BLANKS = "\\x09-\\x0d\\x20"
 
