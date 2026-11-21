@@ -234,6 +234,35 @@ cleanup runs first. Mutants that each falsify a conjunct: counting a negative
 index from the end, defaulting a missing key, appending an inserted key, a
 non-atomic destructuring, and a cleanup failure that replaces the primary one.
 
+The `syntax_directed_store_writes` fragment root is in
+[`Proofs/Core/Statements.lean`](Xsh/Proofs/Core/Statements.lean), over
+[`Semantics/CoreStatements.lean`](Xsh/Semantics/CoreStatements.lean). It gives
+the store-write meaning of `let`, `var` and `const` (also under `export`) and
+of assignment over the frozen core's `Statement`, `BindingTarget` and
+`AssignTarget` syntax. A declaration evaluates its initializer, resolves its
+target to cells and checker types, commits through `declareTarget`, and binds
+each name so that `Environment.cellOf` resolves it to its cell; a well-typed
+destructuring never reaches `malformedTarget`. An assignment resolves its root
+through `cellOf` and runs `assignStatement` on its flattened selector path, so
+every `store_writing_forms` fact applies; `e"NAME" = value` converts the value
+and sets the overlay. A block runs in a new lexical scope and leaving it
+restores name resolution. The oracles are the name table's spellings,
+BASE-STEP's expression and index evaluation, the checker's binder, cell and
+type for each declared name, and argv conversion (SPEC 11.4). The witness runs
+`var n: UInt = 0; n = 5; n = -1` as a block: the last write is a `type-error`
+that keeps `5`, and after the block `n` no longer resolves; a block without
+its scope exit still resolves `n`. BASE-ENV stays planned: `for`, `guard let`,
+`match`, `if let` and `while let` bindings, comprehension and `retry` targets,
+`with`, resource and `tempdir` scope bindings, parameter binding at call,
+`use` aliases, declaration names and captures have no meaning here.
+
+The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
+has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
+the four function-definition kinds with parameters and defaults, signal hooks,
+sugar through its expansion, and command statements with their run forms.
+`TailBareIdent` is the existing `tailName`. Loader output, formatter-only
+flags and spans stay outside.
+
 BASE-NUM is closed by `numeric_semantics` in
 [`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
 UInt and Duration results and IEEE Float equality. `%` fails with

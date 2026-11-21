@@ -15117,6 +15117,15 @@
       "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. Deferred to BASE-STEP: the instantiation of Operate must show that list + is concatenate (SPEC 4.5), which VAL-STORE's += clauses assume. It does not close BASE-ENV for the core and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "module": "Xsh.Proofs.Core.Statements",
+      "declaration": "Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The store-write meaning of the frozen core's let/var/const (also exported) and assignment statements over Statement, BindingTarget and AssignTarget syntax: declarations resolve their target, commit through declareTarget and bind each name so cellOf resolves it, assignments resolve their root through cellOf and run assignStatement on the flattened selector path, environment assignment sets the overlay, and a block restores name resolution on exit.",
+      "boundary": "Takes the name table's spellings, BASE-STEP expression and index evaluation, the checker's binder, cell and type for each declared name, and argv conversion as oracles. for, guard let, match and if-let pattern bindings, comprehension and retry targets, with, resource and tempdir scope bindings, function parameter binding at call, use aliases, declaration names and captures have no meaning here, and nested statement bodies belong to the control machine. It does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
       "module": "Xsh.Validation.Core.Nominal",
       "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance",

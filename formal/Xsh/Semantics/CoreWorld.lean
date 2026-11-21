@@ -79,6 +79,8 @@ inductive InternalFault where
   | occupiedCell (cell : CellId)
   | malformedPath (cell : CellId)
   | malformedTarget
+  | unresolvedName (fault : LookupFault)
+  | unconvertibleEnvironment
   deriving DecidableEq
 
 inductive StoreStep (world : World Declaration Identity Source) where
