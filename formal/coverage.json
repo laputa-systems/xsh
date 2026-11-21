@@ -2999,8 +2999,10 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store_writes"
     },
     {
       "id": "VAL-UNION",
@@ -15103,7 +15105,16 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
-      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes and unwinding are in store_writing_forms. Machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Writes.store_writing_forms",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.store_writing_forms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Destructuring declarations, field, key and index path writes, compound assignment, environment assignment and unwinding with cleanup and try over the Core-guarded store, with each selector and the right side given as an evaluation: whole-cell re-checking, no internal fault for typed paths and well-typed destructuring, key-sorted insertion and record-to-map conversion, negative Map[UInt, V] keys failing at their own selector, uncaught runtime failures, all-or-nothing declarations and primary-failure unwinding.",
+      "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. Deferred to BASE-STEP: the instantiation of Operate must show that list + is concatenate (SPEC 4.5), which VAL-STORE's += clauses assume. It does not close BASE-ENV for the core and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
@@ -15166,7 +15177,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
-      "boundary": "Store mutation through += and path writes are not modelled. Closes no full-core obligation."
+      "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
     }
   ],
   "artifact_certificates": [
