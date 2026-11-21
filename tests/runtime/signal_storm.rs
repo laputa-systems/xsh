@@ -431,15 +431,14 @@ fn execute(plan: &Plan, body: &str) -> Outcome {
         }
     }
     numbered.sort();
-    let outcome = Outcome {
+    Outcome {
         exit,
         stdout,
         ready,
         markers: numbered.into_iter().map(|(_, label)| label).collect(),
         elapsed,
         stderr: fs::read_to_string(dir.join("stderr")).unwrap_or_default(),
-    };
-    outcome
+    }
 }
 
 fn check_cleanup_sequence(

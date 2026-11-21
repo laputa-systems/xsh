@@ -168,6 +168,74 @@ cargo_steps.run_build(stages.command(
   }
 }
 
+test test_a_glibc_host_selects_the_musl_c_compiler_for_a_musl_target { |ctx|
+  let root = test.temp_dir(ctx, name: "musl-c-compiler")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  fp"{tools}/x86_64-linux-musl-gcc".write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  fp"{tools}/rust-lld".write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  let repository = fs.cwd()?
+  let inherited_path = env.get_or("PATH", "")?
+  for probe in [
+    [
+      "x86_64-linux-gnu",
+      "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static",
+      "",
+    ],
+    [
+      "x86_64-alpine-linux-musl",
+      "default",
+      "-C target-feature=+crt-static",
+      "",
+    ],
+    [
+      "x86_64-linux-gnu",
+      "CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static -C link-arg=-fuse-ld=mold",
+      "",
+    ],
+    [
+      "x86_64-linux-gnu",
+      "CC_x86_64_unknown_linux_musl",
+      "-C target-feature=+crt-static",
+      "rust-lld",
+    ],
+  ] {
+    let script = f"""use cargo_steps
+use stage as stages
+
+let spec = stages.command(
+  "build", "x86_64-unknown-linux-musl", "cargo", ["cargo", "build"], p"{root}",
+  {{CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "{probe[2]}"}},
+)
+if let selected = cargo_steps.musl_c_compiler_overlay(spec)? {{
+  print f"{{selected.keys().join(",")}}"
+}} else {{
+  print "default"
+}}
+"""
+    fp"{tools}/cc".write(
+      f"""#!/bin/sh
+printf '%s\\n' '{probe[0]}'
+""",
+      mode: 0o755,
+    )
+    test.expect(
+      ctx,
+      script,
+      status: 0,
+      stdout: [probe[1]],
+      args: [],
+      env: {
+        PATH: f"{tools}:{inherited_path}",
+        XSH_MODULE_PATH: fp"{repository}/dev",
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: probe[3],
+      },
+    )?
+  }
+}
+
 test test_mold_driver_preserves_other_command_environment { |_|
   let spec = stages.command(
     "link", musl_host, "cargo", ["cargo", "build"], p"/repo",

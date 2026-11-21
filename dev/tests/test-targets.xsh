@@ -99,6 +99,29 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
   assert coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
 }
 
+test test_musl_c_compiler_selection_covers_the_native_linux_targets {
+  if let x86 = target_policy.musl_c_compiler("x86_64-unknown-linux-musl") {
+    assert x86.tool == "x86_64-linux-musl-gcc"
+    assert x86.variable == "CC_x86_64_unknown_linux_musl"
+    assert x86.linker_variable == "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"
+    assert x86.rustflags_variable == "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
+  } else {
+    test.fail("x86-64 musl target has no C compiler")
+  }
+
+  if let arm = target_policy.musl_c_compiler("aarch64-unknown-linux-musl") {
+    assert arm.tool == "aarch64-linux-musl-gcc"
+    assert arm.variable == "CC_aarch64_unknown_linux_musl"
+    assert arm.linker_variable == "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"
+    assert arm.rustflags_variable == "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
+  } else {
+    test.fail("aarch64 musl target has no C compiler")
+  }
+
+  assert target_policy.musl_c_compiler("aarch64-apple-darwin") == null
+  assert target_policy.musl_c_compiler("x86_64-unknown-linux-gnu") == null
+}
+
 test test_profiling_build_argv_and_environment_are_isolated {
   let target_dir = "/repo/.work/tmp/profiling-target"
   assert target_policy.profiling_argv("x86_64-unknown-linux-musl")? == [
@@ -871,4 +894,15 @@ test test_gate_docker_uses_linked_worktree_common_dir_despite_git_overrides { |c
       assert f"{source}/.work/consolidation/infra:{source}/.work/consolidation/infra" in invocation
     }
   }
+}
+
+test test_linux_root_caller_uses_unprivileged_native_identity {
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
+  let root = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 0, 0, "", [])?
+  assert "HOST_UID=1000" in root and "HOST_GID=1000" in root
+  assert "XSH_ROOT_NATIVE_TESTS=1" in root
+  assert "GIT_CONFIG_KEY_0=safe.directory" in root and "GIT_CONFIG_VALUE_0=/work" in root
+  let unprivileged = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "test-linux", true, 1001, 1001, "", [])?
+  assert "HOST_UID=1001" in unprivileged and "XSH_ROOT_NATIVE_TESTS=1" not in unprivileged
+  assert "GIT_CONFIG_KEY_0=safe.directory" not in unprivileged
 }

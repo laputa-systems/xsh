@@ -131,7 +131,7 @@ pub(crate) fn to_calendar(epoch_ns: i64, utc: bool) -> Result<Calendar, String> 
 }
 
 fn calendar(seconds: i64, utc: bool) -> Result<libc::tm, String> {
-    #[cfg(not(all(target_env = "musl", target_pointer_width = "64")))]
+    #[cfg(target_pointer_width = "32")]
     let seconds = seconds.try_into().map_err(|_| "timestamp out of range")?;
     let mut tm = unsafe { std::mem::zeroed() };
     let result = unsafe {

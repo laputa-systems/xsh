@@ -270,6 +270,33 @@ export pure release_suffix(triple: Str) -> Result[Str, Error] {
   }
 }
 
+## A musl target's C compiler and the Cargo variables that select it, its
+## linker, and its Rust link arguments.
+export type MuslCCompiler = {tool: Str, variable: Str, linker_variable: Str, rustflags_variable: Str}
+
+## Resolves the C compiler that compiles a musl target's C boundary against
+## musl headers. A glibc host's default compiler uses glibc headers, so its
+## objects reference glibc fortify symbols such as `__snprintf_chk` that a
+## static musl link cannot resolve. Other triples, including the host's own
+## glibc triple, need no override.
+export pure musl_c_compiler(triple: Str) -> MuslCCompiler? {
+  match triple {
+    "x86_64-unknown-linux-musl" => {
+      tool: "x86_64-linux-musl-gcc",
+      variable: "CC_x86_64_unknown_linux_musl",
+      linker_variable: "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER",
+      rustflags_variable: "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS",
+    }
+    "aarch64-unknown-linux-musl" => {
+      tool: "aarch64-linux-musl-gcc",
+      variable: "CC_aarch64_unknown_linux_musl",
+      linker_variable: "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
+      rustflags_variable: "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS",
+    }
+    else => null
+  }
+}
+
 ## Returns the target-specific C compiler environment variable name.
 export pure cflags_variable(triple: Str) -> Result[Str, Error] {
   match triple {

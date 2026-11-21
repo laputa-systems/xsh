@@ -28,8 +28,9 @@ proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTo
     fp"{cargo_home}/bin/kache"
   }
   let linker_adapter = fp"{ctx.root}/dev/musl-linker.sh"
-  guard mold.exists() and kache.exists() and linker_adapter.exists() else {
-    return Err(stages.StageError.MissingTool(tool: "mold, kache, or dev/musl-linker.sh"))
+  return null unless mold.exists() and kache.exists()
+  guard linker_adapter.exists() else {
+    return Err(stages.StageError.MissingTool(tool: "dev/musl-linker.sh"))
   }
 
   {mold: mold, kache: kache}
@@ -225,6 +226,25 @@ export pure internal_argv(
   }
   let target_environment = ["-e", f"{target_flags_variable}={target_rustflags}"]
   let target_dir = internal_target_dir(ctx, operation)
+  let root_native = host_uid == 0 and linux_test_operation(operation)
+  let test_uid = if root_native { 1000 } else { host_uid }
+  let test_gid = if root_native { 1000 } else { host_gid }
+  # Root callers run native tests as uid 1000, so git must accept a checkout
+  # that root owns.
+  let root_native_environment = if root_native {
+    [
+      "-e",
+      "XSH_ROOT_NATIVE_TESTS=1",
+      "-e",
+      "GIT_CONFIG_COUNT=1",
+      "-e",
+      "GIT_CONFIG_KEY_0=safe.directory",
+      "-e",
+      "GIT_CONFIG_VALUE_0=/work",
+    ]
+  } else {
+    []
+  }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
@@ -274,9 +294,10 @@ export pure internal_argv(
     "-e",
     "CARGO_BUILD_WARNINGS=deny",
     "-e",
-    f"HOST_UID={host_uid}",
+    f"HOST_UID={test_uid}",
     "-e",
-    f"HOST_GID={host_gid}",
+    f"HOST_GID={test_gid}",
+    @root_native_environment,
     @linker_mounts,
     @linker_environment,
     @target_environment,
