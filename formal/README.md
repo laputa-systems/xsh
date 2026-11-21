@@ -394,32 +394,42 @@ environment).
 Statements:
 
 - `for` over a `Stream` (E)
-- `yield` and `yield @` into `collect` (P); stream producers (E)
+- stream producers and their `yield` (E)
 - `use` aliases, which need module loading (E)
-- `export` of anything but a binding; `type`, `error` and function declarations
-  as runtime binders (P)
-- `guard let`'s `else { |failure| ... }` parameter, which the core syntax does
-  not carry (P)
+- `export` of anything but a binding; `type` and `error` declarations as
+  runtime binders (record and error constructors); stream and `cli main`
+  declarations; defaults and rest parameters (P)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
 Expressions:
 
+- writable captures and first-class local functions (P)
+- map and set comprehensions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
-- `??` with the implicit `.` handler parameter (P)
 - `match` as an expression, comparison chains, `in`, set literals and set
   operators, slices, guarded `?.` and `?[]` (P)
 - record spread, shorthand, computed and path fields (P)
-- named, spread and splice arguments, defaults, methods, closures and value
-  pipelines (P)
-- list, map and set comprehensions and `collect` (P)
+- named, spread and splice arguments, methods and value pipelines (P)
 - `.require` (P), `ctx` error contexts (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
-  `spawn`, `wait`, run forms, pipelines and stream stages (E), `$NAME` and
-  `$PATH` reads (E), `$?` (E)
+  `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
+  (E), `$NAME` and `$PATH` reads (E), `$?` (E)
 - Float literal and `parse_float` rounding, method calls behind
   `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
 
-Patterns: text patterns, error-variant patterns, facets and tuples (P).
+Patterns: text holes other than `s` and `d` (P).
+
+Binders: declared types still come from the resolution oracle, and the
+resolver is the canonical binder scheme over the machine's lexical depth, not
+a separate pass over the syntax (P).
+
+The `local_bindings` fragment root covers local function declarations, which
+bind a closure over the declaring environment that reads captured cells at the
+call (SPEC 9.2: "Stream producers observe current captured mutable storage
+before each pull"), the implicit `.` of a handler, list comprehensions, `collect`
+and `yield`, text, error-variant, facet and tuple patterns, `guard let`'s
+`else { |failure| }` (the new `Statement.guardHandled`), and the canonical
+resolver that replaces the oracle's binder and cell choice.
 
 The `pure_forms_laws` fragment root and the witnesses in
 [`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean) cover what this
