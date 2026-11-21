@@ -337,33 +337,51 @@ theorem threadStep_refines (context : Context Declaration Identity Source) {worl
     all_goals exact valued_refl _
   | _ => exact valued_refl _
 
-theorem bindArgumentsIn_refines {world : World Declaration Identity Source}
+theorem threadArguments_refines {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
-    ∀ frame parameters arguments,
-      Valued.Refines (bindArgumentsIn evaluate frame parameters arguments)
-        (bindArgumentsIn evaluate' frame parameters arguments)
-  | _, [], [] => valued_refl _
-  | _, [], _ :: _ => by simp only [bindArgumentsIn]; exact valued_refl _
-  | frame, .mk name annotation default rest :: more, arguments => by
-    cases rest with
-    | true =>
-      cases more with
-      | nil => simp only [bindArgumentsIn]; exact valued_refl _
-      | cons _ _ =>
-        cases arguments <;> (simp only [bindArgumentsIn]; exact valued_refl _)
-    | false =>
-      cases arguments with
-      | cons argument others =>
-        simp only [bindArgumentsIn]
-        exact valued_bind_refines (bindArgumentsIn_refines each frame more others) fun _ _ => valued_refl _
-      | nil =>
-        cases default with
-        | none => simp only [bindArgumentsIn]; exact valued_refl _
-        | some default =>
-          simp only [bindArgumentsIn]
-          exact valued_bind_refines (each frame default) fun _ after =>
-            valued_bind_refines (bindArgumentsIn_refines each after more []) fun _ _ => valued_refl _
+    ∀ frame arguments,
+      Valued.Refines (threadArguments spelling evaluate frame arguments) (threadArguments spelling evaluate' frame arguments)
+  | _, [] => valued_refl _
+  | frame, argument :: rest => by
+    cases argument <;> simp only [threadArguments] <;>
+      refine valued_bind_refines (each frame _) fun _ after => ?_ <;>
+      first
+        | exact valued_bind_refines (threadArguments_refines spelling each after rest) fun _ _ => valued_refl _
+        | (split
+           · exact valued_bind_refines (threadArguments_refines spelling each after rest) fun _ _ => valued_refl _
+           · exact valued_refl _)
+
+theorem bindSlots_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
+    ∀ frame slots, Valued.Refines (bindSlots evaluate frame slots) (bindSlots evaluate' frame slots)
+  | _, [] => valued_refl _
+  | frame, (name, slot) :: rest => by
+    cases slot <;> simp only [bindSlots]
+    · exact valued_bind_refines (bindSlots_refines each frame rest) fun _ _ => valued_refl _
+    · exact valued_bind_refines (each frame _) fun _ after =>
+        valued_bind_refines (bindSlots_refines each after rest) fun _ _ => valued_refl _
+    · exact valued_bind_refines (bindSlots_refines each frame rest) fun _ _ => valued_refl _
+
+theorem invokeWith_refines {world : World Declaration Identity Source} (machine : Machine world)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame expression, Valued.Refines (evaluate frame expression) (evaluate' frame expression))
+    {callBlock callBlock' : Frame world → Scope Declaration Identity Source → Environment →
+      Locals Declaration Identity Source → List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      Valued.Refines (callBlock caller scope defining parameters writable body kind)
+        (callBlock' caller scope defining parameters writable body kind))
+    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
+    Valued.Refines (invokeWith machine evaluate callBlock frame closure arguments)
+      (invokeWith machine evaluate' callBlock' frame closure arguments) := by
+  unfold invokeWith
+  split
+  refine valued_bind_refines (threadArguments_refines _ each _ _) fun _ _ => ?_
+  split
+  · exact valued_refl _
+  · exact valued_bind_refines (bindSlots_refines (fun _ _ => returnValue_refines _ (each _ _)) _ _) fun _ _ =>
+      blocks _ _ _ _ _ _ _
 
 theorem fillFields_refines {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -574,11 +592,12 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | exact threadStep_refines machine.context inner.expr
               (fun _ _ body _ => callFunctionWith_refines machine inner.expr inner.call _ _ body _) frame _
           | refine valued_bind_refines (threadAll_refines inner.expr _ _) fun _ _ => ?_
-          | refine valued_bind_refines (bindArgumentsIn_refines (fun _ _ => returnValue_refines _ (inner.expr _ _)) _ _ _)
-              fun _ _ => ?_
+          | exact invokeWith_refines machine inner.expr inner.call _ _ _
+          | refine valued_bind_refines (invokeWith_refines machine inner.expr inner.call _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
+          | refine valued_bind_refines (threadArguments_refines _ inner.expr _ _) fun _ _ => ?_
           | split)
       call := fun caller scope defining parameters writable body kind => by
         simp only [callBlock]
@@ -934,31 +953,49 @@ theorem threadStep_persists (context : Context Declaration Identity Source) {wor
   | call callee arguments => cases callee <;> (simp only [threadStep]; close_threads)
   | _ => simp only [threadStep]; close_threads
 
-theorem bindArgumentsIn_persists {world : World Declaration Identity Source}
+theorem threadArguments_persists {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
-    ∀ frame parameters arguments, VKeeps frame.store (bindArgumentsIn evaluate frame parameters arguments)
-  | frame, [], [] => persists_refl frame.store
-  | _, [], _ :: _ => by simp only [bindArgumentsIn]; exact vkeeps_exec fun _ present => by cases present
-  | frame, .mk name annotation default rest :: more, arguments => by
-    cases rest with
-    | true =>
-      cases more with
-      | nil => simp only [bindArgumentsIn]; exact persists_refl frame.store
-      | cons _ _ =>
-        cases arguments <;> (simp only [bindArgumentsIn]; exact vkeeps_exec fun _ present => by cases present)
-    | false =>
-      cases arguments with
-      | cons argument others =>
-        simp only [bindArgumentsIn]
-        exact vbind_persists (bindArgumentsIn_persists each frame more others) fun _ last => persists_refl last.store
-      | nil =>
-        cases default with
-        | none => simp only [bindArgumentsIn]; exact vkeeps_exec fun _ present => by cases present
-        | some default =>
-          simp only [bindArgumentsIn]
-          exact vbind_persists (each frame default) fun _ after =>
-            vbind_persists (bindArgumentsIn_persists each after more []) fun _ last => persists_refl last.store
+    ∀ frame arguments, VKeeps frame.store (threadArguments spelling evaluate frame arguments)
+  | frame, [] => persists_refl frame.store
+  | frame, argument :: rest => by
+    cases argument <;> simp only [threadArguments] <;>
+      refine vbind_persists (each frame _) fun _ after => ?_ <;>
+      first
+        | exact vbind_persists (threadArguments_persists spelling each after rest) fun _ last => persists_refl last.store
+        | (split
+           · exact vbind_persists (threadArguments_persists spelling each after rest) fun _ last =>
+               persists_refl last.store
+           · exact vkeeps_exec fun _ present => by cases present)
+
+theorem bindSlots_persists {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
+    ∀ frame slots, VKeeps frame.store (bindSlots evaluate frame slots)
+  | frame, [] => persists_refl frame.store
+  | frame, (name, slot) :: rest => by
+    cases slot <;> simp only [bindSlots]
+    · exact vbind_persists (bindSlots_persists each frame rest) fun _ last => persists_refl last.store
+    · exact vbind_persists (each frame _) fun _ after =>
+        vbind_persists (bindSlots_persists each after rest) fun _ last => persists_refl last.store
+    · exact vbind_persists (bindSlots_persists each frame rest) fun _ last => persists_refl last.store
+
+theorem invokeWith_persists {world : World Declaration Identity Source} (machine : Machine world)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame expression, VKeeps frame.store (evaluate frame expression))
+    {callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      VKeeps caller.store (callBlock caller scope defining parameters writable body kind))
+    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
+    VKeeps frame.store (invokeWith machine evaluate callBlock frame closure arguments) := by
+  unfold invokeWith
+  split
+  refine vbind_persists (threadArguments_persists _ each _ _) fun _ _ => ?_
+  split
+  · intro last present; cases present; exact persists_refl _
+  · refine vbind_persists (bindSlots_persists (fun current default => ?_) _ _) fun _ _ => blocks _ _ _ _ _ _ _
+    exact returnValue_persists _ (each _ _)
 
 theorem fillFields_persists {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1190,6 +1227,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
   simp only [evalExpr]
   repeat' (first
     | exact vkeeps_value _ (persists_refl _)
+    | exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
     | exact vkeeps_exec fun _ present => by cases present
     | exact fromEval_persists _ _
     | exact inner.value _ _
@@ -1198,11 +1236,12 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | exact threadStep_persists machine.context inner.expr
         (fun _ _ body _ => callFunctionWith_persists machine inner.expr inner.call _ _ body _) frame _
     | refine vbind_persists (threadAll_persists inner.expr _ _) fun _ _ => ?_
-    | exact returnValue_persists _ (inner.expr _ _)
-    | refine vbind_persists (bindArgumentsIn_persists (fun current default => ?_) _ _ _) fun _ _ => ?_
+    | exact invokeWith_persists machine inner.expr inner.call _ _ _
+    | refine vbind_persists (invokeWith_persists machine inner.expr inner.call _ _ _) fun _ _ => ?_
     | refine vbind_persists (inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
+    | refine vbind_persists (threadArguments_persists _ inner.expr _ _) fun _ _ => ?_
     | split)
 
 theorem persisting_value {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
@@ -1597,30 +1636,47 @@ theorem threadStep_restores (context : Context Declaration Identity Source) {wor
   | call callee arguments => cases callee <;> (simp only [threadStep]; close_thread_restores)
   | _ => simp only [threadStep]; close_thread_restores
 
-theorem bindArgumentsIn_restores {world : World Declaration Identity Source}
+theorem threadArguments_restores {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
-    ∀ frame parameters arguments, VRestores frame (bindArgumentsIn evaluate frame parameters arguments)
-  | _, [], [] => ⟨rfl, rfl⟩
-  | _, [], _ :: _ => by simp only [bindArgumentsIn]; exact vrestores_none rfl
-  | frame, .mk name annotation default rest :: more, arguments => by
-    cases rest with
-    | true =>
-      cases more with
-      | nil => simp only [bindArgumentsIn]; exact ⟨rfl, rfl⟩
-      | cons _ _ => cases arguments <;> (simp only [bindArgumentsIn]; exact vrestores_none rfl)
-    | false =>
-      cases arguments with
-      | cons argument others =>
-        simp only [bindArgumentsIn]
-        exact vbind_restores (bindArgumentsIn_restores each frame more others) fun _ _ => ⟨rfl, rfl⟩
-      | nil =>
-        cases default with
-        | none => simp only [bindArgumentsIn]; exact vrestores_none rfl
-        | some default =>
-          simp only [bindArgumentsIn]
-          exact vbind_restores (each frame default) fun _ after =>
-            vbind_restores (bindArgumentsIn_restores each after more []) fun _ _ => ⟨rfl, rfl⟩
+    ∀ frame arguments, VRestores frame (threadArguments spelling evaluate frame arguments)
+  | _, [] => ⟨rfl, rfl⟩
+  | frame, argument :: rest => by
+    cases argument <;> simp only [threadArguments] <;>
+      refine vbind_restores (each frame _) fun _ after => ?_ <;>
+      first
+        | exact vbind_restores (threadArguments_restores spelling each after rest) fun _ _ => ⟨rfl, rfl⟩
+        | (split
+           · exact vbind_restores (threadArguments_restores spelling each after rest) fun _ _ => ⟨rfl, rfl⟩
+           · exact vrestores_none rfl)
+
+theorem bindSlots_restores {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source)) :
+    ∀ frame slots, VRestores frame (bindSlots evaluate frame slots)
+  | _, [] => ⟨rfl, rfl⟩
+  | frame, (name, slot) :: rest => by
+    cases slot <;> simp only [bindSlots]
+    · exact vbind_restores (bindSlots_restores each frame rest) fun _ _ => ⟨rfl, rfl⟩
+    · exact vbind_restores (each frame _) fun _ after =>
+        vbind_restores (bindSlots_restores each after rest) fun _ _ => ⟨rfl, rfl⟩
+    · exact vbind_restores (bindSlots_restores each frame rest) fun _ _ => ⟨rfl, rfl⟩
+
+theorem invokeWith_restores {world : World Declaration Identity Source} (machine : Machine world)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    {callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      VRestores caller (callBlock caller scope defining parameters writable body kind))
+    (each : ∀ frame expression, VRestores frame (evaluate frame expression))
+    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
+    VRestores frame (invokeWith machine evaluate callBlock frame closure arguments) := by
+  unfold invokeWith
+  split
+  refine vbind_restores (threadArguments_restores _ each _ _) fun _ _ => ?_
+  split
+  · intro last present; cases present; exact ⟨rfl, rfl⟩
+  · exact vbind_restores (bindSlots_restores (fun _ _ => returnValue_restores _ _) _ _) fun _ _ => blocks _ _ _ _ _ _ _
 
 theorem fillFields_restores {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1783,8 +1839,8 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine loopStep_restores (fun _ => inner.loopValues _ _) ?_
   | refine collectWith_restores _ ?_
   | refine vbind_restores (threadAll_restores inner.expr _ _) fun _ _ => ?_
-  | exact returnValue_restores _ _
-  | refine vbind_restores (bindArgumentsIn_restores (fun current default => ?_) _ _ _) fun _ _ => ?_
+  | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
+  | refine vbind_restores (invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_) fun _ _ => ?_
@@ -1792,6 +1848,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (inner.value _ _) fun _ _ => ?_
   | refine vbind_restores (callBlock_restores _ _ _ _ _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (fillFields_restores _ inner.expr _ _ _) fun _ _ => ?_
+  | refine vbind_restores (threadArguments_restores _ inner.expr _ _) fun _ _ => ?_
   | refine toExec_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine toExec_restores (inner.expr _ _) fun _ _ => ?_
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
@@ -3145,6 +3202,13 @@ def machine : Machine witnessWorld where
   callableCell := fun _ => none
   declarations := []
   identity := fun _ => ()
+  argumentError := fun fault expected found =>
+    match fault with
+    | .tooMany | .missing _ =>
+      .scalar (.string ("expected " ++ toString expected ++ " arguments, found " ++ toString found))
+    | .unknownName label => .scalar (.string ("unknown argument " ++ label))
+    | .duplicate label => .scalar (.string ("argument " ++ label ++ " supplied twice"))
+  uninitialized := fun _ => .scalar (.string "unknown captured name")
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 
@@ -4138,12 +4202,16 @@ def boundLocal (target : Xsh.Syntax.RawName) : Outcome witnessWorld (Locals Unit
 
 /-- Evaluating the default with the supplied parameters in scope binds `k`. -/
 theorem default_seeing_parameters_rejected :
-    boundLocal kName (bindArgumentsIn (fun current default => evalExpr fullMachine 20
-        { current with locals := [(pName, integer intOne)] } default) { fullStart with locals := [] }
-        [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = true ∧
-    boundLocal kName (bindArgumentsIn (fun current default => evalExpr fullMachine 20 current default)
-        { fullStart with locals := [] }
-      [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = false := by
+    boundLocal kName (match placeParameters fullMachine.context.spelling
+        [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne] [] with
+      | .ok slots => bindSlots (fun current default => evalExpr fullMachine 20
+          { current with locals := [(pName, integer intOne)] } default) { fullStart with locals := [] } slots
+      | .error _ => .exec .stuck) = true ∧
+    boundLocal kName (match placeParameters fullMachine.context.spelling
+        [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne] [] with
+      | .ok slots => bindSlots (fun current default => evalExpr fullMachine 20 current default)
+          { fullStart with locals := [] } slots
+      | .error _ => .exec .stuck) = false := by
   decide +kernel
 
 def declareRest : Xsh.Syntax.Statement :=

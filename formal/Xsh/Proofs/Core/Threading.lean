@@ -41,6 +41,18 @@ inductive Evaluable : Xsh.Syntax.Expr → Prop
       (∀ value, Xsh.Syntax.CallArgument.positional value ∈ arguments → Evaluable value) →
         Evaluable (.call (.ident name) arguments)
 
+/-- Every name `environment` resolves to a cell has its cell in `store`: the
+statement that declares it has run. -/
+def Initialized {world : World Declaration Identity Source} (environment : Environment) (store : Store world) : Prop :=
+  ∀ name cell, environment.cellOf name = .ok cell → store cell ≠ none
+
+/-- Every expression-bodied plain function's defining environment is
+initialized in `store`. -/
+def DefinitionsInitialized {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (store : Store world) : Prop :=
+  ∀ name defining parameters result,
+    context.functions name = some (defining, parameters, .expression result .plain) → Initialized defining store
+
 /-- The body of every expression-bodied plain function is evaluable. -/
 def BodiesEvaluable (context : Context Declaration Identity Source) : Prop :=
   ∀ name defining parameters result,
@@ -204,8 +216,10 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
     (inner : ∀ expression, Evaluable expression →
       reference frame.environment frame.locals expression ≠ .unsupported →
         recurse frame expression = fromEval frame (reference frame.environment frame.locals expression))
-    (calls : ∀ defining locals result, Evaluable result → reference defining locals result ≠ .unsupported →
-      callFunction defining locals (.expression result .plain) frame = fromEval frame (reference defining locals result))
+    (calls : ∀ name defining parameters locals result,
+      context.functions name = some (defining, parameters, .expression result .plain) → Evaluable result →
+        reference defining locals result ≠ .unsupported →
+          callFunction defining locals (.expression result .plain) frame = fromEval frame (reference defining locals result))
     (expression : Xsh.Syntax.Expr) (evaluable : Evaluable expression)
     (supported : step context frame.environment frame.store reference (fun _ _ _ _ => .unsupported) frame.locals
       expression ≠ .unsupported) :
@@ -283,7 +297,9 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
             | expression result kind =>
               cases kind with
               | result => exact absurd rfl evaluatedSupported
-              | plain => exact calls defining _ result (bodies name defining parameters result hf) evaluatedSupported
+              | plain =>
+                exact calls name defining parameters _ result hf (bodies name defining parameters result hf)
+                  evaluatedSupported
             | block statements kind => exact absurd rfl evaluatedSupported
           · simp only [same, ↓reduceIte]
             rfl
@@ -295,34 +311,57 @@ theorem lift_bind_eq {world : World Declaration Identity Source} {α β : Type} 
     (fromEval frame result).bind next = fromEval frame (result.bind next') := by
   cases result <;> first | exact tail _ | rfl
 
-/-- With defaults that leave the frame as it is, the machine's threaded
-binder is `bindArguments`, so `parameters_and_maps` describes it. -/
-theorem bindArgumentsIn_lift {world : World Declaration Identity Source}
+/-- With positional arguments only and defaults that leave the frame as it
+is, the machine's placement and binding is `bindArguments`, so
+`parameters_and_maps` describes it. -/
+theorem bindSlots_lift {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
-    ∀ (frame : Frame world) parameters arguments,
-      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
-        fromEval frame (bindArguments evaluateDefault parameters arguments)
-  | _, [], [] => rfl
-  | _, [], _ :: _ => rfl
-  | frame, .mk name annotation default rest :: more, arguments => by
+    ∀ (frame : Frame world) parameters values slots,
+      placeParameters spelling parameters values [] = .ok slots →
+        bindSlots (fun current default => fromEval current (evaluateDefault default)) frame slots =
+          fromEval frame (bindArguments evaluateDefault parameters values)
+  | _, [], [], slots, placed => by
+    simp only [placeParameters, Except.ok.injEq] at placed
+    subst placed
+    rfl
+  | _, [], _ :: _, _, placed => by simp [placeParameters] at placed
+  | frame, .mk name annotation default rest :: more, values, slots, placed => by
     cases rest with
     | true =>
       cases more with
-      | nil => rfl
-      | cons _ _ => cases arguments <;> rfl
+      | nil =>
+        simp only [placeParameters, Except.ok.injEq] at placed
+        subst placed
+        rfl
+      | cons _ _ => simp [placeParameters] at placed
     | false =>
-      cases arguments with
-      | cons argument others =>
-        rw [bindArgumentsIn, bindArguments, bindArgumentsIn_lift evaluateDefault frame more others]
-        exact lift_bind_eq fun _ => rfl
+      cases values with
+      | cons value values =>
+        simp only [placeParameters, List.lookup] at placed
+        cases tail : placeParameters spelling more values [] with
+        | error _ => rw [tail] at placed; cases placed
+        | ok others =>
+          rw [tail] at placed
+          simp only [Except.ok.injEq] at placed
+          subst placed
+          simp only [bindSlots, bindArguments]
+          rw [bindSlots_lift spelling evaluateDefault frame more values others tail]
+          exact lift_bind_eq fun _ => rfl
       | nil =>
         cases default with
-        | none => rfl
+        | none => simp [placeParameters, List.lookup] at placed
         | some default =>
-          rw [bindArgumentsIn, bindArguments]
-          exact lift_bind_eq fun _ => by
-            rw [bindArgumentsIn_lift evaluateDefault frame more []]
-            exact lift_bind_eq fun _ => rfl
+          simp only [placeParameters, List.lookup] at placed
+          cases tail : placeParameters spelling more [] [] with
+          | error _ => rw [tail] at placed; cases placed
+          | ok others =>
+            rw [tail] at placed
+            simp only [Except.ok.injEq] at placed
+            subst placed
+            simp only [bindSlots, bindArguments]
+            exact lift_bind_eq fun _ => by
+              rw [bindSlots_lift spelling evaluateDefault frame more [] others tail]
+              exact lift_bind_eq fun _ => rfl
 
 theorem localClosure_none (environment : Environment) (name : Xsh.Syntax.RawName) :
     localClosure [] environment name = none := by
@@ -356,23 +395,24 @@ evaluable expression a meaning, the machine's frame-threading step gives the
 same result with the frame unchanged. -/
 theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : Machine world)
     (bodies : BodiesEvaluable machine.context) :
-    ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+    ∀ fuel (frame : Frame world) expression, frame.closures = [] → Initialized frame.environment frame.store →
+      DefinitionsInitialized machine.context frame.store → Evaluable expression →
       evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
         evalExpr machine fuel frame expression =
           fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)
-  | 0, _, _, _, _, _ => rfl
-  | fuel + 1, frame, expression, closureFree, evaluable, supported => by
+  | 0, _, _, _, _, _, _, _ => rfl
+  | fuel + 1, frame, expression, closureFree, initialized, definitions, evaluable, supported => by
     have agrees := threadStep_agrees machine.context frame
       (recurse := evalExpr machine fuel)
       (callFunction := callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel))
       (reference := fun environment locals => evaluate machine.context environment frame.store fuel locals) bodies
       (fun source evaluated sourceSupported =>
-        evalExpr_agrees machine bodies fuel frame source closureFree evaluated sourceSupported)
-      (fun defining locals result evaluated resultSupported => by
+        evalExpr_agrees machine bodies fuel frame source closureFree initialized definitions evaluated sourceSupported)
+      (fun name defining parameters locals result found evaluated resultSupported => by
         simp only [callFunctionWith]
         rw [evalExpr_agrees machine bodies fuel
           { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] }
-          result closureFree evaluated resultSupported]
+          result closureFree (definitions name defining parameters result found) definitions evaluated resultSupported]
         exact returnValue_fromEval frame
           { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] } rfl _)
       expression evaluable supported
@@ -390,7 +430,16 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
       cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr]
     | ident name =>
       simp only [evalExpr, closureFree, localClosure_none]
-      cases frame.locals.lookup name <;> rfl
+      cases frame.locals.lookup name with
+      | some _ => rfl
+      | none =>
+        cases resolved : frame.environment.cellOf name with
+        | error _ => rfl
+        | ok cell =>
+          dsimp only
+          cases held : frame.store cell with
+          | none => exact absurd held (initialized name cell resolved)
+          | some _ => rfl
     | _ => simp only [evalExpr]
 
 end Bridge
@@ -427,32 +476,19 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
     | simp only [evalExpr, threadStep]
 
 theorem closure_call_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
-    (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument)
-    (cell : CellId) (callable : CallableKind) (defining : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
-    (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody) (values : List Xsh.Syntax.Expr)
+    (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument) (closure : Closure)
     (unshadowed : frame.locals.lookup name = none)
-    (found : localClosure frame.closures frame.environment name =
-      some (.mk cell callable defining captured writable parameters body))
-    (supplied : positional arguments = some values) :
+    (found : localClosure frame.closures frame.environment name = some closure) :
     evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
-      (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
-        (bindArgumentsIn
-            (fun current default => returnValue current (evalExpr machine fuel
-              { Frame.ofScope defining current.store [] (some current.store)
-                  ⟨current.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                writable } default))
-            after parameters evaluated).bind fun bound last =>
-          callBlock machine fuel last ⟨last.activation + machine.activationStep,
-            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-            writable (bodyStatements body) (bodyKind body) := by
-  simp only [evalExpr, unshadowed, found, supplied]
+      invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments := by
+  simp only [evalExpr, unshadowed, found]
 
 /-- Store threading through the statement machine's expressions (SPEC 9.2: "A
 writable capture must refer to mutable storage with exactly that type";
 SPEC 1: "Evaluation order is source order"). On a frame without local
-functions, wherever `CoreEval.evaluate` gives an evaluable expression a
-meaning, the machine's step gives the same result with the frame unchanged,
+functions whose names, and those of every expression-bodied function's
+defining environment, are initialized, wherever `CoreEval.evaluate` gives an
+evaluable expression a meaning, the machine's step gives the same result with the frame unchanged,
 so the evaluator's operator, failure and typing results hold for the
 machine's values there. A finished expression result is the same at every
 fuel, and every result keeps the cells it started with at their types and
@@ -460,15 +496,16 @@ leaves the environment and locals as it found them. A binary operator's
 operands, a list's elements and a call's arguments evaluate left to right,
 each in the frame the one before it left; a value block nested in an
 expression runs as a block in the current frame; a local function's call
-binds its arguments, evaluating omitted defaults in the frame the arguments
-left (with defaults that leave the frame as it is, this is `bindArguments`),
-and runs its body through `callBlock`, which returns through `returnTo`, so
+places its arguments through `invokeWith`, evaluating omitted defaults in the
+frame the arguments left (with positional arguments only and defaults that
+leave the frame as it is, this is `bindArguments`), and runs its body through `callBlock`, which returns through `returnTo`, so
 the caller's cells come back as the callee left them from a call nested
 anywhere in an expression; and a call in statement position is the same
 evaluation. -/
 theorem expression_store_threading {world : World Declaration Identity Source} (machine : Machine world) :
     (BodiesEvaluable machine.context →
-      ∀ fuel (frame : Frame world) expression, frame.closures = [] → Evaluable expression →
+      ∀ fuel (frame : Frame world) expression, frame.closures = [] → Initialized frame.environment frame.store →
+        DefinitionsInitialized machine.context frame.store → Evaluable expression →
         evaluate machine.context frame.environment frame.store fuel frame.locals expression ≠ .unsupported →
           evalExpr machine fuel frame expression =
             fromEval frame (evaluate machine.context frame.environment frame.store fuel frame.locals expression)) ∧
@@ -493,26 +530,15 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
           (threadAll evaluate after rest).bind fun values last => .value (value :: values) last) ∧
     (∀ fuel (frame : Frame world) body, evalExpr machine (fuel + 1) frame (.valueBlock body) =
       runValue machine fuel frame (.valueBlock body)) ∧
-    (∀ fuel (frame : Frame world) name arguments cell callable defining captured writable parameters body values,
-      frame.locals.lookup name = none →
-        localClosure frame.closures frame.environment name = some (.mk cell callable defining captured writable parameters body) →
-          positional arguments = some values →
-            evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
-              (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
-                (bindArgumentsIn
-                    (fun current default => returnValue current (evalExpr machine fuel
-                      { Frame.ofScope defining current.store [] (some current.store)
-                          ⟨current.activation + machine.activationStep,
-                            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                        writable } default))
-                    after parameters evaluated).bind fun bound last =>
-                  callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-                    writable (bodyStatements body) (bodyKind body)) ∧
+    (∀ fuel (frame : Frame world) name arguments closure,
+      frame.locals.lookup name = none → localClosure frame.closures frame.environment name = some closure →
+        evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
+          invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments) ∧
     (∀ (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
-        (frame : Frame world) parameters arguments,
-      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
-        fromEval frame (bindArguments evaluateDefault parameters arguments)) ∧
+        (frame : Frame world) parameters values slots,
+      placeParameters machine.context.spelling parameters values [] = .ok slots →
+        bindSlots (fun current default => fromEval current (evaluateDefault default)) frame slots =
+          fromEval frame (bindArguments evaluateDefault parameters values)) ∧
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
@@ -534,11 +560,9 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
     fun _ _ _ => by simp only [evalExpr],
-    fun fuel frame name arguments cell callable defining captured writable parameters body values unshadowed found
-        supplied =>
-      closure_call_threads machine fuel frame name arguments cell callable defining captured writable parameters body
-        values unshadowed found supplied,
-    bindArgumentsIn_lift,
+    fun fuel frame name arguments closure unshadowed found =>
+      closure_call_threads machine fuel frame name arguments closure unshadowed found,
+    fun evaluateDefault => bindSlots_lift machine.context.spelling evaluateDefault,
     fun _ _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> exact ⟨_, rfl⟩,
     fun before after cell held => ?_,

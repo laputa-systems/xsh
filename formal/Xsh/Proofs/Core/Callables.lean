@@ -25,8 +25,9 @@ of a script or module ("inside a callable body or any block they are
 inside a block or a function body, and every callable value names a top-level
 declaration. A name bound to a local function evaluates to a callable value
 whose identity is the runtime's for the declaration's cell. `value.call(...)`
-evaluates the receiver first, then its arguments in written order, and runs
-the declaration the value's identity names through `callBlock`, which returns
+evaluates the receiver first, then places its arguments through
+`invokeWith`, and runs the declaration the value's identity names through
+`callBlock`, which returns
 through `returnTo`, so the call writes the captured top-level `var`s through
 the caller's frame; "First-class `Proc` values have `.call(...) ->
 Result[Any]` and `Pure` values `.call(...) -> Any`": a `Proc` value's call is
@@ -49,26 +50,17 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
           some (.mk cell callable defining captured writable parameters body) →
           evalExpr machine (fuel + 1) frame (.ident name) =
             .value (.callable (machine.callableReference cell) callable) frame) ∧
-    (∀ fuel (frame : Frame world) receiver method arguments values reference kind after cell callable defining captured
+    (∀ fuel (frame : Frame world) receiver method arguments reference kind after cell callable defining captured
         writable parameters body,
       errorConstructor machine frame receiver method = none →
-      machine.context.spelling method = "call" → positional arguments = some values →
+      machine.context.spelling method = "call" →
         evalExpr machine fuel frame receiver = .value (.callable reference kind) after →
           (machine.callableCell reference).bind (fun found => after.closures.lookup found) =
             some (.mk cell callable defining captured writable parameters body) →
             evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
-              (threadAll (evalExpr machine fuel) after values).bind fun evaluated next =>
-                (bindArgumentsIn
-                    (fun current default => returnValue current (evalExpr machine fuel
-                      { Frame.ofScope defining current.store [] (some current.store)
-                          ⟨current.activation + machine.activationStep,
-                            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                        writable } default))
-                    next parameters evaluated).bind fun bound last =>
-                  (callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-                    writable (bodyStatements body) (bodyKind body)).bind fun outcome final =>
-                    .value (callResult callable outcome) final) ∧
+              (invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) after
+                (.mk cell callable defining captured writable parameters body) arguments).bind fun outcome final =>
+                .value (callResult callable outcome) final) ∧
     (∀ value : Value Declaration Identity Source,
       callResult .procedure value = wrapOk value ∧ callResult .pure value = value) ∧
     ((∀ cell, machine.callableCell (machine.callableReference cell) = some cell) →
@@ -86,9 +78,9 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
     · rfl
   · intro fuel frame name cell callable defining captured writable parameters body unshadowed found
     simp only [evalExpr, unshadowed, found]
-  · intro fuel frame receiver method arguments values reference kind after cell callable defining captured writable
-      parameters body notError spelled supplied received named
-    simp only [evalExpr, notError, spelled, supplied, Outcome.bind, received, Value.eraseNominal, named]
+  · intro fuel frame receiver method arguments reference kind after cell callable defining captured writable
+      parameters body notError spelled received named
+    simp only [evalExpr, notError, spelled, Outcome.bind, received, Value.eraseNominal, named]
 
 end Root
 
