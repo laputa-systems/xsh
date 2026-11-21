@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/.."
+. /etc/os-release
+if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 24.04 ]; then
+  echo 'setup-dev supports Ubuntu 24.04 only' >&2
+  exit 1
+fi
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=
+else
+  SUDO=sudo
+fi
+$SUDO apt-get update
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl git git-lfs pkg-config python3 ripgrep sudo zip
+if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+fi
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+rustup toolchain install
+cargo fetch --locked
