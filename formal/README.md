@@ -397,14 +397,13 @@ Statements:
 - stream producers and their `yield` (E)
 - `use` aliases, which need module loading (E)
 - `export` of anything but a binding; `type` and `error` declarations as
-  runtime binders (record and error constructors); stream and `cli main`
-  declarations; defaults and rest parameters (P)
+  runtime binders (record and error constructors) (P); `stream` and `cli main`
+  declarations, which need the stream and host argument models (E)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
 Expressions:
 
 - first-class local functions (P)
-- map and set comprehensions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
 - `match` as an expression, comparison chains, `in`, set literals and set
   operators, slices, guarded `?.` and `?[]` (P)
@@ -418,7 +417,11 @@ Expressions:
   `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
 
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
-rounding (P).
+and `parse_float` rounding, outside the model as for BASE-NUM (P).
+
+Writes and values: writable captures through calls nested in expressions,
+which needs the expression evaluator to thread the store (P); local functions
+as first-class `Proc`/`Pure` values with `.call` (P).
 
 Binders: declared types still come from the resolution oracle (P), and the
 resolution pass is tied to the machine through the operations
@@ -434,6 +437,12 @@ cells (SPEC 9.2). Its witnesses are a counter closure, a write that reaches the
 captured cell rather than the call site's shadowing one, and the pass on a
 straight-line program; the mutants lose the write or write the call site's
 cell.
+
+The `parameters_and_maps` fragment root adds default and rest parameters
+(SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
+see other parameters, and run once per call for each omitted argument, in
+parameter order, after the supplied arguments") and map comprehensions, where
+the later projection of a key wins and the key is projected before the value.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

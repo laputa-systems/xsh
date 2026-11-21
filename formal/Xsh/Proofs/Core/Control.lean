@@ -2229,6 +2229,31 @@ theorem resolution_and_captures {world : World Declaration Identity Source} (mac
       writable_captured frame scopes carried parameters body cell writable,
     fun _ _ _ _ => rfl⟩
 
+omit [DecidableEq Declaration] in
+/-- Default and rest parameters and map comprehensions (SPEC 9.2, 6.5): a
+supplied argument binds its parameter, an omitted one takes its default from
+`evaluateDefault`, which the machine runs in the declaration scope with no
+parameters in scope, a final rest parameter takes the remaining arguments as a
+`List`, and a map comprehension's later projection of a key replaces an
+earlier one. -/
+theorem parameters_and_maps (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    (∀ name annotation default rest (argument : Value Declaration Identity Source) arguments,
+      bindArguments evaluateDefault (.mk name annotation default false :: rest) (argument :: arguments) =
+        (bindArguments evaluateDefault rest arguments).bind fun bound => .value ((name, argument) :: bound)) ∧
+    (∀ name annotation default rest,
+      bindArguments evaluateDefault (.mk name annotation (some default) false :: rest) [] =
+        (evaluateDefault default).bind fun value =>
+          (bindArguments evaluateDefault rest []).bind fun bound => .value ((name, value) :: bound)) ∧
+    (∀ name annotation default (arguments : List (Value Declaration Identity Source)),
+      bindArguments evaluateDefault [.mk name annotation default true] arguments = .value [(name, .list arguments)]) ∧
+    (∀ name annotation rest, bindArguments evaluateDefault (.mk name annotation none false :: rest) [] = .stuck) ∧
+    (∀ (key : Value Declaration Identity Source) mapKey first second,
+      mapKeyOf key = some mapKey →
+        mapOfPairs [.list [key, first], .list [key, second]] = some (upsert mapKey second (upsert mapKey first []))) := by
+  refine ⟨fun _ _ _ _ _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ _ => rfl, ?_⟩
+  intro key mapKey first second keyed
+  simp [mapOfPairs, keyed]
+
 end Root
 
 namespace Witness
