@@ -89,6 +89,33 @@ test test_unused_export_follows_a_reexport_chain { |ctx|
   assert headers(reported.stderr) == [], reported.stderr
 }
 
+test test_unused_export_keeps_module_contract_names_quiet { |ctx|
+  let root = test.temp_dir(ctx, name: "unused-export-contract")?
+  fp"{root}/contracts.xsh".write(
+    "##! Dynamic contracts.\ntype Loaded = module {\n  export pure mark(text: Str) -> Int\n}\n",
+  )
+  fp"{root}/worker.xsh".write(
+    "##! Worker.\n\n## Contract surface.\nexport pure mark(text: Str) -> Int {\n  text.byte_len()\n}\n\n## Unreferenced.\nexport pure truly_dead() -> Int {\n  return 1\n}\n",
+  )
+  let reported = lint_dir(root, ["--only", "lint.unused-export"])?
+  assert headers(reported.stderr) == ["warn[lint.unused-export]: unused export `truly_dead`"], reported.stderr
+  assert "export `mark`" not in reported.stderr, reported.stderr
+}
+
+test test_unused_export_keeps_names_an_unresolved_importer_mentions_quiet { |ctx|
+  let root = test.temp_dir(ctx, name: "unused-export-unresolved")?
+  fp"{root}/hidden.xsh".write(
+    "##! Hidden module.\n\n## Used through an unresolved import.\nexport pure used_by_guest() -> Int {\n  return 1\n}\n\n## Unreferenced.\nexport pure truly_dead_hidden() -> Int {\n  return 2\n}\n",
+  )
+  fp"{root}/guest.xsh".write("use absent\n\nprint $absent.used_by_guest\n")
+  let reported = cd (root) {
+    run.capture --text "xsht" lint --only lint.unused-export .
+  }?
+  assert reported.status.exited_with(2), reported.stderr
+  assert "unused export `truly_dead_hidden`" in reported.stderr, reported.stderr
+  assert "warn[lint.unused-export]: unused export `used_by_guest`" not in reported.stderr, reported.stderr
+}
+
 test test_unused_export_exempts_configured_public_api_modules { |ctx|
   let root = test.temp_dir(ctx, name: "unused-export-public-api")?
   fp"{root}/xsht-config.ini".write(
