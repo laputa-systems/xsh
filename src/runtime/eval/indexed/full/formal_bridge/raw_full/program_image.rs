@@ -1070,22 +1070,111 @@ impl ImageCodec for PreparedConstantValue<TypeId> {
     }
 }
 
-macro_rules! image_unsupported {
-    ($($ty:ty => $pool:literal),* $(,)?) => {$(
-        impl ImageCodec for $ty {
-            fn put(&self, _output: &mut ImageWriter) -> ImageResult<()> {
-                unsupported(concat!("the image does not encode ", $pool))
-            }
-
-            fn take(_input: &mut ImageReader<'_>) -> ImageResult<Self> {
-                unsupported(concat!("the image does not decode ", $pool))
-            }
-        }
-    )*};
+fn put_runtime_value(value: &crate::runtime::value::Value, output: &mut ImageWriter) -> ImageResult<()> {
+    crate::runtime::eval::lowered_ops::lowered_value_from_runtime_any(value)
+        .map_or_else(|| unsupported(format!("runtime value {} has no lowered image", value.type_name())), Ok)?
+        .put(output)
 }
 
-image_unsupported! {
-    crate::runtime::eval::ModuleCallPlan => "prepared module call plans",
+fn take_runtime_value(input: &mut ImageReader<'_>) -> ImageResult<crate::runtime::value::Value> {
+    Ok(LoweredValue::take(input)?.into_value())
+}
+
+impl ImageCodec for crate::modules::cli::image::Atom {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::modules::cli::image::Atom;
+        match self {
+            Atom::Flag(value) => { 0u8.put(output)?; value.put(output) }
+            Atom::Int(value) => { 1u8.put(output)?; value.put(output) }
+            Atom::Count(value) => { 2u8.put(output)?; value.put(output) }
+            Atom::Text(value) => { 3u8.put(output)?; value.put(output) }
+            Atom::Value(value) => { 4u8.put(output)?; put_runtime_value(value, output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::modules::cli::image::Atom;
+        input.nested(|input| Ok(match u8::take(input)? {
+            0 => Atom::Flag(ImageCodec::take(input)?),
+            1 => Atom::Int(ImageCodec::take(input)?),
+            2 => Atom::Count(ImageCodec::take(input)?),
+            3 => Atom::Text(ImageCodec::take(input)?),
+            4 => Atom::Value(take_runtime_value(input)?),
+            _ => return malformed("CLI plan atom tag is invalid"),
+        }))
+    }
+}
+
+impl ImageCodec for crate::modules::cli::CliDescriptorPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        crate::modules::cli::image::put_plan(self).put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let atoms = Vec::<crate::modules::cli::image::Atom>::take(input)?;
+        let mut reader = crate::modules::cli::image::Reader(atoms.into_iter());
+        let plan = crate::modules::cli::image::take_plan(&mut reader).map_err(ImageError::Malformed)?;
+        reader.finish().map_err(ImageError::Malformed)?;
+        Ok(plan)
+    }
+}
+
+impl ImageCodec for crate::runtime::eval::ModuleCallPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        match self {
+            Self::SignatureCli(plan) => { 0u8.put(output)?; plan.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        match u8::take(input)? {
+            0 => Ok(Self::SignatureCli(ImageCodec::take(input)?)),
+            _ => malformed("module call plan tag is invalid"),
+        }
+    }
+}
+
+impl ImageCodec for crate::modules::cli::SignatureDefault {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        match self {
+            Self::Value(value) => { 0u8.put(output)?; put_runtime_value(value, output) }
+            Self::Computed(text) => { 1u8.put(output)?; text.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        match u8::take(input)? {
+            0 => Ok(Self::Value(take_runtime_value(input)?)),
+            1 => Ok(Self::Computed(ImageCodec::take(input)?)),
+            _ => malformed("signature default tag is invalid"),
+        }
+    }
+}
+
+image_structs! {
+    crate::sema::cli_entry::CliParameterMetadata { form, min }
+    crate::modules::cli::SignatureParameter { name, type_name, default, rest, metadata }
+    crate::modules::cli::SignatureCommand { path, summary, parser }
+    crate::modules::cli::PreparedSignatureCommands { commands, description, span }
+}
+
+impl ImageCodec for crate::modules::cli::PreparedSignatureCli {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let (parameters, description) = self.image_inputs();
+        parameters.to_vec().put(output)?;
+        description.to_owned().put(output)?;
+        self.name.put(output)?;
+        self.help.put(output)?;
+        self.span.put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let parameters = ImageCodec::take(input)?;
+        let description = ImageCodec::take(input)?;
+        let metadata = crate::sema::cli_entry::CliEntryMetadata { name: ImageCodec::take(input)?, help: ImageCodec::take(input)? };
+        let span = ImageCodec::take(input)?;
+        Self::prepare(parameters, description, &metadata, span).or_else(|error| malformed(format!("signature CLI image does not prepare: {}", error.message)))
+    }
 }
 
 fn registered_signatures() -> &'static [&'static crate::modules::ModuleFnSig] {
@@ -1564,6 +1653,7 @@ pub(super) struct EncodedImage {
 struct ImageRunState {
     tag_variants: Vec<(Name, usize)>,
     error_families: Vec<Name>,
+    signature_cli: Option<(crate::modules::cli::PreparedSignatureCommands, Vec<Name>)>,
 }
 
 fn source_digests(sources: &SourceMap) -> Vec<(String, [u8; 32])> {
@@ -1579,14 +1669,12 @@ fn encode_image(
     if byte_arguments {
         return unsupported("byte script arguments");
     }
-    if plan.signature_cli.is_some() {
-        return unsupported("signature CLI entries");
-    }
     let _symbols = program.symbols.enter();
     let rows = RawFullRows::capture(program);
     let mut state = ImageRunState {
         tag_variants: evaluator.tag_variants.iter().map(|(name, arity)| (*name, *arity)).collect(),
         error_families: evaluator.error_families.keys().copied().collect(),
+        signature_cli: plan.signature_cli.as_ref().map(|cli| (cli.commands.clone(), cli.functions.clone())),
     };
     state.tag_variants.sort_unstable();
     state.error_families.sort_unstable();
@@ -1599,6 +1687,7 @@ fn encode_image(
         let start = output.position();
         state.tag_variants.put(output)?;
         state.error_families.put(output)?;
+        state.signature_cli.put(output)?;
         sizes.push(("runtime declarations", output.position() - start));
         Ok(sizes)
     };
@@ -1650,6 +1739,7 @@ fn decode_image(bytes: &[u8], sources: Arc<SourceMap>) -> ImageResult<(FullProgr
     let state = ImageRunState {
         tag_variants: ImageCodec::take(&mut input)?,
         error_families: ImageCodec::take(&mut input)?,
+        signature_cli: ImageCodec::take(&mut input)?,
     };
     map_packed_symbols(&mut rows, |word| input.symbol(word).map(|name| name.symbol().raw()))?;
     input.finish()?;
@@ -1731,15 +1821,26 @@ fn install_image_program(
     if program.driver_step_count().or_else(|error| malformed(error.message.clone()))? != root.len() {
         return malformed("decoded driver statement count differs from the loaded source");
     }
-    let auto_main_required = eval::compact_root_proc_main_requires_auto_call_indexed(arena, &root, &program)
+    let signature_cli = state.signature_cli.map(|(commands, functions)| {
+        let argv = evaluator.lookup(Name::intern("args")).and_then(|binding| match &binding.value {
+            crate::runtime::value::Value::List(values) => values.iter().map(|value| match value {
+                crate::runtime::value::Value::Str(text) => Some(text.to_string()),
+                _ => None,
+            }).collect::<Option<Vec<_>>>(),
+            _ => None,
+        }).map_or_else(|| malformed("incoming script arguments must be a List[Str]"), Ok)?;
+        Ok(eval::SignatureCliRunPlan { commands, functions, argv })
+    }).transpose()?;
+    let auto_main_required = signature_cli.is_some() || eval::compact_root_proc_main_requires_auto_call_indexed(arena, &root, &program)
         .or_else(|diagnostic| malformed(diagnostic.message))?;
-    if auto_main_required && !program.contains_function(LoweredFunctionKey::Name(Name::intern("main")), CallableKind::Proc) {
-        return malformed("proc main is missing from the decoded program");
+    let entry_functions = signature_cli.as_ref().map_or_else(|| vec![Name::intern("main")], |cli| cli.functions.clone());
+    if auto_main_required && !entry_functions.iter().all(|name| program.contains_function(LoweredFunctionKey::Name(*name), CallableKind::Proc)) {
+        return malformed("an entry proc is missing from the decoded program");
     }
     let program = Arc::new(program);
     evaluator.indexed_program = Some(Arc::clone(&program));
     evaluator.prune_binding_values();
-    let compact_auto_main_args = if auto_main_required {
+    let compact_auto_main_args = if auto_main_required && signature_cli.is_none() {
         evaluator.compact_auto_main_args().map_or_else(|| malformed("script arguments could not be converted for main"), Ok)?
     } else {
         Vec::new()
@@ -1758,7 +1859,7 @@ fn install_image_program(
         statements,
         auto_main_required,
         compact_auto_main_args,
-        signature_cli: None,
+        signature_cli,
     })
 }
 

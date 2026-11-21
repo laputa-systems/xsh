@@ -561,6 +561,31 @@ impl Scan<'_> {
 }
 
 #[cfg(test)]
+impl GnuConfig {
+    pub(super) fn put_image(output: &mut super::image::Writer, config: &Self) {
+        let Self { prog, status, permute, unsupported } = config;
+        output.optional(prog.as_ref(), |output, value| output.text(value));
+        output.int(*status);
+        output.flag(*permute);
+        output.count(unsupported.len());
+        for Unsupported { long, name, reason } in unsupported {
+            output.flag(*long);
+            output.text(name);
+            output.text(reason);
+        }
+    }
+
+    pub(super) fn take_image(input: &mut super::image::Reader) -> Result<Self, String> {
+        let prog = input.optional(super::image::Reader::text)?;
+        let status = input.int()?;
+        let permute = input.flag()?;
+        let unsupported = (0..input.count()?).map(|_| Ok(Unsupported { long: input.flag()?, name: input.text()?, reason: input.text()? }))
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(Self { prog, status, permute, unsupported })
+    }
+}
+
+#[cfg(test)]
 mod raw_option_tests {
     use super::{GnuConfig, parse_values};
     use crate::runtime::value::RecordMap;
