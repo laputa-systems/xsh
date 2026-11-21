@@ -109,7 +109,7 @@ def run_trial(
             interruptions=interruptions, extraction=rule, started=started,
         )
         if not code:
-            status = "provider-error" if reply.error else "no-answer"
+            status = "provider-error" if reply.error and reply.stop_reason != "length" else "no-answer"
             record.attempts.append(Attempt(
                 **base, code_file=None, evaluation=None, status=status, detail=reply.error or "empty reply",
                 feedback=None, finished=time.time(),
