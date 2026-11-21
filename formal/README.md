@@ -192,6 +192,14 @@ read at its base is a base member, erasure is the identity for `NonEmpty`,
 `RelPath` and bounded integers, removes exactly the declaration wrapper of a
 nominal member, and keeps references and every base-view observation.
 
+VAL-STORE is closed by `validated_store` in
+[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean): a cell of a
+validated type accepts exactly members, any other write is a `type-error`
+that keeps the store, a validated value copied into a base-view cell keeps its
+value and references, and later writes to the wider cell leave the validated
+holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
+and rejects the same write to the `NonEmpty` cell.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

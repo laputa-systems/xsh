@@ -2993,8 +2993,10 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store"
     },
     {
       "id": "VAL-UNION",
