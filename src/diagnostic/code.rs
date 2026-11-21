@@ -647,6 +647,7 @@ diagnostic_codes! {
         LintUnsortedImports = "lint.unsorted-imports", warning, "Sort a contiguous import block by module path and alias";
         LintUnusedCallable = "lint.unused-callable", warning, "Flag an unexported callable not reachable from a bundle entry point";
         LintUnusedConst = "lint.unused-const", warning, "Flag a private constant that is never read";
+        LintUnusedExport = "lint.unused-export", warning, "Flag an exported declaration no module references; note one only tests or its own module use";
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";
         LintUnusedType = "lint.unused-type", warning, "Flag a type declaration that is never referenced";
         LintPreferInferredProcReturn = "lint.prefer-inferred-proc-return", warning, "Drop a private proc return type when it is inferred exactly";

@@ -214,6 +214,27 @@ that command. `xsht lint --list` prints the catalog used by the generated
 `lint.unused-const` reports a private top-level constant that is never read.
 Exported constants are part of the module interface and are not reported by this rule.
 
+`lint.unused-export` is the workspace counterpart: it reports an exported
+declaration that no module in the discovered workspace references. It resolves
+module aliases from `use ... as ...` and `namespace.Name` references in values,
+types, signatures, enum variants and error families, and it follows re-export
+chains, so a reference from another module's exported binding keeps its target
+live. Same-named exports in different modules stay distinct because every
+reference resolves through the importing module's alias to exactly one module.
+An export that only test modules use, or that only its own module uses, is
+reported separately as a note when the rule is selected with
+`--only lint.unused-export`; a default run reports only exports that nothing
+references. `[dead-code] public-api` declares modules whose exports are a
+published interface consumed outside the project, as glob patterns relative to
+the configuration directory; the rule reports nothing in them. This repository
+declares `stdlib/**/*.xsh` and `core/lib/**/*.xsh` that way. A module named by a
+literal `module.load(p"PATH")` path is reached at run time, so its exports are
+not reported either; a computed path cannot be recognized and should be
+declared with `public-api`. A proc named `main` is invoked by the runner, so it
+is an entry rather than an import, and a `--fix` run leaves the workspace
+analysis to the next ordinary lint because its rewrites can change which
+modules reference an export.
+
 `lint.prefer-inferred-proc-return` remains opt-in. A private return annotation
 can make a helper's result easier to read even when inference preserves its
 type. The rule proves equality of checked facts before offering a deletion.
