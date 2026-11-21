@@ -123,7 +123,7 @@ class InventoryCheckerTests(unittest.TestCase):
         self.assertEqual(1264, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
-        self.assertEqual(["VAL-ERASE"], result["closed_obligations"])
+        self.assertEqual(["VAL-ERASE", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
         self.assertEqual(
             self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),
@@ -835,7 +835,8 @@ class InventoryCheckerTests(unittest.TestCase):
             obligation for obligation in coverage["universal_theorems"]
             if obligation["id"] == "VAL-WIDEN"
         )
-        self.assertEqual("planned", widen_obligation["status"])
+        self.assertEqual("closed", widen_obligation["status"])
+        self.assertNotEqual("Xsh.Validation.BoundedRefinements", widen_obligation["module"])
         nonempty_filtering_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.NonEmptyFiltering"

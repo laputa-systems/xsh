@@ -1,4 +1,5 @@
 import Xsh.Core.Values
+import Xsh.Core.Views
 import Xsh.Validation.RelPath
 
 namespace Xsh.Core
@@ -70,7 +71,8 @@ def signatureKind : SignatureType Declaration → CallableKind
 def callable (world : MembershipWorld Declaration Identity Source)
     (type : SignatureType Declaration) (value : Value Declaration Identity Source) : Prop :=
   match value.eraseNominal with
-  | .callable reference kind => kind = signatureKind type ∧ world.callable reference type
+  | .callable reference kind => kind = signatureKind type ∧
+      ∃ retained, world.callable reference retained ∧ SignatureChain retained type
   | _ => False
 
 def generic (world : MembershipWorld Declaration Identity Source)
@@ -123,7 +125,7 @@ mutual
         | _ => False
     | .stream element =>
         match candidate.eraseNominal with
-        | .stream reference => world.stream reference element
+        | .stream reference => ∃ retained, world.stream reference retained ∧ ViewChain retained element
         | _ => False
     | .record fields =>
         match recordFields world candidate with

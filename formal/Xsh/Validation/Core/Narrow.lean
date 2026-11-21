@@ -52,7 +52,7 @@ theorem union_remainder (world : MembershipWorld Declaration Identity Source)
     {candidate : Value Declaration Identity Source} (member : Membership.value world union candidate)
     (failed : ¬ Membership.value world members[index] candidate) :
     Membership.value world remainderType candidate := by
-  obtain ⟨found, foundPresent, foundMember⟩ := (union_member_iff world listed candidate).mp member
+  obtain ⟨found, foundPresent, foundMember⟩ := (Xsh.Validation.Core.Widen.union_member_iff world listed candidate).mp member
   refine (unionOf_member_iff world built candidate).mpr ⟨found, ?_, foundMember⟩
   obtain ⟨position, positionLt, positionFound⟩ := List.getElem_of_mem foundPresent
   have different : position ≠ index := by

@@ -143,12 +143,10 @@ def world : Xsh.Semantics.CoreWorld.World Declaration CallableIdentity Unit wher
   membership := membershipWorld
   references := fun _ => True
 
-def decisions : Xsh.Semantics.CoreWorld.Decisions world where
+noncomputable def decisions : Xsh.Semantics.CoreWorld.Decisions world where
   contracts := {
-    stream := fun _ _ => instDecidableFalse
-    callable := fun reference signature => by
-      simp only [world, membershipWorld]
-      infer_instance
+    stream := fun _ _ => isFalse (fun ⟨_, held, _⟩ => held)
+    callable := fun _ _ => Classical.propDecidable _
     scheme := fun _ _ => instDecidableFalse
     generic := fun _ _ => instDecidableFalse
   }
@@ -549,6 +547,7 @@ theorem member_of_fits : ∀ (candidate : Value) (actual expected : RuntimeType)
           simp [embedValue, Membership.value, Membership.callable, Membership.signatureKind,
             Xsh.Core.InvocationPolicy.kind, Value.eraseNominal, membershipWorld, callableContract,
             embedSignature, argumentsEmbedded, resultEmbedded]
+          try first | exact ⟨_, rfl, .refl _⟩ | exact .refl _
     all_goals cases h
   | .instantiatedFunction declaration arguments result solution typeArguments, actual, expected, core,
       typed, fits, embedded => by
@@ -568,6 +567,7 @@ theorem member_of_fits : ∀ (candidate : Value) (actual expected : RuntimeType)
           simp [embedValue, Membership.value, Membership.callable, Membership.signatureKind,
             Xsh.Core.InvocationPolicy.kind, Value.eraseNominal, membershipWorld, callableContract,
             embedSignature, argumentsEmbedded, resultEmbedded]
+          try first | exact ⟨_, rfl, .refl _⟩ | exact .refl _
     all_goals cases h
   | .schemeFunction declaration scheme, actual, expected, core, typed, fits, embedded => by
     simp only [valueType, Option.some.injEq] at typed

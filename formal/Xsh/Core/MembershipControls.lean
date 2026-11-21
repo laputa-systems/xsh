@@ -30,9 +30,27 @@ private def world : MembershipWorld Nat Nat Unit where
   scheme reference declaration := reference.identity = 1 ∧ declaration = 7
   generic reference kind := reference.identity = 1 ∧ kind = .procedure
 
+private theorem stream_contract_iff (reference : Reference Nat .stream) (type : TestType) :
+    (∃ retained, world.stream reference retained ∧ ViewChain retained type) ↔
+      reference.identity = 0 ∧ type = integer := by
+  constructor
+  · rintro ⟨retained, ⟨identity, rfl⟩, chain⟩
+    exact ⟨identity, chain_from_primitive chain⟩
+  · rintro ⟨identity, rfl⟩
+    exact ⟨integer, ⟨identity, rfl⟩, .refl _⟩
+
+private theorem callable_contract_iff (reference : Reference Nat .callable) (type : SignatureType Nat) :
+    (∃ retained, world.callable reference retained ∧ SignatureChain retained type) ↔
+      reference.identity = 0 ∧ type = signature := by
+  constructor
+  · rintro ⟨retained, ⟨identity, rfl⟩, chain⟩
+    exact ⟨identity, signature_chain_from_primitive_result chain⟩
+  · rintro ⟨identity, rfl⟩
+    exact ⟨signature, ⟨identity, rfl⟩, .refl _⟩
+
 private def contracts : ContractDecisions world where
-  stream _ _ := by unfold world; infer_instance
-  callable _ _ := by unfold world; infer_instance
+  stream reference type := decidable_of_iff _ (stream_contract_iff reference type).symm
+  callable reference type := decidable_of_iff _ (callable_contract_iff reference type).symm
   scheme _ _ := by unfold world; infer_instance
   generic _ _ := by unfold world; infer_instance
 
@@ -158,7 +176,7 @@ theorem decisions_match_controls :
     Xsh.Validation.RelPath.scanPath, Xsh.Validation.RelPath.slashByte,
     Xsh.Validation.RelPath.nulByte,
     Xsh.Validation.BoundedSpec.accepts, Xsh.Validation.IntegerBase.accepts,
-    intOne, intZero, intNegativeOne]
+    intOne, intZero, intNegativeOne, chain_primitive_iff, signature_chain_primitive_iff]
   all_goals decide
 
 end Xsh.Core.MembershipControls

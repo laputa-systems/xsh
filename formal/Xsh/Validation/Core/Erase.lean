@@ -99,7 +99,8 @@ theorem erased_relative_path_is_the_same_path :
       Membership.value openWorld (.primitive .path) absolute ∧
       ¬ Membership.value openWorld .relativePath absolute :=
   ⟨rfl, by simp [Membership.value, Membership.primitive, relative, pathValue, Value.eraseNominal],
-    path_never_views_relative_path.2.1, path_never_views_relative_path.2.2⟩
+    by simp [Membership.value, Membership.primitive, absolute, pathValue, Value.eraseNominal],
+    distinct_validations_never_view.2.2.2⟩
 
 end Witness
 

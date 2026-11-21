@@ -173,20 +173,21 @@ store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
 The validated-type obligations use the Core types directly.
-[`Validation/Core/Validated.lean`](Xsh/Validation/Core/Validated.lean) names
-the four validation identities (`NonEmpty` with its element, `RelPath`, a
-nominal declaration with its schema, and a bounded interval), each base, and
-the base-view relation: a validated position at any depth of a collection,
-record, optional, result, union, stream element or callable return may stand
-for its base. The `validated_widening` fragment root is in
-[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean). It shows that a view
-carries members to members, the relation it defines admits no view between
-distinct validated heads, and
-no base views as its validated type. Stream and callable views hold in worlds
-whose retained contracts are closed under views; a world that retains a
-`Stream[RelPath]` contract without `Stream[Path]` refutes the unconditional
-statement, and the witnesses record it. Nested intervals are not views, even
-though the interval-containment fragment relates them.
+[`Core/Views.lean`](Xsh/Core/Views.lean) names the four validation tags
+(`NonEmpty`, `RelPath`, a nominal declaration and a bounded interval), each
+base, and the base-view relation: a validated position at any depth of
+`NonEmpty`, a list, map value, stream element, optional, result, callable
+return, record field or union member may stand for its base. Record fields
+and union members are matched in any order. Core membership reads a retained
+stream or callable contract upward-closed under views, because stream items
+are checked against the retained type as they are produced.
+VAL-WIDEN is closed by `validated_widening` in
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean): every view
+carries members to members in every world, a view into a validated type starts
+from the same tag with a base that views to the target's base, and no base
+views as its validated type. Nested intervals are not views, even though the
+interval-containment fragment relates them. Module export types are not yet
+viewed.
 
 VAL-ERASE is closed by `validated_erasure` in
 [`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member

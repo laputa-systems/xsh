@@ -13,7 +13,7 @@ open Xsh.Proofs.Core.Env
 variable {Declaration Identity Source : Type} [DecidableEq Declaration]
 
 theorem widening_copy_commits (world : World Declaration Identity Source) (decisions : Decisions world)
-    (closed : ViewClosed world.membership) (store : Store world) (source target : CellId)
+    (store : Store world) (source target : CellId)
     (holder receiver : Cell world) (sourcePresent : store source = some holder)
     (targetPresent : store target = some receiver) (receiverMutable : receiver.mutability = .mutable)
     (view : BaseView holder.contents.typeTag receiver.contents.typeTag) :
@@ -23,7 +23,7 @@ theorem widening_copy_commits (world : World Declaration Identity Source) (decis
         copied.contents.value.references = holder.contents.value.references) ∧
       (source ≠ target → next source = store source) := by
   have typed : HasType world receiver.contents.typeTag holder.contents.value :=
-    ⟨holder.contents.wellTyped.1, view_member world.membership closed view _ holder.contents.wellTyped.2⟩
+    ⟨holder.contents.wellTyped.1, view_member world.membership view _ holder.contents.wellTyped.2⟩
   obtain ⟨next, committed⟩ := (assign_committed_iff world decisions store target holder.contents.value).mpr
     ⟨receiver, targetPresent, receiverMutable, typed⟩
   obtain ⟨current, present, ⟨replaced, replacedAt, replacedType, replacedValue, _⟩, others⟩ :=
@@ -40,10 +40,9 @@ store. A validated value copied into a cell of a base view commits, keeps its
 value and therefore its resource references, and leaves the holder's cell
 unchanged. A later committed write to the wider cell changes no other cell,
 so the validated holder keeps a member of its validated type. -/
-theorem validated_store (world : World Declaration Identity Source) (decisions : Decisions world)
-    (closed : ViewClosed world.membership) :
+theorem validated_store (world : World Declaration Identity Source) (decisions : Decisions world) :
     (∀ (store : Store world) cell candidate (current : Cell world), store cell = some current →
-      current.mutability = .mutable → validation current.contents.typeTag ≠ none →
+      current.mutability = .mutable → validationTag current.contents.typeTag ≠ none →
         ((∃ next, assign world decisions store cell candidate = .committed next) ↔
           candidate.ReferencesValid world.references ∧
             Membership.value world.membership current.contents.typeTag candidate) ∧
@@ -62,7 +61,7 @@ theorem validated_store (world : World Declaration Identity Source) (decisions :
       store source = some holder → assign world decisions store target candidate = .committed next →
         next source = some holder ∧
           Membership.value world.membership holder.contents.typeTag holder.contents.value) := by
-  refine ⟨?_, fun store source target holder receiver => widening_copy_commits world decisions closed store
+  refine ⟨?_, fun store source target holder receiver => widening_copy_commits world decisions store
     source target holder receiver, ?_⟩
   · intro store cell candidate current present mutableCell _
     refine ⟨?_, fun rejected => assign_rejects_nonmember world decisions store cell candidate current present
@@ -110,10 +109,8 @@ theorem widening_then_emptying_keeps_the_validated_holder :
       emptied nonEmptyAt = some nonEmptyCell ∧
       assign witnessWorld witnessDecisions store nonEmptyAt noWords =
         .failed (.typeError (.nonEmpty (.primitive .string)) noWords) store := by
-  have openClosed : ViewClosed witnessWorld.membership :=
-    ⟨fun _ _ _ _ found => found.elim, fun _ _ _ _ found => found.elim⟩
   obtain ⟨copied, copiedCommitted, ⟨copiedCell, copiedAt, _, copiedType, _⟩, keepsHolder⟩ :=
-    widening_copy_commits witnessWorld witnessDecisions openClosed store nonEmptyAt listAt nonEmptyCell listCell
+    widening_copy_commits witnessWorld witnessDecisions store nonEmptyAt listAt nonEmptyCell listCell
       (by simp [store]) (by simp [store, cells_differ.symm]) rfl (.validated rfl (.refl _))
   have copiedMutable : copiedCell.mutability = .mutable := by
     obtain ⟨_, present, ⟨replaced, replacedAt, _, _, sameMutability⟩, _⟩ :=

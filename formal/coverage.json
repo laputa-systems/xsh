@@ -3005,8 +3005,10 @@
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-WIDEN"
+      "status": "closed",
+      "proof_root_id": "full.VAL-WIDEN",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -15058,15 +15060,6 @@
       "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
     },
     {
-      "id": "fragment.Xsh.Validation.Core.Widen.validated_widening",
-      "module": "Xsh.Validation.Core.Widen",
-      "declaration": "Xsh.Validation.Core.Widen.validated_widening",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Base views carry Core members to members in worlds whose stream and callable contracts are closed under views; a view into a validated type is the identity in this relation; no base views as its validated type.",
-      "boundary": "Conditional on ViewClosed, which for stream and callable views is the conclusion itself. NonEmpty element views are missing, union and record-row views are order-sensitive, and the callable-return view diverges from Rust's matches_stored. Closes no full-core obligation."
-    },
-    {
       "id": "fragment.Xsh.Validation.Core.Store.validated_store",
       "module": "Xsh.Validation.Core.Store",
       "declaration": "Xsh.Validation.Core.Store.validated_store",
@@ -15128,6 +15121,15 @@
       "status": "fragment",
       "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require results are members.",
       "boundary": "fp literals are modelled as components, not source text with format specs; adjacent-interpolation rejection, strip_prefix, constants and defaults, as T and type tests are missing; relies on the toy nominal evaluator. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Core.chain_primitive_iff",
+      "module": "Xsh.Core.Views",
+      "declaration": "Xsh.Core.chain_primitive_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A view chain from an unvalidated primitive type reaches only that type, so retained primitive stream and callable contracts are read exactly.",
+      "boundary": "Covers primitive starting points of the shared base-view relation only; the view relation's soundness is the widening obligation. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [

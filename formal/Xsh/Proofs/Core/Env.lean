@@ -338,8 +338,8 @@ def witnessWorld : World Unit Unit Unit where
 
 def witnessDecisions : Decisions witnessWorld where
   contracts := {
-    stream := fun _ _ => instDecidableFalse
-    callable := fun _ _ => instDecidableFalse
+    stream := fun _ _ => isFalse (fun ⟨_, held, _⟩ => held)
+    callable := fun _ _ => isFalse (fun ⟨_, held, _⟩ => held)
     scheme := fun _ _ => instDecidableFalse
     generic := fun _ _ => instDecidableFalse
   }

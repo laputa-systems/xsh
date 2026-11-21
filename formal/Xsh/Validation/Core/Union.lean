@@ -8,17 +8,9 @@ open Xsh.Validation.Core.Widen
 
 variable {Declaration Identity Source : Type}
 
-def tailMembers : UnionTail Declaration → List (ValueType Declaration)
-  | .membersEmpty => []
-  | .member type rest => type :: tailMembers rest
-
 def tailOf : List (ValueType Declaration) → UnionTail Declaration
   | [] => .membersEmpty
   | type :: rest => .member type (tailOf rest)
-
-def unionMembers : ValueType Declaration → Option (List (ValueType Declaration))
-  | .union first second rest => some (first :: second :: tailMembers rest)
-  | _ => none
 
 def unionOf : List (ValueType Declaration) → Option (ValueType Declaration)
   | [] => none
@@ -29,24 +21,6 @@ theorem tailMembers_tailOf (types : List (ValueType Declaration)) : tailMembers 
   induction types with
   | nil => simp [tailOf, tailMembers]
   | cons head rest ih => simp [tailOf, tailMembers, ih]
-
-theorem members_iff (world : MembershipWorld Declaration Identity Source) (rest : UnionTail Declaration)
-    (candidate : Value Declaration Identity Source) :
-    Membership.members world rest candidate ↔ ∃ type ∈ tailMembers rest, Membership.value world type candidate := by
-  match rest with
-  | .variable id => exact nomatch id
-  | .membersEmpty => simp [Membership.members, tailMembers]
-  | .member type tail =>
-    simp only [Membership.members, tailMembers, List.mem_cons, exists_eq_or_imp]
-    rw [members_iff world tail candidate]
-
-theorem union_member_iff (world : MembershipWorld Declaration Identity Source) {union : ValueType Declaration}
-    {members : List (ValueType Declaration)} (listed : unionMembers union = some members)
-    (candidate : Value Declaration Identity Source) :
-    Membership.value world union candidate ↔ ∃ type ∈ members, Membership.value world type candidate := by
-  cases union <;> simp only [unionMembers, reduceCtorEq, Option.some.injEq] at listed
-  subst listed
-  simp only [Membership.value, List.mem_cons, exists_eq_or_imp, members_iff]
 
 theorem unionOf_member_iff (world : MembershipWorld Declaration Identity Source)
     {members : List (ValueType Declaration)} {union : ValueType Declaration} (built : unionOf members = some union)
@@ -127,7 +101,7 @@ theorem classify_none_iff (world : MembershipWorld Declaration Identity Source) 
     · simp [classify, accepted]
     · simp [classify, accepted, ih]
 
-theorem union_view_member (world : MembershipWorld Declaration Identity Source) (closed : ViewClosed world)
+theorem union_view_member (world : MembershipWorld Declaration Identity Source)
     {source target : ValueType Declaration} {sourceMembers targetMembers : List (ValueType Declaration)}
     (sourceListed : unionMembers source = some sourceMembers) (targetListed : unionMembers target = some targetMembers)
     (covered : ∀ member ∈ sourceMembers, ∃ wider ∈ targetMembers, BaseView member wider)
@@ -136,16 +110,16 @@ theorem union_view_member (world : MembershipWorld Declaration Identity Source) 
   obtain ⟨found, present, foundMember⟩ := (union_member_iff world sourceListed candidate).mp member
   obtain ⟨wider, widerPresent, view⟩ := covered found present
   exact (union_member_iff world targetListed candidate).mpr
-    ⟨wider, widerPresent, view_member world closed view candidate foundMember⟩
+    ⟨wider, widerPresent, view_member world view candidate foundMember⟩
 
 /-- Union membership and selection over every Core union. A value is a member
 of a union exactly when it is a member of one listed member type, the union is
 not a runtime wrapper, and runtime selection returns the first member in
 written order that accepts the value, or none when no member does. A union
 fits another union when each of its members views as one of the other's,
-whatever the order. -/
+whatever the order. No premise restricts the world. -/
 theorem union_semantics (world : MembershipWorld Declaration Identity Source) [DecidableEq Declaration]
-    (contracts : ContractDecisions world) (closed : ViewClosed world) :
+    (contracts : ContractDecisions world) :
     (∀ (union : ValueType Declaration) members candidate, unionMembers union = some members →
       (Membership.value world union candidate ↔ ∃ type ∈ members, Membership.value world type candidate)) ∧
     (∀ (members : List (ValueType Declaration)) union candidate, unionOf members = some union →
@@ -166,15 +140,15 @@ theorem union_semantics (world : MembershipWorld Declaration Identity Source) [D
     fun _ _ candidate built => unionOf_member_iff world built candidate,
     classify_some_iff world contracts, classify_none_iff world contracts,
     fun _ _ _ _ candidate sourceListed targetListed covered member =>
-      union_view_member world closed sourceListed targetListed covered candidate member⟩
+      union_view_member world sourceListed targetListed covered candidate member⟩
 
 namespace Witness
 
 open Xsh.Validation.Core.Widen.Witness
 
 def openContracts : ContractDecisions openWorld where
-  stream := fun _ _ => instDecidableTrue
-  callable := fun _ _ => instDecidableTrue
+  stream := fun _ type => isTrue ⟨type, trivial, .refl _⟩
+  callable := fun _ type => isTrue ⟨type, trivial, .refl _⟩
   scheme := fun _ _ => instDecidableFalse
   generic := fun _ _ => instDecidableFalse
 
@@ -190,6 +164,18 @@ theorem overlapping_union_selects_the_first_accepting_member :
   refine ⟨?_, ?_, ?_⟩ <;>
     simp [classify, overlapping, five, minusFive, Membership.value, Membership.primitive, Value.eraseNominal]
 
+def lastMatch (members : List WitnessType) (candidate : WitnessValue) : Option Nat :=
+  (classify openWorld openContracts members.reverse candidate).map (fun index => members.length - 1 - index)
+
+theorem last_and_any_match_selection_are_refuted :
+    lastMatch overlapping five = some 1 ∧ Membership.value openWorld (overlapping[1]'(by decide)) five ∧
+      classify openWorld openContracts overlapping five ≠ some 1 := by
+  refine ⟨?_, ?_, ?_⟩
+  · simp [lastMatch, classify, overlapping, five, Membership.value, Membership.primitive, Value.eraseNominal]
+  · simp [overlapping, five, Membership.value, Membership.primitive, Value.eraseNominal]
+  · rw [overlapping_union_selects_the_first_accepting_member.1]
+    decide
+
 theorem reordered_union_still_fits_and_member_alone_does_not :
     Membership.value openWorld (.union .relativePath (.primitive .string) .membersEmpty) relative ∧
       Membership.value openWorld (.union (.primitive .string) (.primitive .path) .membersEmpty) relative ∧
@@ -199,7 +185,7 @@ theorem reordered_union_still_fits_and_member_alone_does_not :
   have member : Membership.value openWorld (.union .relativePath (.primitive .string) .membersEmpty) relative := by
     simp [Membership.value, Membership.members, Membership.primitive, relative, pathValue, Value.eraseNominal]
     decide
-  refine ⟨member, union_view_member openWorld openWorld_closed rfl rfl ?_ _ member, ?_, ?_⟩
+  refine ⟨member, union_view_member openWorld rfl rfl ?_ _ member, ?_, ?_⟩
   · intro type present
     simp only [List.mem_cons, tailMembers, List.not_mem_nil, or_false] at present
     rcases present with same | same <;> subst same
