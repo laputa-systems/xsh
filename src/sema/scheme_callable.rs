@@ -16,7 +16,6 @@ impl Default for SchemeCallableOwner {
 #[cfg(test)]
 impl SchemeCallableOwner {
     pub(crate) fn image_raw(self) -> u64 { self.0.get() }
-    pub(crate) fn from_image_raw(raw: u64) -> Option<Self> { Some(Self(NonZeroU64::new(raw)?)) }
 }
 
 impl SchemeCallableOwner {

@@ -180,6 +180,16 @@ macro_rules! lowered_value_schema {
             $($custom_tag = $custom_ordinal,)*
         }
 
+        #[cfg(test)]
+        impl FullValueTag {
+            pub(in crate::runtime::eval) fn payload_shape(self) -> Vec<wire_shape::PayloadShape> {
+                match self {
+                    $(Self::$tag => vec![$(<$field_ty as wire_shape::PayloadWords>::shape()),*],)*
+                    $(Self::$custom_tag => <Self as wire_shape::CustomValueShape>::custom_payload_shape(self),)*
+                }
+            }
+        }
+
         impl FullCodec for LoweredValue {
             fn encode(
                 &self,
@@ -20965,6 +20975,14 @@ macro_rules! impl_vec_codec {
             const BLOCK_FLAGS: u8 = $flags;
         }
 
+        #[cfg(test)]
+        impl wire_shape::PayloadWords for Vec<$ty> {
+            fn shape() -> wire_shape::PayloadShape {
+                wire_shape::PayloadShape::Block($flags, Box::new(wire_shape::PayloadShape::Repeat(Box::new(
+                    <$ty as wire_shape::PayloadWords>::shape()))))
+            }
+        }
+
         impl FullCodec for Vec<$ty> {
             fn encode(
                 &self,
@@ -22860,6 +22878,18 @@ where
     view.assert_matches(expected, expectations);
 }
 
+#[cfg(test)]
+macro_rules! stage_payload_shape {
+    ($tag:ident; $($variant:ident $(($($tuple_ty:ty),*))? $({ $($field:ident: $field_ty:ty),* })?,)*) => {
+        match $tag {
+            $(FullStageTag::$variant => vec![
+                $($(<$tuple_ty as wire_shape::PayloadWords>::shape(),)*)?
+                $($(<$field_ty as wire_shape::PayloadWords>::shape(),)*)?
+            ],)*
+        }
+    };
+}
+
 macro_rules! pipeline_stage_schema {
     (
         @build
@@ -22912,6 +22942,13 @@ macro_rules! pipeline_stage_schema {
                 match self {
                     $($view_tag_arms)*
                 }
+            }
+        }
+
+        #[cfg(test)]
+        impl FullStageTag {
+            pub(in crate::runtime::eval) fn payload_shape(self) -> Vec<wire_shape::PayloadShape> {
+                stage_payload_shape!(self; $($variants)*)
             }
         }
 
@@ -58415,6 +58452,35 @@ assert text_probe("") == {equal: false, missing: true, size: 0}
                 evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
             }
         }
+    }
+}
+
+#[cfg(test)]
+pub(in crate::runtime::eval) mod wire_shape {
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    pub(in crate::runtime::eval) enum WordRole {
+        Raw, Symbol, Slot, String, Bytes, Location, Type, LoweredType, Expr, Stmt, Int, Bool, Pattern, Stage, Value,
+        Function, Regex, Constant, ModulePlan, WireEnum, Schema, RuntimeOp, AssignOp, BinaryOp, RunKind, RedirectionKind,
+        BindingIdentity, ChildProgram, DeferKind, EndDistance, Materialization, SchemaExpectation, TextHole,
+    }
+
+    #[derive(Clone, Debug)]
+    pub(in crate::runtime::eval) enum PayloadShape {
+        Word(WordRole),
+        Fields(Vec<PayloadShape>),
+        Choice(Vec<(u32, PayloadShape)>),
+        Repeat(Box<PayloadShape>),
+        Block(u8, Box<PayloadShape>),
+        Named(&'static str, fn() -> PayloadShape),
+        TextPattern,
+    }
+
+    pub(in crate::runtime::eval) trait PayloadWords {
+        fn shape() -> PayloadShape;
+    }
+
+    pub(in crate::runtime::eval) trait CustomValueShape {
+        fn custom_payload_shape(self) -> Vec<PayloadShape>;
     }
 }
 

@@ -21,14 +21,48 @@ fn unsupported<T>(message: impl Into<String>) -> ImageResult<T> {
 }
 
 #[derive(Default)]
+enum SymbolCanon {
+    #[default]
+    Raw,
+    Collect(BTreeSet<Name>),
+    Canonical(FxHashMap<u32, u32>),
+}
+
+fn first_dynamic_symbol() -> u32 {
+    static FIRST: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *FIRST.get_or_init(|| (0..u32::MAX).find(|raw| !Name::from_symbol(Symbol::from_raw(*raw)).is_preloaded())
+        .expect("the symbol space has dynamic identities"))
+}
+
+#[derive(Default)]
 pub(super) struct ImageWriter {
     bytes: Vec<u8>,
     type_ids: BTreeMap<u64, u64>,
     effect_ids: BTreeMap<u64, u64>,
     owners: BTreeMap<u64, u64>,
+    symbols: SymbolCanon,
 }
 
 impl ImageWriter {
+    fn symbol(&mut self, name: Name) -> ImageResult<u32> {
+        let raw = name.symbol().raw();
+        if name.is_preloaded() {
+            return Ok(raw);
+        }
+        match &mut self.symbols {
+            SymbolCanon::Raw => Ok(raw),
+            SymbolCanon::Collect(names) => {
+                if name.as_str().as_str() == INVALID_SYMBOL_TEXT {
+                    return unsupported(format!("symbol {raw} has no live spelling"));
+                }
+                names.insert(name);
+                Ok(raw)
+            }
+            SymbolCanon::Canonical(table) => table.get(&raw).copied()
+                .map_or_else(|| unsupported(format!("symbol `{}` is missing from the image table", name.as_str())), Ok),
+        }
+    }
+
     pub(super) fn position(&self) -> usize {
         self.bytes.len()
     }
@@ -68,11 +102,21 @@ pub(super) struct ImageReader<'a> {
     type_ids: BTreeMap<u64, crate::sema::constraints::TypeVariableId>,
     effect_ids: BTreeMap<u64, crate::sema::constraints::EffectVariableId>,
     owners: BTreeMap<u64, crate::sema::scheme_callable::SchemeCallableOwner>,
+    symbols: Option<Vec<Name>>,
 }
 
 impl<'a> ImageReader<'a> {
     fn new(input: &'a [u8]) -> Self {
-        Self { input, depth: 0, type_ids: BTreeMap::new(), effect_ids: BTreeMap::new(), owners: BTreeMap::new() }
+        Self { input, depth: 0, type_ids: BTreeMap::new(), effect_ids: BTreeMap::new(), owners: BTreeMap::new(), symbols: None }
+    }
+
+    fn symbol(&self, word: u32) -> ImageResult<Name> {
+        let Some(table) = &self.symbols else { return Ok(Name::from_symbol(Symbol::from_raw(word))) };
+        let first = first_dynamic_symbol();
+        if word < first {
+            return Ok(Name::from_symbol(Symbol::from_raw(word)));
+        }
+        table.get((word - first) as usize).copied().map_or_else(|| malformed(format!("symbol word {word} names no image table entry")), Ok)
     }
 
     fn array<const N: usize>(&mut self) -> ImageResult<[u8; N]> {
@@ -371,12 +415,14 @@ impl<K: ImageCodec + Ord> ImageCodec for BTreeSet<K> {
 
 impl ImageCodec for Name {
     fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
-        output.u32(self.symbol().raw());
+        let word = output.symbol(*self)?;
+        output.u32(word);
         Ok(())
     }
 
     fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
-        Ok(Name::from_symbol(Symbol::from_raw(input.u32()?)))
+        let word = input.u32()?;
+        input.symbol(word)
     }
 }
 
@@ -1479,56 +1525,39 @@ pub(super) fn take_semantic(input: &mut ImageReader<'_>, symbols: SymbolOwner) -
 
 const IMAGE_MAGIC: &[u8; 8] = b"XSHIMG01";
 const INVALID_SYMBOL_TEXT: &str = "<invalid-symbol>";
-const SYMBOL_PROBE: &str = "\u{0}xsh-program-image-probe";
 
-struct SymbolKeeper(#[expect(dead_code)] SymbolOwner);
-
-fn retain_live_symbols() -> (Vec<(u32, String)>, SymbolKeeper) {
-    let keeper = SymbolOwner::new();
-    let (live, _) = crate::symbol::dynamic_symbol_stats();
-    let first = (0..u32::MAX).find(|raw| !Name::from_symbol(Symbol::from_raw(*raw)).is_preloaded()).unwrap();
-    let mut symbols = Vec::with_capacity(live);
-    let mut vacant = 0usize;
-    for raw in first..u32::MAX {
-        if vacant >= 1 << 20 || (symbols.len() >= live && vacant >= 1 << 12) {
-            break;
-        }
-        let text = Name::from_symbol(Symbol::from_raw(raw)).as_str();
-        if text.as_str() == INVALID_SYMBOL_TEXT {
-            vacant += 1;
-            continue;
-        }
-        vacant = 0;
-        let retained = keeper.intern(text.as_str()).symbol().raw();
-        symbols.push((retained, text.as_str().to_owned()));
-    }
-    symbols.sort_unstable();
-    symbols.dedup_by_key(|(raw, _)| *raw);
-    (symbols, SymbolKeeper(keeper))
+fn packed_symbol_positions(rows: &RawFullRows) -> ImageResult<(BTreeSet<usize>, Vec<shapes::SemanticSymbol>)> {
+    let extra = shapes::extra_symbol_positions(rows).map_err(ImageError::Malformed)?;
+    let semantic = shapes::semantic_symbol_positions(&rows.semantic.tables).map_err(ImageError::Malformed)?;
+    Ok((extra, semantic))
 }
 
-fn restore_symbols(symbols: &[(u32, String)], owner: &SymbolOwner) -> ImageResult<()> {
-    let fillers = SymbolOwner::new();
-    for (raw, text) in symbols {
-        loop {
-            let probe = SymbolOwner::new();
-            let next = probe.intern(SYMBOL_PROBE).symbol().raw();
-            drop(probe);
-            if next >= *raw {
-                break;
-            }
-            fillers.intern(&format!("{SYMBOL_PROBE}-{next}"));
-        }
-        if owner.intern(text).symbol().raw() != *raw {
-            return malformed(format!("symbol `{text}` cannot take its recorded identity {raw}"));
-        }
+fn map_packed_symbols(rows: &mut RawFullRows, mut map: impl FnMut(u32) -> ImageResult<u32>) -> ImageResult<()> {
+    let (extra, semantic) = packed_symbol_positions(rows)?;
+    for position in extra {
+        rows.extra[position] = map(rows.extra[position])?;
+    }
+    for position in semantic {
+        let word = position.word(&mut rows.semantic.tables);
+        *word = map(*word)?;
     }
     Ok(())
 }
 
+fn canonical_symbol_table(rows: &RawFullRows, encode: impl Fn(&mut ImageWriter) -> ImageResult<()>) -> ImageResult<Vec<Name>> {
+    let mut collector = ImageWriter { symbols: SymbolCanon::Collect(BTreeSet::new()), ..ImageWriter::default() };
+    let mut packed = rows.clone();
+    map_packed_symbols(&mut packed, |word| {
+        collector.symbol(Name::from_symbol(Symbol::from_raw(word)))?;
+        Ok(word)
+    })?;
+    encode(&mut collector)?;
+    let SymbolCanon::Collect(names) = collector.symbols else { unreachable!("the collector keeps its mode") };
+    Ok(names.into_iter().collect())
+}
+
 pub(super) struct EncodedImage {
     pub(super) bytes: Vec<u8>,
-    pub(super) rows: std::ops::Range<usize>,
     pub(super) sizes: Vec<(&'static str, usize)>,
 }
 
@@ -1546,7 +1575,6 @@ fn encode_image(
     evaluator: &Evaluator,
     plan: &CompactIndexedRunPlan,
     byte_arguments: bool,
-    symbols: &[(u32, String)],
 ) -> ImageResult<EncodedImage> {
     if byte_arguments {
         return unsupported("byte script arguments");
@@ -1554,32 +1582,48 @@ fn encode_image(
     if plan.signature_cli.is_some() {
         return unsupported("signature CLI entries");
     }
-    let mut output = ImageWriter::default();
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let mut state = ImageRunState {
+        tag_variants: evaluator.tag_variants.iter().map(|(name, arity)| (*name, *arity)).collect(),
+        error_families: evaluator.error_families.keys().copied().collect(),
+    };
+    state.tag_variants.sort_unstable();
+    state.error_families.sort_unstable();
+    let put_named = |output: &mut ImageWriter, rows: &RawFullRows| -> ImageResult<Vec<(&'static str, usize)>> {
+        let mut sizes = Vec::new();
+        let start = output.position();
+        program.function_definition_spans.put(output)?;
+        sizes.push(("function definition spans", output.position() - start));
+        sizes.extend(rows.put_image(output)?);
+        let start = output.position();
+        state.tag_variants.put(output)?;
+        state.error_families.put(output)?;
+        sizes.push(("runtime declarations", output.position() - start));
+        Ok(sizes)
+    };
+    let table = canonical_symbol_table(&rows, |collector| put_named(collector, &rows).map(drop))?;
+    let first = first_dynamic_symbol();
+    let canonical = table.iter().enumerate().map(|(index, name)| {
+        u32::try_from(index).ok().and_then(|index| first.checked_add(index)).map(|word| (name.symbol().raw(), word))
+            .map_or_else(|| unsupported("the symbol table exceeds the symbol word space"), Ok)
+    }).collect::<ImageResult<FxHashMap<u32, u32>>>()?;
+    let mut packed = rows;
+    map_packed_symbols(&mut packed, |word| {
+        if word < first { return Ok(word) }
+        canonical.get(&word).copied().map_or_else(|| unsupported(format!("packed symbol {word} is missing from the image table")), Ok)
+    })?;
+    let mut output = ImageWriter { symbols: SymbolCanon::Canonical(canonical), ..ImageWriter::default() };
     output.bytes.extend_from_slice(IMAGE_MAGIC);
     let mut sizes = Vec::new();
     let start = output.position();
     source_digests(&program.sources).put(&mut output)?;
     sizes.push(("source digests", output.position() - start));
     let start = output.position();
-    symbols.to_vec().put(&mut output)?;
+    table.iter().map(|name| name.as_str().as_str().to_owned()).collect::<Vec<String>>().put(&mut output)?;
     sizes.push(("symbol table", output.position() - start));
-    let start = output.position();
-    program.function_definition_spans.put(&mut output)?;
-    sizes.push(("function definition spans", output.position() - start));
-    let rows_start = output.position();
-    sizes.extend(RawFullRows::capture(program).put_image(&mut output)?);
-    let rows = rows_start..output.position();
-    let mut state = ImageRunState {
-        tag_variants: evaluator.tag_variants.iter().map(|(name, arity)| (*name, *arity)).collect(),
-        error_families: evaluator.error_families.keys().copied().collect(),
-    };
-    state.tag_variants.sort_unstable_by_key(|(name, _)| name.symbol().raw());
-    state.error_families.sort_unstable_by_key(|name| name.symbol().raw());
-    let start = output.position();
-    state.tag_variants.put(&mut output)?;
-    state.error_families.put(&mut output)?;
-    sizes.push(("runtime declarations", output.position() - start));
-    Ok(EncodedImage { bytes: output.bytes, rows, sizes })
+    sizes.extend(put_named(&mut output, &packed)?);
+    Ok(EncodedImage { bytes: output.bytes, sizes })
 }
 
 fn decode_image(bytes: &[u8], sources: Arc<SourceMap>) -> ImageResult<(FullProgram, ImageRunState)> {
@@ -1590,15 +1634,24 @@ fn decode_image(bytes: &[u8], sources: Arc<SourceMap>) -> ImageResult<(FullProgr
     if Vec::<(String, [u8; 32])>::take(&mut input)? != source_digests(&sources) {
         return malformed("image sources differ from the loaded closure");
     }
-    let table = Vec::<(u32, String)>::take(&mut input)?;
-    if !table.is_sorted_by(|left, right| left.0 < right.0) {
-        return malformed("image symbol table is not strictly ordered");
+    let table = Vec::<String>::take(&mut input)?;
+    if !table.is_sorted_by(|left, right| left < right) {
+        return malformed("image symbol table is not strictly ordered by spelling");
     }
     let symbols = SymbolOwner::new();
-    restore_symbols(&table, &symbols)?;
+    let names = table.iter().map(|text| {
+        let name = symbols.intern(text);
+        if name.is_preloaded() { malformed(format!("image symbol `{text}` is a preloaded spelling")) } else { Ok(name) }
+    }).collect::<ImageResult<Vec<_>>>()?;
+    input.symbols = Some(names);
+    let _current = symbols.enter();
     let function_definition_spans = ImageCodec::take(&mut input)?;
-    let rows = RawFullRows::take_image(&mut input, symbols)?;
-    let state = ImageRunState { tag_variants: ImageCodec::take(&mut input)?, error_families: ImageCodec::take(&mut input)? };
+    let mut rows = RawFullRows::take_image(&mut input, symbols.clone())?;
+    let state = ImageRunState {
+        tag_variants: ImageCodec::take(&mut input)?,
+        error_families: ImageCodec::take(&mut input)?,
+    };
+    map_packed_symbols(&mut rows, |word| input.symbol(word).map(|name| name.symbol().raw()))?;
     input.finish()?;
     let program = RawFullProgram {
         rows,
@@ -1746,10 +1799,25 @@ fn installed_from_image(image: &[u8]) -> ImageResult<(Evaluator, CompactIndexedR
     Ok(prepare_from_image(AWK_SCRIPT, &[AWK_PROGRAM], image, ImageStage::Install)?.expect("installation returns the prepared run"))
 }
 
-fn encode_checked(entry: &CheckedEntry, symbols: &[(u32, String)]) -> EncodedImage {
+fn encode_checked(entry: &CheckedEntry) -> EncodedImage {
     let program = entry.evaluator.indexed_program.as_ref().unwrap();
     FullVerifier::verify(program).unwrap();
-    encode_image(program, &entry.evaluator, &entry.plan, entry.byte_arguments, symbols).unwrap()
+    encode_image(program, &entry.evaluator, &entry.plan, entry.byte_arguments).unwrap()
+}
+
+fn reencode_installed(evaluator: &Evaluator, plan: &CompactIndexedRunPlan) -> Vec<u8> {
+    encode_image(evaluator.indexed_program.as_ref().unwrap(), evaluator, plan, false).unwrap().bytes
+}
+
+fn packed_symbol_spellings(program: &FullProgram) -> Vec<(u32, String)> {
+    let _symbols = program.symbols.enter();
+    let rows = RawFullRows::capture(program);
+    let (extra, semantic) = packed_symbol_positions(&rows).unwrap();
+    let mut tables = rows.semantic.tables.clone();
+    extra.into_iter().map(|position| rows.extra[position])
+        .chain(semantic.into_iter().map(|position| *position.word(&mut tables)))
+        .map(|raw| (raw, Name::from_symbol(Symbol::from_raw(raw)).as_str().as_str().to_owned()))
+        .collect()
 }
 
 fn transfer_marks(evaluator: &Evaluator) -> usize {
@@ -1767,18 +1835,14 @@ fn awk_options() -> crate::execution::script::RunOptions {
 #[test]
 fn awk_program_image_round_trip_matches_the_checked_run() {
     super::super::super::tests::run_with_large_stack(|| {
-        let (image, transfers, keeper) = {
+        let (image, transfers) = {
             let entry = prepare_checked(AWK_SCRIPT, &[AWK_PROGRAM]);
-            let (symbols, keeper) = retain_live_symbols();
-            let image = encode_checked(&entry, &symbols);
-            (image, transfer_marks(&entry.evaluator), keeper)
+            (encode_checked(&entry), transfer_marks(&entry.evaluator))
         };
         assert!(transfers > 0);
         let (evaluator, plan) = installed_from_image(&image.bytes).unwrap();
         assert_eq!(transfer_marks(&evaluator), transfers);
-        let mut reencoded = ImageWriter::default();
-        RawFullRows::capture(evaluator.indexed_program.as_ref().unwrap()).put_image(&mut reencoded).unwrap();
-        assert!(reencoded.bytes == image.bytes[image.rows.clone()], "decoded rows encode differently");
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "the decoded program encodes differently");
         let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("decoded AWK program failed to execute"));
         let expected = crate::runner::run_script(awk_options());
         assert_eq!(actual.status, expected.status);
@@ -1788,7 +1852,37 @@ fn awk_program_image_round_trip_matches_the_checked_run() {
         let mut truncated = image.bytes.clone();
         truncated.pop();
         assert!(matches!(installed_from_image(&truncated), Err(ImageError::Malformed(_))));
-        drop(keeper);
+    });
+}
+
+const COLLISION_SCRIPT: &str = "tests/fixtures/runtime/formal-raw-ir-collision.xsh";
+
+#[test]
+fn program_image_rekeys_symbols_reallocated_to_other_spellings() {
+    super::super::super::tests::run_with_large_stack(|| {
+        let (image, spellings) = {
+            let entry = prepare_checked(COLLISION_SCRIPT, &[]);
+            let spellings = packed_symbol_spellings(entry.evaluator.indexed_program.as_ref().unwrap());
+            (encode_checked(&entry), spellings)
+        };
+        assert!(spellings.iter().any(|(_, text)| text.starts_with("formal_raw_ir_collision")));
+        let squatters = SymbolOwner::new();
+        for index in 0..spellings.len() * 4 + 4096 {
+            squatters.intern(&format!("program-image-squatter-{index}"));
+        }
+        let taken = spellings.iter().filter(|(raw, text)| {
+            let current = Name::from_symbol(Symbol::from_raw(*raw)).as_str();
+            current.as_str() != text.as_str() && current.as_str().starts_with("program-image-squatter-")
+        }).count();
+        assert!(taken > 0, "no recorded symbol identity was reallocated to another spelling");
+        let (evaluator, plan) = prepare_from_image(COLLISION_SCRIPT, &[], &image.bytes, ImageStage::Install).unwrap().expect("installation returns the prepared run");
+        let decoded = packed_symbol_spellings(evaluator.indexed_program.as_ref().unwrap());
+        assert_eq!(decoded.iter().map(|(_, text)| text).collect::<Vec<_>>(), spellings.iter().map(|(_, text)| text).collect::<Vec<_>>());
+        assert!(decoded.iter().zip(&spellings).any(|(decoded, original)| decoded.0 != original.0));
+        assert!(reencode_installed(&evaluator, &plan) == image.bytes, "the rekeyed program encodes differently");
+        let actual = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("the rekeyed program failed to execute"));
+        assert_eq!((actual.status, actual.stdout.as_slice(), actual.stderr.as_slice()), (0, b"42\n".as_slice(), b"".as_slice()));
+        drop(squatters);
     });
 }
 
@@ -1798,13 +1892,12 @@ fn awk_program_image_write() {
     let path = std::env::var_os(IMAGE_PATH_ENV).expect("XSH_PROGRAM_IMAGE names the image to write");
     super::super::super::tests::run_with_large_stack(move || {
         let entry = prepare_checked(AWK_SCRIPT, &[AWK_PROGRAM]);
-        let (symbols, _keeper) = retain_live_symbols();
-        let image = encode_checked(&entry, &symbols);
+        let image = encode_checked(&entry);
         std::fs::write(&path, &image.bytes).unwrap();
         for (pool, size) in image.sizes.iter().filter(|(_, size)| *size > 4) {
             eprintln!("PROGRAM_IMAGE pool {pool} {size}");
         }
-        eprintln!("PROGRAM_IMAGE bytes={} symbols={} transfers={}", image.bytes.len(), symbols.len(), transfer_marks(&entry.evaluator));
+        eprintln!("PROGRAM_IMAGE bytes={} transfers={}", image.bytes.len(), transfer_marks(&entry.evaluator));
     });
 }
 
