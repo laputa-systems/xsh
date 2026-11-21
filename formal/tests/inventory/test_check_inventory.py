@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -1828,6 +1830,62 @@ class InventoryCheckerTests(unittest.TestCase):
             coverage["universal_theorems"],
             CHECKER.lean_module_sources(ROOT / "formal"),
         )
+
+    def implementation_copy(self, directory: str) -> Path:
+        copy = Path(directory)
+        shutil.copytree(ROOT / "formal", copy / "formal")
+        shutil.copytree(
+            ROOT / "dev/verify/aeneas",
+            copy / "dev/verify/aeneas",
+            ignore=shutil.ignore_patterns(".lake"),
+        )
+        for name in ("src/arith.rs", "src/duration.rs", "src/syntax/node.rs"):
+            (copy / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, copy / name)
+        return copy
+
+    def assert_copy_is_stale(self, relative: str, original: str, replacement: str) -> None:
+        proofs, obligations, _ = self.implementation_inputs()
+        with tempfile.TemporaryDirectory() as directory:
+            copy = self.implementation_copy(directory)
+            modules = CHECKER.lean_module_sources(copy / "formal")
+            self.assertEqual(
+                2, len(CHECKER.validate_implementation_proofs(copy, proofs, obligations, modules))
+            )
+            path = copy / relative
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(1, text.count(original))
+            path.write_text(text.replace(original, replacement), encoding="utf-8")
+            with self.assertRaisesRegex(
+                CHECKER.InventoryError, f"stale implementation proof .*{relative} changed"
+            ):
+                CHECKER.validate_implementation_proofs(copy, proofs, obligations, modules)
+
+    def test_changed_formal_specification_makes_an_implementation_proof_stale(self) -> None:
+        self.assert_copy_is_stale(
+            "formal/Xsh/Core/Arith.lean", "  | .rem, a, b => a.tmod b", "  | .rem, a, b => a.emod b"
+        )
+
+    def test_changed_harness_specification_makes_an_implementation_proof_stale(self) -> None:
+        self.assert_copy_is_stale(
+            "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+            "  (intOp? op).map fun op => Xsh.Core.Arith.checked op left right",
+            "  none",
+        )
+
+    def test_proof_sources_must_cover_the_harness_and_its_formal_imports(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["proof_sources"] = [
+            item for item in proofs[0]["proof_sources"] if item["path"] != "formal/Xsh/Values/Scalars.lean"
+        ]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "proof sources differ .*Scalars.lean"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_reproduction_cannot_depend_on_the_disposable_work_tree(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["reproduction"][1]["command"] = [".work/bin/lean-slot", "dev/verify/aeneas/check.sh"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "disposable .work tree"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
 
     def test_implementation_proofs_match_live_sources_and_pins(self) -> None:
         proofs, obligations, modules = self.implementation_inputs()

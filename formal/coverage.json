@@ -15688,6 +15688,100 @@
         "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
         "definition": "xsh_arith_slice.arith.checked_int_binary"
       },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
       "toolchain": {
         "extraction_rust": "nightly-2026-09-17",
         "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
@@ -15732,25 +15826,35 @@
         "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice"
       ],
       "reproduction": [
-        [
-          "dev/verify/aeneas/extract.sh",
-          "--check"
-        ],
-        [
-          ".work/bin/lean-slot",
-          "dev/verify/aeneas/check.sh"
-        ],
-        [
-          ".work/bin/lean-slot",
-          "dev/verify/aeneas/mutant.sh"
-        ],
-        [
-          "cargo",
-          "test",
-          "--locked",
-          "--manifest-path",
-          "dev/verify/aeneas/slice/Cargo.toml"
-        ]
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
       ],
       "resources": {
         "extraction_check_wall_seconds": 5,
@@ -15810,6 +15914,100 @@
         "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
         "definition": "xsh_arith_slice.duration.checked_duration_binary"
       },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
       "toolchain": {
         "extraction_rust": "nightly-2026-09-17",
         "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
@@ -15852,28 +16050,39 @@
         "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
         "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
         "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice",
-        "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument"
+        "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument",
+        "the TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies in the translation are core's at the extraction nightly-2026-09-17, not at the production nightly-2026-11-09; the slice witness tests run the production toolchain's bodies on the same cases"
       ],
       "reproduction": [
-        [
-          "dev/verify/aeneas/extract.sh",
-          "--check"
-        ],
-        [
-          ".work/bin/lean-slot",
-          "dev/verify/aeneas/check.sh"
-        ],
-        [
-          ".work/bin/lean-slot",
-          "dev/verify/aeneas/mutant.sh"
-        ],
-        [
-          "cargo",
-          "test",
-          "--locked",
-          "--manifest-path",
-          "dev/verify/aeneas/slice/Cargo.toml"
-        ]
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
       ],
       "resources": {
         "extraction_check_wall_seconds": 5,
