@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codemode-manifest/1",
+  "type": "object",
+  "required": [
+    "schema", "phase", "split", "created", "model", "thinking_requested", "pi_version", "toolchain", "images",
+    "harness", "host", "extraction_rule", "contexts", "tasks", "samples", "seed", "jobs", "schedule"
+  ],
+  "properties": {
+    "schema": {"const": "codemode-manifest/1"},
+    "phase": {"type": "string"},
+    "split": {"enum": ["dev", "held", "session"]},
+    "created": {"type": "string"},
+    "model": {"const": "opencode-go/hy4-flash-free"},
+    "thinking_requested": {"type": "string"},
+    "pi_version": {"type": "string"},
+    "toolchain": {
+      "type": "object",
+      "required": ["xsh", "xsht"],
+      "properties": {"xsh": {"type": "string"}, "xsht": {"type": "string"}}
+    },
+    "images": {
+      "type": "object",
+      "required": ["xsh", "xsh_id", "ts_tag", "ts_id", "ts_base"],
+      "additionalProperties": {"type": "string"}
+    },
+    "harness": {
+      "type": "object",
+      "required": ["head", "bench_dirty", "lane_base", "sx_revision"]
+    },
+    "host": {"type": "object"},
+    "extraction_rule": {"type": "string"},
+    "contexts": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "null"},
+          {
+            "type": "object",
+            "required": ["file", "sha256", "bytes"],
+            "properties": {"file": {"type": "string"}, "sha256": {"type": "string"}, "bytes": {"type": "integer"}}
+          }
+        ]
+      }
+    },
+    "tasks": {"type": "object", "additionalProperties": {"type": "string"}},
+    "samples": {"type": "integer", "minimum": 1},
+    "seed": {"type": "integer"},
+    "jobs": {"type": "integer", "minimum": 1, "maximum": 2},
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cell", "task", "condition", "sample", "order"],
+        "properties": {
+          "cell": {"type": "string"},
+          "task": {"type": "string"},
+          "condition": {"enum": ["xsh-baseline", "xsh-candidate", "xsh-revised", "xsh-selected", "ts"]},
+          "sample": {"type": "integer"},
+          "order": {"type": "integer"}
+        }
+      }
+    }
+  }
+}
