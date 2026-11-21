@@ -159,11 +159,13 @@ variable (context : Context Declaration Identity Source) {world : World Declarat
   (environment : Environment) (store : Store world)
   (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
     Result Declaration Identity Source (Value Declaration Identity Source))
+  (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+    Result Declaration Identity Source (Value Declaration Identity Source))
   (locals : Locals Declaration Identity Source)
 
 theorem step_binary (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr)
     (value : Value Declaration Identity Source) (notAnd : operator ≠ .and) (notOr : operator ≠ .or)
-    (produced : step context environment store recurse locals (.binary operator left right) = .value value) :
+    (produced : step context environment store recurse callBlock locals (.binary operator left right) = .value value) :
     ∃ first second, recurse environment locals left = .value first ∧ recurse environment locals right = .value second ∧
       binary context operator first second = .value value := by
   cases operator
@@ -216,7 +218,7 @@ defining context, a typing context its defining environment and the store
 satisfy, overlaid with its parameters. -/
 def FunctionsTyped (context : Context Declaration Identity Source) (world : World Declaration Identity Source)
     (store : Store world) (signatures : Signatures Declaration) : Prop :=
-  ∀ name defining parameters body types result, context.functions name = some (defining, parameters, body) →
+  ∀ name defining parameters body types result, context.functions name = some (defining, parameters, .expression body) →
     signatures name = some (types, result) →
       parameters.length = types.length ∧ parameters.Nodup ∧
         ∃ definingTypes, Consistent world defining store definingTypes [] ∧
@@ -803,7 +805,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [arithmetic] at isArithmetic
       have notOr : operator ≠ .or := by intro same; subst same; simp [arithmetic] at isArithmetic
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_integers context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).1 isArithmetic
     | intComparison isComparison leftTyped rightTyped =>
@@ -811,7 +813,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
       have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_integers context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).2 isComparison
     | floatArithmetic isArithmetic leftTyped rightTyped =>
@@ -819,7 +821,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [floatArithmetic] at isArithmetic
       have notOr : operator ≠ .or := by intro same; subst same; simp [floatArithmetic] at isArithmetic
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_floats context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).1 isArithmetic
     | floatComparison isComparison leftTyped rightTyped =>
@@ -827,7 +829,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
       have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_floats context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).2 isComparison
     | durationSum isSum leftTyped rightTyped =>
@@ -835,13 +837,13 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by rcases isSum with rfl | rfl <;> simp
       have notOr : operator ≠ .or := by rcases isSum with rfl | rfl <;> simp
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_durations context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).1 isSum
     | durationRatio leftTyped rightTyped =>
       rename_i left right
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals .div left right value (by simp) (by simp) produced
+        step_binary context environment store _ _ locals .div left right value (by simp) (by simp) produced
       exact (binary_durations context world .div (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).2.1 rfl
     | durationComparison isComparison leftTyped rightTyped =>
@@ -849,7 +851,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
       have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_durations context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).2.2 isComparison
     | durationScale isScale leftTyped rightTyped =>
@@ -857,19 +859,19 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by rcases isScale with rfl | rfl <;> simp
       have notOr : operator ≠ .or := by rcases isScale with rfl | rfl <;> simp
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact binary_scale context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) isScale combined
     | durationScaleLeft leftTyped rightTyped =>
       rename_i left right
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals .mul left right value (by simp) (by simp) produced
+        step_binary context environment store _ _ locals .mul left right value (by simp) (by simp) produced
       exact binary_scale_left context world (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined
     | stringConcat leftTyped rightTyped =>
       rename_i left right
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals .add left right value (by simp) (by simp) produced
+        step_binary context environment store _ _ locals .add left right value (by simp) (by simp) produced
       exact (binary_strings context world .add (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).1 rfl
     | stringComparison isComparison leftTyped rightTyped =>
@@ -877,7 +879,7 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
       have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact (binary_strings context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined).2 isComparison
     | boolEquality isEquality leftTyped rightTyped =>
@@ -885,13 +887,13 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       have notAnd : operator ≠ .and := by intro same; subst same; simp [equalities] at isEquality
       have notOr : operator ≠ .or := by intro same; subst same; simp [equalities] at isEquality
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals operator left right value notAnd notOr produced
+        step_binary context environment store _ _ locals operator left right value notAnd notOr produced
       exact binary_booleans context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) isEquality combined
     | listConcat leftTyped rightTyped =>
       rename_i left right element
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
-        step_binary context environment store _ locals .add left right value (by simp) (by simp) produced
+        step_binary context environment store _ _ locals .add left right value (by simp) (by simp) produced
       exact binary_lists context world (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) combined
     | conditional conditionsTyped valuesTyped otherwiseTyped =>
@@ -905,22 +907,25 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       cases found : context.functions name with
       | none => simp [found] at produced
       | some entry =>
-        obtain ⟨defining, parameterNames, body⟩ := entry
+        obtain ⟨defining, parameterNames, functionBody⟩ := entry
         simp only [found] at produced
         obtain ⟨evaluated, evaluatedValue, called⟩ := bind_value produced
         by_cases sameLength : parameterNames.length = evaluated.length
-        · simp only [sameLength, ite_true] at called
-          obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
-            functions name defining parameterNames body parameters type found signed
-          obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
-          have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
-            zip_combine (fun source result parameterType evaluatedTo typedAt =>
-                recurse source parameterType result typedAt evaluatedTo)
-              values evaluated parameters valuesLength lengths aligned argumentsTyped
-          have bodyConsistent := overlay_consistent world defining store definingTypes definingConsistent parameterNames
-            parameters evaluated namesLength sameLength members
-          exact preservation context world store signatures functions fuel defining _ _ body
-            type value bodyTyped bodyConsistent called
+        · cases functionBody with
+          | block statements => simp [sameLength] at called
+          | expression body =>
+            simp only [sameLength, ite_true] at called
+            obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
+              functions name defining parameterNames body parameters type found signed
+            obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
+            have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
+              zip_combine (fun source result parameterType evaluatedTo typedAt =>
+                  recurse source parameterType result typedAt evaluatedTo)
+                values evaluated parameters valuesLength lengths aligned argumentsTyped
+            have bodyConsistent := overlay_consistent world defining store definingTypes definingConsistent parameterNames
+              parameters evaluated namesLength sameLength members
+            exact preservation context world store signatures functions fuel defining _ _ body
+              type value bodyTyped bodyConsistent called
         · simp [sameLength] at called
 
 end Theorem
