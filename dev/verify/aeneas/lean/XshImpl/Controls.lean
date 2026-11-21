@@ -107,7 +107,8 @@ theorem int_diagnostics :
       ok (toStr "integer-overflow", toStr "integer overflow") := by
   simp [arith.IntArithmeticError.diagnostic]
 
-def upstreamCheckedRem (x y : Std.I64) : Option Std.I64 := Option.ofResult (IScalar.rem x y)
+def upstreamCheckedRem (x y : Std.I64) : Option Std.I64 :=
+  if y.val != 0 then some ⟨BitVec.srem x.bv y.bv⟩ else none
 
 theorem upstream_remainder_model_differs_at_min :
     upstreamCheckedRem (int (-9223372036854775808)) (int (-1)) = some (int 0) ∧

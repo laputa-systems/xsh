@@ -15,7 +15,7 @@ pipeline and library models. It is not `SPEC_PROVED` (the subject is a model of
 Rust, not the independent semantics), not `RUST_CONFORMANCE` (no named Rust
 test produced it) and not a proof of a shipped binary. The inventory checker
 fails a `checked` record when a production source, copied declaration,
-translation, library patch or toolchain pin differs from the recorded
+translation, library repository or revision, or toolchain pin differs from the recorded
 identity, and when any harness file or formal module that the harness imports
 (`proof_sources`: `Core/Arith.lean`, `Values/DurationOps.lean`,
 `Values/Scalars.lean`, `Foundation.lean` and every file under
@@ -50,7 +50,11 @@ GiB of memory.
 [Aeneas](https://github.com/AeneasVerif/aeneas) translates Charon's LLBC of a
 Rust crate into pure Lean functions over a library of Rust models. Its
 nightly-2026.11.09-5a392f4 release is the last on Lean 4.35.0 and bundles
-Charon 0.1.315 at its pinned commit `454586e9`.
+Charon 0.1.315 at its pinned commit `454586e9`. The extraction uses that
+release's binaries; the proofs use its Lean library from the
+[laputa-systems fork](https://github.com/laputa-systems/aeneas) at
+`6d7c51a5bcaafd876542afa5804f53b4173abaff`, which is `5a392f4b80a4` plus one
+commit that corrects the signed remainder model (below).
 
 This harness adopts four methods: the subject is identified bytes, the
 statement is fixed before the proof, the checker audits every assumption
@@ -134,7 +138,7 @@ identified source. They rely on rustc nightly-2026-09-17 (the extraction
 compiler, not the production nightly-2026-11-09) producing MIR with the
 production meaning, on core's `TryFrom` bodies at that nightly matching the
 production ones, on Charon and Aeneas preserving it, on the audited Aeneas
-library models, and on the Lean 4.35.0 kernel. They say nothing about LLVM,
+library models at the fork commit, and on the Lean 4.35.0 kernel. They say nothing about LLVM,
 the linked binary or the host.
 
 ## Library audit
@@ -148,16 +152,17 @@ The translation leaves no axiom, opaque item or noncomputable section;
 `UScalar.hcast`.
 The proofs use the library's specification lemmas, which the kernel checks, so
 the trust is in each model definition matching Rust; each was read against
-the Rust documentation. One was wrong: upstream `checked_rem` for signed integers is
-`Option.ofResult (IScalar.rem x y)`, and `IScalar.rem` fails only on a zero
-divisor, so the model answers `Some(0)` for `i64::MIN.checked_rem(-1)`.
-Rust returns `None`, which the slice witness test checks with the production
-compiler. The upstream `%` operator model has the same gap at `MIN % -1`,
-where Rust panics; the translation does not use it.
-[`patches/signed-checked-rem.patch`](../dev/verify/aeneas/patches/signed-checked-rem.patch)
-returns `None` in that case and restates the model's own lemmas;
-`check.sh` applies it to the pinned library. XSH-156 tracks the fork and
-upstream draft. Aeneas models
+the Rust documentation. One was wrong at `5a392f4b80a4`: signed `checked_rem`
+is `Option.ofResult (IScalar.rem x y)`, and `IScalar.rem` failed only on a
+zero divisor, so the model answered `Some(0)` for `i64::MIN.checked_rem(-1)`,
+and the `%` model answered 0 for `MIN % -1`. Rust returns `None` and panics
+there; the slice witness test checks `checked_rem` with the production
+compiler. The fork commit `6d7c51a5` makes `IScalar.rem` fail with
+`integerOverflow` at `MIN % -1`, as `IScalar.div` does, gives the signed
+remainder lemmas the division lemmas' `hNoOverflow` premise, and adds guards
+for every signed width. `check.sh` requires the Lake package to be that
+commit with a clean working tree. The upstream draft is pending (XSH-156).
+Aeneas models
 `core::num::error::TryFromIntError` as `Unit`, while Charon translates core's
 constructor with its `IntErrorKind` payload; `extract.sh` erases exactly those
 two payloads to `()`, and the production code discards them in `map_err`.
@@ -239,16 +244,16 @@ python3 formal/scripts/check-inventory.py
 extraction image from `extract.Dockerfile`, extracts the slice and compares the
 translation with the committed file (without `--check` it installs it).
 `check.sh` fetches Mathlib's cache, requires the Aeneas package to be the
-pinned revision whose working diff is exactly the patch (applying the patch
-when absent), builds `XshImpl`, audits the axioms of the 25 recorded theorems
+pinned fork commit with a clean working tree, builds `XshImpl`, audits the axioms of the 25 recorded theorems
 and runs `leanchecker --fresh XshImpl`.
 
 Measured on the shared 32-CPU host in one 4-CPU Lean slot, over three runs
 under varying load: extraction 5 s; warm `check.sh` 184, 228 and 288 s;
 `leanchecker --fresh XshImpl` 172, 204 and 264 s wall, 164, 194 and 250 s
 user, 2.50 to 2.51 GiB peak resident memory each time, over the whole import closure including the Mathlib and Aeneas modules
-it reaches; rebuilding the 60 Aeneas modules the patch
-affects 44 s and 2.0 GiB; both source mutants 23 to 44 s. Mathlib v4.35.0
+it reaches; a cold `check.sh` against the fork, which clones the Lake
+packages and builds the Aeneas library from source, 902 s, with its fresh
+check 232 s wall and 2.55 GiB; both source mutants 23 to 44 s. Mathlib v4.35.0
 (`56a00585`, Apache-2.0) and Aeneas (Apache-2.0) are dev-only dependencies of
 this harness, not of `formal/` or any product.
 
@@ -294,7 +299,7 @@ binary built by another compiler, not the x86_64 and aarch64 products.
 | Translation without core bodies | tool limitation | Two `TryFrom` impls became axioms; including core's bodies replaced them |
 | Including core's `TryFrom` bodies alone | tool limitation | Aeneas could not read the fields of opaque `TryFromIntError`; including the struct fixed it |
 | Including `TryFromIntError` | harness/correspondence defect | Lean rejected the `IntErrorKind` payload against the library's `Unit` model; `extract.sh` erases the two payloads |
-| `checked_rem` refinement with the upstream library | harness/correspondence defect in a library model | Lean proved the refinement false at `(Rem, i64::MIN, -1)` under the upstream model; production Rust returns `None` there, so XSH is correct; the library model was patched |
+| `checked_rem` refinement with the upstream library | harness/correspondence defect in a library model | Lean proved the refinement false at `(Rem, i64::MIN, -1)` under the upstream model; production Rust returns `None` there, so XSH is correct; the library model is fixed in the laputa-systems fork |
 | `ratio_case` closed by `simp` over unfolded bounds | tool limitation | The kernel reported deep recursion; the case now uses the model's own `ratio` lemmas |
 | Concrete witnesses by `decide` on `checked_div` and `checked_rem` | tool limitation | Reduction stops at the irreducible `IScalar.min`; the witnesses derive from the model's specification lemmas |
 

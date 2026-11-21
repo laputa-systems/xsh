@@ -6,10 +6,10 @@ usage() {
 usage: dev/verify/aeneas/check.sh
 
 Fetches the pinned Lean dependencies, requires the Aeneas package to be the
-pinned revision whose only change is the remainder-model patch (applying it
-when absent), builds XshImpl, audits the transitive axioms of every
-accepted theorem and control, and reruns the kernel on the whole import closure
-with leanchecker --fresh. Requires Lean 4.35.0 (elan toolchain v4.35.0) on PATH.
+pinned laputa-systems fork commit with a clean working tree, builds XshImpl,
+audits the transitive axioms of every accepted theorem and control, and reruns
+the kernel on the whole import closure with leanchecker --fresh. Requires Lean
+4.35.0 (elan toolchain v4.35.0) on PATH.
 EOF
 }
 [[ $# -eq 0 ]] || { usage; exit 2; }
@@ -18,7 +18,6 @@ repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 here=$repo/dev/verify/aeneas
 project=$here/lean
 packages=$repo/.work/impl-packages
-patch=$here/patches/signed-checked-rem.patch
 toolbin=$repo/.work/impl/bin
 
 exclude_path=$(git -C "$repo" rev-parse --git-path info/exclude)
@@ -39,12 +38,9 @@ if [[ $(git -C "$aeneas" rev-parse HEAD) != "$pinned" ]]; then
   printf 'the Aeneas package is not at the pinned revision %s\n' "$pinned" >&2
   exit 1
 fi
-if ! git -C "$aeneas" apply --reverse --check "$patch" 2>/dev/null; then
-  git -C "$aeneas" apply "$patch"
-fi
-if [[ -n $(git -C "$aeneas" status --porcelain --untracked-files=all | rg -v '^ M ') ]] \
-  || ! diff -u "$patch" <(git -C "$aeneas" diff) >&2; then
-  printf 'the Aeneas package differs from its pinned revision by more than %s\n' "$patch" >&2
+if [[ -n $(git -C "$aeneas" status --porcelain --untracked-files=all) ]]; then
+  printf 'the Aeneas package has local changes at its pinned revision %s\n' "$pinned" >&2
+  git -C "$aeneas" status --short >&2
   exit 1
 fi
 

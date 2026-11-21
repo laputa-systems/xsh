@@ -142,9 +142,9 @@ out of scope.
 ### XSH-156 · P3 · Aeneas models signed `checked_rem` and `%` as succeeding at `MIN % -1`
 
 - **Area:** Formal
-- **Where:** Aeneas `backends/lean/Aeneas/Std/Scalar/CheckedOps/Rem.lean` and `Ops/Rem.lean` at 5a392f4b80a4 and current main 2e3d4488280b; local fix `dev/verify/aeneas/patches/signed-checked-rem.patch`
-- **Problem:** Upstream `core.num.checked_rem_IScalar` is `Option.ofResult (IScalar.rem x y)`, and `IScalar.rem` fails only on a zero divisor, so the model proves `i64::MIN.checked_rem(-1) = Some(0)`; Rust returns `None` (and `%` panics). The XSH refinement of `checked_int_binary` is false under the upstream model, and the harness carries a local patch. The standing third-party policy calls for a laputa-systems fork, consuming it, and an `Upstream draft:` issue, which this lane could not do because it may not push.
-- **Recommendation:** Fork AeneasVerif/aeneas into laputa-systems, apply the patch on a branch from 5a392f4b80a4 with a regression (`#guard` or theorem for `MIN % -1`), also fix `IScalar.rem` for the `%` panic, switch `dev/verify/aeneas/lean/lakefile.toml` to the fork, and file the upstream draft with the bug-report skill.
+- **Where:** Aeneas `backends/lean/Aeneas/Std/Scalar/Ops/Rem.lean` and `CheckedOps/Rem.lean` at 5a392f4b80a4 and main 2e3d4488280b; fixed in https://github.com/laputa-systems/aeneas branch `fix/signed-checked-rem` at 6d7c51a5bcaafd876542afa5804f53b4173abaff, which `dev/verify/aeneas/lean/lakefile.toml` pins
+- **Problem:** Upstream `IScalar.rem` fails only on a zero divisor, so the models of signed `%`, `try_rem` and `checked_rem` answer 0 for `MIN % -1`, where Rust panics and `checked_rem` returns `None`; the XSH refinement of `checked_int_binary` is false under the upstream model. The fix now lives in the laputa-systems fork and the harness consumes it; the `Upstream draft:` issue in the fork is pending.
+- **Recommendation:** File the `Upstream draft:` issue in laputa-systems/aeneas with the draft text from the fork lane, and let the owner decide whether to offer the fork commit upstream. Close this ticket when the draft is filed; repin to upstream if it merges there.
 - **Fix with:** bug-report
 - **Effort:** S
 

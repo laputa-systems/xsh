@@ -2406,7 +2406,7 @@ IMPLEMENTATION_TOOLCHAIN_KEYS = {
     "aeneas_library",
     "mathlib",
     "lean",
-    "library_patch",
+    "aeneas_library_repository",
 }
 IMPLEMENTATION_PROOF_PARTS = {"project", "theorem", "specification", "witnesses", "negative_controls"}
 IMPLEMENTATION_HARNESS = "dev/verify/aeneas"
@@ -2495,7 +2495,7 @@ def harness_declarations(root: Path, project: str, keyword: str) -> set[str]:
 def validate_implementation_toolchain(root: Path, identifier: str, toolchain: Any) -> None:
     if not isinstance(toolchain, dict) or set(toolchain) != IMPLEMENTATION_TOOLCHAIN_KEYS:
         raise InventoryError(f"implementation proof {identifier} toolchain has an invalid shape")
-    for key in IMPLEMENTATION_TOOLCHAIN_KEYS - {"library_patch"}:
+    for key in IMPLEMENTATION_TOOLCHAIN_KEYS:
         require_text(toolchain[key], f"implementation proof {identifier} toolchain {key}")
     harness = root / IMPLEMENTATION_HARNESS
     pins = {
@@ -2532,11 +2532,21 @@ def validate_implementation_toolchain(root: Path, identifier: str, toolchain: An
                 f"stale implementation proof {identifier}: the Lean manifest pins {package} "
                 f"at {revisions.get(package)!r}, not {toolchain[key]!r}"
             )
-    patch = toolchain["library_patch"]
-    if not isinstance(patch, dict) or set(patch) != {"path", "sha256"}:
-        raise InventoryError(f"implementation proof {identifier} library patch has an invalid shape")
-    if file_sha256(root, patch["path"], "library patch") != patch["sha256"]:
-        raise InventoryError(f"stale implementation proof {identifier}: library patch {patch['path']} changed")
+    repository = toolchain["aeneas_library_repository"]
+    aeneas = next(
+        (package for package in manifest.get("packages", []) if isinstance(package, dict) and package.get("name") == "aeneas"),
+        {},
+    )
+    lakefile = (harness / "lean/lakefile.toml").read_text(encoding="utf-8")
+    if (
+        aeneas.get("url") != repository
+        or aeneas.get("inputRev") != toolchain["aeneas_library"]
+        or f'git = "{repository}"\nrev = "{toolchain["aeneas_library"]}"\n' not in lakefile
+    ):
+        raise InventoryError(
+            f"stale implementation proof {identifier}: the Lake configuration does not require "
+            f"aeneas from {repository} at {toolchain['aeneas_library']}"
+        )
 
 
 def validate_implementation_proofs(
@@ -2628,11 +2638,8 @@ def validate_implementation_proofs(
             raise InventoryError(f"implementation proof {identifier} proof sources have an invalid shape")
         if entry["status"] == "stale":
             continue
-        patch = entry["toolchain"].get("library_patch") if isinstance(entry["toolchain"], dict) else None
         separately_hashed = {translation["path"]}
         separately_hashed.update(copy.get("path") for copy in copies if isinstance(copy, dict))
-        if isinstance(patch, dict):
-            separately_hashed.add(patch.get("path"))
         recorded = [item["path"] for item in proof_sources]
         expected_paths = expected_proof_sources(root, module_sources, separately_hashed)
         if len(set(recorded)) != len(recorded) or set(recorded) != expected_paths:
