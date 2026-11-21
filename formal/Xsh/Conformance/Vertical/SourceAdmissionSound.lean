@@ -570,6 +570,35 @@ theorem literal_boundary_from_return {vars : List String}
     cases value with
     | binary first valid right => cases first <;> simp [beginsLiteralLet]
 
+theorem ordinary_body_not_record {vars : List String}
+    {tokens afterLets afterComputed afterPropagation afterAssignment expressionTokens : List Token}
+    {lets : List (String × Nat)} {bindings : List (String × SourceValue)}
+    {propagation : Option SourcePropagation} {assignment : Option (String × SourceValue)}
+    (literalSyntax : LetsSyntax tokens lets vars afterLets)
+    (computedSyntax : ComputedSyntax afterLets bindings afterComputed)
+    (propagationSyntax : PropagationSyntax afterComputed propagation afterPropagation)
+    (assignmentSyntax : AssignmentSyntax vars afterPropagation assignment afterAssignment)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens) :
+    ∀ target more, tokens ≠ .word "let" :: .word target :: .equals :: .leftBrace :: more := by
+  intro target more same
+  cases literalSyntax with
+  | empty =>
+    cases computedSyntax with
+    | empty =>
+      cases propagationSyntax with
+      | empty =>
+        cases assignmentSyntax with
+        | empty => rw [returnLine] at same; simp at same
+        | assign member value => cases same
+      | call validTarget validCallee args => cases same
+    | cons valid value tail =>
+      simp only [List.cons.injEq, Token.word.injEq, true_and] at same
+      rcases same with ⟨_, rfl⟩
+      cases value with
+      | binary left valid right => cases left
+  | immutable tail => cases same
+  | mutable tail => simp at same
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
