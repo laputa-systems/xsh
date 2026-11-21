@@ -162,6 +162,135 @@ theorem domain_iff_classified_accepted (bytes : List UInt8) (moduleInputs : List
   · rintro ⟨functions, scopes, same⟩
     exact ((classify_accepted_iff _ _ _ _).mp same).1
 
+
+theorem lexeme_no_quote {rest leading : List Nat} {token : Token}
+    (lexeme : Lexeme rest leading token) : ∀ code, code ∈ leading → code ≠ 34 := by
+  cases lexeme with
+  | punctuation punctuation maximal =>
+    simp [Punctuation] at punctuation
+    rcases punctuation with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+    all_goals
+      rcases h with ⟨rfl, rfl⟩
+      intro code member
+      simp at member
+      omega
+  | decimal nonempty digits boundary =>
+    intro code member
+    have digit := List.all_eq_true.mp digits code member
+    simp only [isDigitCode, Bool.and_eq_true, decide_eq_true_eq] at digit
+    omega
+  | word first letters boundary =>
+    intro code member
+    have letter := List.all_eq_true.mp letters code member
+    simp only [isWordPartCode, isWordStartCode, isDigitCode, Bool.or_eq_true, Bool.and_eq_true,
+      decide_eq_true_eq, beq_iff_eq] at letter
+    omega
+
+theorem lexed_no_quote {codes : List Nat} {tokens : List Token}
+    (lexical : Lexed codes tokens) : ∀ code, code ∈ codes → code ≠ 34 := by
+  induction lexical with
+  | empty => simp
+  | space previous ih =>
+    intro code member
+    simp only [List.mem_cons] at member
+    rcases member with rfl | member
+    · decide
+    · exact ih code member
+  | token lexeme previous ih =>
+    intro code member
+    simp only [List.mem_append] at member
+    rcases member with member | member
+    · exact lexeme_no_quote lexeme code member
+    · exact ih code member
+
+theorem domain_no_quote {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    (domain : Domain bytes moduleInputs) : ∀ byte, byte ∈ bytes → byte ≠ 34 := by
+  obtain ⟨functions, scopes, domain⟩ := domain
+  obtain ⟨_, _, _, _, _, _, tokens, lexical, _, _, _, _, _⟩ := domain
+  intro byte member same
+  have sameNat : byte.toNat = 34 := by rw [same]; rfl
+  exact lexed_no_quote lexical byte.toNat (List.mem_map.mpr ⟨byte, member, rfl⟩) sameNat
+
+
+/-- A string failure needs a quote byte, so no domain input can produce one. -/
+theorem scan_strings_clean_of_no_quote {bytes : List UInt8} {offset : Nat}
+    (noQuote : ∀ byte, byte ∈ bytes → byte ≠ 34) : scanStrings offset bytes = .clean := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n →
+    ∀ offset, (∀ byte, byte ∈ bytes → byte ≠ 34) → scanStrings offset bytes = .clean
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len offset noQuote
+      cases bytes with
+      | nil => exact scan_strings_nil offset
+      | cons byte rest =>
+        have notQuote : byte ≠ 34 := noQuote byte (by simp)
+        rw [scan_strings_text byte rest offset notQuote]
+        have shorter : rest.length < n := by simp only [List.length_cons] at len; omega
+        exact ih _ shorter rest rfl (offset + 1) (by
+          intro value member
+          exact noQuote value (by simp [member]))
+  exact key bytes.length bytes rfl offset noQuote
+
+theorem domain_scan_clean {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    (domain : Domain bytes moduleInputs) : scanStrings 0 bytes = .clean :=
+  scan_strings_clean_of_no_quote (domain_no_quote domain)
+
+/-! ## The string range is exactly the envelope's failing scans -/
+
+theorem classify_string_iff (bytes : List UInt8) (moduleInputs : List (List UInt8))
+    (failure : ParseFailure)
+    (notUtf8 : ∀ span, failure ≠ .invalidUtf8 span) :
+    classify bytes moduleInputs = .rejected failure ↔
+      InEnvelope bytes = true ∧ scanStrings 0 bytes = .failed failure := by
+  constructor
+  · intro same
+    have cleared : firstInvalidUtf8 bytes = none := by
+      cases found : firstInvalidUtf8 bytes with
+      | none => rfl
+      | some offset =>
+        exact absurd (classify_invalid_branch bytes moduleInputs offset found)
+          (fun invalidBranch => notUtf8 ⟨offset, bytes.length⟩ (by
+            rw [invalidBranch] at same
+            cases same
+            rfl))
+    have notDomain : ¬ Domain bytes moduleInputs := by
+      intro domain
+      obtain ⟨functions, scopes, declared⟩ := domain
+      rw [classify_accepted_branch _ _ _ _ (domain_first_invalid_none ⟨_, _, declared⟩)
+        (reconstruct_complete declared)] at same
+      cases same
+    have missing : reconstruct bytes moduleInputs = none :=
+      (reconstruct_none_iff_outside_domain bytes moduleInputs).mpr notDomain
+    cases envelope : InEnvelope bytes with
+    | true =>
+      cases scanned : scanStrings 0 bytes with
+      | failed scannedFailure =>
+        rw [classify_string_branch _ _ _ cleared missing envelope scanned] at same
+        cases same
+        exact ⟨rfl, rfl⟩
+      | clean =>
+        rw [classify_outside_clean _ _ cleared missing envelope scanned] at same
+        cases same
+    | false =>
+      rw [classify_outside_no_envelope _ _ cleared missing envelope] at same
+      cases same
+  · rintro ⟨envelope, scanned⟩
+    have cleared : firstInvalidUtf8 bytes = none :=
+      (first_invalid_none_iff_valid bytes).mpr (envelope_valid envelope)
+    have missing : reconstruct bytes moduleInputs = none := by
+      cases result : reconstruct bytes moduleInputs with
+      | none => rfl
+      | some pair =>
+        exfalso
+        rcases pair with ⟨functions, scopes⟩
+        have domain : Domain bytes moduleInputs :=
+          (reconstruct_some_iff_domain bytes moduleInputs).mp (by rw [result]; rfl)
+        rw [domain_scan_clean domain] at scanned
+        cases scanned
+    exact classify_string_branch _ _ _ cleared missing envelope scanned
+
 /-! ## The UTF-8 range is exactly the non-well-formed inputs -/
 
 theorem invalid_utf8_iff (bytes : List UInt8) :
@@ -256,6 +385,67 @@ theorem classify_invalid_utf8_iff (bytes : List UInt8) (moduleInputs : List (Lis
       rw [stop]
     rw [start]
     exact classify_invalid_branch _ _ _ found
+
+
+/-! ## The outside outcome -/
+
+/-- Outside holds exactly when the input is not in `D`, is well-formed UTF-8, and either is
+not in the envelope or scans clean. -/
+theorem classify_outside_iff (bytes : List UInt8) (moduleInputs : List (List UInt8)) :
+    classify bytes moduleInputs = .outside ↔
+      ¬ Domain bytes moduleInputs ∧ (∀ span, ¬ InvalidUtf8At bytes span) ∧
+        (InEnvelope bytes = false ∨ scanStrings 0 bytes = .clean) := by
+  constructor
+  · intro same
+    have cleared : firstInvalidUtf8 bytes = none := by
+      cases found : firstInvalidUtf8 bytes with
+      | none => rfl
+      | some offset =>
+        rw [classify_invalid_branch _ _ _ found] at same
+        cases same
+    have notDomain : ¬ Domain bytes moduleInputs := by
+      intro domain
+      obtain ⟨functions, scopes, declared⟩ := domain
+      rw [classify_accepted_branch _ _ _ _
+        (domain_first_invalid_none ⟨_, _, declared⟩) (reconstruct_complete declared)] at same
+      cases same
+    refine ⟨notDomain, ?_, ?_⟩
+    · rintro span ⟨found, _⟩
+      rw [cleared] at found
+      cases found
+    · have missing : reconstruct bytes moduleInputs = none :=
+        (reconstruct_none_iff_outside_domain bytes moduleInputs).mpr notDomain
+      by_cases envelope : InEnvelope bytes = true
+      · have scanned : scanStrings 0 bytes = .clean := by
+          cases attempt : scanStrings 0 bytes with
+          | failed failure =>
+            rw [classify_string_branch _ _ _ cleared missing envelope attempt] at same
+            cases same
+          | clean => rfl
+        exact Or.inr scanned
+      · refine Or.inl ?_
+        cases actual : InEnvelope bytes with
+        | true => exact absurd actual envelope
+        | false => rfl
+  · rintro ⟨notDomain, noInvalid, envelopeOrClean⟩
+    have cleared : firstInvalidUtf8 bytes = none := by
+      cases found : firstInvalidUtf8 bytes with
+      | none => rfl
+      | some offset => exact absurd ⟨found, rfl⟩ (noInvalid ⟨offset, bytes.length⟩)
+    have missing : reconstruct bytes moduleInputs = none :=
+      (reconstruct_none_iff_outside_domain bytes moduleInputs).mpr notDomain
+    by_cases envelope : InEnvelope bytes = true
+    · cases envelopeOrClean with
+      | inl absent =>
+        have contradict : (false : Bool) = true := by
+          rw [← absent]
+          exact envelope
+        exact absurd contradict (by simp)
+      | inr clean => exact classify_outside_clean _ _ cleared missing envelope clean
+    · exact classify_outside_no_envelope _ _ cleared missing (by
+        cases actual : InEnvelope bytes with
+        | true => exact absurd actual envelope
+        | false => rfl)
 
 end SourceAdmission
 
