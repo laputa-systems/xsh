@@ -835,7 +835,8 @@ class InventoryCheckerTests(unittest.TestCase):
             obligation for obligation in coverage["universal_theorems"]
             if obligation["id"] == "VAL-WIDEN"
         )
-        self.assertEqual("planned", widen_obligation["status"])
+        self.assertEqual("closed", widen_obligation["status"])
+        self.assertNotEqual("Xsh.Validation.BoundedRefinements", widen_obligation["module"])
         nonempty_filtering_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.NonEmptyFiltering"
