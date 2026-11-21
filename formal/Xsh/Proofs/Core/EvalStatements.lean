@@ -13,6 +13,8 @@ open Xsh.Semantics.CoreEval
 open Xsh.Typing.Core.Expressions
 open Xsh.Proofs.Core.EvalTyping
 open Xsh.Proofs.Core.Statements
+open Xsh.Values
+open Xsh.Values.FloatOps
 
 variable {Declaration Identity Source : Type} [DecidableEq Declaration]
 
@@ -86,78 +88,6 @@ end Instance
 
 section Root
 
-omit [DecidableEq Declaration] in
-/-- BASE-STEP's evaluation of the covered expressions, over every evaluation
-context, Core world, environment and store: a finished evaluation is the same
-at every fuel; a value is a member of the type the evaluator-independent
-typing judgment gives, in a consistent typing context with typed let-free
-functions; every failure is a runtime failure; a binary operator other than
-`and`/`or` evaluates left, then right, then applies its meaning; and those
-meanings are BASE-NUM's integer, float, comparison, IEEE-equality and negation
-meanings, the `DurationOps` results, and list `concatenate`. -/
-theorem covered_expression_evaluation (context : Context Declaration Identity Source)
-    (world : World Declaration Identity Source) (environment : Environment) (store : Store world) :
-    (∀ locals expression first second,
-      evaluate context environment store first locals expression ≠ .outOfFuel →
-      evaluate context environment store second locals expression ≠ .outOfFuel →
-        evaluate context environment store first locals expression =
-          evaluate context environment store second locals expression) ∧
-    (∀ signatures global, Consistent world environment store global [] → FunctionsTyped context signatures global →
-      ∀ fuel types locals expression type value, Typed context.spelling signatures types expression type →
-        Consistent world environment store types locals →
-        evaluate context environment store fuel locals expression = .value value →
-          Membership.value world.membership type value) ∧
-    (∀ fuel locals expression failure, evaluate context environment store fuel locals expression = .failure failure →
-      ∃ error, failure = .runtime error) ∧
-    (∀ fuel locals operator left right, operator ≠ .and → operator ≠ .or →
-      evaluate context environment store (fuel + 1) locals (.binary operator left right) =
-        (evaluate context environment store fuel locals left).bind fun first =>
-          (evaluate context environment store fuel locals right).bind fun second =>
-            binary context operator first second) ∧
-    (∀ operator op, integerOperator operator = some op → ∀ left right,
-      ∃ result, Xsh.Proofs.Base.Num.ArithmeticMeaning op left right result ∧
-        binary context operator (integer left) (integer right) = integerResult context.errors result) ∧
-    (∀ operator op, floatOperator operator = some op → ∀ left right,
-      ∃ result, Xsh.Values.FloatOps.FloatMeaning op left right result ∧
-        binary context operator (float left) (float right) = .value (float result)) ∧
-    (∀ operator comparison, ordering operator = some comparison → ∀ left right,
-      ∃ result, Xsh.Values.FloatOps.ComparisonMeaning comparison left right result ∧
-        binary context operator (float left) (float right) = .value (boolean result)) ∧
-    (∀ left right, binary context .eq (float left) (float right) =
-        .value (boolean (Xsh.Values.floatValueEq left right)) ∧
-      (Xsh.Values.floatValueEq left right = true ↔ Xsh.Values.ieeeFloatEq left right)) ∧
-    (∀ value bits,
-      (∃ result, Xsh.Proofs.Base.Num.IntegerExact (-value.val) result ∧
-        unary context .neg (integer value) = integerResult context.errors result) ∧
-      (∃ result, Xsh.Values.FloatOps.NegationMeaning bits result ∧
-        unary context .neg (float bits) = .value (float result))) ∧
-    (∀ left right factor,
-      binary context .add (duration left) (duration right) =
-        durationResult context.errors (Xsh.Values.DurationOps.add left right) ∧
-      binary context .sub (duration left) (duration right) =
-        durationResult context.errors (Xsh.Values.DurationOps.subtract left right) ∧
-      binary context .div (duration left) (duration right) =
-        durationResult context.errors (Xsh.Values.DurationOps.ratio left right) ∧
-      binary context .mul (duration left) (integer factor) =
-        durationResult context.errors (Xsh.Values.DurationOps.multiply left factor) ∧
-      binary context .div (duration left) (integer factor) =
-        durationResult context.errors (Xsh.Values.DurationOps.divideByInt left factor)) ∧
-    (∀ left right result, Xsh.Validation.Core.Preserve.concatenate left right = some result →
-      binary context .add left right = .value result) :=
-  ⟨fun locals expression first second =>
-      Xsh.Proofs.Core.Eval.evaluate_deterministic context environment store locals expression first second,
-    fun signatures global consistent functions =>
-      preservation context world environment store signatures global consistent functions,
-    Xsh.Proofs.Core.Eval.evaluate_runtimeOnly context environment store,
-    Xsh.Proofs.Core.Eval.binary_evaluation context environment store,
-    Xsh.Proofs.Core.Eval.integer_operator_meaning context,
-    Xsh.Proofs.Core.Eval.float_operator_meaning context,
-    Xsh.Proofs.Core.Eval.float_ordering_meaning context,
-    Xsh.Proofs.Core.Eval.float_equality_meaning context,
-    Xsh.Proofs.Core.Eval.negation_meaning context,
-    Xsh.Proofs.Core.Eval.duration_operator_results context,
-    Xsh.Proofs.Core.Eval.list_addition_is_concatenation context⟩
-
 /-- BASE-ENV's statement-level store-write meaning with `Oracles.evaluate`
 and `Operate` answered by the covered-expression evaluator: the statement
 theorem holds for that instance; where the evaluator produces a value or a
@@ -214,5 +144,171 @@ theorem evaluated_store_writes (world : World Declaration Identity Source) (deci
     Xsh.Proofs.Core.Eval.operate_adds_lists context fallbackOperate⟩
 
 end Root
+
+namespace Witness
+
+open Xsh.Proofs.Core.Env.Witness
+
+def aName : Xsh.Syntax.RawName := ⟨⟨10, by decide⟩⟩
+def bName : Xsh.Syntax.RawName := ⟨⟨11, by decide⟩⟩
+def mName : Xsh.Syntax.RawName := ⟨⟨12, by decide⟩⟩
+
+def message (text : String) : WitnessValue := .scalar (.string text)
+
+def integerMessage : IntegerOps.IntegerFault → WitnessValue
+  | .overflow => message "integer-overflow"
+  | .divisionByZero => message "division-by-zero"
+
+def integerLexeme : String → Option IntValue
+  | "0" => validateInt? 0
+  | "1" => validateInt? 1
+  | "9223372036854775807" => validateInt? 9223372036854775807
+  | _ => none
+
+def context : Context Unit Unit Unit where
+  literals := {
+    integer := integerLexeme
+    float := fun _ => none
+    duration := fun _ => none
+  }
+  errors := {
+    integer := integerMessage
+    duration := fun _ => message "duration-overflow"
+    indexOutOfRange := message "index-out-of-range"
+    missingField := message "missing-field"
+    mapMissing := message "missing-key"
+  }
+  policy := quietNaNPolicy
+  spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"
+  functions := fun _ => none
+
+def environment : Environment := ⟨emptyLexicalEnvironment, []⟩
+
+def store : Store witnessWorld := fun _ => none
+
+def run (locals : Locals Unit Unit Unit) (expression : Xsh.Syntax.Expr) : Result Unit Unit Unit WitnessValue :=
+  evaluate context environment store 8 locals expression
+
+def int (lexeme : String) : Xsh.Syntax.Expr := .literal (.integer lexeme)
+
+def divisionByZero : Xsh.Syntax.Expr := .binary .div (int "1") (int "0")
+def outOfRange : Xsh.Syntax.Expr := .index (.list []) (int "0") false
+def overflow : Xsh.Syntax.Expr := .binary .add (int "9223372036854775807") (int "1")
+def missingField : Xsh.Syntax.Expr := .field (.record [.named aName (int "1")]) bName
+def missingKey : Xsh.Syntax.Expr := .index (.ident mName) (.literal (.string "k")) false
+def mapLocals : Locals Unit Unit Unit := [(mName, .map [])]
+
+def ordered : Xsh.Syntax.Expr := .binary .add divisionByZero outOfRange
+def shortCircuit : Xsh.Syntax.Expr := .binary .and (.literal (.bool false)) outOfRange
+def minimumRemainder : Xsh.Syntax.Expr := .binary .rem (.ident mName) (.unary .neg (int "1"))
+def minimumLocals : Locals Unit Unit Unit := [(mName, integer intMin)]
+
+/-- An evaluator that runs a non-logical binary operator's right operand
+first. -/
+def rightFirst (locals : Locals Unit Unit Unit) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
+  | .binary operator left right =>
+    (evaluate context environment store 7 locals right).bind fun second =>
+      (evaluate context environment store 7 locals left).bind fun first => binary context operator first second
+  | expression => run locals expression
+
+/-- An evaluator whose `and` evaluates both operands. -/
+def strictAnd (locals : Locals Unit Unit Unit) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
+  | .binary .and left right =>
+    (evaluate context environment store 7 locals left).bind fun first =>
+      (evaluate context environment store 7 locals right).bind fun second =>
+        match first.eraseNominal, second.eraseNominal with
+        | .scalar (.boolean a), .scalar (.boolean b) => .value (boolean (a && b))
+        | _, _ => .stuck
+  | expression => run locals expression
+
+/-- An evaluator whose `%` uses the remainder BASE-NUM rejects, without the
+minimum-by-minus-one overflow. -/
+def unguardedRemainder (locals : Locals Unit Unit Unit) : Xsh.Syntax.Expr → Result Unit Unit Unit WitnessValue
+  | .binary .rem left right =>
+    (evaluate context environment store 7 locals left).bind fun first =>
+      (evaluate context environment store 7 locals right).bind fun second =>
+        match first.eraseNominal, second.eraseNominal with
+        | .scalar (.integer a), .scalar (.integer b) =>
+          integerResult context.errors (Xsh.Proofs.Base.Num.remainderWithoutDivisionOverflow a b)
+        | _, _ => .stuck
+  | expression => run locals expression
+
+def runtime (text : String) : Result Unit Unit Unit WitnessValue := .failure (.runtime (message text))
+
+def runtimeText : Result Unit Unit Unit WitnessValue → Option String
+  | .failure (.runtime (.scalar (.string text))) => some text
+  | _ => none
+
+def booleanResult : Result Unit Unit Unit WitnessValue → Option Bool
+  | .value (.scalar (.boolean value)) => some value
+  | _ => none
+
+def integerResultValue : Result Unit Unit Unit WitnessValue → Option Int
+  | .value (.scalar (.integer value)) => some value.val
+  | _ => none
+
+theorem of_runtimeText {result : Result Unit Unit Unit WitnessValue} {text : String}
+    (found : runtimeText result = some text) : result = runtime text := by
+  unfold runtimeText at found
+  split at found
+  · simp only [Option.some.injEq] at found
+    subst found
+    rfl
+  · simp at found
+
+theorem of_booleanResult {result : Result Unit Unit Unit WitnessValue} {value : Bool}
+    (found : booleanResult result = some value) : result = .value (boolean value) := by
+  unfold booleanResult at found
+  split at found
+  · simp only [Option.some.injEq] at found
+    subst found
+    rfl
+  · simp at found
+
+theorem of_integerResultValue {result : Result Unit Unit Unit WitnessValue} {value : IntValue}
+    (found : integerResultValue result = some value.val) : result = .value (integer value) := by
+  unfold integerResultValue at found
+  split at found
+  · rename_i inner
+    simp only [Option.some.injEq] at found
+    have same : inner = value := Subtype.ext found
+    subst same
+    rfl
+  · simp at found
+
+theorem failure_classes :
+    run [] divisionByZero = runtime "division-by-zero" ∧
+    run [] overflow = runtime "integer-overflow" ∧
+    run [] outOfRange = runtime "index-out-of-range" ∧
+    run [] missingField = runtime "missing-field" ∧
+    run mapLocals missingKey = runtime "missing-key" := by
+  refine ⟨of_runtimeText (by decide +kernel), of_runtimeText (by decide +kernel), of_runtimeText (by decide +kernel),
+    of_runtimeText (by decide +kernel), of_runtimeText (by decide +kernel)⟩
+
+/-- The covered failures are runtime failures, which `try` propagates rather
+than catches. -/
+theorem try_propagates (text : String) :
+    tryBlock [] (StoreStep.failed (.runtime (message text)) store) = .propagated (.runtime (message text)) store := rfl
+
+theorem evaluation_order :
+    run [] ordered = runtime "division-by-zero" ∧ rightFirst [] ordered = runtime "index-out-of-range" :=
+  ⟨of_runtimeText (by decide +kernel), of_runtimeText (by decide +kernel)⟩
+
+theorem short_circuit :
+    run [] shortCircuit = .value (boolean false) ∧ strictAnd [] shortCircuit = runtime "index-out-of-range" :=
+  ⟨of_booleanResult (by decide +kernel), of_runtimeText (by decide +kernel)⟩
+
+/-- `%` at the integer minimum by minus one overflows as BASE-NUM's
+`ArithmeticMeaning` requires; the unguarded remainder returns zero, and
+BASE-NUM rejects it. -/
+theorem minimum_remainder :
+    run minimumLocals minimumRemainder = runtime "integer-overflow" ∧
+    unguardedRemainder minimumLocals minimumRemainder = .value (integer ⟨0, by decide⟩) ∧
+    ¬ ∀ left right, Xsh.Proofs.Base.Num.ArithmeticMeaning .remainder left right
+      (Xsh.Proofs.Base.Num.remainderWithoutDivisionOverflow left right) :=
+  ⟨of_runtimeText (by decide +kernel), of_integerResultValue (by decide +kernel),
+    Xsh.Proofs.Base.Num.remainder_without_division_overflow_is_rejected⟩
+
+end Witness
 
 end Xsh.Proofs.Core.EvalStatements

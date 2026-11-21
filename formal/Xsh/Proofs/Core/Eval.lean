@@ -478,4 +478,70 @@ theorem right_failure_second (fuel : Nat) (locals : Locals Declaration Identity 
 
 end Order
 
+section Root
+
+/-- BASE-STEP's evaluation of the covered expressions, over every evaluation
+context, Core world, environment and store: a finished evaluation is the same
+at every fuel; every failure is a runtime failure; a binary operator other than
+`and`/`or` evaluates left, then right, then applies its meaning; and those
+meanings are BASE-NUM's integer, float, comparison, IEEE-equality and negation
+meanings, the `DurationOps` results, and list `concatenate`. -/
+theorem covered_expression_evaluation (context : Context Declaration Identity Source)
+    {world : World Declaration Identity Source} (environment : Environment) (store : Store world) :
+    (∀ locals expression first second,
+      evaluate context environment store first locals expression ≠ .outOfFuel →
+      evaluate context environment store second locals expression ≠ .outOfFuel →
+        evaluate context environment store first locals expression =
+          evaluate context environment store second locals expression) ∧
+    (∀ fuel locals expression failure, evaluate context environment store fuel locals expression = .failure failure →
+      ∃ error, failure = .runtime error) ∧
+    (∀ fuel locals operator left right, operator ≠ .and → operator ≠ .or →
+      evaluate context environment store (fuel + 1) locals (.binary operator left right) =
+        (evaluate context environment store fuel locals left).bind fun first =>
+          (evaluate context environment store fuel locals right).bind fun second =>
+            binary context operator first second) ∧
+    (∀ operator op, integerOperator operator = some op → ∀ left right,
+      ∃ result, Xsh.Proofs.Base.Num.ArithmeticMeaning op left right result ∧
+        binary context operator (integer left) (integer right) = integerResult context.errors result) ∧
+    (∀ operator op, floatOperator operator = some op → ∀ left right,
+      ∃ result, Xsh.Values.FloatOps.FloatMeaning op left right result ∧
+        binary context operator (float left) (float right) = .value (float result)) ∧
+    (∀ operator comparison, ordering operator = some comparison → ∀ left right,
+      ∃ result, Xsh.Values.FloatOps.ComparisonMeaning comparison left right result ∧
+        binary context operator (float left) (float right) = .value (boolean result)) ∧
+    (∀ left right, binary context .eq (float left) (float right) =
+        .value (boolean (Xsh.Values.floatValueEq left right)) ∧
+      (Xsh.Values.floatValueEq left right = true ↔ Xsh.Values.ieeeFloatEq left right)) ∧
+    (∀ value bits,
+      (∃ result, Xsh.Proofs.Base.Num.IntegerExact (-value.val) result ∧
+        unary context .neg (integer value) = integerResult context.errors result) ∧
+      (∃ result, Xsh.Values.FloatOps.NegationMeaning bits result ∧
+        unary context .neg (float bits) = .value (float result))) ∧
+    (∀ left right factor,
+      binary context .add (duration left) (duration right) =
+        durationResult context.errors (Xsh.Values.DurationOps.add left right) ∧
+      binary context .sub (duration left) (duration right) =
+        durationResult context.errors (Xsh.Values.DurationOps.subtract left right) ∧
+      binary context .div (duration left) (duration right) =
+        durationResult context.errors (Xsh.Values.DurationOps.ratio left right) ∧
+      binary context .mul (duration left) (integer factor) =
+        durationResult context.errors (Xsh.Values.DurationOps.multiply left factor) ∧
+      binary context .div (duration left) (integer factor) =
+        durationResult context.errors (Xsh.Values.DurationOps.divideByInt left factor)) ∧
+    (∀ left right result, Xsh.Validation.Core.Preserve.concatenate left right = some result →
+      binary context .add left right = .value result) :=
+  ⟨fun locals expression first second =>
+      evaluate_deterministic context environment store locals expression first second,
+    evaluate_runtimeOnly context environment store,
+    binary_evaluation context environment store,
+    integer_operator_meaning context,
+    float_operator_meaning context,
+    float_ordering_meaning context,
+    float_equality_meaning context,
+    negation_meaning context,
+    duration_operator_results context,
+    list_addition_is_concatenation context⟩
+
+end Root
+
 end Xsh.Proofs.Core.Eval
