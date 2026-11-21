@@ -344,6 +344,500 @@ theorem valid_iff_valid_b (bytes : List UInt8) : utf8ValidB bytes = true ↔ Val
                   (not_valid_stray ascii lead2 lead3 lead4)
   exact key bytes.length bytes rfl
 
-end SourceAdmission
+/-! ## Where no well-formed prefix extends
 
-end Xsh.Conformance.Vertical
+`firstInvalidUtf8` is the smallest offset whose prefix is not the prefix of a
+well-formed list, or `none` when the whole list is well formed. It is the
+declarative characterization the SPEC's first-invalid-byte span needs; the
+detector is `firstInvalidUtf8.go`, and `firstInvalidUtf8_spec` proves the two
+agree for every byte list. -/
+
+/-- The first offset at which no well-formed prefix extends, or `none` when the
+whole list is well formed. A malformed or incomplete head sequence stops the
+walk at its own offset, so the reported offset is exactly where decoding stops. -/
+def firstInvalidUtf8 : List UInt8 → Option Nat
+  | [] => none
+  | byte :: tail =>
+      if IsAsciiByte byte then
+        (firstInvalidUtf8 tail).map (· + 1)
+      else if IsLead2Byte byte then
+        match tail with
+        | cont :: more =>
+            if IsContByte cont then (firstInvalidUtf8 more).map (· + 2) else some 0
+        | [] => some 0
+      else if IsLead3Byte byte then
+        match tail with
+        | first :: second :: more =>
+            if ThreeFirstOk byte first then
+              if IsContByte second then (firstInvalidUtf8 more).map (· + 3) else some 0
+            else some 0
+        | _ => some 0
+      else if IsLead4Byte byte then
+        match tail with
+        | first :: second :: third :: more =>
+            if FourFirstOk byte first then
+              if IsContByte second then
+                if IsContByte third then (firstInvalidUtf8 more).map (· + 4) else some 0
+              else some 0
+            else some 0
+        | _ => some 0
+      else some 0
+
+/-- One step of `firstInvalidUtf8` at a cons. -/
+theorem firstInvalidUtf8_cons (byte : UInt8) (tail : List UInt8) :
+    firstInvalidUtf8 (byte :: tail) =
+      (if IsAsciiByte byte then (firstInvalidUtf8 tail).map (· + 1)
+        else if IsLead2Byte byte then
+          match tail with
+          | cont :: more =>
+              if IsContByte cont then (firstInvalidUtf8 more).map (· + 2) else some 0
+          | [] => some 0
+        else if IsLead3Byte byte then
+          match tail with
+          | first :: second :: more =>
+              if ThreeFirstOk byte first then
+                if IsContByte second then (firstInvalidUtf8 more).map (· + 3) else some 0
+              else some 0
+          | _ => some 0
+        else if IsLead4Byte byte then
+          match tail with
+          | first :: second :: third :: more =>
+              if FourFirstOk byte first then
+                if IsContByte second then
+                  if IsContByte third then (firstInvalidUtf8 more).map (· + 4) else some 0
+                else some 0
+              else some 0
+          | _ => some 0
+        else some 0) := by
+  cases tail with
+  | nil => simp only [firstInvalidUtf8]
+  | cons cont more =>
+    cases more with
+    | nil => simp only [firstInvalidUtf8]
+    | cons first more1 =>
+      cases more1 with
+      | nil => simp only [firstInvalidUtf8]
+      | cons second more2 =>
+        cases more2 with
+        | nil => simp only [firstInvalidUtf8]
+        | cons third more3 => simp only [firstInvalidUtf8]
+
+theorem first_invalid_cons_ascii {byte : UInt8} {tail : List UInt8} (ascii : IsAsciiByte byte) :
+    firstInvalidUtf8 (byte :: tail) = (firstInvalidUtf8 tail).map (· + 1) := by
+  rw [firstInvalidUtf8_cons, if_pos ascii]
+
+theorem first_invalid_cons_lead2 {lead cont : UInt8} {more : List UInt8}
+    (leadOk : IsLead2Byte lead) (contOk : IsContByte cont) :
+    firstInvalidUtf8 (lead :: cont :: more) = (firstInvalidUtf8 more).map (· + 2) := by
+  rw [firstInvalidUtf8_cons]
+  simp only [if_neg (not_ascii_of_lead2 leadOk), if_pos leadOk, if_pos contOk]
+
+theorem option_map_none {value : Option Nat} {f : Nat → Nat} :
+    value.map f = none ↔ value = none := by
+  cases value <;> simp
+
+theorem valid_take_of_first_none {bytes : List UInt8} (cleared : firstInvalidUtf8 bytes = none) :
+    ValidUtf8 bytes := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n →
+    firstInvalidUtf8 bytes = none → ValidUtf8 bytes
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len cleared
+      cases bytes with
+      | nil => exact .nil
+      | cons byte tail =>
+        have shorter : tail.length < n := by simp only [List.length_cons] at len; omega
+        by_cases ascii : IsAsciiByte byte
+        · rw [first_invalid_cons_ascii ascii] at cleared
+          exact .one ascii (ih tail.length shorter tail rfl (option_map_none.mp cleared))
+        · by_cases lead2 : IsLead2Byte byte
+          · cases tail with
+            | nil =>
+              rw [firstInvalidUtf8_cons] at cleared
+              simp only [if_neg ascii, if_pos lead2] at cleared
+              exact absurd cleared (by simp)
+            | cons cont more =>
+              by_cases contOk : IsContByte cont
+              · rw [first_invalid_cons_lead2 lead2 contOk] at cleared
+                exact .two lead2 contOk (ih more.length
+                  (by simp only [List.length_cons] at shorter ⊢; omega) more rfl
+                  (option_map_none.mp cleared))
+              · rw [firstInvalidUtf8_cons] at cleared
+                simp only [if_neg ascii, if_pos lead2, if_neg contOk] at cleared
+                exact absurd cleared (by simp)
+          · by_cases lead3 : IsLead3Byte byte
+            · cases tail with
+              | nil =>
+                rw [firstInvalidUtf8_cons] at cleared
+                simp only [if_neg ascii, if_neg lead2, if_pos lead3] at cleared
+                exact absurd cleared (by simp)
+              | cons first more1 =>
+                cases more1 with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at cleared
+                  simp only [if_neg ascii, if_neg lead2, if_pos lead3] at cleared
+                  exact absurd cleared (by simp)
+                | cons second more2 =>
+                  by_cases firstOk : ThreeFirstOk byte first
+                  · by_cases secondOk : IsContByte second
+                    · rw [firstInvalidUtf8_cons] at cleared
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_pos secondOk] at cleared
+                      exact .three lead3 firstOk secondOk (ih more2.length
+                        (by simp only [List.length_cons] at shorter ⊢; omega) more2 rfl
+                        (option_map_none.mp cleared))
+                    · rw [firstInvalidUtf8_cons] at cleared
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_neg secondOk] at cleared
+                      exact absurd cleared (by simp)
+                  · rw [firstInvalidUtf8_cons] at cleared
+                    simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_neg firstOk] at cleared
+                    exact absurd cleared (by simp)
+            · by_cases lead4 : IsLead4Byte byte
+              · cases tail with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at cleared
+                  simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4] at cleared
+                  exact absurd cleared (by simp)
+                | cons first more1 =>
+                  cases more1 with
+                  | nil =>
+                    rw [firstInvalidUtf8_cons] at cleared
+                    simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4] at cleared
+                    exact absurd cleared (by simp)
+                  | cons second more2 =>
+                    cases more2 with
+                    | nil =>
+                      rw [firstInvalidUtf8_cons] at cleared
+                      simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4] at cleared
+                      exact absurd cleared (by simp)
+                    | cons third more3 =>
+                      by_cases firstOk : FourFirstOk byte first
+                      · by_cases secondOk : IsContByte second
+                        · by_cases thirdOk : IsContByte third
+                          · rw [firstInvalidUtf8_cons] at cleared
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_pos thirdOk] at cleared
+                            exact .four lead4 firstOk secondOk thirdOk (ih more3.length
+                              (by simp only [List.length_cons] at shorter ⊢; omega) more3 rfl
+                              (option_map_none.mp cleared))
+                          · rw [firstInvalidUtf8_cons] at cleared
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_neg thirdOk] at cleared
+                            exact absurd cleared (by simp)
+                        · rw [firstInvalidUtf8_cons] at cleared
+                          simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                            if_pos firstOk, if_neg secondOk] at cleared
+                          exact absurd cleared (by simp)
+                      · rw [firstInvalidUtf8_cons] at cleared
+                        simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                          if_neg firstOk] at cleared
+                        exact absurd cleared (by simp)
+              · rw [firstInvalidUtf8_cons] at cleared
+                simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4] at cleared
+                exact absurd cleared (by simp)
+  exact key bytes.length bytes rfl cleared
+
+theorem first_invalid_none_iff_valid (bytes : List UInt8) :
+    firstInvalidUtf8 bytes = none ↔ ValidUtf8 bytes :=
+  ⟨valid_take_of_first_none, fun valid => by
+    induction valid with
+    | nil => rfl
+    | one ascii _ ih => rw [first_invalid_cons_ascii ascii, ih]; rfl
+    | two leadOk contOk _ ih =>
+      rw [first_invalid_cons_lead2 leadOk contOk, ih]; rfl
+    | three leadOk firstOk secondOk _ ih =>
+      simp only [firstInvalidUtf8_cons, if_neg (not_ascii_of_lead3 leadOk),
+        if_neg (not_lead2_of_lead3 leadOk), if_pos leadOk, if_pos firstOk, if_pos secondOk,
+        option_map_none, ih]
+    | four leadOk firstOk secondOk thirdOk _ ih =>
+      simp only [firstInvalidUtf8_cons, if_neg (not_ascii_of_lead4 leadOk),
+        if_neg (not_lead2_of_lead4 leadOk), if_neg (not_lead3_of_lead4 leadOk), if_pos leadOk,
+        if_pos firstOk, if_pos secondOk, if_pos thirdOk, option_map_none, ih]
+  ⟩
+
+theorem first_invalid_some_prefix_valid {bytes : List UInt8} {offset : Nat}
+    (found : firstInvalidUtf8 bytes = some offset) : ValidUtf8 (bytes.take offset) := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n → ∀ offset,
+    firstInvalidUtf8 bytes = some offset → ValidUtf8 (bytes.take offset)
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len offset found
+      cases bytes with
+      | nil => rw [firstInvalidUtf8] at found; cases found
+      | cons byte tail =>
+        have shorter : tail.length < n := by simp only [List.length_cons] at len; omega
+        by_cases ascii : IsAsciiByte byte
+        · rw [first_invalid_cons_ascii ascii] at found
+          cases tailFound : firstInvalidUtf8 tail with
+          | none => simp [tailFound] at found
+          | some inner =>
+            simp only [tailFound, Option.map_some, Option.some.injEq] at found
+            subst found
+            rw [List.take_succ_cons]
+            exact .one ascii (ih tail.length shorter tail rfl inner tailFound)
+        · by_cases lead2 : IsLead2Byte byte
+          · cases tail with
+            | nil =>
+              rw [firstInvalidUtf8_cons] at found
+              simp only [if_neg ascii, if_pos lead2, Option.some.injEq] at found
+              subst found
+              simp only [List.take_zero]; exact .nil
+            | cons cont more =>
+              by_cases contOk : IsContByte cont
+              · rw [first_invalid_cons_lead2 lead2 contOk] at found
+                cases moreFound : firstInvalidUtf8 more with
+                | none => simp [moreFound] at found
+                | some inner =>
+                  simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                  subst found
+                  rw [show (byte :: cont :: more).take (inner + 2) =
+                      byte :: cont :: more.take inner from by
+                    simp [List.take_succ_cons]]
+                  exact .two lead2 contOk (ih more.length
+                    (by simp only [List.length_cons] at shorter ⊢; omega) more rfl inner moreFound)
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_pos lead2, if_neg contOk, Option.some.injEq] at found
+                subst found
+                simp only [List.take_zero]; exact .nil
+          · by_cases lead3 : IsLead3Byte byte
+            · cases tail with
+              | nil =>
+                rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg lead2, if_pos lead3, Option.some.injEq] at found
+                subst found; simp only [List.take_zero]; exact .nil
+              | cons first more1 =>
+                cases more1 with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg lead2, if_pos lead3, Option.some.injEq] at found
+                  subst found; simp only [List.take_zero]; exact .nil
+                | cons second more2 =>
+                  by_cases firstOk : ThreeFirstOk byte first
+                  · by_cases secondOk : IsContByte second
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_pos secondOk] at found
+                      cases moreFound : firstInvalidUtf8 more2 with
+                      | none => simp [moreFound] at found
+                      | some inner =>
+                        simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                        subst found
+                        rw [show (byte :: first :: second :: more2).take (inner + 3) =
+                            byte :: first :: second :: more2.take inner from by
+                          simp [List.take_succ_cons]]
+                        exact .three lead3 firstOk secondOk (ih more2.length
+                          (by simp only [List.length_cons] at shorter ⊢; omega) more2 rfl
+                          inner moreFound)
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_neg secondOk, Option.some.injEq] at found
+                      subst found; simp only [List.take_zero]; exact .nil
+                  · rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_neg firstOk,
+                      Option.some.injEq] at found
+                    subst found; simp only [List.take_zero]; exact .nil
+            · by_cases lead4 : IsLead4Byte byte
+              · cases tail with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                    Option.some.injEq] at found
+                  subst found; simp only [List.take_zero]; exact .nil
+                | cons first more1 =>
+                  cases more1 with
+                  | nil =>
+                    rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                      Option.some.injEq] at found
+                    subst found; simp only [List.take_zero]; exact .nil
+                  | cons second more2 =>
+                    cases more2 with
+                    | nil =>
+                      rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                        Option.some.injEq] at found
+                      subst found; simp only [List.take_zero]; exact .nil
+                    | cons third more3 =>
+                      by_cases firstOk : FourFirstOk byte first
+                      · by_cases secondOk : IsContByte second
+                        · by_cases thirdOk : IsContByte third
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_pos thirdOk] at found
+                            cases moreFound : firstInvalidUtf8 more3 with
+                            | none => simp [moreFound] at found
+                            | some inner =>
+                              simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                              subst found
+                              rw [show (byte :: first :: second :: third :: more3).take
+                                    (inner + 4) =
+                                  byte :: first :: second :: third :: more3.take inner from by
+                                simp [List.take_succ_cons]]
+                              exact .four lead4 firstOk secondOk thirdOk (ih more3.length
+                                (by simp only [List.length_cons] at shorter ⊢; omega) more3 rfl
+                                inner moreFound)
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_neg thirdOk,
+                              Option.some.injEq] at found
+                            subst found; simp only [List.take_zero]; exact .nil
+                        · rw [firstInvalidUtf8_cons] at found
+                          simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                            if_pos firstOk, if_neg secondOk, Option.some.injEq] at found
+                          subst found; simp only [List.take_zero]; exact .nil
+                      · rw [firstInvalidUtf8_cons] at found
+                        simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                          if_neg firstOk, Option.some.injEq] at found
+                        subst found; simp only [List.take_zero]; exact .nil
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4,
+                  Option.some.injEq] at found
+                subst found; simp only [List.take_zero]; exact .nil
+  exact key bytes.length bytes rfl offset found
+
+theorem first_invalid_offset_lt {bytes : List UInt8} {offset : Nat}
+    (found : firstInvalidUtf8 bytes = some offset) : offset < bytes.length := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n → ∀ offset,
+    firstInvalidUtf8 bytes = some offset → offset < bytes.length
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len offset found
+      cases bytes with
+      | nil => rw [firstInvalidUtf8] at found; cases found
+      | cons byte tail =>
+        have shorter : tail.length < n := by simp only [List.length_cons] at len; omega
+        by_cases ascii : IsAsciiByte byte
+        · rw [first_invalid_cons_ascii ascii] at found
+          cases tailFound : firstInvalidUtf8 tail with
+          | none => simp [tailFound] at found
+          | some inner =>
+            simp only [tailFound, Option.map_some, Option.some.injEq] at found
+            subst found
+            have innerBound := ih tail.length shorter tail rfl inner tailFound
+            simp only [List.length_cons]; omega
+        · by_cases lead2 : IsLead2Byte byte
+          · cases tail with
+            | nil =>
+              rw [firstInvalidUtf8_cons] at found
+              simp only [if_neg ascii, if_pos lead2, Option.some.injEq] at found
+              subst found; simp only [List.length_cons]; omega
+            | cons cont more =>
+              by_cases contOk : IsContByte cont
+              · rw [first_invalid_cons_lead2 lead2 contOk] at found
+                cases moreFound : firstInvalidUtf8 more with
+                | none => simp [moreFound] at found
+                | some inner =>
+                  simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                  subst found
+                  have innerBound := ih more.length
+                    (by simp only [List.length_cons] at shorter ⊢; omega) more rfl inner moreFound
+                  simp only [List.length_cons]; omega
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_pos lead2, if_neg contOk, Option.some.injEq] at found
+                subst found; simp only [List.length_cons]; omega
+          · by_cases lead3 : IsLead3Byte byte
+            · cases tail with
+              | nil =>
+                rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg lead2, if_pos lead3, Option.some.injEq] at found
+                subst found; simp only [List.length_cons]; omega
+              | cons first more1 =>
+                cases more1 with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg lead2, if_pos lead3, Option.some.injEq] at found
+                  subst found; simp only [List.length_cons]; omega
+                | cons second more2 =>
+                  by_cases firstOk : ThreeFirstOk byte first
+                  · by_cases secondOk : IsContByte second
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_pos secondOk] at found
+                      cases moreFound : firstInvalidUtf8 more2 with
+                      | none => simp [moreFound] at found
+                      | some inner =>
+                        simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                        subst found
+                        have innerBound := ih more2.length
+                          (by simp only [List.length_cons] at shorter ⊢; omega) more2 rfl
+                          inner moreFound
+                        simp only [List.length_cons]; omega
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_pos firstOk,
+                        if_neg secondOk, Option.some.injEq] at found
+                      subst found; simp only [List.length_cons]; omega
+                  · rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg lead2, if_pos lead3, if_neg firstOk,
+                      Option.some.injEq] at found
+                    subst found; simp only [List.length_cons]; omega
+            · by_cases lead4 : IsLead4Byte byte
+              · cases tail with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                    Option.some.injEq] at found
+                  subst found; simp only [List.length_cons]; omega
+                | cons first more1 =>
+                  cases more1 with
+                  | nil =>
+                    rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                      Option.some.injEq] at found
+                    subst found; simp only [List.length_cons]; omega
+                  | cons second more2 =>
+                    cases more2 with
+                    | nil =>
+                      rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                        Option.some.injEq] at found
+                      subst found; simp only [List.length_cons]; omega
+                    | cons third more3 =>
+                      by_cases firstOk : FourFirstOk byte first
+                      · by_cases secondOk : IsContByte second
+                        · by_cases thirdOk : IsContByte third
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_pos thirdOk] at found
+                            cases moreFound : firstInvalidUtf8 more3 with
+                            | none => simp [moreFound] at found
+                            | some inner =>
+                              simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                              subst found
+                              have innerBound := ih more3.length
+                                (by simp only [List.length_cons] at shorter ⊢; omega) more3 rfl
+                                inner moreFound
+                              simp only [List.length_cons]; omega
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                              if_pos firstOk, if_pos secondOk, if_neg thirdOk,
+                              Option.some.injEq] at found
+                            subst found; simp only [List.length_cons]; omega
+                        · rw [firstInvalidUtf8_cons] at found
+                          simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                            if_pos firstOk, if_neg secondOk, Option.some.injEq] at found
+                          subst found; simp only [List.length_cons]; omega
+                      · rw [firstInvalidUtf8_cons] at found
+                        simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_pos lead4,
+                          if_neg firstOk, Option.some.injEq] at found
+                        subst found; simp only [List.length_cons]; omega
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4,
+                  Option.some.injEq] at found
+                subst found; simp only [List.length_cons]; omega
+  exact key bytes.length bytes rfl offset found
+
+/-- The reported offset names a well-formed prefix, and it is an interior
+position: the byte at that offset starts no well-formed continuation. -/
+theorem first_invalid_stops {bytes : List UInt8} {offset : Nat}
+    (found : firstInvalidUtf8 bytes = some offset) :
+    ValidUtf8 (bytes.take offset) ∧ offset < bytes.length :=
+  ⟨first_invalid_some_prefix_valid found, first_invalid_offset_lt found⟩
+
+end SourceAdmission
