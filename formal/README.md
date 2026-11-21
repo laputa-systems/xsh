@@ -11,8 +11,8 @@ the frozen source commit and tree. A universal obligation is planned or
 closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
-that is absent, not a theorem, or outside the project modules. No row is closed
-yet. The finite Rust-conformance ledger holds only the named tests that ran
+that is absent, not a theorem, or outside the project modules. A module that
+holds a closed root needs no fragment row. The finite Rust-conformance ledger holds only the named tests that ran
 against binaries built from that commit. Each case is evidence for its own test
 only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
 per kernel-checked certificate: the artifact kind, the Lean definitions that
@@ -142,7 +142,7 @@ The proofs quantify over the shared value domain. Controls exercise every
 reference kind, nested payloads and real store acceptance and rejection.
 This is not a proof of reference ownership, liveness, heap closure, contract
 authentication, type admissibility, machine integration or Rust conformance.
-Those obligations remain open. BASE-ENV and TYPE-MEMBER remain planned.
+Those obligations remain open. TYPE-MEMBER remains planned.
 
 [`Semantics/CoreWorld.lean`](Xsh/Semantics/CoreWorld.lean) is the semantic
 foundation interface. Its types and values are the Core types and values, its
@@ -159,6 +159,17 @@ nominal types over non-record bases, and row or argument sorts, have no Core
 image. Core record membership is wider than the connected check, so a connected
 rejection is not a Core rejection. The connected machine still runs on its own
 store; the bridge is a fragment root, not a full-core obligation.
+
+BASE-ENV is closed by `environments_and_typed_stores` in
+[`Proofs/Core/Env.lean`](Xsh/Proofs/Core/Env.lean). It quantifies over every
+Core world, type and value: lexical and activation resolution, captures, the
+lookup chain, the stored-member invariant, assignment and declaration
+acceptance and effects, and `type-error` failures that keep the store and
+escape `try`. Path writes are whole-cell replacements checked against the
+cell's type. Cleanup during the unwind belongs to the control machine and is
+not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
+store unchanged, keep NaN Float bits, and detect a store without its guard and
+a mutated binder.
 
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the

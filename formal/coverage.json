@@ -2520,8 +2520,10 @@
       "id": "BASE-ENV",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.BASE-ENV"
+      "status": "closed",
+      "proof_root_id": "full.BASE-ENV",
+      "module": "Xsh.Proofs.Core.Env",
+      "declaration": "Xsh.Proofs.Core.Env.environments_and_typed_stores"
     },
     {
       "id": "BASE-NUM",
