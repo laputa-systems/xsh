@@ -66,15 +66,21 @@ def lookup (world : World Declaration Identity Source) (environment : Environmen
 inductive Failure (Declaration Identity Source : Type) where
   | typeError (expected : ValueType Declaration) (candidate : Value Declaration Identity Source)
   | raised (error : Value Declaration Identity Source)
+  | runtime (error : Value Declaration Identity Source)
 
 def Failure.catchable : Failure Declaration Identity Source → Bool
   | .typeError _ _ => false
   | .raised _ => true
+  | .runtime _ => false
 
 inductive InternalFault where
   | missingCell (cell : CellId)
   | immutableCell (cell : CellId)
   | occupiedCell (cell : CellId)
+  | malformedPath (cell : CellId)
+  | malformedTarget
+  | unresolvedName (fault : LookupFault)
+  | unconvertibleEnvironment
   deriving DecidableEq
 
 inductive StoreStep (world : World Declaration Identity Source) where
@@ -121,6 +127,7 @@ def recover {world : World Declaration Identity Source} : StoreStep world → Re
     match failure with
     | .raised error => .caught error store
     | .typeError expected candidate => .propagated (.typeError expected candidate) store
+    | .runtime error => .propagated (.runtime error) store
   | .internal fault store => .internal fault store
 
 end Xsh.Semantics.CoreWorld

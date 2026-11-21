@@ -155,3 +155,21 @@ test test_duration_arithmetic_comparison_reports_reached_values { |ctx|
   assert "AssertionError.Failed" in failed.stderr
   assert "2s < 1s" in failed.stderr
 }
+
+test test_duration_arithmetic_runtime_operands_report_each_failure { |ctx|
+  for failure in [
+    {left: "Duration", right: "Duration", result: "Duration", op: "-", arguments: "0ms, 1ms", code: "duration-underflow"},
+    {left: "Duration", right: "Duration", result: "Duration", op: "+", arguments: "18446744073709551615ms, 1ms", code: "duration-overflow"},
+    {left: "Duration", right: "Int", result: "Duration", op: "*", arguments: "18446744073709551615ms, 2", code: "duration-overflow"},
+    {left: "Duration", right: "Int", result: "Duration", op: "*", arguments: "1ms, -1", code: "duration-negative-factor"},
+    {left: "Int", right: "Duration", result: "Duration", op: "*", arguments: "-1, 0ms", code: "duration-negative-factor"},
+    {left: "Duration", right: "Int", result: "Duration", op: "/", arguments: "1ms, 0", code: "division-by-zero"},
+    {left: "Duration", right: "Int", result: "Duration", op: "/", arguments: "1ms, -1", code: "division-by-zero"},
+    {left: "Duration", right: "Duration", result: "Int", op: "/", arguments: "1ms, 0ms", code: "division-by-zero"},
+    {left: "Duration", right: "Duration", result: "Int", op: "/", arguments: "18446744073709551615ms, 1ms", code: "integer-overflow"},
+  ] {
+    let source = "pure apply(left: " + failure.left + ", right: " + failure.right + ") -> " + failure.result + " {\n  left " + failure.op + " right\n}\n" + r"print ${apply(" + failure.arguments + ")}\n"
+    let output = test.expect(ctx, source, status: 3, stderr: ["err: " + failure.code + ":", ":2:3"])?
+    assert output.stdout == "", output.stdout
+  }
+}

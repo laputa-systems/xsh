@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 159
+Next: 163
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -103,7 +103,16 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-154 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
+### XSH-157 · P2 · Typed Int arithmetic reports its failure at the caller instead of the operator
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/values.rs` (`IntView::Binary` pushes `ApplyIntBinary { op, span: call_span }`); `src/runtime/eval/indexed/full/schema.rs` (`BuildIntRow::Binary` carries no span); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
+- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, which has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`). The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
+- **Recommendation:** Carry the operator span on `IntBinary` rows (or a span pool reference) and pass it to `ApplyIntBinary` and the frame-mode `BinaryLeft` continuation, then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-158 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
 
 - **Area:** Runtime
 - **Where:** importer-side lowering of qualified facet patterns, `compact_qualified_pattern_facet` in `src/runtime/eval/lower/patterns.rs`; reproducers `bench/codemode/defects/d1-imported-facet/` and its `narrowed/`
@@ -112,7 +121,7 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-158 · P2 · A top-level `Str +=` statement checks but fails at run time
+### XSH-162 · P2 · A top-level `Str +=` statement checks but fails at run time
 
 - **Area:** Runtime
 - **Where:** top-level compound assignment on `Str`; reproducer `bench/codemode/defects/d3-top-level-str-append/main.xsh`
@@ -130,7 +139,25 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-155 · P3 · `Path.relative_to` returns a path outside its base unchanged
+### XSH-154 · P3 · A path write to a missing map key raises `missing-field` with a Debug-formatted key
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/assignments.rs:149,162` (write path) versus `src/runtime/eval/lowered_ops.rs:2612` (read path, `map-missing`)
+- **Problem:** Reading a missing key fails with `map-missing`, but a compound update or deeper path write through a missing key (`m["k"] += 1`, `m["k"].x = 1`) fails with `missing-field` and a message rendering the key as `Str("k")`. The two paths name the same condition differently and the write message leaks Rust Debug formatting.
+- **Recommendation:** Raise the read path's kind and message for a missing key on the write path, state the kind in the SPEC's map-assignment rules, and add native tests for compound and nested writes through a missing key.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-155 · P3 · FullVerifier accepts a non-arithmetic operator in IntBinary
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`verify_scalar`, the `_ => {}` arm for `IntView::Binary`); `src/runtime/eval/lowered_ops.rs` (`checked_int_binary`, `.expect("verified integer binary operation")`); `src/runtime/eval/lower/scalar.rs` (the lowerer emits only `+ - * / %`)
+- **Problem:** Found by reading while proving `checked_int_binary`; not reproduced. Verification checks the operands of an `IntBinary` row but not its operator. The lowerer only emits arithmetic operators, so lowered programs are safe, but IR built another way (corruption tests, the formal bridge's foreign raw-IR decoder) with `IntBinary { op: Lt }` would pass verification, then panic at the `expect` on the in-place typed route and yield a `Bool` in an `Int` position on the frame route.
+- **Recommendation:** Reproduce with a verifier corruption test that rewrites a lowered `IntBinary` operator to `Lt` and runs both execution modes. Then reject any operator other than `Add`, `Sub`, `Mul`, `Div` and `Rem` in `verify_scalar`, which removes the reachable `expect`.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-159 · P3 · `Path.relative_to` returns a path outside its base unchanged
 
 - **Area:** Runtime
 - **Where:** `Path.relative_to`; reproducer `bench/codemode/defects/d2-relative-to/main.xsh`
@@ -139,7 +166,7 @@ out of scope.
 - **Fix with:** error-model
 - **Effort:** S
 
-### XSH-156 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
+### XSH-160 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
 
 - **Area:** Docs
 - **Where:** registry contract text for module functions; `fs.walk`, `fs.files`
@@ -148,7 +175,7 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-157 · P3 · `check.redundant-parens` is a hard error that no guide mentions
+### XSH-161 · P3 · `check.redundant-parens` is a hard error that no guide mentions
 
 - **Area:** Checker
 - **Where:** `check.redundant-parens`; evidence `bench/codemode/results/dev-initial-taxonomy.json`
@@ -156,4 +183,3 @@ out of scope.
 - **Recommendation:** Decide whether the rule should stay an error or become a lint with an autofix; until then, state it in the tour and in `language:core`.
 - **Fix with:** none
 - **Effort:** S
-

@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "source_state": "frozen-post-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -2999,8 +2999,10 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store_writes"
     },
     {
       "id": "VAL-UNION",
@@ -3761,6 +3763,10 @@
     },
     {
       "class": "EXTERNAL_ASSUMPTION",
+      "status": "planned"
+    },
+    {
+      "class": "EXTRACTED_REFINEMENT",
       "status": "planned"
     }
   ],
@@ -12961,7 +12967,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For arbitrary effect scopes, agreement on every live parameter gives equal substituted contracts, including unknown replacements at unused parameters.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_included_iff",
@@ -12970,7 +12976,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given exact inclusion of arbitrary symbolic contracts, a mixed known/unknown substitution preserves inclusion exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_covered_iff",
@@ -12979,7 +12985,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given permission coverage of arbitrary symbolic contracts, a mixed known/unknown substitution preserves coverage exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
@@ -12988,7 +12994,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially included known expressions, inclusion survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
@@ -12997,7 +13003,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially covered known expressions, coverage survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
@@ -13006,7 +13012,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Value.referencesValid_mono",
@@ -13204,7 +13210,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The implication decision accepts identical predicates for every parameter scope.",
-      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. All 77 universal obligations remain planned."
+      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.EffectPredicate.implies_sound",
@@ -13222,7 +13228,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A zero divisor of checked Int division or remainder is a division-by-zero error.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_ok",
@@ -13231,7 +13237,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "An accepted checked Int operation returns the exact mathematical result, its witness fits signed 64 bits, and a division or remainder divisor is nonzero.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_overflow",
@@ -13240,7 +13246,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A checked Int operation overflows exactly when its divisor is not a rejected zero and its witness leaves signed 64 bits.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; eight of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.CleanupPolicy.disposition_contract",
@@ -15103,7 +15109,61 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
-      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes and unwinding are in store_writing_forms. Machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Writes.store_writing_forms",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.store_writing_forms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Destructuring declarations, field, key and index path writes, compound assignment, environment assignment and unwinding with cleanup and try over the Core-guarded store, with each selector and the right side given as an evaluation: whole-cell re-checking, no internal fault for typed paths and well-typed destructuring, key-sorted insertion and record-to-map conversion, negative Map[UInt, V] keys failing at their own selector, uncaught runtime failures, all-or-nothing declarations and primary-failure unwinding.",
+      "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. Deferred to BASE-STEP: the instantiation of Operate must show that list + is concatenate (SPEC 4.5), which VAL-STORE's += clauses assume. It does not close BASE-ENV for the core and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "module": "Xsh.Proofs.Core.Statements",
+      "declaration": "Xsh.Proofs.Core.Statements.syntax_directed_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The store-write meaning of the frozen core's let/var/const (also exported) and assignment statements over Statement, BindingTarget and AssignTarget syntax: declarations resolve their target, commit through declareTarget and bind each name so cellOf resolves it, assignments resolve their root through cellOf and run assignStatement on the flattened selector path, environment assignment sets the overlay, and a block restores name resolution on exit.",
+      "boundary": "Takes the name table's spellings, BASE-STEP expression and index evaluation, the checker's binder, cell and type for each declared name, and argv conversion as oracles. for, guard let, match and if-let pattern bindings, comprehension and retry targets, with, resource and tempdir scope bindings, function parameter binding at call, use aliases, declaration names and captures have no meaning here, and nested statement bodies belong to the control machine. It does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "module": "Xsh.Proofs.Core.Eval",
+      "declaration": "Xsh.Proofs.Core.Eval.covered_expression_evaluation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded evaluator for Syntax.Core literals, names through locals and Environment.cellOf, list and named-field record literals, field reads, list, map and record indexing where a negative literal index is BASE-NUM negation and counts from the end of a List only (so -0 is 0 and a map gets the negative key), not and negation, short-circuit and/or, Int, Float, Duration (including Int * Duration), Str and Bool operators, list +, if/else and positional calls of let-free functions whose bodies evaluate in their defining environment: results agree at every fuel that finishes, every failure is a runtime failure, binary operators evaluate left then right, and the operator results are BASE-NUM's ArithmeticMeaning, FloatMeaning, ComparisonMeaning, IEEE equality, IntegerExact and NegationMeaning, the DurationOps results in both scaling orders and list concatenate.",
+      "boundary": "Literal lexeme interpretation, runtime error values, the NaN policy and the let-free functions are parameters. Method calls (so IntToFloatMeaning, ToIntMeaning and BitsetMeaning), UInt arithmetic, ?, try and raised failures, ??, in, sets, guarded ?. and ?[], slices, map literals, record spread, shorthand, computed and path fields, comprehensions, pipelines, closures, named, spread and splice arguments and defaults, collection equality, host requests and the Map[UInt] key Schema failure have no meaning here. It does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalTyping.preservation",
+      "module": "Xsh.Proofs.Core.EvalTyping",
+      "declaration": "Xsh.Proofs.Core.EvalTyping.preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type preservation for the covered-expression evaluator: in a typing context whose names hold Core members of their types, through locals or Environment.cellOf and the store, with every let-free function's body typed at its signature in a typing context its own defining environment and the store satisfy, an evaluation that produces a value produces a member of the type the Typed judgment gives. Typed is defined from the SPEC 6.2 operator table, independently of the evaluator.",
+      "boundary": "Typed covers only the evaluator's forms: Int, Float, Duration, Str and Bool operators without UInt or union operands, lists, named-field records with distinct fields, list and map indexing, if/else and positional calls of named let-free functions. Unions, subtyping, generics, methods and the checker's own judgment are not modelled, and no correspondence with the Rust checker is claimed. It does not close BASE-STEP."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Control.statement_control",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.statement_control",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded statement machine over Syntax.Core for let/var/const, name and field-path assignment, environment assignment, expression and bare-block statements, if/else and if let, while and while let, for over a list, loop, break, continue, match with literal, binding, wildcard, record and list patterns and guards, return, assert and sugar expansions, with block function bodies evaluated in their defining environment: finished blocks and statement lists agree at every fuel, every outcome keeps the cells it started with at their types, blocks and control statements restore the environment and locals and keep any typing context the frame satisfied, while false completes unchanged, loops end normally on break while blocks pass it on, return skips the rest of a block and leaves a for loop, and pattern captures and for targets bind cells that resolve in the bound body and are dropped on exit.",
+      "boundary": "Conditions are Bool only (no Status); for iterates List values only; break with a value, return without a value, index-selector assignment, defer, errdefer, cleanup, guard, with and resource scopes, yield, exit, use, declarations and commands are unsupported; a block function body may not write the caller's cells or the environment overlay; alternation, alias, constructor, type and text patterns are unsupported; the checker's binders, cells and types come from the resolution oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "module": "Xsh.Proofs.Core.EvalStatements",
+      "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "syntax_directed_store_writes with Oracles.evaluate and Operate answered by the covered-expression evaluator: the statement meaning holds for the instance, evaluator values and failures pass through with the store unchanged, every such failure propagates through try, declarations commit the evaluated value or fail with its failure, a well-typed initializer in a consistent context never reaches malformedTarget, and compound += on lists is concatenate, discharging the store_writing_forms deferral for this Operate.",
+      "boundary": "Forms the evaluator does not cover fall back to the given oracle and operator, and the selector, declaration, spelling and argv oracles stay parameters. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
@@ -15166,7 +15226,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
-      "boundary": "Store mutation through += and path writes are not modelled. Closes no full-core obligation."
+      "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
     }
   ],
   "artifact_certificates": [
@@ -15598,5 +15658,465 @@
   "source_identity": {
     "commit": "1d27050bf739d72f9abefeba161b8768dad71c5c",
     "tree": "3b1253e27132f377ffab35e0232bd5835ed07e4a"
-  }
+  },
+  "implementation_proofs": [
+    {
+      "id": "impl.arith.checked_int_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/arith.rs::checked_int_binary, the shared Int +, -, *, / and % decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation: folds Some(Ok), declines on Some(Err) and None)",
+        "src/runtime/eval/lowered_ops.rs::checked_int_binary (execution: expects Some, maps the error to its diagnostic with the operator span), called by lowered_binary_value and by the typed scalar ApplyIntBinary step in src/runtime/eval/lowered_run/indexed_run/values.rs"
+      ],
+      "property": "For every BinaryOp and every pair of signed 64-bit operands, the extracted function returns ok (it does not fail or diverge in the Aeneas model), and its result decodes to Xsh.Core.Arith.checked for Add, Sub, Mul, Div and Rem and to none for every other operator; decode is injective, so the Ok value, DivisionByZero and Overflow are each the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors and all i64 operands; no premise",
+      "sources": [
+        {
+          "path": "src/arith.rs",
+          "sha256": "c05f8f96af99980925ff6e9a5db70cf50743f6874df7f9b26f395dea56e94680"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.arith.checked_int_binary"
+      },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "23b5526f864d452670ddfabaff567e3e68cbbd45648e0bb90b9b5b6ad6cff697"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "8ce18f5250b928fbd1a77ef28bf7bac0608fc66dadaa9e68787d687fea3df24b"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "237428ce237cba3b0abd22c6b8963f1e7298a230b5fc1baaf89da39138f6d24b"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "b2925f6e23da0f83133a6ec5ed9ae57251529ab775685c535f362ad0cbd2d123"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "6d7c51a5bcaafd876542afa5804f53b4173abaff",
+        "aeneas_library_repository": "https://github.com/laputa-systems/aeneas.git",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0"
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Arith.checked_int_binary_refines",
+        "specification": [
+          "Xsh.Core.Arith.checked",
+          "Xsh.Core.Arith.exact",
+          "Xsh.Core.Arith.witness"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.int_success_and_truncation",
+          "XshImpl.Controls.int_error_branches",
+          "XshImpl.Controls.int_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_rejected",
+          "XshImpl.Controls.floored_division_rejected",
+          "XshImpl.Controls.swapped_zero_error_rejected",
+          "XshImpl.Controls.admitted_comparison_rejected",
+          "XshImpl.Controls.panicking_division_rejected",
+          "XshImpl.Controls.always_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_model_differs_at_min"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at the laputa-systems fork commit 6d7c51a5 (upstream 5a392f4b80a4 plus a fix of the signed remainder model) models the Rust operations the translation calls: I64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, U64 checked_add, checked_sub and checked_mul, unsigned /, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual) and the as casts between i64 and u64; upstream's IScalar.rem answered 0 for MIN % -1, where Rust panics and checked_rem returns None, and the fork makes it fail with integerOverflow as IScalar.div does",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice"
+      ],
+      "reproduction": [
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": [
+          184,
+          228,
+          288
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204,
+          264,
+          232
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194,
+          250,
+          219
+        ],
+        "fresh_kernel_check_peak_rss_mib": 2609,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23,
+        "cold_harness_check_wall_seconds": 902
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
+    },
+    {
+      "id": "impl.duration.checked_duration_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/duration.rs::checked_duration_binary, the shared Duration arithmetic decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation for + - * / with a Duration operand: folds Ok, declines on Err)",
+        "src/runtime/eval/lowered_ops.rs::lowered_binary_value (execution: maps Duration and Int operands and reports the error diagnostic with the operator span)"
+      ],
+      "property": "For every BinaryOp and every pair of Millis(u64) or Count(i64) operands, the extracted function returns ok, and its result decodes to the SPEC 4.3 dimension table over Xsh.Values.DurationOps: add, subtract, multiply (either factor order), divideByInt and ratio, with InvalidDimensions for every other operator and dimension pair; decode is injective, so each of the six error identities and each value is the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors, all u64 millisecond values and all i64 counts in either operand position; no premise",
+      "sources": [
+        {
+          "path": "src/duration.rs",
+          "sha256": "b2c127b462d4eaa7903c7f61f6faf55107226d62c303c3e5c7a54131c25cec57"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.duration.checked_duration_binary"
+      },
+      "proof_sources": [
+        {
+          "path": "dev/verify/aeneas/check.sh",
+          "sha256": "23b5526f864d452670ddfabaff567e3e68cbbd45648e0bb90b9b5b6ad6cff697"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.Dockerfile",
+          "sha256": "6ca80769276a7b96a9155690063480a6be30b47820fff1077181845ebd4199b3"
+        },
+        {
+          "path": "dev/verify/aeneas/extract.sh",
+          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/.gitignore",
+          "sha256": "5375c2c5e323f40c0031aa8c82f66bb9197214001039e6a8c9ff2a5eb3aa24a9"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl.lean",
+          "sha256": "3b1bbb4ff51c2b3fbb0a8eaf4405e5afec2767b67331d330351dcecde2772f01"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Arith.lean",
+          "sha256": "47eb5a252886439c13603ab798830a1b4a1dac52dabf0181a49fc96c980dc883"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+          "sha256": "0af8f3da156252d286c49b18c8f9fdada7062df0305f8c6ebcf5d1cc37e0527c"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
+          "sha256": "8ce18f5250b928fbd1a77ef28bf7bac0608fc66dadaa9e68787d687fea3df24b"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
+          "sha256": "68ca93fb1afa50462464334da6817ebd62cfc5a6d324d4eb7ca6b6e2643383f4"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/XshImpl/DurationSpec.lean",
+          "sha256": "73b72c53e919026640f84ce7a37f5e82f03c5674ba5ce04aef4841a9631eeaf3"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lake-manifest.json",
+          "sha256": "237428ce237cba3b0abd22c6b8963f1e7298a230b5fc1baaf89da39138f6d24b"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lakefile.toml",
+          "sha256": "b2925f6e23da0f83133a6ec5ed9ae57251529ab775685c535f362ad0cbd2d123"
+        },
+        {
+          "path": "dev/verify/aeneas/lean/lean-toolchain",
+          "sha256": "ca5f1f601d34c49079e38d7e7041eb0f2a9c227fbc1df0f404820069a052330c"
+        },
+        {
+          "path": "dev/verify/aeneas/mutant.sh",
+          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.lock",
+          "sha256": "a765626db50238750bbf315e367fcaf4a253e323809416a60ec688e32f12e4c7"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/Cargo.toml",
+          "sha256": "9574781f15f1f45cb82830543afac5d0937d891caa6389873b18faa67fffc1ee"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/build.rs",
+          "sha256": "ba5606c8df40a6bd5d09a1865ed90efb9e0fe54600150df5ef4c15fe3edcb521"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/lib.rs",
+          "sha256": "e866fd81abbdf623e292d1197c44d635e4ad988dbef8bf19084865c44c80fcc9"
+        },
+        {
+          "path": "dev/verify/aeneas/slice/src/witnesses.rs",
+          "sha256": "090049872ad440dac1e278fe7e838a6f4104ba30aed86ebbddc19de7119b827d"
+        },
+        {
+          "path": "formal/Xsh/Core/Arith.lean",
+          "sha256": "2518c1edff307cc45d399b932ddb5602b9947cb80d0cab590e2787de18fa65bf"
+        },
+        {
+          "path": "formal/Xsh/Foundation.lean",
+          "sha256": "3ec387e5be84e561c980277dc2fa152241691feee478505800b48fc9ee0ad2eb"
+        },
+        {
+          "path": "formal/Xsh/Values/DurationOps.lean",
+          "sha256": "23007fcff01541e809078e52950b3a0bc734d50d70a69d01e1d92cde660f5abb"
+        },
+        {
+          "path": "formal/Xsh/Values/Scalars.lean",
+          "sha256": "8a4569834258e8c80f5737e2ac5db6ef8883dd22d5bf9f35733540b3944a6022"
+        }
+      ],
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "6d7c51a5bcaafd876542afa5804f53b4173abaff",
+        "aeneas_library_repository": "https://github.com/laputa-systems/aeneas.git",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0"
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Duration.checked_duration_binary_refines",
+        "specification": [
+          "Xsh.Values.DurationOps.add",
+          "Xsh.Values.DurationOps.subtract",
+          "Xsh.Values.DurationOps.multiply",
+          "Xsh.Values.DurationOps.divideByInt",
+          "Xsh.Values.DurationOps.ratio",
+          "Xsh.Values.DurationOps.checkedMillis"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.duration_success_and_truncation",
+          "XshImpl.Controls.duration_error_branches",
+          "XshImpl.Controls.duration_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_sum_rejected",
+          "XshImpl.Controls.saturating_difference_rejected",
+          "XshImpl.Controls.wrapped_factor_rejected",
+          "XshImpl.Controls.wrapping_count_rejected",
+          "XshImpl.Controls.always_type_error_rejected"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at the laputa-systems fork commit 6d7c51a5 (upstream 5a392f4b80a4 plus a fix of the signed remainder model) models the Rust operations the translation calls: I64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, U64 checked_add, checked_sub and checked_mul, unsigned /, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual) and the as casts between i64 and u64; upstream's IScalar.rem answered 0 for MIN % -1, where Rust panics and checked_rem returns None, and the fork makes it fail with integerOverflow as IScalar.div does",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice",
+        "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument",
+        "the TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies in the translation are core's at the extraction nightly-2026-09-17, not at the production nightly-2026-11-09; the slice witness tests run the production toolchain's bodies on the same cases"
+      ],
+      "reproduction": [
+        {
+          "command": [
+            "dev/verify/aeneas/extract.sh",
+            "--check"
+          ],
+          "requires": "Docker, and network access on the first run for the pinned Aeneas release and the extraction image"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/check.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH, and network access for the Mathlib cache and the pinned Lake packages"
+        },
+        {
+          "command": [
+            "dev/verify/aeneas/mutant.sh"
+          ],
+          "requires": "Lean 4.35.0 (elan toolchain v4.35.0) on PATH and Docker, after extract.sh and check.sh"
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--manifest-path",
+            "dev/verify/aeneas/slice/Cargo.toml"
+          ],
+          "requires": "the production Rust toolchain that rust-toolchain.toml pins, run from the repository root"
+        }
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": [
+          184,
+          228,
+          288
+        ],
+        "fresh_kernel_check_wall_seconds": [
+          172,
+          204,
+          264,
+          232
+        ],
+        "fresh_kernel_check_user_seconds": [
+          164,
+          194,
+          250,
+          219
+        ],
+        "fresh_kernel_check_peak_rss_mib": 2609,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23,
+        "cold_harness_check_wall_seconds": 902
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
+    }
+  ]
 }

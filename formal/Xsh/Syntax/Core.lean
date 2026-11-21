@@ -9,20 +9,23 @@ assigns declaration identities later. Numeric literal constructors likewise
 retain their lexemes; range checking and interpretation belong to later
 phases.
 
-This fragment covers expression, statement, pattern, type, assignment-target,
-call-argument, record-field, and comprehension forms used by lexical binding
-examples. It deliberately does not claim to enumerate all of `ArenaExprKind`,
-`ArenaStmtKind`, imports, declarations, command/run forms, structured stream
-stages, or their parser/lowering metadata. In particular, a represented term
-is not evidence that the Rust parser produced it or that the checker accepts
-it. Record binding targets retain nested field selections; free-name traversal
-is fuel-bounded by recursive depth and may omit names from a subtree while
+This syntax covers every statement kind of Rust's `ArenaStmtKind`: `use`,
+`export`, type and error declarations, `const`/`let`/`var`, assignment, the
+four function-definition kinds with their parameters and defaults, signal
+hooks, control statements, sugar with its core expansion, command statements
+and bare tail names. Loader output (`use` resolution and search paths),
+formatter-only flags (`propagation_written`, `return_ty_defaulted` beyond an
+omitted return type) and source spans are not syntax and stay outside. A
+`Sugar` statement keeps only its expansion, which is all that checking,
+lowering and execution read. It does not claim to enumerate all of
+`ArenaExprKind` or structured stream stages. A represented term is not
+evidence that the Rust parser produced it or that the checker accepts it.
+Record binding targets retain nested field selections; free-name traversal is
+fuel-bounded by recursive depth and may omit names from a subtree while
 retaining names from later siblings. The examples prove their results for the
 chosen bounds; no general adequacy theorem connects the bound to source size
-yet. Extend this layer only alongside the current source and owner inventory.
-Blocks here have statement bodies but no general parameter list, so callable
-defaults, stage parameters, and the error parameter of a `with` handler are
-not covered by the free-name function.
+yet. Owner inventory: G1 owns this layer and extends it only alongside
+`ArenaStmtKind` and `ArenaExprKind` in `src/syntax/arena.rs`.
 -/
 
 namespace Xsh.Syntax
@@ -212,6 +215,66 @@ inductive RetrySchedule where
   | backoff
   deriving DecidableEq, Repr
 
+inductive FunctionKind where
+  | proc
+  | pure
+  | stream
+  | cliMain
+  deriving DecidableEq, Repr
+
+inductive SugarForm where
+  | whenForm
+  | unlessForm
+  | guardForm
+  | failForm
+  | atomically
+  | forIndex
+  | waitUntil
+  deriving DecidableEq, Repr
+
+inductive CoreCommand where
+  | print
+  | eprint
+  deriving DecidableEq, Repr
+
+inductive RunKind where
+  | plain
+  | status
+  | captureText
+  | captureBytes
+  | captureTextRecord
+  | captureBytesRecord
+  | streamText
+  | streamBytes
+  deriving DecidableEq, Repr
+
+inductive RunOption where
+  | timeout
+  | cpuMax
+  | accept
+  deriving DecidableEq, Repr
+
+inductive RedirectionKind where
+  | stdoutWrite
+  | stdoutAppend
+  | stdinRead
+  | stderrWrite
+  | stderrAppend
+  | stdoutDup
+  | stdinDup
+  deriving DecidableEq, Repr
+
+structure IntBound where
+  lexeme : String
+  negative : Bool
+  deriving DecidableEq, Repr
+
+structure IntBounds where
+  low : IntBound
+  high : IntBound
+  inclusive : Bool
+  deriving DecidableEq, Repr
+
 mutual
   /-- A recursive source term that keeps names and numeric spellings raw. -/
   inductive Expr where
@@ -225,6 +288,8 @@ mutual
     | record (fields : List RecordField)
     | ifExpr (branches : List (Expr × Expr)) (otherwise : Expr)
     | matchExpr (subject : Expr) (arms : List (Pattern × Option Expr × Expr))
+    /-- `let pattern = subject` in an `if` or `while` condition. -/
+    | patternCondition (subject : Expr) (pattern : Pattern)
     | unary (op : UnaryOp) (value : Expr)
     | comparisonChain (first : Expr) (rest : List (BinaryOp × Expr))
     | binary (op : BinaryOp) (left right : Expr)
@@ -284,6 +349,78 @@ mutual
     | exit (status : Expr)
     | matchStmt (subject : Expr)
         (arms : List (Pattern × Option Expr × List Statement))
+    | use (path : List RawName) (alias : Option RawName)
+    | export (declaration : Statement)
+    | typeDef (name : RawName) (parameters : List RawName) (body : TypeDefBody) (nominal : Bool)
+        (bounds : Option IntBounds)
+    | errorDef (name : RawName) (variants : List ErrorVariant)
+    | functionDef (kind : FunctionKind) (name : RawName) (parameters : List Parameter)
+        (effects : Option (List Effect)) (result : Option TypeExpr) (body : List Statement)
+        (cliMetadata : Option Expr) (testDeclaration : Bool)
+    | signalHook (signal : RawName) (preCancel : Option String) (effects : List Effect)
+        (body : List Statement)
+    | sugar (form : SugarForm) (expansion : Statement)
+    | command (command : Command) (propagate : Bool)
+
+  inductive Parameter where
+    | mk (name : RawName) (annotation : Option TypeExpr) (default : Option Expr) (rest : Bool)
+
+  inductive TypeDefBody where
+    | alias (type : TypeExpr)
+    | recordSchema (fields : List SchemaField)
+    | moduleContract (entries : List ContractEntry) (exact : Bool)
+    | tagUnion (variants : List TagVariant)
+
+  inductive SchemaField where
+    | mk (name : RawName) (type : TypeExpr) (default : Option Expr)
+
+  inductive ContractEntry where
+    | value (name : RawName) (optional : Bool) (type : TypeExpr)
+    | procEntry (name : RawName) (optional : Bool) (parameters : List Parameter)
+        (effects : Option (List Effect)) (result : TypeExpr)
+    | pureEntry (name : RawName) (optional : Bool) (parameters : List Parameter) (result : TypeExpr)
+
+  inductive TagVariant where
+    | mk (name : RawName) (fields : List TypeExpr) (wire : Option Expr)
+
+  inductive ErrorVariant where
+    | mk (name : RawName) (fields : List (RawName × TypeExpr)) (facets : List RawName)
+
+  inductive WordPart where
+    | bare (text : String)
+    | quoted (text : String)
+    | shorthand (value : Expr)
+    | interpolation (value : Expr)
+
+  inductive CommandArg where
+    | word (parts : List WordPart)
+    | spliceName (name : RawName)
+    | spliceExpr (value : Expr)
+    | typed (value : Expr)
+
+  inductive Redirection where
+    | path (kind : RedirectionKind) (target : CommandArg)
+    | fd (kind : RedirectionKind) (target : CommandArg)
+
+  inductive RunTail where
+    | argument (argument : CommandArg)
+    | redirection (redirection : Redirection)
+
+  inductive EnvValue where
+    | argument (argument : CommandArg)
+    | expression (value : Expr)
+
+  inductive RunSegment where
+    | mk (kind : RunKind) (options : List (RunOption × Expr)) (env : List (RawName × EnvValue))
+        (grouped : Bool) (target : CommandArg) (tail : List RunTail)
+
+  inductive RunForm where
+    | mk (segments : List RunSegment) (propagate : Bool) (captured : Bool)
+
+  inductive Command where
+    | proc (name : RawName) (arguments : List CommandArg)
+    | core (name : CoreCommand) (arguments : List CommandArg)
+    | run (form : RunForm)
 
   /-- Assignment roots are uses; an environment key is not a lexical variable. -/
   inductive AssignTarget where
@@ -313,6 +450,11 @@ end
 def withoutBoundNames (bound : List RawName) (names : List RawName) : List RawName :=
   names.filter fun name => !(bound.contains name)
 
+/-- The names a condition binds in the branch or body it selects. -/
+def conditionBoundFuel (fuel : Nat) : Expr → List RawName
+  | .patternCondition _ pattern => pattern.boundNamesFuel fuel
+  | _ => []
+
 mutual
   /-- Depth-bounded traversal keeps this executable even before parser parity. -/
   def freeExprFuel : Nat → List RawName → Expr → List RawName
@@ -336,6 +478,8 @@ mutual
             withoutBoundNames bound (pattern.freeReferencesFuel fuel) ++
               guard.toList.flatMap (freeExprFuel fuel armBound) ++
                 freeExprFuel fuel armBound value)
+      | .patternCondition subject pattern =>
+          freeExprFuel fuel bound subject ++ withoutBoundNames bound (pattern.freeReferencesFuel fuel)
       | .unary _ value => freeExprFuel fuel bound value
       | .comparisonChain first rest =>
           freeExprFuel fuel bound first ++
@@ -414,11 +558,13 @@ mutual
       | .defer _ action => freeExprFuel fuel bound action ++ freeStatementsFuel fuel bound rest
       | .ifStmt branches otherwise =>
           branches.flatMap (fun (condition, body) =>
-            freeExprFuel fuel bound condition ++ freeStatementsFuel fuel bound body) ++
+            freeExprFuel fuel bound condition ++
+              freeStatementsFuel fuel (conditionBoundFuel fuel condition ++ bound) body) ++
               otherwise.toList.flatMap (freeStatementsFuel fuel bound) ++
                 freeStatementsFuel fuel bound rest
       | .whileStmt condition body =>
-          freeExprFuel fuel bound condition ++ freeStatementsFuel fuel bound body ++
+          freeExprFuel fuel bound condition ++
+            freeStatementsFuel fuel (conditionBoundFuel fuel condition ++ bound) body ++
             freeStatementsFuel fuel bound rest
       | .forStmt target iterable body =>
           freeExprFuel fuel bound iterable ++
@@ -448,6 +594,70 @@ mutual
               guard.toList.flatMap (freeExprFuel fuel armBound) ++
                 freeStatementsFuel fuel armBound body) ++
             freeStatementsFuel fuel bound rest
+      | .use path alias =>
+          freeStatementsFuel fuel ((alias.toList ++ path.getLast?.toList).take 1 ++ bound) rest
+      | .export declaration => freeStatementsFuel fuel bound (declaration :: rest)
+      | .typeDef name _ body _ _ =>
+          freeTypeDefBodyFuel fuel bound body ++ freeStatementsFuel fuel (name :: bound) rest
+      | .errorDef name _ => freeStatementsFuel fuel (name :: bound) rest
+      | .functionDef _ name parameters _ _ body cliMetadata _ =>
+          let (parameterUses, parameterBound) := freeParametersFuel fuel (name :: bound) parameters
+          cliMetadata.toList.flatMap (freeExprFuel fuel bound) ++ parameterUses ++
+            freeStatementsFuel fuel parameterBound body ++ freeStatementsFuel fuel (name :: bound) rest
+      | .signalHook _ _ _ body => freeStatementsFuel fuel bound body ++ freeStatementsFuel fuel bound rest
+      | .sugar _ expansion => freeStatementsFuel fuel bound (expansion :: rest)
+      | .command command _ => freeCommandFuel fuel bound command ++ freeStatementsFuel fuel bound rest
+
+  /-- Each default sees the function and the earlier parameters. -/
+  def freeParametersFuel : Nat → List RawName → List Parameter → List RawName × List RawName
+    | 0, bound, _ => ([], bound)
+    | _fuel + 1, bound, [] => ([], bound)
+    | fuel + 1, bound, .mk name _ default _ :: rest =>
+        let (laterUses, finalBound) := freeParametersFuel fuel (name :: bound) rest
+        (default.toList.flatMap (freeExprFuel fuel bound) ++ laterUses, finalBound)
+
+  def freeTypeDefBodyFuel : Nat → List RawName → TypeDefBody → List RawName
+    | 0, _, _ => []
+    | fuel + 1, bound, body => match body with
+      | .alias _ => []
+      | .recordSchema fields => fields.flatMap fun
+          | .mk _ _ default => default.toList.flatMap (freeExprFuel fuel bound)
+      | .moduleContract entries _ => entries.flatMap fun
+          | .value _ _ _ => []
+          | .procEntry _ _ parameters _ _ => (freeParametersFuel fuel bound parameters).1
+          | .pureEntry _ _ parameters _ => (freeParametersFuel fuel bound parameters).1
+      | .tagUnion variants => variants.flatMap fun
+          | .mk _ _ wire => wire.toList.flatMap (freeExprFuel fuel bound)
+
+  def freeCommandArgFuel : Nat → List RawName → CommandArg → List RawName
+    | 0, _, _ => []
+    | fuel + 1, bound, argument => match argument with
+      | .word parts => parts.flatMap fun
+          | .bare _ => []
+          | .quoted _ => []
+          | .shorthand value => freeExprFuel fuel bound value
+          | .interpolation value => freeExprFuel fuel bound value
+      | .spliceName name => withoutBoundNames bound [name]
+      | .spliceExpr value => freeExprFuel fuel bound value
+      | .typed value => freeExprFuel fuel bound value
+
+  def freeCommandFuel : Nat → List RawName → Command → List RawName
+    | 0, _, _ => []
+    | fuel + 1, bound, command => match command with
+      | .proc name arguments =>
+          withoutBoundNames bound [name] ++ arguments.flatMap (freeCommandArgFuel fuel bound)
+      | .core _ arguments => arguments.flatMap (freeCommandArgFuel fuel bound)
+      | .run (.mk segments _ _) => segments.flatMap fun
+          | .mk _ options env _ target tail =>
+            options.flatMap (fun (_, value) => freeExprFuel fuel bound value) ++
+              env.flatMap (fun (_, value) => match value with
+                | .argument argument => freeCommandArgFuel fuel bound argument
+                | .expression value => freeExprFuel fuel bound value) ++
+              freeCommandArgFuel fuel bound target ++
+              tail.flatMap (fun
+                | .argument argument => freeCommandArgFuel fuel bound argument
+                | .redirection (.path _ target) => freeCommandArgFuel fuel bound target
+                | .redirection (.fd _ target) => freeCommandArgFuel fuel bound target)
 
   def freeExprsFuel : Nat → List RawName → List Expr → List RawName
     | 0, _, _ => []
@@ -606,6 +816,40 @@ theorem depth_bound_can_omit_earlier_subtree_and_retain_later_siblings :
     freeNamesFuel 3 (.binary .add
       (.unary .not (.unary .not (.ident nameX)))
       (.binary .add (.ident nameY) (.ident nameZ))) = [nameY, nameZ] := by
+  decide
+
+theorem function_parameters_scope_over_later_defaults_and_body :
+    freeNamesFuel 32 (.valueBlock [
+      .functionDef .proc nameX [.mk nameY none none false, .mk nameZ none (some (.ident nameY)) false]
+        none none [.expression (.binary .add (.ident nameY) (.ident nameZ))] none false,
+      .expression (.call (.ident nameX) [])
+    ]) = [] := by
+  decide
+
+theorem parameter_default_does_not_see_a_later_parameter :
+    freeNamesFuel 32 (.valueBlock [
+      .functionDef .pure nameX [.mk nameY none (some (.ident nameZ)) false, .mk nameZ none none false]
+        none none [] none false
+    ]) = [nameZ] := by
+  decide
+
+theorem exported_binding_scopes_over_the_rest_of_the_block :
+    freeNamesFuel 32 (.valueBlock [
+      .export (.binding .letBinding (.name nameX) none (.literal (.integer "1"))),
+      .expression (.ident nameX)
+    ]) = [] := by
+  decide
+
+theorem sugar_is_read_through_its_expansion :
+    freeNamesFuel 32 (.valueBlock [.sugar .whenForm (.ifStmt [(.ident nameX, [.expression (.ident nameY)])] none)])
+      = [nameX, nameY] := by
+  decide
+
+theorem command_operands_are_uses :
+    freeNamesFuel 32 (.valueBlock [
+      .command (.run (.mk [.mk .plain [(.timeout, .ident nameX)] [] false (.word [.bare "make"])
+        [.argument (.spliceName nameY)]] false false)) false
+    ]) = [nameX, nameY] := by
   decide
 
 theorem name_and_binder_numeric_payloads_may_match :

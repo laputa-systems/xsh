@@ -1,0 +1,17 @@
+name = "xsh_impl"
+defaultTargets = ["XshImpl"]
+buildDir = "../../../../.work/impl-build"
+packagesDir = "../../../../.work/impl-packages"
+
+[[require]]
+name = "aeneas"
+git = "https://github.com/laputa-systems/aeneas.git"
+rev = "6d7c51a5bcaafd876542afa5804f53b4173abaff"
+subDir = "backends/lean"
+
+[[require]]
+name = "xsh"
+path = "../../../../formal"
+
+[[lean_lib]]
+name = "XshImpl"

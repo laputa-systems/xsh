@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -2376,6 +2377,308 @@ def normalized_test_outcome(case: dict[str, Any]) -> dict[str, Any]:
     return outcome
 
 
+IMPLEMENTATION_PROOF_KEYS = {
+    "id",
+    "evidence_class",
+    "status",
+    "obligation",
+    "related_obligations",
+    "subject",
+    "callers",
+    "property",
+    "domain",
+    "sources",
+    "copies",
+    "translation",
+    "proof_sources",
+    "toolchain",
+    "proof",
+    "assumptions",
+    "reproduction",
+    "resources",
+    "boundary",
+}
+IMPLEMENTATION_TOOLCHAIN_KEYS = {
+    "extraction_rust",
+    "charon",
+    "aeneas_release",
+    "aeneas_archive_sha256",
+    "aeneas_library",
+    "mathlib",
+    "lean",
+    "aeneas_library_repository",
+}
+IMPLEMENTATION_PROOF_PARTS = {"project", "theorem", "specification", "witnesses", "negative_controls"}
+IMPLEMENTATION_HARNESS = "dev/verify/aeneas"
+
+
+def file_sha256(root: Path, relative: Any, description: str) -> str:
+    path = root / require_text(relative, f"{description} path")
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise InventoryError(f"cannot read {description} {relative}: {exc}") from exc
+
+
+def rust_item_block(source: str, declaration: str) -> str:
+    lines = source.splitlines()
+    try:
+        start = lines.index(declaration)
+    except ValueError as exc:
+        raise InventoryError(f"declaration {declaration!r} is missing") from exc
+    first = start
+    while first > 0 and lines[first - 1].startswith("#["):
+        first -= 1
+    try:
+        end = lines.index("}", start)
+    except ValueError as exc:
+        raise InventoryError(f"declaration {declaration!r} is not closed") from exc
+    return "\n".join(lines[first : end + 1]) + "\n"
+
+
+def expected_proof_sources(
+    root: Path, module_sources: dict[str, Path], separately_hashed: set[str]
+) -> set[str]:
+    harness = root / IMPLEMENTATION_HARNESS
+    paths: set[str] = set()
+    imported: set[str] = set()
+    for path in harness.rglob("*"):
+        if not path.is_file() or ".lake" in path.relative_to(harness).parts:
+            continue
+        relative = path.relative_to(root).as_posix()
+        if relative not in separately_hashed:
+            paths.add(relative)
+        if path.suffix == ".lean":
+            for line in path.read_text(encoding="utf-8").splitlines():
+                declaration = line.split("--", 1)[0].strip()
+                if declaration.startswith("import "):
+                    imported.update(declaration.removeprefix("import ").split())
+    imports_by_module = lean_import_graph(module_sources)
+    pending = [name for name in imported if name in module_sources]
+    closure: set[str] = set()
+    while pending:
+        module = pending.pop()
+        if module in closure:
+            continue
+        closure.add(module)
+        pending.extend(name for name in imports_by_module[module] if name in module_sources)
+    paths.update(module_sources[module].relative_to(root).as_posix() for module in closure)
+    return paths
+
+
+def validate_reproduction(identifier: str, commands: Any) -> None:
+    if not isinstance(commands, list) or not commands:
+        raise InventoryError(f"implementation proof {identifier} needs reproduction commands")
+    for item in commands:
+        if not isinstance(item, dict) or set(item) != {"command", "requires"}:
+            raise InventoryError(f"implementation proof {identifier} reproduction step has an invalid shape")
+        command = item["command"]
+        if not isinstance(command, list) or not command:
+            raise InventoryError(f"implementation proof {identifier} reproduction step needs a command")
+        for part in command:
+            require_text(part, f"implementation proof {identifier} reproduction argument")
+            if part.startswith(".work/") or "/.work/" in part:
+                raise InventoryError(
+                    f"implementation proof {identifier} reproduction command uses the disposable .work tree: {part}"
+                )
+        require_text(item["requires"], f"implementation proof {identifier} reproduction requirement")
+
+
+def harness_declarations(root: Path, project: str, keyword: str) -> set[str]:
+    declarations: set[str] = set()
+    for path in (root / project).rglob("*.lean"):
+        if ".lake" not in path.parts:
+            declarations |= lean_declarations(path.read_text(encoding="utf-8"), keyword)
+    return declarations
+
+
+def validate_implementation_toolchain(root: Path, identifier: str, toolchain: Any) -> None:
+    if not isinstance(toolchain, dict) or set(toolchain) != IMPLEMENTATION_TOOLCHAIN_KEYS:
+        raise InventoryError(f"implementation proof {identifier} toolchain has an invalid shape")
+    for key in IMPLEMENTATION_TOOLCHAIN_KEYS:
+        require_text(toolchain[key], f"implementation proof {identifier} toolchain {key}")
+    harness = root / IMPLEMENTATION_HARNESS
+    pins = {
+        "extract.sh": [
+            f"release={toolchain['aeneas_release']}\n",
+            f"archive_sha256={toolchain['aeneas_archive_sha256']}\n",
+            f"charon_version='{toolchain['charon']}'\n",
+        ],
+        "extract.Dockerfile": [f"--default-toolchain {toolchain['extraction_rust']} "],
+    }
+    for name, expected in pins.items():
+        text = (harness / name).read_text(encoding="utf-8")
+        for pin in expected:
+            if pin not in text:
+                raise InventoryError(
+                    f"stale implementation proof {identifier}: {IMPLEMENTATION_HARNESS}/{name} "
+                    f"does not pin {pin.strip()!r}"
+                )
+    lean = f"leanprover/lean4:v{toolchain['lean']}\n"
+    for path in (harness / "lean/lean-toolchain", root / "formal/lean-toolchain"):
+        if path.read_text(encoding="utf-8") != lean:
+            raise InventoryError(
+                f"stale implementation proof {identifier}: {path.relative_to(root)} is not {lean.strip()}"
+            )
+    manifest = load_json(harness / "lean/lake-manifest.json")
+    revisions = {
+        package.get("name"): package.get("rev")
+        for package in manifest.get("packages", [])
+        if isinstance(package, dict)
+    }
+    for package, key in (("aeneas", "aeneas_library"), ("mathlib", "mathlib")):
+        if revisions.get(package) != toolchain[key]:
+            raise InventoryError(
+                f"stale implementation proof {identifier}: the Lean manifest pins {package} "
+                f"at {revisions.get(package)!r}, not {toolchain[key]!r}"
+            )
+    repository = toolchain["aeneas_library_repository"]
+    aeneas = next(
+        (package for package in manifest.get("packages", []) if isinstance(package, dict) and package.get("name") == "aeneas"),
+        {},
+    )
+    lakefile = (harness / "lean/lakefile.toml").read_text(encoding="utf-8")
+    if (
+        aeneas.get("url") != repository
+        or aeneas.get("inputRev") != toolchain["aeneas_library"]
+        or f'git = "{repository}"\nrev = "{toolchain["aeneas_library"]}"\n' not in lakefile
+    ):
+        raise InventoryError(
+            f"stale implementation proof {identifier}: the Lake configuration does not require "
+            f"aeneas from {repository} at {toolchain['aeneas_library']}"
+        )
+
+
+def validate_implementation_proofs(
+    root: Path,
+    proofs: Any,
+    obligations: Any,
+    module_sources: dict[str, Path],
+) -> list[str]:
+    if not isinstance(proofs, list):
+        raise InventoryError("implementation_proofs must be an array")
+    statuses = {
+        entry.get("id"): entry.get("status")
+        for entry in obligations
+        if isinstance(entry, dict)
+    }
+    formal_definitions: set[str] = set()
+    for path in module_sources.values():
+        formal_definitions |= lean_definition_declarations(path.read_text(encoding="utf-8"))
+    seen: list[str] = []
+    for entry in proofs:
+        if not isinstance(entry, dict) or set(entry) != IMPLEMENTATION_PROOF_KEYS:
+            raise InventoryError("implementation proof row has an invalid shape")
+        identifier = require_text(entry["id"], "implementation proof id")
+        if identifier in seen:
+            raise InventoryError(f"duplicate implementation proof id {identifier}")
+        seen.append(identifier)
+        if entry["evidence_class"] != "EXTRACTED_REFINEMENT":
+            raise InventoryError(f"implementation proof {identifier} must use EXTRACTED_REFINEMENT")
+        if entry["status"] not in {"checked", "stale"}:
+            raise InventoryError(f"implementation proof {identifier} status must be checked or stale")
+        if statuses.get(entry["obligation"]) != "planned":
+            raise InventoryError(
+                f"implementation proof {identifier} must name a planned obligation, "
+                f"not {entry['obligation']!r}"
+            )
+        related = entry["related_obligations"]
+        if not isinstance(related, list) or not related or any(name not in statuses for name in related):
+            raise InventoryError(f"implementation proof {identifier} names an unknown related obligation")
+        for field in ("subject", "property", "domain", "boundary"):
+            require_text(entry[field], f"implementation proof {identifier} {field}")
+        for field in ("callers", "assumptions"):
+            if not isinstance(entry[field], list) or not entry[field]:
+                raise InventoryError(f"implementation proof {identifier} needs {field}")
+            for item in entry[field]:
+                require_text(item, f"implementation proof {identifier} {field}")
+        if not isinstance(entry["resources"], dict) or not entry["resources"]:
+            raise InventoryError(f"implementation proof {identifier} needs measured resources")
+        validate_reproduction(identifier, entry["reproduction"])
+
+        proof = entry["proof"]
+        if not isinstance(proof, dict) or set(proof) != IMPLEMENTATION_PROOF_PARTS:
+            raise InventoryError(f"implementation proof {identifier} proof has an invalid shape")
+        if proof["project"] != f"{IMPLEMENTATION_HARNESS}/lean":
+            raise InventoryError(f"implementation proof {identifier} names another proof project")
+        theorems = harness_declarations(root, proof["project"], "theorem")
+        named = [proof["theorem"]]
+        named += qualified_names(proof["witnesses"], f"implementation proof {identifier} witnesses", 1)
+        named += qualified_names(
+            proof["negative_controls"], f"implementation proof {identifier} negative controls", 1
+        )
+        for name in named:
+            if name not in theorems:
+                raise InventoryError(f"implementation proof {identifier} names no theorem {name}")
+        for name in qualified_names(
+            proof["specification"], f"implementation proof {identifier} specification", 1
+        ):
+            if not name.startswith("Xsh.") or name not in formal_definitions:
+                raise InventoryError(
+                    f"implementation proof {identifier} specification {name} is not a formal definition"
+                )
+
+        translation = entry["translation"]
+        if not isinstance(translation, dict) or set(translation) != {"path", "sha256", "definition"}:
+            raise InventoryError(f"implementation proof {identifier} translation has an invalid shape")
+        translated = (root / require_text(translation["path"], "translation path")).read_text(encoding="utf-8")
+        if translation["definition"] not in lean_definition_declarations(translated):
+            raise InventoryError(
+                f"implementation proof {identifier} translation does not define {translation['definition']}"
+            )
+        sources = entry["sources"]
+        copies = entry["copies"]
+        if not isinstance(sources, list) or not sources or not isinstance(copies, list):
+            raise InventoryError(f"implementation proof {identifier} needs source identities")
+        proof_sources = entry["proof_sources"]
+        if (
+            not isinstance(proof_sources, list)
+            or any(not isinstance(item, dict) or set(item) != {"path", "sha256"} for item in proof_sources)
+        ):
+            raise InventoryError(f"implementation proof {identifier} proof sources have an invalid shape")
+        if entry["status"] == "stale":
+            continue
+        separately_hashed = {translation["path"]}
+        separately_hashed.update(copy.get("path") for copy in copies if isinstance(copy, dict))
+        recorded = [item["path"] for item in proof_sources]
+        expected_paths = expected_proof_sources(root, module_sources, separately_hashed)
+        if len(set(recorded)) != len(recorded) or set(recorded) != expected_paths:
+            raise InventoryError(
+                f"stale implementation proof {identifier}: proof sources differ from the harness and its "
+                f"formal import closure (missing {sorted(expected_paths - set(recorded))[:4]}, "
+                f"unexpected {sorted(set(recorded) - expected_paths)[:4]})"
+            )
+        for item in proof_sources:
+            if file_sha256(root, item["path"], "proof source") != item["sha256"]:
+                raise InventoryError(
+                    f"stale implementation proof {identifier}: {item['path']} changed; "
+                    f"recheck with {IMPLEMENTATION_HARNESS}/check.sh and update the record"
+                )
+        for source in sources:
+            if not isinstance(source, dict) or set(source) != {"path", "sha256"}:
+                raise InventoryError(f"implementation proof {identifier} source has an invalid shape")
+            if file_sha256(root, source["path"], "source") != source["sha256"]:
+                raise InventoryError(
+                    f"stale implementation proof {identifier}: {source['path']} changed; "
+                    f"regenerate with {IMPLEMENTATION_HARNESS}/extract.sh, recheck, and update the record"
+                )
+        for copy in copies:
+            if not isinstance(copy, dict) or set(copy) != {"path", "sha256", "of", "declaration"}:
+                raise InventoryError(f"implementation proof {identifier} copy has an invalid shape")
+            if file_sha256(root, copy["path"], "copy") != copy["sha256"]:
+                raise InventoryError(f"stale implementation proof {identifier}: {copy['path']} changed")
+            original = (root / require_text(copy["of"], "copy origin")).read_text(encoding="utf-8")
+            if (root / copy["path"]).read_text(encoding="utf-8") != rust_item_block(original, copy["declaration"]):
+                raise InventoryError(
+                    f"stale implementation proof {identifier}: {copy['path']} is not the verbatim "
+                    f"{copy['declaration']!r} of {copy['of']}"
+                )
+        if file_sha256(root, translation["path"], "translation") != translation["sha256"]:
+            raise InventoryError(f"stale implementation proof {identifier}: {translation['path']} changed")
+        validate_implementation_toolchain(root, identifier, entry["toolchain"])
+    return seen
+
+
 def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
     if not isinstance(coverage, dict):
         raise InventoryError("coverage root must be an object")
@@ -2390,13 +2693,14 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         "universal_theorems",
         "finite_conformance",
         "evidence_classes",
+        "implementation_proofs",
     }
     if set(coverage) != required_root_keys:
         raise InventoryError(
             f"coverage root keys differ: missing={sorted(required_root_keys - set(coverage))}, "
             f"unknown={sorted(set(coverage) - required_root_keys)}"
         )
-    if type(coverage["schema"]) is not int or coverage["schema"] != 3:
+    if type(coverage["schema"]) is not int or coverage["schema"] != 4:
         raise InventoryError("unsupported coverage schema")
     validate_source_identity(root, coverage["source_state"], coverage["source_identity"])
     if not isinstance(coverage["scope"], str) or not coverage["scope"].strip():
@@ -2427,9 +2731,15 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         compare_owner_items(owner_id, entry["items"], live[owner_id])
 
     classes = coverage["evidence_classes"]
-    class_names = {"SPEC_PROVED", "RUST_CONFORMANCE", "ARTIFACT_CERTIFIED", "EXTERNAL_ASSUMPTION"}
+    class_names = {
+        "SPEC_PROVED",
+        "RUST_CONFORMANCE",
+        "ARTIFACT_CERTIFIED",
+        "EXTERNAL_ASSUMPTION",
+        "EXTRACTED_REFINEMENT",
+    }
     if not isinstance(classes, list) or len(classes) != len(class_names):
-        raise InventoryError("evidence_classes must name the four campaign evidence classes")
+        raise InventoryError("evidence_classes must name the five campaign evidence classes")
     class_map: dict[str, dict[str, Any]] = {}
     for entry in classes:
         if not isinstance(entry, dict) or set(entry) != {"class", "status"}:
@@ -2480,7 +2790,11 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         coverage["source_state"],
         coverage["source_identity"],
     )
+    implementation_proofs = validate_implementation_proofs(
+        root, coverage["implementation_proofs"], coverage["universal_theorems"], module_sources
+    )
     return {
+        "implementation_proofs": implementation_proofs,
         "owners": live,
         "fragment_roots": fragment_root_ids,
         "artifact_certificates": certificate_ids,
@@ -2513,7 +2827,8 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(result['fragment_roots'])} Lean fragment roots, "
         f"{len(result['artifact_certificates'])} artifact certificates, "
         f"{len(result['obligations'])} theorem obligations "
-        f"({len(result['closed_obligations'])} closed)"
+        f"({len(result['closed_obligations'])} closed), "
+        f"{len(result['implementation_proofs'])} implementation proofs"
     )
     return 0
 

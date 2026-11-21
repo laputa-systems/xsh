@@ -1,0 +1,288 @@
+{
+  "upstream": {
+    "tag": "v1.4.7",
+    "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
+  },
+  "defaults": [
+    {
+      "key": "rounded_corners",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[rounded_corners]@299"
+    },
+    {
+      "key": "terminal_sync",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[terminal_sync]@357"
+    },
+    {
+      "key": "graph_symbol",
+      "value": "braille",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol]@255"
+    },
+    {
+      "key": "graph_symbol_cpu",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_cpu]@258"
+    },
+    {
+      "key": "graph_symbol_mem",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_mem]@260"
+    },
+    {
+      "key": "graph_symbol_net",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_net]@261"
+    },
+    {
+      "key": "graph_symbol_proc",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_proc]@262"
+    },
+    {
+      "key": "shown_boxes",
+      "value": "cpu mem net proc",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[shown_boxes]@254"
+    },
+    {
+      "key": "update_ms",
+      "value": 2000,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[update_ms]@364"
+    },
+    {
+      "key": "proc_sorting",
+      "value": "cpu lazy",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[proc_sorting]@263"
+    },
+    {
+      "key": "proc_reversed",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_reversed]@300"
+    },
+    {
+      "key": "proc_tree",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_tree]@301"
+    },
+    {
+      "key": "proc_colors",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_colors]@302"
+    },
+    {
+      "key": "proc_gradient",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_gradient]@303"
+    },
+    {
+      "key": "proc_per_core",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_per_core]@304"
+    },
+    {
+      "key": "proc_mem_bytes",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_mem_bytes]@305"
+    },
+    {
+      "key": "proc_cpu_graphs",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_cpu_graphs]@306"
+    },
+    {
+      "key": "proc_left",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_left]@308"
+    },
+    {
+      "key": "proc_aggregate",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_aggregate]@344"
+    },
+    {
+      "key": "cpu_graph_upper",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_graph_upper]@264"
+    },
+    {
+      "key": "cpu_graph_lower",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_graph_lower]@265"
+    },
+    {
+      "key": "cpu_invert_lower",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_invert_lower]@310"
+    },
+    {
+      "key": "cpu_single_graph",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_single_graph]@311"
+    },
+    {
+      "key": "cpu_bottom",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_bottom]@312"
+    },
+    {
+      "key": "show_uptime",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_uptime]@313"
+    },
+    {
+      "key": "check_temp",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[check_temp]@315"
+    },
+    {
+      "key": "cpu_sensor",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_sensor]@266"
+    },
+    {
+      "key": "show_coretemp",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_coretemp]@316"
+    },
+    {
+      "key": "cpu_core_map",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_core_map]@268"
+    },
+    {
+      "key": "temp_scale",
+      "value": "celsius",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[temp_scale]@269"
+    },
+    {
+      "key": "base_10_sizes",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[base_10_sizes]@331"
+    },
+    {
+      "key": "show_cpu_freq",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_cpu_freq]@317"
+    },
+    {
+      "key": "freq_mode",
+      "value": "first",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[freq_mode]@271"
+    },
+    {
+      "key": "clock_format",
+      "value": "%X",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[clock_format]@273"
+    },
+    {
+      "key": "disks_filter",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[disks_filter]@275"
+    },
+    {
+      "key": "mem_graphs",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[mem_graphs]@319"
+    },
+    {
+      "key": "mem_below_net",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[mem_below_net]@320"
+    },
+    {
+      "key": "show_swap",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_swap]@322"
+    },
+    {
+      "key": "swap_disk",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[swap_disk]@323"
+    },
+    {
+      "key": "show_disks",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_disks]@324"
+    },
+    {
+      "key": "only_physical",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[only_physical]@325"
+    },
+    {
+      "key": "use_fstab",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[use_fstab]@326"
+    },
+    {
+      "key": "show_io_stat",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_io_stat]@328"
+    },
+    {
+      "key": "io_mode",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[io_mode]@329"
+    },
+    {
+      "key": "io_graph_combined",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[io_graph_combined]@332"
+    },
+    {
+      "key": "io_graph_speeds",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[io_graph_speeds]@276"
+    },
+    {
+      "key": "swap_upload_download",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[swap_upload_download]@330"
+    },
+    {
+      "key": "net_download",
+      "value": 100,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[net_download]@365"
+    },
+    {
+      "key": "net_upload",
+      "value": 100,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[net_upload]@366"
+    },
+    {
+      "key": "net_auto",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[net_auto]@333"
+    },
+    {
+      "key": "net_sync",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[net_sync]@334"
+    },
+    {
+      "key": "net_iface",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[net_iface]@277"
+    },
+    {
+      "key": "base_10_bitrate",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[base_10_bitrate]@278"
+    },
+    {
+      "key": "show_battery",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_battery]@335"
+    },
+    {
+      "key": "selected_battery",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[selected_battery]@267"
+    },
+    {
+      "key": "show_battery_watts",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_battery_watts]@336"
+    }
+  ]
+}

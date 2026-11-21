@@ -223,7 +223,10 @@ continuation; `"a\` at the end of a line is `lex.invalid-escape`.
 ### 2.6 Literals
 
 **Strings.** `"..."` supports the escapes `\\`, `\"`, `\$`, `\n`, `\r`,
-`\t`, `\0`, `\xNN`, and `\u{HEX}`, and must decode to valid UTF-8. Raw strings
+`\t`, `\0`, `\xNN`, and `\u{HEX}`, and must decode to valid UTF-8. Any other
+escape, including a backslash before a line end, is `lex.invalid-escape`; a
+string still open at the end of input, even just after a backslash, is
+`lex.unterminated-string`. Raw strings
 `r"..."` decode no escapes. Expression strings never interpolate: `"$name"` is
 literal text (`lint.dollar-in-expression-string` warns when it names a
 binding).
@@ -3229,10 +3232,12 @@ Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 `Result` tail stays nested (`try { op() }` is `Result[Result[T]]`; write
 `try { op()? }`). Explicit `?`, failed conversions (`value as T`),
 statement-position `Result[Unit]` failures,
-failed assertions, and failed plain `run` statements inside the block become
-`Err`. `return`, `break`, and `continue` keep their ordinary targets, so
+failed assertions, failed plain `run` statements, and the `Map[UInt, V]` key
+`Schema` failure (6.6) inside the block become `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
-type failures, `exit`, and cancellation are not captured. The tail value is
+type failures, other runtime failures such as `index-out-of-range`,
+`division-by-zero` and `integer-overflow`, `exit`, and cancellation are not
+captured. The tail value is
 computed before the block's defers run; a cleanup failure becomes the `Err`
 when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success

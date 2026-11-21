@@ -1,0 +1,11 @@
+[package]
+name = "xsh_arith_slice"
+version = "0.0.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[workspace]
