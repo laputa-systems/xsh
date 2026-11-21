@@ -300,6 +300,41 @@ computed and path fields, comprehensions, pipelines, closures, named, spread
 and splice arguments and defaults, collection equality, host requests and the
 `Map[UInt]` key Schema failure have no meaning here.
 
+The `statement_control` fragment root is in
+[`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean), over the statement
+machine in [`Semantics/CoreControl.lean`](Xsh/Semantics/CoreControl.lean). The
+machine runs `let`, `var` and `const`, name and field-path assignment,
+environment assignment, expression and bare-block statements, `if`/`else` and
+`if let`, `while` and `while let`, `for` over a `List`, `loop`, `break`,
+`continue`, `match` with literal, binding, wildcard, record and list patterns
+and guards, `return`, `assert` and sugar through its expansion. A block function
+body runs in its defining environment with its tail expression as its value.
+Each block, branch, iteration and arm is a scope: leaving it restores the
+environment and locals and drops the cells allocated inside it. Outcomes are
+normal completion, `break`, `continue`, `return` with a value, a failure (raised,
+runtime or type error, so `try` captures exactly the raised ones, SPEC 8.8), an
+internal fault, stuck, unsupported, and out of fuel. The root proves that a
+finished block or statement list is the same at every fuel, that every outcome
+keeps the cells it started with at their types, that blocks and control
+statements restore their scope and so keep a frame consistent with any typing
+context it satisfied, that `while false` completes unchanged, that a loop ends
+normally on `break` while a block passes it on, that `return` skips the rest
+of a block and leaves a `for` loop, and that pattern captures and `for`
+targets bind cells that resolve in the bound body. `if let` and `while let`
+use the new `Expr.patternCondition`, mirroring `ArenaExprKind::PatternCondition`;
+a pattern that cannot fail is an optional binding that rejects `null`. The
+witnesses show that shadowing restores after a block, that a `for` variable
+does not resolve after the loop, that `continue` skips the rest of the body
+but advances, that a nested `break` ends only the inner loop, and that
+`return` leaves a loop and a block function body. Three mutants are rejected:
+a `for` that leaks its variable, a `break` that ends two loops, and a `return`
+that only breaks. BASE-STEP and BASE-ENV stay planned: `Status` conditions,
+`for` over streams, maps, strings and bytes, `break` with a value, `return`
+without one, index-selector assignment, `defer`, `errdefer` and cleanup,
+`guard let`, `with`, resource and `tempdir` scopes, `yield`, `exit`,
+declarations, commands, and alternation, alias, constructor, type and text
+patterns have no meaning here.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,

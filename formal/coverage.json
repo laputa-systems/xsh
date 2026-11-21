@@ -15144,6 +15144,15 @@
       "boundary": "Typed covers only the evaluator's forms: Int, Float, Duration, Str and Bool operators without UInt or union operands, lists, named-field records with distinct fields, list and map indexing, if/else and positional calls of named let-free functions. Unions, subtyping, generics, methods and the checker's own judgment are not modelled, and no correspondence with the Rust checker is claimed. It does not close BASE-STEP."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Control.statement_control",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.statement_control",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A fuel-bounded statement machine over Syntax.Core for let/var/const, name and field-path assignment, environment assignment, expression and bare-block statements, if/else and if let, while and while let, for over a list, loop, break, continue, match with literal, binding, wildcard, record and list patterns and guards, return, assert and sugar expansions, with block function bodies evaluated in their defining environment: finished blocks and statement lists agree at every fuel, every outcome keeps the cells it started with at their types, blocks and control statements restore the environment and locals and keep any typing context the frame satisfied, while false completes unchanged, loops end normally on break while blocks pass it on, return skips the rest of a block and leaves a for loop, and pattern captures and for targets bind cells that resolve in the bound body and are dropped on exit.",
+      "boundary": "Conditions are Bool only (no Status); for iterates List values only; break with a value, return without a value, index-selector assignment, defer, errdefer, cleanup, guard, with and resource scopes, yield, exit, use, declarations and commands are unsupported; a block function body may not write the caller's cells or the environment overlay; alternation, alias, constructor, type and text patterns are unsupported; the checker's binders, cells and types come from the resolution oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
