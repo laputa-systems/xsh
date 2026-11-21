@@ -1,0 +1,110 @@
+{
+  "schema": "codemode-manifest/1",
+  "phase": "sessions",
+  "split": "session",
+  "created": "2026-11-21T12:48:02Z",
+  "model": "opencode-go/hy4-flash-free",
+  "thinking_requested": "medium",
+  "pi_version": "1.5.0",
+  "toolchain": {
+    "xsh": "08d7fe15e786931b9422a66df676de9477b0adfcfeb07611df360ca653985074",
+    "xsht": "a4a5c9be204a301886dcab45c07606d0e589d64e5f28b821ab04bb012cd94e54"
+  },
+  "images": {
+    "xsh": "oci.17166969.xyz/xsh/test@sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "xsh_id": "sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6",
+    "ts_tag": "xsh-codemode-ts:local",
+    "ts_id": "sha256:b149f7ea2b99f98cf09a1fd7c12ae80794812d020618b1bca90d66314b50f958",
+    "ts_base": "node@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5"
+  },
+  "harness": {
+    "head": "3d0f63414c0d887b0f5a19f3946d5842333141a0",
+    "bench_dirty": false,
+    "lane_base": "c68ac9594",
+    "sx_revision": "9e9e4e5bf3fcb834748eafedd227e22f5c95b527"
+  },
+  "host": {
+    "platform": "Linux-7.2.9-2-stable-x86_64-with-musl1",
+    "python": "3.15.1"
+  },
+  "extraction_rule": "Take the first fenced code block whose info string's first word is the arm's tag (xsh: `xsh`; ts: `ts`, `typescript` or `mts`); otherwise the first fenced block of any tag; otherwise the whole reply. Strip surrounding whitespace. An empty result is no answer.",
+  "contexts": {
+    "xsh-baseline": {
+      "file": "baseline.md",
+      "sha256": "131a0dce99459c5a4f7acf05586567401c8725c418fffcc9e76ca8cc2f000487",
+      "bytes": 90824
+    },
+    "xsh-selected": {
+      "file": "selected.md",
+      "sha256": "b000c759c7ce6523a27405b345923187b1b33a7d8762ebed3992d9a9e1f6d357",
+      "bytes": 8178
+    }
+  },
+  "tasks": {
+    "session-du-summary": "55c3fb7eda494e00d5d51d64004b1af1c6bc2ad819d2ff61acea6c89adae9105",
+    "session-encode-batch": "611841bb003a841fa50d0dba1af803ec44cef6814a3676ff7f6a24700ae8380e",
+    "session-mirror-sync": "36fcbbda7377e73ff55cb4fe7239c641ac8ff902ae225a0a872cedd6cc9e77c4",
+    "session-oncall-report": "b48a1481b08de1a6eb36f9855a7c22d40d3067f13fef5448238e4cfd3f2512db"
+  },
+  "samples": 1,
+  "seed": 20261121,
+  "jobs": 1,
+  "schedule": [
+    {
+      "cell": "session-mirror-sync/xsh-selected/0",
+      "task": "session-mirror-sync",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 0
+    },
+    {
+      "cell": "session-encode-batch/xsh-selected/0",
+      "task": "session-encode-batch",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 1
+    },
+    {
+      "cell": "session-du-summary/xsh-selected/0",
+      "task": "session-du-summary",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 2
+    },
+    {
+      "cell": "session-du-summary/xsh-baseline/0",
+      "task": "session-du-summary",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 3
+    },
+    {
+      "cell": "session-mirror-sync/xsh-baseline/0",
+      "task": "session-mirror-sync",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 4
+    },
+    {
+      "cell": "session-oncall-report/xsh-baseline/0",
+      "task": "session-oncall-report",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 5
+    },
+    {
+      "cell": "session-oncall-report/xsh-selected/0",
+      "task": "session-oncall-report",
+      "condition": "xsh-selected",
+      "sample": 0,
+      "order": 6
+    },
+    {
+      "cell": "session-encode-batch/xsh-baseline/0",
+      "task": "session-encode-batch",
+      "condition": "xsh-baseline",
+      "sample": 0,
+      "order": 7
+    }
+  ]
+}

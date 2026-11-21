@@ -82,7 +82,8 @@ Observed for `main.xsh` (`var text = "a"`, then `text += "b"` at top level):
 err[runtime.error]: += assignment cannot combine Str and Str
 ```
 
-The same `+=` inside a `for` body or a `proc` works, and `Int +=` works at top level. A
+The same `+=` inside a `for` body or a `proc` works, and `Int +=` works at top level.
+Master's XSH-158 records the same top-level path failing for `Duration`. A
 model's program hit it in the revision run (`dev-config-set/xsh-revised/1`, attempt 1);
 its repair avoided the append by joining a list that ends with an empty line, and passed. It was found during
 scored runs, so its handling is recorded rather than pre-set: the attempt counts as a
