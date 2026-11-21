@@ -2520,10 +2520,8 @@
       "id": "BASE-ENV",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.BASE-ENV",
-      "module": "Xsh.Proofs.Core.Writes",
-      "declaration": "Xsh.Proofs.Core.Writes.environments_and_store_writes"
+      "status": "planned",
+      "proof_root_id": "full.BASE-ENV"
     },
     {
       "id": "BASE-NUM",
@@ -15107,7 +15105,16 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
-      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes, environment assignment and unwinding are in environments_and_store_writes. Closes no full-core obligation by itself."
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes and unwinding are in store_writing_forms. Machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Writes.store_writing_forms",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.store_writing_forms",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Destructuring declarations, field, key and index path writes, compound assignment, environment assignment and unwinding with cleanup and try over the Core-guarded store, with selectors and the right side already evaluated: whole-cell re-checking, key-ordered insertion, negative Map[UInt, V] keys failing before the right side, uncaught runtime failures, all-or-nothing declarations and primary-failure unwinding.",
+      "boundary": "Stated on the CoreWorld API over resolved targets, not over Statement, AssignTarget or BindingTarget syntax; name resolution and operand evaluation are not modelled, operator meanings and the runtime error values are parameters, and machine steps are not modelled. It does not close BASE-ENV for the core and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",

@@ -185,42 +185,48 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
-BASE-ENV is closed by `environments_and_store_writes` in
-[`Proofs/Core/Writes.lean`](Xsh/Proofs/Core/Writes.lean), over the store-writing
-forms of [`Semantics/CoreWrites.lean`](Xsh/Semantics/CoreWrites.lean). It
-contains `environments_and_typed_stores` and covers each store-writing form of
-the frozen core's `Statement` syntax after name resolution and operand
-evaluation, which belong to the evaluator:
+The `store_writing_forms` fragment root is in
+[`Proofs/Core/Writes.lean`](Xsh/Proofs/Core/Writes.lean), over the forms of
+[`Semantics/CoreWrites.lean`](Xsh/Semantics/CoreWrites.lean). It is stated on
+the CoreWorld API over resolved targets with selectors and the right side
+already evaluated, so it does not close BASE-ENV, which needs a meaning over
+`Statement`, `AssignTarget` and `BindingTarget` syntax.
 
-- `let`/`var` with a `BindingTarget` (name, `_`, record with or without `..`),
-  also used by `for` and `guard let`, is `declareTarget`. SPEC 7: "all fields
+- `let`/`var` with a `BindingTarget` is `declareTarget`. SPEC 7: "all fields
   are selected before any name becomes visible"; the declaration commits every
-  cell or none, and `_` binds nothing.
-- `target = right` and `target op= right` for an `AssignTarget` root with
-  field, key and index selectors is `assignPath`. SPEC 7: "Selectors evaluate
-  once in path order, then the right side, then the update commits; a failed
-  update leaves the target unchanged", and a compound operator "reads the
-  target's current value when it commits". The update re-checks the whole
-  cell, a `=` update reads back its value at the path, an index outside the
-  list is `index-out-of-range` (SPEC 6.6, assignment does not count from the
-  end), and a negative key into `Map[UInt, V]` is the Schema error (SPEC 6.6).
-  The binary operator meaning is a parameter; BASE-NUM owns it.
-- `e"NAME" = value` is `setEnvironment` on the evaluator overlay; a NUL value
-  fails (SPEC 10.5).
-- `try` and unwinding are `unwind` and `tryBlock`: cleanups run innermost first
-  on the store the failure left, an earlier failure stays primary, `try`
-  catches raised errors and `type-error` propagates (SPEC 4.2).
+  cell or none, and `_` binds nothing. `..` (`hasRest`) is ignored because
+  records are width-compatible, which matches Rust.
+- `target sel… op= right` is `assignStatement` and `assignPath`. A negative
+  key into `Map[UInt, V]` fails with the catchable schema error while the
+  selectors evaluate, before the right side runs, as Rust does. The update
+  then commits on the store the right side left, re-checks the whole cell, and
+  a compound operator reads the target at commit (SPEC 7). An index outside
+  the list, a missing key under a deeper selector or a compound operator, and
+  an operator failure are runtime failures that `try` does not capture
+  (SPEC 8.8). A `=` write to a missing key inserts in key order (SPEC 4.5). A
+  field write on a filesystem entry publishes the entry's field record, which
+  follows Rust; the SPEC does not say. A key write into a record held in a
+  `Map[Str, V]` cell publishes a map. A well-typed path never reaches a
+  malformed state, and a field write through a nominal type, which the checker
+  rejects (`check.assign-target`), is not a typed path. The operator meanings
+  and the runtime error values are parameters; Rust's write path raises
+  `missing-field` for a missing key.
+- `e"NAME" = value` is `setEnvironment`; a NUL value is the uncaught
+  `nul-argv` failure of argv conversion (SPEC 10.5, 11.4).
+- `unwind` runs the cleanups of a block in reverse order of registration on
+  the store the failure left; an earlier failure stays primary and, after a
+  committed body, the first cleanup failure becomes primary; `try` catches only
+  raised errors.
 
-The SPEC names no error kind for a missing map key under a deeper selector or
-for a NUL environment value; `Raises` carries them, and the witnesses use
-Rust's `map-missing` and `env-value`. Pattern selection in `match`, `if let`
-and `while let` belongs to the match semantics; its bindings are declared as
-`declareAll` declares a target's. The witnesses commit a field write and read
-it back, reject a negative `UInt` field and an out-of-range or negative index
-with the store unchanged, reject a negative `Map[UInt, V]` key, show that `+=`
-reads the target after the right side, and reject an `env` value with NUL.
-Mutants detected: a non-atomic destructuring that keeps the first cell, and a
-cleanup failure that would replace a primary `type-error`.
+The witnesses commit a field write and read it back, reject a negative `UInt`
+field, show that out-of-range indices, `/=` by zero and a missing key under
+`+=` are not caught, that a negative `Map[UInt, V]` key fails before the right
+side runs, that a missing key is inserted in key order, that `x += e` reads
+`x` after `e` while `x = x + e` reads it first, that an entry field write and
+a record-in-map key write publish values, and that the last registered
+cleanup runs first. Mutants that each falsify a conjunct: counting a negative
+index from the end, defaulting a missing key, appending an inserted key, a
+non-atomic destructuring, and a cleanup failure that replaces the primary one.
 
 BASE-NUM is closed by `numeric_semantics` in
 [`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
@@ -346,15 +352,17 @@ value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
 and rejects the same write to the `NonEmpty` cell.
 
-VAL-STORE is closed by `validated_store_writes` in the same module. It adds
-every store-writing form of BASE-ENV: a field, key or index write or a compound
-assignment commits exactly when the whole updated cell value is a member, and
-otherwise raises `type-error` with the store unchanged, so no write breaks a
-refinement or a nominal schema; a committed write leaves a member in its cell
-and every other cell, including a validated holder, unchanged. `+=` on a
-`NonEmpty` cell commits through VAL-PRESERVE's `add_assign_commits`. The
-witnesses reject emptying a `NonEmpty` field through a path write and extend a
-`NonEmpty` cell with `+=`.
+VAL-STORE is closed by `validated_store_writes` in the same module, over every
+store-writing form of `store_writing_forms`: a field, key or index write or a
+compound assignment commits exactly when the whole updated cell value is a
+member, and otherwise raises `type-error` with the store unchanged, so no write
+breaks a refinement or a nominal schema; a commit changes no other cell,
+including a validated holder. `names[i] = v` on a `NonEmpty` cell commits
+VAL-PRESERVE's `replaceAt` (SPEC 4.13). Where `operate .add` is list
+concatenation, an explicit premise, `+=` on a `NonEmpty` cell commits through
+`add_assign_commits` and `+=` into a `NonEmpty` field of a well-formed record
+keeps the field `NonEmpty`. The witness that empties a `NonEmpty` field is
+model-level: Rust rejects that program at check time.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
