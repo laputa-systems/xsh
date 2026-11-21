@@ -48,11 +48,25 @@ def ExcludedBefore (previous2 previous1 : Option UInt8) : Bool :=
     (previous2 = some 102 && previous1 = some 112) ||
     (previous2 = some 114 && previous1 = some 120)
 
-def AvoidsQuotedPrefixes : Option UInt8 → Option UInt8 → List UInt8 → Bool
-  | _, _, [] => true
-  | previous2, previous1, byte :: rest =>
-      (if byte = QuoteByte then !ExcludedBefore previous2 previous1 else true) &&
-        AvoidsQuotedPrefixes previous1 (some byte) rest
+/-- Walk the bytes in string state, checking each quote that *opens* an ordinary string:
+inside a string an escape consumes its next byte and an unescaped quote closes it, so a
+prefixed opener is caught only where it would open a string. The boolean is whether a string
+is open, and the previous bytes are tracked for the opener's prefix. -/
+def AvoidsQuotedPrefixes (open2 : Option UInt8) (open1 : Option UInt8) (inString : Bool) :
+    List UInt8 → Bool
+  | [] => true
+  | byte :: rest =>
+      if inString then
+        if byte = BackslashByte then
+          match rest with
+          | [] => true
+          | _ :: more => AvoidsQuotedPrefixes none none true more
+        else if byte = QuoteByte then
+          AvoidsQuotedPrefixes none none false rest
+        else AvoidsQuotedPrefixes open2 open1 true rest
+      else if byte = QuoteByte then
+        !ExcludedBefore open2 open1 && AvoidsQuotedPrefixes none none true rest
+      else AvoidsQuotedPrefixes open1 (some byte) false rest
 
 def AvoidsTripleQuote : List UInt8 → Bool
   | first :: second :: third :: rest =>
@@ -64,12 +78,12 @@ def AvoidsComment (bytes : List UInt8) : Bool := bytes.all (fun byte => byte != 
 
 /-- The declared string envelope `E`. -/
 def InEnvelope (bytes : List UInt8) : Bool :=
-  utf8ValidB bytes && AvoidsComment bytes && AvoidsQuotedPrefixes none none bytes &&
+  utf8ValidB bytes && AvoidsComment bytes && AvoidsQuotedPrefixes none none false bytes &&
     AvoidsTripleQuote bytes
 
 theorem envelope_parts {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
     utf8ValidB bytes = true ∧ AvoidsComment bytes = true ∧
-      AvoidsQuotedPrefixes none none bytes = true ∧ AvoidsTripleQuote bytes = true := by
+      AvoidsQuotedPrefixes none none false bytes = true ∧ AvoidsTripleQuote bytes = true := by
   unfold InEnvelope at envelope
   simp only [Bool.and_eq_true] at envelope
   exact ⟨envelope.1.1.1, envelope.1.1.2, envelope.1.2, envelope.2⟩
@@ -83,7 +97,7 @@ theorem envelope_no_comment {bytes : List UInt8} (envelope : InEnvelope bytes = 
   (envelope_parts envelope).2.1
 
 theorem envelope_no_prefixes {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
-    AvoidsQuotedPrefixes none none bytes = true :=
+    AvoidsQuotedPrefixes none none false bytes = true :=
   (envelope_parts envelope).2.2.1
 
 theorem envelope_no_triple {bytes : List UInt8} (envelope : InEnvelope bytes = true) :
@@ -261,7 +275,7 @@ theorem scan_body_text (byte : UInt8) (rest : List UInt8) (notQuote : byte ≠ 3
     (notBackslash : byte ≠ 92) (notLine : byte ≠ 10) (notCarriage : byte ≠ 13) :
     scanBody (byte :: rest) = scanBody rest := by
   rw [scan_body_eq]
-  simp only [notQuote, notBackslash, notLine, notCarriage]
+  simp only
 
 theorem body_scan_sound {bytes : List UInt8} {outcome : BodyResult}
     (derivation : BodyScan bytes outcome) : scanBody bytes = outcome := by

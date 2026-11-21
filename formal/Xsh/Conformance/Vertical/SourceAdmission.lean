@@ -101,6 +101,74 @@ theorem source_admission (bytes : List UInt8) (moduleInputs : List (List UInt8))
     classify_outside_iff bytes moduleInputs,
     fun functions scopes accepted => accepted_node_spans accepted⟩
 
+
+/-! ## Classifier witnesses
+
+These fix the outcomes the acceptance criteria name. A domain program is
+accepted; malformed UTF-8 is rejected at its first invalid offset; a lone quote,
+a trailing backslash, and an invalid escape are rejected as the SPEC says.
+Because `classify` takes no candidate tree, a mismatched tree cannot make it a
+parse failure: acceptance is decided by the bytes alone. -/
+
+theorem arithmetic_classified_accepted :
+    classify arithmeticBytes [] = .accepted arithmeticTree [[("x", 0)]] := by
+  decide +kernel
+
+theorem byte_255_classified : classify [255] [] = .rejected (.invalidUtf8 ⟨0, 1⟩) := by
+  decide +kernel
+
+theorem overlong_classified : classify [0xC0, 0x80] [] = .rejected (.invalidUtf8 ⟨0, 2⟩) := by
+  decide +kernel
+
+theorem surrogate_classified :
+    classify [0xED, 0xA0, 0x80] [] = .rejected (.invalidUtf8 ⟨0, 3⟩) := by
+  decide +kernel
+
+theorem lone_quote_classified :
+    classify [34] [] = .rejected (.unterminatedString ⟨0, 1⟩) := by
+  decide +kernel
+
+theorem backslash_end_classified :
+    classify [34, 97, 92] [] = .rejected (.unterminatedString ⟨0, 3⟩) := by
+  decide +kernel
+
+theorem invalid_escape_classified :
+    classify [34, 97, 92, 113, 98, 34] [] =
+      .rejected (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem short_hex_classified :
+    classify [34, 97, 92, 120, 52, 34] [] =
+      .rejected (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem backslash_newline_classified :
+    classify [34, 97, 92, 10, 98, 34] [] =
+      .rejected (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem comment_only_classified_outside :
+    classify (witnessBytes "# a comment\n") [] = .outside := by
+  decide +kernel
+
+theorem triple_quote_classified_outside :
+    classify (witnessBytes "\"\"\"text\"\"\"") [] = .outside := by
+  decide +kernel
+
+theorem valid_literal_classified_outside :
+    classify (witnessBytes "\"hello\"") [] = .outside := by
+  decide +kernel
+
+/-- A mismatched candidate tree never makes the classifier a parse failure: the classifier
+ignores candidate trees and decides only on bytes, so a different tree yields the same
+outcome. -/
+theorem mismatched_tree_is_not_a_parse_failure :
+    classify arithmeticBytes [] = .accepted arithmeticTree [[("x", 0)]] ∧
+      classify (witnessBytes "pure f(x: Int) -> Int {\n  return x - 1\n}\n") [] ≠
+        .accepted arithmeticTree [[("x", 0)]] := by
+  refine ⟨arithmetic_classified_accepted, ?_⟩
+  decide +kernel
+
 end SourceAdmission
 
 end Xsh.Conformance.Vertical
