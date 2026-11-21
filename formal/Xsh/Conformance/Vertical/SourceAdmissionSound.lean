@@ -120,6 +120,34 @@ theorem value_syntax_complete {tokens rest : List Token} {value : SourceValue}
   | binary left valid right =>
     simp [parseValue, atom_syntax_complete left, valid, atom_syntax_complete right]
 
+theorem record_operand_complete {tokens rest : List Token} {value : RecordOperand}
+    (derivation : RecordOperandSyntax tokens value rest)
+    (boundary : ∀ label more, rest ≠ .dot :: .word label :: more) :
+    parseRecordOperand tokens = some (value, rest) := by
+  cases derivation with
+  | atom atom =>
+    cases atom with
+    | number value rest => simp [parseRecordOperand, parseAtom]
+    | name name rest valid =>
+      cases rest with
+      | nil => simp [parseRecordOperand, parseAtom, valid]
+      | cons head tail =>
+        cases head <;> simp_all [parseRecordOperand, parseAtom]
+  | field target label rest validTarget validLabel =>
+    simp [parseRecordOperand, validTarget, validLabel]
+
+theorem record_value_line_complete {tokens rest : List Token} {value : RecordValue}
+    (derivation : RecordValueSyntax tokens value (.newline :: rest)) :
+    parseRecordValue tokens = some (value, .newline :: rest) := by
+  cases derivation with
+  | operand operand =>
+    have parsed := record_operand_complete operand (by intro label more impossible; cases impossible)
+    simp [parseRecordValue, parsed]
+  | binary left valid right =>
+    have parsedLeft := record_operand_complete left (by intro label more impossible; cases impossible)
+    have parsedRight := record_operand_complete right (by intro label more impossible; cases impossible)
+    simp [parseRecordValue, parsedLeft, valid, parsedRight]
+
 theorem arguments_fit_tokens {tokens rest : List Token} {arguments : List SourceAtom}
     (derivation : ArgumentsSyntax tokens arguments rest) : arguments.length ≤ tokens.length := by
   induction derivation with
