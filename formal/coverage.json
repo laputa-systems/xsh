@@ -15355,13 +15355,22 @@
       "boundary": "The runtime argument error values are an oracle (Machine.argumentError). Rust runs named, spread, mixed and splice arguments on direct calls and positional ones on a dynamic .call, with an arity runtime failure that escapes try, which the witnesses match; Rust does not compile a named argument to a dynamic .call (compact.indexed-build), rejects a spread to one (check.named-spread) and an @ splice in one (check.call-splice), where SPEC 6.3 allows named arguments, so the named .call witness follows the SPEC. Static checks of direct calls are the checker's; the machine raises the same runtime failure. Rejected mutants drop unknown labels, keep the first of two equal labels, give a missing parameter null and drop extra positional arguments. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
-      "id": "fragment.Xsh.Proofs.Core.Resolution.capture_resolution",
-      "module": "Xsh.Proofs.Core.Resolution",
-      "declaration": "Xsh.Proofs.Core.Resolution.capture_resolution",
+      "id": "fragment.Xsh.Proofs.Core.Patterns.capture_resolution",
+      "module": "Xsh.Proofs.Core.Patterns",
+      "declaration": "Xsh.Proofs.Core.Patterns.capture_resolution",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Under the canonical resolution, pattern captures bound in a fresh scope (match arms, if let, while let, ?? handlers and guard let else blocks) declare their names in a new innermost static scope of the resolution pass, as do comprehension and for targets; a bound body that completes normally leaves a lexical environment representing the pass's scopes after its statements, starting from the captures' scope.",
-      "boundary": "The captures' names are those the match gives; relating them to a static pattern function over every pattern form, alternation included, is not proved. Function bodies, which bind in their own activation, are not tied to the pass, and declared types still come from an oracle. The witnesses bind {key: k, value: v} captures and a comprehension target and reject a pass that declares captures in the enclosing scope. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+      "scope": "Under the canonical resolution, pattern captures bound in a fresh scope (match arms, if let, while let, ?? handlers and guard let else blocks) declare their names in a new innermost static scope of the resolution pass, as do comprehension and for targets; a bound body that completes normally leaves a lexical environment representing the pass's scopes after its statements, starting from the captures' scope. For a successful match of a pattern whose alternatives agree, that scope declares patternNames pattern, a static function of the pattern's syntax, so the pass takes no name from the match.",
+      "boundary": "The static names are tied to the pass through pattern_names, whose premise is that every alternation's alternatives bind the same names (SPEC 6.8, check.pattern-alternative-binding); a pattern that breaks it is the checker's error and is not related. Captures of if let and while let come through conditionMatch, which matches by matchPattern or fails. Function bodies, which bind in their own activation, are not tied to the pass, and declared types still come from an oracle. The witnesses bind {key: k, value: v} captures and a comprehension target and reject a pass that declares captures in the enclosing scope. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Patterns.pattern_names",
+      "module": "Xsh.Proofs.Core.Patterns",
+      "declaration": "Xsh.Proofs.Core.Patterns.pattern_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 6.8 capture names: patternNames reads the names a pattern binds from its syntax for every pattern form (bindings, aliases, groups, type bindings, records, lists with a rest, tuples, constructors, error variants, text holes and alternations, whose names are the first alternative's); for a pattern each of whose alternations binds the same names in every alternative, a successful match binds exactly patternNames pattern, up to order.",
+      "boundary": "The names are equal as a permutation: an alternative may bind the same names in another order, as [a, b] | [b, a, _] does on the verification binary (12 for [1, 2], 21 for [1, 2, 7]; [a, b] | [b, c, _] is check.pattern-alternative-binding). Names, not types, are related; the same-type half of the SPEC rule is the checker's. Rejected mutants read an alternation's names as all alternatives' together and state the names in order. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Hoisting.declaration_hoisting",

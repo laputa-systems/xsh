@@ -434,40 +434,6 @@ theorem boundBody_resolves {world : World Declaration Identity Source} (machine 
 
 end Captures
 
-section CaptureRoot
-
-variable [DecidableEq Declaration]
-
-/-- The resolution pass in pattern captures and comprehension targets. Under
-the canonical resolution, the captures a match arm, `if let`, `while let`, a
-`??` handler or a `guard let` else block binds in its fresh scope declare
-their names in a new innermost static scope, and so does a comprehension's
-or `for` loop's target; a bound body that completes normally leaves a lexical
-environment representing the pass's scopes after its statements, starting
-from the captures' scope. -/
-theorem capture_resolution {world : World Declaration Identity Source} (machine : Machine world) :
-    ∀ base types, machine.resolution = canonicalResolution base types →
-      (∀ (frame next : Frame world) captures scopes, Represents frame.environment.names scopes →
-        bindCaptures machine frame.enter captures = .normal next →
-          Represents next.environment.names (staticBind [] (captures.map Prod.fst) :: scopes)) ∧
-      (∀ (frame next : Frame world) target item scopes, Represents frame.environment.names scopes →
-        bindTarget machine frame.enter .immutable target item = .normal next →
-          Represents next.environment.names (staticBind [] (targetNames target) :: scopes)) ∧
-      (∀ fuel (frame bound last : Frame world) captures body scopes, Represents frame.environment.names scopes →
-        bindCaptures machine frame.enter captures = .normal bound →
-          runStatements machine fuel bound body = .normal last →
-            Represents last.environment.names
-              (staticDeclareAll (staticBind [] (captures.map Prod.fst) :: scopes) body)) :=
-  fun base types resolved =>
-    ⟨fun frame next captures scopes carried bound =>
-        bindCaptures_resolves machine base types resolved frame next captures scopes carried bound,
-      fun frame next target item scopes carried bound =>
-        enteredTarget_resolves machine base types resolved frame next target item scopes carried bound,
-      fun fuel frame bound last captures body scopes carried entered ran =>
-        boundBody_resolves machine base types resolved fuel frame bound last captures body scopes carried entered ran⟩
-
-end CaptureRoot
-
 section Root
 
 variable [DecidableEq Declaration]

@@ -423,9 +423,9 @@ syntax form and the checker's expected type (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
-(`statement_resolution`) and for pattern captures and comprehension targets
-(`capture_resolution`), not for function bodies, and capture names are the
-match's rather than a static function of every pattern form (P).
+(`statement_resolution`), for pattern captures and comprehension targets
+(`capture_resolution`, with capture names from `pattern_names`), not for
+function bodies (P).
 
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
@@ -555,12 +555,21 @@ allows named arguments; the machine follows the SPEC. A mutant for each check
 parameter, dropping extra arguments) is rejected. Constructors take their
 arguments, puns and `...base` spreads through the same `threadArguments`.
 
-The `capture_resolution` fragment root, also in `Proofs/Core/Resolution.lean`,
-extends the pass into nested scopes: under the canonical resolution, pattern
-captures bound in a fresh scope and comprehension and `for` targets declare
-their names in a new innermost static scope, and a bound body's statements
-carry `Represents` from there. A pass that declares captures in the enclosing
-scope is rejected.
+The `capture_resolution` fragment root, in
+[`Proofs/Core/Patterns.lean`](Xsh/Proofs/Core/Patterns.lean), extends the
+pass into nested scopes: under the canonical resolution, pattern captures
+bound in a fresh scope and comprehension and `for` targets declare their names
+in a new innermost static scope, and a bound body's statements carry
+`Represents` from there. A pass that declares captures in the enclosing scope
+is rejected. The `pattern_names` root, in the same module, reads capture names
+from the syntax: `patternNames` covers every pattern form, an alternation
+taking its first alternative's names, and when every alternation's
+alternatives bind the same names (SPEC 6.8) a successful match binds exactly
+`patternNames pattern` up to order, so `capture_resolution` declares
+`patternNames pattern` without the match's names. `[a, b] | [b, a, _]` binds
+`b` then `a` on `[1, 2, 7]`, as the verification binary does (`21`); reading
+an alternation as all its alternatives' names, or the names in order, is
+rejected.
 
 The `declaration_hoisting` fragment root, in
 [`Proofs/Core/Hoisting.lean`](Xsh/Proofs/Core/Hoisting.lean), models SPEC 3.1
