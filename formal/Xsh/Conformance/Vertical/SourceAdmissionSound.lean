@@ -662,6 +662,46 @@ theorem functions_syntax_complete {tokens : List Token} {functions : List Source
       | function params result body =>
         simp [parseFunctions, skipNewlines, parsed, ih fuel bound]
 
+theorem atom_consumes_tokens {tokens rest : List Token} {atom : SourceAtom}
+    (derivation : AtomSyntax tokens atom rest) : rest.length < tokens.length := by
+  cases derivation <;> simp
+
+theorem arguments_consume_tokens {tokens rest : List Token} {arguments : List SourceAtom}
+    (derivation : ArgumentsSyntax tokens arguments rest) : rest.length < tokens.length := by
+  induction derivation with
+  | empty => simp
+  | single first => cases first <;> simp <;> omega
+  | cons first tail nonempty ih => cases first <;> simp_all <;> omega
+
+theorem expression_consumes_tokens {tokens rest : List Token} {expression : SourceExpression}
+    (derivation : ExpressionSyntax tokens expression rest) : rest.length < tokens.length := by
+  cases derivation with
+  | value value => exact value_consumes_tokens value
+  | comparison left valid right =>
+    have l := atom_consumes_tokens left
+    have r := atom_consumes_tokens right
+    simp at l
+    omega
+  | call valid notOk notErr args =>
+    have length := arguments_consume_tokens args
+    simp
+    omega
+  | ok value =>
+    have length := value_consumes_tokens value
+    simp at length ⊢
+    omega
+  | err value =>
+    have length := value_consumes_tokens value
+    simp at length ⊢
+    omega
+  | conditional left valid right thenValue elseValue =>
+    have a := atom_consumes_tokens left
+    have b := atom_consumes_tokens right
+    have c := value_consumes_tokens thenValue
+    have d := value_consumes_tokens elseValue
+    simp at a b c d ⊢
+    omega
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
