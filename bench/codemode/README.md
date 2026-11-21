@@ -40,6 +40,26 @@ checker and run records per variant, service ledgers, tree effects, verdicts and
 `--resume` runs only cells with no finished record. Exit status 3 means the provider
 stayed unavailable past the backoff budget; the manifest is kept for a later resume.
 
+## Sessions
+
+```sh
+bench/codemode/codemode sessions --split session --out .work/codemode-runs/NAME \
+  --condition xsh-baseline --condition xsh-selected --samples 1
+bench/codemode/codemode sessions --out .work/codemode-runs/NAME --resume
+```
+
+A session gives the model the condition's context, the public task, and four actions it
+writes as fenced blocks: `api` (`xsht api` selectors), `xsh file=NAME` (write a file),
+`check`, and `run` (arguments one per line). The harness executes them inside the same
+boundary against one persistent copy of the public fixture (and one persistent fixture
+service), returns their results in the next turn, and stops after 8 model turns, 10
+minutes of model and tool time, or a reply of `DONE`. The workspace's `main.xsh` is then
+judged on every variant. `session.json` counts turns, actions per tool, returned `xsht api`
+bytes, usage, model and tool seconds, the session's effects on the fixture and service,
+and the final verdict. pi's native tool calls are not used: with
+`opencode-go/hy4-flash-free` the provider returned the model's tool calls as raw text
+(`<tool_calls:...>`) in both validation sessions, so no tool ever ran.
+
 ## Tasks
 
 A task is a directory `tasks/SPLIT/ID/` with `task.json`, `fixture.py` (`setup` and

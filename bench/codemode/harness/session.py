@@ -1,9 +1,5 @@
 import json
-import os
-import signal
-import subprocess
-import sys
-import threading
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -13,31 +9,50 @@ import boundary
 import evaluate
 import model
 import prompts
-from config import MODEL, PI, THINKING
+from config import MODEL, THINKING
 from fixtures import snapshot, tree_effects
+from session_tools import Session
 from tasks import Task
 
-SESSION_SCHEMA = "codemode-session/1"
+SESSION_SCHEMA = "codemode-session/2"
 MAX_TURNS = 8
 MAX_SECONDS = 600
-SERVER = Path(__file__).resolve().parent / "session_server.py"
-SYSTEM_PROMPT = (
-    "You write one XSH program that solves the task, using only the tools you are given. "
-    "When the program is finished, reply with a short final message and stop calling tools."
+ACTION = re.compile(r"```([a-z]+)([^\n]*)\n(.*?)```", re.DOTALL)
+FILE_ATTRIBUTE = re.compile(r"file=(\S+)")
+DONE = re.compile(r"^\s*DONE\s*$", re.MULTILINE)
+NO_ACTION = (
+    "No action was found in your reply: tool-call markup is not read. Write each action as a fenced block, "
+    "for example a block opened with ```api holding `language:core`, or a block opened with ```check."
 )
-PI_SESSION = (
-    "-p", "--mode", "json", "--approve", "--no-session", "--no-extensions", "--no-skills", "--no-context-files",
-    "--no-prompt-templates", "--offline",
-)
-INSTRUCTIONS = (
-    "You have four tools. `api` runs `xsht api QUERY...` and returns the toolchain's reference text. `edit` writes "
-    "a whole file in your workspace; your program is `main.xsh`{module}. `check` runs `xsht check main.xsh`. `run` "
-    "runs `xsh main.xsh -- ARGS...` with the working directory `/work`, the task's fixture; the fixture keeps every "
-    "change your runs make{service}. Python and Perl are not available, and there is no other network access.\n\n"
-    "You have at most {turns} model turns and {minutes} minutes. When the budget ends, the `main.xsh` in your "
-    "workspace is the answer. It is then run once per test in fresh copies of the fixture, including tests you "
-    "cannot see, so make it follow the task's full contract, not just the visible fixture."
-)
+INSTRUCTIONS = """You work in turns. Each reply may hold one or more actions, each a fenced block; they run in
+order, and the next message shows their results. The actions:
+
+- A block opened with ```xsh file=main.xsh holds a whole file and writes it to your workspace. Your
+  program is `main.xsh`{module}; you may add other `.xsh` modules beside it.
+- A block opened with ```api holds `xsht api` selectors on one line, such as `language:core`,
+  `api:fs.walk` or `search:retry`, and returns the toolchain's reference text.
+- An empty block opened with ```check runs `xsht check main.xsh`.
+- A block opened with ```run holds the program's arguments, one per line (or nothing), and runs
+  `xsh main.xsh -- ARGS...` with the working directory `/work`, the task's fixture. The fixture keeps
+  every change your runs make{service}.
+
+Python and Perl are not available, and there is no other network access. When the program is done,
+reply with the single word DONE and no action.
+
+You have at most {turns} replies and {minutes} minutes. When the budget ends, the `main.xsh` in your
+workspace is the answer. It is then run once per test in fresh copies of the fixture, including tests
+you cannot see, so make it follow the task's full contract, not just the visible fixture."""
+
+
+@dataclass(slots=True)
+class Turn:
+    index: int
+    prompt_file: str
+    reply_file: str
+    reply: dict
+    interruptions: list[dict]
+    actions: list[dict]
+    done: bool
 
 
 @dataclass(slots=True)
@@ -53,20 +68,21 @@ class SessionRecord:
     thinking_requested: str
     state: str
     error: str | None
-    turns: int
+    turns: list[Turn]
     usage: dict
-    thinking_levels: list[str]
     tools: dict
     doc_bytes: int
-    doc_tokens_estimate: int
     elapsed_seconds: float
+    model_seconds: float
+    tool_seconds: float
     stopped_by: str
     session_effects: dict
     final: dict | None
     verdict: str
     started: float
     finished: float
-    interruptions: list[dict] = field(default_factory=list)
+    protocol: str = "harness-mediated actions in fenced blocks; one model call per turn"
+    notes: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -86,53 +102,61 @@ def session_prompt(task: Task, condition: prompts.Condition) -> str:
         parts += [
             "## Facts for this task", "",
             "The service module `svc` (the file `svc.xsh` beside `main.xsh`; import it with `use svc`). Its exported "
-            "declarations:", "", "```xsh", bindings.xsh_declarations(task.data).rstrip(), "```", "",
+            "declarations:", "", "```text", bindings.xsh_declarations(task.data).rstrip(), "```", "",
             "How the service behaves:", "", prompts.behavior_notes(), "",
         ]
-    instructions = INSTRUCTIONS.format(
+    parts += ["## Your tools and budget", "", INSTRUCTIONS.format(
         module=", beside the read-only `svc.xsh`" if task.shared else "",
-        service=" and the fixture service keeps its state" if task.shared else "",
+        service=", and the fixture service keeps its state" if task.shared else "",
         turns=MAX_TURNS, minutes=MAX_SECONDS // 60,
-    )
-    parts += ["## Your tools and budget", "", instructions]
+    )]
     return "\n".join(parts) + "\n"
 
 
-def usage_totals(messages: list[dict]) -> tuple[dict, list[str]]:
-    totals: dict = {k: 0 for k in ("input", "output", "cache_read", "cache_write", "reasoning", "total")}
-    unknown: dict = {k: 0 for k in totals}
+def parse_actions(reply: str) -> list[dict]:
+    actions = []
+    for match in ACTION.finditer(reply):
+        kind, attributes, body = match.group(1), match.group(2), match.group(3)
+        if kind == "xsh":
+            target = FILE_ATTRIBUTE.search(attributes)
+            actions.append({"tool": "edit", "arguments": {"path": target.group(1) if target else "main.xsh", "content": body}})
+        elif kind == "api":
+            actions.append({"tool": "api", "arguments": {"query": body.split()}})
+        elif kind == "check":
+            actions.append({"tool": "check", "arguments": {}})
+        elif kind == "run":
+            actions.append({"tool": "run", "arguments": {"args": [line for line in body.splitlines() if line != ""]}})
+    return actions
+
+
+def turn_prompt(initial: str, turns: list[tuple[str, str]]) -> str:
+    parts = [initial.rstrip(), ""]
+    for index, (reply, results) in enumerate(turns, start=1):
+        parts += [f"## Your reply {index}", "", reply.strip(), "", f"## Results of reply {index}", "", results, ""]
+    parts.append("Reply with your next actions, or DONE.")
+    return "\n".join(parts) + "\n"
+
+
+def usage_totals(replies: list[model.Reply]) -> dict:
+    totals = dict.fromkeys(("input", "output", "cache_read", "cache_write", "reasoning", "total"), 0)
+    unknown = dict.fromkeys(totals, 0)
     cost = 0.0
-    from_provider = set()
-    levels = []
-    for message in messages:
-        usage = model.Usage.from_message(message.get("usage"))
+    for reply in replies:
         for key in totals:
-            value = getattr(usage, key)
+            value = getattr(reply.usage, key)
             if value is None:
                 unknown[key] += 1
             else:
                 totals[key] += value
-        cost += usage.cost_estimate or 0.0
-        from_provider.add(usage.cost_from_provider)
-        if message.get("thinkingLevel"):
-            levels.append(message["thinkingLevel"])
-    return {**totals, "unknown": unknown, "cost_estimate": cost, "cost_from_provider": sorted(map(str, from_provider))}, levels
+        cost += reply.usage.cost_estimate or 0.0
+    levels = sorted({r.thinking_level for r in replies if r.thinking_level})
+    return {**totals, "unknown": unknown, "cost_estimate": cost, "cost_from_provider": False, "thinking_levels": levels}
 
 
-def tool_summary(state: Path) -> tuple[dict, int]:
-    counts = {"api": 0, "edit": 0, "check": 0, "run": 0, "refused": 0}
-    doc_bytes = 0
-    log = state / "tools.jsonl"
-    if log.exists():
-        for line in log.read_text().splitlines():
-            entry = json.loads(line)
-            counts[entry["tool"]] += 1
-            counts["refused"] += bool(entry.get("refused"))
-            doc_bytes += entry.get("bytes", 0) if entry["tool"] == "api" else 0
-    return counts, doc_bytes
-
-
-def run_session(task: Task, condition: prompts.Condition, sample: int, out: Path, expected_context: str | None) -> SessionRecord:
+def run_session(
+    task: Task, condition: prompts.Condition, sample: int, out: Path, expected_context: str | None,
+    backoff: model.Backoff,
+) -> SessionRecord:
     directory = session_directory(out, task.id, condition.name, sample)
     if (directory / "session.json").exists():
         raise FileExistsError(f"{directory} already holds a session")
@@ -145,77 +169,77 @@ def run_session(task: Task, condition: prompts.Condition, sample: int, out: Path
     work.mkdir(parents=True)
     if task.shared:
         (workspace / "svc.xsh").write_text(bindings.xsh_module(task.data))
-    public = task.variants[0]
-    setup = task.fixture.setup(public, work)
+    setup = task.fixture.setup(task.variants[0], work)
     before = snapshot(work)
     service = None
     if task.shared:
         service = boundary.start_service(bindings.service_spec(task.data, setup.responses), directory / "service")
-    project = directory / "project"
-    (project / ".pi").mkdir(parents=True)
-    server_args = [str(SERVER), "--state", str(state), "--timeout", str(task.data["timeout_s"]), "--env", json.dumps(setup.env)]
-    if service is not None:
-        server_args += ["--service", service.name]
-    mcp = {"mcpServers": {"xsh": {"command": sys.executable, "args": server_args, "exposure": "direct", "timeout": 300}}}
-    (project / ".pi" / "mcp.json").write_text(json.dumps(mcp, indent=2))
-    prompt = session_prompt(task, condition)
-    (directory / "prompt.md").write_text(prompt)
-    command = [
-        str(PI), *PI_SESSION, "--tools", "mcp__xsh__*", "--model", model.allowed_model(MODEL), "--thinking", THINKING,
-        "--system-prompt", SYSTEM_PROMPT,
-    ]
-    (directory / "command.json").write_text(json.dumps(command, indent=2))
-    environment = {**os.environ, "PYTHONPATH": str(SERVER.parent)}
+    tools = Session(state, service.name if service else None, float(task.data["timeout_s"]), setup.env)
+    initial = session_prompt(task, condition)
     started = time.time()
-    clock = time.monotonic()
-    messages: list[dict] = []
-    stopped_by = "model"
+    model_seconds = tool_seconds = 0.0
+    turns: list[Turn] = []
+    history: list[tuple[str, str]] = []
+    replies: list[model.Reply] = []
+    stopped_by = "turns"
     error = None
-    child = subprocess.Popen(
-        command, cwd=project, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=(directory / "stderr.txt").open("w"), text=True, start_new_session=True,
-    )
-    assert child.stdin is not None and child.stdout is not None
-    child.stdin.write(prompt)
-    child.stdin.close()
-
-    def close(reason: str) -> None:
-        nonlocal stopped_by
-        if stopped_by == "model":
-            stopped_by = reason
-        (state / "closed").write_text(reason)
-        try:
-            os.killpg(child.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-
-    timer = threading.Timer(MAX_SECONDS, close, args=("time",))
-    timer.start()
-    with (directory / "events.jsonl").open("w") as sink:
-        for line in child.stdout:
-            sink.write(json.dumps({"time_ns": time.time_ns(), "line": line.rstrip("\n")}) + "\n")
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            message = event.get("message") if isinstance(event, dict) else None
-            if event.get("type") == "message_end" and isinstance(message, dict) and message.get("role") == "assistant":
-                messages.append(message)
-                if message.get("stopReason") in ("error", "aborted"):
-                    error = f"the model stopped with {message.get('stopReason')}: {message.get('errorMessage', '')}"
-                if len(messages) >= MAX_TURNS and message.get("stopReason") != "stop":
-                    close("turns")
-    child.wait()
-    timer.cancel()
-    elapsed = time.monotonic() - clock
+    try:
+        for index in range(MAX_TURNS):
+            if model_seconds + tool_seconds >= MAX_SECONDS:
+                stopped_by = "time"
+                break
+            prompt = turn_prompt(initial, history) if history else initial
+            prompt_file = directory / f"prompt-{index}.md"
+            prompt_file.write_text(prompt)
+            reply, interruptions = model.ask_with_backoff(prompt, directory, directory / f"events-{index}.jsonl", backoff)
+            replies.append(reply)
+            model_seconds += reply.wall_seconds
+            reply_file = directory / f"reply-{index}.md"
+            reply_file.write_text(reply.text)
+            if reply.error is not None and not reply.text:
+                error = reply.error
+                stopped_by = "provider"
+                turns.append(Turn(index, prompt_file.name, reply_file.name, reply.to_json(), interruptions, [], False))
+                break
+            actions = parse_actions(reply.text)
+            results = []
+            records = []
+            for action in actions:
+                if model_seconds + tool_seconds >= MAX_SECONDS:
+                    results.append(f"### {action['tool']}\nnot run: the time budget is spent")
+                    records.append({**action, "skipped": True})
+                    continue
+                clock = time.perf_counter()
+                text, is_error = tools.call(action["tool"], action["arguments"])
+                spent = time.perf_counter() - clock
+                tool_seconds += spent
+                results.append(f"### {action['tool']}\n{text}")
+                records.append({"tool": action["tool"], "arguments": action["arguments"], "is_error": is_error,
+                                "seconds": spent, "result_chars": len(text)})
+            done = bool(DONE.search(reply.text)) and not actions
+            turns.append(Turn(index, prompt_file.name, reply_file.name, reply.to_json(), interruptions, records, done))
+            if done:
+                stopped_by = "model"
+                break
+            history.append((reply.text, "\n\n".join(results) if results else NO_ACTION))
+    except model.ProviderUnavailable as unavailable:
+        error = str(unavailable)
+        stopped_by = "provider"
     if service is not None:
         service.stop()
     after = snapshot(work)
-    usage, levels = usage_totals(messages)
-    tools, doc_bytes = tool_summary(state)
     calls = service.calls() if service is not None else []
     effects = {"tree": tree_effects(before, after), "service_calls": len(calls),
                "duplicate_writes": sum(1 for c in calls if c.get("outcome") == "duplicate-write")}
+    counts = {"api": 0, "edit": 0, "check": 0, "run": 0, "refused": 0}
+    doc_bytes = 0
+    log = state / "tools.jsonl"
+    if log.exists():
+        for line in log.read_text().splitlines():
+            entry = json.loads(line)
+            counts[entry["tool"]] += 1
+            counts["refused"] += bool(entry.get("refused"))
+            doc_bytes += entry.get("bytes", 0) if entry["tool"] == "api" else 0
     program = workspace / "main.xsh"
     final = None
     verdict = "no-program"
@@ -223,13 +247,11 @@ def run_session(task: Task, condition: prompts.Condition, sample: int, out: Path
         result = evaluate.evaluate("xsh", task, program.read_text(), directory / "final")
         final = result.to_json()
         verdict = result.status
-    if error is None and child.returncode not in (0, None) and stopped_by == "model":
-        error = f"pi exited {child.returncode}: {(directory / 'stderr.txt').read_text()[-800:]}"
-    state_name = "interrupted" if error is not None and model.looks_like_provider(error) else "done"
     record = SessionRecord(
         SESSION_SCHEMA, f"{task.id}/{condition.name}/{sample}", task.id, task.digest(), condition.name, digest, sample,
-        MODEL, THINKING, state_name, error, len(messages), usage, levels, tools, doc_bytes, doc_bytes // 4, elapsed,
-        stopped_by, effects, final, verdict, started, time.time(),
+        MODEL, THINKING, "interrupted" if stopped_by == "provider" else "done", error, turns, usage_totals(replies),
+        counts, doc_bytes, model_seconds + tool_seconds, model_seconds, tool_seconds, stopped_by, effects, final,
+        verdict, started, time.time(),
     )
     (directory / "session.json").write_text(json.dumps(record.to_json(), indent=2))
     return record

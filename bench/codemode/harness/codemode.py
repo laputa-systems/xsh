@@ -222,6 +222,7 @@ def run_sessions(args: argparse.Namespace) -> int:
         if by_id[task_id].digest() != digest:
             raise RuntimeError(f"{task_id} changed since the manifest was written")
     status = 0
+    backoff = model.Backoff()
     for cell in loaded["schedule"]:
         directory = session.session_directory(out, cell["task"], cell["condition"], cell["sample"])
         record_path = directory / "session.json"
@@ -236,9 +237,9 @@ def run_sessions(args: argparse.Namespace) -> int:
         expected = loaded["contexts"][cell["condition"]]
         record = session.run_session(
             by_id[cell["task"]], prompts.CONDITIONS[cell["condition"]], cell["sample"], out,
-            None if expected is None else expected["sha256"],
+            None if expected is None else expected["sha256"], backoff,
         )
-        print(f"{cell['cell']:44} {record.state:11} {record.verdict:9} turns {record.turns} tools {record.tools} "
+        print(f"{cell['cell']:44} {record.state:11} {record.verdict:9} turns {len(record.turns)} tools {record.tools} "
               f"{record.elapsed_seconds:.0f}s stopped by {record.stopped_by}{' ERROR ' + record.error if record.error else ''}",
               flush=True)
         status |= 3 if record.state == "interrupted" else 0
