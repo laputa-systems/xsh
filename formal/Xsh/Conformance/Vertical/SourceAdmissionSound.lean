@@ -424,6 +424,21 @@ theorem record_body_complete {name parameter target : String} {fields : List (St
     have parsedValue := record_value_line_complete returned
     simp [parseRecordBody, parsedRecord, parsedValue, admitted]
 
+theorem assigned_result_complete {assignment : Option (String × SourceValue)}
+    {returned result : SourceExpression} (derivation : AssignedResult assignment returned result) :
+    attachAssignment assignment returned = some result := by
+  cases derivation <;> rfl
+
+theorem computed_result_complete {bindings : List (String × SourceValue)}
+    {returned result : SourceExpression} (derivation : ComputedResult bindings returned result) :
+    buildComputedResult bindings returned = some result := by
+  cases derivation <;> rfl
+
+theorem return_type_complete {tokens rest : List Token} {shape : ResultShape}
+    (derivation : ReturnTypeSyntax tokens shape rest) :
+    parseReturnType tokens = some (shape, rest) := by
+  cases derivation <;> rfl
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
