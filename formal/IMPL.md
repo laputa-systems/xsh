@@ -161,7 +161,7 @@ compiler. The fork commit `6d7c51a5` makes `IScalar.rem` fail with
 `integerOverflow` at `MIN % -1`, as `IScalar.div` does, gives the signed
 remainder lemmas the division lemmas' `hNoOverflow` premise, and adds guards
 for every signed width. `check.sh` requires the Lake package to be that
-commit with a clean working tree. The upstream draft is pending (XSH-156).
+commit with a clean working tree. The upstream draft is laputa-systems/aeneas#1; upstream tracks the defect as AeneasVerif/aeneas#1275, with an open fix in #1531.
 Aeneas models
 `core::num::error::TryFromIntError` as `Unit`, while Charon translates core's
 constructor with its `IntErrorKind` payload; `extract.sh` erases exactly those
