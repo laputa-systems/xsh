@@ -129,11 +129,8 @@ def leakyFor (frame : Frame witnessWorld) (target : Xsh.Syntax.BindingTarget) :
     List (Value Unit Unit Unit) → List Xsh.Syntax.Statement → Exec witnessWorld
   | [], _ => .normal frame
   | item :: rest, body =>
-    match (bindTarget machine frame.enter .immutable target item).andThen fun bound =>
-        runStatements machine 30 bound body with
-    | .normal next | .continued next => leakyFor next target rest body
-    | .broke next => .normal next
-    | other => other
+    ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+        runStatements machine 30 bound body).iterate fun next => leakyFor next target rest body
 
 /-- A `for` whose `break` also leaves the loop around it. -/
 def breakingFor (frame : Frame witnessWorld) (target : Xsh.Syntax.BindingTarget) :
@@ -169,12 +166,9 @@ def nestedMutant : Exec witnessWorld :=
   let rec iterations : List (Value Unit Unit Unit) → Frame witnessWorld → Exec witnessWorld
     | [], frame => .normal frame
     | item :: rest, frame =>
-      match withinScope frame ((bindTarget machine frame.enter .immutable (.name iName) item).andThen fun bound =>
+      (withinScope frame ((bindTarget machine frame.enter .immutable (.name iName) item).andThen fun bound =>
           (breakingFor bound (.name jName) (values ["7", "8"]) [.breakStmt none]).andThen fun inner =>
-            runStatements machine 30 inner [bump totalName (int "1")]) with
-      | .normal next | .continued next => iterations rest next
-      | .broke next => .normal next
-      | other => other
+            runStatements machine 30 inner [bump totalName (int "1")])).iterate fun next => iterations rest next
   iterations (values ["1", "2"]) outer
 
 def returnMutant : Exec witnessWorld :=

@@ -56,6 +56,14 @@ def Exec.andThen {world : World Declaration Identity Source} :
   | .normal frame, next => next frame
   | other, _ => other
 
+/-- After one loop iteration: `normal` and `continue` go on, `break` ends the
+loop normally, and anything else leaves it. -/
+def Exec.iterate {world : World Declaration Identity Source} :
+    Exec world → (Frame world → Exec world) → Exec world
+  | .normal frame, next | .continued frame, next => next frame
+  | .broke frame, _ => .normal frame
+  | other, _ => other
+
 def fromResult {world : World Declaration Identity Source} (frame : Frame world) :
     Result Declaration Identity Source (Value Declaration Identity Source) →
       (Value Declaration Identity Source → Exec world) → Exec world
@@ -181,16 +189,24 @@ def conditionMatch (context : Context Declaration Identity Source) (pattern : Xs
     | _ => matchPattern context pattern value
   else matchPattern context pattern value
 
+/-- The checker's binder, cell and type for each capture. -/
+def resolveCaptures {world : World Declaration Identity Source} (resolution : Oracles world)
+    (environment : Environment) :
+    List (Xsh.Syntax.RawName × Value Declaration Identity Source) →
+      Option (List (Declared × Binding Declaration Identity Source))
+  | [] => some []
+  | (captured, value) :: rest =>
+    match resolution.declaration environment captured, resolveCaptures resolution environment rest with
+    | some (binder, cell, type), some entries => some (((captured, binder, cell), (cell, type, value)) :: entries)
+    | _, _ => none
+
 variable [DecidableEq Declaration]
 
 /-- Bind pattern captures as immutable cells in `frame`, which has already
 entered its scope. -/
 def bindCaptures {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
     (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) : Exec world :=
-  let resolved := captures.mapM fun capture =>
-    (machine.resolution.declaration frame.environment capture.1).map fun declared =>
-      (((capture.1, declared.1, declared.2.1) : Declared), ((declared.2.1, declared.2.2, capture.2) : Binding Declaration Identity Source))
-  match resolved with
+  match resolveCaptures machine.resolution frame.environment captures with
   | none => .internal .malformedTarget frame
   | some entries =>
     fromStep frame (extend frame.environment (entries.map Prod.fst)) (hide (captures.map Prod.fst) frame.locals)
@@ -379,20 +395,15 @@ mutual
       fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals subject) fun value =>
         match conditionMatch machine.context pattern value with
         | .matched captures =>
-          match runBound machine fuel frame captures body with
-          | .normal next | .continued next => runWhile machine fuel next (.patternCondition subject pattern) body
-          | .broke next => .normal next
-          | other => other
+          (runBound machine fuel frame captures body).iterate fun next =>
+            runWhile machine fuel next (.patternCondition subject pattern) body
         | .failed => .normal frame
         | .unsupported => .unsupported
     | fuel + 1, frame, condition, body =>
       fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals condition) fun tested =>
         match tested.eraseNominal with
         | .scalar (.boolean true) =>
-          match runBlock machine fuel frame body with
-          | .normal next | .continued next => runWhile machine fuel next condition body
-          | .broke next => .normal next
-          | other => other
+          (runBlock machine fuel frame body).iterate fun next => runWhile machine fuel next condition body
         | .scalar (.boolean false) => .normal frame
         | _ => .unsupported
 
@@ -404,20 +415,14 @@ mutual
     | 0, _, _, _, _ => .outOfFuel
     | _ + 1, frame, _, [], _ => .normal frame
     | fuel + 1, frame, target, item :: rest, body =>
-      match withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
-          runStatements machine fuel bound body) with
-      | .normal next | .continued next => runFor machine fuel next target rest body
-      | .broke next => .normal next
-      | other => other
+      (withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+          runStatements machine fuel bound body)).iterate fun next => runFor machine fuel next target rest body
 
   def runLoop {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
     | 0, _, _ => .outOfFuel
     | fuel + 1, frame, body =>
-      match runBlock machine fuel frame body with
-      | .normal next | .continued next => runLoop machine fuel next body
-      | .broke next => .normal next
-      | other => other
+      (runBlock machine fuel frame body).iterate fun next => runLoop machine fuel next body
 
   /-- `match`: arms are tried in order; a false guard moves to the next arm. -/
   def runMatch {world : World Declaration Identity Source} (machine : Machine world) :
