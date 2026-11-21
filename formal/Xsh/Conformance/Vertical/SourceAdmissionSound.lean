@@ -106,6 +106,37 @@ theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
   | number => rfl
   | name text rest valid => simp [parseAtom, valid]
 
+theorem argument_list_complete {tokens rest : List Token} {arguments : List SourceAtom}
+    (derivation : ArgumentsSyntax tokens arguments rest) (nonempty : arguments ≠ []) :
+    ∀ fuel, arguments.length ≤ fuel → parseArgumentList fuel tokens = some (arguments, rest) := by
+  induction derivation with
+  | empty rest => contradiction
+  | @single tokens rest atom first =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel => simp [parseArgumentList, atom_syntax_complete first]
+  | @cons tokens afterFirst rest atom others first tail othersNonempty ih =>
+    intro fuel enough
+    cases fuel with
+    | zero => simp at enough
+    | succ fuel =>
+      have bound : others.length ≤ fuel := by simp at enough; omega
+      simp [parseArgumentList, atom_syntax_complete first, ih othersNonempty fuel bound]
+
+theorem arguments_complete {tokens rest : List Token} {arguments : List SourceAtom}
+    (derivation : ArgumentsSyntax tokens arguments rest) :
+    ∀ fuel, arguments.length ≤ fuel → parseArguments fuel tokens = some (arguments, rest) := by
+  intro fuel enough
+  cases derivation with
+  | empty rest => rfl
+  | @single tokens rest atom first =>
+    have parsed := argument_list_complete (ArgumentsSyntax.single first) (by simp) fuel enough
+    cases first <;> simpa [parseArguments] using parsed
+  | @cons tokens afterFirst rest atom others first tail othersNonempty =>
+    have parsed := argument_list_complete (ArgumentsSyntax.cons first tail othersNonempty) (by simp) fuel enough
+    cases first <;> simpa [parseArguments] using parsed
+
 theorem parameter_list_complete {tokens rest : List Token} {parameters : List String}
     (derivation : ParametersSyntax tokens parameters rest) (nonempty : parameters ≠ []) :
     ∀ fuel, parameters.length ≤ fuel → parseParameterList fuel tokens = some (parameters, rest) := by
