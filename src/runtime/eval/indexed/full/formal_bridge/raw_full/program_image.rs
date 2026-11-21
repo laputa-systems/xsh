@@ -23,6 +23,9 @@ fn unsupported<T>(message: impl Into<String>) -> ImageResult<T> {
 #[derive(Default)]
 pub(super) struct ImageWriter {
     bytes: Vec<u8>,
+    type_ids: BTreeMap<u64, u64>,
+    effect_ids: BTreeMap<u64, u64>,
+    owners: BTreeMap<u64, u64>,
 }
 
 impl ImageWriter {
@@ -62,11 +65,14 @@ impl ImageWriter {
 pub(super) struct ImageReader<'a> {
     input: &'a [u8],
     depth: u32,
+    type_ids: BTreeMap<u64, crate::sema::constraints::TypeVariableId>,
+    effect_ids: BTreeMap<u64, crate::sema::constraints::EffectVariableId>,
+    owners: BTreeMap<u64, crate::sema::scheme_callable::SchemeCallableOwner>,
 }
 
 impl<'a> ImageReader<'a> {
     fn new(input: &'a [u8]) -> Self {
-        Self { input, depth: 0 }
+        Self { input, depth: 0, type_ids: BTreeMap::new(), effect_ids: BTreeMap::new(), owners: BTreeMap::new() }
     }
 
     fn array<const N: usize>(&mut self) -> ImageResult<[u8; N]> {
@@ -1111,22 +1117,51 @@ fn registered_call_plan_image_preserves_signature_identity() {
     }
 }
 
-macro_rules! image_raw_u64 {
-    ($($ty:ty),* $(,)?) => {$(
+macro_rules! image_identity {
+    ($ty:ty, $field:ident) => {
         impl ImageCodec for $ty {
-            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.image_raw().put(output) }
-            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> { Ok(Self::from_image_raw(u64::take(input)?)) }
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                let next = output.$field.len() as u64 + 1;
+                let canonical = *output.$field.entry(self.image_raw()).or_insert(next);
+                canonical.put(output)
+            }
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                let canonical = u64::take(input)?;
+                if canonical == 0 || (!input.$field.contains_key(&canonical) && canonical != input.$field.len() as u64 + 1) {
+                    return malformed("identity is not canonical");
+                }
+                Ok(*input.$field.entry(canonical).or_insert_with(Self::fresh_image_id))
+            }
         }
-    )*};
+    };
 }
 
-image_raw_u64!(crate::sema::constraints::TypeVariableId, crate::sema::constraints::EffectVariableId);
+image_identity!(crate::sema::constraints::TypeVariableId, type_ids);
+image_identity!(crate::sema::constraints::EffectVariableId, effect_ids);
+
+fn put_owner(owner: u64, output: &mut ImageWriter) -> ImageResult<()> {
+    let next = output.owners.len() as u64 + 1;
+    let canonical = *output.owners.entry(owner).or_insert(next);
+    canonical.put(output)
+}
+
+fn take_owner(input: &mut ImageReader<'_>) -> ImageResult<crate::sema::scheme_callable::SchemeCallableOwner> {
+    let canonical = u64::take(input)?;
+    if canonical == 0 || (!input.owners.contains_key(&canonical) && canonical != input.owners.len() as u64 + 1) {
+        return malformed("scheme callable owner is not canonical");
+    }
+    Ok(*input.owners.entry(canonical).or_insert_with(crate::sema::scheme_callable::SchemeCallableOwner::fresh))
+}
 
 impl ImageCodec for crate::sema::types::SchemeCallableId {
-    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.image_raw().put(output) }
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let (owner, index) = self.image_raw();
+        put_owner(owner, output)?;
+        index.put(output)
+    }
     fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
-        let (owner, index) = ImageCodec::take(input)?;
-        Self::from_image_raw(owner, index).map_or_else(|| malformed("scheme callable owner is zero"), Ok)
+        let owner = take_owner(input)?;
+        Ok(owner.id(u32::take(input)?))
     }
 }
 
@@ -1152,7 +1187,14 @@ impl ImageCodec for crate::sema::effects::CallableEffects {
             EffectContract::Known(expression) => {
                 1u8.put(output)?;
                 expression.direct().bits().put(output)?;
-                expression.variables().map(|(id, mask)| (*id, mask.bits())).collect::<BTreeMap<_, _>>().put(output)
+                let mut variables = Vec::new();
+                for (id, mask) in expression.variables() {
+                    let next = output.effect_ids.len() as u64 + 1;
+                    let canonical = *output.effect_ids.entry(id.image_raw()).or_insert(next);
+                    variables.push((canonical, mask.bits()));
+                }
+                variables.sort_unstable_by_key(|entry| entry.0);
+                variables.put(output)
             }
         }
     }
@@ -1239,7 +1281,7 @@ fn semantic_type_images_preserve_recovery_and_foreign_identities() {
             let mut input = ImageReader::new(&output.bytes);
             let restored = Type::take(&mut input).unwrap();
             input.finish().unwrap();
-            assert_eq!(restored, ty);
+            if !matches!(ty, Type::Inference(_) | Type::SchemeCallable(_) | Type::List(_)) { assert_eq!(restored, ty); }
             let mut reencoded = ImageWriter::default();
             restored.put(&mut reencoded).unwrap();
             assert_eq!(reencoded.bytes, output.bytes);
@@ -1248,6 +1290,51 @@ fn semantic_type_images_preserve_recovery_and_foreign_identities() {
         assert!(Type::take(&mut ImageReader::new(&[44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).is_err());
         assert!(Type::take(&mut ImageReader::new(&[16; 65])).is_err());
     });
+}
+
+#[test]
+fn decoded_semantic_identities_do_not_alias_allocated_ids() {
+    use crate::sema::constraints::{EffectVariableId, TypeVariableId};
+    use crate::sema::scheme_callable::SchemeCallableOwner;
+    let original = (TypeVariableId::fresh_image_id(), EffectVariableId::fresh_image_id(), SchemeCallableOwner::fresh().id(3));
+    let mut output = ImageWriter::default();
+    let original_pair = (original.0, (original.1, original.2));
+    (original_pair, original_pair).put(&mut output).unwrap();
+    let allocated = (TypeVariableId::fresh_image_id(), EffectVariableId::fresh_image_id(), SchemeCallableOwner::fresh().id(3));
+    let mut input = ImageReader::new(&output.bytes);
+    type Ids = (TypeVariableId, (EffectVariableId, crate::sema::types::SchemeCallableId));
+    let (first, second): (Ids, Ids) = ImageCodec::take(&mut input).unwrap();
+    assert_eq!(first, second);
+    let decoded = (first.0, (first.1).0, (first.1).1);
+    input.finish().unwrap();
+    assert_ne!(decoded.0, original.0);
+    assert_ne!(decoded.0, allocated.0);
+    assert_ne!(decoded.1, original.1);
+    assert_ne!(decoded.1, allocated.1);
+    assert_ne!(decoded.2, original.2);
+    assert_ne!(decoded.2, allocated.2);
+    let mut reencoded = ImageWriter::default();
+    (first, second).put(&mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
+    assert!(TypeVariableId::take(&mut ImageReader::new(&2u64.to_le_bytes())).is_err());
+}
+
+#[test]
+fn effect_images_order_previously_seen_identities_canonically() {
+    use crate::sema::constraints::EffectVariableId;
+    use crate::sema::effects::{CallableEffects, EffectContract, EffectExpr};
+    let earlier = EffectVariableId::fresh_image_id();
+    let later = EffectVariableId::fresh_image_id();
+    let effects = CallableEffects::from_contract(EffectContract::Known(EffectExpr::variable(earlier).union(EffectExpr::variable(later))));
+    let original = (later, effects);
+    let mut output = ImageWriter::default();
+    original.put(&mut output).unwrap();
+    let mut input = ImageReader::new(&output.bytes);
+    let decoded: (EffectVariableId, CallableEffects) = ImageCodec::take(&mut input).unwrap();
+    input.finish().unwrap();
+    let mut reencoded = ImageWriter::default();
+    decoded.put(&mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
 }
 
 #[test]
@@ -1265,8 +1352,10 @@ fn semantic_pool_image_preserves_scheme_callable_owner() {
     input.finish().unwrap();
     let (decoded, symbols) = SemanticPools::from_raw(raw);
     decoded.verify().unwrap();
-    assert_eq!(decoded.to_type(id).unwrap(), Type::SchemeCallable(identity));
-    assert_eq!(decoded.scheme_callable_index(identity).unwrap(), 0);
+    let Type::SchemeCallable(restored) = decoded.to_type(id).unwrap() else { panic!("expected scheme callable") };
+    assert_ne!(restored, identity);
+    assert!(decoded.scheme_callable_index(identity).is_err());
+    assert_eq!(decoded.scheme_callable_index(restored).unwrap(), 0);
     let mut reencoded = ImageWriter::default();
     put_semantic(&decoded.export_raw(&symbols), &mut reencoded).unwrap();
     assert_eq!(reencoded.bytes, output.bytes);
@@ -1360,7 +1449,7 @@ pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter
         shapes,
         shape_fields,
     } = &semantic.tables;
-    scheme_callable_owner.image_raw().put(output)?;
+    put_owner(scheme_callable_owner.image_raw(), output)?;
     scheme_callable_count.put(output)?;
     type_tags.put(output)?;
     type_data.put(output)?;
@@ -1375,8 +1464,7 @@ pub(super) fn take_semantic(input: &mut ImageReader<'_>, symbols: SymbolOwner) -
     Ok(RawSemanticPools {
         symbols,
         tables: RawSemanticTables {
-            scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner::from_image_raw(u64::take(input)?)
-                .ok_or_else(|| ImageError::Malformed("semantic scheme callable owner is zero".into()))?,
+            scheme_callable_owner: take_owner(input)?,
             scheme_callable_count: ImageCodec::take(input)?,
             type_tags: ImageCodec::take(input)?,
             type_data: ImageCodec::take(input)?,

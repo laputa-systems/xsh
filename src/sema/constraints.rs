@@ -57,6 +57,7 @@ pub struct TypeVariableId(u64);
 impl TypeVariableId {
     pub(crate) fn image_raw(self) -> u64 { self.0 }
     pub(crate) fn from_image_raw(raw: u64) -> Self { Self(raw) }
+    pub(crate) fn fresh_image_id() -> Self { Self(NEXT_VARIABLE.fetch_add(1, Ordering::Relaxed)) }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
