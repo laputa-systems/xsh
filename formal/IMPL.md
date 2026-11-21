@@ -243,12 +243,12 @@ pinned revision whose working diff is exactly the patch (applying the patch
 when absent), builds `XshImpl`, audits the axioms of the 25 recorded theorems
 and runs `leanchecker --fresh XshImpl`.
 
-Measured on the shared 32-CPU host in one 4-CPU Lean slot, over two runs:
-extraction 5 s; warm `check.sh` 184 and 228 s; `leanchecker --fresh XshImpl`
-172 and 204 s wall, 164 and 194 s user, 2.51 GiB peak resident memory both
-times, over the whole import closure including the Mathlib and Aeneas modules
+Measured on the shared 32-CPU host in one 4-CPU Lean slot, over three runs
+under varying load: extraction 5 s; warm `check.sh` 184, 228 and 288 s;
+`leanchecker --fresh XshImpl` 172, 204 and 264 s wall, 164, 194 and 250 s
+user, 2.50 to 2.51 GiB peak resident memory each time, over the whole import closure including the Mathlib and Aeneas modules
 it reaches; rebuilding the 60 Aeneas modules the patch
-affects 44 s and 2.0 GiB; both source mutants 44 s. Mathlib v4.35.0
+affects 44 s and 2.0 GiB; both source mutants 23 to 44 s. Mathlib v4.35.0
 (`56a00585`, Apache-2.0) and Aeneas (Apache-2.0) are dev-only dependencies of
 this harness, not of `formal/` or any product.
 

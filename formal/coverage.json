@@ -15860,20 +15860,24 @@
         "extraction_check_wall_seconds": 5,
         "harness_check_wall_seconds": [
           184,
-          228
+          228,
+          288
         ],
         "fresh_kernel_check_wall_seconds": [
           172,
-          204
+          204,
+          264
         ],
         "fresh_kernel_check_user_seconds": [
           164,
-          194
+          194,
+          250
         ],
         "fresh_kernel_check_peak_rss_mib": 2575,
         "patched_library_rebuild_wall_seconds": 44,
         "patched_library_rebuild_peak_rss_mib": 2047,
-        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports"
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23
       },
       "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
     },
@@ -16088,20 +16092,24 @@
         "extraction_check_wall_seconds": 5,
         "harness_check_wall_seconds": [
           184,
-          228
+          228,
+          288
         ],
         "fresh_kernel_check_wall_seconds": [
           172,
-          204
+          204,
+          264
         ],
         "fresh_kernel_check_user_seconds": [
           164,
-          194
+          194,
+          250
         ],
         "fresh_kernel_check_peak_rss_mib": 2575,
         "patched_library_rebuild_wall_seconds": 44,
         "patched_library_rebuild_peak_rss_mib": 2047,
-        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports"
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
+        "source_mutants_wall_seconds": 23
       },
       "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
     }
