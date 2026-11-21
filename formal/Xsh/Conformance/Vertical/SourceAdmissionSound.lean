@@ -541,6 +541,35 @@ theorem computed_boundary_from_return {vars : List String}
     cases value with
     | binary first valid second => cases first
 
+theorem literal_boundary_from_return {vars : List String}
+    {tokens afterComputed afterPropagation afterAssignment expressionTokens : List Token}
+    {bindings : List (String × SourceValue)} {propagation : Option SourcePropagation}
+    {assignment : Option (String × SourceValue)}
+    (computedSyntax : ComputedSyntax tokens bindings afterComputed)
+    (propagationSyntax : PropagationSyntax afterComputed propagation afterPropagation)
+    (assignmentSyntax : AssignmentSyntax vars afterPropagation assignment afterAssignment)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens) :
+    beginsLiteralLet tokens = false := by
+  cases computedSyntax with
+  | empty tokens =>
+    cases propagationSyntax with
+    | empty =>
+      cases assignmentSyntax with
+      | empty =>
+        rw [returnLine]
+        unfold beginsLiteralLet
+        split
+        · rename_i tail keyword label value same
+          simp only [List.cons.injEq, Token.word.injEq, true_and] at same
+          rcases same with ⟨rfl, _⟩
+          decide
+        · rfl
+      | assign member value => simp [beginsLiteralLet]
+    | call validTarget validCallee args => simp [beginsLiteralLet]
+  | cons valid value tail =>
+    cases value with
+    | binary first valid right => cases first <;> simp [beginsLiteralLet]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
