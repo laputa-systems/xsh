@@ -243,6 +243,17 @@ machine that adds them must show they are nominal-transparent. The witnesses
 include a constructor resolved to another module's declaration, which the
 theorem rejects.
 
+VAL-PRESERVE is closed by `preserving_operations` in
+[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean): `push`,
+`extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
+without a filter and element replacement keep a `NonEmpty`, filtering yields
+only the base list, and `.parent()` and `.normalize()` keep a `RelPath`. The
+path operations are defined on the components of
+[`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean): `.parent()`
+drops trailing empty and `.` components and then the last one, `.normalize()`
+resolves `.` and `..` lexically, and both return `.` when nothing is left.
+These definitions follow the SPEC and claim no Rust correspondence.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

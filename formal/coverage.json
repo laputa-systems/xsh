@@ -2983,8 +2983,10 @@
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-PRESERVE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-PRESERVE",
+      "module": "Xsh.Validation.Core.Preserve",
+      "declaration": "Xsh.Validation.Core.Preserve.preserving_operations"
     },
     {
       "id": "VAL-REQUIRE",
