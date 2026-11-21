@@ -106,6 +106,32 @@ test test_duration_arithmetic_checked_failures { |ctx|
   }
 }
 
+test test_top_level_compound_assignment_follows_duration_rules { |ctx|
+  # A top-level `name OP= value` is a driver assignment, not a function statement.
+  let output = test.expect(
+    ctx,
+    "var total = 1s\ntotal += 500ms\ntotal -= 250ms\ntotal *= 2\ntotal /= 5\nprint f\"{total}\"\n",
+    status: 0,
+  )?
+  assert output.stdout == "500ms\n", output.stdout
+  for failure in [
+    {start: "18446744073709551615ms", op: "+", operand: "1ms", code: "duration-overflow"},
+    {start: "18446744073709551615ms", op: "*", operand: "2", code: "duration-overflow"},
+    {start: "0ms", op: "-", operand: "1ms", code: "duration-underflow"},
+    {start: "1ms", op: "*", operand: "-1", code: "duration-negative-factor"},
+    {start: "1ms", op: "/", operand: "0", code: "division-by-zero"},
+    {start: "1ms", op: "/", operand: "-1", code: "division-by-zero"},
+  ] {
+    let failed = test.expect(
+      ctx,
+      "var value = " + failure.start + "\nvalue " + failure.op + "= " + failure.operand + "\nprint f\"{value}\"\n",
+      status: 3,
+      stderr: ["err: " + failure.code + ": ", ":2:1"],
+    )?
+    assert failed.stdout == "", failed.stdout
+  }
+}
+
 test test_duration_arithmetic_evaluates_operands_once_left_to_right { |ctx|
   let output = test.expect(
     ctx,

@@ -42,7 +42,11 @@ Follow the [development setup](docs/DEVELOPMENT.md) to build and verify XSH.
 
 ## Learn
 
-- Start with the [user tour](docs/user-tour.md).
+- [Getting started](docs/getting-started.md) walks through the discover,
+  check, run loop and the mistakes the checker catches first.
+- Agents that write XSH programs can load the compact
+  [agent context](docs/agent-context.md).
+- Continue with the [user tour](docs/user-tour.md).
 - [`docs/SPEC.md`](docs/SPEC.md) is the language contract.
 - `xsht api summary` lists every standard module, method, and record;
   `xsht api api:fs.files` or `xsht api search:timeout` answers the rest.

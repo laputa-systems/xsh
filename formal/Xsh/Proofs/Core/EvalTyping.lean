@@ -159,7 +159,7 @@ variable (context : Context Declaration Identity Source) {world : World Declarat
   (environment : Environment) (store : Store world)
   (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
     Result Declaration Identity Source (Value Declaration Identity Source))
-  (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+  (callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
     Result Declaration Identity Source (Value Declaration Identity Source))
   (locals : Locals Declaration Identity Source)
 
@@ -218,7 +218,7 @@ defining context, a typing context its defining environment and the store
 satisfy, overlaid with its parameters. -/
 def FunctionsTyped (context : Context Declaration Identity Source) (world : World Declaration Identity Source)
     (store : Store world) (signatures : Signatures Declaration) : Prop :=
-  ∀ name defining parameters body types result, context.functions name = some (defining, parameters, .expression body) →
+  ∀ name defining parameters body types result, context.functions name = some (defining, parameters, .expression body .plain) →
     signatures name = some (types, result) →
       parameters.length = types.length ∧ parameters.Nodup ∧
         ∃ definingTypes, Consistent world defining store definingTypes [] ∧
@@ -912,20 +912,23 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
         obtain ⟨evaluated, evaluatedValue, called⟩ := bind_value produced
         by_cases sameLength : parameterNames.length = evaluated.length
         · cases functionBody with
-          | block statements => simp [sameLength] at called
-          | expression body =>
-            simp only [sameLength, ite_true] at called
-            obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
-              functions name defining parameterNames body parameters type found signed
-            obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
-            have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
-              zip_combine (fun source result parameterType evaluatedTo typedAt =>
-                  recurse source parameterType result typedAt evaluatedTo)
-                values evaluated parameters valuesLength lengths aligned argumentsTyped
-            have bodyConsistent := overlay_consistent world defining store definingTypes definingConsistent parameterNames
-              parameters evaluated namesLength sameLength members
-            exact preservation context world store signatures functions fuel defining _ _ body
-              type value bodyTyped bodyConsistent called
+          | block statements kind => simp [sameLength] at called
+          | expression body kind =>
+            cases kind with
+            | result => simp [sameLength] at called
+            | plain =>
+              simp only [sameLength, ite_true] at called
+              obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
+                functions name defining parameterNames body parameters type found signed
+              obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
+              have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
+                zip_combine (fun source result parameterType evaluatedTo typedAt =>
+                    recurse source parameterType result typedAt evaluatedTo)
+                  values evaluated parameters valuesLength lengths aligned argumentsTyped
+              have bodyConsistent := overlay_consistent world defining store definingTypes definingConsistent parameterNames
+                parameters evaluated namesLength sameLength members
+              exact preservation context world store signatures functions fuel defining _ _ body
+                type value bodyTyped bodyConsistent called
         · simp [sameLength] at called
 
 end Theorem

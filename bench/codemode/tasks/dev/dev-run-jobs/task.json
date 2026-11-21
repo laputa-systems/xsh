@@ -1,0 +1,13 @@
+{
+  "id": "dev-run-jobs",
+  "split": "dev",
+  "track": "native",
+  "families": ["process-invocation", "json"],
+  "origin": "new",
+  "description": "`/work/jobs.json` is a JSON array of jobs. Each job is an object `{\"name\": NAME, \"argv\": [PROGRAM, ARG, ...], \"cwd\": DIR, \"env\": {VAR: VALUE, ...}}`, where `DIR` is relative to `/work`.\n\nRun the jobs one after another, in order. Start each job's program directly with exactly its `argv` items as arguments, never through a shell, so every item reaches the program unchanged, empty ones included. Run it in its `cwd`, with its `env` added to the environment your program inherited. Capture its standard output and standard error separately, as text.\n\nWrite `/work/results.json`, a JSON array with one object per job in order: `{\"name\": NAME, \"exit\": STATUS, \"stdout\": OUT, \"stderr\": ERR}`, where `STATUS` is the exit status. A job whose program cannot be started at all gets `\"exit\": null` with empty `stdout` and `stderr`, and the remaining jobs still run. Exit with status 0 when every job exited with status 0, and with status 4 otherwise.",
+  "variants": ["public", "quoting", "clean"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "xsh_api": ["api:json.read", "language:core.schema-validation", "language:run.capture---text", "language:core.list-splicing", "method:Status.exit_code", "api:json.encode", "method:Path.write"],
+  "ts_modules": ["node:fs", "node:child_process", "node:path"]
+}

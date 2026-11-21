@@ -1,0 +1,13 @@
+{
+  "id": "session-encode-batch",
+  "split": "session",
+  "track": "native",
+  "families": ["bounded-parallel-work", "process-invocation", "resource-handling", "json"],
+  "origin": "new",
+  "description": "Encode the new recordings in `/work/incoming` to FLAC with the encoder `/work/bin/encode`, run as `/work/bin/encode INPUT OUTPUT` with the two paths as its arguments. The program takes no arguments.\n\nThe recordings are the regular files directly in `/work/incoming` whose names end in `.wav` (lowercase), hidden names included; directories and symbolic links are not recordings. The output for `NAME.wav` is `/work/out/NAME.flac`. Create `/work/out` if it is missing.\n\nSkip a recording whose output already exists: do not run the encoder for it and leave the existing output alone. Run the encoder for every other recording, concurrently: never more than 3 encoders at once, and 3 at once while recordings are still waiting.\n\nThe encoder exits with status 0 on success. When it exits with any other status it may have left a partial output file: remove it, so that a later run tries that recording again. Its standard output is chatter to discard.\n\nPrint one JSON line per recording, sorted by file name in byte order: `{\"input\": NAME, \"status\": STATUS, \"error\": ERROR}`, where `NAME` is the recording's file name, `STATUS` is `encoded`, `skipped` or `failed`, and `ERROR` is the first line of the encoder's standard error (without its newline) for a failed recording and `null` otherwise. Exit with status 0 when no recording failed, and 4 otherwise.",
+  "variants": ["public", "partial", "single", "none"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "xsh_api": ["api:fs.children", "language:stream.par-map", "language:run.capture---text", "method:Path.exists", "method:Path.remove", "api:json.encode"],
+  "ts_modules": ["node:fs", "node:path", "node:child_process"]
+}

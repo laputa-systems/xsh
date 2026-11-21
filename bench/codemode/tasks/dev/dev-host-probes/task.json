@@ -1,0 +1,19 @@
+{
+  "id": "dev-host-probes",
+  "split": "dev",
+  "track": "shared",
+  "families": ["bounded-parallel-work", "local-service-orchestration", "json"],
+  "origin": "new; shaped after SX bench/codemode/tasks/fresh-host-ping",
+  "description": "`/work/hosts.json` is a JSON array of host names. Probe every host once with `health_probe` (`svc.healthProbe` in TypeScript).\n\nProbes are slow, so run several at the same time, but never more than 3 at once. Give each probe at most 1 second by passing a 1-second timeout, and do not retry a probe. A host is up when its probe succeeds with `status` exactly `ok`. It is down when its probe fails for any reason, the timeout included, or reports any other status.\n\nPrint one JSON object to standard output: `{\"up\": [{\"host\": HOST, \"version\": VERSION}, ...], \"down\": [HOST, ...]}`, with both lists in the order of `hosts.json`. Exit with status 0.",
+  "variants": ["public", "wide", "healthy"],
+  "exit_codes": [0],
+  "timeout_s": 90,
+  "types": {
+    "Probe": {"type": "{host: Str, status: Str, version: Str}", "doc": "One host's health report. `status` is `ok`, `degraded`, or `draining`."}
+  },
+  "capabilities": [
+    {"id": "health.probe", "effect": "read", "input": {"host": "Str"}, "output": "Probe", "description": "Asks one host for its health report."}
+  ],
+  "xsh_api": ["api:json.read", "language:core.schema-validation", "language:stream.par-map", "api:json.encode"],
+  "ts_modules": ["node:fs"]
+}

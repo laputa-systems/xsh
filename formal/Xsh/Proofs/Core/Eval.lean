@@ -157,10 +157,10 @@ theorem step_refines (context : Context Declaration Identity Source) {world : Wo
       Result Declaration Identity Source (Value Declaration Identity Source)}
     (inner : ∀ environment locals expression,
       Refines (recurse environment locals expression) (recurse' environment locals expression))
-    {callBlock callBlock' : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+    {callBlock callBlock' : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (blocks : ∀ environment locals statements,
-      Refines (callBlock environment locals statements) (callBlock' environment locals statements))
+    (blocks : ∀ environment locals statements kind,
+      Refines (callBlock environment locals statements kind) (callBlock' environment locals statements kind))
     (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) :
     Refines (step context environment store recurse callBlock locals expression)
       (step context environment store recurse' callBlock' locals expression) := by
@@ -201,9 +201,7 @@ theorem step_refines (context : Context Declaration Identity Source) {world : Wo
       split
       · exact bind_refines (evaluateAll_refines (inner environment locals) _) fun _ => by
           split
-          · split
-            · exact inner _ _ _
-            · exact blocks _ _ _
+          · split <;> first | exact inner _ _ _ | exact blocks _ _ _ _
           · exact refines_refl _
       · exact refines_refl _
     all_goals exact refines_refl _
@@ -219,7 +217,7 @@ theorem evaluate_refines (context : Context Declaration Identity Source) {world 
     rw [show fuel + 1 + extra = (fuel + extra) + 1 by omega]
     exact step_refines context environment store
       (fun environment locals expression => evaluate_refines context store fuel extra environment locals expression)
-      (fun _ _ _ => refines_refl _) locals expression
+      (fun _ _ _ _ => refines_refl _) locals expression
 
 /-- Evaluation is a function of the expression, the environment and the store:
 a result other than running out of fuel is the same at every larger fuel, so
@@ -365,9 +363,9 @@ theorem step_runtimeOnly (context : Context Declaration Identity Source) {world 
     {recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source)}
     (inner : ∀ environment locals expression, RuntimeOnly (recurse environment locals expression))
-    {callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement →
+    {callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (blocks : ∀ environment locals statements, RuntimeOnly (callBlock environment locals statements))
+    (blocks : ∀ environment locals statements kind, RuntimeOnly (callBlock environment locals statements kind))
     (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) :
     RuntimeOnly (step context environment store recurse callBlock locals expression) := by
   cases expression with
@@ -427,9 +425,7 @@ theorem step_runtimeOnly (context : Context Declaration Identity Source) {world 
       split
       · exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) _) fun _ => by
           split
-          · split
-            · exact inner _ _ _
-            · exact blocks _ _ _
+          · split <;> first | exact inner _ _ _ | exact blocks _ _ _ _
           · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
     all_goals exact runtimeOnly_of_no_failure (by simp [step])
@@ -444,7 +440,7 @@ theorem evaluate_runtimeOnly (context : Context Declaration Identity Source) {wo
   | 0, _, _, _ => runtimeOnly_of_no_failure (by simp [evaluate])
   | fuel + 1, environment, locals, expression =>
     step_runtimeOnly context environment store (evaluate_runtimeOnly context store fuel)
-      (fun _ _ _ => runtimeOnly_of_no_failure (by simp)) locals expression
+      (fun _ _ _ _ => runtimeOnly_of_no_failure (by simp)) locals expression
 
 end Failures
 

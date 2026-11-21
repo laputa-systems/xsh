@@ -34,6 +34,8 @@ For Ubuntu bootstrap and default verification, see [Development](docs/DEVELOPMEN
 | formatter policy | [XSHT-FMT](docs/XSHT-FMT.md) |
 | core commands and system reporting | [Core](docs/CORE.md), [system report](docs/SYSTEM-REPORT.md), [btop](docs/BTOP.md) |
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
+| writing XSH programs (compact agent context, getting started) | [Agent context](docs/agent-context.md), [Getting started](docs/getting-started.md) |
+| code mode authoring experiment | [bench/codemode](bench/codemode/README.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
 | campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
 | performance baseline, inference evidence | [Testing](docs/TESTING.md#performance-baseline), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |

@@ -1,0 +1,19 @@
+{
+  "id": "dev-ci-retry",
+  "split": "dev",
+  "track": "shared",
+  "families": ["local-service-orchestration"],
+  "origin": "adapted from SX bench/codemode/tasks/dev-retry-ci",
+  "description": "The file `/work/repos.txt` lists repository names, one per line. Ignore blank lines and whitespace around a name.\n\nLook up the latest CI state of each repository with `ci_latest` (`svc.ciLatest` in TypeScript), one repository at a time, in file order. When a lookup fails with a transient error (`Timeout`, `Unavailable`, or `RateLimited`), retry it up to 3 more times, waiting 100 ms before the first retry, 200 ms before the second, and 400 ms before the third. Do not retry any other failure, and do not look a repository up again after a lookup succeeds.\n\nPrint one JSON object per line to standard output, one per repository in file order: `{\"repo\": NAME, \"state\": STATE}`, where `STATE` is the `state` the service reported, or `\"missing\"` when the lookup still failed. Exit with status 0.",
+  "variants": ["public", "limits", "plain"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "types": {
+    "Ci": {"type": "{repo: Str, state: Str}", "doc": "The combined CI state of a repository's newest commit, such as `passing` or `failing`."}
+  },
+  "capabilities": [
+    {"id": "ci.latest", "effect": "read", "input": {"repo": "Str"}, "output": "Ci", "description": "Reads the CI state of the newest commit on a repository's default branch."}
+  ],
+  "xsh_api": ["method:Path.lines", "method:Str.trim", "method:Str.is_empty", "api:json.encode", "language:core.fallback"],
+  "ts_modules": ["node:fs"]
+}

@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 158
+Next: 169
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -97,9 +97,45 @@ out of scope.
 ### XSH-157 · P2 · Typed Int arithmetic reports its failure at the caller instead of the operator
 
 - **Area:** Runtime
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/values.rs` (`IntView::Binary` pushes `ApplyIntBinary { op, span: call_span }`); `src/runtime/eval/indexed/full/schema.rs` (`BuildIntRow::Binary` carries no span); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
-- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, which has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`). The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
-- **Recommendation:** Carry the operator span on `IntBinary` rows (or a span pool reference) and pass it to `ApplyIntBinary` and the frame-mode `BinaryLeft` continuation, then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
+- **Where:** cause: `src/runtime/eval/indexed/full/schema.rs:820-824` (`BuildIntRow::Binary`, the `IntBinary` row, has no span field) and `src/runtime/eval/lower/scalar.rs:62-76` (the lowerer builds that row from a `BuildExprRow::Binary` and drops its span); symptoms: `src/runtime/eval/lowered_run/indexed_run/values.rs:625-629` (in place, `ApplyIntBinary { op, span: call_span }`) and `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6871` (in frames, `FrameOperation::Binary` carries no span, so `BinaryLeft` and `BinaryRight` take the span the row's consumer passed in); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
+- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, whose row has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`) on both execution routes. The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. SPEC 4.2 says both failures happen at the operator, and ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
+- **Recommendation:** Add `span: Span` to `BuildIntRow::Binary`, so the `IntBinary` payload grows from three words to four as `ExprBinary`'s has, and set it from the expression row's span in `scalar.rs`. Pass it to `ApplyIntBinary`, and carry it in `FrameOperation::Binary` into `BinaryLeft` and `BinaryRight`. The payload change reaches the raw IR and the formal model: the bridge projection and its checks (`formal_bridge/arithmetic.rs`, `payload_words` and validation), the raw-IR decoder (`formal_bridge/raw_full.rs`), the Lean vertical model (`Artifact.lean` `payloadWords`, a `takeSpan` in `Lowering.lean:328`, `Meaning.lean:251`, `Reading.lean:470`, the row offsets in `Fixture.lean`), the regenerated raw-IR codes in `Documents.lean` for every fixture with `IntBinary` rows and the certificates over them, and the instruction schema records in `formal/coverage.json`. Land it after the raw-IR lane that is reworking those files. Then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
+- **Fix with:** root-cause
+- **Effort:** L
+
+### XSH-160 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
+
+- **Area:** Runtime
+- **Where:** importer-side lowering of qualified facet patterns, `compact_qualified_pattern_facet` in `src/runtime/eval/lower/patterns.rs`; reproducers `bench/codemode/defects/d1-imported-facet/` and its `narrowed/`
+- **Problem:** With `export error LibError = Down : Transient | Gone` in `lib.xsh`, an importer's `Err(is lib.Transient)` and `retry ... on (is lib.Transient)` never match `lib.LibError.Down`, while `error is Transient` inside `lib.xsh` is true for the same value wherever it was built. The checker accepts the pattern and even suggests `lib.Transient`, so a retry on a module's transient facet silently runs once. SPEC 4.10 says `is Facet` matches every variant that implements the facet. Found by the code mode experiment while writing service bindings; variant patterns (`lib.LibError.Down {..}`) do match.
+- **Recommendation:** Match the facet name an imported pattern resolves to against the names the error value carries, and add a native test that an importer's facet pattern and `retry on (is mod.Facet)` match errors built in either module.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-164 · P2 · A top-level `Str +=` statement checks but fails at run time
+
+- **Area:** Runtime
+- **Where:** top-level compound assignment on `Str`; reproducer `bench/codemode/defects/d3-top-level-str-append/main.xsh`
+- **Problem:** `var text = "a"` then `text += "b"` at the top level of a script passes `xsht check` and fails at run time with `+= assignment cannot combine Str and Str`; it takes the same top-level driver path as the `Duration` case that XSH-158 fixed by routing Int and Duration through the shared decisions; `Str` still has no arm there. The same statement inside a `for` body or a `proc` works, and `Int +=` works at top level. A model's program in the code mode revision run hit it.
+- **Recommendation:** Find why the top-level lowering of `+=` rejects two `Str` operands, fix it, and add a native test for top-level `Str +=` beside the loop and proc forms.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-165 · P2 · `sort-by(desc: true)` reverses items with equal keys
+
+- **Area:** Runtime
+- **Where:** the `sort-by` stage with `desc: true`; reproducer `bench/codemode/defects/d4-descending-sort/main.xsh`
+- **Problem:** `xsht api language:stream.sort-by` says the sort is stable, so equal keys keep their source order and the two-pass idiom gives a compound order. With `desc: true`, `[a:1, b:1, c:2, d:1] |> sort-by(desc: true) .n` yields `c d b a`: equal keys come out reversed, so sorting by a secondary key and then descending by a primary key silently gives the wrong secondary order. The held-out author of the code mode experiment found it.
+- **Recommendation:** Make the descending order stable (reverse the comparison, not the result), or document that `desc: true` is not stable; add a native test with equal keys under `desc: true`.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-167 · P2 · Narrowing an optional field of a match-bound record fails IR verification
+
+- **Area:** Lowering
+- **Where:** indexed IR `full_ir_verification` (`compact.indexed-build`); reproducer `bench/codemode/defects/d6-narrowed-field-lowering/main.xsh`
+- **Problem:** A record bound by `Ok(state) =>` whose `Str?` field is narrowed with `if state.transfer != null` and then used as `Str` (`sent += [state.transfer]`), followed by a later read of `sent`, type-checks and is then rejected with `err[compact.indexed-build]: ... checked optional field receiver has no non-null branch proof` at line 1, column 1. Without the later read, or with the narrowing on a `let` binding, it passes. Two held-out programs of the code mode experiment hit it.
+- **Recommendation:** Carry the checker's narrowing proof for fields of pattern-bound records into the indexed IR, and add a native test of this shape; until then, report the source span of the field access instead of 1:1.
 - **Fix with:** root-cause
 - **Effort:** M
 
@@ -121,11 +157,48 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-155 · P3 · FullVerifier accepts a non-arithmetic operator in IntBinary
+### XSH-161 · P3 · `Path.relative_to` returns a path outside its base unchanged
 
 - **Area:** Runtime
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`verify_scalar`, the `_ => {}` arm for `IntView::Binary`); `src/runtime/eval/lowered_ops.rs` (`checked_int_binary`, `.expect("verified integer binary operation")`); `src/runtime/eval/lower/scalar.rs` (the lowerer emits only `+ - * / %`)
-- **Problem:** Found by reading while proving `checked_int_binary`; not reproduced. Verification checks the operands of an `IntBinary` row but not its operator. The lowerer only emits arithmetic operators, so lowered programs are safe, but IR built another way (corruption tests, the formal bridge's foreign raw-IR decoder) with `IntBinary { op: Lt }` would pass verification, then panic at the `expect` on the in-place typed route and yield a `Bool` in an `Int` position on the frame route.
-- **Recommendation:** Reproduce with a verifier corruption test that rewrites a lowered `IntBinary` operator to `Lt` and runs both execution modes. Then reject any operator other than `Add`, `Sub`, `Mul`, `Div` and `Rem` in `verify_scalar`, which removes the reachable `expect`.
-- **Fix with:** root-cause
+- **Where:** `Path.relative_to`; reproducer `bench/codemode/defects/d2-relative-to/main.xsh`
+- **Problem:** `xsht api method:Path.relative_to` says "The result is an error when the path is not below the requested base", but the signature returns `Path` and `p"/etc/hosts".relative_to(p"/srv/app")` returns `/etc/hosts`, so a caller cannot tell a relative result from the unchanged input.
+- **Recommendation:** Decide the contract: return `Result[Path]` and fail outside the base, or keep `Path` and state that an outside path is returned unchanged; align the registry text and add a native test for the outside case.
+- **Fix with:** error-model
 - **Effort:** S
+
+### XSH-162 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
+
+- **Area:** Docs
+- **Where:** registry contract text for module functions; `fs.walk`, `fs.files`
+- **Problem:** Many contracts say "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`", while `name: value` arguments such as `fs.walk(root, gitignore: false, hidden: true)` and `archive.create(..., collision: .Replace)` check and run, and some functions require them: `csv.encode(rows, true, ",", columns)` is `check.named-arg` for `headers`, `delimiter` and `columns`, and `path.rename(dest, true)` for `to`, so following the text literally is rejected. In the held-out runs this was the most frequent diagnostic, in 18 programs under both XSH contexts. `fs.walk` and `fs.files` obey `.gitignore` files by default, also outside a Git checkout, but the signature shows only `gitignore: Bool = default`. Agents in the code mode experiment had to learn both from failures.
+- **Recommendation:** State which spellings are accepted (`name: value` yes, `name = value` no) and print each default's value in signatures, starting with `gitignore`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-163 · P3 · `check.redundant-parens` is a hard error that no guide mentions
+
+- **Area:** Checker
+- **Where:** `check.redundant-parens`; evidence `bench/codemode/results/dev-initial-taxonomy.json`
+- **Problem:** Parentheses that do not change parsing, such as `x += (a + b)` or `and (id not in seen)`, are check errors. In the code mode development runs this one rule caused 8 of the 24 failed programs under both the current documentation and the compact guide; the tour and `xsht api language:core` do not mention it.
+- **Recommendation:** Decide whether the rule should stay an error or become a lint with an autofix; until then, state it in the tour and in `language:core`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-168 · P3 · `cargo dev check` runs formatter checks the tree is not meant to pass
+
+- **Area:** Tooling
+- **Where:** `dev/build.xsh:166` (`check-rustfmt`: `cargo fmt --all -- --check`), the later `xsht fmt --check` stage of `cargo dev check`
+- **Problem:** `cargo dev check` fails on every checkout: `cargo fmt --check` reports diffs in `build.rs`, `crates/` and `tests/`, and `xsht fmt --check` reports 1,045 unformatted files. The repository does not run formatters (AGENTS.md), and no gate or CI path runs these stages, so the command is permanently red and a newcomer following it cannot tell a real failure from the expected one. The cold Ubuntu 24.04 capsule run of 2026-11-21 stopped there after build and clippy passed.
+- **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-166 · P4 · A user type named like a built-in record cascades into a misleading mismatch
+
+- **Area:** Checker
+- **Where:** `check.duplicate-name` for types; reproducer `bench/codemode/defects/d5-builtin-type-name/main.xsh`
+- **Problem:** `type Group = {name: Str, size: Int}` is correctly rejected with `check.duplicate-name` ("type name conflicts with a built-in type"), but every later use is then checked against the built-in `Group` record and reports a second `check.type-mismatch` ("expected {gid: Int, members: List[Str], name: Str}, found {name: Str, size: Int}") that points away from the real cause.
+- **Recommendation:** After a duplicate type name, check its uses against the user's declaration (or suppress follow-on mismatches) and name the built-in record in the first diagnostic.
+- **Fix with:** none
+- **Effort:** S
+

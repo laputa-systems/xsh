@@ -2,7 +2,7 @@
 ##! with the stdlib `template` module, and checks that committed output is current.
 ##!
 ##! Template data is one record:
-##! - `tour.NAME` and `spec.NAME`: `{source, output, desugared, platform}` for the snippet
+##! - `tour.NAME`, `spec.NAME` and `guide.NAME`: `{source, output, desugared, platform}` for the snippet
 ##!   `docs/snippets/COLLECTION/NN-NAME.xsh` (`-` in NAME becomes `_`). `source` is the whole
 ##!   file, or the concatenation of its `# begin example` ... `# end example` regions,
 ##!   each dedented, so a fragment is checked inside a wrapper program the document
@@ -98,11 +98,11 @@ const snippet_name = rx"^[0-9][0-9]-([a-z0-9-]+)\.xsh$"
 const numbered_name = rx"^[0-9]"
 
 # Snippet collections, each rendered as `.COLLECTION.NAME` from `docs/snippets/COLLECTION/`.
-const snippet_collections = ["tour", "spec"]
+const snippet_collections = ["tour", "spec", "guide"]
 
-const output_reference = rx"\.(tour|spec)\.[a-z0-9_]+\.output"
+const output_reference = rx"\.(tour|spec|guide)\.[a-z0-9_]+\.output"
 
-const desugared_reference = rx"\.(tour|spec)\.[a-z0-9_]+\.desugared"
+const desugared_reference = rx"\.(tour|spec|guide)\.[a-z0-9_]+\.desugared"
 
 const region_begin = "# begin example"
 
@@ -127,6 +127,8 @@ const tour_markdown = "user-tour.md"
 
 const tour_page = "user-tour.html"
 
+const guide_pages = ["getting-started.md", "agent-context.md"]
+
 pure header(rel: Str) -> Str {
   let hint = if rel == tour_markdown {
     "edit the template and docs/snippets/tour/."
@@ -134,6 +136,8 @@ pure header(rel: Str) -> Str {
     "edit the tour template, docs/snippets/tour/, or dev/tour_html.xsh."
   } else if rel == "SPEC.md" {
     "edit the template and docs/snippets/spec/."
+  } else if rel in guide_pages {
+    "edit the template and docs/snippets/guide/."
   } else {
     "edit the template or the code it documents."
   }
@@ -548,6 +552,12 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
       tools,
       shown_outputs(shown, "spec"),
       shown_expansions(shown, "spec"),
+    )?,
+    guide: snippets(
+      fp"{root}/docs/snippets/guide",
+      tools,
+      shown_outputs(shown, "guide"),
+      shown_expansions(shown, "guide"),
     )?,
     project: project(root)?,
     stdlib: stdlib(tools.xsht)?,

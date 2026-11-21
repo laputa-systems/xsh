@@ -356,6 +356,116 @@ over a cleanup failure. Five mutants are rejected: calls sharing the caller's
 activation, registration-order unwinding, skipping defers on `break`, running
 `errdefer` on success, and a cleanup failure masking the original one.
 
+The `error_handling` fragment root, in the same module, covers the error core
+of SPEC 8. `?` and a conversion unwrap `Ok` and raise the error of `Err`, which
+is the raised class together with failed assertions and the `Map[UInt]` key
+`Schema` failure; a statement-position `Err` fails its statement. `try { ... }`
+is a value block whose raised failure becomes `Err` and whose completion is
+`Ok` of its tail; runtime and type failures, `return`, `break` and `continue`
+pass through it, and because the failure leaves the `try` body, that body's
+`errdefer` runs while the block containing the `try` continues. A value
+block's tail is its value, so an `Err` tail leaves it normally and its
+`errdefer` is not due. Each `retry` attempt is a value block: a raised failure
+the `on` filter selects runs the attempt's defers, takes the next delay as an
+observation in `Frame.waited`, and runs again, and the result is `Ok` of the
+first success or `Err` of the last failure. A block function body has a
+return kind: a `Result` function returns a raised failure, a primary cleanup
+failure included, as its `Err` and wraps plain values in `Ok`, and any other
+function fails the call. The witnesses show `?` skipping the rest of a `try`
+body and running its `errdefer`, `try` capturing a failed assertion but not an
+`index-out-of-range`, a three-attempt `retry` running its attempt `errdefer`
+twice, a cleanup failure reaching a `Result` function's caller as `Err` and a
+plain function's caller as a call failure that `try` captures, and a tail
+`Err` running a function's `errdefer` but not a value block's. Four mutants
+are rejected: a `try` that captures runtime failures, a tail `Err` treated as
+a normal exit, a `retry` that skips attempt defers, and a `Result` function's
+cleanup failure escaping as a call failure.
+
+### BASE-ENV and BASE-STEP gap list
+
+`xsh-lean.md` closes BASE-ENV and BASE-STEP "only when their theorems hold for
+the frozen core's syntax, values and host request families"; BASE-STEP also
+needs every numeric step result to meet the BASE-NUM meanings, including
+`IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning`. This list is every core
+form the expression evaluator and statement machine still leave
+`.unsupported` (P: pure, E: needs clocks, processes, the filesystem or the host
+environment).
+
+Statements:
+
+- `for` over a `Stream` (E)
+- stream producers and their `yield` (E)
+- `use` aliases, which need module loading (E)
+- `export` of anything but a binding; `type` and `error` declarations as
+  runtime binders (record and error constructors) (P); `stream` and `cli main`
+  declarations, which need the stream and host argument models (E)
+- `with` resource scopes, `exit`, signal hooks and command statements (E)
+
+Expressions:
+
+- first-class local functions (P)
+- `and`/`or` operands of a `Result[Bool]` condition (P)
+- `match` as an expression, comparison chains, `in`, set literals and set
+  operators, slices, guarded `?.` and `?[]` (P)
+- record spread, shorthand, computed and path fields (P)
+- named, spread and splice arguments, methods and value pipelines (P)
+- `.require` (P), `ctx` error contexts (P)
+- `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
+  `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
+  (E), `$NAME` and `$PATH` reads (E), `$?` (E)
+- Float literal and `parse_float` rounding, method calls behind
+  `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
+
+Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
+and `parse_float` rounding, outside the model as for BASE-NUM (P).
+
+Writes and values: writable captures through calls nested in expressions,
+which needs the expression evaluator to thread the store (P); local functions
+as first-class `Proc`/`Pure` values with `.call` (P).
+
+Binders: declared types still come from the resolution oracle (P), and the
+resolution pass is tied to the machine through the operations
+`resolution_and_captures` names, not for whole machine runs (P).
+
+The `resolution_and_captures` fragment root adds the syntax-directed
+resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
+`Represents` link between the machine's lexical environment and the pass's
+scopes, and writable captures: a statement-level call of a local function
+returns with the caller's cells as the callee left them, and the callee may
+write a caller-held cell only when it is one of the closure's captured mutable
+cells (SPEC 9.2). Its witnesses are a counter closure, a write that reaches the
+captured cell rather than the call site's shadowing one, and the pass on a
+straight-line program; the mutants lose the write or write the call site's
+cell.
+
+The `parameters_and_maps` fragment root adds default and rest parameters
+(SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
+see other parameters, and run once per call for each omitted argument, in
+parameter order, after the supplied arguments") and map comprehensions, where
+the later projection of a key wins and the key is projected before the value.
+
+The `local_bindings` fragment root covers local function declarations, which
+bind a closure over the declaring environment that reads captured cells at the
+call (SPEC 9.2: "Stream producers observe current captured mutable storage
+before each pull"), the implicit `.` of a handler, list comprehensions, `collect`
+and `yield`, text, error-variant, facet and tuple patterns, `guard let`'s
+`else { |failure| }` (the new `Statement.guardHandled`), and the canonical
+resolver that replaces the oracle's binder and cell choice.
+
+The `pure_forms_laws` fragment root and the witnesses in
+[`Proofs/Core/Control.lean`](Xsh/Proofs/Core/Control.lean) cover what this
+list no longer names: `Ok(...)` and `Err(...)`, return kinds for
+expression-bodied functions, `??` with a named handler parameter (the new
+`Expr.handlerBlock`), `Result[Bool]` conditions, `guard let` (the checker's
+`Result` or optional form from an oracle), `loop` expressions and `break` with
+a value, `return` without a value (`Unit`), index-selector assignment through
+`evaluateSelectors` with the `Map[UInt]` key rule, `for` over `Map` in key
+order, `Str` and `Bytes`, and alternation, alias, `Ok`/`Err` and variant
+constructor and type patterns. Each binding form has a witness that its
+binding is visible where SPEC says and a rejected mutant that leaks or hides
+it: a block's `let`, `for` targets, `if let`, `while let`, `match` arms,
+`guard let` and `??` handler parameters.
+
 The core `Statement` syntax in [`Syntax/Core.lean`](Xsh/Syntax/Core.lean) now
 has every `ArenaStmtKind` kind: `use`, `export`, type and error declarations,
 the four function-definition kinds with parameters and defaults, signal hooks,
@@ -697,6 +807,17 @@ preserving the stored value. The model checks qualified storage requirements
 and relates them to runtime compatibility; source-derived unique rows and
 runtime-relevant call-instance closure remain open. Source admission, lexical
 effect bounds, translation validation, and whole-machine correspondence remain open.
+The vertical source witness checker excludes adjacent identifier characters and
+hyphens, decimal digits followed by identifier starts or dots, `E>`, `==`,
+`=>`, `<=`, `>=`, `>>`, and `??`. It also requires each consecutive decimal
+digit run to fit in a signed 64-bit integer, even inside an identifier. These
+restrictions also exclude reserved words other than the six keywords used by
+the vertical grammar, and exclude reserved function names and literal-let
+bindings. They are
+conservative restrictions on checker acceptance; they do not establish full
+SPEC lexical agreement, parse-failure classification or tree-node spans.
+The local recursion-depth cap in the record admission witnesses accommodates
+kernel reduction of their concrete source byte lists.
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
@@ -800,6 +921,59 @@ owner coverage, root reachability, and evidence records. They do not test Lean
 theorem behavior or Rust conformance. [`xsh-lean.md`](../xsh-lean.md) is the
 owner-managed plan and is parsed by the inventory checker; preserve its
 G0–G10 structure when updating it.
+
+## Source admission
+
+[`Conformance/Vertical/SourceAdmission.lean`](Xsh/Conformance/Vertical/SourceAdmission.lean)
+proves the fragment root `Xsh.Conformance.Vertical.SourceAdmission.source_admission`.
+SRC-ADMIT stays planned: the root has no parse-failure judgment, its string
+rejection clauses are the Lean scanner's relational reading, `D` admits no
+string literals, comments or module inputs, and no Rust lexer correspondence is
+shown. The relations `DeclaredString` and `EscapeError` relate the scanner's own
+decisions; they are not an independent SPEC reading of source strings.
+It decides, for arbitrary source bytes and no imported inputs, one of three
+outcomes, each with an exact declarative range:
+
+- `accepted functions scopes` holds exactly on the declared domain `D`. `D`
+  fixes a module input list of `[]`, no conflicting adjacent bytes, decimal runs
+  within the integer bound, distinct function names, supported names, a slot
+  projection for every function, and a tokenization whose trees satisfy the
+  independent grammar, ordered propagation, record-call exclusion, and the
+  supported-word guard.
+- `rejected (.invalidUtf8 span)` holds exactly where the bytes before the span
+  are well-formed UTF-8 and no well-formed UTF-8 sequence starts at the span's
+  start, stated against `ValidUtf8` and `StartsSeq` rather than the detector.
+  The classifier's offset is the least such offset, and the span runs to the end
+  of input.
+- `rejected (.invalidEscape span)` and `rejected (.unterminatedString span)`
+  hold exactly over the declared string envelope `E`, through the relational
+  `DeclaredString` (whose invalid-escape case carries `EscapeError`): well-formed
+  UTF-8 with no
+  `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `g"`, `p"`, `rx"`, or `e"`
+  opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
+  An invalid escape spans the backslash through the
+  escape's syntax; a backslash before a line end spans the backslash and the
+  line-end bytes. An unterminated string spans the opening quote through
+  the line end, excluding the line-end bytes, or through the end of input when
+  no line end follows.
+- `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
+  outside `D`, and either outside `E` or scanning clean.
+
+The accepted outcome also yields a `ScopesProjection` from the accepted
+functions to the returned scopes, the positioned tokens of the exact bytes, the
+grammar derivation, the decimal interpretation of every number token within the
+bound, and a span for the token list that lies within the source. A node's span
+is its own tokens' span by construction. `D` contains no quote byte, so an
+input that fails the string scan is never in `D`; that disjointness makes the
+ranges exact rather than merely sufficient. The classifier decides `D` through
+`reconstruct`, so the accepted outcome names the very trees and scopes the
+domain requires.
+
+The boundary is the Lean model. It proves nothing about the Rust lexer,
+parser, or diagnostics, and `E` and `D` are narrower than the full source
+language: interpolation, triple-quoted layout, raw strings, and every
+production outside the integer fragment are outside both. The SPEC's claimed
+diagnostic codes and message text are not modelled.
 
 ## Checked Int arithmetic
 

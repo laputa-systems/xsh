@@ -1,0 +1,23 @@
+{
+  "id": "dev-restock",
+  "split": "dev",
+  "track": "shared",
+  "families": ["local-service-orchestration", "json"],
+  "origin": "adapted from SX bench/codemode/tasks/dev-low-stock-alerts and bench/workflows/effects-blind/restock-orders",
+  "description": "Restock one warehouse. Its name is the only line of `/work/warehouse.txt` (ignore surrounding whitespace).\n\n`inventory_list` (`svc.inventoryList` in TypeScript) returns the warehouse's stock rows. A SKU needs restocking when its `on_hand` is below its `reorder_at`. For each SKU that needs restocking, ask `orders_open` (`svc.ordersOpen`) for its open orders. If it has any, skip it. Otherwise place one order for `target - on_hand` units with `orders_place` (`svc.ordersPlace`). Do not ask about open orders for a SKU that does not need restocking.\n\n`orders_place` is not idempotent: never call it more than once for a SKU, even when it fails. A failed placement is recorded and the run continues with the next SKU.\n\nWrite `/work/restock.json`, a JSON object with three lists, each sorted by SKU: `placed`, objects `{\"sku\": SKU, \"order\": ORDER_ID}` for every successful placement; `skipped`, the SKUs skipped because of an open order; and `failed`, objects `{\"sku\": SKU, \"kind\": KIND}` for every failed placement, where `KIND` is the failure kind, such as `Unavailable`. Exit with status 0.",
+  "variants": ["public", "failures", "quiet"],
+  "exit_codes": [0],
+  "timeout_s": 60,
+  "types": {
+    "Stock": {"type": "{sku: Str, on_hand: Int, reorder_at: Int, target: Int}", "doc": "One SKU's stock level in a warehouse."},
+    "OpenOrder": {"type": "{id: Str, quantity: Int}", "doc": "An order that has been placed and not yet delivered."},
+    "Placed": {"type": "{id: Str, sku: Str, quantity: Int}", "doc": "A newly placed order."}
+  },
+  "capabilities": [
+    {"id": "inventory.list", "effect": "read", "input": {"warehouse": "Str"}, "output": "List[Stock]", "description": "Lists every stock row of a warehouse."},
+    {"id": "orders.open", "effect": "read", "input": {"warehouse": "Str", "sku": "Str"}, "output": "List[OpenOrder]", "description": "Lists the open orders for one SKU of a warehouse."},
+    {"id": "orders.place", "effect": "write", "idempotent": false, "input": {"warehouse": "Str", "sku": "Str", "quantity": "Int"}, "output": "Placed", "description": "Places a purchase order for one SKU of a warehouse."}
+  ],
+  "xsh_api": ["method:Path.read_text", "method:Str.trim", "api:json.encode", "method:Path.write", "language:stream.sort-by"],
+  "ts_modules": ["node:fs"]
+}

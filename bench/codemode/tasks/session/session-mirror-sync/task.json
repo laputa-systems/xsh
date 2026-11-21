@@ -1,0 +1,27 @@
+{
+  "id": "session-mirror-sync",
+  "split": "session",
+  "track": "shared",
+  "families": ["file-inventory", "bounded-parallel-work", "local-service-orchestration", "small-reusable-script"],
+  "origin": "new",
+  "description": "Mirror the static site in `/work/site` into a bucket of the object store. The command line is `[--delete] BUCKET`; any other option, or a number of operands other than one, is a usage error: print a usage message to standard error and exit with status 2 without calling the service.\n\nThe local objects are the regular files under `/work/site`, at any depth. Skip hidden entries (names starting with `.`) and everything inside hidden directories, and skip symbolic links. An object's key is its path relative to `/work/site`, with `/` between components.\n\nList the bucket with `store_list` (`svc.storeList` in TypeScript). A local object needs uploading when the bucket has no object with its key, or has one whose `sha256` differs from the file's SHA-256 (lowercase hex). Upload each such file with one `store_put` (`svc.storePut`), passing the bucket, the key, the file's SHA-256, and its content in standard base64 with padding. With `--delete`, also remove every key of the bucket that has no local object, with one `store_delete` (`svc.storeDelete`) each; without `--delete`, remove nothing.\n\nRun the writes concurrently, with at most 3 calls in flight at any moment, and keep 3 in flight while writes are still waiting. A write that answers `Conflict` has already taken effect (this happens when the program is run again over the same bucket): count it as done. A delete that answers `NotFound` is done too. Any other failure means that key failed; do not retry it.\n\nPrint one line to standard output: a JSON object with `uploaded` (the uploaded keys), `deleted` (the deleted keys), `failed` (the keys whose write failed), each sorted in byte order, and `unchanged`, the number of local objects that needed no upload. Exit with status 0 when no write failed, and 4 otherwise.",
+  "variants": ["public", "delete", "conflict", "only-hidden", "usage"],
+  "exit_codes": [0, 2, 4],
+  "timeout_s": 60,
+  "types": {
+    "StoredObject": {"type": "{key: Str, sha256: Str, size: Int}", "doc": "One object of a bucket."},
+    "Written": {"type": "{key: Str}", "doc": "The key a write changed."}
+  },
+  "capabilities": [
+    {"id": "store.list", "effect": "read", "input": {"bucket": "Str"}, "output": "List[StoredObject]",
+     "description": "Lists every object of a bucket."},
+    {"id": "store.put", "effect": "write", "idempotent": true,
+     "input": {"bucket": "Str", "key": "Str", "sha256": "Str", "content_base64": "Str"}, "output": "Written",
+     "description": "Stores one object, replacing any object with the same key."},
+    {"id": "store.delete", "effect": "write", "idempotent": true,
+     "input": {"bucket": "Str", "key": "Str"}, "output": "Written",
+     "description": "Removes one object."}
+  ],
+  "xsh_api": ["language:core.cli-main", "api:fs.walk", "method:Bytes.base64", "method:Bytes.sha256", "language:stream.par-map"],
+  "ts_modules": ["node:fs", "node:path", "node:crypto", "node:util"]
+}

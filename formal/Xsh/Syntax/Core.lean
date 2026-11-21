@@ -315,6 +315,8 @@ mutual
     | retry (schedule : RetrySchedule) (delays : List Expr)
         (pattern : Option Pattern) (body : List Statement)
     | valueBlock (body : List Statement)
+    /-- An error handler block `{ |name| ... }` after `??`. -/
+    | handlerBlock (parameter : Option RawName) (body : List Statement)
     | errorContext (message : Expr) (body : List Statement)
     | contextScope (kind : ContextScopeKind) (input : Expr) (body : List Statement)
     | tempDirScope (path : Option Expr) (parameter : Option RawName) (body : List Statement)
@@ -343,6 +345,10 @@ mutual
     | loopStmt (body : List Statement)
     | guardStmt (target : BindingTarget) (annotation : Option TypeExpr)
         (initializer : Expr) (otherwise : List Statement)
+    /-- `guard let target = initializer else { |failure| ... }`: the `Result` form
+    whose else block names the error. -/
+    | guardHandled (target : BindingTarget) (annotation : Option TypeExpr)
+        (initializer : Expr) (failure : RawName) (otherwise : List Statement)
     | assert (condition : Expr) (message : Option Expr)
     | breakStmt (value : Option Expr)
     | continueStmt
@@ -518,6 +524,7 @@ mutual
             freeStatementsFuel fuel
               (pattern.toList.flatMap (fun item => item.boundNamesFuel fuel) ++ bound) body
       | .valueBlock body => freeStatementsFuel fuel bound body
+      | .handlerBlock parameter body => freeStatementsFuel fuel (parameter.toList ++ bound) body
       | .errorContext message body =>
           freeExprFuel fuel bound message ++ freeStatementsFuel fuel bound body
       | .contextScope _ input body =>
@@ -578,6 +585,9 @@ mutual
           freeStatementsFuel fuel bound body ++ freeStatementsFuel fuel bound rest
       | .guardStmt target _ initializer otherwise =>
           freeExprFuel fuel bound initializer ++ freeStatementsFuel fuel bound otherwise ++
+          freeStatementsFuel fuel (target.namesFuel fuel ++ bound) rest
+      | .guardHandled target _ initializer failure otherwise =>
+          freeExprFuel fuel bound initializer ++ freeStatementsFuel fuel (failure :: bound) otherwise ++
           freeStatementsFuel fuel (target.namesFuel fuel ++ bound) rest
       | .assert condition message =>
           freeExprFuel fuel bound condition ++

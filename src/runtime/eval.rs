@@ -30,7 +30,7 @@ use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, ExprId, StmtId,
 };
-use crate::syntax::node::{AssignOp, FormatSpec, RedirectionKind, RunKind};
+use crate::syntax::node::{AssignOp, BinaryOp, FormatSpec, RedirectionKind, RunKind};
 use crate::trace::{
     TraceArg, TraceEnv, TraceError, TraceEvent, TraceKind, TracePayload, TraceStatus,
     TraceStatusKind, TraceTiming, Traceback, TracebackFrame,
@@ -8102,72 +8102,74 @@ fn reject_nul(bytes: &[u8], kind: &str, message: &str, span: Span) -> Result<(),
     }
 }
 
+/// A top-level `name OP= value`. Int and Duration operands take the shared
+/// decisions through the adapters that the lowered routes use.
 fn compound_assignment_value(
     op: AssignOp,
     left: Value,
     right: Value,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    match (op, left, right) {
-        (AssignOp::Add, Value::List(left), Value::List(right)) => {
+    let binary = match op {
+        AssignOp::Set => None,
+        AssignOp::Add => Some(BinaryOp::Add),
+        AssignOp::Sub => Some(BinaryOp::Sub),
+        AssignOp::Mul => Some(BinaryOp::Mul),
+        AssignOp::Div => Some(BinaryOp::Div),
+        AssignOp::Rem => Some(BinaryOp::Rem),
+    };
+    let duration_operand = |value: &Value| match value {
+        Value::Duration(value) => Some(crate::duration::DurationOperand::Millis(value.millis)),
+        Value::Int(value) => Some(crate::duration::DurationOperand::Count(*value)),
+        _ => None,
+    };
+    match (binary, left, right) {
+        (Some(BinaryOp::Add), Value::List(left), Value::List(right)) => {
             let mut items = left;
             items.extend(right);
             Ok(Value::List(items))
         }
-        (AssignOp::Add, Value::Int(left), Value::Int(right)) => {
-            left.checked_add(right).map(Value::Int).ok_or_else(|| {
-                RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
+        (Some(binary), Value::Int(left), Value::Int(right)) => {
+            lowered_ops::checked_int_binary(binary, left, right, span).map(Value::Int)
+        }
+        (Some(binary), left, right)
+            if matches!(left, Value::Duration(_)) || matches!(right, Value::Duration(_)) =>
+        {
+            let (Some(left_operand), Some(right_operand)) = (duration_operand(&left), duration_operand(&right)) else {
+                return Err(compound_assignment_type_error(op, &left, &right, span));
+            };
+            Ok(match lowered_ops::checked_duration_binary(binary, left_operand, right_operand, span)? {
+                crate::duration::DurationResult::Millis(millis) => Value::Duration(DurationValue { millis }),
+                crate::duration::DurationResult::Count(count) => Value::Int(count),
             })
         }
-        (AssignOp::Sub, Value::Int(left), Value::Int(right)) => {
-            left.checked_sub(right).map(Value::Int).ok_or_else(|| {
-                RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
-            })
-        }
-        (AssignOp::Mul, Value::Int(left), Value::Int(right)) => {
-            left.checked_mul(right).map(Value::Int).ok_or_else(|| {
-                RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
-            })
-        }
-        (AssignOp::Div, Value::Int(_), Value::Int(0)) => {
-            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
-        }
-        (AssignOp::Div, Value::Int(left), Value::Int(right)) => {
-            left.checked_div(right).map(Value::Int).ok_or_else(|| {
-                RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
-            })
-        }
-        (AssignOp::Rem, Value::Int(_), Value::Int(0)) => {
-            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
-        }
-        (AssignOp::Rem, Value::Int(left), Value::Int(right)) => {
-            left.checked_rem(right).map(Value::Int).ok_or_else(|| {
-                RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
-            })
-        }
-        (AssignOp::Add, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
+        (Some(BinaryOp::Add), Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 + right.0),
         )),
-        (AssignOp::Sub, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
+        (Some(BinaryOp::Sub), Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 - right.0),
         )),
-        (AssignOp::Mul, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
+        (Some(BinaryOp::Mul), Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 * right.0),
         )),
-        (AssignOp::Div, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
+        (Some(BinaryOp::Div), Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 / right.0),
         )),
-        (op, left, right) => Err(RuntimeError::new(
-            "type-error",
-            format!(
-                "{} assignment cannot combine {} and {}",
-                assign_op_runtime_text(op),
-                left.type_name(),
-                right.type_name()
-            ),
-        )
-        .with_span(span)),
+        (_, left, right) => Err(compound_assignment_type_error(op, &left, &right, span)),
     }
+}
+
+fn compound_assignment_type_error(op: AssignOp, left: &Value, right: &Value, span: Span) -> RuntimeError {
+    RuntimeError::new(
+        "type-error",
+        format!(
+            "{} assignment cannot combine {} and {}",
+            assign_op_runtime_text(op),
+            left.type_name(),
+            right.type_name()
+        ),
+    )
+    .with_span(span)
 }
 
 fn assign_op_runtime_text(op: AssignOp) -> &'static str {

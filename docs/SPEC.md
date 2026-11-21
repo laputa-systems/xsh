@@ -719,12 +719,12 @@ numbers, not between `Int` and `Float`, and not from anything to `Bool`.
 ### 4.2 Numbers
 
 `Int` arithmetic is checked. Overflow fails with `integer-overflow`, and
-division or remainder by zero fails with `division-by-zero`. `/` truncates
-toward zero. `%` fails with `integer-overflow` whenever `/` on the same operands
-would, so the minimum `Int` `% -1` fails rather than giving `0`. `%` is
-integer-only. Non-negative bitset operations are methods: `.bit_and(mask)`,
-`.bit_or(mask)`, `.clear_bits(mask)`. A negative receiver or mask fails with
-`integer-bitset`.
+division or remainder by zero fails with `division-by-zero`. Both fail at the
+operator. `/` truncates toward zero. `%` fails with `integer-overflow` whenever
+`/` on the same operands would, so the minimum `Int` `% -1` fails rather than
+giving `0`. `%` is integer-only. Non-negative bitset operations are methods:
+`.bit_and(mask)`, `.bit_or(mask)`, `.clear_bits(mask)`. A negative receiver or
+mask fails with `integer-bitset`.
 
 `UInt` shares `Int`'s representation and operators but is never negative. The
 constraint is enforced wherever a value is stored or crosses a typed boundary:
@@ -2568,7 +2568,9 @@ streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), 
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
 are `Bool` values, never assertions. A failed comprehension exposes no partial
 result. A map comprehension is the only entry in its braces; an entry or
-spread before it is an error (`parse.map-comprehension-entries`).
+spread before it is an error (`parse.map-comprehension-entries`). When two
+projections produce the same key, the later one replaces the earlier, as in a
+map literal.
 
 A set is built from a comprehension with `set.from([word.lower() for word in
 words])`, which holds each projected value once. A set is also a source: its

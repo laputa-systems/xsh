@@ -51,6 +51,7 @@ test test_lint_reports_redundant_result_unit_ceremony { |ctx|
     "lint.redundant-ok-return",
     "lint.redundant-ok-return",
     "lint.unused-callable",
+    "lint.unused-export",
   ], reported.stderr
 
   let fixed = lint(file, ["--fix"])?

@@ -1,0 +1,13 @@
+{
+  "id": "held-hosts-block",
+  "split": "held",
+  "track": "native",
+  "families": ["configuration-update", "json", "resource-handling"],
+  "origin": "new",
+  "description": "`/work/etc/hosts` is a hosts file that people and other tools also edit. This command owns one block of it: the lines between a line that is exactly `# BEGIN fleet` and a line that is exactly `# END fleet` (no leading or trailing spaces). Bring that block in line with `/work/fleet.json`.\n\n`/work/fleet.json` is a JSON array of entries `{\"ip\": STRING, \"names\": [STRING, ...]}`. The block holds one line per entry that has at least one name, in file order: the ip, one tab, then the names separated by single spaces. If the file is not such an array, print a message to standard error, change nothing, and exit with status 4.\n\n- If the hosts file has exactly one begin line and exactly one end line after it, replace the lines between them with the block, keeping both marker lines.\n- If it has neither marker line, append the begin line, the block and the end line at the end of the file. If the file is not empty and does not end with a newline, add one first.\n- In any other case (one marker without the other, a marker more than once, or the end before the begin), print a message to standard error, change nothing, and exit with status 4.\n\nEvery line you write ends with a newline. Everything outside the block stays exactly as it was, byte for byte.\n\nIf the new content equals the current content, do not write the file at all and print `unchanged`. Otherwise replace the file in one step, so that a reader sees either the old or the new content, keep its permission bits, leave no other file behind in `/work/etc`, and print `updated`. Exit with status 0 in both cases.",
+  "variants": ["public", "append", "same", "broken", "reversed", "bad-fleet"],
+  "exit_codes": [0, 4],
+  "timeout_s": 60,
+  "xsh_api": ["method:Path.read_text", "method:Path.write_atomic", "method:Str.lines", "api:json.read", "language:core.schema-validation"],
+  "ts_modules": ["node:fs", "node:path"]
+}

@@ -33,6 +33,9 @@ print $total
 """)
   fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".write("""print $missing # error: check.unresolved-name
 """)
+  fp"{root}/docs/snippets/guide/rejected".mkdir()
+  fp"{root}/docs/snippets/guide/01-shout.xsh".write("""print "HELLO"
+""")
   root
 }
 
@@ -72,6 +75,31 @@ hello
 ```
 
 tests/test-unit.xsh (""" in page, page
+  docs.check(root, tools(ctx))
+}
+
+test test_docs_render_guide_snippets_and_their_output { |ctx|
+  let root = docs_tree(
+    ctx,
+    """```xsh
+{{.guide.shout.source}}
+```
+
+```text
+{{.guide.shout.output}}
+```
+""",
+  )?
+
+  docs.generate(root, tools(ctx))
+  let page = fp"{root}/docs/page.md".read_text()?
+  assert """```xsh
+print "HELLO"
+```
+
+```text
+HELLO
+```""" in page, page
   docs.check(root, tools(ctx))
 }
 

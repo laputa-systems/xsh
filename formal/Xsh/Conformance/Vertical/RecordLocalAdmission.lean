@@ -3,7 +3,7 @@ import Xsh.Conformance.Vertical.RecordLocalLowering
 
 namespace Xsh.Conformance.Vertical.SourceAdmission
 
-set_option maxRecDepth 100000 in
+set_option maxRecDepth 10000 in
 theorem record_bytes_admitted :
     check (witnessBytes recordLocalSourceDocument.text) [] recordLocalFunctions
       [[("value", 0), ("box", 2)]] = true := by
