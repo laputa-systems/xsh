@@ -124,6 +124,44 @@ theorem surrogate_classified :
     classify [0xED, 0xA0, 0x80] [] = .rejected (.invalidUtf8 ⟨0, 3⟩) := by
   decide +kernel
 
+/-- A classifier variant whose UTF-8 rejection always names offset zero. -/
+def classifyUtf8AtZero (bytes : List UInt8) (moduleInputs : List (List UInt8)) : Classification :=
+  match firstInvalidUtf8 bytes with
+  | some _ => .rejected (.invalidUtf8 ⟨0, bytes.length⟩)
+  | none => classify bytes moduleInputs
+
+def utf8OffsetTwoBytes : List UInt8 := [0x61, 0x62, 0xFF, 0x63]
+
+/-- `[0x61,0x62,0xFF,0x63]` is rejected at offset 2: the two ASCII bytes are a valid prefix
+and `0xFF` starts no well-formed sequence. -/
+theorem utf8_offset_two_classified :
+    classify utf8OffsetTwoBytes [] = .rejected (.invalidUtf8 ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem utf8_offset_two_invalid : InvalidUtf8At utf8OffsetTwoBytes ⟨2, 4⟩ :=
+  (classify_invalid_utf8_iff _ _ _).mp utf8_offset_two_classified
+
+theorem utf8_offset_two_least :
+    ∀ other, InvalidUtf8At utf8OffsetTwoBytes other → 2 ≤ other.start := by
+  have found : firstInvalidUtf8 utf8OffsetTwoBytes = some 2 := by decide +kernel
+  exact (invalid_utf8_least (span := ⟨2, utf8OffsetTwoBytes.length⟩) found rfl).2
+
+theorem utf8_offset_zero_not_invalid : ¬ InvalidUtf8At utf8OffsetTwoBytes ⟨0, 4⟩ := by
+  intro wrong
+  exact wrong.2.2.1 (.ascii (byte := 0x61) (rest := [0x62, 0xFF, 0x63]) (by decide))
+
+/-- The always-offset-zero mutant is refuted by the witness: it reports a span the
+declarative predicate rejects. -/
+theorem mutant_utf8_zero_refuted :
+    classifyUtf8AtZero utf8OffsetTwoBytes [] = .rejected (.invalidUtf8 ⟨0, 4⟩) ∧
+      ¬ InvalidUtf8At utf8OffsetTwoBytes ⟨0, 4⟩ :=
+  ⟨by decide +kernel, utf8_offset_zero_not_invalid⟩
+
+theorem mutant_utf8_zero_disagrees :
+    classifyUtf8AtZero utf8OffsetTwoBytes [] ≠ classify utf8OffsetTwoBytes [] := by
+  rw [utf8_offset_two_classified]
+  decide +kernel
+
 theorem lone_quote_classified :
     classify [34] [] = .rejected (.unterminatedString ⟨0, 1⟩) := by
   decide +kernel

@@ -23,9 +23,54 @@ inductive Classification where
   | outside
   deriving DecidableEq, Repr
 
-/-- The bytes have no well-formed UTF-8 prefix at `span.start`, and the span runs to the end. -/
+/-- The bytes have no well-formed UTF-8 prefix at `span.start`, no well-formed UTF-8 sequence
+starts at `span.start`, and the span runs to the end. This is stated against `ValidUtf8` and
+`StartsSeq`, not the detector `firstInvalidUtf8`. -/
 def InvalidUtf8At (bytes : List UInt8) (span : Span) : Prop :=
-  firstInvalidUtf8 bytes = some span.start ∧ span.stop = bytes.length
+  span.start < bytes.length ∧ ValidUtf8 (bytes.take span.start) ∧
+    ¬ StartsSeq (bytes.drop span.start) ∧ span.stop = bytes.length
+
+/-- The detector's offset satisfies the declarative predicate. -/
+theorem invalid_utf8_of_first {bytes : List UInt8} {span : Span}
+    (found : firstInvalidUtf8 bytes = some span.start) (stop : span.stop = bytes.length) :
+    InvalidUtf8At bytes span :=
+  ⟨first_invalid_offset_lt found, first_invalid_some_prefix_valid found,
+    (first_invalid_structure found).2.2, stop⟩
+
+/-- The detector's offset is the least offset satisfying the declarative predicate. -/
+theorem invalid_utf8_least {bytes : List UInt8} {span : Span}
+    (found : firstInvalidUtf8 bytes = some span.start) (stop : span.stop = bytes.length) :
+    InvalidUtf8At bytes span ∧
+      ∀ other, InvalidUtf8At bytes other → span.start ≤ other.start := by
+  refine ⟨invalid_utf8_of_first found stop, ?_⟩
+  rintro other ⟨_, otherValid, otherNoStart, _⟩
+  refine Nat.le_of_not_lt ?_
+  intro below
+  exact otherNoStart ((first_invalid_structure found).1 other.start otherValid below)
+
+/-- A span satisfying the declarative predicate names the detector's offset. -/
+theorem first_invalid_of_invalid_utf8 {bytes : List UInt8} {span : Span}
+    (invalid : InvalidUtf8At bytes span) : firstInvalidUtf8 bytes = some span.start := by
+  obtain ⟨bound, prefixValid, noStart, _⟩ := invalid
+  have notValid : ¬ ValidUtf8 bytes := by
+    intro full
+    exact noStart (valid_utf8_boundary_starts full bound prefixValid)
+  have notNone : firstInvalidUtf8 bytes ≠ none := by
+    intro cleared
+    exact notValid ((first_invalid_none_iff_valid bytes).mp cleared)
+  cases found : firstInvalidUtf8 bytes with
+  | none => exact absurd found notNone
+  | some offset =>
+    have facts := first_invalid_structure found
+    have notBefore : ¬ offset < span.start := by
+      intro before
+      have agreement := facts.2.1 span.start before
+      rw [(first_invalid_none_iff_valid _).mpr prefixValid] at agreement
+      cases agreement
+    have notAfter : ¬ span.start < offset :=
+      fun after => noStart (facts.1 span.start prefixValid after)
+    rw [Option.some.injEq]
+    omega
 
 def classify (bytes : List UInt8) (moduleInputs : List (List UInt8)) : Classification :=
   match firstInvalidUtf8 bytes with
@@ -296,7 +341,8 @@ theorem classify_string_iff (bytes : List UInt8) (moduleInputs : List (List UInt
 theorem invalid_utf8_iff (bytes : List UInt8) :
     (∃ span, InvalidUtf8At bytes span) ↔ ¬ ValidUtf8 bytes := by
   constructor
-  · rintro ⟨span, found, _⟩ valid
+  · rintro ⟨span, invalid⟩ valid
+    have found := first_invalid_of_invalid_utf8 invalid
     have cleared : firstInvalidUtf8 bytes = none :=
       (first_invalid_none_iff_valid bytes).mpr valid
     rw [cleared] at found
@@ -307,7 +353,9 @@ theorem invalid_utf8_iff (bytes : List UInt8) :
       exact invalid ((first_invalid_none_iff_valid bytes).mp cleared)
     cases hfound : firstInvalidUtf8 bytes with
     | none => exact absurd hfound notNone
-    | some offset => exact ⟨⟨offset, bytes.length⟩, hfound, rfl⟩
+    | some offset =>
+      exact ⟨⟨offset, bytes.length⟩, first_invalid_offset_lt hfound,
+        first_invalid_some_prefix_valid hfound, (first_invalid_structure hfound).2.2, rfl⟩
 
 /-- The string scan never reports a UTF-8 failure; only the two string errors. -/
 theorem scan_strings_not_invalid_utf8 (offset : Nat) (bytes : List UInt8) (span : Span) :
@@ -356,7 +404,7 @@ theorem classify_invalid_utf8_iff (bytes : List UInt8) (moduleInputs : List (Lis
     | some offset =>
       rw [classify_invalid_branch _ _ _ found] at same
       cases same
-      exact ⟨found, rfl⟩
+      exact invalid_utf8_of_first found rfl
     | none =>
       have missing : reconstruct bytes moduleInputs = none := by
         cases result : reconstruct bytes moduleInputs with
@@ -378,11 +426,13 @@ theorem classify_invalid_utf8_iff (bytes : List UInt8) (moduleInputs : List (Lis
       | false =>
         rw [classify_outside_no_envelope _ _ found missing envelope] at same
         cases same
-  · rintro ⟨found, stop⟩
+  · rintro ⟨bound, prefixValid, noStart, stopped⟩
+    have invalid : InvalidUtf8At bytes span := ⟨bound, prefixValid, noStart, stopped⟩
+    have found := first_invalid_of_invalid_utf8 invalid
     have start : span = ⟨span.start, bytes.length⟩ := by
       cases span
-      simp only at stop
-      rw [stop]
+      simp only at stopped
+      rw [stopped]
     rw [start]
     exact classify_invalid_branch _ _ _ found
 
@@ -410,7 +460,8 @@ theorem classify_outside_iff (bytes : List UInt8) (moduleInputs : List (List UIn
         (domain_first_invalid_none ⟨_, _, declared⟩) (reconstruct_complete declared)] at same
       cases same
     refine ⟨notDomain, ?_, ?_⟩
-    · rintro span ⟨found, _⟩
+    · rintro span invalid
+      have found := first_invalid_of_invalid_utf8 invalid
       rw [cleared] at found
       cases found
     · have missing : reconstruct bytes moduleInputs = none :=
@@ -431,7 +482,10 @@ theorem classify_outside_iff (bytes : List UInt8) (moduleInputs : List (List UIn
     have cleared : firstInvalidUtf8 bytes = none := by
       cases found : firstInvalidUtf8 bytes with
       | none => rfl
-      | some offset => exact absurd ⟨found, rfl⟩ (noInvalid ⟨offset, bytes.length⟩)
+      | some offset =>
+        exact absurd ⟨first_invalid_offset_lt found, first_invalid_some_prefix_valid found,
+          (first_invalid_structure found).2.2, rfl⟩
+          (noInvalid ⟨offset, bytes.length⟩)
     have missing : reconstruct bytes moduleInputs = none :=
       (reconstruct_none_iff_outside_domain bytes moduleInputs).mpr notDomain
     by_cases envelope : InEnvelope bytes = true

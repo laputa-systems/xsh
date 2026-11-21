@@ -841,6 +841,689 @@ theorem first_invalid_stops {bytes : List UInt8} {offset : Nat}
   ⟨first_invalid_some_prefix_valid found, first_invalid_offset_lt found⟩
 
 
+/-! ## Well-formed sequence starts and the least invalid offset
+
+`StartsSeq` is one complete well-formed sequence at the head of a byte list,
+using the same alternatives `ValidUtf8` is built from. `first_invalid_structure`
+shows that `firstInvalidUtf8` reports exactly the least offset whose prefix is
+well formed while no sequence starts there, so the classifier's UTF-8 clause can
+be stated without referring to the detector. -/
+
+inductive StartsSeq : List UInt8 → Prop where
+  | ascii {byte : UInt8} {rest : List UInt8} : IsAsciiByte byte → StartsSeq (byte :: rest)
+  | two {lead cont : UInt8} {rest : List UInt8} :
+      IsLead2Byte lead → IsContByte cont → StartsSeq (lead :: cont :: rest)
+  | three {lead first second : UInt8} {rest : List UInt8} :
+      IsLead3Byte lead → ThreeFirstOk lead first → IsContByte second →
+        StartsSeq (lead :: first :: second :: rest)
+  | four {lead first second third : UInt8} {rest : List UInt8} :
+      IsLead4Byte lead → FourFirstOk lead first → IsContByte second → IsContByte third →
+        StartsSeq (lead :: first :: second :: third :: rest)
+
+set_option maxHeartbeats 1000000 in
+/-- A well-formed list admits a sequence at every interior offset whose prefix is itself
+well formed: the prefix decomposition continues with the next complete sequence. -/
+theorem valid_utf8_boundary_starts {bytes : List UInt8} (valid : ValidUtf8 bytes) :
+    ∀ {offset : Nat}, offset < bytes.length → ValidUtf8 (bytes.take offset) →
+      StartsSeq (bytes.drop offset) := by
+  induction valid with
+  | nil => intro offset bound; simp at bound
+  | one ascii _ ih =>
+    intro offset bound prefixValid
+    cases offset with
+    | zero => exact .ascii ascii
+    | succ m =>
+      rw [List.take_succ_cons] at prefixValid
+      exact ih (by simp only [List.length_cons] at bound; omega)
+        ((ascii_step ascii).mp prefixValid)
+  | two leadOk contOk _ ih =>
+    intro offset bound prefixValid
+    cases offset with
+    | zero => exact .two leadOk contOk
+    | succ m =>
+      cases m with
+      | zero =>
+        simp only [List.take_succ_cons, List.take_zero] at prefixValid
+        cases prefixValid with
+        | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead2 leadOk)
+      | succ r =>
+        simp only [List.take_succ_cons] at prefixValid
+        exact ih (by simp only [List.length_cons] at bound; omega)
+          ((lead2_step leadOk).mp prefixValid).2
+  | three leadOk firstOk secondOk _ ih =>
+    intro offset bound prefixValid
+    cases offset with
+    | zero => exact .three leadOk firstOk secondOk
+    | succ m =>
+      cases m with
+      | zero =>
+        simp only [List.take_succ_cons, List.take_zero] at prefixValid
+        cases prefixValid with
+        | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead3 leadOk)
+      | succ r =>
+        cases r with
+        | zero =>
+          simp only [List.take_succ_cons, List.take_zero] at prefixValid
+          cases prefixValid with
+          | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead3 leadOk)
+          | two leadHere _ _ => exact absurd leadHere (not_lead2_of_lead3 leadOk)
+        | succ r1 =>
+          simp only [List.take_succ_cons] at prefixValid
+          exact ih (by simp only [List.length_cons] at bound; omega)
+            ((lead3_step leadOk).mp prefixValid).2.2
+  | four leadOk firstOk secondOk thirdOk _ ih =>
+    intro offset bound prefixValid
+    cases offset with
+    | zero => exact .four leadOk firstOk secondOk thirdOk
+    | succ m =>
+      cases m with
+      | zero =>
+        simp only [List.take_succ_cons, List.take_zero] at prefixValid
+        cases prefixValid with
+        | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead4 leadOk)
+      | succ r =>
+        cases r with
+        | zero =>
+          simp only [List.take_succ_cons, List.take_zero] at prefixValid
+          cases prefixValid with
+          | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead4 leadOk)
+          | two leadHere _ _ => exact absurd leadHere (not_lead2_of_lead4 leadOk)
+        | succ r1 =>
+          cases r1 with
+          | zero =>
+            simp only [List.take_succ_cons, List.take_zero] at prefixValid
+            cases prefixValid with
+            | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead4 leadOk)
+            | two leadHere _ _ => exact absurd leadHere (not_lead2_of_lead4 leadOk)
+            | three leadHere _ _ _ => exact absurd leadHere (not_lead3_of_lead4 leadOk)
+          | succ r2 =>
+            simp only [List.take_succ_cons] at prefixValid
+            exact ih (by simp only [List.length_cons] at bound; omega)
+              ((lead4_step leadOk).mp prefixValid).2.2.2
+
+set_option maxHeartbeats 1000000 in
+theorem first_invalid_structure {bytes : List UInt8} {offset : Nat}
+    (found : firstInvalidUtf8 bytes = some offset) :
+    (∀ k, ValidUtf8 (bytes.take k) → k < offset → StartsSeq (bytes.drop k)) ∧
+      (∀ k, offset < k → firstInvalidUtf8 (bytes.take k) = some offset) ∧
+      ¬ StartsSeq (bytes.drop offset) := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n → ∀ offset,
+    firstInvalidUtf8 bytes = some offset →
+      (∀ k, ValidUtf8 (bytes.take k) → k < offset → StartsSeq (bytes.drop k)) ∧
+      (∀ k, offset < k → firstInvalidUtf8 (bytes.take k) = some offset) ∧
+      ¬ StartsSeq (bytes.drop offset)
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len offset found
+      cases bytes with
+      | nil => rw [firstInvalidUtf8] at found; cases found
+      | cons byte tail =>
+        have shorter : tail.length < n := by simp only [List.length_cons] at len; omega
+        by_cases ascii : IsAsciiByte byte
+        · rw [first_invalid_cons_ascii ascii] at found
+          cases tailFound : firstInvalidUtf8 tail with
+          | none => simp [tailFound] at found
+          | some inner =>
+            simp only [tailFound, Option.map_some, Option.some.injEq] at found
+            subst found
+            have IH := ih tail.length shorter tail rfl inner tailFound
+            refine ⟨?_, ?_, ?_⟩
+            · intro k valid small
+              cases k with
+              | zero => exact .ascii ascii
+              | succ m =>
+                rw [List.take_succ_cons] at valid
+                simpa only [List.drop_succ_cons] using
+                  IH.1 m ((ascii_step ascii).mp valid) (by omega)
+            · intro k large
+              cases k with
+              | zero => omega
+              | succ m =>
+                rw [List.take_succ_cons, first_invalid_cons_ascii ascii, IH.2.1 m (by omega),
+                  Option.map_some]
+            · simpa only [List.drop_succ_cons] using IH.2.2
+        · by_cases lead2 : IsLead2Byte byte
+          · cases tail with
+            | nil =>
+              rw [firstInvalidUtf8_cons] at found
+              simp only [if_neg ascii, if_pos lead2, Option.some.injEq] at found
+              subst found
+              refine ⟨?_, ?_, ?_⟩
+              · intro k valid small; omega
+              · intro k large
+                rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                rw [firstInvalidUtf8_cons]
+                simp only [if_neg ascii, if_pos lead2]
+              · intro starts
+                cases starts with
+                | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead2 lead2)
+            | cons cont more =>
+              by_cases contOk : IsContByte cont
+              · rw [first_invalid_cons_lead2 lead2 contOk] at found
+                cases moreFound : firstInvalidUtf8 more with
+                | none => simp [moreFound] at found
+                | some inner =>
+                  simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                  subst found
+                  have IH := ih more.length
+                    (by simp only [List.length_cons] at shorter ⊢; omega) more rfl inner moreFound
+                  refine ⟨?_, ?_, ?_⟩
+                  · intro k valid small
+                    cases k with
+                    | zero => exact .two lead2 contOk
+                    | succ m =>
+                      cases m with
+                      | zero =>
+                        simp only [List.take_succ_cons, List.take_zero] at valid
+                        cases valid with
+                        | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead2 lead2)
+                      | succ r =>
+                        simp only [List.take_succ_cons] at valid
+                        simpa only [List.drop_succ_cons] using
+                          IH.1 r ((lead2_step lead2).mp valid).2 (by omega)
+                  · intro k large
+                    cases k with
+                    | zero => omega
+                    | succ m =>
+                      cases m with
+                      | zero => omega
+                      | succ r =>
+                        simp only [List.take_succ_cons]
+                        rw [first_invalid_cons_lead2 lead2 contOk, IH.2.1 r (by omega),
+                          Option.map_some]
+                  · simpa only [List.drop_succ_cons] using IH.2.2
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_pos lead2, if_neg contOk, Option.some.injEq] at found
+                subst found
+                refine ⟨?_, ?_, ?_⟩
+                · intro k valid small; omega
+                · intro k large
+                  cases k with
+                  | zero => omega
+                  | succ m =>
+                    cases m with
+                    | zero =>
+                      simp only [List.take_succ_cons, List.take_zero]
+                      rw [firstInvalidUtf8_cons]
+                      simp only [if_neg ascii, if_pos lead2]
+                    | succ r =>
+                      simp only [List.take_succ_cons]
+                      rw [firstInvalidUtf8_cons]
+                      simp only [if_neg ascii, if_pos lead2, if_neg contOk]
+                · intro starts
+                  cases starts with
+                  | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead2 lead2)
+                  | two _ contHere => exact absurd contHere contOk
+                  | three leadHere _ _ => exact absurd lead2 (not_lead2_of_lead3 leadHere)
+                  | four leadHere _ _ _ => exact absurd lead2 (not_lead2_of_lead4 leadHere)
+          · by_cases lead3 : IsLead3Byte byte
+            · cases tail with
+              | nil =>
+                rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3,
+                  Option.some.injEq] at found
+                subst found
+                refine ⟨?_, ?_, ?_⟩
+                · intro k valid small; omega
+                · intro k large
+                  rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                  rw [firstInvalidUtf8_cons]
+                  simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                · intro starts
+                  cases starts with
+                  | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead3 lead3)
+              | cons first more1 =>
+                cases more1 with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3,
+                    Option.some.injEq] at found
+                  subst found
+                  refine ⟨?_, ?_, ?_⟩
+                  · intro k valid small; omega
+                  · intro k large
+                    cases k with
+                    | zero => omega
+                    | succ m =>
+                      cases m with
+                      | zero =>
+                        simp only [List.take_succ_cons, List.take_zero]
+                        rw [firstInvalidUtf8_cons]
+                        simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                      | succ r =>
+                        rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                        rw [firstInvalidUtf8_cons]
+                        simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                  · intro starts
+                    cases starts with
+                    | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead3 lead3)
+                    | two leadHere _ => exact absurd leadHere (not_lead2_of_lead3 lead3)
+                | cons second more2 =>
+                  by_cases firstOk : ThreeFirstOk byte first
+                  · by_cases secondOk : IsContByte second
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3,
+                        if_pos firstOk, if_pos secondOk] at found
+                      cases moreFound : firstInvalidUtf8 more2 with
+                      | none => simp [moreFound] at found
+                      | some inner =>
+                        simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                        subst found
+                        have IH := ih more2.length
+                          (by simp only [List.length_cons] at shorter ⊢; omega)
+                          more2 rfl inner moreFound
+                        refine ⟨?_, ?_, ?_⟩
+                        · intro k valid small
+                          cases k with
+                          | zero => exact .three lead3 firstOk secondOk
+                          | succ m =>
+                            cases m with
+                            | zero =>
+                              simp only [List.take_succ_cons, List.take_zero] at valid
+                              cases valid with
+                              | one asciiHere _ => exact absurd asciiHere (not_ascii_of_lead3 lead3)
+                            | succ r =>
+                              cases r with
+                              | zero =>
+                                simp only [List.take_succ_cons, List.take_zero] at valid
+                                cases valid with
+                                | one asciiHere _ =>
+                                  exact absurd asciiHere (not_ascii_of_lead3 lead3)
+                                | two leadHere _ _ => exact absurd leadHere (not_lead2_of_lead3 lead3)
+                              | succ r' =>
+                                simp only [List.take_succ_cons] at valid
+                                simpa only [List.drop_succ_cons] using
+                                  IH.1 r' ((lead3_step lead3).mp valid).2.2 (by omega)
+                        · intro k large
+                          cases k with
+                          | zero => omega
+                          | succ m =>
+                            cases m with
+                            | zero => omega
+                            | succ r =>
+                              cases r with
+                              | zero => omega
+                              | succ r' =>
+                                simp only [List.take_succ_cons]
+                                rw [firstInvalidUtf8_cons]
+                                simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3),
+                                  if_pos lead3, if_pos firstOk, if_pos secondOk,
+                                  IH.2.1 r' (by omega), Option.map_some]
+                        · simpa only [List.drop_succ_cons] using IH.2.2
+                    · rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3,
+                        if_pos firstOk, if_neg secondOk, Option.some.injEq] at found
+                      subst found
+                      refine ⟨?_, ?_, ?_⟩
+                      · intro k valid small; omega
+                      · intro k large
+                        cases k with
+                        | zero => omega
+                        | succ m =>
+                          cases m with
+                          | zero =>
+                            simp only [List.take_succ_cons, List.take_zero]
+                            rw [firstInvalidUtf8_cons]
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                          | succ r =>
+                            cases r with
+                            | zero =>
+                              simp only [List.take_succ_cons, List.take_zero]
+                              rw [firstInvalidUtf8_cons]
+                              simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                            | succ r' =>
+                              simp only [List.take_succ_cons]
+                              rw [firstInvalidUtf8_cons]
+                              simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3),
+                                if_pos lead3, if_pos firstOk, if_neg secondOk]
+                      · intro starts
+                        cases starts with
+                        | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead3 lead3)
+                        | two leadHere _ => exact absurd leadHere (not_lead2_of_lead3 lead3)
+                        | three _ _ secondHere => exact absurd secondHere secondOk
+                        | four leadHere _ _ _ => exact absurd lead3 (not_lead3_of_lead4 leadHere)
+                  · rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3,
+                      if_neg firstOk, Option.some.injEq] at found
+                    subst found
+                    refine ⟨?_, ?_, ?_⟩
+                    · intro k valid small; omega
+                    · intro k large
+                      cases k with
+                      | zero => omega
+                      | succ m =>
+                        cases m with
+                        | zero =>
+                          simp only [List.take_succ_cons, List.take_zero]
+                          rw [firstInvalidUtf8_cons]
+                          simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                        | succ r =>
+                          cases r with
+                          | zero =>
+                            simp only [List.take_succ_cons, List.take_zero]
+                            rw [firstInvalidUtf8_cons]
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3), if_pos lead3]
+                          | succ r' =>
+                            simp only [List.take_succ_cons]
+                            rw [firstInvalidUtf8_cons]
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead3 lead3),
+                              if_pos lead3, if_neg firstOk]
+                    · intro starts
+                      cases starts with
+                      | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead3 lead3)
+                      | two leadHere _ => exact absurd leadHere (not_lead2_of_lead3 lead3)
+                      | three _ firstHere _ => exact absurd firstHere firstOk
+                      | four leadHere _ _ _ => exact absurd lead3 (not_lead3_of_lead4 leadHere)
+            · by_cases lead4 : IsLead4Byte byte
+              · cases tail with
+                | nil =>
+                  rw [firstInvalidUtf8_cons] at found
+                  simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                    if_neg (not_lead3_of_lead4 lead4), if_pos lead4, Option.some.injEq] at found
+                  subst found
+                  refine ⟨?_, ?_, ?_⟩
+                  · intro k valid small; omega
+                  · intro k large
+                    rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                    rw [firstInvalidUtf8_cons]
+                    simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                      if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                  · intro starts
+                    cases starts with
+                    | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                | cons first more1 =>
+                  cases more1 with
+                  | nil =>
+                    rw [firstInvalidUtf8_cons] at found
+                    simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                      if_neg (not_lead3_of_lead4 lead4), if_pos lead4, Option.some.injEq] at found
+                    subst found
+                    refine ⟨?_, ?_, ?_⟩
+                    · intro k valid small; omega
+                    · intro k large
+                      cases k with
+                      | zero => omega
+                      | succ m =>
+                        cases m with
+                        | zero =>
+                          simp only [List.take_succ_cons, List.take_zero]
+                          rw [firstInvalidUtf8_cons]
+                          simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                            if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                        | succ r =>
+                          rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                          rw [firstInvalidUtf8_cons]
+                          simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                            if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                    · intro starts
+                      cases starts with
+                      | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                      | two leadHere _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                  | cons second more2 =>
+                    cases more2 with
+                    | nil =>
+                      rw [firstInvalidUtf8_cons] at found
+                      simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                        if_neg (not_lead3_of_lead4 lead4), if_pos lead4, Option.some.injEq] at found
+                      subst found
+                      refine ⟨?_, ?_, ?_⟩
+                      · intro k valid small; omega
+                      · intro k large
+                        cases k with
+                        | zero => omega
+                        | succ m =>
+                          cases m with
+                          | zero =>
+                            simp only [List.take_succ_cons, List.take_zero]
+                            rw [firstInvalidUtf8_cons]
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                              if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                          | succ r =>
+                            cases r with
+                            | zero =>
+                              simp only [List.take_succ_cons, List.take_zero]
+                              rw [firstInvalidUtf8_cons]
+                              simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                            | succ r1 =>
+                              rw [List.take_of_length_le (by simp only [List.length_cons, List.length_nil]; omega)]
+                              rw [firstInvalidUtf8_cons]
+                              simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                      · intro starts
+                        cases starts with
+                        | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                        | two leadHere _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                        | three leadHere _ _ => exact absurd leadHere (not_lead3_of_lead4 lead4)
+                    | cons third more3 =>
+                      by_cases firstOk : FourFirstOk byte first
+                      · by_cases secondOk : IsContByte second
+                        · by_cases thirdOk : IsContByte third
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                              if_neg (not_lead3_of_lead4 lead4), if_pos lead4, if_pos firstOk,
+                              if_pos secondOk, if_pos thirdOk] at found
+                            cases moreFound : firstInvalidUtf8 more3 with
+                            | none => simp [moreFound] at found
+                            | some inner =>
+                              simp only [moreFound, Option.map_some, Option.some.injEq] at found
+                              subst found
+                              have IH := ih more3.length
+                                (by simp only [List.length_cons] at shorter ⊢; omega)
+                                more3 rfl inner moreFound
+                              refine ⟨?_, ?_, ?_⟩
+                              · intro k valid small
+                                cases k with
+                                | zero => exact .four lead4 firstOk secondOk thirdOk
+                                | succ m =>
+                                  cases m with
+                                  | zero =>
+                                    simp only [List.take_succ_cons, List.take_zero] at valid
+                                    cases valid with
+                                    | one asciiHere _ =>
+                                      exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                                  | succ r =>
+                                    cases r with
+                                    | zero =>
+                                      simp only [List.take_succ_cons, List.take_zero] at valid
+                                      cases valid with
+                                      | one asciiHere _ =>
+                                        exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                                      | two leadHere _ _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                                    | succ r1 =>
+                                      cases r1 with
+                                      | zero =>
+                                        simp only [List.take_succ_cons, List.take_zero] at valid
+                                        cases valid with
+                                        | one asciiHere _ =>
+                                          exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                                        | two leadHere _ _ =>
+                                          exact absurd leadHere (not_lead2_of_lead4 lead4)
+                                        | three leadHere _ _ _ =>
+                                          exact absurd leadHere (not_lead3_of_lead4 lead4)
+                                      | succ r2 =>
+                                        simp only [List.take_succ_cons] at valid
+                                        simpa only [List.drop_succ_cons] using
+                                          IH.1 r2 ((lead4_step lead4).mp valid).2.2.2 (by omega)
+                              · intro k large
+                                cases k with
+                                | zero => omega
+                                | succ m =>
+                                  cases m with
+                                  | zero => omega
+                                  | succ r =>
+                                    cases r with
+                                    | zero => omega
+                                    | succ r1 =>
+                                      cases r1 with
+                                      | zero => omega
+                                      | succ r2 =>
+                                        simp only [List.take_succ_cons]
+                                        rw [firstInvalidUtf8_cons]
+                                        simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                          if_neg (not_lead3_of_lead4 lead4), if_pos lead4,
+                                          if_pos firstOk, if_pos secondOk, if_pos thirdOk,
+                                          IH.2.1 r2 (by omega), Option.map_some]
+                              · simpa only [List.drop_succ_cons] using IH.2.2
+                          · rw [firstInvalidUtf8_cons] at found
+                            simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                              if_neg (not_lead3_of_lead4 lead4), if_pos lead4, if_pos firstOk,
+                              if_pos secondOk, if_neg thirdOk, Option.some.injEq] at found
+                            subst found
+                            refine ⟨?_, ?_, ?_⟩
+                            · intro k valid small; omega
+                            · intro k large
+                              cases k with
+                              | zero => omega
+                              | succ m =>
+                                cases m with
+                                | zero =>
+                                  simp only [List.take_succ_cons, List.take_zero]
+                                  rw [firstInvalidUtf8_cons]
+                                  simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                    if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                | succ r =>
+                                  cases r with
+                                  | zero =>
+                                    simp only [List.take_succ_cons, List.take_zero]
+                                    rw [firstInvalidUtf8_cons]
+                                    simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                      if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                  | succ r1 =>
+                                    cases r1 with
+                                    | zero =>
+                                      simp only [List.take_succ_cons, List.take_zero]
+                                      rw [firstInvalidUtf8_cons]
+                                      simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                        if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                    | succ r2 =>
+                                      simp only [List.take_succ_cons]
+                                      rw [firstInvalidUtf8_cons]
+                                      simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                        if_neg (not_lead3_of_lead4 lead4), if_pos lead4,
+                                        if_pos firstOk, if_pos secondOk, if_neg thirdOk]
+                            · intro starts
+                              cases starts with
+                              | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                              | two leadHere _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                              | three leadHere _ _ => exact absurd leadHere (not_lead3_of_lead4 lead4)
+                              | four _ _ _ thirdHere => exact absurd thirdHere thirdOk
+                        · rw [firstInvalidUtf8_cons] at found
+                          simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                            if_neg (not_lead3_of_lead4 lead4), if_pos lead4, if_pos firstOk,
+                            if_neg secondOk, Option.some.injEq] at found
+                          subst found
+                          refine ⟨?_, ?_, ?_⟩
+                          · intro k valid small; omega
+                          · intro k large
+                            cases k with
+                            | zero => omega
+                            | succ m =>
+                              cases m with
+                              | zero =>
+                                simp only [List.take_succ_cons, List.take_zero]
+                                rw [firstInvalidUtf8_cons]
+                                simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                  if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                              | succ r =>
+                                cases r with
+                                | zero =>
+                                  simp only [List.take_succ_cons, List.take_zero]
+                                  rw [firstInvalidUtf8_cons]
+                                  simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                    if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                | succ r1 =>
+                                  cases r1 with
+                                  | zero =>
+                                    simp only [List.take_succ_cons, List.take_zero]
+                                    rw [firstInvalidUtf8_cons]
+                                    simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                      if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                  | succ r2 =>
+                                    simp only [List.take_succ_cons]
+                                    rw [firstInvalidUtf8_cons]
+                                    simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                      if_neg (not_lead3_of_lead4 lead4), if_pos lead4,
+                                      if_pos firstOk, if_neg secondOk]
+                          · intro starts
+                            cases starts with
+                            | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                            | two leadHere _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                            | three leadHere _ _ => exact absurd leadHere (not_lead3_of_lead4 lead4)
+                            | four _ _ secondHere _ => exact absurd secondHere secondOk
+                      · rw [firstInvalidUtf8_cons] at found
+                        simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                          if_neg (not_lead3_of_lead4 lead4), if_pos lead4,
+                          if_neg firstOk, Option.some.injEq] at found
+                        subst found
+                        refine ⟨?_, ?_, ?_⟩
+                        · intro k valid small; omega
+                        · intro k large
+                          cases k with
+                          | zero => omega
+                          | succ m =>
+                            cases m with
+                            | zero =>
+                              simp only [List.take_succ_cons, List.take_zero]
+                              rw [firstInvalidUtf8_cons]
+                              simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                            | succ r =>
+                              cases r with
+                              | zero =>
+                                simp only [List.take_succ_cons, List.take_zero]
+                                rw [firstInvalidUtf8_cons]
+                                simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                  if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                              | succ r1 =>
+                                cases r1 with
+                                | zero =>
+                                  simp only [List.take_succ_cons, List.take_zero]
+                                  rw [firstInvalidUtf8_cons]
+                                  simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                    if_neg (not_lead3_of_lead4 lead4), if_pos lead4]
+                                | succ r2 =>
+                                  simp only [List.take_succ_cons]
+                                  rw [firstInvalidUtf8_cons]
+                                  simp only [if_neg ascii, if_neg (not_lead2_of_lead4 lead4),
+                                    if_neg (not_lead3_of_lead4 lead4), if_pos lead4,
+                                    if_neg firstOk]
+                        · intro starts
+                          cases starts with
+                          | ascii asciiHere => exact absurd asciiHere (not_ascii_of_lead4 lead4)
+                          | two leadHere _ => exact absurd leadHere (not_lead2_of_lead4 lead4)
+                          | three leadHere _ _ => exact absurd leadHere (not_lead3_of_lead4 lead4)
+                          | four _ firstHere _ _ => exact absurd firstHere firstOk
+              · rw [firstInvalidUtf8_cons] at found
+                simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4,
+                  Option.some.injEq] at found
+                subst found
+                refine ⟨?_, ?_, ?_⟩
+                · intro k valid small; omega
+                · intro k large
+                  cases k with
+                  | zero => omega
+                  | succ m =>
+                    cases m with
+                    | zero =>
+                      simp only [List.take_succ_cons, List.take_zero]
+                      rw [firstInvalidUtf8_cons]
+                      simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4]
+                    | succ r =>
+                      simp only [List.take_succ_cons]
+                      rw [firstInvalidUtf8_cons]
+                      simp only [if_neg ascii, if_neg lead2, if_neg lead3, if_neg lead4]
+                · intro starts
+                  cases starts with
+                  | ascii asciiHere => exact absurd asciiHere ascii
+                  | two leadHere _ => exact absurd leadHere lead2
+                  | three leadHere _ _ => exact absurd leadHere lead3
+                  | four leadHere _ _ _ => exact absurd leadHere lead4
+  exact key bytes.length bytes rfl offset found
+
+
 /-! ## Unterminated single-line string literals
 
 The SPEC's string rule (2.6) gives `"..."` on one line only; the triple-quoted
