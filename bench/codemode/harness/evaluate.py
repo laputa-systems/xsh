@@ -11,7 +11,7 @@ from fixtures import Outcome, Setup, Verdict, snapshot, tree_effects
 from tasks import Task, prepare_program
 
 STATUSES = ("correct", "wrong", "failed", "rejected", "no-answer", "infra-error")
-COMMAND_HEAD = re.compile(r"\brun(?:\.[a-z]+)?(?:\s+--[a-z_]+(?:=\S+)?)*\s+([A-Za-z0-9_./-]+)")
+COMMAND_HEAD = re.compile(r"\brun(?:\.[a-z]+)?(?:\s+--[a-z_]+(?:=\[[^\]]*\]|=\S+)?)*\s+([A-Za-z0-9_./][A-Za-z0-9_./-]*)")
 TS_SPAWN = re.compile(r"\b(?:execFile|execFileSync|spawn|spawnSync)\(\s*[\"'`]([^\"'`]+)[\"'`]")
 
 

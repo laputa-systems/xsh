@@ -379,7 +379,7 @@ def main() -> int:
 
     p = sub.add_parser("report", help="report saved trials")
     p.add_argument("runs", nargs="+")
-    p.add_argument("--taxonomy", type=Path)
+    p.add_argument("--taxonomy", type=Path, action="append")
     p.set_defaults(func=render_report)
 
     args = parser.parse_args()

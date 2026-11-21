@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import mean
 
+import evaluate
 import manifest
 import trial
 
@@ -69,6 +70,12 @@ class Cell:
     attempts: list[dict]
 
 
+def final_commands(directory: Path, record: trial.TrialRecord) -> list[str]:
+    if not record.attempts or record.attempts[-1].code_file is None:
+        return []
+    return evaluate.external_commands(record.arm, (directory / record.attempts[-1].code_file).read_text())
+
+
 def load_cells(out: Path) -> tuple[dict, list[Cell], list[dict]]:
     loaded = manifest.load(out)
     cells, missing = [], []
@@ -77,7 +84,12 @@ def load_cells(out: Path) -> tuple[dict, list[Cell], list[dict]]:
         if record is None or record.state == "running":
             missing.append({**item, "state": "missing" if record is None else "incomplete"})
             continue
-        cells.append(cell_of(record))
+        cell = cell_of(record)
+        if cell.attempts:
+            cell.attempts[-1]["commands"] = final_commands(
+                trial.trial_directory(out, item["task"], item["condition"], item["sample"]), record,
+            )
+        cells.append(cell)
     return loaded, cells, missing
 
 
@@ -320,7 +332,7 @@ def taxonomy_rows(taxonomy: dict, conditions: list[str]) -> list[str]:
     return rows
 
 
-def render(runs: list[Path], taxonomy_path: Path | None) -> str:
+def render(runs: list[Path], taxonomy_paths: list[Path] | None) -> str:
     cells: list[Cell] = []
     missing: list[dict] = []
     manifests = []
@@ -368,7 +380,8 @@ def render(runs: list[Path], taxonomy_path: Path | None) -> str:
         "## External commands", "", "Literal command heads in each trial's last program (`run CMD` in XSH, "
         "`spawn`/`execFile` with a literal program in TypeScript).", "", *command_rows(cells, conditions), "",
     ]
-    if taxonomy_path is not None:
-        taxonomy = json.loads(taxonomy_path.read_text())
-        lines += ["## Failure taxonomy", "", *taxonomy_rows(taxonomy, conditions), ""]
+    if taxonomy_paths:
+        taxonomy = {"attempts": [e for p in taxonomy_paths for e in json.loads(p.read_text())["attempts"]]}
+        lines += ["## Failure taxonomy", "", "Every program that was not correct, classified by hand "
+                  "(`results/*-taxonomy.json` holds each one with a note).", "", *taxonomy_rows(taxonomy, conditions), ""]
     return "\n".join(lines)
