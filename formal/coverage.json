@@ -15283,6 +15283,15 @@
       "boundary": "Ok and Err constructor calls, expression-bodied return kinds, ?? handlers, guard let, index-selector assignment with the Map[UInt] key rule and every binding form's scope are checked by witnesses and leak or hide mutants, not by universal theorems beyond statement_control and deferred_cleanup. Text patterns, facets, tuples, error-variant patterns, guard let's else parameter, and and/or operands in control position are unsupported; type patterns take the checker's type from an oracle. It does not close BASE-STEP or BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Control.local_bindings",
+      "module": "Xsh.Proofs.Core.Control",
+      "declaration": "Xsh.Proofs.Core.Control.local_bindings",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Local function declarations bind their name in the current scope to a closure over the declaring environment that sees itself and reads captured cells at the call; the implicit . of a handler reads its error; collect yields its gathered list; and a canonical resolver gives each declaration the binder of its name at its lexical depth, so cells are binders in the current activation, distinct declarations get distinct binders within the name-table and nesting bounds, blocks deepen scope by one, and shadowing declarations get distinct cells.",
+      "boundary": "Writable captures are unsupported, since a call cannot write cells its caller holds; local functions are not first-class values; stream and cli-main declarations, defaults and rest parameters, type and error declarations as runtime binders, map and set comprehensions, text holes other than s and d, and use aliases are not modelled. The resolver is the canonical binder scheme over the machine's lexical depth, not a separate pass over the syntax, and declared types still come from an oracle. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",
       "module": "Xsh.Proofs.Core.EvalStatements",
       "declaration": "Xsh.Proofs.Core.EvalStatements.evaluated_store_writes",

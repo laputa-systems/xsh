@@ -1544,6 +1544,74 @@ theorem call_boundary {world : World Declaration Identity Source} (machine : Mac
 
 end Errors
 
+section Resolver
+
+/-- The binder the resolver gives a declaration of `name` at lexical depth
+`depth`: SPEC `check.duplicate-name` allows one declaration of a name per
+scope, so a name and its scope depth identify a live declaration within an
+activation. -/
+def canonicalBinder (name : Xsh.Syntax.RawName) (depth : Nat) : BinderId :=
+  ⟨⟨(name.word.val * 65536 + depth) % 4294967296, Nat.mod_lt _ (by decide)⟩⟩
+
+/-- The resolution the machine consults, computed from the name and the
+lexical depth of its environment; only the declared type stays an oracle. -/
+def canonicalResolution {world : World Declaration Identity Source} (base : Oracles world)
+    (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration)) : Oracles world :=
+  { base with
+    declaration := fun environment declared =>
+      (types environment declared).map fun type =>
+        let binder := canonicalBinder declared environment.names.length
+        (binder, ⟨0, binder⟩, type) }
+
+/-- Distinct names, or the same name at distinct depths, get distinct binders
+while names stay below 2^16 and scopes nest fewer than 2^16 deep. -/
+theorem canonicalBinder_injective (first second : Xsh.Syntax.RawName) (depth depth' : Nat)
+    (firstSmall : first.word.val < 65536) (secondSmall : second.word.val < 65536) (shallow : depth < 65536)
+    (shallow' : depth' < 65536) (same : canonicalBinder first depth = canonicalBinder second depth') :
+    first = second ∧ depth = depth' := by
+  simp only [canonicalBinder, BinderId.mk.injEq, Fin.mk.injEq] at same
+  have depths : depth = depth' := by omega
+  have words : first.word.val = second.word.val := by omega
+  refine ⟨?_, depths⟩
+  cases first with
+  | mk word =>
+    cases second with
+    | mk word' =>
+      simp only [NameId.mk.injEq]
+      exact Fin.ext words
+
+/-- Entering a block deepens the lexical environment by one scope. -/
+theorem enter_depth {world : World Declaration Identity Source} (frame : Frame world) :
+    frame.enter.environment.names.length = frame.environment.names.length + 1 := by
+  simp [Frame.enter, enterScope]
+
+variable [DecidableEq Declaration]
+
+omit [DecidableEq Declaration] in
+/-- With the canonical resolution, a declaration's cell is its binder in the
+current activation, so a name shadowed in an inner scope gets a cell distinct
+from the outer one's. -/
+theorem canonical_cells {world : World Declaration Identity Source} (machine : Machine world) (base : Oracles world)
+    (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (activation : Nat) (environment : Environment)
+    (declared : Xsh.Syntax.RawName) :
+    (machine.namesAt activation).declaration environment declared =
+      (types environment declared).map fun type =>
+        (canonicalBinder declared environment.names.length,
+          ⟨activation, canonicalBinder declared environment.names.length⟩, type) := by
+  simp only [Machine.namesAt, resolved, canonicalResolution]
+  cases types environment declared <;> rfl
+
+theorem shadowing_cells_distinct (name : Xsh.Syntax.RawName) (outer inner activation : Nat)
+    (small : name.word.val < 65536) (deeper : outer < inner) (shallow : inner < 65536) :
+    (⟨activation, canonicalBinder name outer⟩ : CellId) ≠ ⟨activation, canonicalBinder name inner⟩ := by
+  intro same
+  simp only [CellId.mk.injEq, true_and] at same
+  have := (canonicalBinder_injective name name outer inner small small (by omega) shallow same).2
+  omega
+
+end Resolver
+
 section Root
 
 /-- The statements that open their own scope around everything they bind:
@@ -1877,6 +1945,53 @@ theorem pure_forms_laws {world : World Declaration Identity Source} (context : C
     simp [matchAlternatives, failed]
   · intro name inner payload spelled
     simp [matchPattern, spelled, Value.eraseNominal]
+
+/-- The binding forms added for BASE-ENV's pure clauses, and the resolver
+that replaces the binder and cell choice of the resolution oracle. A local
+function declaration binds its name in the current scope to a closure over
+the declaring environment; an implicit `.` reads the scope's item; `collect`
+yields its gathered list on normal completion; and the canonical resolver
+gives each declaration the binder of its name at its lexical depth, so a
+declaration's cell is that binder in the current activation, distinct
+declarations get distinct binders within the name-table and nesting bounds,
+entering a block deepens the scope by one, and a shadowing declaration gets
+a cell distinct from the shadowed one. The declared type is still an oracle. -/
+theorem local_bindings {world : World Declaration Identity Source} (machine : Machine world) :
+    (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test names binder cell type,
+      kind ≠ .stream → kind ≠ .cliMain → plainParameters parameters = some names →
+        (machine.namesAt frame.activation).declaration frame.environment name = some (binder, cell, type) →
+          runStatement machine (fuel + 1) frame (.functionDef kind name parameters effects result body metadata test) =
+            .normal { frame with
+              environment := extend frame.environment [(name, binder, cell)]
+              locals := hide [name] frame.locals
+              closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures names
+                (.block body (returnKindOf machine result))) :: frame.closures }) ∧
+    (∀ fuel (scope : Scope Declaration Identity Source) store environment locals value,
+      scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value) ∧
+    (∀ (outer inner : Frame world),
+      collectWith outer (.normal inner) =
+        .value (.list (inner.collected.getD [])) { inner with collected := outer.collected }) ∧
+    (∀ first second (depth depth' : Nat), first.word.val < 65536 → second.word.val < 65536 → depth < 65536 →
+      depth' < 65536 → canonicalBinder first depth = canonicalBinder second depth' → first = second ∧ depth = depth') ∧
+    (∀ frame : Frame world, frame.enter.environment.names.length = frame.environment.names.length + 1) ∧
+    (∀ base types, machine.resolution = canonicalResolution base types → ∀ activation environment declared,
+      (machine.namesAt activation).declaration environment declared =
+        (types environment declared).map fun type =>
+          (canonicalBinder declared environment.names.length,
+            ⟨activation, canonicalBinder declared environment.names.length⟩, type)) ∧
+    (∀ name (outer inner activation : Nat), name.word.val < 65536 → outer < inner → inner < 65536 →
+      (⟨activation, canonicalBinder name outer⟩ : CellId) ≠ ⟨activation, canonicalBinder name inner⟩) := by
+  refine ⟨?_, ?_, fun _ _ => rfl, canonicalBinder_injective, enter_depth, fun base types resolved =>
+    canonical_cells machine base types resolved, shadowing_cells_distinct⟩
+  · intro fuel frame kind name parameters effects result body metadata test names binder cell type notStream notMain
+      plain declared
+    cases kind
+    · simp [runStatement, plain, declared]
+    · simp [runStatement, plain, declared]
+    · exact absurd rfl notStream
+    · exact absurd rfl notMain
+  · intro fuel scope store environment locals value present
+    simp [evalExpr, present]
 
 end Root
 
@@ -2853,6 +2968,17 @@ def leakyFailure : Exec witnessWorld :=
   bindCaptures fullMachine fullStart.enter [(failureName, .scalar (.string "boom"))]
 
 theorem leaky_failure_rejected : resolvesAny failureName leakyFailure = true := by decide +kernel
+
+/-- The witness machine with its binders and cells from the canonical
+resolver instead of an oracle. -/
+def canonicalMachine : Machine witnessWorld :=
+  { fullMachine with resolution := canonicalResolution resolution fun _ _ => some (.primitive .any) }
+
+theorem canonical_resolution_runs :
+    readInt xName (runStatements canonicalMachine 40 start shadowed) = some 1 ∧
+      readInt totalName (runStatements canonicalMachine 80 start countdown) = some 3 ∧
+      readInt rName (runStatements canonicalMachine 90 fullStart capturing) = some 3 := by
+  decide +kernel
 
 end Witness
 
