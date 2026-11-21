@@ -885,8 +885,7 @@ fn layout_perturbation_preserves_lints_on_the_repository_corpus() {
 #[test]
 fn lint_fix_commutes_with_formatting_on_corpus_files() {
     // The fixture reproduces the two shapes that once reported only after
-    // formatting (grouped guard operand, grouped literal chain), taken from
-    // dev/system_report_check.xsh and tests/xsh/system-report.xsh.
+    // formatting (grouped guard operand, grouped literal chain).
     const FIXTURE: &str = "lint-fix-order.xsh";
     const FILES: &[&str] = &[
         FIXTURE,
