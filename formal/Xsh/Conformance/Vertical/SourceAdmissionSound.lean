@@ -120,6 +120,20 @@ theorem value_syntax_complete {tokens rest : List Token} {value : SourceValue}
   | binary left valid right =>
     simp [parseValue, atom_syntax_complete left, valid, atom_syntax_complete right]
 
+theorem arguments_fit_tokens {tokens rest : List Token} {arguments : List SourceAtom}
+    (derivation : ArgumentsSyntax tokens arguments rest) : arguments.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | single first => cases first <;> simp
+  | cons first tail nonempty ih => cases first <;> simp_all <;> omega
+
+theorem parameters_fit_tokens {tokens rest : List Token} {parameters : List String}
+    (derivation : ParametersSyntax tokens parameters rest) : parameters.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | single valid => simp
+  | cons valid tail nonempty ih => simp_all <;> omega
+
 theorem argument_list_complete {tokens rest : List Token} {arguments : List SourceAtom}
     (derivation : ArgumentsSyntax tokens arguments rest) (nonempty : arguments ≠ []) :
     ∀ fuel, arguments.length ≤ fuel → parseArgumentList fuel tokens = some (arguments, rest) := by
