@@ -94,15 +94,6 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-157 · P2 · Typed Int arithmetic reports its failure at the caller instead of the operator
-
-- **Area:** Runtime
-- **Where:** cause: `src/runtime/eval/indexed/full/schema.rs:820-824` (`BuildIntRow::Binary`, the `IntBinary` row, has no span field) and `src/runtime/eval/lower/scalar.rs:62-76` (the lowerer builds that row from a `BuildExprRow::Binary` and drops its span); symptoms: `src/runtime/eval/lowered_run/indexed_run/values.rs:625-629` (in place, `ApplyIntBinary { op, span: call_span }`) and `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6871` (in frames, `FrameOperation::Binary` carries no span, so `BinaryLeft` and `BinaryRight` take the span the row's consumer passed in); reproduction: `pure apply(left: Int, right: Int) -> Int {\n  let result = left + right\n  return result\n}\nprint ${apply(9223372036854775807, 1)}`
-- **Problem:** An unannotated `let` over Int parameters lowers to the typed `IntBinary` route, whose row has no operator span, so its `integer-overflow` or `division-by-zero` is reported at the enclosing call (`5:9`, `print ${apply(...)}`) on both execution routes. The same body with `let result: Int = ...` reports the operator (`2:21`), and a returned `left + right` reports `2:3`. SPEC 4.2 says both failures happen at the operator, and ARCHITECTURE.md requires lowering and runtime routes to preserve error spans. Reproduced with the x86_64 musl verification binary that `cargo dev gate` built from the 7b7d3ba77 sources; `tests/xsh/int-arithmetic-routes.xsh` asserts only the error code on this route for this reason.
-- **Recommendation:** Add `span: Span` to `BuildIntRow::Binary`, so the `IntBinary` payload grows from three words to four as `ExprBinary`'s has, and set it from the expression row's span in `scalar.rs`. Pass it to `ApplyIntBinary`, and carry it in `FrameOperation::Binary` into `BinaryLeft` and `BinaryRight`. The payload change reaches the raw IR and the formal model: the bridge projection and its checks (`formal_bridge/arithmetic.rs`, `payload_words` and validation), the raw-IR decoder (`formal_bridge/raw_full.rs`), the Lean vertical model (`Artifact.lean` `payloadWords`, a `takeSpan` in `Lowering.lean:328`, `Meaning.lean:251`, `Reading.lean:470`, the row offsets in `Fixture.lean`), the regenerated raw-IR codes in `Documents.lean` for every fixture with `IntBinary` rows and the certificates over them, and the instruction schema records in `formal/coverage.json`. Land it after the raw-IR lane that is reworking those files. Then make the typed case in `tests/xsh/int-arithmetic-routes.xsh` require `:2:16`.
-- **Fix with:** root-cause
-- **Effort:** L
-
 ### XSH-160 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
 
 - **Area:** Runtime

@@ -104,14 +104,14 @@ the product, given the initial literal, an assignment to a slot no let holds, a 
 assignment word, an integer slot read of a slot no let holds, an integer operand that is a
 statement row, and a body whose assignment statement was dropped. -/
 theorem a_wrong_assignment_is_rejected :
-    assignmentsVerdictAfter (·.setExtraWord 12 ⟨3, by decide⟩) = false ∧
-      assignmentsVerdictAfter (·.setExtraWord 12 ⟨0, by decide⟩) = false ∧
-      assignmentsVerdictAfter (·.setExtraWord 10 ⟨0, by decide⟩) = false ∧
-      assignmentsVerdictAfter (·.setExtraWord 11 ⟨1, by decide⟩) = false ∧
+    assignmentsVerdictAfter (·.setExtraWord 13 ⟨3, by decide⟩) = false ∧
+      assignmentsVerdictAfter (·.setExtraWord 13 ⟨0, by decide⟩) = false ∧
+      assignmentsVerdictAfter (·.setExtraWord 11 ⟨0, by decide⟩) = false ∧
+      assignmentsVerdictAfter (·.setExtraWord 12 ⟨1, by decide⟩) = false ∧
       assignmentsVerdictAfter (·.setExtraWord 4 ⟨0, by decide⟩) = false ∧
       assignmentsVerdictAfter (·.setExtraWord 8 ⟨1, by decide⟩) = false ∧
       assignmentsVerdictAfter (fun artifact =>
-        ((artifact.setExtraWord 22 ⟨2, by decide⟩).setExtraWord 24 ⟨9, by decide⟩).mapBlock 0
+        ((artifact.setExtraWord 23 ⟨2, by decide⟩).setExtraWord 25 ⟨9, by decide⟩).mapBlock 0
           fun block => { block with len := 3 }) = false := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
@@ -124,7 +124,7 @@ change what the IR means, so the rejection is by the meaning and not by a struct
 the assignment given the literal 6 the functions end in 7 and the overflow, and with the
 product a difference they end in 0 and the overflow. -/
 theorem the_rejected_assignment_mutations_mean_something_else :
-    (assignmentOutcomesOf (assignmentsArtifact.setExtraWord 12 ⟨3, by decide⟩) =
+    (assignmentOutcomesOf (assignmentsArtifact.setExtraWord 13 ⟨3, by decide⟩) =
       some [.value 7, .failure .integerOverflow]) ∧
     (assignmentOutcomesOf (assignmentsArtifact.setOp 0 .sub) =
       some [.value 0, .failure .integerOverflow]) := by
@@ -189,7 +189,7 @@ theorem assigned_call_source_parses :
 
 set_option maxRecDepth 10000 in
 theorem assigned_call_functions_lower :
-    (lowerFunctions [1, 2, 3, 4, 5] assignedCallFunctions).isSome = true := by
+    (lowerFunctions [1, 2, 3, 4, 5, 6, 7] assignedCallFunctions).isSome = true := by
   decide +kernel
 
 set_option maxRecDepth 10000 in
@@ -202,11 +202,11 @@ theorem assigned_calls_preserve_updated_values_and_unused_assignment_faults :
 
 set_option maxRecDepth 10000 in
 theorem assigned_calls_reject_wrong_arity_and_forward_calls :
-    (lowerFunctions [1, 2, 3] [⟨"scaled", [], [("total", 5)], none,
+    (lowerFunctions [1, 2, 3, 4] [⟨"scaled", [], [("total", 5)], none,
       .assigned "total" (.binary .mul (.var "total") (.int 6))
         (.binary .add (.var "total") (.int 1))⟩,
       ⟨"runs", ["value"], [], none, .call "scaled" [.int 1]⟩]).isSome = false ∧
-    (lowerFunctions [1, 2, 3] [⟨"runs", ["value"], [], none, .call "scaled" []⟩, ⟨"scaled", [], [("total", 5)], none,
+    (lowerFunctions [1, 2, 3, 4] [⟨"runs", ["value"], [], none, .call "scaled" []⟩, ⟨"scaled", [], [("total", 5)], none,
       .assigned "total" (.binary .mul (.var "total") (.int 6))
         (.binary .add (.var "total") (.int 1))⟩]).isSome = false := by
   decide +kernel

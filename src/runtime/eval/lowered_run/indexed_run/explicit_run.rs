@@ -6854,7 +6854,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         enum FrameOperation {
-            Binary(BinaryOp, u32, u32), IntByteAt(usize, u32, Option<u32>, Span),
+            // The operator's span blames a failing operation.
+            Binary(BinaryOp, u32, u32, Span), IntByteAt(usize, u32, Option<u32>, Span),
             BoolNot(u32),
         }
 
@@ -6868,8 +6869,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 | IntView::StrCountLinesSlot { .. }
                 | IntView::FieldSlot { .. }
                 | IntView::ListIndexSlot { .. } => None,
-                IntView::Binary { op, left, right } => {
-                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                IntView::Binary { op, left, right, span: op_span } => {
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw(), op_span))
                 }
                 IntView::StrByteAtSlot {
                     slot,
@@ -6901,10 +6902,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         BinaryOp::Or
                     };
-                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw(), span))
                 }
                 BoolView::IntCompare { op, left, right } => {
-                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw(), span))
                 }
             },
             InstructionKind::Expr | InstructionKind::Stmt => {
@@ -6913,7 +6914,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
 
         match operation {
-            Some(FrameOperation::Binary(op, left, right)) => {
+            Some(FrameOperation::Binary(op, left, right, op_span)) => {
                 self.push_expr(
                     index,
                     left,
@@ -6921,7 +6922,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::BinaryLeft {
                         op,
                         right,
-                        span,
+                        span: op_span,
                         next: Box::new(next),
                     },
                 );

@@ -98,8 +98,8 @@ impl ProjectedTag {
         match self {
             Self::IntInt | Self::StmtLetInt | Self::ExprInt | Self::ExprValueBlock => 2,
             Self::ExprParam | Self::StmtReturn | Self::StmtValue | Self::IntSlot => 1,
-            Self::ExprIf | Self::ExprDirectPureCall | Self::IntBinary => 3,
-            Self::ExprBinary | Self::StmtAssignInt => 4,
+            Self::ExprIf | Self::ExprDirectPureCall => 3,
+            Self::ExprBinary | Self::IntBinary | Self::StmtAssignInt => 4,
             Self::ExprOk => 1,
             Self::ExprErr => 2,
             Self::ExprTry => 2,

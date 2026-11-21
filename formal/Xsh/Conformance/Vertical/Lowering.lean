@@ -325,7 +325,8 @@ def Lower.intValue (scope : List (String × Nat)) : SourceValue → Lower Word32
       let leftRow ← Lower.intAtom scope left
       let rightRow ← Lower.intAtom scope right
       let operation ← Lower.operationIndex op
-      Lower.pushRow .intBinary [operation, leftRow, rightRow]
+      let span ← Lower.takeSpan
+      Lower.pushRow .intBinary [operation, leftRow, rightRow, span]
 
 /-- The assignment statement of a function's var: its value in the integer family, then the
 statement with the slot, the plain-assignment word and the span. -/
@@ -574,6 +575,7 @@ def spanWords (artifact : RawArtifact) : List Word32 :=
     let word (offset : Nat) : Option Word32 := artifact.extra[row.lhs.val + offset]?
     match row.tag with
     | .exprBinary => word 3
+    | .intBinary => word 3
     | .exprValueBlock => word 1
     | .exprIf => word 2
     | .exprDirectPureCall => word 2
@@ -581,7 +583,7 @@ def spanWords (artifact : RawArtifact) : List Word32 :=
     | .exprField => word 2
     | .stmtAssignInt => word 3
     | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue | .intSlot
-    | .intBinary | .exprOk | .exprErr | .stmtLet | .exprRecord => none
+    | .exprOk | .exprErr | .stmtLet | .exprRecord => none
 
 /-- A source function agrees with the artifact on the given arguments when it and the function
 of that name have the same defined outcome there, under the source tree and under the IR. -/

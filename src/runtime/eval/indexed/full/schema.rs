@@ -855,6 +855,7 @@ instruction_schema! {
             op: BinaryOp,
             left: BuildIntId,
             right: BuildIntId,
+            span: Span,
         } => IntBinary = 2 [0; Operands; FrameApply];
         StrByteLenSlot {
             slot: usize,

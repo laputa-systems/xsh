@@ -103,25 +103,25 @@ def assignmentsArtifact : RawArtifact where
     ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
     ⟨bridgeId! 3, .intSlot, 4, 1⟩,
     ⟨bridgeId! 4, .intInt, 5, 2⟩,
-    ⟨bridgeId! 5, .intBinary, 7, 3⟩,
-    ⟨bridgeId! 6, .stmtAssignInt, 10, 4⟩,
-    ⟨bridgeId! 7, .exprParam, 14, 1⟩,
-    ⟨bridgeId! 8, .exprInt, 15, 2⟩,
-    ⟨bridgeId! 9, .exprBinary, 17, 4⟩,
-    ⟨bridgeId! 10, .stmtReturn, 21, 1⟩,
-    ⟨bridgeId! 11, .intInt, 26, 2⟩,
-    ⟨bridgeId! 12, .stmtLetInt, 28, 2⟩,
-    ⟨bridgeId! 13, .intSlot, 30, 1⟩,
-    ⟨bridgeId! 14, .intInt, 31, 2⟩,
-    ⟨bridgeId! 15, .intBinary, 33, 3⟩,
-    ⟨bridgeId! 16, .stmtAssignInt, 36, 4⟩,
-    ⟨bridgeId! 17, .exprParam, 40, 1⟩,
-    ⟨bridgeId! 18, .stmtReturn, 41, 1⟩]
-  extra := [5, 0, 1, 0, 1, 6, 0, 0, 2, 3, 1, 0, 4, 2, 1, 1, 0, 1, 6, 7, 3, 8, 3, 1, 5, 9, 4294967295,
-    2147483647, 1, 10, 1, 1, 0, 1, 12, 13, 1, 0, 14, 4, 1, 16, 3, 11, 15, 17]
+    ⟨bridgeId! 5, .intBinary, 7, 4⟩,
+    ⟨bridgeId! 6, .stmtAssignInt, 11, 4⟩,
+    ⟨bridgeId! 7, .exprParam, 15, 1⟩,
+    ⟨bridgeId! 8, .exprInt, 16, 2⟩,
+    ⟨bridgeId! 9, .exprBinary, 18, 4⟩,
+    ⟨bridgeId! 10, .stmtReturn, 22, 1⟩,
+    ⟨bridgeId! 11, .intInt, 27, 2⟩,
+    ⟨bridgeId! 12, .stmtLetInt, 29, 2⟩,
+    ⟨bridgeId! 13, .intSlot, 31, 1⟩,
+    ⟨bridgeId! 14, .intInt, 32, 2⟩,
+    ⟨bridgeId! 15, .intBinary, 34, 4⟩,
+    ⟨bridgeId! 16, .stmtAssignInt, 38, 4⟩,
+    ⟨bridgeId! 17, .exprParam, 42, 1⟩,
+    ⟨bridgeId! 18, .stmtReturn, 43, 1⟩]
+  extra := [5, 0, 1, 0, 1, 6, 0, 0, 2, 3, 2, 1, 0, 4, 3, 1, 1, 0, 1, 6, 7, 4, 8, 3, 1, 5, 9,
+    4294967295, 2147483647, 1, 10, 1, 1, 0, 1, 12, 13, 5, 1, 0, 14, 6, 1, 16, 3, 11, 15, 17]
   ops := [.mul, .add]
-  blocks := [⟨bridgeId! 1, 22, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
-    ⟨bridgeId! 2, 42, 4, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  blocks := [⟨bridgeId! 1, 23, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 44, 4, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
   functions := [⟨bridgeId! 1, "scaled", 0, 0, 0, 1, bridgeId! 1, 2⟩,
     ⟨bridgeId! 2, "wrapped", 0, 0, 1, 1, bridgeId! 2, 2⟩]
   observations := [⟨bridgeId! 1, [], .value 31⟩, ⟨bridgeId! 2, [], .failure .integerOverflow⟩]
@@ -252,16 +252,16 @@ def computedLetArtifact : RawArtifact where
   strings := ["scales", "value", "args", "runs"]
   names := []
   rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
-    ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
-    ⟨bridgeId! 5, .exprParam, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 9, 1⟩,
-    ⟨bridgeId! 7, .exprBinary, 10, 4⟩, ⟨bridgeId! 8, .stmtReturn, 14, 1⟩,
-    ⟨bridgeId! 9, .exprParam, 18, 1⟩, ⟨bridgeId! 10, .exprDirectPureCall, 22, 3⟩,
-    ⟨bridgeId! 11, .stmtReturn, 25, 1⟩]
-  extra := [0, 4, 0, 0, 0, 1, 2, 2, 0, 2, 0, 4, 5, 2, 6, 2, 3, 7, 0, 1, 0, 8, 1, 2, 3, 9, 1, 10]
+    ⟨bridgeId! 3, .intBinary, 3, 4⟩, ⟨bridgeId! 4, .stmtLetInt, 7, 2⟩,
+    ⟨bridgeId! 5, .exprParam, 9, 1⟩, ⟨bridgeId! 6, .exprParam, 10, 1⟩,
+    ⟨bridgeId! 7, .exprBinary, 11, 4⟩, ⟨bridgeId! 8, .stmtReturn, 15, 1⟩,
+    ⟨bridgeId! 9, .exprParam, 19, 1⟩, ⟨bridgeId! 10, .exprDirectPureCall, 23, 3⟩,
+    ⟨bridgeId! 11, .stmtReturn, 26, 1⟩]
+  extra := [0, 4, 0, 0, 0, 1, 2, 2, 2, 0, 2, 0, 4, 5, 3, 6, 2, 3, 7, 0, 1, 0, 8, 1, 2, 4, 9, 1, 10]
   ops := [.add]
-  blocks := [⟨bridgeId! 1, 15, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
-    ⟨bridgeId! 2, 19, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
-    ⟨bridgeId! 3, 26, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  blocks := [⟨bridgeId! 1, 16, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 20, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 27, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
   functions := [⟨bridgeId! 1, "scales", 0, 1, 0, 1, bridgeId! 1, 3⟩,
     ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
   observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨14, by decide⟩⟩,
@@ -278,19 +278,19 @@ def severalLetArtifact : RawArtifact where
   strings := ["scales", "value", "args", "runs"]
   names := []
   rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
-    ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
-    ⟨bridgeId! 5, .intSlot, 8, 1⟩, ⟨bridgeId! 6, .intInt, 9, 2⟩,
-    ⟨bridgeId! 7, .intBinary, 11, 3⟩, ⟨bridgeId! 8, .stmtLetInt, 14, 2⟩,
-    ⟨bridgeId! 9, .exprParam, 16, 1⟩, ⟨bridgeId! 10, .exprParam, 17, 1⟩,
-    ⟨bridgeId! 11, .exprBinary, 18, 4⟩, ⟨bridgeId! 12, .stmtReturn, 22, 1⟩,
-    ⟨bridgeId! 13, .exprParam, 27, 1⟩, ⟨bridgeId! 14, .exprDirectPureCall, 31, 3⟩,
-    ⟨bridgeId! 15, .stmtReturn, 34, 1⟩]
-  extra := [0, 4, 0, 0, 0, 1, 2, 2, 2, 2, 0, 1, 4, 5, 3, 6, 3, 0, 2, 8, 9, 2, 10, 3, 3, 7,
-    11, 0, 1, 0, 12, 1, 2, 3, 13, 1, 14]
+    ⟨bridgeId! 3, .intBinary, 3, 4⟩, ⟨bridgeId! 4, .stmtLetInt, 7, 2⟩,
+    ⟨bridgeId! 5, .intSlot, 9, 1⟩, ⟨bridgeId! 6, .intInt, 10, 2⟩,
+    ⟨bridgeId! 7, .intBinary, 12, 4⟩, ⟨bridgeId! 8, .stmtLetInt, 16, 2⟩,
+    ⟨bridgeId! 9, .exprParam, 18, 1⟩, ⟨bridgeId! 10, .exprParam, 19, 1⟩,
+    ⟨bridgeId! 11, .exprBinary, 20, 4⟩, ⟨bridgeId! 12, .stmtReturn, 24, 1⟩,
+    ⟨bridgeId! 13, .exprParam, 29, 1⟩, ⟨bridgeId! 14, .exprDirectPureCall, 33, 3⟩,
+    ⟨bridgeId! 15, .stmtReturn, 36, 1⟩]
+  extra := [0, 4, 0, 0, 0, 1, 2, 2, 2, 2, 2, 0, 1, 4, 5, 3, 3, 6, 3, 0, 2, 8, 9, 4, 10, 3, 3, 7, 11,
+    0, 1, 0, 12, 1, 2, 5, 13, 1, 14]
   ops := [.add, .mul, .sub]
-  blocks := [⟨bridgeId! 1, 23, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
-    ⟨bridgeId! 2, 28, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
-    ⟨bridgeId! 3, 35, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  blocks := [⟨bridgeId! 1, 25, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 30, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 37, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
   functions := [⟨bridgeId! 1, "scales", 0, 1, 0, 1, bridgeId! 1, 4⟩,
     ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
   observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨13, by decide⟩⟩,

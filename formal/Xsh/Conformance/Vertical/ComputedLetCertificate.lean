@@ -60,7 +60,8 @@ theorem the_computed_let_source_parses_to_the_computed_let_functions :
     computedLet_text_codes_round_trip, the_computed_let_text_codes_parse]
 
 set_option maxRecDepth 100000 in
-theorem computedLet_span_words : spanWords computedLetArtifact = [⟨2, by decide⟩, ⟨3, by decide⟩] := by
+theorem computedLet_span_words :
+    spanWords computedLetArtifact = [⟨2, by decide⟩, ⟨3, by decide⟩, ⟨4, by decide⟩] := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -132,14 +133,14 @@ set_option maxRecDepth 100000 in
 function two, while only `scales` precedes it. The call's function word is the first payload
 word. -/
 theorem a_wrong_computed_let_callee_is_rejected :
-    computedLetVerdictAfter (·.setExtraWord 22 ⟨2, by decide⟩) = false := by
+    computedLetVerdictAfter (·.setExtraWord 23 ⟨2, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 /-- A callee body whose let read is replaced by its parameter is still well typed, but it returns 10
 for `scales` on 5 where the record holds 14. The read is the third expression row's slot word. -/
 theorem a_wrong_computed_let_binding_read_is_rejected :
-    computedLetVerdictAfter (·.setExtraWord 9 ⟨0, by decide⟩) = false := by
+    computedLetVerdictAfter (·.setExtraWord 10 ⟨0, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -148,7 +149,7 @@ it returns 10 for `scales` on 5 where the record holds 14. The binding's value r
 payload word, and the literal it takes is the value row's own two words. -/
 theorem a_literal_in_place_of_the_computed_value_is_rejected :
     computedLetVerdictAfter (fun artifact =>
-        (artifact.setExtraWord 7 ⟨1, by decide⟩).setExtraWord 1 ⟨5, by decide⟩) = false := by
+        (artifact.setExtraWord 8 ⟨1, by decide⟩).setExtraWord 1 ⟨5, by decide⟩) = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -163,7 +164,7 @@ set_option maxRecDepth 100000 in
 /-- Structurally malformed rows are refused: the binding naming itself as its value row and a
 binding slot no read resolves. The binding's payload is the target slot and the value row. -/
 theorem malformed_computed_let_ir_is_rejected :
-    computedLetVerdictAfter (·.setExtraWord 6 ⟨3, by decide⟩) = false ∧
+    computedLetVerdictAfter (·.setExtraWord 7 ⟨3, by decide⟩) = false ∧
       computedLetVerdictAfter (·.setExtraWord 4 ⟨1, by decide⟩) = false := by
   refine ⟨?_, ?_⟩ <;> decide +kernel
 

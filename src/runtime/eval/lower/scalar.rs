@@ -57,7 +57,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             BuildExprRow::Binary {
-                op, left, right, ..
+                op, left, right, span
             } if matches!(
                 op,
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
@@ -70,6 +70,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         op: *op,
                         left: self.lower_int_expr_candidate(left)?,
                         right: self.lower_int_expr_candidate(right)?,
+                        span: *span,
                     }
                 ))
             }
@@ -870,6 +871,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     op: BinaryOp::Add,
                     left,
                     right,
+                    ..
                 },
                 1,
             ) => {
