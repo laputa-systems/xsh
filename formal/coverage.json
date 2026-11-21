@@ -2653,8 +2653,10 @@
       "id": "EFF-LATTICE",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.EFF-LATTICE"
+      "status": "closed",
+      "proof_root_id": "full.EFF-LATTICE",
+      "module": "Xsh.Effects.Lattice",
+      "declaration": "Xsh.Effects.Lattice.finite_lattice_and_implication_closure"
     },
     {
       "id": "EFF-ORDER",
