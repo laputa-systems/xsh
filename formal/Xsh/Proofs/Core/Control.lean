@@ -1431,7 +1431,7 @@ theorem callee_cannot_write_caller {world : World Declaration Identity Source} (
     (root : Xsh.Syntax.RawName) (path : List PathSpec) (cell : CellId) (caller : Store world) (held : Cell world)
     (fielded : flatten machine.context.spelling target = some (root, path))
     (resolved : frame.environment.cellOf root = .ok cell) (calling : frame.callerStore = some caller)
-    (holds : caller cell = some held) (notWritable : frame.writable.contains cell = false) :
+    (holds : caller cell = some held) (notWritable : cell ∉ frame.writable) :
     runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported := by
   cases target with
   | env key => simp [flatten] at fielded
@@ -1826,7 +1826,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
         store ⟨activation + step, binder⟩ = none) ∧
     (∀ fuel frame target op value root path cell caller held,
       flatten machine.context.spelling target = some (root, path) → frame.environment.cellOf root = .ok cell →
-        frame.callerStore = some caller → caller cell = some held → frame.writable.contains cell = false →
+        frame.callerStore = some caller → caller cell = some held → cell ∉ frame.writable →
           runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported) ∧
     (∀ fuel frame body last, frameOf (runBody machine (fuel + 1) frame body) = some last →
       ∀ cell, frame.store cell = none → last.store cell = none) :=
