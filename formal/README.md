@@ -195,12 +195,19 @@ carries members to members in every world, a view into a validated type starts
 from the same tag with a base that views to the target's base, and no base
 views as its validated type. A view between types whose rows have distinct
 labels is precise: erasing validations on both sides gives equivalent types,
-and equivalent types have the same members in every world. The label premise
-stands for the checker's rejection of duplicate record fields; it is assumed,
-not derived from the checker. A witness shows that a record view can drop a
-duplicate label, so the erased types differ in field count and are not
-equivalent. Nested intervals are not views, even though the
-interval-containment fragment relates them. A module contract entry must match its kind and full signature exactly.
+and equivalent types have the same members in every world. Such a view also
+introduces no validation at any depth: `validationTags` lists the tag of every
+validated position, and for each tag the target has at most as many
+occurrences as the source. So `List[narrowPort]` does not view as
+`List[widePort]`, and the witness shows that the tag clause alone rejects
+that pair. The label premise mirrors Rust, where a record type is a map keyed
+by label (`Type::Record` in `src/sema/types.rs`) and cannot repeat one, and a
+schema that repeats a field is rejected separately with
+`check.duplicate-record-field`; the premise is assumed, not derived from that
+code. A witness shows that a record view can drop a duplicate label, so the
+erased types differ in field count and are not equivalent. Nested intervals
+are not views, even though the interval-containment fragment relates them. A
+module contract entry must match its kind and full signature exactly.
 
 VAL-ERASE is closed by `validated_erasure` in
 [`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member
@@ -265,14 +272,18 @@ VAL-PRESERVE is closed by `validated_operations` in
 `extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
 without a filter and element replacement keep a `NonEmpty`; filtering, slicing
 and comprehensions with several clauses return only the base list; `.extend`
-and `+=` on a `NonEmpty` variable are store writes that commit and keep the
-type; and `.parent()` and `.normalize()` keep a `RelPath`. The path operations
+returns a new `NonEmpty`, and `+=` on a `NonEmpty` variable is a store write
+that commits and keeps the type; and `.parent()` and `.normalize()` keep a
+`RelPath`. The path operations
 read a path by its non-trivial components, as `strip_prefix` does, in
 [`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean), so `a//b` and
 `a/./b` have parent `a`; `.normalize()` resolves `.` and `..` lexically, and
 both return `.` when nothing is left. The witnesses show `relative_to`,
 `with_ext`, `components` and `Port` arithmetic leaving their validated type,
-and kill a result-type rule that keeps `NonEmpty` after filtering.
+including `p"...b".with_ext("")`, which gives `..` and fails
+`.require(RelPath)`. A nominal spread `{...pkg, version: v}` gives a plain
+structural record that is not a nominal member. The witnesses also kill a
+result-type rule that keeps `NonEmpty` after filtering.
 These definitions follow the SPEC and claim no Rust correspondence.
 
 The `introduction_routes` fragment root is in

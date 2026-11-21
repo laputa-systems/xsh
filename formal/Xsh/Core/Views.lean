@@ -327,11 +327,14 @@ theorem membersOf_tailMembers : ∀ members : ViewMembers Declaration, membersOf
   | .membersEmpty => by simp [tailMembers, membersOf]
   | .member type rest => by simp [tailMembers, membersOf, membersOf_tailMembers rest]
 
+def eraseEntry (entry : String × ViewType Declaration) : String × ViewType Declaration :=
+  (entry.1, eraseValidations entry.2)
+
 theorem rowEntries_erase : ∀ row : ViewRow Declaration,
-    rowEntries (eraseValidations row) = (rowEntries row).map (fun entry => (entry.1, eraseValidations entry.2))
+    rowEntries (eraseValidations row) = (rowEntries row).map eraseEntry
   | .variable id => nomatch id
   | .rowEmpty => by simp [rowEntries, eraseValidations]
-  | .rowField name type rest => by simp [rowEntries, eraseValidations, rowEntries_erase rest]
+  | .rowField name type rest => by simp [rowEntries, eraseValidations, eraseEntry, rowEntries_erase rest]
 
 theorem tailMembers_erase : ∀ members : ViewMembers Declaration,
     tailMembers (eraseValidations members) = (tailMembers members).map eraseValidations
@@ -378,12 +381,92 @@ theorem erase_base {validated baseType : ViewType Declaration} (hasBase : base v
   case boundedInteger bounds => cases h : bounds.base <;> simp [eraseValidations, IntegerBaseType, h]
   all_goals rfl
 
-theorem rowOf_cover : ∀ (sources targets : List (String × ViewType Declaration)),
-    (sources.map Prod.fst).Nodup → (targets.map Prod.fst).Nodup →
-    (∀ name ∈ sources.map Prod.fst, name ∈ targets.map Prod.fst) →
-    (∀ target ∈ targets, ∃ source, (target.1, source) ∈ sources ∧ ErasedEquiv source target.2) →
-      ErasedEquiv (rowOf sources) (rowOf targets)
-  | [], [], _, _, _, _ => .refl _
+/-- The validation tags at every position of a type, one entry per occurrence. -/
+def validationTags : {kind : TypeKind} → TypeVariableFreeTerm 0 String Declaration kind →
+    List (ValidationTag Declaration)
+  | _, .variable id => nomatch id
+  | _, .list item => validationTags item
+  | _, .set item => validationTags item
+  | _, .stream item => validationTags item
+  | _, .optional item => validationTags item
+  | _, .nonEmpty item => .nonEmpty :: validationTags item
+  | _, .relativePath => [.relativePath]
+  | _, .nominal declaration fields => .nominal declaration :: validationTags fields
+  | _, .boundedInteger bounds => [.bounded bounds]
+  | _, .map key value => validationTags key ++ validationTags value
+  | _, .result value error => validationTags value ++ validationTags error
+  | _, .record fields => validationTags fields
+  | _, .module _ exports => validationTags exports
+  | _, .union first second rest => validationTags first ++ validationTags second ++ validationTags rest
+  | _, .callable signature => validationTags signature
+  | _, .rowField _ type rest => validationTags type ++ validationTags rest
+  | _, .parameter _ _ type rest => validationTags type ++ validationTags rest
+  | _, .restParameter _ type => validationTags type
+  | _, .signature _ parameters result => validationTags parameters ++ validationTags result
+  | _, .member type rest => validationTags type ++ validationTags rest
+  | _, .exportValue _ _ type rest => validationTags type ++ validationTags rest
+  | _, .exportCallable _ _ signature rest => validationTags signature ++ validationTags rest
+  | _, .exportGenericCallable _ _ _ rest => validationTags rest
+  | _, _ => []
+
+/-- Every item of `small` occurs in `large` at least as often as in `small`. -/
+def Submultiset {α : Type} (small large : List α) : Prop :=
+  ∃ kept : List α, kept.Perm small ∧ kept.Sublist large
+
+theorem Submultiset.refl {α : Type} (items : List α) : Submultiset items items := ⟨items, .refl _, .refl _⟩
+
+theorem Submultiset.append {α : Type} {small large small' large' : List α} :
+    Submultiset small large → Submultiset small' large' → Submultiset (small ++ small') (large ++ large')
+  | ⟨kept, perm, sub⟩, ⟨kept', perm', sub'⟩ => ⟨kept ++ kept', perm.append perm', sub.append sub'⟩
+
+theorem Submultiset.perm_left {α : Type} {small small' large : List α} (perm : small.Perm small') :
+    Submultiset small large → Submultiset small' large
+  | ⟨kept, keptPerm, sub⟩ => ⟨kept, keptPerm.trans perm, sub⟩
+
+theorem Submultiset.sublist_right {α : Type} {small large large' : List α} (sub : large.Sublist large') :
+    Submultiset small large → Submultiset small large'
+  | ⟨kept, perm, keptSub⟩ => ⟨kept, perm, keptSub.trans sub⟩
+
+theorem Submultiset.count_le {α : Type} [BEq α] {small large : List α} :
+    Submultiset small large → ∀ item, small.count item ≤ large.count item
+  | ⟨_, perm, sub⟩, item => perm.count_eq item ▸ sub.count_le item
+
+def entryTags (entry : String × ViewType Declaration) : List (ValidationTag Declaration) :=
+  validationTags entry.2
+
+theorem rowTags : ∀ row : ViewRow Declaration, validationTags row = (rowEntries row).flatMap entryTags
+  | .variable id => nomatch id
+  | .rowEmpty => by simp [validationTags, rowEntries]
+  | .rowField name type rest => by simp [validationTags, rowEntries, entryTags, rowTags rest]
+
+theorem memberTags : ∀ members : ViewMembers Declaration,
+    validationTags members = (tailMembers members).flatMap validationTags
+  | .variable id => nomatch id
+  | .membersEmpty => by simp [validationTags, tailMembers]
+  | .member type rest => by simp [validationTags, tailMembers, memberTags rest]
+
+theorem base_tags {validated baseType : ViewType Declaration} (hasBase : base validated = some baseType) :
+    (validationTags baseType).Sublist (validationTags validated) := by
+  cases validated <;> simp only [base, reduceCtorEq, Option.some.injEq] at hasBase <;> subst hasBase
+  case nonEmpty element => exact .cons _ (.refl _)
+  case relativePath => exact List.nil_sublist _
+  case nominal declaration fields => exact .cons _ (.refl _)
+  case boundedInteger bounds => cases bounds.base <;> exact List.nil_sublist _
+
+/-- Induction over the one-to-one pairing of two lists of entries with
+distinct labels, when the source labels are among the target labels and every
+target entry has a related source entry with its label. -/
+theorem entries_pairing {α : Type} {related : α → α → Prop}
+    {holds : List (String × α) → List (String × α) → Prop} (empty : holds [] [])
+    (extend : ∀ {name source target sources targets}, related source target → holds sources targets →
+      holds ((name, source) :: sources) ((name, target) :: targets))
+    (reorder : ∀ {sources targets targets'}, targets.Perm targets' → holds sources targets →
+      holds sources targets') :
+    ∀ (sources targets : List (String × α)), (sources.map Prod.fst).Nodup → (targets.map Prod.fst).Nodup →
+      (∀ name ∈ sources.map Prod.fst, name ∈ targets.map Prod.fst) →
+      (∀ target ∈ targets, ∃ source, (target.1, source) ∈ sources ∧ related source target.2) →
+        holds sources targets
+  | [], [], _, _, _, _ => empty
   | [], target :: _, _, _, _, covered => by
       obtain ⟨_, absent, _⟩ := covered target (by simp)
       simp at absent
@@ -396,13 +479,13 @@ theorem rowOf_cover : ∀ (sources targets : List (String × ViewType Declaratio
       simp only [List.map_cons, List.nodup_cons] at sourceNodup
       have restNodup := (perm.map Prod.fst).nodup_iff.mp targetNodup
       simp only [List.map_cons, List.nodup_cons] at restNodup
-      obtain ⟨partner, partnerPresent, partnerEquiv⟩ := covered (found, target) present
-      have headEquiv : ErasedEquiv source target := by
+      obtain ⟨partner, partnerPresent, partnerRelated⟩ := covered (found, target) present
+      have headRelated : related source target := by
         simp only [List.mem_cons, Prod.mk.injEq] at partnerPresent
         rcases partnerPresent with ⟨_, same⟩ | later
-        · exact same ▸ partnerEquiv
+        · exact same ▸ partnerRelated
         · exact absurd (List.mem_map.mpr ⟨_, later, rfl⟩) sourceNodup.1
-      have tailEquiv := rowOf_cover sources (before ++ after) sourceNodup.2 restNodup.2
+      have tailHolds := entries_pairing empty extend reorder sources (before ++ after) sourceNodup.2 restNodup.2
         (fun other otherPresent => by
           obtain ⟨entry, entryPresent, entryName⟩ :=
             List.mem_map.mp (names other (List.mem_cons_of_mem _ otherPresent))
@@ -412,12 +495,13 @@ theorem rowOf_cover : ∀ (sources targets : List (String × ViewType Declaratio
             exact absurd otherPresent sourceNodup.1
           · exact List.mem_map.mpr ⟨entry, later, entryName⟩)
         (fun entry entryPresent => by
-          obtain ⟨partner, partnerPresent, partnerEquiv⟩ := covered entry (perm.mem_iff.mpr (by simp [entryPresent]))
+          obtain ⟨partner, partnerPresent, partnerRelated⟩ :=
+            covered entry (perm.mem_iff.mpr (by simp [entryPresent]))
           simp only [List.mem_cons, Prod.mk.injEq] at partnerPresent
           rcases partnerPresent with ⟨same, _⟩ | later
           · exact absurd (List.mem_map.mpr ⟨entry, entryPresent, same⟩) restNodup.1
-          · exact ⟨partner, later, partnerEquiv⟩)
-      exact (ErasedEquiv.rowField found headEquiv tailEquiv).trans (rowOf_perm perm.symm)
+          · exact ⟨partner, later, partnerRelated⟩)
+      exact reorder perm.symm (extend headRelated tailHolds)
 
 theorem removed_perm : ∀ {item : ViewType Declaration} {source rest : List (ViewType Declaration)},
     MemberRemoved item source rest → source.Perm (item :: rest)
@@ -432,51 +516,71 @@ theorem removed_erased : ∀ {item : ViewType Declaration} {source rest : List (
   | _, _, _, .there other removed =>
       (ErasedEquiv.member (.refl _) (removed_erased removed)).trans (.swapMembers _ _ _)
 
-theorem erased_names (entries : List (String × ViewType Declaration)) :
-    (entries.map fun entry => (entry.1, eraseValidations entry.2)).map Prod.fst = entries.map Prod.fst := by
-  induction entries <;> simp_all
+/-- What a view keeps: the erased types are equivalent, and every validation of
+the target, counted over all positions, also occurs in the source. -/
+def ViewKeeps (source target : ViewType Declaration) : Prop :=
+  ErasedEquiv (eraseValidations source) (eraseValidations target) ∧
+    Submultiset (validationTags target) (validationTags source)
+
+theorem record_keeps {sourceRow targetRow : ViewRow Declaration}
+    (sourceNodup : ((rowEntries sourceRow).map Prod.fst).Nodup)
+    (targetNodup : ((rowEntries targetRow).map Prod.fst).Nodup)
+    (names : ∀ name ∈ (rowEntries sourceRow).map Prod.fst, name ∈ (rowEntries targetRow).map Prod.fst)
+    (matched : ∀ target ∈ rowEntries targetRow, ∃ source, (target.1, source) ∈ rowEntries sourceRow ∧
+      ViewKeeps source target.2) :
+    ViewKeeps (.record sourceRow) (.record targetRow) := by
+  have paired := entries_pairing (related := ViewKeeps)
+    (holds := fun sources targets =>
+      ErasedEquiv (rowOf (sources.map eraseEntry)) (rowOf (targets.map eraseEntry)) ∧
+        Submultiset (targets.flatMap entryTags) (sources.flatMap entryTags))
+    ⟨.refl _, .refl _⟩
+    (fun related holds => ⟨.rowField _ related.1 holds.1, related.2.append holds.2⟩)
+    (fun perm holds => ⟨holds.1.trans (rowOf_perm (perm.map eraseEntry)), holds.2.perm_left (perm.flatMap_right entryTags)⟩)
+    _ _ sourceNodup targetNodup names matched
+  refine ⟨.record ?_, ?_⟩
+  · rw [← rowOf_rowEntries (eraseValidations sourceRow), ← rowOf_rowEntries (eraseValidations targetRow),
+      rowEntries_erase, rowEntries_erase]
+    exact paired.1
+  · show Submultiset (validationTags targetRow) (validationTags sourceRow)
+    rw [rowTags, rowTags]
+    exact paired.2
 
 mutual
-  theorem view_erased : ∀ {source target : ViewType Declaration}, BaseView source target →
-      RowsDistinct source → RowsDistinct target →
-        ErasedEquiv (eraseValidations source) (eraseValidations target)
-    | _, _, .refl _, _, _ => .refl _
+  theorem view_keeps : ∀ {source target : ViewType Declaration}, BaseView source target →
+      RowsDistinct source → RowsDistinct target → ViewKeeps source target
+    | _, _, .refl _, _, _ => ⟨.refl _, .refl _⟩
     | _, _, .validated hasBase view, sourceDistinct, targetDistinct => by
-        rw [erase_base hasBase]
-        exact view_erased view (rowsDistinct_base hasBase sourceDistinct) targetDistinct
-    | _, _, .nonEmpty view, sourceDistinct, targetDistinct =>
-        .list (view_erased view sourceDistinct targetDistinct)
-    | _, _, .list view, sourceDistinct, targetDistinct =>
-        .list (view_erased view sourceDistinct targetDistinct)
-    | _, _, .map _ view, sourceDistinct, targetDistinct =>
-        .map _ (view_erased view sourceDistinct.2 targetDistinct.2)
-    | _, _, .stream view, sourceDistinct, targetDistinct =>
-        .stream (view_erased view sourceDistinct targetDistinct)
+        obtain ⟨equiv, tags⟩ := view_keeps view (rowsDistinct_base hasBase sourceDistinct) targetDistinct
+        exact ⟨erase_base hasBase ▸ equiv, tags.sublist_right (base_tags hasBase)⟩
+    | _, _, .nonEmpty view, sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct targetDistinct
+        exact ⟨.list equiv, (Submultiset.refl [_]).append tags⟩
+    | _, _, .list view, sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct targetDistinct
+        exact ⟨.list equiv, tags⟩
+    | _, _, .map _ view, sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct.2 targetDistinct.2
+        exact ⟨.map _ equiv, (Submultiset.refl _).append tags⟩
+    | _, _, .stream view, sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct targetDistinct
+        exact ⟨.stream equiv, tags⟩
     | _, _, .record (source := sourceRow) (target := targetRow) covered names, sourceDistinct, targetDistinct => by
         obtain ⟨sourceNodup, sourceEach⟩ := rowsDistinct_row sourceRow sourceDistinct
         obtain ⟨targetNodup, targetEach⟩ := rowsDistinct_row targetRow targetDistinct
-        have matched := entries_erased covered sourceEach targetEach
-        refine .record ?_
-        rw [← rowOf_rowEntries (eraseValidations sourceRow), ← rowOf_rowEntries (eraseValidations targetRow),
-          rowEntries_erase, rowEntries_erase]
-        refine rowOf_cover _ _ (by rwa [erased_names]) (by rwa [erased_names])
-          (by rwa [erased_names, erased_names]) ?_
-        intro entry present
-        obtain ⟨original, originalPresent, same⟩ := List.mem_map.mp present
-        subst same
-        obtain ⟨partner, partnerPresent, partnerEquiv⟩ := matched original originalPresent
-        exact ⟨eraseValidations partner, List.mem_map.mpr ⟨_, partnerPresent, rfl⟩, partnerEquiv⟩
-    | _, _, .optional view, sourceDistinct, targetDistinct =>
-        .optional (view_erased view sourceDistinct targetDistinct)
-    | _, _, .result valueView errorView, sourceDistinct, targetDistinct =>
-        .result (view_erased valueView sourceDistinct.1 targetDistinct.1)
-          (view_erased errorView sourceDistinct.2 targetDistinct.2)
+        exact record_keeps sourceNodup targetNodup names (entries_keep covered sourceEach targetEach)
+    | _, _, .optional view, sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct targetDistinct
+        exact ⟨.optional equiv, tags⟩
+    | _, _, .result valueView errorView, sourceDistinct, targetDistinct => by
+        obtain ⟨valueEquiv, valueTags⟩ := view_keeps valueView sourceDistinct.1 targetDistinct.1
+        obtain ⟨errorEquiv, errorTags⟩ := view_keeps errorView sourceDistinct.2 targetDistinct.2
+        exact ⟨.result valueEquiv errorEquiv, valueTags.append errorTags⟩
     | _, _, .union (sourceFirst := sourceFirst) (sourceSecond := sourceSecond) (sourceRest := sourceRest)
         (targetFirst := targetFirst) (targetSecond := targetSecond) (targetRest := targetRest)
         _ _ _ paired, sourceDistinct, targetDistinct => by
         obtain ⟨sourceFirstDistinct, sourceSecondDistinct, sourceRestDistinct⟩ := sourceDistinct
         obtain ⟨targetFirstDistinct, targetSecondDistinct, targetRestDistinct⟩ := targetDistinct
-        have equiv := paired_erased paired
+        obtain ⟨equiv, tags⟩ := paired_keep paired
           (by
             simp only [List.mem_cons, forall_eq_or_imp]
             exact ⟨sourceFirstDistinct, sourceSecondDistinct, rowsDistinct_members _ sourceRestDistinct⟩)
@@ -484,59 +588,79 @@ mutual
             simp only [List.mem_cons, forall_eq_or_imp]
             exact ⟨targetFirstDistinct, targetSecondDistinct, rowsDistinct_members _ targetRestDistinct⟩)
         simp only [List.map_cons, membersOf, ← tailMembers_erase, membersOf_tailMembers] at equiv
-        exact .union equiv
-    | _, _, .callable (.result _ _ view), sourceDistinct, targetDistinct =>
-        .callable (.signature _ _ (view_erased view sourceDistinct.2 targetDistinct.2))
+        simp only [List.flatMap_cons, ← memberTags, ← List.append_assoc] at tags
+        exact ⟨.union equiv, tags⟩
+    | _, _, .callable (.result _ _ view), sourceDistinct, targetDistinct => by
+        obtain ⟨equiv, tags⟩ := view_keeps view sourceDistinct.2 targetDistinct.2
+        exact ⟨.callable (.signature _ _ equiv), (Submultiset.refl _).append tags⟩
 
-  theorem entry_erased : ∀ {entry : String × ViewType Declaration} {sources : List (String × ViewType Declaration)},
+  theorem entry_keeps : ∀ {entry : String × ViewType Declaration} {sources : List (String × ViewType Declaration)},
       EntryCovered entry sources → (∀ source ∈ sources, RowsDistinct source.2) → RowsDistinct entry.2 →
-        ∃ source, (entry.1, source) ∈ sources ∧
-          ErasedEquiv (eraseValidations source) (eraseValidations entry.2)
+        ∃ source, (entry.1, source) ∈ sources ∧ ViewKeeps source entry.2
     | _, _, .here _ _ view, sourceDistinct, targetDistinct =>
-        ⟨_, List.mem_cons_self, view_erased view (sourceDistinct _ List.mem_cons_self) targetDistinct⟩
+        ⟨_, List.mem_cons_self, view_keeps view (sourceDistinct _ List.mem_cons_self) targetDistinct⟩
     | _, _, .there _ covered, sourceDistinct, targetDistinct => by
-        obtain ⟨source, present, equiv⟩ :=
-          entry_erased covered (fun source present => sourceDistinct source (List.mem_cons_of_mem _ present))
+        obtain ⟨source, present, keeps⟩ :=
+          entry_keeps covered (fun source present => sourceDistinct source (List.mem_cons_of_mem _ present))
             targetDistinct
-        exact ⟨source, List.mem_cons_of_mem _ present, equiv⟩
+        exact ⟨source, List.mem_cons_of_mem _ present, keeps⟩
 
-  theorem entries_erased : ∀ {targets sources : List (String × ViewType Declaration)},
+  theorem entries_keep : ∀ {targets sources : List (String × ViewType Declaration)},
       EntriesCovered targets sources → (∀ source ∈ sources, RowsDistinct source.2) →
         (∀ target ∈ targets, RowsDistinct target.2) →
-          ∀ target ∈ targets, ∃ source, (target.1, source) ∈ sources ∧
-            ErasedEquiv (eraseValidations source) (eraseValidations target.2)
+          ∀ target ∈ targets, ∃ source, (target.1, source) ∈ sources ∧ ViewKeeps source target.2
     | _, _, .nil _, _, _ => by simp
     | _, _, .cons here rest, sourceDistinct, targetDistinct => by
         intro target present
         rcases List.mem_cons.mp present with same | later
-        · exact same ▸ entry_erased here sourceDistinct (targetDistinct _ List.mem_cons_self)
-        · exact entries_erased rest sourceDistinct
+        · exact same ▸ entry_keeps here sourceDistinct (targetDistinct _ List.mem_cons_self)
+        · exact entries_keep rest sourceDistinct
             (fun other otherPresent => targetDistinct other (List.mem_cons_of_mem _ otherPresent)) target later
 
-  theorem paired_erased : ∀ {sources targets : List (ViewType Declaration)}, MembersPaired sources targets →
+  theorem paired_keep : ∀ {sources targets : List (ViewType Declaration)}, MembersPaired sources targets →
       (∀ source ∈ sources, RowsDistinct source) → (∀ target ∈ targets, RowsDistinct target) →
-        ErasedEquiv (membersOf (sources.map eraseValidations)) (membersOf (targets.map eraseValidations))
-    | _, _, .nil, _, _ => .refl _
+        ErasedEquiv (membersOf (sources.map eraseValidations)) (membersOf (targets.map eraseValidations)) ∧
+          Submultiset (targets.flatMap validationTags) (sources.flatMap validationTags)
+    | _, _, .nil, _, _ => ⟨.refl _, .refl _⟩
     | _, _, .cons view removed rest, sourceDistinct, targetDistinct => by
         have perm := removed_perm removed
-        exact (ErasedEquiv.member
-            (view_erased view (sourceDistinct _ List.mem_cons_self) (targetDistinct _ (perm.mem_iff.mpr List.mem_cons_self)))
-            (paired_erased rest (fun other otherPresent => sourceDistinct other (List.mem_cons_of_mem _ otherPresent))
-              (fun other otherPresent => targetDistinct other
-                (perm.mem_iff.mpr (List.mem_cons_of_mem _ otherPresent))))).trans
-          (removed_erased removed).symm
+        obtain ⟨equiv, tags⟩ := view_keeps view (sourceDistinct _ List.mem_cons_self)
+          (targetDistinct _ (perm.mem_iff.mpr List.mem_cons_self))
+        obtain ⟨restEquiv, restTags⟩ := paired_keep rest
+          (fun other otherPresent => sourceDistinct other (List.mem_cons_of_mem _ otherPresent))
+          (fun other otherPresent => targetDistinct other (perm.mem_iff.mpr (List.mem_cons_of_mem _ otherPresent)))
+        refine ⟨(ErasedEquiv.member equiv restEquiv).trans (removed_erased removed).symm, ?_⟩
+        have within := tags.append restTags
+        rw [← List.flatMap_cons, ← List.flatMap_cons] at within
+        exact within.perm_left (perm.flatMap_right _).symm
 end
 
 /-- Erased-position precision. When every row of both types has distinct
 labels, a base view changes only validated positions: erasing validations on
 both sides gives equivalent types, which differ at most in the order of record
-fields and union members. The label premise stands for the checker's rejection
-of duplicate record fields; without it a record view can drop a duplicate
-label. -/
+fields and union members. Rust record types are maps keyed by label and cannot
+repeat one, and a repeated schema field is rejected with
+`check.duplicate-record-field`; the premise is assumed here, not derived from
+that code. Without it a record view can drop a duplicate label. -/
 theorem view_precision {source target : ViewType Declaration} :
     RowsDistinct source → RowsDistinct target → BaseView source target →
       eraseValidations source ≈ eraseValidations target :=
-  fun sourceDistinct targetDistinct view => view_erased view sourceDistinct targetDistinct
+  fun sourceDistinct targetDistinct view => (view_keeps view sourceDistinct targetDistinct).1
+
+/-- A view introduces no validation at any depth: for each validation tag, the
+target has at most as many occurrences as the source, counted over every
+position. So distinct validations never fit inside lists, records, unions or
+any other position, not only at the top. -/
+theorem view_tags {source target : ViewType Declaration} :
+    RowsDistinct source → RowsDistinct target → BaseView source target →
+      Submultiset (validationTags target) (validationTags source) :=
+  fun sourceDistinct targetDistinct view => (view_keeps view sourceDistinct targetDistinct).2
+
+theorem view_tag_counts [DecidableEq Declaration] {source target : ViewType Declaration}
+    (sourceDistinct : RowsDistinct source) (targetDistinct : RowsDistinct target) (view : BaseView source target)
+    (tag : ValidationTag Declaration) :
+    (validationTags target).count tag ≤ (validationTags source).count tag :=
+  (view_tags sourceDistinct targetDistinct view).count_le tag
 
 /-! Equivalent erased types view each other. -/
 

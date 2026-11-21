@@ -255,7 +255,10 @@ Every validated type views as its base, and no base views as its validated
 type. A view between types whose rows have distinct labels is precise: with
 validations erased, the two types are equivalent, differing at most in the
 order of record fields and union members, and equivalent types have the same
-members in every world. -/
+members in every world. Such a view also introduces no validation at any
+depth: for each validation tag, counted over every position, the target has at
+most as many occurrences as the source, so a nested interval never widens to
+another interval. -/
 theorem validated_widening (world : MembershipWorld Declaration Identity Source) :
     (∀ (source target : ValueType Declaration) candidate, BaseView source target →
       Membership.value world source candidate → Membership.value world target candidate) ∧
@@ -268,12 +271,15 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
     (∀ source target : ValueType Declaration, RowsDistinct source → RowsDistinct target →
       BaseView source target → eraseValidations source ≈ eraseValidations target) ∧
     (∀ (source target : ValueType Declaration) candidate, source ≈ target →
-      (Membership.value world source candidate ↔ Membership.value world target candidate)) :=
+      (Membership.value world source candidate ↔ Membership.value world target candidate)) ∧
+    (∀ source target : ValueType Declaration, RowsDistinct source → RowsDistinct target →
+      BaseView source target → Submultiset (validationTags target) (validationTags source)) :=
   ⟨fun _ _ candidate view member => view_member world view candidate member,
     fun _ _ _ view tagged => view_into_validated view tagged,
     fun _ _ hasBase => ⟨base_view hasBase, base_never_views_validated hasBase⟩,
     fun _ _ sourceDistinct targetDistinct view => view_precision sourceDistinct targetDistinct view,
-    fun _ _ candidate equiv => equivalent_members world equiv candidate⟩
+    fun _ _ candidate equiv => equivalent_members world equiv candidate,
+    fun _ _ sourceDistinct targetDistinct view => view_tags sourceDistinct targetDistinct view⟩
 
 namespace Witness
 
@@ -382,6 +388,26 @@ theorem distinct_validations_never_view :
     have := (view_into_validated view (tag := .bounded widePort) rfl).1
     simp [validationTag, narrowPort, widePort] at this
   · simp [Membership.value, absolute, pathValue, Value.eraseNominal]
+    decide
+
+/-- The nested-interval mutant: a list of one interval read as a list of a
+wider one. The real relation rejects it, and so does the tag clause of
+`validated_widening`, so a view relation with an extra nested-interval rule
+could not satisfy that theorem. -/
+theorem nested_interval_never_views :
+    ¬ BaseView (Declaration := Unit) (.list (.boundedInteger narrowPort)) (.list (.boundedInteger widePort)) ∧
+      ¬ Submultiset (validationTags (.list (.boundedInteger widePort) : WitnessType))
+        (validationTags (.list (.boundedInteger narrowPort) : WitnessType)) := by
+  constructor
+  · intro view
+    cases view with
+    | validated hasBase _ => simp [base] at hasBase
+    | list inner =>
+      have := (view_into_validated inner (tag := .bounded widePort) rfl).1
+      simp [validationTag, narrowPort, widePort] at this
+  · intro within
+    have counted := within.count_le (.bounded widePort)
+    revert counted
     decide
 
 def pureReturning (result : WitnessType) : WitnessType :=
