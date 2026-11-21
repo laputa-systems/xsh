@@ -30,8 +30,9 @@ structure Errors (Declaration Identity Source : Type) where
   missingField : Value Declaration Identity Source
   mapMissing : Value Declaration Identity Source
 
-/-- A let-free function: its parameter names and its result expression. -/
-abbrev Functions := Xsh.Syntax.RawName → Option (List Xsh.Syntax.RawName × Xsh.Syntax.Expr)
+/-- A let-free function: the environment it was defined in, its parameter
+names and its result expression. -/
+abbrev Functions := Xsh.Syntax.RawName → Option (Environment × List Xsh.Syntax.RawName × Xsh.Syntax.Expr)
 
 structure Context (Declaration Identity Source : Type) where
   literals : Literals
@@ -164,6 +165,10 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     | _, some comparison =>
       .value (boolean (orders comparison (lexBefore (codePoints a) (codePoints b)) (decide (a = b))))
     | _, none => .unsupported
+  | .scalar (.integer a), .scalar (.duration b) =>
+    match operator with
+    | .mul => durationResult context.errors (DurationOps.multiply b a)
+    | _ => .unsupported
   | .scalar a, .scalar b =>
     match operator, scalarEqual a b with
     | .eq, some same => .value (boolean same)
@@ -207,7 +212,7 @@ def indexAt (context : Context Declaration Identity Source) (fromEnd : Bool)
     (base key : Value Declaration Identity Source) : Result Declaration Identity Source (Value Declaration Identity Source) :=
   match listValues base, key with
   | some items, .scalar (.integer position) =>
-    let index : Int := if fromEnd then (items.length : Int) - position.val.natAbs else position.val
+    let index : Int := if fromEnd ∧ position.val < 0 then (items.length : Int) + position.val else position.val
     if inRange : 0 ≤ index ∧ index < items.length then .value (items[index.toNat]'(by omega))
     else .failure (.runtime context.errors.indexOutOfRange)
   | _, _ =>
@@ -255,11 +260,13 @@ def branches (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source 
       | .scalar (.boolean false) => branches evaluate rest otherwise
       | _ => .stuck
 
-/-- One evaluation step over `recurse`, which evaluates subterms one fuel
-level down. Operands evaluate once, left to right. -/
+/-- One evaluation step over `recurse`, which evaluates a subterm one fuel
+level down in the given environment. Operands evaluate once, left to right; a
+function body evaluates in the environment the function was defined in. -/
 def step (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
-    (recurse : Locals Declaration Identity Source → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
+    (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
+      Result Declaration Identity Source (Value Declaration Identity Source))
     (locals : Locals Declaration Identity Source) :
     Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | .literal value => literal context.literals value
@@ -272,44 +279,41 @@ def step (context : Context Declaration Identity Source) {world : World Declarat
         | some found => .value found.contents.value
         | none => .stuck
       | .error _ => .stuck
-  | .list elements => (evaluateAll (recurse locals) elements).bind fun values => .value (.list values)
-  | .record fields => (evaluateFields context (recurse locals) fields).bind fun values => .value (.record values)
-  | .field base name => (recurse locals base).bind (fieldOf context name)
+  | .list elements => (evaluateAll (recurse environment locals) elements).bind fun values => .value (.list values)
+  | .record fields => (evaluateFields context (recurse environment locals) fields).bind fun values => .value (.record values)
+  | .field base name => (recurse environment locals base).bind (fieldOf context name)
   | .index base key false =>
-    (recurse locals base).bind fun container =>
-      match key with
-      | .unary .neg (.literal (.integer lexeme)) =>
-        (literal context.literals (.integer lexeme)).bind fun distance => indexAt context true container distance
-      | key => (recurse locals key).bind fun selector => indexAt context false container selector
-  | .unary operator operand => (recurse locals operand).bind (unary context operator)
+    (recurse environment locals base).bind fun container =>
+      (recurse environment locals key).bind fun selector => indexAt context (negativeLiteral key) container selector
+  | .unary operator operand => (recurse environment locals operand).bind (unary context operator)
   | .binary .and left right =>
-    (recurse locals left).bind fun first =>
+    (recurse environment locals left).bind fun first =>
       match first.eraseNominal with
       | .scalar (.boolean false) => .value (boolean false)
       | .scalar (.boolean true) =>
-        (recurse locals right).bind fun second =>
+        (recurse environment locals right).bind fun second =>
           match second.eraseNominal with
           | .scalar (.boolean value) => .value (boolean value)
           | _ => .stuck
       | _ => .stuck
   | .binary .or left right =>
-    (recurse locals left).bind fun first =>
+    (recurse environment locals left).bind fun first =>
       match first.eraseNominal with
       | .scalar (.boolean true) => .value (boolean true)
       | .scalar (.boolean false) =>
-        (recurse locals right).bind fun second =>
+        (recurse environment locals right).bind fun second =>
           match second.eraseNominal with
           | .scalar (.boolean value) => .value (boolean value)
           | _ => .stuck
       | _ => .stuck
   | .binary operator left right =>
-    (recurse locals left).bind fun first => (recurse locals right).bind fun second => binary context operator first second
-  | .ifExpr conditions otherwise => branches (recurse locals) conditions otherwise
+    (recurse environment locals left).bind fun first => (recurse environment locals right).bind fun second => binary context operator first second
+  | .ifExpr conditions otherwise => branches (recurse environment locals) conditions otherwise
   | .call (.ident name) arguments =>
     match locals.lookup name, context.functions name, positional arguments with
-    | none, some (parameters, body), some values =>
-      (evaluateAll (recurse locals) values).bind fun evaluated =>
-        if parameters.length = evaluated.length then recurse (parameters.zip evaluated) body else .stuck
+    | none, some (defining, parameters, body), some values =>
+      (evaluateAll (recurse environment locals) values).bind fun evaluated =>
+        if parameters.length = evaluated.length then recurse defining (parameters.zip evaluated) body else .stuck
     | _, _, _ => .unsupported
   | _ => .unsupported
 
@@ -317,24 +321,28 @@ def evaluate (context : Context Declaration Identity Source) {world : World Decl
     (environment : Environment) (store : Store world) :
     Nat → Locals Declaration Identity Source → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | 0, _, _ => .outOfFuel
-  | fuel + 1, locals, expression => step context environment store (evaluate context environment store fuel) locals expression
+  | fuel + 1, locals, expression =>
+    step context environment store (fun inner => evaluate context inner store fuel) locals expression
 
-def assignBinary : Xsh.Syntax.AssignOp → Xsh.Syntax.BinaryOp
-  | .set => .add
-  | .add => .add
-  | .sub => .sub
-  | .mul => .mul
-  | .div => .div
-  | .rem => .rem
+def compoundBinary : Xsh.Syntax.AssignOp → Option Xsh.Syntax.BinaryOp
+  | .set => none
+  | .add => some .add
+  | .sub => some .sub
+  | .mul => some .mul
+  | .div => some .div
+  | .rem => some .rem
 
 /-- The compound-assignment operator meaning the evaluator gives where it is
 defined; `fallback` stands for the forms it does not cover. -/
 def operate (context : Context Declaration Identity Source) (fallback : Operate Declaration Identity Source) :
     Operate Declaration Identity Source := fun op current right =>
-  match binary context (assignBinary op) current right with
-  | .value result => .ok result
-  | .failure (.runtime error) => .error error
-  | _ => fallback op current right
+  match compoundBinary op with
+  | none => fallback op current right
+  | some operator =>
+    match binary context operator current right with
+    | .value result => .ok result
+    | .failure (.runtime error) => .error error
+    | _ => fallback op current right
 
 /-- `Oracles.evaluate` answered by the evaluator where it gives a result;
 `fallback` stands for the forms it does not cover. -/

@@ -58,8 +58,11 @@ theorem duration_operator_results (context : Context Declaration Identity Source
     binary context .mul (duration left) (integer factor) =
       durationResult context.errors (DurationOps.multiply left factor) ∧
     binary context .div (duration left) (integer factor) =
-      durationResult context.errors (DurationOps.divideByInt left factor) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> simp [binary, duration, integer, Value.eraseNominal]
+      durationResult context.errors (DurationOps.divideByInt left factor) ∧
+    binary context .mul (integer factor) (duration right) =
+      durationResult context.errors (DurationOps.multiply right factor) ∧
+    binary context .div (integer factor) (duration right) = .unsupported := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> simp [binary, duration, integer, Value.eraseNominal]
 
 theorem not_scalar_of_listItems {candidate : Value Declaration Identity Source}
     {items : List (Value Declaration Identity Source)}
@@ -96,7 +99,7 @@ theorem operate_adds_lists (context : Context Declaration Identity Source) (fall
     (left right result : Value Declaration Identity Source)
     (extended : Xsh.Validation.Core.Preserve.concatenate left right = some result) :
     operate context fallback .add left right = .ok result := by
-  simp [operate, assignBinary, list_addition_is_concatenation context left right result extended]
+  simp [operate, compoundBinary, list_addition_is_concatenation context left right result extended]
 
 end Meanings
 
@@ -150,67 +153,67 @@ theorem branches_refines
 
 theorem step_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
-    {recurse recurse' : Locals Declaration Identity Source → Xsh.Syntax.Expr →
+    {recurse recurse' : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (inner : ∀ locals expression, Refines (recurse locals expression) (recurse' locals expression))
+    (inner : ∀ environment locals expression,
+      Refines (recurse environment locals expression) (recurse' environment locals expression))
     (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) :
     Refines (step context environment store recurse locals expression)
       (step context environment store recurse' locals expression) := by
   cases expression with
-  | list elements => exact bind_refines (evaluateAll_refines (inner locals) elements) fun _ => refines_refl _
-  | record fields => exact bind_refines (evaluateFields_refines context (inner locals) fields) fun _ => refines_refl _
-  | field base name => exact bind_refines (inner locals base) fun _ => refines_refl _
+  | list elements => exact bind_refines (evaluateAll_refines (inner environment locals) elements) fun _ => refines_refl _
+  | record fields => exact bind_refines (evaluateFields_refines context (inner environment locals) fields) fun _ => refines_refl _
+  | field base name => exact bind_refines (inner environment locals base) fun _ => refines_refl _
   | index base key guarded =>
     cases guarded with
     | true => exact refines_refl _
     | false =>
       simp only [step]
-      refine bind_refines (inner locals base) fun container => ?_
-      split
-      · exact bind_refines (refines_refl _) fun _ => refines_refl _
-      · exact bind_refines (inner locals _) fun _ => refines_refl _
-  | unary operator operand => exact bind_refines (inner locals operand) fun _ => refines_refl _
+      exact bind_refines (inner environment locals base) fun _ =>
+        bind_refines (inner environment locals key) fun _ => refines_refl _
+  | unary operator operand => exact bind_refines (inner environment locals operand) fun _ => refines_refl _
   | binary operator left right =>
     cases operator
     case and =>
       simp only [step]
-      refine bind_refines (inner locals left) fun value => ?_
+      refine bind_refines (inner environment locals left) fun value => ?_
       split
       · exact refines_refl _
-      · exact bind_refines (inner locals right) fun _ => refines_refl _
+      · exact bind_refines (inner environment locals right) fun _ => refines_refl _
       · exact refines_refl _
     case or =>
       simp only [step]
-      refine bind_refines (inner locals left) fun value => ?_
+      refine bind_refines (inner environment locals left) fun value => ?_
       split
       · exact refines_refl _
-      · exact bind_refines (inner locals right) fun _ => refines_refl _
+      · exact bind_refines (inner environment locals right) fun _ => refines_refl _
       · exact refines_refl _
-    all_goals exact bind_refines (inner locals left) fun _ => bind_refines (inner locals right) fun _ => refines_refl _
-  | ifExpr conditions otherwise => exact branches_refines (inner locals) conditions otherwise
+    all_goals exact bind_refines (inner environment locals left) fun _ => bind_refines (inner environment locals right) fun _ => refines_refl _
+  | ifExpr conditions otherwise => exact branches_refines (inner environment locals) conditions otherwise
   | call callee arguments =>
     cases callee
     case ident name =>
       simp only [step]
       split
-      · exact bind_refines (evaluateAll_refines (inner locals) _) fun _ => by
+      · exact bind_refines (evaluateAll_refines (inner environment locals) _) fun _ => by
           split
-          · exact inner _ _
+          · exact inner _ _ _
           · exact refines_refl _
       · exact refines_refl _
     all_goals exact refines_refl _
   | _ => exact refines_refl _
 
 theorem evaluate_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
-    (environment : Environment) (store : Store world) :
-    ∀ (fuel extra : Nat) locals expression,
+    (store : Store world) :
+    ∀ (fuel extra : Nat) environment locals expression,
       Refines (evaluate context environment store fuel locals expression)
         (evaluate context environment store (fuel + extra) locals expression)
-  | 0, _, _, _ => Or.inl rfl
-  | fuel + 1, extra, locals, expression => by
+  | 0, _, _, _, _ => Or.inl rfl
+  | fuel + 1, extra, environment, locals, expression => by
     rw [show fuel + 1 + extra = (fuel + extra) + 1 by omega]
     exact step_refines context environment store
-      (fun locals expression => evaluate_refines context environment store fuel extra locals expression) locals expression
+      (fun environment locals expression => evaluate_refines context store fuel extra environment locals expression)
+      locals expression
 
 /-- Evaluation is a function of the expression, the environment and the store:
 a result other than running out of fuel is the same at every larger fuel, so
@@ -224,11 +227,11 @@ theorem evaluate_deterministic (context : Context Declaration Identity Source) {
       evaluate context environment store second locals expression := by
   rcases Nat.le_total first second with smaller | larger
   · obtain ⟨extra, rfl⟩ := Nat.exists_eq_add_of_le smaller
-    rcases evaluate_refines context environment store first extra locals expression with out | same
+    rcases evaluate_refines context store first extra environment locals expression with out | same
     · exact absurd out firstFinished
     · exact same
   · obtain ⟨extra, rfl⟩ := Nat.exists_eq_add_of_le larger
-    rcases evaluate_refines context environment store second extra locals expression with out | same
+    rcases evaluate_refines context store second extra environment locals expression with out | same
     · exact absurd out secondFinished
     · exact same.symm
 
@@ -353,9 +356,9 @@ theorem branches_runtimeOnly
 
 theorem step_runtimeOnly (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
-    {recurse : Locals Declaration Identity Source → Xsh.Syntax.Expr →
+    {recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (inner : ∀ locals expression, RuntimeOnly (recurse locals expression))
+    (inner : ∀ environment locals expression, RuntimeOnly (recurse environment locals expression))
     (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) :
     RuntimeOnly (step context environment store recurse locals expression) := by
   cases expression with
@@ -370,54 +373,52 @@ theorem step_runtimeOnly (context : Context Declaration Identity Source) {world 
         · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
   | list elements =>
-    exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner locals) elements) fun _ => runtimeOnly_of_no_failure (by simp)
+    exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) elements) fun _ => runtimeOnly_of_no_failure (by simp)
   | record fields =>
-    exact bind_runtimeOnly (evaluateFields_runtimeOnly context (inner locals) fields) fun _ =>
+    exact bind_runtimeOnly (evaluateFields_runtimeOnly context (inner environment locals) fields) fun _ =>
       runtimeOnly_of_no_failure (by simp)
-  | field base name => exact bind_runtimeOnly (inner locals base) (fieldOf_runtimeOnly context name)
+  | field base name => exact bind_runtimeOnly (inner environment locals base) (fieldOf_runtimeOnly context name)
   | index base key guarded =>
     cases guarded with
     | true => exact runtimeOnly_of_no_failure (by simp [step])
     | false =>
       simp only [step]
-      refine bind_runtimeOnly (inner locals base) fun container => ?_
-      split
-      · exact bind_runtimeOnly (literal_runtimeOnly _ _) fun _ => indexAt_runtimeOnly _ _ _ _
-      · exact bind_runtimeOnly (inner locals _) fun _ => indexAt_runtimeOnly _ _ _ _
-  | unary operator operand => exact bind_runtimeOnly (inner locals operand) (unary_runtimeOnly context operator)
+      exact bind_runtimeOnly (inner environment locals base) fun _ =>
+        bind_runtimeOnly (inner environment locals key) fun _ => indexAt_runtimeOnly _ _ _ _
+  | unary operator operand => exact bind_runtimeOnly (inner environment locals operand) (unary_runtimeOnly context operator)
   | binary operator left right =>
     cases operator
     case and =>
       simp only [step]
-      refine bind_runtimeOnly (inner locals left) fun value => ?_
+      refine bind_runtimeOnly (inner environment locals left) fun value => ?_
       split
       · exact runtimeOnly_of_no_failure (by simp)
-      · refine bind_runtimeOnly (inner locals right) fun _ => ?_
+      · refine bind_runtimeOnly (inner environment locals right) fun _ => ?_
         split
         · exact runtimeOnly_of_no_failure (by simp)
         · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
     case or =>
       simp only [step]
-      refine bind_runtimeOnly (inner locals left) fun value => ?_
+      refine bind_runtimeOnly (inner environment locals left) fun value => ?_
       split
       · exact runtimeOnly_of_no_failure (by simp)
-      · refine bind_runtimeOnly (inner locals right) fun _ => ?_
+      · refine bind_runtimeOnly (inner environment locals right) fun _ => ?_
         split
         · exact runtimeOnly_of_no_failure (by simp)
         · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
-    all_goals exact bind_runtimeOnly (inner locals left) fun _ =>
-      bind_runtimeOnly (inner locals right) fun _ => binary_runtimeOnly _ _ _ _
-  | ifExpr conditions otherwise => exact branches_runtimeOnly (inner locals) conditions otherwise
+    all_goals exact bind_runtimeOnly (inner environment locals left) fun _ =>
+      bind_runtimeOnly (inner environment locals right) fun _ => binary_runtimeOnly _ _ _ _
+  | ifExpr conditions otherwise => exact branches_runtimeOnly (inner environment locals) conditions otherwise
   | call callee arguments =>
     cases callee
     case ident name =>
       simp only [step]
       split
-      · exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner locals) _) fun _ => by
+      · exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) _) fun _ => by
           split
-          · exact inner _ _
+          · exact inner _ _ _
           · exact runtimeOnly_of_no_failure (by simp)
       · exact runtimeOnly_of_no_failure (by simp)
     all_goals exact runtimeOnly_of_no_failure (by simp [step])
@@ -427,11 +428,11 @@ theorem step_runtimeOnly (context : Context Declaration Identity Source) {world 
 index-out-of-range, division-by-zero, integer overflow and a missing key or
 field outside what `try` captures. -/
 theorem evaluate_runtimeOnly (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
-    (environment : Environment) (store : Store world) :
-    ∀ fuel locals expression, RuntimeOnly (evaluate context environment store fuel locals expression)
-  | 0, _, _ => runtimeOnly_of_no_failure (by simp [evaluate])
-  | fuel + 1, locals, expression =>
-    step_runtimeOnly context environment store (evaluate_runtimeOnly context environment store fuel) locals expression
+    (store : Store world) :
+    ∀ fuel environment locals expression, RuntimeOnly (evaluate context environment store fuel locals expression)
+  | 0, _, _, _ => runtimeOnly_of_no_failure (by simp [evaluate])
+  | fuel + 1, environment, locals, expression =>
+    step_runtimeOnly context environment store (evaluate_runtimeOnly context store fuel) locals expression
 
 end Failures
 
@@ -485,7 +486,8 @@ context, Core world, environment and store: a finished evaluation is the same
 at every fuel; every failure is a runtime failure; a binary operator other than
 `and`/`or` evaluates left, then right, then applies its meaning; and those
 meanings are BASE-NUM's integer, float, comparison, IEEE-equality and negation
-meanings, the `DurationOps` results, and list `concatenate`. -/
+meanings, the `DurationOps` results in both `Duration * Int` orders with
+`Int / Duration` left unsupported, and list `concatenate`. -/
 theorem covered_expression_evaluation (context : Context Declaration Identity Source)
     {world : World Declaration Identity Source} (environment : Environment) (store : Store world) :
     (∀ locals expression first second,
@@ -527,12 +529,15 @@ theorem covered_expression_evaluation (context : Context Declaration Identity So
       binary context .mul (duration left) (integer factor) =
         durationResult context.errors (Xsh.Values.DurationOps.multiply left factor) ∧
       binary context .div (duration left) (integer factor) =
-        durationResult context.errors (Xsh.Values.DurationOps.divideByInt left factor)) ∧
+        durationResult context.errors (Xsh.Values.DurationOps.divideByInt left factor) ∧
+      binary context .mul (integer factor) (duration right) =
+        durationResult context.errors (Xsh.Values.DurationOps.multiply right factor) ∧
+      binary context .div (integer factor) (duration right) = .unsupported) ∧
     (∀ left right result, Xsh.Validation.Core.Preserve.concatenate left right = some result →
       binary context .add left right = .value result) :=
   ⟨fun locals expression first second =>
       evaluate_deterministic context environment store locals expression first second,
-    evaluate_runtimeOnly context environment store,
+    fun fuel => evaluate_runtimeOnly context store fuel environment,
     binary_evaluation context environment store,
     integer_operator_meaning context,
     float_operator_meaning context,

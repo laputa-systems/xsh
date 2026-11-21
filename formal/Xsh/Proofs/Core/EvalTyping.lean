@@ -157,14 +157,14 @@ section Steps
 
 variable (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
   (environment : Environment) (store : Store world)
-  (recurse : Locals Declaration Identity Source → Xsh.Syntax.Expr →
+  (recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
     Result Declaration Identity Source (Value Declaration Identity Source))
   (locals : Locals Declaration Identity Source)
 
 theorem step_binary (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr)
     (value : Value Declaration Identity Source) (notAnd : operator ≠ .and) (notOr : operator ≠ .or)
     (produced : step context environment store recurse locals (.binary operator left right) = .value value) :
-    ∃ first second, recurse locals left = .value first ∧ recurse locals right = .value second ∧
+    ∃ first second, recurse environment locals left = .value first ∧ recurse environment locals right = .value second ∧
       binary context operator first second = .value value := by
   cases operator
   case and => exact absurd rfl notAnd
@@ -211,14 +211,16 @@ def Consistent (world : World Declaration Identity Source) (environment : Enviro
         Membership.value world.membership type found.contents.value) ∧
   ∀ name value, locals.lookup name = some value → types name ≠ none
 
-/-- Every let-free function's result is typed at its signature in the global
-context overlaid with its parameters. -/
-def FunctionsTyped (context : Context Declaration Identity Source) (signatures : Signatures Declaration)
-    (global : TypeContext Declaration) : Prop :=
-  ∀ name parameters body types result, context.functions name = some (parameters, body) →
+/-- Every let-free function's result is typed at its signature in its own
+defining context, a typing context its defining environment and the store
+satisfy, overlaid with its parameters. -/
+def FunctionsTyped (context : Context Declaration Identity Source) (world : World Declaration Identity Source)
+    (store : Store world) (signatures : Signatures Declaration) : Prop :=
+  ∀ name defining parameters body types result, context.functions name = some (defining, parameters, body) →
     signatures name = some (types, result) →
       parameters.length = types.length ∧ parameters.Nodup ∧
-        Typed context.spelling signatures (overlay parameters types global) body result
+        ∃ definingTypes, Consistent world defining store definingTypes [] ∧
+          Typed context.spelling signatures (overlay parameters types definingTypes) body result
 
 section Lists
 
@@ -579,6 +581,16 @@ theorem binary_scale (operator : Xsh.Syntax.BinaryOp) {first second : Value Decl
   · exact millis_member world.membership context.errors produced (multiply_no_count a b)
   · exact millis_member world.membership context.errors produced (divide_no_count a b)
 
+theorem binary_scale_left {first second : Value Declaration Identity Source}
+    {value : Value Declaration Identity Source}
+    (firstMember : Membership.value world.membership intType first)
+    (secondMember : Membership.value world.membership durType second)
+    (produced : binary context .mul first second = .value value) : Membership.value world.membership durType value := by
+  obtain ⟨a, firstShape⟩ := int_shape world.membership firstMember
+  obtain ⟨b, secondShape⟩ := dur_shape world.membership secondMember
+  simp only [binary, firstShape, secondShape] at produced
+  exact millis_member world.membership context.errors produced (multiply_no_count b a)
+
 theorem binary_strings (operator : Xsh.Syntax.BinaryOp) {first second : Value Declaration Identity Source}
     {value : Value Declaration Identity Source}
     (firstMember : Membership.value world.membership strType first)
@@ -641,24 +653,24 @@ end Preservation
 section Theorem
 
 /-- Type preservation for the covered expressions: in a typing context whose
-names hold members, with every let-free function typed at its signature, an
-evaluation that produces a value produces a member of the expression's
-type. -/
+names hold members, with every let-free function typed at its signature in its
+own defining context, an evaluation that produces a value produces a member of
+the expression's type. -/
 theorem preservation (context : Context Declaration Identity Source) (world : World Declaration Identity Source)
-    (environment : Environment) (store : Store world) (signatures : Signatures Declaration)
-    (global : TypeContext Declaration) (globalConsistent : Consistent world environment store global [])
-    (functions : FunctionsTyped context signatures global) :
-    ∀ fuel (types : TypeContext Declaration) (locals : Locals Declaration Identity Source) expression type value,
+    (store : Store world) (signatures : Signatures Declaration)
+    (functions : FunctionsTyped context world store signatures) :
+    ∀ fuel (environment : Environment) (types : TypeContext Declaration) (locals : Locals Declaration Identity Source)
+      expression type value,
       Typed context.spelling signatures types expression type → Consistent world environment store types locals →
       evaluate context environment store fuel locals expression = .value value →
         Membership.value world.membership type value
-  | 0, _, _, _, _, _, _, _, produced => by simp [evaluate] at produced
-  | fuel + 1, types, locals, expression, type, value, typed, consistent, produced => by
+  | 0, _, _, _, _, _, _, _, _, produced => by simp [evaluate] at produced
+  | fuel + 1, environment, types, locals, expression, type, value, typed, consistent, produced => by
     have recurse : ∀ expression type value, Typed context.spelling signatures types expression type →
         evaluate context environment store fuel locals expression = .value value →
           Membership.value world.membership type value :=
       fun expression type value typed produced =>
-        preservation context world environment store signatures global globalConsistent functions fuel types locals
+        preservation context world store signatures functions fuel environment types locals
           expression type value typed consistent produced
     simp only [evaluate] at produced
     cases typed with
@@ -739,20 +751,14 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       obtain ⟨container, containerValue, selected⟩ := bind_value produced
       obtain ⟨items, listed, members⟩ :=
         list_member_items world (recurse base _ container baseTyped containerValue)
-      split at selected
-      · obtain ⟨distance, _, chosen⟩ := bind_value selected
-        exact members _ (indexAt_items context listed chosen)
-      · obtain ⟨selector, _, chosen⟩ := bind_value selected
-        exact members _ (indexAt_items context listed chosen)
+      obtain ⟨selector, _, chosen⟩ := bind_value selected
+      exact members _ (indexAt_items context listed chosen)
     | @mapIndex base key keyType _ baseTyped keyTyped =>
       simp only [step] at produced
       obtain ⟨container, containerValue, selected⟩ := bind_value produced
       have containerMember := recurse base _ container baseTyped containerValue
-      split at selected
-      · obtain ⟨distance, _, chosen⟩ := bind_value selected
-        exact indexAt_entries context world containerMember chosen
-      · obtain ⟨selector, _, chosen⟩ := bind_value selected
-        exact indexAt_entries context world containerMember chosen
+      obtain ⟨selector, _, chosen⟩ := bind_value selected
+      exact indexAt_entries context world containerMember chosen
     | not operandTyped =>
       rename_i operand
       simp only [step] at produced
@@ -854,6 +860,12 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
         step_binary context environment store _ locals operator left right value notAnd notOr produced
       exact binary_scale context world operator (recurse left _ first leftTyped firstValue)
         (recurse right _ second rightTyped secondValue) isScale combined
+    | durationScaleLeft leftTyped rightTyped =>
+      rename_i left right
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals .mul left right value (by simp) (by simp) produced
+      exact binary_scale_left context world (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined
     | stringConcat leftTyped rightTyped =>
       rename_i left right
       obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
@@ -893,20 +905,21 @@ theorem preservation (context : Context Declaration Identity Source) (world : Wo
       cases found : context.functions name with
       | none => simp [found] at produced
       | some entry =>
-        obtain ⟨parameterNames, body⟩ := entry
+        obtain ⟨defining, parameterNames, body⟩ := entry
         simp only [found] at produced
         obtain ⟨evaluated, evaluatedValue, called⟩ := bind_value produced
         by_cases sameLength : parameterNames.length = evaluated.length
         · simp only [sameLength, ite_true] at called
-          obtain ⟨namesLength, _, bodyTyped⟩ := functions name parameterNames body parameters type found signed
+          obtain ⟨namesLength, _, definingTypes, definingConsistent, bodyTyped⟩ :=
+            functions name defining parameterNames body parameters type found signed
           obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
           have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
             zip_combine (fun source result parameterType evaluatedTo typedAt =>
                 recurse source parameterType result typedAt evaluatedTo)
               values evaluated parameters valuesLength lengths aligned argumentsTyped
-          have bodyConsistent := overlay_consistent world environment store global globalConsistent parameterNames
+          have bodyConsistent := overlay_consistent world defining store definingTypes definingConsistent parameterNames
             parameters evaluated namesLength sameLength members
-          exact preservation context world environment store signatures global globalConsistent functions fuel _ _ body
+          exact preservation context world store signatures functions fuel defining _ _ body
             type value bodyTyped bodyConsistent called
         · simp [sameLength] at called
 

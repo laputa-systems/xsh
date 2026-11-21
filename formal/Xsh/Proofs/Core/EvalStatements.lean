@@ -60,7 +60,7 @@ theorem declare_failed (state : State world) (kind : Xsh.Syntax.BindingKind) (ta
 
 theorem declare_typed_never_malformed (signatures : Signatures Declaration) (global : TypeContext Declaration)
     (state : State world) (consistent : Consistent world state.environment state.store global [])
-    (functions : FunctionsTyped context signatures global) (kind : Xsh.Syntax.BindingKind)
+    (functions : FunctionsTyped context world state.store signatures) (kind : Xsh.Syntax.BindingKind)
     (target : Xsh.Syntax.BindingTarget) (initializer : Xsh.Syntax.Expr) (type : ValueType Declaration)
     (value : Value Declaration Identity Source) (resolved : Target Declaration) (declared : List Declared)
     (typed : Typed context.spelling signatures global initializer type)
@@ -72,7 +72,7 @@ theorem declare_typed_never_malformed (signatures : Signatures Declaration) (glo
       initializer ≠ .internal .malformedTarget after :=
   Xsh.Proofs.Core.Statements.declareStatement_never_malformed world decisions _ state kind target initializer value
     state.store resolved declared type (instance_value world context fuel fallback _ _ _ _ produced) found
-    (preservation context world state.environment state.store signatures global consistent functions fuel global []
+    (preservation context world state.store signatures functions fuel state.environment global []
       initializer type value typed consistent produced)
     targetTyped
 
@@ -81,7 +81,7 @@ theorem evaluated_failure_propagates (environment : Environment) (store : Store 
     (failure : Failure Declaration Identity Source) (after : Store world)
     (failed : evaluate context environment store fuel [] expression = .failure failure) :
     recover (StoreStep.failed failure after) = .propagated failure after := by
-  obtain ⟨error, rfl⟩ := Xsh.Proofs.Core.Eval.evaluate_runtimeOnly context environment store fuel [] expression failure failed
+  obtain ⟨error, rfl⟩ := Xsh.Proofs.Core.Eval.evaluate_runtimeOnly context store fuel environment [] expression failure failed
   rfl
 
 end Instance
@@ -119,8 +119,8 @@ theorem evaluated_store_writes (world : World Declaration Identity Source) (deci
       evaluate context state.environment state.store fuel [] initializer = .failure failure →
         declareStatement world decisions (oracles context fuel fallback) state kind target initializer =
           .failed failure state) ∧
-    (∀ signatures global state, Consistent world state.environment state.store global [] →
-      FunctionsTyped context signatures global →
+    (∀ signatures global (state : State world), Consistent world state.environment state.store global [] →
+      FunctionsTyped context world state.store signatures →
       ∀ kind target initializer type value resolved declared,
         Typed context.spelling signatures global initializer type →
         evaluate context state.environment state.store fuel [] initializer = .value value →

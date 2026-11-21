@@ -83,6 +83,8 @@ mutual
     | durationScale {context operator left right} : operator = .mul ∨ operator = .div →
         Typed spelling signatures context left durType → Typed spelling signatures context right intType →
         Typed spelling signatures context (.binary operator left right) durType
+    | durationScaleLeft {context left right} : Typed spelling signatures context left intType →
+        Typed spelling signatures context right durType → Typed spelling signatures context (.binary .mul left right) durType
     | stringConcat {context left right} : Typed spelling signatures context left strType →
         Typed spelling signatures context right strType → Typed spelling signatures context (.binary .add left right) strType
     | stringComparison {context operator left right} : operator ∈ comparisons →
