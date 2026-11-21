@@ -822,6 +822,45 @@ theorem functions_fit_tokens {tokens : List Token} {functions : List SourceFunct
     simp only [List.length_cons]
     omega
 
+theorem functions_in_order_complete {earlier functions : List SourceFunction}
+    (derivation : FunctionsInOrder earlier functions) : functionsAdmitted.go earlier functions = true := by
+  induction derivation with
+  | empty => rfl
+  | @cons earlier function rest allowed tail ih =>
+    simp only [functionsAdmitted.go, Bool.and_eq_true]
+    refine ⟨?_, ih⟩
+    cases found : function.propagation with
+    | none => simp [found]
+    | some propagation =>
+      obtain ⟨callee, foundCallee, callable, arity⟩ := allowed propagation found
+      simp [found, foundCallee, callable, arity]
+
+theorem record_calls_in_order_complete {earlier functions : List SourceFunction}
+    (derivation : RecordCallsInOrder earlier functions) : functionsAvoidRecordCalls.go earlier functions = true := by
+  induction derivation with
+  | empty => rfl
+  | @cons earlier function rest allowed tail ih =>
+    simp only [functionsAvoidRecordCalls.go, Bool.and_eq_true]
+    refine ⟨?_, ih⟩
+    cases result : function.result <;> simp only [result]
+    case call callee arguments =>
+      cases found : earlier.find? (fun previous => previous.name == callee) with
+      | none => simp [found]
+      | some previous => simp [found, allowed callee arguments previous result found]
+
+theorem record_calls_anywhere_complete {functions : List SourceFunction}
+    (derivation : RecordCallsAnywhere functions) : functionsAvoidRecordCallsAnywhere functions = true := by
+  unfold functionsAvoidRecordCallsAnywhere
+  apply List.all_eq_true.mpr
+  intro caller member
+  cases result : caller.result <;> simp only [result]
+  case call callee arguments =>
+    apply List.all_eq_true.mpr
+    intro found foundMember
+    by_cases same : found.name = callee
+    · simp [same, derivation caller member callee arguments result found foundMember same]
+    · simp [same]
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
