@@ -4,15 +4,17 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
-[[bin]]
-name = "checked_int_binary"
+[lib]
+name = "xsh_arith_fuzz"
 path = "fuzz_targets/checked_int_binary.rs"
+crate-type = ["staticlib"]
 test = false
 doc = false
 bench = false
 
 [profile.release]
 panic = "abort"
-debug = true
+opt-level = "s"
+debug = 1
 
 [workspace]

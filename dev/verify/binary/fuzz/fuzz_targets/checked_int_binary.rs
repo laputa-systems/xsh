@@ -1,4 +1,3 @@
-#![no_main]
 #![allow(dead_code)]
 
 mod syntax {
@@ -51,7 +50,7 @@ fn oracle(op: BinaryOp, left: i64, right: i64) -> Option<Result<i64, IntArithmet
 #[unsafe(no_mangle)]
 pub extern "C" fn LLVMFuzzerTestOneInput(data: *const u8, size: usize) -> i32 {
     if data.is_null() || size < 17 {
-        return 0;
+        return -1;
     }
     // SAFETY: the driver passes `size` readable bytes at `data`, and `data` is non-null.
     let bytes = unsafe { std::slice::from_raw_parts(data, size) };

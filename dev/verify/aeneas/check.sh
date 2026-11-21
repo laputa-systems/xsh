@@ -5,10 +5,11 @@ usage() {
   cat >&2 <<'EOF'
 usage: dev/verify/aeneas/check.sh
 
-Fetches the pinned Lean dependencies, applies the remainder-model patch to the
-pinned Aeneas library, builds XshImpl, audits the transitive axioms of every
+Fetches the pinned Lean dependencies, requires the Aeneas package to be the
+pinned revision whose only change is the remainder-model patch (applying it
+when absent), builds XshImpl, audits the transitive axioms of every
 accepted theorem and control, and reruns the kernel on the whole import closure
-with leanchecker --fresh. Run it with the pinned Lean 4.35.0 on PATH.
+with leanchecker --fresh. Requires Lean 4.35.0 (elan toolchain v4.35.0) on PATH.
 EOF
 }
 [[ $# -eq 0 ]] || { usage; exit 2; }
@@ -31,8 +32,20 @@ export PATH=$toolbin:$PATH
 [[ $(lean --version) == "Lean (version 4.35.0,"* ]]
 cd "$project"
 lake exe cache get
-if ! git -C "$packages/aeneas" apply --reverse --check "$patch" 2>/dev/null; then
-  git -C "$packages/aeneas" apply "$patch"
+aeneas=$packages/aeneas
+pinned=$(python3 -I -c 'import json, sys
+print(next(p["rev"] for p in json.load(open(sys.argv[1]))["packages"] if p["name"] == "aeneas"))' lake-manifest.json)
+if [[ $(git -C "$aeneas" rev-parse HEAD) != "$pinned" ]]; then
+  printf 'the Aeneas package is not at the pinned revision %s\n' "$pinned" >&2
+  exit 1
+fi
+if ! git -C "$aeneas" apply --reverse --check "$patch" 2>/dev/null; then
+  git -C "$aeneas" apply "$patch"
+fi
+if [[ -n $(git -C "$aeneas" status --porcelain --untracked-files=all | rg -v '^ M ') ]] \
+  || ! diff -u "$patch" <(git -C "$aeneas" diff) >&2; then
+  printf 'the Aeneas package differs from its pinned revision by more than %s\n' "$patch" >&2
+  exit 1
 fi
 
 lake build XshImpl
