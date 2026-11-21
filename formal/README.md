@@ -81,8 +81,13 @@ zero reserved bytes, defined flags and a callable kind; parameter flags below 8 
 capture slots and binding identities inside the owning function; a present
 location on every driver step; resource-transfer marks only on the eight
 transferring instructions; every instruction read by its owner, every block read
-only by its owner and every owned block read; and every driver program except the
-root imported once, never the root. The model is also stricter than Rust on
+only by its owner and every owned block read; every driver program except the
+root imported once, never the root; driver slot rows with zero reserved bytes,
+defined flags, a slot below the step's slot count, the temporary and definition
+constraints and distinct slots and names within a step; writer identities in range;
+regions that partition each program's steps in order; sync rows that are exactly
+each region's shared slot names in increasing order, with their type and read and
+write flags; and every step, region, slot, writer and sync row owned exactly once. The model is also stricter than Rust on
 properties of how the builder emits IR, which real exported programs satisfy and
 Rust does not check:
 
@@ -98,16 +103,20 @@ Rust does not check:
 Rust accepts documents that break these, so each is a retained difference, not a
 Rust rule. The model does not check the semantic tables (types, signatures,
 schemes, prepared values, validations, slot type facts, checked call targets and
-binding-identity contents), source spans, or which runtime operations a program
-may use.
+binding-identity contents), the semantic content of driver writers (payload names,
+binding-identity owners and locations, and the slot a writer names), the effect
+words of driver steps, regions and programs, source spans, or which runtime
+operations a program may use.
 
 [`IR/Raw/Certificate.lean`](Xsh/IR/Raw/Certificate.lean) certifies the exported
 points fixture and rejects 27 changes to it; the changes are listed in the
 `artifact.raw-ir-structure` record. [`IR/Raw/FeaturesCertificate.lean`](Xsh/IR/Raw/FeaturesCertificate.lean)
 certifies the export of `tests/fixtures/raw-ir-features.xsh`, which imports a
 module and has patterns with a text pattern, a pipeline stage, prepared values and a
-`Use` step, and rejects a pattern cycle, a driver-program cycle and a text hole kind
-outside its domain. An imported module is named by its canonical path, so the
+`Use` step, and rejects 13 changes to it, listed with the rules each breaks in the
+`artifact.raw-ir-features` record. Among them, exchanging two pattern rows with
+the words that name them breaks only the descending-pattern rule, while the
+pattern-cycle and driver-program-cycle witnesses each break several rules. An imported module is named by its canonical path, so the
 exporter replaces the checkout directory with `/xsh` in that document. These
 theorems set `maxRecDepth` to 10000 locally because the kernel evaluates the whole
 document. The model is structural only: nothing here shows that Rust's

@@ -95,6 +95,10 @@ inductive Claim where
   | stage (index : Nat)
   | program (index : Nat)
   | step (index : Nat)
+  | region (index : Nat)
+  | slot (index : Nat)
+  | writer (index : Nat)
+  | sync (index : Nat)
   deriving DecidableEq, Repr
 
 end Xsh.IR.Raw

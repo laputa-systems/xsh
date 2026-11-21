@@ -303,15 +303,96 @@ def StepRule (doc : Document) (row : Row) : Prop :=
   RangeIn row 2 doc.driverSlots.length ∧ RangeIn row 4 doc.driverWriters.length ∧
     IdIn doc.locations.length (cell row 8) ∧ cell row 11 = 0 ∧ cell row 12 = 0 ∧ cell row 13 = 0
 
-/-- Block, function, metadata, parameter, capture, driver step, program and region rows. -/
+/-- Every two different rows of the range satisfy `rule`. -/
+def EachPair (table : List Row) (start count : Nat) (rule : Row → Row → Prop) : Prop :=
+  ∀ first second, first < count → second < count → first ≠ second → ∀ left right,
+    table[start + first]? = some left → table[start + second]? = some right → rule left right
+
+/-- Every row of the range and the row after it satisfy `rule`. -/
+def EachAdjacent (table : List Row) (start count : Nat) (rule : Row → Row → Prop) : Prop :=
+  ∀ offset, offset + 1 < count → ∀ left right,
+    table[start + offset]? = some left → table[start + offset + 1]? = some right → rule left right
+
+/-- One of the five driver slot flags: read 1, write 2, mutable 4, temporary 8, definition 16. -/
+def flag (row : Row) (bit : Nat) : Nat := cell row 4 / bit % 2
+
+/-- A driver slot row of a step: zero reserved bytes, defined flags, a slot below the step's
+slot count, a binding identity in range, a temporary that is read and unnamed, a definition only
+in a record let, and a named slot otherwise. -/
+def SlotRule (doc : Document) (step : Row) (tag : String) (row : Row) : Prop :=
+  cell row 5 = 0 ∧ cell row 6 = 0 ∧ cell row 7 = 0 ∧ cell row 4 < 32 ∧ cell row 2 < cell step 7 ∧
+    (cell row 3 = absent ∨ cell row 3 < doc.bindingIdentities.length) ∧
+    (flag row 8 = 1 → cell row 0 = absent ∧ flag row 2 = 0 ∧ flag row 4 = 0 ∧ flag row 16 = 0 ∧ flag row 1 = 1) ∧
+    (flag row 16 = 1 → tag = "LetRecord" ∧ flag row 1 = 0 ∧ flag row 2 = 0) ∧
+    (flag row 8 = 0 → IdIn doc.strings.length (cell row 0) ∧ (flag row 16 = 0 → flag row 1 = 1))
+
+/-- Two slot rows of one step name different slots, and different names unless one is a temporary. -/
+def SlotsApart (left right : Row) : Prop :=
+  cell left 2 ≠ cell right 2 ∧ (flag left 8 = 0 → flag right 8 = 0 → cell left 0 ≠ cell right 0)
+
+/-- One past the last step of region `region`. -/
+def regionEnd (doc : Document) (region : Nat) : Nat :=
+  ((doc.driverRegions[region]?).map fun row => cell row 0 + cell row 1).getD 0
+
+/-- A program's regions follow one another from its first step to its last. -/
+def RegionsInOrder (doc : Document) (program : Row) : Prop :=
+  (∀ offset, offset < cell program 3 →
+      ((doc.driverRegions[cell program 2 + offset]?).map (cell · 0)) =
+        some (if offset = 0 then cell program 0 else regionEnd doc (cell program 2 + offset - 1))) ∧
+    (cell program 3 = 0 → cell program 1 = 0) ∧
+    (0 < cell program 3 → regionEnd doc (cell program 2 + cell program 3 - 1) = cell program 0 + cell program 1)
+
+/-- A program's regions are nonempty, inside the program, and partition its steps in order. -/
+def RegionsTile (doc : Document) (program : Row) : Prop :=
+  EachRow doc.driverRegions (cell program 2) (cell program 3) (fun region =>
+      0 < cell region 1 ∧ cell region 0 + cell region 1 ≤ cell program 0 + cell program 1) ∧
+    RegionsInOrder doc program
+
+/-- The slot rows of the region's steps. -/
+def slotsOfRegion (doc : Document) (region : Row) : List Row :=
+  (List.range (cell region 1)).flatMap fun offset =>
+    ((doc.driverSteps[cell region 0 + offset]?).map fun step =>
+      (List.range (cell step 3)).filterMap fun slot => doc.driverSlots[cell step 2 + slot]?).getD []
+
+/-- A slot that a region synchronizes: neither temporary nor a definition. -/
+def Shared (slot : Row) : Prop := flag slot 8 = 0 ∧ flag slot 16 = 0
+
+/-- A sync row names a shared slot of the region, has that name's one type, and reads and writes
+exactly when some shared slot of that name does; its reserved bytes are zero. -/
+def SyncRule (doc : Document) (region sync : Row) : Prop :=
+  cell sync 3 = 0 ∧ cell sync 4 = 0 ∧ cell sync 5 = 0 ∧ cell sync 2 < 4 ∧
+    (∃ slot ∈ slotsOfRegion doc region, Shared slot ∧ cell slot 0 = cell sync 0) ∧
+    (∀ slot ∈ slotsOfRegion doc region, Shared slot → cell slot 0 = cell sync 0 → cell slot 1 = cell sync 1) ∧
+    (cell sync 2 % 2 = 1 ↔ ∃ slot ∈ slotsOfRegion doc region, Shared slot ∧ cell slot 0 = cell sync 0 ∧ flag slot 1 = 1) ∧
+    (cell sync 2 / 2 % 2 = 1 ↔ ∃ slot ∈ slotsOfRegion doc region, Shared slot ∧ cell slot 0 = cell sync 0 ∧ flag slot 2 = 1)
+
+/-- Every shared slot name of the region has a sync row. -/
+def SyncCovers (doc : Document) (region : Row) : Prop :=
+  ∀ slot ∈ slotsOfRegion doc region, Shared slot → ∃ offset, offset < cell region 3 ∧
+    ((doc.driverSync[cell region 2 + offset]?).map (cell · 0)) = some (cell slot 0)
+
+/-- A region's sync rows are exactly its shared slot names in increasing order, one row each. -/
+def SyncExact (doc : Document) (region : Row) : Prop :=
+  EachRow doc.driverSync (cell region 2) (cell region 3) (SyncRule doc region) ∧
+    EachAdjacent doc.driverSync (cell region 2) (cell region 3) (fun left right => cell left 0 < cell right 0) ∧
+    SyncCovers doc region
+
+/-- Block, function, metadata, parameter, capture, driver step, slot, writer, program and region rows. -/
 def Rows (schema : Schema) (doc : Document) : Prop :=
   (∀ row ∈ doc.blocks, BlockRule doc row) ∧ (∀ row ∈ doc.functions, FunctionRule doc row) ∧
     (∀ row ∈ doc.functionMetadata, MetadataRule schema doc row) ∧
     (∀ row ∈ doc.functions, EachRow doc.params (cell row 3) (cell row 4) (ParamRule doc) ∧
       EachRow doc.captures (cell row 5) (cell row 6) (CaptureRule doc (cell row 8))) ∧
     (∀ row ∈ doc.driverSteps, StepRule doc row) ∧
-    (∀ row ∈ doc.driverPrograms, RangeIn row 0 doc.driverSteps.length ∧ RangeIn row 2 doc.driverRegions.length) ∧
-    (∀ row ∈ doc.driverRegions, RangeIn row 0 doc.driverSteps.length ∧ RangeIn row 2 doc.driverSync.length)
+    (∀ (index : Nat) (row : Row) (tag : TagWord), doc.driverSteps[index]? = some row →
+      doc.driverStepTags[index]? = some tag →
+      EachRow doc.driverSlots (cell row 2) (cell row 3) (SlotRule doc row tag.1) ∧
+        EachPair doc.driverSlots (cell row 2) (cell row 3) SlotsApart) ∧
+    (∀ row ∈ doc.driverWriters, cell row 0 < doc.bindingIdentities.length) ∧
+    (∀ row ∈ doc.driverPrograms, RangeIn row 0 doc.driverSteps.length ∧ RangeIn row 2 doc.driverRegions.length ∧
+      RegionsTile doc row) ∧
+    (∀ row ∈ doc.driverRegions, RangeIn row 0 doc.driverSteps.length ∧ RangeIn row 2 doc.driverSync.length ∧
+      SyncExact doc row)
 
 /-- UTF-8 strings, byte ranges, and operator pools inside their closed domains. -/
 def Pools (schema : Schema) (doc : Document) : Prop :=
@@ -346,19 +427,24 @@ structure Assignment where
   body : Nat → List Claim
   value : Nat → List Claim
 
-/-- Each driver program takes the steps in its range. -/
-def programSteps (doc : Document) : List Claim :=
-  (List.range doc.driverPrograms.length).flatMap fun program =>
-    match doc.driverPrograms[program]? with
-    | some row => (List.range (cell row 1)).map fun offset => Claim.step (cell row 0 + offset)
+/-- Each row of `rows` takes the entries in the range at `column`. -/
+def rangeClaims (rows : List Row) (column : Nat) (claim : Nat → Claim) : List Claim :=
+  (List.range rows.length).flatMap fun index =>
+    match rows[index]? with
+    | some row => (List.range (cell row (column + 1))).map fun offset => claim (cell row column + offset)
     | none => []
 
-/-- Every claim, owner by owner, then steps, bodies, values and program steps. -/
+/-- Programs take their steps and regions, steps their slot and writer rows, regions their sync rows. -/
+def tableClaims (doc : Document) : List Claim :=
+  rangeClaims doc.driverPrograms 0 .step ++ rangeClaims doc.driverPrograms 2 .region ++
+    rangeClaims doc.driverSteps 2 .slot ++ rangeClaims doc.driverSteps 4 .writer ++ rangeClaims doc.driverRegions 2 .sync
+
+/-- Every claim, owner by owner, then steps, bodies, values and the driver tables' own rows. -/
 def Assignment.all (doc : Document) (assignment : Assignment) : List Claim :=
   (owners doc).flatMap (fun owner => (owner.instructions doc).flatMap (assignment.instruction owner)) ++
     (List.range doc.driverSteps.length).flatMap assignment.step ++
     (List.range doc.functions.length).flatMap assignment.body ++
-    (List.range doc.values.length).flatMap assignment.value ++ programSteps doc
+    (List.range doc.values.length).flatMap assignment.value ++ tableClaims doc
 
 /-- Every payload reads exactly its words under its tag's shape: instructions in their owner's
 frame, driver steps in their own, each function body as a statement block, and each value. -/
@@ -377,15 +463,19 @@ def Payloads (schema : Schema) (doc : Document) (assignment : Assignment) : Prop
       doc.values[value]? = some tag ∧ Names schema.values tag entry ∧ PayloadOf doc doc.valueData value words ∧
       ParsesAll schema doc (valueFrame value) entry.fields words [] (assignment.value value))
 
-/-- No entry is taken twice. Every instruction, owned block, pattern, stage and driver step is
-taken, and every driver program except the root is imported. -/
+/-- No entry is taken twice. Every instruction, owned block, pattern, stage, driver step, region,
+slot, writer and sync row is taken, and every driver program except the root is imported. -/
 def Claimed (doc : Document) (claims : List Claim) : Prop :=
   claims.Nodup ∧ (∀ index, index < doc.tags.length → Claim.instruction index ∈ claims) ∧
     (∀ index row, doc.blocks[index]? = some row → cell row 3 ≠ absent → Claim.block index ∈ claims) ∧
     (∀ index, index < doc.patterns.length → Claim.pattern index ∈ claims) ∧
     (∀ index, index < doc.stages.length → Claim.stage index ∈ claims) ∧
     (∀ index, index < doc.driverPrograms.length → (Claim.program index ∈ claims ↔ index + 1 ≠ doc.driverRoot.val)) ∧
-    (∀ index, index < doc.driverSteps.length → Claim.step index ∈ claims)
+    (∀ index, index < doc.driverSteps.length → Claim.step index ∈ claims) ∧
+    (∀ index, index < doc.driverRegions.length → Claim.region index ∈ claims) ∧
+    (∀ index, index < doc.driverSlots.length → Claim.slot index ∈ claims) ∧
+    (∀ index, index < doc.driverWriters.length → Claim.writer index ∈ claims) ∧
+    (∀ index, index < doc.driverSync.length → Claim.sync index ∈ claims)
 
 /-- Structural well-formedness of a raw-IR document against a schema. -/
 structure WellFormed (schema : Schema) (doc : Document) : Prop where

@@ -857,6 +857,81 @@ theorem rowsIn_iff (table : List Row) (start length : Nat) (holds : Row → Bool
     rw [found]
     exact (agrees row).mpr holds'
 
+theorem pairsIn_iff (table : List Row) (start count : Nat) (holds : Row → Row → Bool) (rule : Row → Row → Prop)
+    (agrees : ∀ left right, holds left right = true ↔ rule left right) :
+    pairsIn table start count holds = true ↔ PairsIn table start count rule := by
+  unfold pairsIn PairsIn
+  simp only [List.all_eq_true, List.mem_range, Bool.or_eq_true, beq_iff_eq]
+  constructor
+  · intro all first second firstBelow secondBelow different left right leftEq rightEq
+    rcases all first firstBelow second secondBelow with same | here
+    · exact absurd same different
+    · rw [leftEq, rightEq] at here; exact (agrees _ _).mp here
+  · intro all first firstBelow second secondBelow
+    by_cases same : first = second
+    · exact Or.inl same
+    · right
+      cases leftEq : table[start + first]? with
+      | none => simp
+      | some left =>
+          cases rightEq : table[start + second]? with
+          | none => simp
+          | some right =>
+              exact (agrees _ _).mpr (all first second firstBelow secondBelow same left right leftEq rightEq)
+
+theorem adjacentIn_iff (table : List Row) (start count : Nat) (holds : Row → Row → Bool) (rule : Row → Row → Prop)
+    (agrees : ∀ left right, holds left right = true ↔ rule left right) :
+    adjacentIn table start count holds = true ↔ AdjacentIn table start count rule := by
+  unfold adjacentIn AdjacentIn
+  simp only [List.all_eq_true, List.mem_range, Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not]
+  constructor
+  · intro all offset inside left right leftEq rightEq
+    rcases all offset (by omega) with outside | here
+    · exact absurd inside outside
+    · rw [leftEq, rightEq] at here; exact (agrees _ _).mp here
+  · intro all offset _
+    by_cases inside : offset + 1 < count
+    · right
+      cases leftEq : table[start + offset]? with
+      | none => simp
+      | some left =>
+          cases rightEq : table[start + offset + 1]? with
+          | none => simp
+          | some right => exact (agrees _ _).mpr (all offset inside left right leftEq rightEq)
+    · exact Or.inl inside
+
+theorem stepSlotsOk_iff (doc : Document) : stepSlotsOk doc = true ↔ StepSlotsWF doc := by
+  unfold stepSlotsOk StepSlotsWF
+  simp only [List.all_eq_true, List.mem_range]
+  constructor
+  · intro all index row tag rowEq tagEq
+    have inside := (List.getElem?_eq_some_iff.mp rowEq).1
+    have here := all index inside
+    rw [rowEq, tagEq] at here
+    simp only [Bool.and_eq_true] at here
+    exact ⟨(rowsIn_iff _ _ _ _ _ (fun _ => decide_eq_true_iff)).mp here.1,
+      (pairsIn_iff _ _ _ _ _ (fun _ _ => decide_eq_true_iff)).mp here.2⟩
+  · intro all index _
+    cases rowEq : doc.driverSteps[index]? with
+    | none => simp
+    | some row =>
+        cases tagEq : doc.driverStepTags[index]? with
+        | none => simp
+        | some tag =>
+            obtain ⟨rows, pairs⟩ := all index row tag rowEq tagEq
+            simp only [Bool.and_eq_true]
+            exact ⟨(rowsIn_iff _ _ _ _ _ (fun _ => decide_eq_true_iff)).mpr rows,
+              (pairsIn_iff _ _ _ _ _ (fun _ _ => decide_eq_true_iff)).mpr pairs⟩
+
+theorem regionsTileOk_iff (doc : Document) (program : Row) : regionsTileOk doc program = true ↔ RegionsTile doc program := by
+  unfold regionsTileOk RegionsTile
+  rw [Bool.and_eq_true, rowsIn_iff _ _ _ _ _ (fun _ => decide_eq_true_iff), decide_eq_true_iff]
+
+theorem syncExactOk_iff (doc : Document) (region : Row) : syncExactOk doc region = true ↔ SyncExact doc region := by
+  unfold syncExactOk SyncExact
+  rw [Bool.and_eq_true, Bool.and_eq_true, rowsIn_iff _ _ _ _ _ (fun _ => decide_eq_true_iff),
+    adjacentIn_iff _ _ _ _ _ (fun _ _ => decide_eq_true_iff), decide_eq_true_iff, and_assoc]
+
 theorem functionTablesOk_iff (doc : Document) (row : Row) :
     functionTablesOk doc row = true ↔ FunctionTablesWF doc row := by
   unfold functionTablesOk FunctionTablesWF
@@ -897,7 +972,7 @@ theorem scalarsOk_iff (doc : Document) : scalarsOk doc = true ↔ ScalarsWF doc 
 
 theorem rowsOk_iff (schema : Schema) (doc : Document) : rowsOk schema doc = true ↔ RowsWF schema doc := by
   simp [rowsOk, RowsWF, blockRowOk_iff, functionRowOk_iff, metadataRowOk_iff, functionTablesOk_iff,
-    driverStepRowOk_iff, rangeWithin_iff, and_assoc]
+    driverStepRowOk_iff, stepSlotsOk_iff, regionsTileOk_iff, syncExactOk_iff, rangeWithin_iff, and_assoc]
 
 theorem poolsOk_iff (schema : Schema) (doc : Document) : poolsOk schema doc = true ↔ PoolsWF schema doc := by
   simp [poolsOk, PoolsWF, rangeWithin_iff, and_assoc]

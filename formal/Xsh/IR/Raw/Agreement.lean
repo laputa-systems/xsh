@@ -1581,11 +1581,16 @@ theorem getD_run {job : Option Job} {run : Job → Option (List Claim)} {claims 
   | none => cases ran
   | some job => exact ran
 
-theorem programSteps_eq (doc : Document) : Xsh.IR.Raw.programSteps doc = Spec.programSteps doc := by
-  unfold Xsh.IR.Raw.programSteps Spec.programSteps
+theorem rangeClaims_eq (rows : List Row) (column : Nat) (claim : Nat → Claim) :
+    Xsh.IR.Raw.rangeClaims rows column claim = Spec.rangeClaims rows column claim := by
+  unfold Xsh.IR.Raw.rangeClaims Spec.rangeClaims
   congr 1
-  funext program
-  cases doc.driverPrograms[program]? <;> rfl
+  funext index
+  cases rows[index]? <;> rfl
+
+theorem tableClaims_eq (doc : Document) : Xsh.IR.Raw.tableClaims doc = Spec.tableClaims doc := by
+  unfold Xsh.IR.Raw.tableClaims Spec.tableClaims
+  simp only [rangeClaims_eq]
 
 theorem claimed_iff (doc : Document) (claims : List Claim) : ClaimsWF doc claims ↔ Claimed doc claims := by
   have blocks : (∀ block, block < doc.blocks.length → rowWord (doc.blocks.getD block []) 3 ≠ irNone →
@@ -1603,10 +1608,10 @@ theorem claimed_iff (doc : Document) (claims : List Claim) : ClaimsWF doc claims
   unfold ClaimsWF Claimed
   rw [blocks]
   constructor
-  · rintro ⟨nodup, patterns, stages, instructions, owned, programs, steps⟩
-    exact ⟨nodup, instructions, owned, patterns, stages, programs, steps⟩
-  · rintro ⟨nodup, instructions, owned, patterns, stages, programs, steps⟩
-    exact ⟨nodup, patterns, stages, instructions, owned, programs, steps⟩
+  · rintro ⟨nodup, patterns, stages, instructions, owned, programs, rest⟩
+    exact ⟨nodup, instructions, owned, patterns, stages, programs, rest⟩
+  · rintro ⟨nodup, instructions, owned, patterns, stages, programs, rest⟩
+    exact ⟨nodup, patterns, stages, instructions, owned, programs, rest⟩
 
 /-- Each site's checker run produced the assignment's claims. -/
 structure Ran (env : Env) (assignment : Assignment) : Prop where
@@ -1632,7 +1637,7 @@ theorem flatMap_congr {α β : Type} {items : List α} {first second : α → Li
 theorem ran_jobs {env : Env} (lengths : env.doc.functionInstructionStarts.length = env.doc.functions.length)
     {assignment : Assignment} (ran : Ran env assignment) :
     ∃ jobs claims, documentJobs env = some jobs ∧ jobs.mapM (runJob env) = some claims ∧
-      claims.flatten ++ Xsh.IR.Raw.programSteps env.doc = assignment.all env.doc := by
+      claims.flatten ++ Xsh.IR.Raw.tableClaims env.doc = assignment.all env.doc := by
   have ownersLength : (ownerStarts env.doc).length = env.doc.functions.length + env.doc.driverSteps.length := by
     simp [ownerStarts, lengths]
   let instructionJobsOf := fun index =>
@@ -1677,7 +1682,7 @@ theorem ran_jobs {env : Env} (lengths : env.doc.functionInstructionStarts.length
     · exact ⟨_, getD_run (ran.bodies function inside)⟩
     · exact ⟨_, getD_run (ran.values value inside)⟩
   refine ⟨jobs, _, jobsEq, mapM_of_some (runJob env) [] runs, ?_⟩
-  rw [programSteps_eq]
+  rw [tableClaims_eq]
   unfold Assignment.all
   congr 1
   have instructionPart : ((((List.range (ownerStarts env.doc).length).map instructionJobsOf).flatten).map
