@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 169
+Next: 170
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -138,6 +138,15 @@ out of scope.
 - **Recommendation:** Carry the checker's narrowing proof for fields of pattern-bound records into the indexed IR, and add a native test of this shape; until then, report the source span of the field access instead of 1:1.
 - **Fix with:** root-cause
 - **Effort:** M
+
+### XSH-169 · P2 · Explicit-server DNS timeouts become generic lookup failures on Unix
+
+- **Area:** Networking
+- **Where:** `crates/xsh-net/src/lib.rs:189-234,690-696` (`lookup_dns_server`, `dns_io_error`), `tests/runtime/modules.rs` (`LocalDnsServer`), `tests/xsh/stdlib/dns.xsh`
+- **Problem:** Explicit-server `dns.lookup` sets a blocking UDP socket timeout, but `dns_io_error` recognizes only `ErrorKind::TimedOut`. [Rust documents](https://doc.rust-lang.org/stable/std/net/struct.UdpSocket.html#method.set_read_timeout) that Unix socket timeouts typically return `WouldBlock`, which this code maps to `dns-lookup`, so callers cannot consistently identify a DNS deadline expiry. The test server handles both error kinds, but the DNS transport tests only exercise successful replies. This is a source finding; a native XSH reproducer is still required.
+- **Recommendation:** Extend the existing loopback DNS fixture to receive a query and withhold its reply, then reproduce the error through native `dns.lookup` on the pinned Linux/musl target. Normalize `WouldBlock` and `TimedOut` to `dns-timeout` at the configured blocking-socket timeout boundary, without reclassifying unrelated resolver errors. Cover both error kinds directly and assert the native timeout kind and a bounded completion time; retain the existing successful A/AAAA cases and bounded fixture cleanup. The regression must need no external DNS or new daemon. Run the applicable Linux gate and the existing macOS qualification path.
+- **Fix with:** error-model, os-boundaries
+- **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
