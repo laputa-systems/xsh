@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "source_state": "frozen-post-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -3761,6 +3761,10 @@
     },
     {
       "class": "EXTERNAL_ASSUMPTION",
+      "status": "planned"
+    },
+    {
+      "class": "EXTRACTED_REFINEMENT",
       "status": "planned"
     }
   ],
@@ -15598,5 +15602,233 @@
   "source_identity": {
     "commit": "1d27050bf739d72f9abefeba161b8768dad71c5c",
     "tree": "3b1253e27132f377ffab35e0232bd5835ed07e4a"
-  }
+  },
+  "implementation_proofs": [
+    {
+      "id": "impl.arith.checked_int_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/arith.rs::checked_int_binary, the shared Int +, -, *, / and % decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation: folds Some(Ok), declines on Some(Err) and None)",
+        "src/runtime/eval/lowered_ops.rs::checked_int_binary (execution: expects Some, maps the error to its diagnostic with the operator span), called by lowered_binary_value and by the typed scalar ApplyIntBinary step in src/runtime/eval/lowered_run/indexed_run/values.rs"
+      ],
+      "property": "For every BinaryOp and every pair of signed 64-bit operands, the extracted function returns ok (it does not fail or diverge in the Aeneas model), and its result decodes to Xsh.Core.Arith.checked for Add, Sub, Mul, Div and Rem and to none for every other operator; decode is injective, so the Ok value, DivisionByZero and Overflow are each the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors and all i64 operands; no premise",
+      "sources": [
+        {
+          "path": "src/arith.rs",
+          "sha256": "c05f8f96af99980925ff6e9a5db70cf50743f6874df7f9b26f395dea56e94680"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.arith.checked_int_binary"
+      },
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0",
+        "library_patch": {
+          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
+          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
+        }
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Arith.checked_int_binary_refines",
+        "specification": [
+          "Xsh.Core.Arith.checked",
+          "Xsh.Core.Arith.exact",
+          "Xsh.Core.Arith.witness"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.int_success_and_truncation",
+          "XshImpl.Controls.int_error_branches",
+          "XshImpl.Controls.int_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_rejected",
+          "XshImpl.Controls.floored_division_rejected",
+          "XshImpl.Controls.swapped_zero_error_rejected",
+          "XshImpl.Controls.admitted_comparison_rejected",
+          "XshImpl.Controls.always_overflow_rejected",
+          "XshImpl.Controls.upstream_remainder_model_differs_at_min"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice"
+      ],
+      "reproduction": [
+        [
+          "dev/verify/aeneas/extract.sh",
+          "--check"
+        ],
+        [
+          ".work/bin/lean-slot",
+          "dev/verify/aeneas/check.sh"
+        ],
+        [
+          ".work/bin/lean-slot",
+          "dev/verify/aeneas/mutant.sh"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "dev/verify/aeneas/slice/Cargo.toml"
+        ]
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": 184,
+        "fresh_kernel_check_wall_seconds": 172,
+        "fresh_kernel_check_user_seconds": 164,
+        "fresh_kernel_check_peak_rss_mib": 2575,
+        "patched_library_rebuild_wall_seconds": 44,
+        "patched_library_rebuild_peak_rss_mib": 2047,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports"
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
+    },
+    {
+      "id": "impl.duration.checked_duration_binary",
+      "evidence_class": "EXTRACTED_REFINEMENT",
+      "status": "checked",
+      "obligation": "IMPL-REFINE",
+      "related_obligations": [
+        "BASE-NUM",
+        "BASE-STEP",
+        "LOWER-STEP",
+        "MODE-EQUIV"
+      ],
+      "subject": "src/duration.rs::checked_duration_binary, the shared Duration arithmetic decision",
+      "callers": [
+        "src/sema/constants.rs::fold_constant_binary (constant preparation for + - * / with a Duration operand: folds Ok, declines on Err)",
+        "src/runtime/eval/lowered_ops.rs::lowered_binary_value (execution: maps Duration and Int operands and reports the error diagnostic with the operator span)"
+      ],
+      "property": "For every BinaryOp and every pair of Millis(u64) or Count(i64) operands, the extracted function returns ok, and its result decodes to the SPEC 4.3 dimension table over Xsh.Values.DurationOps: add, subtract, multiply (either factor order), divideByInt and ratio, with InvalidDimensions for every other operator and dimension pair; decode is injective, so each of the six error identities and each value is the exact independent outcome",
+      "domain": "all 18 BinaryOp constructors, all u64 millisecond values and all i64 counts in either operand position; no premise",
+      "sources": [
+        {
+          "path": "src/duration.rs",
+          "sha256": "b2c127b462d4eaa7903c7f61f6faf55107226d62c303c3e5c7a54131c25cec57"
+        }
+      ],
+      "copies": [
+        {
+          "path": "dev/verify/aeneas/slice/src/binary_op.rs",
+          "sha256": "81bd92de5daa24758deed8233809c2bda3e19c7a0c89862e6c1e8750dcb04a1e",
+          "of": "src/syntax/node.rs",
+          "declaration": "pub enum BinaryOp {"
+        }
+      ],
+      "translation": {
+        "path": "dev/verify/aeneas/lean/XshImpl/XshArithSlice.lean",
+        "sha256": "15092af3f3d4a77bb973d7feef2a82b6431bb2a61ae7ed465270ba9994c601b7",
+        "definition": "xsh_arith_slice.duration.checked_duration_binary"
+      },
+      "toolchain": {
+        "extraction_rust": "nightly-2026-09-17",
+        "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
+        "aeneas_release": "nightly-2026.11.09-5a392f4",
+        "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
+        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+        "lean": "4.35.0",
+        "library_patch": {
+          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
+          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
+        }
+      },
+      "proof": {
+        "project": "dev/verify/aeneas/lean",
+        "theorem": "XshImpl.Duration.checked_duration_binary_refines",
+        "specification": [
+          "Xsh.Values.DurationOps.add",
+          "Xsh.Values.DurationOps.subtract",
+          "Xsh.Values.DurationOps.multiply",
+          "Xsh.Values.DurationOps.divideByInt",
+          "Xsh.Values.DurationOps.ratio",
+          "Xsh.Values.DurationOps.checkedMillis"
+        ],
+        "witnesses": [
+          "XshImpl.Controls.duration_success_and_truncation",
+          "XshImpl.Controls.duration_error_branches",
+          "XshImpl.Controls.duration_diagnostics"
+        ],
+        "negative_controls": [
+          "XshImpl.Controls.wrapping_sum_rejected",
+          "XshImpl.Controls.saturating_difference_rejected",
+          "XshImpl.Controls.wrapped_factor_rejected",
+          "XshImpl.Controls.wrapping_count_rejected",
+          "XshImpl.Controls.always_type_error_rejected"
+        ]
+      },
+      "assumptions": [
+        "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
+        "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
+        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice",
+        "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument"
+      ],
+      "reproduction": [
+        [
+          "dev/verify/aeneas/extract.sh",
+          "--check"
+        ],
+        [
+          ".work/bin/lean-slot",
+          "dev/verify/aeneas/check.sh"
+        ],
+        [
+          ".work/bin/lean-slot",
+          "dev/verify/aeneas/mutant.sh"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "dev/verify/aeneas/slice/Cargo.toml"
+        ]
+      ],
+      "resources": {
+        "extraction_check_wall_seconds": 5,
+        "harness_check_wall_seconds": 184,
+        "fresh_kernel_check_wall_seconds": 172,
+        "fresh_kernel_check_user_seconds": 164,
+        "fresh_kernel_check_peak_rss_mib": 2575,
+        "patched_library_rebuild_wall_seconds": 44,
+        "patched_library_rebuild_peak_rss_mib": 2047,
+        "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports"
+      },
+      "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
+    }
+  ]
 }

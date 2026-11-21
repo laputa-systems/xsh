@@ -1821,5 +1821,104 @@ class InventoryCheckerTests(unittest.TestCase):
             )
 
 
+    def implementation_inputs(self) -> tuple[list[dict[str, object]], list[object], dict[str, Path]]:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        return (
+            coverage["implementation_proofs"],
+            coverage["universal_theorems"],
+            CHECKER.lean_module_sources(ROOT / "formal"),
+        )
+
+    def test_implementation_proofs_match_live_sources_and_pins(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        self.assertEqual(
+            ["impl.arith.checked_int_binary", "impl.duration.checked_duration_binary"],
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules),
+        )
+
+    def test_changed_source_makes_an_implementation_proof_stale(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["sources"][0]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CHECKER.InventoryError, "stale implementation proof .*src/arith.rs changed"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_translation_makes_an_implementation_proof_stale(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[1]["translation"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CHECKER.InventoryError, "stale implementation proof .*XshArithSlice.lean changed"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_toolchain_makes_an_implementation_proof_stale(self) -> None:
+        for key, value, message in (
+            ("charon", "0.1.316 (0000000)", "does not pin"),
+            ("extraction_rust", "nightly-2026-11-09", "does not pin"),
+            ("lean", "4.36.0", "is not leanprover/lean4:v4.36.0"),
+            ("mathlib", "0" * 40, "manifest pins mathlib"),
+        ):
+            with self.subTest(key=key):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["toolchain"][key] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_library_patch_makes_an_implementation_proof_stale(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["toolchain"]["library_patch"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CHECKER.InventoryError, "library patch .* changed"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_copy_must_be_the_verbatim_declaration(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["copies"][0]["declaration"] = "pub enum UnaryOp {"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "is not the verbatim"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_stale_implementation_proof_skips_identity_checks(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["status"] = "stale"
+        proofs[0]["sources"][0]["sha256"] = "0" * 64
+        proofs[0]["toolchain"]["charon"] = "unpinned"
+        self.assertEqual(2, len(CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)))
+
+    def test_implementation_proof_cannot_attach_to_a_closed_obligation(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["obligation"] = "BASE-NUM"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must name a planned obligation"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_proof_names_live_theorems_and_formal_specifications(self) -> None:
+        for field, value, message in (
+            ("negative_controls", ["XshImpl.Controls.absent_control"], "names no theorem"),
+            ("theorem", "XshImpl.Arith.absent_refinement", "names no theorem"),
+            ("specification", ["XshImpl.Arith.decode"], "is not a formal definition"),
+        ):
+            with self.subTest(field=field):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["proof"][field] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_translation_must_define_the_subject(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["translation"]["definition"] = "xsh_arith_slice.arith.absent"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "translation does not define"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_proof_keeps_its_own_evidence_class(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["evidence_class"] = "SPEC_PROVED"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must use EXTRACTED_REFINEMENT"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_coverage_requires_schema_four_and_the_extracted_refinement_class(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["schema"] = 3
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unsupported coverage schema"):
+            CHECKER.validate_coverage(ROOT, coverage)
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["evidence_classes"] = coverage["evidence_classes"][:4]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "five campaign evidence classes"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
 if __name__ == "__main__":
     unittest.main()
