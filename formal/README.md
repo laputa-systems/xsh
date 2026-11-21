@@ -12,7 +12,8 @@ closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
 that is absent, not a theorem, or outside the project modules. A module that
-holds a closed root needs no fragment row. The finite Rust-conformance ledger holds only the named tests that ran
+holds a closed root needs no fragment row. The fragment roots below close
+no obligation; each row's boundary names its limits. The finite Rust-conformance ledger holds only the named tests that ran
 against binaries built from that commit. Each case is evidence for its own test
 only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
 per kernel-checked certificate: the artifact kind, the Lean definitions that
@@ -160,13 +161,13 @@ image. Core record membership is wider than the connected check, so a connected
 rejection is not a Core rejection. The connected machine still runs on its own
 store; the bridge is a fragment root, not a full-core obligation.
 
-BASE-ENV is closed by `environments_and_typed_stores` in
+The `environments_and_typed_stores` fragment root is in
 [`Proofs/Core/Env.lean`](Xsh/Proofs/Core/Env.lean). It quantifies over every
 Core world, type and value: lexical and activation resolution, captures, the
 lookup chain, the stored-member invariant, assignment and declaration
 acceptance and effects, and `type-error` failures that keep the store and
-escape `try`. Path writes are whole-cell replacements checked against the
-cell's type. Cleanup during the unwind belongs to the control machine and is
+escape `try`. Only whole-cell assignment is modelled; field and index path
+writes, compound assignment and patterns are not. Cleanup during the unwind belongs to the control machine and is
 not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
@@ -177,9 +178,10 @@ the four validation identities (`NonEmpty` with its element, `RelPath`, a
 nominal declaration with its schema, and a bounded interval), each base, and
 the base-view relation: a validated position at any depth of a collection,
 record, optional, result, union, stream element or callable return may stand
-for its base. VAL-WIDEN is closed by `validated_widening` in
-[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean): a view
-carries members to members, a view into a validated type is the identity, and
+for its base. The `validated_widening` fragment root is in
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean). It shows that a view
+carries members to members, the relation it defines admits no view between
+distinct validated heads, and
 no base views as its validated type. Stream and callable views hold in worlds
 whose retained contracts are closed under views; a world that retains a
 `Stream[RelPath]` contract without `Stream[Path]` refutes the unconditional
@@ -192,31 +194,31 @@ read at its base is a base member, erasure is the identity for `NonEmpty`,
 `RelPath` and bounded integers, removes exactly the declaration wrapper of a
 nominal member, and keeps references and every base-view observation.
 
-VAL-STORE is closed by `validated_store` in
-[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean): a cell of a
+The `validated_store` fragment root is in
+[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean). It shows that a cell of a
 validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
 and rejects the same write to the `NonEmpty` cell.
 
-VAL-UNION is closed by `union_semantics` in
-[`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean): union
+The `union_semantics` fragment root is in
+[`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
 membership is membership in a listed member, runtime selection returns the
 first accepting member in written order, and a union fits another when each
 member views as one of the other's in any order. Union admissibility, which
 rejects overlapping members, is a checker judgment and is not assumed; the
 overlap witness selects `UInt` for `5` and `Int` for `-5`.
 
-VAL-NARROW is closed by `narrowing` in
-[`Validation/Core/Narrow.lean`](Xsh/Validation/Core/Narrow.lean): a type
+The `narrowing` fragment root is in
+[`Validation/Core/Narrow.lean`](Xsh/Validation/Core/Narrow.lean). It shows that a type
 test is true exactly for members, a failed union member test narrows to the
 remaining members, a non-null optional value is a member of its element type,
 and cell facts learned from passing tests stay sound because assignment forgets
 the assigned cell's fact. The witness shows that retaining a `NonEmpty` fact
 after assigning `[]` is unsound.
 
-VAL-REQUIRE is closed by `recursive_require` in
+The `recursive_require` fragment root is in
 [`Validation/Core/Require.lean`](Xsh/Validation/Core/Require.lean). On a
 target whose record schemas list each field once, an accepted result is a
 member. On a target without nominal positions, `.require` accepts exactly the
@@ -229,7 +231,7 @@ publishing anything, contrast `.require(UInt)` with the `type-error` of a
 typed store, and detect a check that skips nested conversion. Error paths,
 `require_exact` and `require_stripped` are not modelled.
 
-VAL-NOMINAL is closed by `nominal_provenance` in
+The `nominal_provenance` fragment root is in
 [`Validation/Core/Nominal.lean`](Xsh/Validation/Core/Nominal.lean). Core
 membership alone admits a forged `.nominal d (.record [])`, so the theorem
 adds a provenance judgment over value-forming expressions: scalar, list and
@@ -243,8 +245,8 @@ machine that adds them must show they are nominal-transparent. The witnesses
 include a constructor resolved to another module's declaration, which the
 theorem rejects.
 
-VAL-PRESERVE is closed by `preserving_operations` in
-[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean): `push`,
+The `preserving_operations` fragment root is in
+[`Validation/Core/Preserve.lean`](Xsh/Validation/Core/Preserve.lean). It shows that `push`,
 `extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
 without a filter and element replacement keep a `NonEmpty`, filtering yields
 only the base list, and `.parent()` and `.normalize()` keep a `RelPath`. The
@@ -254,8 +256,8 @@ drops trailing empty and `.` components and then the last one, `.normalize()`
 resolves `.` and `..` lexically, and both return `.` when nothing is left.
 These definitions follow the SPEC and claim no Rust correspondence.
 
-VAL-INTRO is closed by `introduction_routes` in
-[`Validation/Core/Intro.lean`](Xsh/Validation/Core/Intro.lean): a judged list
+The `introduction_routes` fragment root is in
+[`Validation/Core/Intro.lean`](Xsh/Validation/Core/Intro.lean). It shows that a judged list
 literal of typed items is a `NonEmpty` and a rejected one is only plain
 splices; path and bounded-integer literals are members exactly when the rule
 or interval accepts them; an `fp` literal whose text passes the rule with each

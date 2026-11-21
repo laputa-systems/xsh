@@ -2520,10 +2520,8 @@
       "id": "BASE-ENV",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.BASE-ENV",
-      "module": "Xsh.Proofs.Core.Env",
-      "declaration": "Xsh.Proofs.Core.Env.environments_and_typed_stores"
+      "status": "planned",
+      "proof_root_id": "full.BASE-ENV"
     },
     {
       "id": "BASE-NUM",
@@ -2958,73 +2956,57 @@
       "id": "VAL-INTRO",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-INTRO",
-      "module": "Xsh.Validation.Core.Intro",
-      "declaration": "Xsh.Validation.Core.Intro.introduction_routes"
+      "status": "planned",
+      "proof_root_id": "full.VAL-INTRO"
     },
     {
       "id": "VAL-NARROW",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-NARROW",
-      "module": "Xsh.Validation.Core.Narrow",
-      "declaration": "Xsh.Validation.Core.Narrow.narrowing"
+      "status": "planned",
+      "proof_root_id": "full.VAL-NARROW"
     },
     {
       "id": "VAL-NOMINAL",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-NOMINAL",
-      "module": "Xsh.Validation.Core.Nominal",
-      "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance"
+      "status": "planned",
+      "proof_root_id": "full.VAL-NOMINAL"
     },
     {
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-PRESERVE",
-      "module": "Xsh.Validation.Core.Preserve",
-      "declaration": "Xsh.Validation.Core.Preserve.preserving_operations"
+      "status": "planned",
+      "proof_root_id": "full.VAL-PRESERVE"
     },
     {
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-REQUIRE",
-      "module": "Xsh.Validation.Core.Require",
-      "declaration": "Xsh.Validation.Core.Require.recursive_require"
+      "status": "planned",
+      "proof_root_id": "full.VAL-REQUIRE"
     },
     {
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-STORE",
-      "module": "Xsh.Validation.Core.Store",
-      "declaration": "Xsh.Validation.Core.Store.validated_store"
+      "status": "planned",
+      "proof_root_id": "full.VAL-STORE"
     },
     {
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-UNION",
-      "module": "Xsh.Validation.Core.Union",
-      "declaration": "Xsh.Validation.Core.Union.union_semantics"
+      "status": "planned",
+      "proof_root_id": "full.VAL-UNION"
     },
     {
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "closed",
-      "proof_root_id": "full.VAL-WIDEN",
-      "module": "Xsh.Validation.Core.Widen",
-      "declaration": "Xsh.Validation.Core.Widen.validated_widening"
+      "status": "planned",
+      "proof_root_id": "full.VAL-WIDEN"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
@@ -15065,6 +15047,87 @@
       "status": "fragment",
       "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world; an accepted connected store write commits the embedded value through the Core store guard.",
       "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "module": "Xsh.Proofs.Core.Env",
+      "declaration": "Xsh.Proofs.Core.Env.environments_and_typed_stores",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Widen.validated_widening",
+      "module": "Xsh.Validation.Core.Widen",
+      "declaration": "Xsh.Validation.Core.Widen.validated_widening",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Base views carry Core members to members in worlds whose stream and callable contracts are closed under views; a view into a validated type is the identity in this relation; no base views as its validated type.",
+      "boundary": "Conditional on ViewClosed, which for stream and callable views is the conclusion itself. NonEmpty element views are missing, union and record-row views are order-sensitive, and the callable-return view diverges from Rust's matches_stored. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Store.validated_store",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
+      "boundary": "Conditional on ViewClosed and inherits the order-sensitive, NonEmpty-incomplete view relation of the widening fragment. Store mutation through .extend or += and path writes are not modelled. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Union.union_semantics",
+      "module": "Xsh.Validation.Core.Union",
+      "declaration": "Xsh.Validation.Core.Union.union_semantics",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Union membership is membership in a listed member, first-accepting-member selection in written order, and union-to-union fit under views.",
+      "boundary": "Conditional on ViewClosed; union fit uses the order-sensitive view relation; no selection mutant beyond the witnesses. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
+      "module": "Xsh.Validation.Core.Nominal",
+      "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Over a file-local value-forming expression evaluator, every nominal identity in a produced value was named by a constructor or .require target or came from the store.",
+      "boundary": "The evaluator is a local toy covering literals, constructors, .require, reads, field reads and spreads only; calls, returns, iteration, match, ?, dynamic Pure.call and Proc.call, checker static types and a top-level spread clause are missing. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Narrow.narrowing",
+      "module": "Xsh.Validation.Core.Narrow",
+      "declaration": "Xsh.Validation.Core.Narrow.narrowing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Type tests decide Core membership, failed union tests narrow to the remaining members, and per-cell facts stay sound because assignment forgets the assigned cell's fact.",
+      "boundary": "Per-cell facts only: no statement syntax, field paths, logical combinators, else chains, guards, loops, retry, call invalidation of captured vars or deferred blocks. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Require.recursive_require",
+      "module": "Xsh.Validation.Core.Require",
+      "declaration": "Xsh.Validation.Core.Require.recursive_require",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A recursive .require over Core types is sound on admissible targets, exact on nominal-free targets, schema-equivalent for nominal targets, ordered for unions and all-or-nothing.",
+      "boundary": "Assumes Admissible instead of deriving it from type well-formedness. Str-backed enum wire conversion, map publication from records, structured errors with field and union paths, require_exact and require_stripped are missing; exactness is identity, not the SPEC conversion. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Preserve.preserving_operations",
+      "module": "Xsh.Validation.Core.Preserve",
+      "declaration": "Xsh.Validation.Core.Preserve.preserving_operations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "NonEmpty push, concatenation, single-clause comprehension and element replacement, and RelPath parent and normalize, preserve their validated types; filtering yields the base.",
+      "boundary": "RelPath parent does not follow the SPEC component reading (a//b and a/./b give a/ and a/.). No result-type typing rule, store mutation for .extend or +=, or non-preservation witnesses for slicing, multi-clause comprehensions, path methods and bounded arithmetic. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.Intro.introduction_routes",
+      "module": "Xsh.Validation.Core.Intro",
+      "declaration": "Xsh.Validation.Core.Intro.introduction_routes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require results are members.",
+      "boundary": "fp literals are modelled as components, not source text with format specs; adjacent-interpolation rejection, strip_prefix, constants and defaults, as T and type tests are missing; relies on the toy nominal evaluator. Closes no full-core obligation."
     }
   ],
   "artifact_certificates": [
