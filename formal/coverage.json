@@ -3002,8 +3002,10 @@
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-UNION"
+      "status": "closed",
+      "proof_root_id": "full.VAL-UNION",
+      "module": "Xsh.Validation.Core.Union",
+      "declaration": "Xsh.Validation.Core.Union.union_semantics"
     },
     {
       "id": "VAL-WIDEN",

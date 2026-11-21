@@ -200,6 +200,14 @@ value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
 and rejects the same write to the `NonEmpty` cell.
 
+VAL-UNION is closed by `union_semantics` in
+[`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean): union
+membership is membership in a listed member, runtime selection returns the
+first accepting member in written order, and a union fits another when each
+member views as one of the other's in any order. Union admissibility, which
+rejects overlapping members, is a checker judgment and is not assumed; the
+overlap witness selects `UInt` for `5` and `Int` for `-5`.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

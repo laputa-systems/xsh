@@ -94,6 +94,7 @@ import Xsh.Validation.BoundedRefinements
 import Xsh.Validation.Core.Widen
 import Xsh.Validation.Core.Erase
 import Xsh.Validation.Core.Store
+import Xsh.Validation.Core.Union
 import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
