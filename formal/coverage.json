@@ -12965,7 +12965,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For arbitrary effect scopes, agreement on every live parameter gives equal substituted contracts, including unknown replacements at unused parameters.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_included_iff",
@@ -12974,7 +12974,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given exact inclusion of arbitrary symbolic contracts, a mixed known/unknown substitution preserves inclusion exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.substitution_covered_iff",
@@ -12983,7 +12983,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Given permission coverage of arbitrary symbolic contracts, a mixed known/unknown substitution preserves coverage exactly when an unknown result on the left also makes the right unknown.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_inclusion_iff",
@@ -12992,7 +12992,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially included known expressions, inclusion survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.every_substitution_preserves_coverage_iff",
@@ -13001,7 +13001,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For initially covered known expressions, coverage survives every target scope and every known/unknown replacement exactly when the left live dependencies are included in the right dependencies.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.SymbolicContract.unknown_substitution_can_break_inclusion",
@@ -13010,7 +13010,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A concrete filesystem-effect parameter hidden by a direct contribution breaks exact inclusion when replaced with an unknown contract.",
-      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; all 77 full-core obligations remain planned."
+      "boundary": "Model laws over the shared symbolic effect domain. Source typing must establish the dependency condition. No Rust conformance, complete syntax, effect extraction, or runtime claim; this closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Value.referencesValid_mono",
@@ -13208,7 +13208,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The implication decision accepts identical predicates for every parameter scope.",
-      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. All 77 universal obligations remain planned."
+      "boundary": "The finite production comparison is separate evidence. Soundness for known coverage contracts is recorded separately; universal Rust correspondence remains open. It closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.EffectPredicate.implies_sound",
@@ -13226,7 +13226,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A zero divisor of checked Int division or remainder is a division-by-zero error.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_ok",
@@ -13235,7 +13235,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "An accepted checked Int operation returns the exact mathematical result, its witness fits signed 64 bits, and a division or remainder divisor is nonzero.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.Arith.checked_overflow",
@@ -13244,7 +13244,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A checked Int operation overflows exactly when its divisor is not a rejected zero and its witness leaves signed 64 bits.",
-      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows. Universal Rust refinement, source folding and diagnostic correspondence remain open. All 77 universal obligations remain planned."
+      "boundary": "The shared production decision has a separate finite comparison over 720 boundary rows and the extracted refinement impl.arith.checked_int_binary over all i64 operands, conditional on its extraction pipeline; adapter folding and diagnostic correspondence remain open. It closes no universal obligation; seven of the 77 are closed."
     },
     {
       "id": "fragment.Xsh.Core.CleanupPolicy.disposition_contract",
