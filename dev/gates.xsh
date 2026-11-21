@@ -577,6 +577,7 @@ pure required_products(selection: Selection) -> List[tests.Product] {
 
 const manual_lean_conformance = "production_matches_lean_"
 const manual_program_image_measurements = "formal_bridge::raw_full::program_image::awk_program_image_"
+const manual_raw_ir_module_writer = "formal_bridge::raw_full::program_image::write_lean_raw_ir_modules"
 
 pure skipping(names: List[Str]) -> List[Str] {
   collect {
@@ -623,7 +624,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-sema-bundle-view", [@root_target, "sema_bundle_view::"])?,
     ]
     Runtime => [
-      rust_gate(ctx, profile, "test-runtime-unit", [@root_lib, "runtime::", "--", "--skip", manual_lean_conformance, "--skip", manual_program_image_measurements], debug: true)?,
+      rust_gate(ctx, profile, "test-runtime-unit", [@root_lib, "runtime::", "--", "--skip", manual_lean_conformance, "--skip", manual_program_image_measurements, "--skip", manual_raw_ir_module_writer], debug: true)?,
       rust_gate(ctx, profile, "test-runner-unit", [@root_lib, "runner::"], debug: true)?,
       rust_gate(ctx, profile, "test-trace-unit", [@root_lib, "trace::"], debug: true)?,
       rust_gate(ctx, profile, "test-net-unit", ["-p", "xsh-net", "--lib"], debug: true)?,
@@ -670,7 +671,7 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@xsht_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, rust_gate(ctx, profile, "test-grammar-rust", [@root_target, "grammar::"])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
       Grammar => plan += [rust_gate(ctx, profile, "test-grammar", ["-p", "xsh-fuzz", "--test", "soundness", "generated_programs_are_grammar_sentences"])?, native_gate(ctx, profile, "tests/xsh/tooling-commands.xsh")],
       Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, rust_gate(ctx, profile, "test-sema-unit", [@root_lib, "sema::", "--", "--skip", "sema::check::resource::tests::w9_resource_scope_attribution", "--skip", manual_lean_conformance], debug: true)?, native_gate(ctx, profile, "tests/xsh/checker-")],
-      Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval", "--", "--skip", manual_lean_conformance, "--skip", manual_program_image_measurements], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval", "--", "--skip", manual_lean_conformance, "--skip", manual_program_image_measurements, "--skip", manual_raw_ir_module_writer], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       RouteWitness => {
         plan += [rust_gate(ctx, profile, "test-route-witness-unit", [@root_lib, "runtime::eval::route_witness::tests"], debug: true)?]

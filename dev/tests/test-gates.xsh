@@ -803,7 +803,7 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     {path: "src/syntax/token.rs", stage: "test-syntax-unit", words: ["-p", "xsh", "--lib", "syntax::"], debug: true},
     {path: "src/modules/json.rs", stage: "test-modules-unit", words: ["-p", "xsh", "--lib", "modules::", "--skip", "modules::linux::real::netlink::tests::live_raw_reply_capture_or_replay_uses_the_network_decoder"], debug: true},
     {path: "src/runner.rs", stage: "test-runner-unit", words: ["-p", "xsh", "--lib", "runner::"], debug: true},
-    {path: "src/runtime/value.rs", stage: "test-runtime-unit", words: ["-p", "xsh", "--lib", "runtime::", "formal_bridge::raw_full::program_image::awk_program_image_"], debug: true},
+    {path: "src/runtime/value.rs", stage: "test-runtime-unit", words: ["-p", "xsh", "--lib", "runtime::", "formal_bridge::raw_full::program_image::awk_program_image_", "formal_bridge::raw_full::program_image::write_lean_raw_ir_modules"], debug: true},
     {path: "src/trace.rs", stage: "test-trace-unit", words: ["-p", "xsh", "--lib", "trace::"], debug: true},
     {path: "src/stdlib.rs", stage: "test-stdlib-unit", words: ["-p", "xsh", "--lib", "stdlib::", "--skip", "stdlib::tests::cold_start_phase_profile"], debug: true},
     {path: "src/loader.rs", stage: "test-loader-unit", words: ["-p", "xsh", "--lib", "loader::"], debug: true},

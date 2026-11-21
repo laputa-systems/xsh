@@ -139,15 +139,6 @@ out of scope.
 - **Fix with:** error-model, os-boundaries
 - **Effort:** S
 
-### XSH-171 · P2 · The runtime gate cases count the raw-IR module writer as unresolved
-
-- **Area:** Tooling
-- **Where:** `dev/gates.xsh:578-579` (the manual skip names), `dev/gates.xsh:626,673` (`test-runtime-unit` and `test-lowering`), `src/runtime/eval/indexed/full/formal_bridge/raw_full/program_image.rs:2135-2141` (`#[ignore]` `write_lean_raw_ir_modules`)
-- **Problem:** Since the raw-IR merge (884c096ce), `test-runtime-unit` (`runtime::`) and `test-lowering` (`runtime::eval`) select the ignored writer `write_lean_raw_ir_modules`, and the gate reports an ignored test as unresolved, so both cases end `incomplete` (exit 2) for any change. On lane/impl-adapters they reported `passed=1816, skipped=1` and `passed=1780, skipped=1`, with the writer as the only unresolved case. Every narrow gate that selects either case cannot pass.
-- **Recommendation:** Exclude the writer as the gates already exclude the other manual tests (`production_matches_lean_`, the program-image measurements): add its name to the `--skip` lists of both cases and to the expectations in `dev/tests/test-gates.xsh`.
-- **Fix with:** none
-- **Effort:** S
-
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
