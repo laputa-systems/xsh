@@ -10,6 +10,16 @@ fn closed(count: u32) -> PayloadShape {
     PayloadShape::Choice((0..count).map(|tag| (tag, PayloadShape::Fields(Vec::new()))).collect())
 }
 
+pub(super) fn codec_width<T: FullCodec>(operands: &[u32]) -> u32 {
+    let store = FullStore::default();
+    let decoder = stage_view_decoder(&store);
+    let width = (0u32..).take_while(|tag| {
+        let words = std::iter::once(*tag).chain(operands.iter().copied()).collect::<Vec<_>>();
+        T::decode(&decoder, &mut FullCursor::new(&words)).is_ok()
+    }).count();
+    u32::try_from(width).expect("a closed codec decodes fewer than u32::MAX tags")
+}
+
 fn shape<T: PayloadWords>() -> PayloadShape {
     T::shape()
 }
@@ -69,22 +79,25 @@ macro_rules! double_word_shapes {
 double_word_shapes!(i64, u64, FloatValue, DurationValue);
 
 macro_rules! closed_shapes {
-    ($($ty:ty => $count:literal),* $(,)?) => {$(
+    ($($ty:ty),* $(,)?) => {$(
         impl PayloadWords for $ty {
-            fn shape() -> PayloadShape { closed($count) }
+            fn shape() -> PayloadShape {
+                static WIDTH: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+                closed(*WIDTH.get_or_init(|| codec_width::<$ty>(&[])))
+            }
         }
     )*};
 }
 
 closed_shapes! {
-    bool => 2,
-    LoweredStrPredicate => 2,
-    ReduceByOp => 3,
-    HashAlgorithm => 4,
-    crate::syntax::arena::UnknownFields => 3,
-    crate::syntax::arena::ContextScopeKind => 3,
-    crate::syntax::arena::RetrySchedule => 2,
-    CallableKind => 3,
+    bool,
+    LoweredStrPredicate,
+    ReduceByOp,
+    HashAlgorithm,
+    crate::syntax::arena::UnknownFields,
+    crate::syntax::arena::ContextScopeKind,
+    crate::syntax::arena::RetrySchedule,
+    CallableKind,
 }
 
 impl PayloadWords for QualifiedName {
@@ -104,7 +117,8 @@ impl PayloadWords for FunctionName {
 
 impl PayloadWords for FormatSpec {
     fn shape() -> PayloadShape {
-        PayloadShape::Fields(vec![closed(3), word(WordRole::Raw)])
+        static WIDTH: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        PayloadShape::Fields(vec![closed(*WIDTH.get_or_init(|| codec_width::<FormatSpec>(&[0]))), word(WordRole::Raw)])
     }
 }
 

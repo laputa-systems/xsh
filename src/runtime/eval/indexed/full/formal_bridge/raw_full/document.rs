@@ -214,7 +214,7 @@ fn decode_field(template: &Field, value: WireValue) -> Result<Field, String> {
 
 pub(super) fn decode(input: &str, template: &Document) -> Result<Document, String> {
     let names = template.iter().map(|(name, _)| *name).collect::<Vec<_>>();
-    let mut fields = parse_object_fields(parse_wire_document(input)?, &names)?;
+    let mut fields = parse_object_fields(parse_wire_value(input)?, &names)?;
     template.iter().map(|(name, field)| {
         let value = fields.remove(*name).ok_or_else(|| format!("missing required wire field {name:?}"))?;
         Ok((*name, decode_field(field, value)?))
@@ -325,10 +325,14 @@ pub(super) fn lean_schema_module() -> String {
         ("redirectionKindCount", RedirectionKind::ALL.len()),
         ("deferKindCount", (0..).take_while(|raw| crate::runtime::eval::DeferKind::from_encoded(*raw).is_some()).count()),
         ("textHoleKindCount", crate::sema::check::TextHoleKind::ALL.len()),
+        ("callableKindCount", super::shapes::codec_width::<CallableKind>(&[]) as usize),
     ];
     for (name, count) in counts {
         output.push_str(&format!("def {name} : Nat := {count}\n\n"));
     }
+    let transfers = schema::INSTRUCTION_TAGS.iter().filter(|tag| is_resource_transfer_instruction(**tag))
+        .map(|tag| (*tag as u32).to_string()).collect::<Vec<_>>();
+    output.push_str(&format!("def resourceTransferOrdinals : List Nat := [{}]\n\n", transfers.join(", ")));
     output.push_str("end Xsh.IR.Raw\n");
     output
 }

@@ -280,4 +280,8 @@ def deferKindCount : Nat := 3
 
 def textHoleKindCount : Nat := 6
 
+def callableKindCount : Nat := 3
+
+def resourceTransferOrdinals : List Nat := [120, 121, 123, 126, 150, 151, 152, 154]
+
 end Xsh.IR.Raw

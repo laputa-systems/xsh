@@ -2010,8 +2010,53 @@ fn program_image_rekeys_symbols_reallocated_to_other_spellings() {
 }
 
 const EXPORTED_SCRIPT: &str = "tests/fixtures/runtime/formal-raw-ir-points.xsh";
+const FEATURES_SCRIPT: &str = "formal/tests/fixtures/raw-ir-features.xsh";
 const LEAN_RAW_SCHEMA: &str = "formal/Xsh/IR/Raw/Schema.lean";
-const LEAN_RAW_EXPORT: &str = "formal/Xsh/IR/Raw/Exported.lean";
+const LEAN_RAW_EXPORTS: [(&str, &str, &str); 2] = [
+    (EXPORTED_SCRIPT, "formal/Xsh/IR/Raw/Exported.lean", "exportedDocumentCodes"),
+    (FEATURES_SCRIPT, "formal/Xsh/IR/Raw/ExportedFeatures.lean", "featuresDocumentCodes"),
+];
+const CHECKOUT_LABEL: &str = "/xsh";
+
+fn relabel_checkout(document: &mut super::document::Document) {
+    use super::document::Field;
+    let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap().to_string_lossy().into_owned();
+    let mentions_root = document.iter().any(|(_, field)| match field {
+        Field::Texts(texts) => texts.iter().any(|text| text.contains(root.as_str())),
+        Field::Bytes(bytes) => String::from_utf8_lossy(bytes).contains(root.as_str()),
+        _ => false,
+    });
+    if !mentions_root {
+        return;
+    }
+    let relabel = |text: &str| text.replace(root.as_str(), CHECKOUT_LABEL);
+    let mut ranges = Vec::new();
+    let mut bytes = Vec::new();
+    for (name, field) in document.iter_mut() {
+        match (*name, field) {
+            ("symbols", Field::Texts(texts)) => texts.iter_mut().for_each(|text| *text = relabel(text)),
+            ("strings", Field::Rows(_, rows)) => ranges = std::mem::take(rows),
+            ("stringBytes", Field::Bytes(pool)) => bytes = std::mem::take(pool),
+            _ => {}
+        }
+    }
+    let mut pool = Vec::new();
+    let rows = ranges.iter().map(|range| {
+        let start = range[0] as usize;
+        let text = std::str::from_utf8(&bytes[start..start + range[1] as usize]).unwrap();
+        let relabeled = relabel(text);
+        let row = vec![u32::try_from(pool.len()).unwrap(), u32::try_from(relabeled.len()).unwrap()];
+        pool.extend_from_slice(relabeled.as_bytes());
+        row
+    }).collect::<Vec<_>>();
+    for (name, field) in document.iter_mut() {
+        match (*name, field) {
+            ("strings", Field::Rows(_, table)) => *table = rows.clone(),
+            ("stringBytes", Field::Bytes(table)) => *table = pool.clone(),
+            _ => {}
+        }
+    }
+}
 
 fn checked_document(path: &'static str) -> super::document::Document {
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -2024,18 +2069,28 @@ fn checked_document(path: &'static str) -> super::document::Document {
 
 const LEAN_DOCUMENT_CHUNK: usize = 1000;
 
-fn lean_export_module(document: &str) -> String {
+fn lean_export_module(definition: &str, document: &str) -> String {
     assert!(document.is_ascii(), "the exported raw-IR document is ASCII");
     let chunks = document.as_bytes().chunks(LEAN_DOCUMENT_CHUNK)
         .map(|chunk| std::str::from_utf8(chunk).expect("ASCII chunks are UTF-8")).collect::<Vec<_>>();
     let mut output = String::from("namespace Xsh.IR.Raw\n\n");
     for (index, chunk) in chunks.iter().enumerate() {
-        output.push_str(&lean_definition(&format!("exportedDocumentCodes{index}"), chunk));
+        output.push_str(&lean_definition(&format!("{definition}{index}"), chunk));
         output.push('\n');
     }
-    let parts = (0..chunks.len()).map(|index| format!("exportedDocumentCodes{index}")).collect::<Vec<_>>().join(" ++ ");
-    output.push_str(&format!("def exportedDocumentCodes : List Nat :=\n  {parts}\n\nend Xsh.IR.Raw\n"));
+    let parts = (0..chunks.len()).map(|index| format!("{definition}{index}")).collect::<Vec<_>>().join(" ++ ");
+    output.push_str(&format!("def {definition} : List Nat :=\n  {parts}\n\nend Xsh.IR.Raw\n"));
     output
+}
+
+fn lean_raw_ir_modules() -> Vec<(&'static str, String)> {
+    let mut modules = vec![(LEAN_RAW_SCHEMA, super::document::lean_schema_module())];
+    for (script, module, definition) in LEAN_RAW_EXPORTS {
+        let mut document = checked_document(script);
+        relabel_checkout(&mut document);
+        modules.push((module, lean_export_module(definition, &super::document::encode(&document).unwrap())));
+    }
+    modules
 }
 
 fn lean_module_path(path: &str) -> std::path::PathBuf {
@@ -2045,9 +2100,7 @@ fn lean_module_path(path: &str) -> std::path::PathBuf {
 #[test]
 fn raw_ir_document_round_trips_and_rejects_malformed_tables() {
     use super::document::{decode, encode, Field};
-    let oversized = checked_document(AWK_SCRIPT);
-    assert!(decode(&encode(&oversized).unwrap(), &oversized).is_err_and(|error| error.contains("byte limit")));
-    for path in [EXPORTED_SCRIPT, COLLISION_SCRIPT, "tests/fixtures/runtime/cli-simple.xsh"] {
+    for path in [EXPORTED_SCRIPT, FEATURES_SCRIPT, COLLISION_SCRIPT, "tests/fixtures/runtime/cli-simple.xsh", AWK_SCRIPT] {
         let document = checked_document(path);
         let text = encode(&document).unwrap();
         let decoded = decode(&text, &document).unwrap();
@@ -2073,9 +2126,7 @@ fn raw_ir_document_round_trips_and_rejects_malformed_tables() {
 
 #[test]
 fn lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export() {
-    let schema = super::document::lean_schema_module();
-    let export = lean_export_module(&super::document::encode(&checked_document(EXPORTED_SCRIPT)).unwrap());
-    let stale = [(LEAN_RAW_SCHEMA, schema), (LEAN_RAW_EXPORT, export)].into_iter()
+    let stale = lean_raw_ir_modules().into_iter()
         .filter(|(path, text)| std::fs::read_to_string(lean_module_path(path)).ok().as_deref() != Some(text.as_str()))
         .map(|(path, _)| path).collect::<Vec<_>>();
     assert!(stale.is_empty(), "the generated Lean raw-IR modules {stale:?} are stale; run the ignored test write_lean_raw_ir_modules");
@@ -2084,9 +2135,9 @@ fn lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export() {
 #[test]
 #[ignore = "writes the generated Lean raw-IR schema and exported document modules"]
 fn write_lean_raw_ir_modules() {
-    std::fs::write(lean_module_path(LEAN_RAW_SCHEMA), super::document::lean_schema_module()).unwrap();
-    let export = lean_export_module(&super::document::encode(&checked_document(EXPORTED_SCRIPT)).unwrap());
-    std::fs::write(lean_module_path(LEAN_RAW_EXPORT), export).unwrap();
+    for (path, text) in lean_raw_ir_modules() {
+        std::fs::write(lean_module_path(path), text).unwrap();
+    }
 }
 
 const ARCH_SCRIPT: &str = "core/arch.xsh";

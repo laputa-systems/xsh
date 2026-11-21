@@ -1,5 +1,5 @@
 use super::super::*;
-use super::{build_fixture, check_fixture, lean_definition, lean_document_from, parse_hex_u32, parse_hex_u64, parse_object_fields, parse_wire_document,
+use super::{build_fixture, check_fixture, lean_definition, lean_document_from, parse_hex_u32, parse_hex_u64, parse_object_fields, parse_wire_document, parse_wire_value,
     take_array, take_string, wire_object, wire_string, WireValue};
 use crate::runtime::eval::indexed::semantic::{RawSemanticPools, SemanticPools};
 
