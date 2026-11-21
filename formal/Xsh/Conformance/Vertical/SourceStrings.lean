@@ -392,6 +392,21 @@ theorem decode_escapes_eq (content : List UInt8) (offset : Nat) :
 theorem decode_escapes_nil (offset : Nat) : decodeEscapes [] offset = none := by
   rw [decode_escapes_eq]
 
+theorem decode_escapes_skip (rest : List UInt8) (offset k : Nat)
+    (valid : classifyEscape rest = .valid k) :
+    decodeEscapes (92 :: rest) offset = decodeEscapes (rest.drop k) (offset + 1 + k) := by
+  rw [decode_escapes_eq]; simp only [valid]
+
+theorem decode_escapes_here (rest : List UInt8) (offset k : Nat)
+    (invalid : classifyEscape rest = .invalid k) :
+    decodeEscapes (92 :: rest) offset = some ⟨offset, offset + 1 + k⟩ := by
+  rw [decode_escapes_eq]; simp only [invalid]
+
+theorem decode_escapes_past (byte : UInt8) (rest : List UInt8) (offset : Nat)
+    (notBackslash : byte ≠ 92) :
+    decodeEscapes (byte :: rest) offset = decodeEscapes rest (offset + 1) := by
+  rw [decode_escapes_eq]; simp only
+
 /-- The result of scanning a whole byte string for its first string error. -/
 inductive StringResult where
   | clean
@@ -415,6 +430,257 @@ decreasing_by
   · have bound := closed_drop_shorter rest after hbody
     simp only [List.length_cons]; omega
   · simp
+
+/-- The first invalid escape in `content`, from absolute offset `offset`, stated declaratively.
+An escape's validity is decided by `classifyEscape`; this relation only fixes which one is
+first and the span the SPEC names: the backslash through the escape's syntax. -/
+inductive EscapeError : List UInt8 → Nat → Span → Prop where
+  | here {offset : Nat} {rest : List UInt8} {k : Nat} :
+      classifyEscape rest = .invalid k → EscapeError (92 :: rest) offset ⟨offset, offset + 1 + k⟩
+  | skip {offset : Nat} {rest : List UInt8} {k : Nat} {span : Span} :
+      classifyEscape rest = .valid k → EscapeError (rest.drop k) (offset + 1 + k) span →
+      EscapeError (92 :: rest) offset span
+  | past {offset : Nat} {byte : UInt8} {rest : List UInt8} {span : Span} :
+      byte ≠ 92 → EscapeError rest (offset + 1) span → EscapeError (byte :: rest) offset span
+
+theorem escape_error_sound {content : List UInt8} {offset : Nat} {span : Span}
+    (derivation : EscapeError content offset span) : decodeEscapes content offset = some span := by
+  induction derivation with
+  | here invalid => exact decode_escapes_here _ _ _ invalid
+  | skip valid inner ih => rw [decode_escapes_skip _ _ _ valid]; exact ih
+  | past notBackslash inner ih => rw [decode_escapes_past _ _ _ notBackslash]; exact ih
+
+theorem escape_error_complete (content : List UInt8) (offset : Nat) (span : Span)
+    (found : decodeEscapes content offset = some span) : EscapeError content offset span := by
+  let motive (n : Nat) : Prop := ∀ content : List UInt8, content.length = n →
+    ∀ offset span, decodeEscapes content offset = some span → EscapeError content offset span
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro content len offset span found
+      cases content with
+      | nil => rw [decode_escapes_nil] at found; cases found
+      | cons byte rest =>
+        by_cases backslash : byte = 92
+        · subst backslash
+          cases check : classifyEscape rest with
+          | valid k =>
+            rw [decode_escapes_skip rest offset k check] at found
+            have dropShorter : (rest.drop k).length < n := by
+              simp only [List.length_cons] at len ⊢
+              have := List.length_drop (l := rest) (i := k)
+              omega
+            exact .skip check (ih _ dropShorter _ rfl _ _ found)
+          | invalid k =>
+            rw [decode_escapes_here rest offset k check] at found
+            cases found
+            exact .here check
+        · rw [decode_escapes_past byte rest offset backslash] at found
+          have shorter : rest.length < n := by simp only [List.length_cons] at len; omega
+          exact .past backslash (ih _ shorter _ rfl _ _ found)
+  exact key content.length content rfl offset span found
+
+theorem decode_escapes_iff (content : List UInt8) (offset : Nat) (span : Span) :
+    decodeEscapes content offset = some span ↔ EscapeError content offset span :=
+  ⟨escape_error_complete content offset span, escape_error_sound⟩
+
+theorem decode_escapes_none_iff (content : List UInt8) (offset : Nat) :
+    decodeEscapes content offset = none ↔ ∀ span, ¬ EscapeError content offset span := by
+  constructor
+  · intro none span found
+    have someEq := (decode_escapes_iff content offset span).mpr found
+    rw [none] at someEq
+    cases someEq
+  · intro absent
+    cases found : decodeEscapes content offset with
+    | none => rfl
+    | some span => exact absurd ((decode_escapes_iff content offset span).mp found) (absent span)
+
+/-- The declarative reading of the whole-source string scan, in the SPEC's three cases over
+the declared envelope. `unterminated`'s span runs from the opening quote to the end of input;
+`invalid`'s span is the escape; otherwise the scan continues after the closed string. -/
+inductive DeclaredString : List UInt8 → Nat → StringResult → Prop where
+  | cleanNil (offset : Nat) : DeclaredString [] offset .clean
+  | outsideText {offset : Nat} {byte : UInt8} {rest : List UInt8} {result : StringResult} :
+      byte ≠ 34 → DeclaredString rest (offset + 1) result →
+      DeclaredString (byte :: rest) offset result
+  | unterminated {offset : Nat} {rest : List UInt8} :
+      BodyScan rest .unclosed →
+      DeclaredString (34 :: rest) offset
+        (.failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩))
+  | invalid {offset : Nat} {rest after : List UInt8} {span : Span} :
+      BodyScan rest (.closed after) →
+      EscapeError (rest.take (rest.length - after.length)) (offset + 1) span →
+      DeclaredString (34 :: rest) offset (.failed (.invalidEscape span))
+  | closedClean {offset : Nat} {rest after : List UInt8} {result : StringResult} :
+      BodyScan rest (.closed after) →
+      (∀ span, ¬ EscapeError (rest.take (rest.length - after.length)) (offset + 1) span) →
+      DeclaredString after (offset + (rest.length + 1 - after.length)) result →
+      DeclaredString (34 :: rest) offset result
+
+theorem scan_strings_nil (offset : Nat) : scanStrings offset [] = .clean := by
+  rw [scanStrings.eq_def]
+
+theorem scan_strings_text (byte : UInt8) (rest : List UInt8) (offset : Nat)
+    (notQuote : byte ≠ 34) :
+    scanStrings offset (byte :: rest) = scanStrings (offset + 1) rest := by
+  rw [scanStrings.eq_def]
+  simp only
+
+theorem scan_strings_unterminated (rest : List UInt8) (offset : Nat)
+    (unclosed : scanBody rest = .unclosed) :
+    scanStrings offset (34 :: rest) =
+      .failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩) := by
+  conv => lhs; rw [scanStrings.eq_def]
+  simp only
+  split
+  · rfl
+  · rename_i after hclosed
+    rw [unclosed] at hclosed
+    cases hclosed
+
+theorem scan_strings_invalid (rest after : List UInt8) (offset : Nat) (span : Span)
+    (closed : scanBody rest = .closed after)
+    (invalid : decodeEscapes (rest.take (rest.length - after.length)) (offset + 1) = some span) :
+    scanStrings offset (34 :: rest) = .failed (.invalidEscape span) := by
+  conv => lhs; rw [scanStrings.eq_def]
+  simp only
+  split
+  · rename_i hopen
+    rw [closed] at hopen
+    cases hopen
+  · rename_i found hfound
+    rw [closed] at hfound
+    cases hfound
+    simp only [invalid]
+
+theorem scan_strings_clean (rest after : List UInt8) (offset : Nat)
+    (closed : scanBody rest = .closed after)
+    (clean : decodeEscapes (rest.take (rest.length - after.length)) (offset + 1) = none) :
+    scanStrings offset (34 :: rest) =
+      scanStrings (offset + (rest.length + 1 - after.length)) after := by
+  conv => lhs; rw [scanStrings.eq_def]
+  simp only
+  split
+  · rename_i hopen
+    rw [closed] at hopen
+    cases hopen
+  · rename_i found hfound
+    rw [closed] at hfound
+    cases hfound
+    simp only [clean]
+
+theorem declared_string_sound {bytes : List UInt8} {offset : Nat} {result : StringResult}
+    (derivation : DeclaredString bytes offset result) : scanStrings offset bytes = result := by
+  induction derivation with
+  | cleanNil => exact scan_strings_nil _
+  | outsideText notQuote inner ih => rw [scan_strings_text _ _ _ notQuote]; exact ih
+  | unterminated body =>
+    exact scan_strings_unterminated _ _ ((body_scan_iff _ _).mpr body)
+  | invalid body escape =>
+    exact scan_strings_invalid _ _ _ _
+      ((body_scan_iff _ _).mpr body)
+      ((decode_escapes_iff _ _ _).mpr escape)
+  | closedClean body absent inner ih =>
+    rw [scan_strings_clean _ _ _ ((body_scan_iff _ _).mpr body)
+      ((decode_escapes_none_iff _ _).mpr absent)]
+    exact ih
+
+theorem declared_string_self (bytes : List UInt8) (offset : Nat) :
+    DeclaredString bytes offset (scanStrings offset bytes) := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n →
+    ∀ offset, DeclaredString bytes offset (scanStrings offset bytes)
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len offset
+      cases bytes with
+      | nil => rw [scan_strings_nil]; exact .cleanNil offset
+      | cons byte rest =>
+        by_cases quote : byte = 34
+        · subst quote
+          cases body : scanBody rest with
+          | unclosed =>
+            rw [scan_strings_unterminated rest offset body]
+            exact .unterminated ((body_scan_iff _ _).mp body)
+          | closed after =>
+            cases escape : decodeEscapes (rest.take (rest.length - after.length)) (offset + 1) with
+            | some span =>
+              rw [scan_strings_invalid rest after offset span body escape]
+              exact .invalid ((body_scan_iff _ _).mp body)
+                ((decode_escapes_iff _ _ _).mp escape)
+            | none =>
+              rw [scan_strings_clean rest after offset body escape]
+              have shorter : after.length < n := by
+                simp only [List.length_cons] at len
+                have bound := closed_drop_shorter rest after body
+                omega
+              exact .closedClean ((body_scan_iff _ _).mp body)
+                ((decode_escapes_none_iff _ _).mp escape)
+                (ih after.length shorter after rfl (offset + (rest.length + 1 - after.length)))
+        · rw [scan_strings_text byte rest offset quote]
+          have shorter : rest.length < n := by simp only [List.length_cons] at len; omega
+          exact .outsideText quote (ih rest.length shorter rest rfl (offset + 1))
+  exact key bytes.length bytes rfl offset
+
+theorem declared_string_iff (bytes : List UInt8) (offset : Nat) (result : StringResult) :
+    scanStrings offset bytes = result ↔ DeclaredString bytes offset result := by
+  constructor
+  · intro same
+    rw [← same]
+    exact declared_string_self bytes offset
+  · exact declared_string_sound
+
+
+/-! ## String witnesses -/
+
+theorem lone_quote_unterminated :
+    scanStrings 0 [34] = .failed (.unterminatedString ⟨0, 1⟩) := by
+  decide +kernel
+
+theorem lone_quote_unterminated_span :
+    DeclaredString [34] 0 (.failed (.unterminatedString ⟨0, 1⟩)) :=
+  (declared_string_iff _ _ _).mp lone_quote_unterminated
+
+theorem escaped_quote_scan_clean :
+    scanStrings 0 [34, 97, 92, 34, 98, 34] = .clean := by
+  decide +kernel
+
+theorem invalid_escape_witness :
+    scanStrings 0 [34, 97, 92, 113, 98, 34] =
+      .failed (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem short_hex_escape_witness :
+    scanStrings 0 [34, 97, 92, 120, 52, 34] =
+      .failed (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem backslash_before_line_feed_witness :
+    scanStrings 0 [34, 97, 92, 10, 98, 34] =
+      .failed (.invalidEscape ⟨2, 4⟩) := by
+  decide +kernel
+
+theorem unterminated_after_backslash :
+    scanStrings 0 [34, 97, 92] =
+      .failed (.unterminatedString ⟨0, 3⟩) := by
+  decide +kernel
+
+theorem unicode_out_of_range_witness :
+    scanStrings 0 [34, 92, 117, 123, 49, 49, 48, 48, 48, 48, 125, 34] =
+      .failed (.invalidEscape ⟨1, 11⟩) := by
+  decide +kernel
+
+theorem surrogate_unicode_witness :
+    scanStrings 0 [34, 92, 117, 123, 68, 56, 48, 48, 125, 34] =
+      .failed (.invalidEscape ⟨1, 9⟩) := by
+  decide +kernel
+
+theorem valid_unicode_escape_scan_clean :
+    scanStrings 0 [34, 92, 117, 123, 52, 56, 125, 34] = .clean := by
+  decide +kernel
 
 end SourceAdmission
 
