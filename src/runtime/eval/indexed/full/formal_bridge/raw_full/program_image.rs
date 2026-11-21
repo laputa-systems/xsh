@@ -521,6 +521,7 @@ image_unit_enums! {
     crate::sema::sealed_operation::MembershipDomain { List, Set, Map, UnsignedMap, Record, Str, Bytes, Path, EnvPath }
     crate::sema::wrapper_operation::WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
     crate::syntax::arena::UnknownFields { Preserve, Reject, Strip }
+    xsh_registry::types::BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
     crate::modules::MethodReceiver { PathConstructor, Result, EnvPathList, Path, Int, Float, List, Map, Record, Stream, Str, Bytes, Status, Digest, Regex, ProcessHandle, NetJob, FsRoot, NonEmpty, RelPath, Set }
     CheckedPatternVariantKind { Tag, Error }
     Effect { Fs, Net, Process, Env, Time, Error, Io }
@@ -670,6 +671,10 @@ macro_rules! image_enums {
 }
 
 image_structs! {
+    crate::sema::types::TypedCallable { kind, sig }
+    crate::sema::types::CallableType { params, return_ty, effects }
+    crate::sema::types::CallableParamType { name, ty, defaulted, rest }
+    crate::sema::types::ModuleType { exports, exact }
     IrData { lhs, rhs }
     IrRange { start, len }
     IrLocation { start, len }
@@ -756,6 +761,8 @@ image_structs! {
 }
 
 image_enums! {
+    crate::sema::types::ModuleExportType { Value { ty, optional } = 0, Callable { kind, sig, optional } = 1, GenericCallable { kind, optional } = 2 }
+    crate::sema::validated::Validation { NonEmpty = 0, RelPath = 1, Nominal(name) = 2, Range(range) = 3 }
     crate::sema::schemes::RegisteredArgumentCheck { Unsigned(ty) = 0, UIntMapKey = 1 }
     schemes::FullOperationBinding { Selected(signature) = 0, Forwarded(ordinal) = 1 }
     schemes::FullMethodBinding { Selected(id) = 0, SelectedFunction(id) = 1, Forwarded(ordinal) = 2 }
@@ -1104,25 +1111,165 @@ fn registered_call_plan_image_preserves_signature_identity() {
     }
 }
 
-impl ImageCodec for crate::sema::types::Type {
-    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
-        use crate::runtime::eval::indexed::semantic::{SemanticPoolBuilder, SemanticPools};
-        let mut pools = SemanticPools::default();
-        let id = SemanticPoolBuilder::default().intern_type(&mut pools, self)
-            .map_err(|error| ImageError::Unsupported(format!("semantic type cannot be encoded: {error:?}")))?;
-        id.put(output)?;
-        put_semantic(&pools.export_raw(&SymbolOwner::new()), output)
-    }
+macro_rules! image_raw_u64 {
+    ($($ty:ty),* $(,)?) => {$(
+        impl ImageCodec for $ty {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.image_raw().put(output) }
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> { Ok(Self::from_image_raw(u64::take(input)?)) }
+        }
+    )*};
+}
 
+image_raw_u64!(crate::sema::constraints::TypeVariableId, crate::sema::constraints::EffectVariableId);
+
+impl ImageCodec for crate::sema::types::SchemeCallableId {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.image_raw().put(output) }
     fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
-        input.nested(|input| {
-            let id = TypeId::take(input)?;
-            let raw = take_semantic(input, SymbolOwner::new())?;
-            let (pools, _) = crate::runtime::eval::indexed::semantic::SemanticPools::from_raw(raw);
-            pools.verify().map_err(|error| ImageError::Malformed(format!("semantic type tables are invalid: {error:?}")))?;
-            pools.to_type(id).map_err(|error| ImageError::Malformed(format!("semantic type is invalid: {error:?}")))
-        })
+        let (owner, index) = ImageCodec::take(input)?;
+        Self::from_image_raw(owner, index).map_or_else(|| malformed("scheme callable owner is zero"), Ok)
     }
+}
+
+impl ImageCodec for crate::sema::validated::IntRange {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.low().put(output)?; self.high().put(output) }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        Self::new(i64::take(input)?, i64::take(input)?).map_or_else(|| malformed("integer range is empty"), Ok)
+    }
+}
+
+impl ImageCodec for crate::sema::validated::ValidatedType {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> { self.validation().put(output)?; self.base().put(output) }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        Self::new(ImageCodec::take(input)?, ImageCodec::take(input)?).map_err(ImageError::Malformed)
+    }
+}
+
+impl ImageCodec for crate::sema::effects::CallableEffects {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::sema::effects::EffectContract;
+        match self.contract() {
+            EffectContract::Unknown => 0u8.put(output),
+            EffectContract::Known(expression) => {
+                1u8.put(output)?;
+                expression.direct().bits().put(output)?;
+                expression.variables().map(|(id, mask)| (*id, mask.bits())).collect::<BTreeMap<_, _>>().put(output)
+            }
+        }
+    }
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::sema::effects::{EffectContract, EffectExpr, EffectSet};
+        match u8::take(input)? {
+            0 => Ok(Self::unknown()),
+            1 => {
+                let direct = EffectSet::from_bits(u8::take(input)?).ok_or_else(|| ImageError::Malformed("invalid effect bits".into()))?;
+                let variables = BTreeMap::<crate::sema::constraints::EffectVariableId, u8>::take(input)?;
+                let mut expression = EffectExpr::finite(direct);
+                for (variable, bits) in variables {
+                    let mask = EffectSet::from_bits(bits).filter(|mask| !mask.is_empty()).ok_or_else(|| ImageError::Malformed("invalid effect mask".into()))?;
+                    expression = expression.union(EffectExpr::variable(variable).masked(mask));
+                }
+                Ok(Self::from_contract(EffectContract::Known(expression)))
+            }
+            _ => malformed("callable effects tag is invalid"),
+        }
+    }
+}
+
+macro_rules! image_type {
+    ($($variant:ident $(($($tuple:ident),*))? $({$($named:ident),*})? = $index:literal),* $(,)?) => {
+        impl ImageCodec for crate::sema::types::Type {
+            fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+                use crate::sema::types::Type as T;
+                match self {
+                    $(T::$variant $(($($tuple),*))? $({$($named),*})? => {
+                        output.u8($index);
+                        $($(ImageCodec::put($tuple, output)?;)*)?
+                        $($(ImageCodec::put($named, output)?;)*)?
+                    })*
+                }
+                Ok(())
+            }
+            fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+                use crate::sema::types::Type as T;
+                input.nested(|input| match input.u8()? {
+                    $($index => Ok(T::$variant $(($(image_field!($tuple, input)),*))? $({$($named: ImageCodec::take(input)?),*})?),)*
+                    _ => malformed("semantic type tag is invalid"),
+                })
+            }
+        }
+    };
+}
+
+image_type! {
+    BuiltinParameter(parameter) = 0, Inference(variable) = 1, Any = 2, Unknown = 3, Invalid = 4,
+    Null = 5, Bool = 6, Int = 7, UInt = 8, Float = 9, Duration = 10, Str = 11, Bytes = 12,
+    Digest = 13, Regex = 14, Path = 15, List(item) = 16, Map(key, value) = 17, Stream(item) = 18,
+    Set(item) = 19, ErasedRecord = 20, Record(fields) = 21, Module(module) = 22, DynamicModule = 23,
+    Result(value, error) = 24, Status = 25, EnvPathList = 26, Error = 27, ErrorFamily(name) = 28,
+    ErrorVariant { family, variant } = 29, ErrorFacet(name) = 30, ProcessError = 31,
+    Function(kind) = 32, Command = 33, ProcessHandle = 34, NetJob = 35, FsRoot = 36, FsLock = 37,
+    SshSession = 38, Unit = 39, Tag(name) = 40, Optional(item) = 41, Union(members) = 42,
+    Callable(callable) = 43, SchemeCallable(id) = 44, Validated(validated) = 45,
+}
+
+#[test]
+fn semantic_type_images_preserve_recovery_and_foreign_identities() {
+    use crate::sema::types::{CallableKind, CallableParamType, CallableType, ModuleExportType, ModuleType, Type, TypedCallable};
+    use crate::sema::effects::{CallableEffects, EffectContract, EffectExpr, EffectSet};
+    let symbols = SymbolOwner::new();
+    symbols.with_current(|| {
+        let name = Name::intern("image_recovery");
+        let variable = crate::sema::constraints::TypeVariableId::from_image_raw(412);
+        let effect = crate::sema::constraints::EffectVariableId::from_image_raw(501);
+        let identity = crate::sema::types::SchemeCallableId::from_image_raw(619, 3).unwrap();
+        let effects = CallableEffects::from_contract(EffectContract::Known(
+            EffectExpr::variable(effect).masked(EffectSet::singleton(Effect::Net))));
+        let callable = Type::Callable(Arc::new(TypedCallable { kind: CallableKind::Proc, sig: CallableType {
+            params: vec![CallableParamType { name, ty: Type::Inference(variable), defaulted: true, rest: false }],
+            return_ty: Box::new(Type::SchemeCallable(identity)), effects,
+        } }));
+        let module = Type::Module(Arc::new(ModuleType::exact(BTreeMap::from([
+            (name, ModuleExportType::Value { ty: callable, optional: false }),
+        ]))));
+        let cases = [Type::Unknown, Type::Invalid, Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Value),
+            Type::Inference(variable), Type::SchemeCallable(identity), Type::List(Box::new(module))];
+        for ty in cases {
+            let mut output = ImageWriter::default();
+            ty.put(&mut output).unwrap();
+            let mut input = ImageReader::new(&output.bytes);
+            let restored = Type::take(&mut input).unwrap();
+            input.finish().unwrap();
+            assert_eq!(restored, ty);
+            let mut reencoded = ImageWriter::default();
+            restored.put(&mut reencoded).unwrap();
+            assert_eq!(reencoded.bytes, output.bytes);
+            assert!(Type::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+        }
+        assert!(Type::take(&mut ImageReader::new(&[44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).is_err());
+        assert!(Type::take(&mut ImageReader::new(&[16; 65])).is_err());
+    });
+}
+
+#[test]
+fn semantic_pool_image_preserves_scheme_callable_owner() {
+    use crate::runtime::eval::indexed::semantic::{SemanticPoolBuilder, SemanticPools};
+    use crate::sema::types::Type;
+    let symbols = SymbolOwner::new();
+    let mut pools = SemanticPools::default();
+    let identity = pools.register_scheme_callable().unwrap();
+    let id = SemanticPoolBuilder::default().intern_type(&mut pools, &Type::SchemeCallable(identity)).unwrap();
+    let mut output = ImageWriter::default();
+    put_semantic(&pools.export_raw(&symbols), &mut output).unwrap();
+    let mut input = ImageReader::new(&output.bytes);
+    let raw = take_semantic(&mut input, symbols).unwrap();
+    input.finish().unwrap();
+    let (decoded, symbols) = SemanticPools::from_raw(raw);
+    decoded.verify().unwrap();
+    assert_eq!(decoded.to_type(id).unwrap(), Type::SchemeCallable(identity));
+    assert_eq!(decoded.scheme_callable_index(identity).unwrap(), 0);
+    let mut reencoded = ImageWriter::default();
+    put_semantic(&decoded.export_raw(&symbols), &mut reencoded).unwrap();
+    assert_eq!(reencoded.bytes, output.bytes);
 }
 
 impl ImageCodec for crate::runtime::eval::require::PreparedSchema {
@@ -1203,7 +1350,7 @@ fn prepared_schema_image_round_trip_and_malformed_inputs() {
 
 pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter) -> ImageResult<()> {
     let RawSemanticTables {
-        scheme_callable_owner: _,
+        scheme_callable_owner,
         scheme_callable_count,
         type_tags,
         type_data,
@@ -1213,6 +1360,7 @@ pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter
         shapes,
         shape_fields,
     } = &semantic.tables;
+    scheme_callable_owner.image_raw().put(output)?;
     scheme_callable_count.put(output)?;
     type_tags.put(output)?;
     type_data.put(output)?;
@@ -1227,7 +1375,8 @@ pub(super) fn take_semantic(input: &mut ImageReader<'_>, symbols: SymbolOwner) -
     Ok(RawSemanticPools {
         symbols,
         tables: RawSemanticTables {
-            scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner::fresh(),
+            scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner::from_image_raw(u64::take(input)?)
+                .ok_or_else(|| ImageError::Malformed("semantic scheme callable owner is zero".into()))?,
             scheme_callable_count: ImageCodec::take(input)?,
             type_tags: ImageCodec::take(input)?,
             type_data: ImageCodec::take(input)?,

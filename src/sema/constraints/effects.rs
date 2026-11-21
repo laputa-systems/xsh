@@ -9,6 +9,12 @@ static NEXT_EFFECT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct EffectVariableId(u64);
 
+#[cfg(test)]
+impl EffectVariableId {
+    pub(crate) fn image_raw(self) -> u64 { self.0 }
+    pub(crate) fn from_image_raw(raw: u64) -> Self { Self(raw) }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CallableGeneralizationScope {
     pub(super) owner: super::CallableApplicationScope,

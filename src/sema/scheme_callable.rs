@@ -13,6 +13,12 @@ impl Default for SchemeCallableOwner {
     fn default() -> Self { Self::fresh() }
 }
 
+#[cfg(test)]
+impl SchemeCallableOwner {
+    pub(crate) fn image_raw(self) -> u64 { self.0.get() }
+    pub(crate) fn from_image_raw(raw: u64) -> Option<Self> { Some(Self(NonZeroU64::new(raw)?)) }
+}
+
 impl SchemeCallableOwner {
     pub(crate) fn fresh() -> Self {
         let owner = NEXT_OWNER.try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| owner.checked_add(1))
@@ -27,6 +33,14 @@ impl SchemeCallableOwner {
 pub struct SchemeCallableId {
     owner: SchemeCallableOwner,
     index: u32,
+}
+
+#[cfg(test)]
+impl SchemeCallableId {
+    pub(crate) fn image_raw(self) -> (u64, u32) { (self.owner.0.get(), self.index) }
+    pub(crate) fn from_image_raw(owner: u64, index: u32) -> Option<Self> {
+        Some(Self { owner: SchemeCallableOwner(NonZeroU64::new(owner)?), index })
+    }
 }
 
 impl SchemeCallableId {
