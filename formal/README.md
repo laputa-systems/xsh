@@ -152,14 +152,23 @@ its environments resolve names through binders to activation cells. Assignment
 and declaration return a committed store, a `type-error` failure with the old
 store, or an internal fault for a missing, immutable or occupied cell. `try`
 recovery catches only catchable failures and propagates `type-error`.
+[`Semantics/Connected/CoreEmbedding.lean`](Xsh/Semantics/Connected/CoreEmbedding.lean)
+embeds the connected machine's runtime types and values into Core, and a
+connected value with a connected type is a Core member of that type's image.
+The connected store in
+[`Semantics/Connected/Store.lean`](Xsh/Semantics/Connected/Store.lean) is
+guarded by `StoreTyped`: every cell stores the Core typing
+(`CoreWorld.HasType`) of its embedded value at the embedded type, together with
+the connected typing the machine's lemmas pull back from that stored proof.
+The guard admits exactly the connected members, so connected steps are
+unchanged.
 [`Semantics/Connected/CoreBridge.lean`](Xsh/Semantics/Connected/CoreBridge.lean)
-embeds the connected machine's runtime types, values and checker monotypes into
-Core. A connected value with a connected type is a Core member of that type's
-image, and an accepted connected write commits through the Core guard. Connected
-nominal types over non-record bases, and row or argument sorts, have no Core
-image. Core record membership is wider than the connected check, so a connected
-rejection is not a Core rejection. The connected machine still runs on its own
-store; the bridge is a fragment root, not a full-core obligation.
+adds checker monotypes and shows that an accepted connected write commits in
+the corresponding Core store from the stored Core typing. Connected nominal
+types over non-record bases, and row or argument sorts, have no Core image.
+Core record membership is wider than the connected check, so a connected
+rejection is not a Core rejection. The bridge is a fragment root, not a
+full-core obligation.
 
 The `environments_and_typed_stores` fragment root is in
 [`Proofs/Core/Env.lean`](Xsh/Proofs/Core/Env.lean). It quantifies over every

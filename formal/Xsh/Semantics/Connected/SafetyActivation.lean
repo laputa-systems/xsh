@@ -99,7 +99,7 @@ theorem empty_store_initial_activation (state : Machine) :
     simp at present
 
 theorem activation_invariant_rejects_occupied_next_activation (state : Machine)
-    (binder : Xsh.Foundation.BinderId) (entry : StoreCell RuntimeType Value HasType)
+    (binder : Xsh.Foundation.BinderId) (entry : StoreCell RuntimeType Value StoreTyped)
     (present : state.store ⟨state.nextActivation, binder⟩ = some entry) :
     ¬ ActivationInvariant state := by
   intro invariant

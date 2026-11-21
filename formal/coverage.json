@@ -11280,7 +11280,7 @@
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
-      "module": "Xsh.Semantics.Connected.Values",
+      "module": "Xsh.Semantics.Connected.Store",
       "declaration": "Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -15051,12 +15051,30 @@
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
-      "module": "Xsh.Semantics.Connected.CoreBridge",
+      "module": "Xsh.Semantics.Connected.CoreEmbedding",
       "declaration": "Xsh.Semantics.Connected.CoreBridge.has_type_embeds",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Every connected value that has a connected runtime type whose image is a frozen-core type is a member of that Core type, with valid references, under the connected bridge world; an accepted connected store write commits the embedded value through the Core store guard.",
       "boundary": "Covers the connected machine's own value and type world through an explicit embedding. Connected nominal types over non-record bases and row or argument sorts have no Core image. Connected rejections are not Core rejections, because Core record membership is wider. It establishes no Rust correspondence and closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.has_type_iff_compatible",
+      "module": "Xsh.Semantics.Connected.Values",
+      "declaration": "Xsh.Semantics.Connected.has_type_iff_compatible",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A connected value has a runtime type exactly when its inferred value type fits that type.",
+      "boundary": "Connected runtime typing only; the store guard adds the Core membership of the embedded value. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "module": "Xsh.Semantics.Connected.CoreBridge",
+      "declaration": "Xsh.Semantics.Connected.CoreBridge.connected_write_commits_in_core",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted connected store write commits the embedded value to the corresponding Core store cell, using the Core typing each connected cell stores.",
+      "boundary": "Single-cell write projection under a supplied cell correspondence; no whole-store simulation, path writes or BASE-ENV closure."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Env.environments_and_typed_stores",

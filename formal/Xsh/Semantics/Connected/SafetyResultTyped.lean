@@ -106,7 +106,7 @@ theorem monomorphic_runtime_sorted (captured : Substitution) (sorted : WellSorte
   intro id
   simp [schemeSubstitution, WellFormed, typeSort]
 
-theorem program_store_is_immutable (cell : Environments.CellId) (entry : Environments.StoreCell RuntimeType Value HasType)
+theorem program_store_is_immutable (cell : Environments.CellId) (entry : Environments.StoreCell RuntimeType Value StoreTyped)
     (found : programStore cell = some entry) : entry.mutability = .immutable := by
   simp only [programStore] at found
   split at found
