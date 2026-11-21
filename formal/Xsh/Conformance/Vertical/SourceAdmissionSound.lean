@@ -743,6 +743,43 @@ theorem assignment_consumes_tokens {vars : List String} {tokens rest : List Toke
     simp at consumed ⊢
     omega
 
+theorem record_operand_consumes_tokens {tokens rest : List Token} {value : RecordOperand}
+    (derivation : RecordOperandSyntax tokens value rest) : rest.length < tokens.length := by
+  cases derivation with
+  | atom atom => exact atom_consumes_tokens atom
+  | field => simp <;> omega
+
+theorem record_value_consumes_tokens {tokens rest : List Token} {value : RecordValue}
+    (derivation : RecordValueSyntax tokens value rest) : rest.length < tokens.length := by
+  cases derivation with
+  | operand operand => exact record_operand_consumes_tokens operand
+  | binary left valid right =>
+    have a := record_operand_consumes_tokens left
+    have b := record_operand_consumes_tokens right
+    simp at a
+    omega
+
+theorem record_fields_consume_tokens {tokens rest : List Token} {fields : List (String × SourceValue)}
+    (derivation : RecordFieldsSyntax tokens fields rest) : rest.length < tokens.length := by
+  induction derivation with
+  | single valid value =>
+    have consumed := value_consumes_tokens value
+    simp at consumed ⊢
+    omega
+  | cons valid value tail ih =>
+    have consumed := value_consumes_tokens value
+    simp at consumed ⊢
+    omega
+
+theorem record_let_consumes_tokens {tokens rest : List Token} {target : String}
+    {fields : List (String × SourceValue)} (derivation : RecordLetSyntax tokens target fields rest) :
+    rest.length < tokens.length := by
+  cases derivation with
+  | record valid fields =>
+    have consumed := record_fields_consume_tokens fields
+    simp at consumed ⊢
+    omega
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
