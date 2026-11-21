@@ -28,6 +28,7 @@ export const root_tests = [
   "core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports",
   "core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined",
   "core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid",
+  "dev/tests/test-native-workflows.xsh::test_linux_root_caller_uses_a_private_unprivileged_test_home",
   "dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing",
   "dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_use_the_host_identity_and_home",
   "tests/xsh/stdlib/linux_net.xsh::test_raw_icmp_socket_filters_and_checks_replies",
