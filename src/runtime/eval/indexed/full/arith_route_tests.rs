@@ -1,8 +1,9 @@
 //! Integer and Duration arithmetic routes.
 //!
-//! `int_binary_rows_admit_only_the_arithmetic_operators` is a verifier
-//! corruption test (XSH-155): an `IntBinary` row's operator must be one of the
-//! five that `crate::arith::checked_int_binary` decides.
+//! `int_binary_rows_admit_only_the_arithmetic_operators` (XSH-155) and
+//! `comparison_rows_admit_only_their_comparison_operators` (XSH-159) are
+//! verifier corruption tests: a row whose payload carries a `BinaryOp` must
+//! hold one that execution decides for that row family.
 //!
 //! The `*_route_conformance` tests are finite Rust conformance, not proofs.
 //! Each takes one source form of every arithmetic operator, or of every Duration
@@ -12,8 +13,6 @@
 //! value, or the same error code and message. A swapped operand, a substituted
 //! operator or a remapped error at a grid point fails the case. Points outside
 //! the grid are unchecked, and the error's span is not compared (XSH-157).
-//! Top-level Duration compound assignment has no test until XSH-158 is fixed:
-//! `duration_route(Form::TopLevelCompound)` fails with `type-error` today.
 
 use super::noncompletion_tests::{checked_program, function_index};
 use super::tests::run_with_large_stack;
@@ -40,6 +39,16 @@ const ALL_BINARY_OPS: [BinaryOp; 18] = [
     BinaryOp::Rem,
     BinaryOp::Union,
     BinaryOp::Intersect,
+];
+
+/// Every instruction row family whose payload carries a `BinaryOp`, as
+/// `schema.rs` declares them, with the operators execution decides for it;
+/// `None` admits every operator, which the checked facts then type.
+const OPERATOR_ROWS: [(&str, Option<&[BinaryOp]>); 4] = [
+    ("IntBinary", Some(&[BinaryOp::Add, BinaryOp::Sub, BinaryOp::Mul, BinaryOp::Div, BinaryOp::Rem])),
+    ("BoolIntCompare", Some(&[BinaryOp::Eq, BinaryOp::Ne, BinaryOp::Lt, BinaryOp::Le, BinaryOp::Gt, BinaryOp::Ge])),
+    ("BoolLiteralCompareSlot", Some(&[BinaryOp::Eq, BinaryOp::Ne])),
+    ("ExprBinary", None),
 ];
 
 const ARITHMETIC: [(BinaryOp, AssignOp, &str); 5] = [
@@ -73,6 +82,16 @@ fn rows(program: &FullProgram, owner: usize, tag: FullTag) -> Vec<usize> {
         .unwrap()
         .filter(|&instruction| program.store.tags[instruction] == tag)
         .collect()
+}
+
+/// `program` with `row`'s operator replaced by a fresh pool entry, so rows that
+/// share an entry keep theirs.
+fn with_operator(program: &FullProgram, row: usize, op: BinaryOp) -> FullProgram {
+    let mut forged = program.clone();
+    let start = program.store.data[row].range().start as usize;
+    forged.store.extra[start] = u32::try_from(forged.store.binary_ops.len()).unwrap();
+    forged.store.binary_ops.push(op);
+    forged
 }
 
 fn run_installed(program: &Arc<FullProgram>, force_frames: bool) -> Result<(), RuntimeError> {
@@ -133,6 +152,87 @@ assert apply(7, 2) == 9\nassert nested(7, 2) == 10\nassert compared(7, 2) == 1\n
                 }
             }
         }
+    });
+}
+
+#[test]
+fn operator_rows_are_the_schema_rows_that_carry_a_binary_operator() {
+    let schema = include_str!("schema.rs");
+    let mut pending = false;
+    let mut found = Vec::new();
+    for line in schema.lines() {
+        let line = line.trim();
+        if line == "op: BinaryOp," {
+            pending = true;
+        } else if pending && let Some(rest) = line.strip_prefix("} => ") {
+            found.push(rest.split_whitespace().next().unwrap().to_owned());
+            pending = false;
+        }
+    }
+    let expected: Vec<_> = OPERATOR_ROWS.iter().map(|(name, _)| (*name).to_owned()).collect();
+    assert_eq!(found, expected, "classify each schema row that carries a BinaryOp");
+}
+
+const COMPARISON_SOURCE: &str = "pure ordered(left: Int, right: Int) -> Int {\n  if left - right > 0 {\n    return 1\n  }\n  if left - right < 0 or left * right == 7 or left + right >= 100 {\n    return 2\n  }\n  if left - right <= 0 and left + right != 0 {\n    return 3\n  }\n  0\n}\n\
+pure named(value: Str) -> Int {\n  if value == \"x\" {\n    return 1\n  }\n  if value != \"y\" {\n    return 2\n  }\n  0\n}\n\
+assert ordered(2, 1) == 1\nassert ordered(1, 2) == 2\nassert ordered(1, 1) == 3\nassert named(\"x\") == 1\nassert named(\"z\") == 2\n";
+
+/// The comparison rows of `COMPARISON_SOURCE`: six `BoolIntCompare` rows, one
+/// per comparison (an `if` condition and the operands of `or` and `and`), and
+/// two `BoolLiteralCompareSlot` rows.
+fn comparison_rows(program: &FullProgram) -> Vec<(FullTag, usize)> {
+    let mut found = Vec::new();
+    for (function, tag, expected) in [
+        ("ordered", FullTag::BoolIntCompare, &[BinaryOp::Eq, BinaryOp::Ne, BinaryOp::Lt, BinaryOp::Le, BinaryOp::Gt, BinaryOp::Ge][..]),
+        ("named", FullTag::BoolLiteralCompareSlot, &[BinaryOp::Eq, BinaryOp::Ne][..]),
+    ] {
+        let tagged = rows(program, function_index(program, function), tag);
+        let mut ops: Vec<_> = tagged.iter().map(|&row| row_op(program, row)).collect();
+        ops.sort_by_key(|op| *op as u8);
+        assert_eq!(ops, expected, "{function} lowers its conditions to {tag:?} rows");
+        found.extend(tagged.into_iter().map(|row| (tag, row)));
+    }
+    found
+}
+
+/// XSH-159: the typed evaluator decides only comparisons in these rows, and
+/// only `==` and `!=` against a literal, so verification must reject every
+/// other operator in each comparison row family, wherever the row sits.
+#[test]
+fn comparison_rows_admit_only_their_comparison_operators() {
+    run_with_large_stack(|| {
+        let program = Arc::new(checked_program("comparison-operators.xsh", COMPARISON_SOURCE));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            run_installed(&program, force_frames).unwrap();
+        }
+        let mut families = std::collections::BTreeSet::new();
+        for (tag, row) in comparison_rows(&program) {
+            let (_, Some(admitted)) = OPERATOR_ROWS.iter().find(|(name, _)| *name == tag.name()).unwrap() else {
+                unreachable!("comparison rows admit a fixed operator set")
+            };
+            families.insert(tag.name());
+            for op in ALL_BINARY_OPS {
+                let verified = FullVerifier::verify(&with_operator(&program, row, op));
+                if admitted.contains(&op) {
+                    verified.unwrap_or_else(|error| panic!("{op:?} in {tag:?} row {row}: {error:?}"));
+                } else {
+                    let message = verified.expect_err(&format!("{op:?} in {tag:?} row {row}")).message.clone();
+                    let expected = if tag == FullTag::BoolIntCompare {
+                        "integer comparison row has a non-comparison operator"
+                    } else {
+                        "literal comparison row has an operator other than == and !="
+                    };
+                    assert_eq!(message, expected, "{op:?} in {tag:?} row {row}");
+                }
+            }
+        }
+        let fixed: std::collections::BTreeSet<_> = OPERATOR_ROWS
+            .iter()
+            .filter(|(name, admitted)| admitted.is_some() && *name != "IntBinary")
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(families, fixed, "every comparison row family is forged");
     });
 }
 
