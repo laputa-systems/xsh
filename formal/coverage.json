@@ -2986,8 +2986,10 @@
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-REQUIRE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-REQUIRE",
+      "module": "Xsh.Validation.Core.Require",
+      "declaration": "Xsh.Validation.Core.Require.recursive_require"
     },
     {
       "id": "VAL-STORE",
@@ -15084,13 +15086,22 @@
       "boundary": "Per-cell facts only: no statement syntax, field paths, logical combinators, else chains, guards, loops, retry, call invalidation of captured vars or deferred blocks. Closes no full-core obligation."
     },
     {
-      "id": "fragment.Xsh.Validation.Core.Require.recursive_require",
-      "module": "Xsh.Validation.Core.Require",
-      "declaration": "Xsh.Validation.Core.Require.recursive_require",
+      "id": "fragment.Xsh.Core.WireEnums.variantOf_mem",
+      "module": "Xsh.Core.WireEnums",
+      "declaration": "Xsh.Core.WireEnums.variantOf_mem",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A recursive .require over Core types is sound on admissible targets, exact on nominal-free targets, schema-equivalent for nominal targets, ordered for unions and all-or-nothing.",
-      "boundary": "Assumes Admissible instead of deriving it from type well-formedness. Str-backed enum wire conversion, map publication from records, structured errors with field and union paths, require_exact and require_stripped are missing; exactness is identity, not the SPEC conversion. Closes no full-core obligation."
+      "scope": "The wire lookup of a Str-backed enum returns a variant declared with that wire string.",
+      "boundary": "Lookup law over the declared (variant, wire) list only; uniqueness is the WellFormed wire judgment. Closes no full-core obligation."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "module": "Xsh.Validation.Core.WellFormed",
+      "declaration": "Xsh.Validation.Core.WellFormed.wire_variant_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under the wire well-formedness judgment, a wire string names at most one variant of its Str-backed enum.",
+      "boundary": "Consequence of the stated judgment only; the judgment mirrors the Rust declaration checks and is not derived from source checking. Closes no full-core obligation."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Intro.introduction_routes",
@@ -15098,7 +15109,7 @@
       "declaration": "Xsh.Validation.Core.Intro.introduction_routes",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require results are members.",
+      "scope": "Judged list, path, bounded and component-level fp literals introduce members, and constructors and accepted .require, .require_exact and .require_stripped results on well-formed targets are members.",
       "boundary": "fp literals are modelled as components, not source text with format specs; adjacent-interpolation rejection, strip_prefix, constants and defaults, as T and type tests are missing; relies on the toy nominal evaluator. Closes no full-core obligation."
     },
     {

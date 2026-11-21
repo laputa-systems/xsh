@@ -304,11 +304,12 @@ theorem introduction_routes [DecidableEq Declaration] (world : MembershipWorld D
     (∀ (bounds : Xsh.Validation.BoundedSpec) (integer : Xsh.Values.IntValue),
       Membership.value world (.boundedInteger bounds) (.scalar (.integer integer) : Value Declaration Identity Source) ↔
         bounds.accepts integer.val) ∧
-    (∀ heap declaration schema fields value,
-      Xsh.Validation.Core.Nominal.evaluate world contracts heap (.construct declaration schema fields) = some value →
-        Membership.value world (.nominal declaration schema) value) ∧
-    (∀ (type : ValueType Declaration) candidate converted, Xsh.Validation.Core.Require.Admissible type →
-      Xsh.Validation.Core.Require.require world contracts type candidate = some converted →
+    (∀ enums heap declaration schema fields value,
+      Xsh.Validation.Core.Nominal.evaluate world contracts enums heap (.construct declaration schema fields) =
+        some value → Membership.value world (.nominal declaration schema) value) ∧
+    (∀ (enums : WireEnums Declaration) policy (type : ValueType Declaration) candidate converted,
+      Xsh.Validation.Core.WellFormed.WireWellFormed enums → Xsh.Validation.Core.WellFormed.WellFormed type →
+      Xsh.Validation.Core.Require.convert ⟨world, contracts, enums⟩ policy [] type candidate = .ok converted →
         Membership.value world type converted) ∧
     (∀ (source target : ValueType Declaration) tag, BaseView source target → validationTag target = some tag →
       validationTag source = some tag) ∧
@@ -316,8 +317,10 @@ theorem introduction_routes [DecidableEq Declaration] (world : MembershipWorld D
   refine ⟨?_, fun items judged => ⟨rejected_literal_is_only_plain_splices judged, plain_splices_may_be_empty items⟩,
     path_literal_iff world, fun _ judged relative => format_literal_relative judged relative,
     bounded_literal_iff world, Xsh.Validation.Core.Nominal.construct_introduces world contracts,
-    fun type candidate converted admissible required =>
-      Xsh.Validation.Core.Require.require_sound world contracts type admissible candidate converted required,
+    fun enums policy type candidate converted wires wellFormed required =>
+      Xsh.Validation.Core.Require.converts_member ⟨world, contracts, enums⟩ policy type wellFormed candidate converted
+        ((Xsh.Validation.Core.Require.convert_exact ⟨world, contracts, enums⟩ wires policy type wellFormed [] candidate
+          converted).mp required),
     fun _ _ _ view tagged => (Xsh.Validation.Core.Widen.view_into_validated view tagged).1,
     fun _ _ hasBase => Xsh.Validation.Core.Widen.base_never_views_validated hasBase⟩
   intro element items typed judged

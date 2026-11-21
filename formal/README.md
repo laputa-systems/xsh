@@ -220,18 +220,64 @@ and cell facts learned from passing tests stay sound because assignment forgets
 the assigned cell's fact. The witness shows that retaining a `NonEmpty` fact
 after assigning `[]` is unsound.
 
-The `recursive_require` fragment root is in
-[`Validation/Core/Require.lean`](Xsh/Validation/Core/Require.lean). On a
-target whose record schemas list each field once, an accepted result is a
-member. On a target without nominal positions, `.require` accepts exactly the
-members and returns them unchanged, keeping nominal wrappers and extra fields.
-A nominal target checks the fields as its schema does and introduces the
-declaration, at every nested slot. Unions ask members in written order. Any
-nested rejection rejects the whole value as recoverable `Err` data. The
-witnesses introduce a nested `Package`, reject a nested field without
-publishing anything, contrast `.require(UInt)` with the `type-error` of a
-typed store, and detect a check that skips nested conversion. Error paths,
-`require_exact` and `require_stripped` are not modelled.
+VAL-REQUIRE is closed by `recursive_require` in
+[`Validation/Core/Require.lean`](Xsh/Validation/Core/Require.lean), over every
+Core type, value and world, for `.require`, `.require_exact` and
+`.require_stripped`. `convert` is the boundary operation; `Converts` states the
+SPEC conversion rule by rule, and the theorem proves that the published `Ok`
+value is exactly `Converts` of the candidate, that it is unique and a member
+of the target, and that every `Err` is a `schema` error whose structured
+failure has no conversion and is located. The rules and their SPEC sources
+(`docs/templates/SPEC.md`):
+
+- Recursion: "Records are checked recursively, including inside lists, maps,
+  and optional slots, and the result is published only if the whole value
+  passes. Extra fields are kept. A `T?` field must still be present." The
+  policies apply "through declared record fields, lists, map values, optional
+  slots, ordered union alternatives, and validated bases. Maps keep their
+  keys. `Any` and erased `Record` slots declare no field set and remain
+  opaque." `Result`, streams, callables, error types, `RelPath` and bounded
+  integers are checked by Core membership and published unchanged.
+- Wire conversion: "Str-backed enum slots are converted from their wire
+  strings" and "Unknown strings report the field or index path". The wire
+  strings come from `Core.WireEnums`, Core's enum wire-declaration metadata.
+- Map publication: "A `Map[Str, V]` slot accepts a map or a record and
+  publishes a map of the record's fields ... maps with other key types accept
+  only maps."
+- Sets: "`.require(Set[T])` accepts a set, or an array whose elements are
+  distinct values of `T`; an array that repeats an element fails with
+  `schema`."
+- Unions: "a value belongs to the first member, in the order written, that
+  accepts it", and "If every union alternative fails, the error reports that
+  union's path."
+- Policies: "`value.require_exact(T)` rejects fields not declared by a
+  structural record schema; `value.require_stripped(T)` returns only its
+  declared fields", and "Rejection reports the unexpected field's path as a
+  `schema` error."
+- Modules: "A failed `.require(Contract)` on a module reports every violation
+  in one error", with `MissingExport`, `MismatchedExport` and
+  `UnexpectedExport` facets; `module_report` and `facets_report` prove both
+  directions for each kind.
+
+`Located` places each failure at a path into the candidate whose slot and
+value show the reason: an unadmitted shape, a missing or unexpected field, an
+unknown wire string, a rejected map key, a rejected or repeated set element, a
+union no alternative of which converts, or the complete module violation list.
+The premise `WellFormed` in
+[`Validation/Core/WellFormed.lean`](Xsh/Validation/Core/WellFormed.lean) is the
+type judgment that every record schema and module contract lists each name
+once (Rust `check.duplicate-record-field`); `WireWellFormed` requires each
+Str-backed enum to list each variant and wire string once. Without
+`WellFormed` a stripped publication of `{level: Level, level: Str}` is not a
+member. A filesystem entry in a record slot is checked by membership under
+`.require` and converted as its field record under the other two policies.
+The error message renders the path; its remaining wording is diagnostic. The
+witnesses convert a wire string, report an unknown one at its field and list
+index, publish a map from a record, follow the SPEC's `Config` example for the
+three policies, report a union path, show that order decides enum conversion,
+reject a repeated set element and report three module violations with their
+facets. Mutants detected: a check without conversion, a skipped enum
+conversion, a map published as a record and a dropped field path.
 
 The `nominal_provenance` fragment root is in
 [`Validation/Core/Nominal.lean`](Xsh/Validation/Core/Nominal.lean). Core

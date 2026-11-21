@@ -6,6 +6,7 @@ open Xsh.Core
 open Xsh.Semantics.Environments
 open Xsh.Validation.Core
 open Xsh.Validation.Core.Require
+open Xsh.Validation.Core.WellFormed
 
 variable {Declaration Identity Source : Type} [DecidableEq Declaration]
 
@@ -95,50 +96,50 @@ abbrev Heap (Declaration Identity Source : Type) := CellId → Option (Value Dec
 
 mutual
   def evaluate (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (heap : Heap Declaration Identity Source) : Form Declaration → Option (Value Declaration Identity Source)
+      (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) : Form Declaration → Option (Value Declaration Identity Source)
     | .scalar value => some (.scalar value)
-    | .list items => (evaluateAll world contracts heap items).map .list
-    | .record fields => (evaluateFields world contracts heap fields).map .record
+    | .list items => (evaluateAll world contracts enums heap items).map .list
+    | .record fields => (evaluateFields world contracts enums heap fields).map .record
     | .construct declaration schema fields =>
-      match evaluateFields world contracts heap fields with
+      match evaluateFields world contracts enums heap fields with
       | none => none
       | some values =>
         letI := Membership.decideTerm world contracts schema values
         if Membership.row world schema values then some (.nominal declaration (.record values)) else none
     | .require target source =>
-      match evaluate world contracts heap source with
+      match evaluate world contracts enums heap source with
       | none => none
-      | some value => Xsh.Validation.Core.Require.require world contracts target value
+      | some value => (convert ⟨world, contracts, enums⟩ .keep [] target value).toOption
     | .read cell => heap cell
     | .field source name =>
-      match evaluate world contracts heap source with
+      match evaluate world contracts enums heap source with
       | none => none
       | some value =>
         match value.eraseNominal with
         | .record fields => fields.lookup name
         | _ => none
     | .spread source updates =>
-      match evaluate world contracts heap source with
+      match evaluate world contracts enums heap source with
       | none => none
       | some value =>
         match value.eraseNominal with
-        | .record fields => (evaluateFields world contracts heap updates).map (fun replaced => .record (replaced ++ fields))
+        | .record fields => (evaluateFields world contracts enums heap updates).map (fun replaced => .record (replaced ++ fields))
         | _ => none
 
   def evaluateAll (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (heap : Heap Declaration Identity Source) : List (Form Declaration) → Option (List (Value Declaration Identity Source))
+      (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) : List (Form Declaration) → Option (List (Value Declaration Identity Source))
     | [] => some []
     | item :: rest =>
-      match evaluate world contracts heap item, evaluateAll world contracts heap rest with
+      match evaluate world contracts enums heap item, evaluateAll world contracts enums heap rest with
       | some value, some values => some (value :: values)
       | _, _ => none
 
   def evaluateFields (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (heap : Heap Declaration Identity Source) :
+      (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) :
       List (String × Form Declaration) → Option (List (String × Value Declaration Identity Source))
     | [] => some []
     | (name, item) :: rest =>
-      match evaluate world contracts heap item, evaluateFields world contracts heap rest with
+      match evaluate world contracts enums heap item, evaluateFields world contracts enums heap rest with
       | some value, some values => some ((name, value) :: values)
       | _, _ => none
 end
@@ -283,260 +284,439 @@ theorem bound_replaceField {allowed : Declaration → Prop} (name : String) {rep
       · exact bound_replaceField name replacementBound (fun other otherPresent => bound other
           (List.mem_cons_of_mem _ otherPresent)) field later
 
+omit [DecidableEq Declaration] in
+theorem items_bound {allowed : Declaration → Prop}
+    {step : Nat → Value Declaration Identity Source → Outcome Declaration Identity Source}
+    (stepBound : ∀ position item converted, Bound allowed item → step position item = .ok converted →
+      Bound allowed converted) :
+    ∀ {position : Nat} {values results : List (Value Declaration Identity Source)},
+      (∀ value ∈ values, Bound allowed value) → convertItems step position values = .ok results →
+        ∀ result ∈ results, Bound allowed result
+  | _, [], results, _, converted => by
+    simp only [convertItems, Except.ok.injEq] at converted
+    subst converted
+    simp
+  | position, item :: rest, results, bound, converted => by
+    simp only [convertItems] at converted
+    split at converted
+    · simp at converted
+    · rename_i head headConverted
+      split at converted
+      · simp at converted
+      · rename_i others othersConverted
+        simp only [Except.ok.injEq] at converted
+        subst converted
+        intro result present
+        simp only [List.mem_cons] at present
+        rcases present with same | later
+        · exact same ▸ stepBound _ _ _ (bound item (by simp)) headConverted
+        · exact items_bound stepBound (fun value inside => bound value (List.mem_cons_of_mem _ inside)) othersConverted
+            result later
+
+omit [DecidableEq Declaration] in
+theorem entries_bound {allowed : Declaration → Prop}
+    {step : MapKey → Value Declaration Identity Source → Outcome Declaration Identity Source}
+    (stepBound : ∀ key value converted, Bound allowed value → step key value = .ok converted → Bound allowed converted) :
+    ∀ {entries results : List (MapKey × Value Declaration Identity Source)},
+      (∀ entry ∈ entries, Bound allowed entry.2) → convertEntries step entries = .ok results →
+        ∀ result ∈ results, Bound allowed result.2
+  | [], results, _, converted => by
+    simp only [convertEntries, Except.ok.injEq] at converted
+    subst converted
+    simp
+  | (key, value) :: rest, results, bound, converted => by
+    simp only [convertEntries] at converted
+    split at converted
+    · simp at converted
+    · rename_i head headConverted
+      split at converted
+      · simp at converted
+      · rename_i others othersConverted
+        simp only [Except.ok.injEq] at converted
+        subst converted
+        intro result present
+        simp only [List.mem_cons] at present
+        rcases present with same | later
+        · exact same ▸ stepBound _ _ _ (bound (key, value) (by simp)) headConverted
+        · exact entries_bound stepBound (fun entry inside => bound entry (List.mem_cons_of_mem _ inside)) othersConverted
+            result later
+
+omit [DecidableEq Declaration] in
+theorem listItems_bound {allowed : Declaration → Prop} {candidate : Value Declaration Identity Source}
+    {values : List (Value Declaration Identity Source)} (bound : Bound allowed candidate)
+    (listed : listItems candidate = some values) : ∀ value ∈ values, Bound allowed value := by
+  have erasedBound := bound_eraseNominal bound
+  unfold listItems at listed
+  split at listed
+  · rename_i items erased
+    simp only [Option.some.injEq] at listed
+    subst listed
+    rw [erased] at erasedBound
+    exact bound_list.mp erasedBound
+  · rename_i paths erased
+    simp only [Option.some.injEq] at listed
+    subst listed
+    intro value present
+    obtain ⟨path, _, rfl⟩ := List.mem_map.mp present
+    simp [Bound, nominals]
+  · simp at listed
+
+omit [DecidableEq Declaration] in
+theorem fieldsOf_bound {allowed : Declaration → Prop} {boundary : Boundary Declaration Identity Source}
+    {policy : FieldPolicy} {candidate : Value Declaration Identity Source}
+    {fields : List (String × Value Declaration Identity Source)}
+    (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2)
+    (bound : Bound allowed candidate) (fielded : fieldsOf boundary policy candidate = some fields) :
+    ∀ field ∈ fields, Bound allowed field.2 := by
+  have erasedBound := bound_eraseNominal bound
+  unfold fieldsOf at fielded
+  split at fielded
+  · rename_i present erased
+    simp only [Option.some.injEq] at fielded
+    subst fielded
+    rw [erased] at erasedBound
+    exact bound_record.mp erasedBound
+  · rename_i reference erased
+    split at fielded
+    · simp at fielded
+    · rename_i notKeep
+      simp only [Option.some.injEq] at fielded
+      subst fielded
+      exact entries (by cases policy <;> simp_all) reference
+  · simp at fielded
+
+omit [DecidableEq Declaration] in
+theorem publish_bound {allowed : Declaration → Prop} {policy : FieldPolicy}
+    {candidate : Value Declaration Identity Source} {fields : List (String × Value Declaration Identity Source)}
+    (bound : Bound allowed candidate) (fieldsBound : ∀ field ∈ fields, Bound allowed field.2) :
+    Bound allowed (publish policy candidate fields) := by
+  unfold publish
+  split
+  · exact bound_record.mpr fieldsBound
+  · exact bound_rewrap bound (bound_record.mpr fieldsBound)
+  · exact bound_record.mpr fieldsBound
+
+omit [DecidableEq Declaration] in
+theorem recordBody_bound {allowed : Declaration → Prop} {policy : FieldPolicy} {path : List PathStep}
+    {names : List String}
+    {keep project : List (String × Value Declaration Identity Source) →
+      Except Failure (List (String × Value Declaration Identity Source))}
+    (keepBound : ∀ fields results, (∀ field ∈ fields, Bound allowed field.2) → keep fields = .ok results →
+      ∀ field ∈ results, Bound allowed field.2)
+    (projectBound : ∀ fields results, (∀ field ∈ fields, Bound allowed field.2) → project fields = .ok results →
+      ∀ field ∈ results, Bound allowed field.2)
+    {fields results : List (String × Value Declaration Identity Source)} (bound : ∀ field ∈ fields, Bound allowed field.2)
+    (converted : recordBody policy path names keep project fields = .ok results) :
+    ∀ field ∈ results, Bound allowed field.2 := by
+  cases policy with
+  | keep => exact keepBound _ _ bound converted
+  | stripped => exact projectBound _ _ bound converted
+  | exact =>
+    simp only [recordBody] at converted
+    split at converted
+    · simp at converted
+    · exact keepBound _ _ bound converted
+
+omit [DecidableEq Declaration] in
+theorem toOption_some {α ε : Type} {outcome : Except ε α} {value : α} (some' : outcome.toOption = some value) :
+    outcome = .ok value := by
+  cases outcome <;> simp_all [Except.toOption]
+
 mutual
-  theorem require_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (allowed : Declaration → Prop) :
+  theorem convert_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
+      (allowed : Declaration → Prop)
+      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (type : ValueType Declaration), (∀ declaration ∈ typeNominals type, allowed declaration) →
-        ∀ (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
-          Xsh.Validation.Core.Require.require world contracts type candidate = some converted → Bound allowed converted
-    | .variable id, _, _, _, _, _ => nomatch id
-    | .list element, typeBound, candidate, converted, bound, required => by
+        ∀ (path : List PathStep) (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
+          convert boundary policy path type candidate = .ok converted → Bound allowed converted
+    | .variable id, _, _, _, _, _, _ => nomatch id
+    | .list element, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased] at required erasedBound
-      case list items =>
-        cases mapped : items.mapM (Xsh.Validation.Core.Require.require world contracts element) with
-        | none => simp [mapped] at required
-        | some outputs =>
-          simp only [mapped, Option.map_some, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · rename_i values listed
+        cases items : convertItems (fun position item => convert boundary policy (path ++ [.index position]) element item)
+            0 values with
+        | error failure => simp [items, Except.map] at required
+        | ok results =>
+          simp only [items, Except.map, Except.ok.injEq] at required
           subst required
-          refine bound_rewrap bound (bound_list.mpr ?_)
-          intro output present
-          obtain ⟨input, inputPresent, inputRequired⟩ := mapM_some_mem mapped output present
-          exact require_bound world contracts allowed element typeBound input output
-            (bound_list.mp erasedBound input inputPresent) inputRequired
-      all_goals exact (decideMember_some required).1 ▸ bound
-    | .nonEmpty element, typeBound, candidate, converted, bound, required => by
+          exact bound_list.mpr (items_bound (fun position item result itemBound itemConverted =>
+            convert_bound boundary policy allowed entries element typeBound _ item result itemBound itemConverted)
+            (listItems_bound bound listed) items)
+      · simp at required
+    | .nonEmpty element, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
+      simp only [convert] at required
+      split at required
+      · rename_i first rest listed
+        cases items : convertItems (fun position item => convert boundary policy (path ++ [.index position]) element item)
+            0 (first :: rest) with
+        | error failure => simp [items, Except.map] at required
+        | ok results =>
+          simp only [items, Except.map, Except.ok.injEq] at required
+          subst required
+          exact bound_list.mpr (items_bound (fun position item result itemBound itemConverted =>
+            convert_bound boundary policy allowed entries element typeBound _ item result itemBound itemConverted)
+            (listItems_bound bound listed) items)
+      · simp at required
+    | .map keyType element, typeBound, path, candidate, converted, bound, required => by
+      simp only [typeNominals] at typeBound
       have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased] at required erasedBound
-      case list items =>
-        cases items with
-        | nil => simp at required
-        | cons first rest =>
-          simp only at required
-          cases mapped : (first :: rest).mapM (Xsh.Validation.Core.Require.require world contracts element) with
-          | none => simp [mapped] at required
-          | some outputs =>
-            simp only [mapped, Option.map_some, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · rename_i present erased
+        rw [erased] at erasedBound
+        cases mapped : convertEntries (fun key value =>
+            if keyAdmits keyType key then convert boundary policy (path ++ [.key key]) element value
+            else .error ⟨path, .keyMismatch key⟩) present with
+        | error failure => simp [mapped, Except.map] at required
+        | ok results =>
+          simp only [mapped, Except.map, Except.ok.injEq] at required
+          subst required
+          refine bound_map.mpr (entries_bound ?_ (bound_map.mp erasedBound) mapped)
+          intro key value result valueBound stepped
+          split at stepped
+          · exact convert_bound boundary policy allowed entries element typeBound _ value result valueBound stepped
+          · simp at stepped
+      · rename_i fields erased
+        rw [erased] at erasedBound
+        split at required
+        · cases mapped : convertEntries (fun key value => convert boundary policy (path ++ [.key key]) element value)
+              (fields.map recordEntry) with
+          | error failure => simp [mapped, Except.map] at required
+          | ok results =>
+            simp only [mapped, Except.map, Except.ok.injEq] at required
             subst required
-            refine bound_rewrap bound (bound_list.mpr ?_)
-            intro output present
-            obtain ⟨input, inputPresent, inputRequired⟩ := mapM_some_mem mapped output present
-            exact require_bound world contracts allowed element typeBound input output
-              (bound_list.mp erasedBound input inputPresent) inputRequired
-      all_goals exact (decideMember_some required).1 ▸ bound
-    | .map keyType element, typeBound, candidate, converted, bound, required => by
-      simp only [typeNominals] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased, reduceCtorEq] at required erasedBound
-      case map entries =>
-        cases mapped : entries.mapM (fun entry =>
-            letI := Membership.decideKey keyType entry.1
-            if Membership.key keyType entry.1 then
-              (Xsh.Validation.Core.Require.require world contracts element entry.2).map (fun value => (entry.1, value))
-            else none) with
-        | none => simp [mapped] at required
-        | some outputs =>
-          simp only [mapped, Option.map_some, Option.some.injEq] at required
-          subst required
-          refine bound_rewrap bound (bound_map.mpr ?_)
-          intro output present
-          obtain ⟨input, inputPresent, inputRequired⟩ := mapM_some_mem mapped output present
-          letI := Membership.decideKey keyType input.1
-          by_cases keyed : Membership.key keyType input.1
-          · simp only [keyed, ite_true] at inputRequired
-            cases elementRequired : Xsh.Validation.Core.Require.require world contracts element input.2 with
-            | none => simp [elementRequired] at inputRequired
-            | some value =>
-              simp only [elementRequired, Option.map_some, Option.some.injEq] at inputRequired
-              subst inputRequired
-              exact require_bound world contracts allowed element typeBound input.2 value
-                (bound_map.mp erasedBound input inputPresent) elementRequired
-          · simp [keyed] at inputRequired
-      case record fields =>
-        by_cases stringKeys : keyType = .primitive .string
-        · simp only [stringKeys, ite_true] at required
-          cases mapped : fields.mapM (fun field =>
-              (Xsh.Validation.Core.Require.require world contracts element field.2).map (fun value => (field.1, value))) with
-          | none => simp [mapped] at required
-          | some outputs =>
-            simp only [mapped, Option.map_some, Option.some.injEq] at required
+            refine bound_map.mpr (entries_bound (fun key value result valueBound stepped =>
+              convert_bound boundary policy allowed entries element typeBound _ value result valueBound stepped) ?_ mapped)
+            intro entry present
+            obtain ⟨field, fieldPresent, rfl⟩ := List.mem_map.mp present
+            exact bound_record.mp erasedBound field fieldPresent
+        · simp at required
+      · simp at required
+    | .set element, _, path, candidate, converted, bound, required => by
+      simp only [convert] at required
+      split at required
+      · exact (checkMember_ok.mp required).2 ▸ bound
+      · split at required
+        · rename_i values listed
+          cases keys : setKeys element path 0 [] values with
+          | error failure => simp [keys, Except.map] at required
+          | ok found =>
+            simp only [keys, Except.map, Except.ok.injEq] at required
             subst required
-            refine bound_rewrap bound (bound_record.mpr ?_)
-            intro output present
-            obtain ⟨input, inputPresent, inputRequired⟩ := mapM_some_mem mapped output present
-            cases elementRequired : Xsh.Validation.Core.Require.require world contracts element input.2 with
-            | none => simp [elementRequired] at inputRequired
-            | some value =>
-              simp only [elementRequired, Option.map_some, Option.some.injEq] at inputRequired
-              subst inputRequired
-              exact require_bound world contracts allowed element typeBound input.2 value
-                (bound_record.mp erasedBound input inputPresent) elementRequired
-        · simp [stringKeys] at required
-    | .record fields, typeBound, candidate, converted, bound, required => by
+            simp [Bound, nominals]
+        · simp at required
+    | .record row, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased] at required erasedBound
-      case record actual =>
-        cases rebuilt : requireRow world contracts fields actual with
-        | none => simp [rebuilt] at required
-        | some outputs =>
-          simp only [rebuilt, Option.map_some, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · rename_i fields fielded
+        have fieldsBound := fieldsOf_bound entries bound fielded
+        cases body : recordBody policy path (rowNames row) (convertRow boundary policy path row)
+            (projectRow boundary policy path row) fields with
+        | error failure => simp [body, Except.map] at required
+        | ok results =>
+          simp only [body, Except.map, Except.ok.injEq] at required
           subst required
-          exact bound_rewrap bound (bound_record.mpr (requireRow_bound world contracts allowed fields typeBound actual
-            outputs (bound_record.mp erasedBound) rebuilt))
-      all_goals exact (decideMember_some required).1 ▸ bound
-    | .nominal declaration fields, typeBound, candidate, converted, bound, required => by
+          exact publish_bound bound (recordBody_bound
+            (convertRow_bound boundary policy allowed entries row typeBound path)
+            (projectRow_bound boundary policy allowed entries row typeBound path) fieldsBound body)
+      · split at required
+        · exact (checkMember_ok.mp required).2 ▸ bound
+        · simp at required
+    | .nominal declaration row, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals, List.mem_cons, forall_eq_or_imp] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased] at required erasedBound
-      case record actual =>
-        cases rebuilt : requireRow world contracts fields actual with
-        | none => simp [rebuilt] at required
-        | some outputs =>
-          simp only [rebuilt, Option.map_some, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · rename_i fields fielded
+        have fieldsBound := fieldsOf_bound entries bound fielded
+        cases body : recordBody policy path (rowNames row) (convertRow boundary policy path row)
+            (projectRow boundary policy path row) fields with
+        | error failure => simp [body, Except.map] at required
+        | ok results =>
+          simp only [body, Except.map, Except.ok.injEq] at required
           subst required
           intro found present
           simp only [nominals, List.mem_cons] at present
           rcases present with same | inner
           · exact same ▸ typeBound.1
-          · exact bound_record.mpr (requireRow_bound world contracts allowed fields typeBound.2 actual outputs
-              (bound_record.mp erasedBound) rebuilt) found (by simpa [nominals] using inner)
-      all_goals
-        cases decided : decideMember world contracts (.record fields) candidate with
-        | none => simp [decided] at required
-        | some accepted =>
-          simp only [decided, Option.map_some, Option.some.injEq] at required
-          subst required
-          have same := (decideMember_some decided).1
-          subst same
-          intro found present
-          simp only [nominals, List.mem_cons] at present
-          rcases present with here | inner
-          · exact here ▸ typeBound.1
-          · exact bound_eraseNominal bound found inner
-    | .optional element, typeBound, candidate, converted, bound, required => by
+          · exact bound_record.mpr (recordBody_bound
+              (convertRow_bound boundary policy allowed entries row typeBound.2 path)
+              (projectRow_bound boundary policy allowed entries row typeBound.2 path) fieldsBound body) found
+              (by simpa [nominals] using inner)
+      · split at required
+        · cases checked : checkMember boundary path (.record row) candidate with
+          | error failure => simp [checked, Except.map] at required
+          | ok accepted =>
+            simp only [checked, Except.map, Except.ok.injEq] at required
+            subst required
+            have same := (checkMember_ok.mp checked).2
+            subst same
+            intro found present
+            simp only [nominals, List.mem_cons] at present
+            rcases present with same | inner
+            · exact same ▸ typeBound.1
+            · exact bound_eraseNominal bound found inner
+        · simp at required
+    | .optional element, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      letI := Membership.decidePrimitive (Declaration := Declaration) (Identity := Identity) (Source := Source)
-        .null candidate
-      by_cases isNull : Membership.primitive .null candidate
-      · simp only [isNull, ite_true, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · simp only [Except.ok.injEq] at required
         exact required ▸ bound
-      · simp only [isNull, ite_false] at required
-        exact require_bound world contracts allowed element typeBound candidate converted bound required
-    | .union first second rest, typeBound, candidate, converted, bound, required => by
+      · exact convert_bound boundary policy allowed entries element typeBound path candidate converted bound required
+    | .union first second rest, typeBound, path, candidate, converted, bound, required => by
       simp only [typeNominals, List.mem_append] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      cases firstRequired : Xsh.Validation.Core.Require.require world contracts first candidate with
-      | some value =>
-        simp only [firstRequired, Option.some.injEq] at required
+      simp only [convert] at required
+      split at required
+      · rename_i accepted firstOk
+        simp only [Except.ok.injEq] at required
         subst required
-        exact require_bound world contracts allowed first (fun d p => typeBound d (Or.inl (Or.inl p))) candidate value
-          bound firstRequired
-      | none =>
-        cases secondRequired : Xsh.Validation.Core.Require.require world contracts second candidate with
-        | some value =>
-          simp only [firstRequired, secondRequired, Option.some.injEq] at required
+        exact convert_bound boundary policy allowed entries first (fun d p => typeBound d (Or.inl (Or.inl p))) path
+          candidate _ bound firstOk
+      · split at required
+        · rename_i accepted secondOk
+          simp only [Except.ok.injEq] at required
           subst required
-          exact require_bound world contracts allowed second (fun d p => typeBound d (Or.inl (Or.inr p))) candidate
-            value bound secondRequired
-        | none =>
-          simp only [firstRequired, secondRequired] at required
-          exact requireMembers_bound world contracts allowed rest (fun d p => typeBound d (Or.inr p)) candidate
-            converted bound required
-    | .result success failure, typeBound, candidate, converted, bound, required => by
-      simp only [typeNominals, List.mem_append] at typeBound
-      simp only [Xsh.Validation.Core.Require.require] at required
-      have erasedBound := bound_eraseNominal bound
-      cases erased : candidate.eraseNominal <;> simp only [erased, reduceCtorEq] at required erasedBound
-      case ok item =>
-        cases itemRequired : Xsh.Validation.Core.Require.require world contracts success item with
-        | none => simp [itemRequired] at required
-        | some value =>
-          simp only [itemRequired, Option.map_some, Option.some.injEq] at required
-          subst required
-          refine bound_rewrap bound ?_
-          simpa [Bound, nominals] using require_bound world contracts allowed success (fun d p => typeBound d (Or.inl p))
-            item value (by simpa [Bound, nominals] using erasedBound) itemRequired
-      case err item =>
-        cases itemRequired : Xsh.Validation.Core.Require.require world contracts failure item with
-        | none => simp [itemRequired] at required
-        | some value =>
-          simp only [itemRequired, Option.map_some, Option.some.injEq] at required
-          subst required
-          refine bound_rewrap bound ?_
-          simpa [Bound, nominals] using require_bound world contracts allowed failure (fun d p => typeBound d (Or.inr p))
-            item value (by simpa [Bound, nominals] using erasedBound) itemRequired
-    | .primitive _, _, _, _, bound, required | .set _, _, _, _, bound, required
-    | .stream _, _, _, _, bound, required | .module _ _, _, _, _, bound, required
-    | .functionClass _, _, _, _, bound, required | .callable _, _, _, _, bound, required
-    | .schemeCallable _, _, _, _, bound, required | .tagged _, _, _, _, bound, required
-    | .errorFamily _, _, _, _, bound, required | .errorVariant _ _, _, _, _, bound, required
-    | .errorFacet _, _, _, _, bound, required | .relativePath, _, _, _, bound, required
-    | .boundedInteger _, _, _, _, bound, required => by
-      simp only [Xsh.Validation.Core.Require.require] at required
-      exact (decideMember_some required).1 ▸ bound
+          exact convert_bound boundary policy allowed entries second (fun d p => typeBound d (Or.inl (Or.inr p))) path
+            candidate _ bound secondOk
+        · split at required
+          · rename_i accepted restSome
+            simp only [Except.ok.injEq] at required
+            subst required
+            exact convertMembers_bound boundary policy allowed entries rest (fun d p => typeBound d (Or.inr p)) path
+              candidate _ bound restSome
+          · simp at required
+    | .tagged declaration, _, path, candidate, converted, bound, required => by
+      simp only [convert] at required
+      split at required
+      · exact (checkMember_ok.mp required).2 ▸ bound
+      · simp only [wire] at required
+        split at required
+        · split at required
+          · simp only [Except.ok.injEq] at required
+            exact required ▸ bound
+          · simp at required
+        · split at required
+          · simp only [Except.ok.injEq] at required
+            subst required
+            simp [Bound, nominals, nominalsOf]
+          · simp at required
+        · simp at required
+    | .module closure exports, _, path, candidate, converted, bound, required => by
+      simp only [convert] at required
+      split at required
+      · split at required
+        · simp only [Except.ok.injEq] at required
+          exact required ▸ bound
+        · simp at required
+      · simp at required
+    | .primitive _, _, path, candidate, converted, bound, required
+    | .stream _, _, path, candidate, converted, bound, required
+    | .result _ _, _, path, candidate, converted, bound, required
+    | .functionClass _, _, path, candidate, converted, bound, required
+    | .callable _, _, path, candidate, converted, bound, required
+    | .schemeCallable _, _, path, candidate, converted, bound, required
+    | .errorFamily _, _, path, candidate, converted, bound, required
+    | .errorVariant _ _, _, path, candidate, converted, bound, required
+    | .errorFacet _, _, path, candidate, converted, bound, required
+    | .relativePath, _, path, candidate, converted, bound, required
+    | .boundedInteger _, _, path, candidate, converted, bound, required => by
+      simp only [convert] at required
+      exact (checkMember_ok.mp required).2 ▸ bound
 
-  theorem requireRow_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (allowed : Declaration → Prop) :
+  theorem convertRow_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
+      (allowed : Declaration → Prop)
+      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (row : RecordType Declaration), (∀ declaration ∈ rowNominals row, allowed declaration) →
-        ∀ (fields rebuilt : List (String × Value Declaration Identity Source)),
-          (∀ field ∈ fields, Bound allowed field.2) → requireRow world contracts row fields = some rebuilt →
-            ∀ field ∈ rebuilt, Bound allowed field.2
-    | .variable id, _, _, _, _, _ => nomatch id
-    | .rowEmpty, _, fields, rebuilt, bound, required => by
-      simp only [requireRow, Option.some.injEq] at required
+        ∀ (path : List PathStep) (fields results : List (String × Value Declaration Identity Source)),
+          (∀ field ∈ fields, Bound allowed field.2) → convertRow boundary policy path row fields = .ok results →
+            ∀ field ∈ results, Bound allowed field.2
+    | .variable id, _, _, _, _, _, _ => nomatch id
+    | .rowEmpty, _, path, fields, results, bound, required => by
+      simp only [convertRow, Except.ok.injEq] at required
       exact required ▸ bound
-    | .rowField name type rest, rowBound, fields, rebuilt, bound, required => by
-      simp only [rowNominals, List.mem_append] at rowBound
-      simp only [requireRow] at required
-      cases found : fields.lookup name with
-      | none => simp [found] at required
-      | some value =>
-        cases converted : Xsh.Validation.Core.Require.require world contracts type value with
-        | none => simp [found, converted] at required
-        | some replacement =>
-          simp only [found, converted] at required
-          have replacementBound := require_bound world contracts allowed type (fun d p => rowBound d (Or.inl p)) value
-            replacement (bound_lookup bound found) converted
-          exact requireRow_bound world contracts allowed rest (fun d p => rowBound d (Or.inr p)) _ rebuilt
-            (bound_replaceField name replacementBound bound) required
+    | .rowField name type rest, typeBound, path, fields, results, bound, required => by
+      simp only [rowNominals, List.mem_append] at typeBound
+      simp only [convertRow] at required
+      split at required
+      · simp at required
+      · rename_i found present
+        split at required
+        · simp at required
+        · rename_i replacement replaced
+          exact convertRow_bound boundary policy allowed entries rest (fun d p => typeBound d (Or.inr p)) path _ results
+            (bound_replaceField name (convert_bound boundary policy allowed entries type
+              (fun d p => typeBound d (Or.inl p)) _ found replacement (bound_lookup bound present) replaced) bound)
+            required
 
-  theorem requireMembers_bound (world : MembershipWorld Declaration Identity Source)
-      (contracts : ContractDecisions world) (allowed : Declaration → Prop) :
+  theorem projectRow_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
+      (allowed : Declaration → Prop)
+      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
+      ∀ (row : RecordType Declaration), (∀ declaration ∈ rowNominals row, allowed declaration) →
+        ∀ (path : List PathStep) (fields results : List (String × Value Declaration Identity Source)),
+          (∀ field ∈ fields, Bound allowed field.2) → projectRow boundary policy path row fields = .ok results →
+            ∀ field ∈ results, Bound allowed field.2
+    | .variable id, _, _, _, _, _, _ => nomatch id
+    | .rowEmpty, _, path, fields, results, bound, required => by
+      simp only [projectRow, Except.ok.injEq] at required
+      subst required
+      simp
+    | .rowField name type rest, typeBound, path, fields, results, bound, required => by
+      simp only [rowNominals, List.mem_append] at typeBound
+      simp only [projectRow] at required
+      split at required
+      · simp at required
+      · rename_i found present
+        split at required
+        · simp at required
+        · rename_i replacement replaced
+          split at required
+          · simp at required
+          · rename_i others projected
+            simp only [Except.ok.injEq] at required
+            subst required
+            intro field inside
+            simp only [List.mem_cons] at inside
+            rcases inside with same | later
+            · subst same
+              exact convert_bound boundary policy allowed entries type (fun d p => typeBound d (Or.inl p)) _ found
+                replacement (bound_lookup bound present) replaced
+            · exact projectRow_bound boundary policy allowed entries rest (fun d p => typeBound d (Or.inr p)) path fields
+                others bound projected field later
+
+  theorem convertMembers_bound (boundary : Boundary Declaration Identity Source) (policy : FieldPolicy)
+      (allowed : Declaration → Prop)
+      (entries : policy ≠ .keep → ∀ reference, ∀ field ∈ boundary.world.entryFields reference, Bound allowed field.2) :
       ∀ (rest : UnionTail Declaration), (∀ declaration ∈ membersNominals rest, allowed declaration) →
-        ∀ (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
-          requireMembers world contracts rest candidate = some converted → Bound allowed converted
-    | .variable id, _, _, _, _, _ => nomatch id
-    | .membersEmpty, _, _, _, _, required => by simp [requireMembers] at required
-    | .member type tail, restBound, candidate, converted, bound, required => by
-      simp only [membersNominals, List.mem_append] at restBound
-      simp only [requireMembers] at required
-      cases here : Xsh.Validation.Core.Require.require world contracts type candidate with
-      | some value =>
-        simp only [here, Option.some.injEq] at required
+        ∀ (path : List PathStep) (candidate converted : Value Declaration Identity Source), Bound allowed candidate →
+          convertMembers boundary policy path rest candidate = some converted → Bound allowed converted
+    | .variable id, _, _, _, _, _, _ => nomatch id
+    | .membersEmpty, _, _, _, _, _, required => by simp [convertMembers] at required
+    | .member type tail, typeBound, path, candidate, converted, bound, required => by
+      simp only [membersNominals, List.mem_append] at typeBound
+      simp only [convertMembers] at required
+      split at required
+      · rename_i accepted here
+        simp only [Option.some.injEq] at required
         subst required
-        exact require_bound world contracts allowed type (fun d p => restBound d (Or.inl p)) candidate value bound here
-      | none =>
-        simp only [here] at required
-        exact requireMembers_bound world contracts allowed tail (fun d p => restBound d (Or.inr p)) candidate converted
-          bound required
+        exact convert_bound boundary policy allowed entries type (fun d p => typeBound d (Or.inl p)) path candidate _
+          bound here
+      · exact convertMembers_bound boundary policy allowed entries tail (fun d p => typeBound d (Or.inr p)) path candidate
+          converted bound required
 end
+
+
 
 
 mutual
   theorem evaluate_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
+      (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
       (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
       ∀ (form : Form Declaration), (∀ declaration ∈ introductions form, allowed declaration) →
-        ∀ value, evaluate world contracts heap form = some value → Bound allowed value
+        ∀ value, evaluate world contracts enums heap form = some value → Bound allowed value
     | .scalar scalar, _, value, evaluated => by
       simp only [evaluate, Option.some.injEq] at evaluated
       subst evaluated
@@ -544,25 +724,25 @@ mutual
     | .list items, introduced, value, evaluated => by
       simp only [introductions] at introduced
       simp only [evaluate] at evaluated
-      cases all : evaluateAll world contracts heap items with
+      cases all : evaluateAll world contracts enums heap items with
       | none => simp [all] at evaluated
       | some values =>
         simp only [all, Option.map_some, Option.some.injEq] at evaluated
         subst evaluated
-        exact bound_list.mpr (evaluateAll_bound world contracts heap allowed heapBound items introduced values all)
+        exact bound_list.mpr (evaluateAll_bound world contracts enums heap allowed heapBound items introduced values all)
     | .record fields, introduced, value, evaluated => by
       simp only [introductions] at introduced
       simp only [evaluate] at evaluated
-      cases all : evaluateFields world contracts heap fields with
+      cases all : evaluateFields world contracts enums heap fields with
       | none => simp [all] at evaluated
       | some values =>
         simp only [all, Option.map_some, Option.some.injEq] at evaluated
         subst evaluated
-        exact bound_record.mpr (evaluateFields_bound world contracts heap allowed heapBound fields introduced values all)
+        exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound fields introduced values all)
     | .construct declaration schema fields, introduced, value, evaluated => by
       simp only [introductions, List.mem_cons, forall_eq_or_imp] at introduced
       simp only [evaluate] at evaluated
-      cases all : evaluateFields world contracts heap fields with
+      cases all : evaluateFields world contracts enums heap fields with
       | none => simp [all] at evaluated
       | some values =>
         letI := Membership.decideTerm world contracts schema values
@@ -573,46 +753,47 @@ mutual
           simp only [nominals, List.mem_cons] at present
           rcases present with same | inner
           · exact same ▸ introduced.1
-          · exact bound_record.mpr (evaluateFields_bound world contracts heap allowed heapBound fields introduced.2
+          · exact bound_record.mpr (evaluateFields_bound world contracts enums heap allowed heapBound fields introduced.2
               values all) found (by simpa [nominals] using inner)
         · simp [all, member] at evaluated
     | .require target source, introduced, value, evaluated => by
       simp only [introductions, List.mem_append] at introduced
       simp only [evaluate] at evaluated
-      cases inner : evaluate world contracts heap source with
+      cases inner : evaluate world contracts enums heap source with
       | none => simp [inner] at evaluated
       | some sourceValue =>
         simp only [inner] at evaluated
-        exact require_bound world contracts allowed target (fun d p => introduced d (Or.inl p)) sourceValue value
-          (evaluate_bound world contracts heap allowed heapBound source (fun d p => introduced d (Or.inr p))
-            sourceValue inner) evaluated
+        exact convert_bound ⟨world, contracts, enums⟩ .keep allowed (fun notKeep => absurd rfl notKeep) target
+          (fun d p => introduced d (Or.inl p)) [] sourceValue value
+          (evaluate_bound world contracts enums heap allowed heapBound source (fun d p => introduced d (Or.inr p))
+            sourceValue inner) (toOption_some evaluated)
     | .read cell, _, value, evaluated => by
       simp only [evaluate] at evaluated
       exact heapBound cell value evaluated
     | .field source name, introduced, value, evaluated => by
       simp only [introductions] at introduced
       simp only [evaluate] at evaluated
-      cases inner : evaluate world contracts heap source with
+      cases inner : evaluate world contracts enums heap source with
       | none => simp [inner] at evaluated
       | some sourceValue =>
         have sourceBound := bound_eraseNominal
-          (evaluate_bound world contracts heap allowed heapBound source introduced sourceValue inner)
+          (evaluate_bound world contracts enums heap allowed heapBound source introduced sourceValue inner)
         simp only [inner] at evaluated
         cases erased : sourceValue.eraseNominal <;> simp only [erased, reduceCtorEq] at evaluated sourceBound
         case record fields => exact bound_lookup (bound_record.mp sourceBound) evaluated
     | .spread source updates, introduced, value, evaluated => by
       simp only [introductions, List.mem_append] at introduced
       simp only [evaluate] at evaluated
-      cases inner : evaluate world contracts heap source with
+      cases inner : evaluate world contracts enums heap source with
       | none => simp [inner] at evaluated
       | some sourceValue =>
         have sourceBound := bound_eraseNominal
-          (evaluate_bound world contracts heap allowed heapBound source (fun d p => introduced d (Or.inl p))
+          (evaluate_bound world contracts enums heap allowed heapBound source (fun d p => introduced d (Or.inl p))
             sourceValue inner)
         simp only [inner] at evaluated
         cases erased : sourceValue.eraseNominal <;> simp only [erased, reduceCtorEq] at evaluated sourceBound
         case record fields =>
-          cases all : evaluateFields world contracts heap updates with
+          cases all : evaluateFields world contracts enums heap updates with
           | none => simp [all] at evaluated
           | some replaced =>
             simp only [all, Option.map_some, Option.some.injEq] at evaluated
@@ -621,15 +802,15 @@ mutual
             intro field present
             simp only [List.mem_append] at present
             rcases present with updated | kept
-            · exact evaluateFields_bound world contracts heap allowed heapBound updates
+            · exact evaluateFields_bound world contracts enums heap allowed heapBound updates
                 (fun d p => introduced d (Or.inr p)) replaced all field updated
             · exact bound_record.mp sourceBound field kept
 
   theorem evaluateAll_bound (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-      (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
+      (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
       (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
       ∀ (items : List (Form Declaration)), (∀ declaration ∈ introductionsOf items, allowed declaration) →
-        ∀ values, evaluateAll world contracts heap items = some values → ∀ value ∈ values, Bound allowed value
+        ∀ values, evaluateAll world contracts enums heap items = some values → ∀ value ∈ values, Bound allowed value
     | [], _, values, evaluated => by
       simp only [evaluateAll, Option.some.injEq] at evaluated
       subst evaluated
@@ -637,10 +818,10 @@ mutual
     | item :: rest, introduced, values, evaluated => by
       simp only [introductionsOf, List.mem_append] at introduced
       simp only [evaluateAll] at evaluated
-      cases head : evaluate world contracts heap item with
+      cases head : evaluate world contracts enums heap item with
       | none => simp [head] at evaluated
       | some value =>
-        cases tail : evaluateAll world contracts heap rest with
+        cases tail : evaluateAll world contracts enums heap rest with
         | none => simp [head, tail] at evaluated
         | some others =>
           simp only [head, tail, Option.some.injEq] at evaluated
@@ -648,16 +829,16 @@ mutual
           intro found present
           simp only [List.mem_cons] at present
           rcases present with same | later
-          · exact same ▸ evaluate_bound world contracts heap allowed heapBound item (fun d p => introduced d (Or.inl p))
+          · exact same ▸ evaluate_bound world contracts enums heap allowed heapBound item (fun d p => introduced d (Or.inl p))
               value head
-          · exact evaluateAll_bound world contracts heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
+          · exact evaluateAll_bound world contracts enums heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
               others tail found later
 
   theorem evaluateFields_bound (world : MembershipWorld Declaration Identity Source)
-      (contracts : ContractDecisions world) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
+      (contracts : ContractDecisions world) (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop)
       (heapBound : ∀ cell stored, heap cell = some stored → Bound allowed stored) :
       ∀ (fields : List (String × Form Declaration)), (∀ declaration ∈ introductionsOfFields fields, allowed declaration) →
-        ∀ values, evaluateFields world contracts heap fields = some values → ∀ field ∈ values, Bound allowed field.2
+        ∀ values, evaluateFields world contracts enums heap fields = some values → ∀ field ∈ values, Bound allowed field.2
     | [], _, values, evaluated => by
       simp only [evaluateFields, Option.some.injEq] at evaluated
       subst evaluated
@@ -665,10 +846,10 @@ mutual
     | (name, item) :: rest, introduced, values, evaluated => by
       simp only [introductionsOfFields, List.mem_append] at introduced
       simp only [evaluateFields] at evaluated
-      cases head : evaluate world contracts heap item with
+      cases head : evaluate world contracts enums heap item with
       | none => simp [head] at evaluated
       | some value =>
-        cases tail : evaluateFields world contracts heap rest with
+        cases tail : evaluateFields world contracts enums heap rest with
         | none => simp [head, tail] at evaluated
         | some others =>
           simp only [head, tail, Option.some.injEq] at evaluated
@@ -677,9 +858,9 @@ mutual
           simp only [List.mem_cons] at present
           rcases present with same | later
           · subst same
-            exact evaluate_bound world contracts heap allowed heapBound item (fun d p => introduced d (Or.inl p)) value
+            exact evaluate_bound world contracts enums heap allowed heapBound item (fun d p => introduced d (Or.inl p)) value
               head
-          · exact evaluateFields_bound world contracts heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
+          · exact evaluateFields_bound world contracts enums heap allowed heapBound rest (fun d p => introduced d (Or.inr p))
               others tail found later
 end
 
@@ -706,12 +887,12 @@ theorem nominal_member_unique (world : MembershipWorld Declaration Identity Sour
   | _ => simp [Membership.value] at firstMember
 
 theorem construct_introduces (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-    (heap : Heap Declaration Identity Source) (declaration : Declaration) (schema : RecordType Declaration)
+    (enums : WireEnums Declaration) (heap : Heap Declaration Identity Source) (declaration : Declaration) (schema : RecordType Declaration)
     (fields : List (String × Form Declaration)) (value : Value Declaration Identity Source)
-    (evaluated : evaluate world contracts heap (.construct declaration schema fields) = some value) :
+    (evaluated : evaluate world contracts enums heap (.construct declaration schema fields) = some value) :
     Membership.value world (.nominal declaration schema) value := by
   simp only [evaluate] at evaluated
-  cases all : evaluateFields world contracts heap fields with
+  cases all : evaluateFields world contracts enums heap fields with
   | none => simp [all] at evaluated
   | some values =>
     letI := Membership.decideTerm world contracts schema values
@@ -733,32 +914,33 @@ produced by an expression was introduced by it or read from the store. A
 constructor introduces exactly its declaration and checks its schema, and two
 declarations with the same name or shape stay distinct types. Raw membership
 alone admits a forged candidate; this judgment is what excludes it. -/
-theorem nominal_provenance (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world) :
+theorem nominal_provenance (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
+    (enums : WireEnums Declaration) :
     (∀ (heap : Heap Declaration Identity Source) (allowed : Declaration → Prop) (form : Form Declaration) value,
       (∀ cell stored, heap cell = some stored → Bound allowed stored) →
       (∀ declaration ∈ introductions form, allowed declaration) →
-      evaluate world contracts heap form = some value → Bound allowed value) ∧
+      evaluate world contracts enums heap form = some value → Bound allowed value) ∧
     (∀ declaration (fields : RecordType Declaration) (candidate : Value Declaration Identity Source),
       Membership.value world (.nominal declaration fields) candidate → declaration ∈ nominals candidate) ∧
     (∀ (heap : Heap Declaration Identity Source) (stored : Declaration → Prop) (form : Form Declaration) value
       declaration (fields : RecordType Declaration),
       (∀ cell found, heap cell = some found → Bound stored found) →
-      evaluate world contracts heap form = some value →
+      evaluate world contracts enums heap form = some value →
       Membership.value world (.nominal declaration fields) value →
         stored declaration ∨ declaration ∈ introductions form) ∧
     (∀ (heap : Heap Declaration Identity Source) declaration schema fields value,
-      evaluate world contracts heap (.construct declaration schema fields) = some value →
+      evaluate world contracts enums heap (.construct declaration schema fields) = some value →
         Membership.value world (.nominal declaration schema) value) ∧
     (∀ (first second : Declaration) (firstFields secondFields : RecordType Declaration) candidate,
       Membership.value world (.nominal first firstFields) candidate →
       Membership.value world (.nominal second secondFields) candidate → first = second) := by
   refine ⟨fun heap allowed form value heapBound introduced evaluated =>
-      evaluate_bound world contracts heap allowed heapBound form introduced value evaluated,
+      evaluate_bound world contracts enums heap allowed heapBound form introduced value evaluated,
     fun _ _ _ member => nominal_member_carries_declaration world member, ?_,
-    construct_introduces world contracts,
+    construct_introduces world contracts enums,
     fun _ _ _ _ _ firstMember secondMember => nominal_member_unique world firstMember secondMember⟩
   intro heap stored form value declaration fields heapBound evaluated member
-  exact evaluate_bound world contracts heap (fun found => stored found ∨ found ∈ introductions form)
+  exact evaluate_bound world contracts enums heap (fun found => stored found ∨ found ∈ introductions form)
     (fun cell found present d inside => Or.inl (heapBound cell found present d inside)) form
     (fun d inside => Or.inr inside) value evaluated declaration (nominal_member_carries_declaration world member)
 
@@ -793,37 +975,37 @@ def built : Form ModuleDeclaration := .construct north schema [("name", nameForm
 theorem forged_candidate_is_a_member_but_has_no_introduction :
     Membership.value moduleWorld (.nominal north .rowEmpty) (.nominal north (.record []) : ModuleValue) ∧
       ∀ (form : Form ModuleDeclaration) value, introductions form = [] →
-        evaluate moduleWorld moduleContracts emptyHeap form = some value →
+        evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap form = some value →
           ¬ Membership.value moduleWorld (.nominal north .rowEmpty) value := by
   refine ⟨by simp [Membership.value, Membership.row, Membership.recordFields, Value.eraseNominal], ?_⟩
   intro form value none evaluated member
-  rcases (nominal_provenance moduleWorld moduleContracts).2.2.1 emptyHeap (fun _ => False) form value north .rowEmpty
+  rcases (nominal_provenance moduleWorld moduleContracts WireEnums.empty).2.2.1 emptyHeap (fun _ => False) form value north .rowEmpty
     (fun _ _ present => by simp [emptyHeap] at present) evaluated member with impossible | introduced
   · exact impossible
   · simp [none] at introduced
 
 theorem record_literal_never_has_the_nominal_type :
-    evaluate moduleWorld moduleContracts emptyHeap literal = some (.record [("name", .scalar (.string "xsh"))]) ∧
+    evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap literal = some (.record [("name", .scalar (.string "xsh"))]) ∧
       ¬ Membership.value moduleWorld (.nominal north schema)
         (.record [("name", .scalar (.string "xsh"))] : ModuleValue) := by
   refine ⟨rfl, ?_⟩
   simp [Membership.value]
 
 theorem same_name_and_shape_in_another_module_is_another_type :
-    ∃ value, evaluate moduleWorld moduleContracts emptyHeap built = some value ∧
+    ∃ value, evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap built = some value ∧
       Membership.value moduleWorld (.nominal north schema) value ∧
       ¬ Membership.value moduleWorld (.nominal south schema) value := by
   have row : Membership.row moduleWorld schema [("name", .scalar (.string "xsh"))] := by
     simp [schema, Membership.row, Membership.value, Membership.primitive, Value.eraseNominal]
-  have evaluated : evaluate moduleWorld moduleContracts emptyHeap built =
+  have evaluated : evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap built =
       some (.nominal north (.record [("name", .scalar (.string "xsh"))])) := by
     simp only [built, evaluate, evaluateFields, nameForm]
     letI := Membership.decideTerm moduleWorld moduleContracts schema [("name", .scalar (.string "xsh"))]
     simp [row]
-  refine ⟨_, evaluated, construct_introduces moduleWorld moduleContracts emptyHeap north schema _ _ evaluated, ?_⟩
+  refine ⟨_, evaluated, construct_introduces moduleWorld moduleContracts WireEnums.empty emptyHeap north schema _ _ evaluated, ?_⟩
   intro member
   have := nominal_member_unique moduleWorld member
-    (construct_introduces moduleWorld moduleContracts emptyHeap north schema _ _ evaluated)
+    (construct_introduces moduleWorld moduleContracts WireEnums.empty emptyHeap north schema _ _ evaluated)
   simp [north, south] at this
 
 def importResolvedByName (declaration : ModuleDeclaration) : ModuleDeclaration := ("south", declaration.2)
@@ -831,11 +1013,11 @@ def importResolvedByName (declaration : ModuleDeclaration) : ModuleDeclaration :
 def misresolvedConstruct (form : Form ModuleDeclaration) : Option ModuleValue :=
   match form with
   | .construct declaration _ _ =>
-    (evaluate moduleWorld moduleContracts emptyHeap form).map fun value =>
+    (evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap form).map fun value =>
       match value with
       | .nominal _ contents => .nominal (importResolvedByName declaration) contents
       | other => other
-  | other => evaluate moduleWorld moduleContracts emptyHeap other
+  | other => evaluate moduleWorld moduleContracts WireEnums.empty emptyHeap other
 
 theorem wrong_import_provenance_is_detected :
     ∃ value, misresolvedConstruct built = some value ∧ south ∈ nominals value ∧ south ∉ introductions built := by
