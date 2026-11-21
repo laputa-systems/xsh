@@ -1919,11 +1919,16 @@ class InventoryCheckerTests(unittest.TestCase):
                 with self.assertRaisesRegex(CHECKER.InventoryError, message):
                     CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
 
-    def test_changed_library_patch_makes_an_implementation_proof_stale(self) -> None:
-        proofs, obligations, modules = self.implementation_inputs()
-        proofs[0]["toolchain"]["library_patch"]["sha256"] = "0" * 64
-        with self.assertRaisesRegex(CHECKER.InventoryError, "library patch .* changed"):
-            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+    def test_changed_library_source_makes_an_implementation_proof_stale(self) -> None:
+        for key, value, message in (
+            ("aeneas_library_repository", "https://github.com/AeneasVerif/aeneas.git", "does not require aeneas"),
+            ("aeneas_library", "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35", "manifest pins aeneas"),
+        ):
+            with self.subTest(key=key):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["toolchain"][key] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
 
     def test_implementation_copy_must_be_the_verbatim_declaration(self) -> None:
         proofs, obligations, modules = self.implementation_inputs()

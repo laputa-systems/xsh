@@ -770,8 +770,9 @@ none of the 77 universal obligations.
 Aeneas translation of the production source, for every operator and every
 signed or unsigned 64-bit operand, against `Core/Arith.lean` and
 `Values/DurationOps.lean`. They are conditional on that pipeline and its
-audited library models, are not about the shipping binary, and leave
-`IMPL-REFINE` planned.
+audited library models, taken from the laputa-systems Aeneas fork at
+`6d7c51a5`, are not about the shipping binary, and leave `IMPL-REFINE`
+planned.
 
 ```sh
 LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"

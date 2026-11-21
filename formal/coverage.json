@@ -15691,7 +15691,7 @@
       "proof_sources": [
         {
           "path": "dev/verify/aeneas/check.sh",
-          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+          "sha256": "23b5526f864d452670ddfabaff567e3e68cbbd45648e0bb90b9b5b6ad6cff697"
         },
         {
           "path": "dev/verify/aeneas/extract.Dockerfile",
@@ -15719,7 +15719,7 @@
         },
         {
           "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
-          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+          "sha256": "8ce18f5250b928fbd1a77ef28bf7bac0608fc66dadaa9e68787d687fea3df24b"
         },
         {
           "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
@@ -15731,11 +15731,11 @@
         },
         {
           "path": "dev/verify/aeneas/lean/lake-manifest.json",
-          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+          "sha256": "237428ce237cba3b0abd22c6b8963f1e7298a230b5fc1baaf89da39138f6d24b"
         },
         {
           "path": "dev/verify/aeneas/lean/lakefile.toml",
-          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+          "sha256": "b2925f6e23da0f83133a6ec5ed9ae57251529ab775685c535f362ad0cbd2d123"
         },
         {
           "path": "dev/verify/aeneas/lean/lean-toolchain",
@@ -15787,13 +15787,10 @@
         "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
         "aeneas_release": "nightly-2026.11.09-5a392f4",
         "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
-        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "aeneas_library": "6d7c51a5bcaafd876542afa5804f53b4173abaff",
+        "aeneas_library_repository": "https://github.com/laputa-systems/aeneas.git",
         "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
-        "lean": "4.35.0",
-        "library_patch": {
-          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
-          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
-        }
+        "lean": "4.35.0"
       },
       "proof": {
         "project": "dev/verify/aeneas/lean",
@@ -15822,7 +15819,7 @@
       "assumptions": [
         "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
         "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
-        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Aeneas Lean library at the laputa-systems fork commit 6d7c51a5 (upstream 5a392f4b80a4 plus a fix of the signed remainder model) models the Rust operations the translation calls: I64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, U64 checked_add, checked_sub and checked_mul, unsigned /, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual) and the as casts between i64 and u64; upstream's IScalar.rem answered 0 for MIN % -1, where Rust panics and checked_rem returns None, and the fork makes it fail with integerOverflow as IScalar.div does",
         "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice"
       ],
       "reproduction": [
@@ -15866,18 +15863,19 @@
         "fresh_kernel_check_wall_seconds": [
           172,
           204,
-          264
+          264,
+          232
         ],
         "fresh_kernel_check_user_seconds": [
           164,
           194,
-          250
+          250,
+          219
         ],
-        "fresh_kernel_check_peak_rss_mib": 2575,
-        "patched_library_rebuild_wall_seconds": 44,
-        "patched_library_rebuild_peak_rss_mib": 2047,
+        "fresh_kernel_check_peak_rss_mib": 2609,
         "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
-        "source_mutants_wall_seconds": 23
+        "source_mutants_wall_seconds": 23,
+        "cold_harness_check_wall_seconds": 902
       },
       "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary, of LLVM code generation, or of the production rustc. It proves the shared decision only: that constant preparation declines every error and that execution reports the decoded error at the operator span rests on code reading and native regressions, and the execution adapter's expect relies on the lowerer emitting only arithmetic operators into IntBinary, which FullVerifier::verify does not check. IMPL-REFINE stays planned."
     },
@@ -15921,7 +15919,7 @@
       "proof_sources": [
         {
           "path": "dev/verify/aeneas/check.sh",
-          "sha256": "66f00905dab531ee5f7213f8427b20497dff23d736f1d220317d8e59faf1083e"
+          "sha256": "23b5526f864d452670ddfabaff567e3e68cbbd45648e0bb90b9b5b6ad6cff697"
         },
         {
           "path": "dev/verify/aeneas/extract.Dockerfile",
@@ -15949,7 +15947,7 @@
         },
         {
           "path": "dev/verify/aeneas/lean/XshImpl/Controls.lean",
-          "sha256": "84e9d08a1c98bbcd921390b1f2a14d4090b93e985b3366a2888731be329c3f0e"
+          "sha256": "8ce18f5250b928fbd1a77ef28bf7bac0608fc66dadaa9e68787d687fea3df24b"
         },
         {
           "path": "dev/verify/aeneas/lean/XshImpl/Duration.lean",
@@ -15961,11 +15959,11 @@
         },
         {
           "path": "dev/verify/aeneas/lean/lake-manifest.json",
-          "sha256": "122bd87fbec6f187a5f58435d23f29e92312eb99582b759890f4bcc7e837e7f6"
+          "sha256": "237428ce237cba3b0abd22c6b8963f1e7298a230b5fc1baaf89da39138f6d24b"
         },
         {
           "path": "dev/verify/aeneas/lean/lakefile.toml",
-          "sha256": "9409c24002e559af4443db38312a641f56b5af71e07874e053cd613f7793d54f"
+          "sha256": "b2925f6e23da0f83133a6ec5ed9ae57251529ab775685c535f362ad0cbd2d123"
         },
         {
           "path": "dev/verify/aeneas/lean/lean-toolchain",
@@ -16017,13 +16015,10 @@
         "charon": "0.1.315 (454586e9b770231e66d2062993e632dfc06463e2)",
         "aeneas_release": "nightly-2026.11.09-5a392f4",
         "aeneas_archive_sha256": "54982f0f6bb8ec7080ef9d2a23932aebe6e3c032f32015963bbccc43103f723a",
-        "aeneas_library": "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35",
+        "aeneas_library": "6d7c51a5bcaafd876542afa5804f53b4173abaff",
+        "aeneas_library_repository": "https://github.com/laputa-systems/aeneas.git",
         "mathlib": "56a005855ea17e0b0958f73ec801ae140b0a1679",
-        "lean": "4.35.0",
-        "library_patch": {
-          "path": "dev/verify/aeneas/patches/signed-checked-rem.patch",
-          "sha256": "6165717786bd6bb3e84f1a783c81208c6fb1694571d4f046d44c53b15be2ac5f"
-        }
+        "lean": "4.35.0"
       },
       "proof": {
         "project": "dev/verify/aeneas/lean",
@@ -16052,7 +16047,7 @@
       "assumptions": [
         "rustc nightly-2026-09-17 (1.100.0-nightly 923c95cdf, host x86_64-unknown-linux-gnu, debian:trixie extraction image) lowers the slice to MIR with the same meaning that the production compiler nightly-2026-11-09 gives the same source; the slice compiles src/arith.rs and src/duration.rs verbatim and a build-checked verbatim copy of the BinaryOp declaration",
         "Charon 0.1.315 at 454586e9 translates that MIR to LLBC, and Aeneas nightly-2026.11.09-5a392f4 translates the LLBC to the Lean definitions, without changing their meaning",
-        "the Aeneas Lean library at 5a392f4 models the Rust operations the translation calls: I64/U64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual), unsigned division and the as casts between i64 and u64; the signed checked_rem model is corrected by dev/verify/aeneas/patches/signed-checked-rem.patch because the upstream model returns Some(0) for i64::MIN.checked_rem(-1), where Rust returns None",
+        "the Aeneas Lean library at the laputa-systems fork commit 6d7c51a5 (upstream 5a392f4b80a4 plus a fix of the signed remainder model) models the Rust operations the translation calls: I64 checked_add, checked_sub, checked_mul, checked_div and checked_rem, U64 checked_add, checked_sub and checked_mul, unsigned /, Option::ok_or, Result::map_err, the ? operator (Try::branch and FromResidual) and the as casts between i64 and u64; upstream's IScalar.rem answered 0 for MIN % -1, where Rust panics and checked_rem returns None, and the fork makes it fail with integerOverflow as IScalar.div does",
         "the Lean 4.35.0 kernel, the bundled leanchecker, and the axioms propext, Quot.sound and Classical.choice",
         "the extraction erases the IntErrorKind payload of TryFromIntError to the Aeneas library's unit model; checked_duration_binary discards that payload through map_err closures that ignore their argument",
         "the TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies in the translation are core's at the extraction nightly-2026-09-17, not at the production nightly-2026-11-09; the slice witness tests run the production toolchain's bodies on the same cases"
@@ -16098,18 +16093,19 @@
         "fresh_kernel_check_wall_seconds": [
           172,
           204,
-          264
+          264,
+          232
         ],
         "fresh_kernel_check_user_seconds": [
           164,
           194,
-          250
+          250,
+          219
         ],
-        "fresh_kernel_check_peak_rss_mib": 2575,
-        "patched_library_rebuild_wall_seconds": 44,
-        "patched_library_rebuild_peak_rss_mib": 2047,
+        "fresh_kernel_check_peak_rss_mib": 2609,
         "shared_with": "one dev/verify/aeneas/check.sh run checks both implementation proofs; the fresh kernel check replays the whole XshImpl import closure, including the Mathlib and Aeneas modules it imports",
-        "source_mutants_wall_seconds": 23
+        "source_mutants_wall_seconds": 23,
+        "cold_harness_check_wall_seconds": 902
       },
       "boundary": "A Lean-checked refinement of the Aeneas translation of the identified source, including the translated core TryFrom<i64> for u64 and TryFrom<u64> for i64 bodies, conditional on the extraction pipeline and the audited library models; it is not a proof of the shipping binary. It proves the shared decision only: the adapters' operand mapping, folding and span reporting rest on code reading and native regressions. IMPL-REFINE stays planned."
     }
