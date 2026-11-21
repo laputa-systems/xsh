@@ -201,16 +201,16 @@ def escapeSyntax : List UInt8 → Nat
 /-- The result of scanning one string body from the byte after its opening quote. -/
 inductive BodyResult where
   | closed (after : List UInt8)
-  | open
+  | unclosed
   deriving DecidableEq, Repr
 
 /-- Scan one single-line body. A line feed, a carriage return, the end of input, or a lone
 trailing backslash ends an open body; otherwise the first unescaped quote closes it. -/
 def scanBody : List UInt8 → BodyResult
-  | [] => .open
+  | [] => .unclosed
   | 34 :: after => .closed after
-  | 10 :: _ => .open
-  | 13 :: _ => .open
+  | 10 :: _ => .unclosed
+  | 13 :: _ => .unclosed
   | 92 :: rest => scanBody (rest.drop (escapeSyntax rest))
   | _ :: rest => scanBody rest
 termination_by bytes => bytes.length
@@ -221,10 +221,10 @@ decreasing_by
 theorem scan_body_eq (bytes : List UInt8) :
     scanBody bytes =
       (match bytes with
-      | [] => .open
+      | [] => .unclosed
       | 34 :: after => .closed after
-      | 10 :: _ => .open
-      | 13 :: _ => .open
+      | 10 :: _ => .unclosed
+      | 13 :: _ => .unclosed
       | 92 :: rest => scanBody (rest.drop (escapeSyntax rest))
       | _ :: rest => scanBody rest) := by
   rw [scanBody.eq_def]
@@ -234,23 +234,23 @@ it with `after` following; `open` means a line feed, a carriage return, the end 
 lone trailing backslash comes first. -/
 inductive BodyScan : List UInt8 → BodyResult → Prop where
   | closed (after : List UInt8) : BodyScan (34 :: after) (.closed after)
-  | openNil : BodyScan [] .open
-  | openLine (rest : List UInt8) : BodyScan (10 :: rest) .open
-  | openCarriage (rest : List UInt8) : BodyScan (13 :: rest) .open
+  | openNil : BodyScan [] .unclosed
+  | openLine (rest : List UInt8) : BodyScan (10 :: rest) .unclosed
+  | openCarriage (rest : List UInt8) : BodyScan (13 :: rest) .unclosed
   | escape {rest : List UInt8} {after : BodyResult} :
       BodyScan (rest.drop (escapeSyntax rest)) after → BodyScan (92 :: rest) after
   | text {byte : UInt8} {rest : List UInt8} {after : BodyResult} :
       byte ≠ 34 → byte ≠ 92 → byte ≠ 10 → byte ≠ 13 →
       BodyScan rest after → BodyScan (byte :: rest) after
-theorem scan_body_nil : scanBody [] = .open := by rw [scan_body_eq]
+theorem scan_body_nil : scanBody [] = .unclosed := by rw [scan_body_eq]
 
 theorem scan_body_quote (after : List UInt8) : scanBody (34 :: after) = .closed after := by
   rw [scan_body_eq]; simp only
 
-theorem scan_body_line (rest : List UInt8) : scanBody (10 :: rest) = .open := by
+theorem scan_body_line (rest : List UInt8) : scanBody (10 :: rest) = .unclosed := by
   rw [scan_body_eq]; simp only
 
-theorem scan_body_carriage (rest : List UInt8) : scanBody (13 :: rest) = .open := by
+theorem scan_body_carriage (rest : List UInt8) : scanBody (13 :: rest) = .unclosed := by
   rw [scan_body_eq]; simp only
 
 theorem scan_body_escape (rest : List UInt8) :
@@ -260,7 +260,8 @@ theorem scan_body_escape (rest : List UInt8) :
 theorem scan_body_text (byte : UInt8) (rest : List UInt8) (notQuote : byte ≠ 34)
     (notBackslash : byte ≠ 92) (notLine : byte ≠ 10) (notCarriage : byte ≠ 13) :
     scanBody (byte :: rest) = scanBody rest := by
-  rw [scan_body_eq]; simp only [notQuote, notBackslash, notLine, notCarriage, ite_false]
+  rw [scan_body_eq]
+  simp only [notQuote, notBackslash, notLine, notCarriage]
 
 theorem body_scan_sound {bytes : List UInt8} {outcome : BodyResult}
     (derivation : BodyScan bytes outcome) : scanBody bytes = outcome := by
@@ -314,6 +315,107 @@ theorem body_scan_complete {bytes : List UInt8} {outcome : BodyResult}
 theorem body_scan_iff (bytes : List UInt8) (outcome : BodyResult) :
     scanBody bytes = outcome ↔ BodyScan bytes outcome :=
   ⟨body_scan_complete, body_scan_sound⟩
+
+/-! ## Escape decoding and the string scan
+
+Two passes match the Rust lexer: `scanBody` finds the closing quote by
+skipping escape syntax, then `decodeEscapes` walks the body and reports the
+first invalid escape. A later invalid escape does not mask an earlier one. -/
+
+
+/-- A body that closes leaves strictly fewer bytes than the body: the closing quote is one of
+them. -/
+theorem closed_drop_shorter (bytes after : List UInt8) (closed : scanBody bytes = .closed after) :
+    after.length < bytes.length := by
+  let motive (n : Nat) : Prop := ∀ bytes : List UInt8, bytes.length = n →
+    ∀ after, scanBody bytes = .closed after → after.length < bytes.length
+  have key : ∀ n, motive n := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | ind n ih =>
+      intro bytes len after closed
+      cases bytes with
+      | nil => rw [scan_body_nil] at closed; cases closed
+      | cons byte rest =>
+        by_cases quote : byte = 34
+        · subst quote; rw [scan_body_quote] at closed
+          cases closed
+          simp only [List.length_cons]; omega
+        · by_cases line : byte = 10
+          · subst line; rw [scan_body_line] at closed; cases closed
+          · by_cases carriage : byte = 13
+            · subst carriage; rw [scan_body_carriage] at closed; cases closed
+            · by_cases backslash : byte = 92
+              · subst backslash
+                rw [scan_body_escape] at closed
+                have dropShorter : (rest.drop (escapeSyntax rest)).length < n := by
+                  simp only [List.length_cons] at len ⊢
+                  have := List.length_drop (l := rest) (i := escapeSyntax rest)
+                  omega
+                have inner := ih _ dropShorter _ rfl after closed
+                simp only [List.length_cons]
+                have := List.length_drop (l := rest) (i := escapeSyntax rest)
+                omega
+              · rw [scan_body_text byte rest quote backslash line carriage] at closed
+                have shorter : rest.length < n := by
+                  simp only [List.length_cons] at len; omega
+                have inner := ih _ shorter _ rfl after closed
+                simp only [List.length_cons]
+                omega
+  exact key bytes.length bytes rfl after closed
+
+/-- The first invalid escape in `content`, from absolute offset `offset`. -/
+def decodeEscapes (content : List UInt8) (offset : Nat) : Option Span :=
+  match content with
+  | [] => none
+  | 92 :: rest =>
+      match classifyEscape rest with
+      | .valid k => decodeEscapes (rest.drop k) (offset + 1 + k)
+      | .invalid k => some ⟨offset, offset + 1 + k⟩
+  | _ :: rest => decodeEscapes rest (offset + 1)
+termination_by content.length
+decreasing_by
+  · simp only [List.length_cons, List.length_drop]; omega
+  · simp
+
+theorem decode_escapes_eq (content : List UInt8) (offset : Nat) :
+    decodeEscapes content offset =
+      (match content with
+      | [] => none
+      | 92 :: rest =>
+          match classifyEscape rest with
+          | .valid k => decodeEscapes (rest.drop k) (offset + 1 + k)
+          | .invalid k => some ⟨offset, offset + 1 + k⟩
+      | _ :: rest => decodeEscapes rest (offset + 1)) := by
+  rw [decodeEscapes.eq_def]
+
+theorem decode_escapes_nil (offset : Nat) : decodeEscapes [] offset = none := by
+  rw [decode_escapes_eq]
+
+/-- The result of scanning a whole byte string for its first string error. -/
+inductive StringResult where
+  | clean
+  | failed (failure : ParseFailure)
+  deriving DecidableEq, Repr
+
+/-- Scan a whole byte string, from absolute offset `offset`, for the first string error. -/
+def scanStrings (offset : Nat) : List UInt8 → StringResult
+  | [] => .clean
+  | 34 :: rest =>
+      match hbody : scanBody rest with
+      | .unclosed => .failed (.unterminatedString ⟨offset, offset + rest.length + 1⟩)
+      | .closed after =>
+          let content := rest.take (rest.length - after.length)
+          match decodeEscapes content (offset + 1) with
+          | some span => .failed (.invalidEscape span)
+          | none => scanStrings (offset + (rest.length + 1 - after.length)) after
+  | _ :: rest => scanStrings (offset + 1) rest
+termination_by bytes => bytes.length
+decreasing_by
+  · have bound := closed_drop_shorter rest after hbody
+    simp only [List.length_cons]; omega
+  · simp
+
 end SourceAdmission
 
 end Xsh.Conformance.Vertical
