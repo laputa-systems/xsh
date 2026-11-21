@@ -59,7 +59,7 @@ theorem duration_operator_results (context : Context Declaration Identity Source
       durationResult context.errors (DurationOps.multiply left factor) ∧
     binary context .div (duration left) (integer factor) =
       durationResult context.errors (DurationOps.divideByInt left factor) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> simp [binary, duration, integer, ordering, Value.eraseNominal]
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> simp [binary, duration, integer, Value.eraseNominal]
 
 theorem not_scalar_of_listItems {candidate : Value Declaration Identity Source}
     {items : List (Value Declaration Identity Source)}
@@ -120,7 +120,7 @@ theorem bind_refines {α β : Type} {first second : Result Declaration Identity 
 
 theorem evaluateAll_refines {α : Type}
     {evaluate evaluate' : α → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ item, Refines (evaluate item) (evaluate' item)) :
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
     ∀ items : List α, Refines (evaluateAll evaluate items) (evaluateAll evaluate' items)
   | [] => refines_refl _
   | first :: rest => bind_refines (each first) fun _ =>
@@ -128,16 +128,16 @@ theorem evaluateAll_refines {α : Type}
 
 theorem evaluateFields_refines (context : Context Declaration Identity Source)
     {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ item, Refines (evaluate item) (evaluate' item)) :
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
     ∀ fields, Refines (evaluateFields context evaluate fields) (evaluateFields context evaluate' fields)
   | [] => refines_refl _
-  | .named name operand :: rest => bind_refines (each operand) fun _ =>
+  | .named _ operand :: rest => bind_refines (each operand) fun _ =>
       bind_refines (evaluateFields_refines context each rest) fun _ => refines_refl _
   | .computed _ _ :: _ | .path _ _ :: _ | .shorthand _ :: _ | .spread _ :: _ => refines_refl _
 
 theorem branches_refines
     {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ item, Refines (evaluate item) (evaluate' item)) :
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
     ∀ conditions otherwise, Refines (branches evaluate conditions otherwise) (branches evaluate' conditions otherwise)
   | [], otherwise => each otherwise
   | (condition, value) :: rest, otherwise => by

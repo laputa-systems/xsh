@@ -260,7 +260,7 @@ theorem zip_lookup_none {α β : Type} : ∀ (names : List Xsh.Syntax.RawName) (
   | first :: rest, x :: xs, y :: ys, name, lengthX, lengthY, absent => by
     by_cases same : name = first
     · subst same
-      simp [List.lookup] at absent
+      simp at absent
     · have different : (name == first) = false := by simpa using same
       simp only [List.zip_cons_cons, List.lookup, different] at absent ⊢
       exact zip_lookup_none rest xs ys name (by simpa using lengthX) (by simpa using lengthY) absent
@@ -273,7 +273,7 @@ theorem zip_lookup_aligned {α β : Type} : ∀ (names : List Xsh.Syntax.RawName
   | first :: rest, x' :: xs, y' :: ys, name, x, y, lengthX, lengthY, foundX, foundY => by
     by_cases same : name = first
     · subst same
-      simp [List.lookup] at foundX foundY
+      simp at foundX foundY
       subst foundX
       subst foundY
       simp
@@ -391,6 +391,74 @@ theorem list_member_items {element : ValueType Declaration} {candidate : Value D
     obtain ⟨path, present, rfl⟩ := List.mem_map.mp inside
     exact member path present
   · exact member.elim
+
+theorem indexAt_items {fromEnd : Bool} {container key value : Value Declaration Identity Source}
+    {items : List (Value Declaration Identity Source)} (listed : listValues container = some items)
+    (found : indexAt context fromEnd container key = .value value) : value ∈ items := by
+  unfold indexAt at found
+  rw [listed] at found
+  split at found
+  · rename_i items' position sameItems
+    simp only [Option.some.injEq] at sameItems
+    subst sameItems
+    dsimp only at found
+    split at found
+    all_goals
+      split at found
+      · simp only [Result.value.injEq] at found
+        subst found
+        exact List.getElem_mem _
+      · simp at found
+  · have notMap : ∀ entries, container.eraseNominal ≠ .map entries := by
+      intro entries erased
+      simp [listValues, erased] at listed
+    have notRecord : ∀ fields, container.eraseNominal ≠ .record fields := by
+      intro fields erased
+      simp [listValues, erased] at listed
+    cases erased : container.eraseNominal with
+    | map entries => exact absurd erased (notMap entries)
+    | record fields => exact absurd erased (notRecord fields)
+    | _ => simp [erased] at found
+
+theorem indexAt_entries {keyType element : ValueType Declaration} {fromEnd : Bool}
+    {container key value : Value Declaration Identity Source}
+    (member : Membership.value world.membership (.map keyType element) container)
+    (found : indexAt context fromEnd container key = .value value) : Membership.value world.membership element value := by
+  have notListed : listValues container = none := by
+    simp only [Membership.value] at member
+    unfold listValues
+    cases erased : container.eraseNominal <;> simp [erased] at member ⊢
+  unfold indexAt at found
+  rw [notListed] at found
+  simp only [Membership.value] at member
+  cases erased : container.eraseNominal with
+  | map entries =>
+    simp only [erased] at found member
+    cases keyOf : mapKeyOf key with
+    | none => simp [keyOf] at found
+    | some mapKey =>
+      cases present : entries.lookup mapKey with
+      | none => simp [keyOf, present] at found
+      | some other =>
+        simp only [keyOf, present, Result.value.injEq] at found
+        subst found
+        exact (member _ (Xsh.Proofs.Core.Writes.lookup_entry_mem present)).2
+  | record fields =>
+    simp only [erased] at found member
+    cases keyOf : mapKeyOf key with
+    | none => simp [keyOf] at found
+    | some mapKey =>
+      cases mapKey with
+      | string label =>
+        cases present : fields.lookup label with
+        | none => simp [keyOf, present] at found
+        | some other =>
+          simp only [keyOf, present, Result.value.injEq] at found
+          subst found
+          obtain ⟨before, after, rfl, _⟩ := List.lookup_eq_some_iff.mp present
+          exact member.2 (label, other) (by simp)
+      | _ => simp [keyOf] at found
+  | _ => simp [erased] at member
 
 theorem branches_member (types : TypeContext Declaration) (locals : Locals Declaration Identity Source)
     (evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
@@ -569,5 +637,279 @@ theorem binary_lists {element : ValueType Declaration} {first second : Value Dec
   · exact secondMembers item late
 
 end Preservation
+
+section Theorem
+
+/-- Type preservation for the covered expressions: in a typing context whose
+names hold members, with every let-free function typed at its signature, an
+evaluation that produces a value produces a member of the expression's
+type. -/
+theorem preservation (context : Context Declaration Identity Source) (world : World Declaration Identity Source)
+    (environment : Environment) (store : Store world) (signatures : Signatures Declaration)
+    (global : TypeContext Declaration) (globalConsistent : Consistent world environment store global [])
+    (functions : FunctionsTyped context signatures global) :
+    ∀ fuel (types : TypeContext Declaration) (locals : Locals Declaration Identity Source) expression type value,
+      Typed context.spelling signatures types expression type → Consistent world environment store types locals →
+      evaluate context environment store fuel locals expression = .value value →
+        Membership.value world.membership type value
+  | 0, _, _, _, _, _, _, _, produced => by simp [evaluate] at produced
+  | fuel + 1, types, locals, expression, type, value, typed, consistent, produced => by
+    have recurse : ∀ expression type value, Typed context.spelling signatures types expression type →
+        evaluate context environment store fuel locals expression = .value value →
+          Membership.value world.membership type value :=
+      fun expression type value typed produced =>
+        preservation context world environment store signatures global globalConsistent functions fuel types locals
+          expression type value typed consistent produced
+    simp only [evaluate] at produced
+    cases typed with
+    | null => simp only [step, literal, Result.value.injEq] at produced; subst produced
+              simp [Membership.value, Membership.primitive, Value.eraseNominal]
+    | boolType => simp only [step, literal, Result.value.injEq] at produced; subst produced; exact bool_member _ _
+    | integer =>
+      simp only [step, literal] at produced
+      split at produced
+      · simp only [Result.value.injEq] at produced; subst produced; exact int_member _ _
+      · simp at produced
+    | float =>
+      simp only [step, literal] at produced
+      split at produced
+      · simp only [Result.value.injEq] at produced; subst produced; exact float_member _ _
+      · simp at produced
+    | duration =>
+      simp only [step, literal] at produced
+      split at produced
+      · simp only [Result.value.injEq] at produced; subst produced; exact dur_member _ _
+      · simp at produced
+    | string => simp only [step, literal, Result.value.injEq] at produced; subst produced; exact str_member _ _
+    | ident found =>
+      rename_i name
+      have promised := consistent.1 name type found
+      simp only [step] at produced
+      split at produced
+      · rename_i local' localFound
+        simp only [Result.value.injEq] at produced
+        subst produced
+        simpa [localFound] using promised
+      · rename_i noLocal
+        simp only [noLocal] at promised
+        obtain ⟨cell, stored, resolved, present, member⟩ := promised
+        simp only [resolved, present, Result.value.injEq] at produced
+        subst produced
+        exact member
+    | list each =>
+      rename_i elements element
+      simp only [step] at produced
+      obtain ⟨values, evaluated, joined⟩ := bind_value produced
+      simp only [Result.value.injEq] at joined
+      subst joined
+      obtain ⟨lengths, aligned⟩ := evaluateAll_aligned _ elements values evaluated
+      simp only [Membership.value, Value.eraseNominal]
+      intro item inside
+      obtain ⟨source, pairInside⟩ := mem_zip_right elements values lengths item inside
+      exact recurse source element item (each source (List.of_mem_zip pairInside).1) (aligned _ pairInside)
+    | record fieldsTyped =>
+      rename_i fields row
+      simp only [step] at produced
+      obtain ⟨out, evaluated, joined⟩ := bind_value produced
+      simp only [Result.value.injEq] at joined
+      subst joined
+      simp only [Membership.value, Membership.recordFields, Value.eraseNominal]
+      exact fields_member context world signatures types _ recurse fields row out fieldsTyped evaluated
+    | @field base name row _ baseTyped found =>
+      simp only [step] at produced
+      obtain ⟨container, containerValue, selected⟩ := bind_value produced
+      have containerMember := recurse base _ container baseTyped containerValue
+      simp only [fieldOf] at selected
+      simp only [Membership.value, Membership.recordFields] at containerMember
+      cases erased : container.eraseNominal with
+      | record fields =>
+        simp only [erased] at selected containerMember
+        cases present : fields.lookup (context.spelling name) with
+        | none => simp [present] at selected
+        | some other =>
+          simp only [present, Result.value.injEq] at selected
+          subst selected
+          obtain ⟨other', otherPresent, otherMember⟩ :=
+            lookupRow_member world.membership row fields _ type containerMember found
+          rw [present, Option.some.injEq] at otherPresent
+          exact otherPresent ▸ otherMember
+      | _ => simp [erased] at selected
+    | @listIndex base key _ baseTyped keyTyped =>
+      simp only [step] at produced
+      obtain ⟨container, containerValue, selected⟩ := bind_value produced
+      obtain ⟨items, listed, members⟩ :=
+        list_member_items world (recurse base _ container baseTyped containerValue)
+      split at selected
+      · obtain ⟨distance, _, chosen⟩ := bind_value selected
+        exact members _ (indexAt_items context listed chosen)
+      · obtain ⟨selector, _, chosen⟩ := bind_value selected
+        exact members _ (indexAt_items context listed chosen)
+    | @mapIndex base key keyType _ baseTyped keyTyped =>
+      simp only [step] at produced
+      obtain ⟨container, containerValue, selected⟩ := bind_value produced
+      have containerMember := recurse base _ container baseTyped containerValue
+      split at selected
+      · obtain ⟨distance, _, chosen⟩ := bind_value selected
+        exact indexAt_entries context world containerMember chosen
+      · obtain ⟨selector, _, chosen⟩ := bind_value selected
+        exact indexAt_entries context world containerMember chosen
+    | not operandTyped =>
+      rename_i operand
+      simp only [step] at produced
+      obtain ⟨inner, innerValue, applied⟩ := bind_value produced
+      obtain ⟨b, shape⟩ := bool_shape world.membership (recurse operand _ inner operandTyped innerValue)
+      simp only [unary, shape, Result.value.injEq] at applied
+      subst applied
+      exact bool_member _ _
+    | negInt operandTyped =>
+      rename_i operand
+      simp only [step] at produced
+      obtain ⟨inner, innerValue, applied⟩ := bind_value produced
+      obtain ⟨b, shape⟩ := int_shape world.membership (recurse operand _ inner operandTyped innerValue)
+      simp only [unary, shape] at applied
+      exact integerResult_member world.membership context.errors applied
+    | negFloat operandTyped =>
+      rename_i operand
+      simp only [step] at produced
+      obtain ⟨inner, innerValue, applied⟩ := bind_value produced
+      obtain ⟨b, shape⟩ := float_shape world.membership (recurse operand _ inner operandTyped innerValue)
+      simp only [unary, shape, Result.value.injEq] at applied
+      subst applied
+      exact float_member _ _
+    | logical isLogical leftTyped rightTyped =>
+      rename_i operator left right
+      rcases isLogical with rfl | rfl
+      all_goals
+        simp only [step] at produced
+        obtain ⟨first, firstValue, rest⟩ := bind_value produced
+        obtain ⟨a, firstShape⟩ := bool_shape world.membership (recurse left _ first leftTyped firstValue)
+        simp only [firstShape] at rest
+        cases a
+        all_goals first
+          | (simp only [Result.value.injEq] at rest; subst rest; exact bool_member _ _)
+          | (obtain ⟨second, secondValue, last⟩ := bind_value rest
+             obtain ⟨b, secondShape⟩ := bool_shape world.membership (recurse right _ second rightTyped secondValue)
+             simp only [secondShape, Result.value.injEq] at last
+             subst last
+             exact bool_member _ _)
+    | intArithmetic isArithmetic leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [arithmetic] at isArithmetic
+      have notOr : operator ≠ .or := by intro same; subst same; simp [arithmetic] at isArithmetic
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_integers context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).1 isArithmetic
+    | intComparison isComparison leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
+      have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_integers context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).2 isComparison
+    | floatArithmetic isArithmetic leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [floatArithmetic] at isArithmetic
+      have notOr : operator ≠ .or := by intro same; subst same; simp [floatArithmetic] at isArithmetic
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_floats context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).1 isArithmetic
+    | floatComparison isComparison leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
+      have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_floats context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).2 isComparison
+    | durationSum isSum leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by rcases isSum with rfl | rfl <;> simp
+      have notOr : operator ≠ .or := by rcases isSum with rfl | rfl <;> simp
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_durations context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).1 isSum
+    | durationRatio leftTyped rightTyped =>
+      rename_i left right
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals .div left right value (by simp) (by simp) produced
+      exact (binary_durations context world .div (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).2.1 rfl
+    | durationComparison isComparison leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
+      have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_durations context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).2.2 isComparison
+    | durationScale isScale leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by rcases isScale with rfl | rfl <;> simp
+      have notOr : operator ≠ .or := by rcases isScale with rfl | rfl <;> simp
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact binary_scale context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) isScale combined
+    | stringConcat leftTyped rightTyped =>
+      rename_i left right
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals .add left right value (by simp) (by simp) produced
+      exact (binary_strings context world .add (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).1 rfl
+    | stringComparison isComparison leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [comparisons] at isComparison
+      have notOr : operator ≠ .or := by intro same; subst same; simp [comparisons] at isComparison
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact (binary_strings context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined).2 isComparison
+    | boolEquality isEquality leftTyped rightTyped =>
+      rename_i operator left right
+      have notAnd : operator ≠ .and := by intro same; subst same; simp [equalities] at isEquality
+      have notOr : operator ≠ .or := by intro same; subst same; simp [equalities] at isEquality
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals operator left right value notAnd notOr produced
+      exact binary_booleans context world operator (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) isEquality combined
+    | listConcat leftTyped rightTyped =>
+      rename_i left right element
+      obtain ⟨first, second, firstValue, secondValue, combined⟩ :=
+        step_binary context environment store _ locals .add left right value (by simp) (by simp) produced
+      exact binary_lists context world (recurse left _ first leftTyped firstValue)
+        (recurse right _ second rightTyped secondValue) combined
+    | conditional conditionsTyped valuesTyped otherwiseTyped =>
+      rename_i conditions otherwise
+      simp only [step] at produced
+      exact branches_member context world signatures types locals _ recurse type conditions otherwise value
+        conditionsTyped valuesTyped otherwiseTyped produced
+    | @call name values parameters _ untyped signed lengths argumentsTyped =>
+      have noLocal := consistent_unbound world environment store consistent untyped
+      simp only [step, noLocal, positional_map] at produced
+      cases found : context.functions name with
+      | none => simp [found] at produced
+      | some entry =>
+        obtain ⟨parameterNames, body⟩ := entry
+        simp only [found] at produced
+        obtain ⟨evaluated, evaluatedValue, called⟩ := bind_value produced
+        by_cases sameLength : parameterNames.length = evaluated.length
+        · simp only [sameLength, ite_true] at called
+          obtain ⟨namesLength, _, bodyTyped⟩ := functions name parameterNames body parameters type found signed
+          obtain ⟨valuesLength, aligned⟩ := evaluateAll_aligned _ values evaluated evaluatedValue
+          have members : ∀ pair ∈ evaluated.zip parameters, Membership.value world.membership pair.2 pair.1 :=
+            zip_combine (fun source result parameterType evaluatedTo typedAt =>
+                recurse source parameterType result typedAt evaluatedTo)
+              values evaluated parameters valuesLength lengths aligned argumentsTyped
+          have bodyConsistent := overlay_consistent world environment store global globalConsistent parameterNames
+            parameters evaluated namesLength sameLength members
+          exact preservation context world environment store signatures global globalConsistent functions fuel _ _ body
+            type value bodyTyped bodyConsistent called
+        · simp [sameLength] at called
+
+end Theorem
 
 end Xsh.Proofs.Core.EvalTyping
