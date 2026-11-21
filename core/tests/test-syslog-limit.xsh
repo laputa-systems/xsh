@@ -1,6 +1,5 @@
 use core.lib.syslog_limit as limit
 
-const SECOND = 1000000
 const TIGHT = limit.Config(sender_rate: 10, sender_burst: 5, global_rate: 1000, global_burst: 1000)
 
 proc plain(uid: Int, pid: Int) -> limit.Datagram {

@@ -1,7 +1,6 @@
 type Fixture = {root: FsRoot, dir: Path}
 
 const EISDIR = 21
-const EEXIST = 17
 const EBUSY = 16
 
 proc failure_errno(result: Result[Unit]) -> Int {

@@ -80,7 +80,6 @@ export const MAX_OWNED = 16
 ## The most reconciliation rounds before the outcome is reported partial.
 export const MAX_ROUNDS = 3
 
-const KERNEL_PROTOCOL = 2
 
 ## A request that changes one object over route netlink.
 export type Request = {message_type: Int, flags: Int, payload: Bytes}
