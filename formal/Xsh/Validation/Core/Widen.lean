@@ -317,6 +317,44 @@ theorem union_view_parts {sourceFirst sourceSecond targetFirst targetSecond : Va
   | validated hasBase _ => simp [base] at hasBase
   | union _ _ _ paired => exact paired
 
+theorem set_view_parts {source target : ValueType Declaration}
+    (view : BaseView (.set source) (.set target)) : source = target := by
+  cases view with
+  | refl => rfl
+  | validated hasBase _ => simp [base] at hasBase
+
+theorem module_view_parts {sourceClosure targetClosure : ExportClosure}
+    {sourceExports targetExports : TypeVariableFreeTerm 0 String Declaration .exports}
+    (view : BaseView (.module sourceClosure sourceExports) (.module targetClosure targetExports)) :
+    sourceClosure = targetClosure ∧ sourceExports = targetExports := by
+  cases view with
+  | refl => exact ⟨rfl, rfl⟩
+  | validated hasBase _ => simp [base] at hasBase
+
+/-- A validated source viewed as a type with no validation tag is a view of
+its base: the only step that leaves a validated source is the step to its
+base. -/
+theorem validated_source_parts {validated baseType target : ValueType Declaration}
+    (view : BaseView validated target) (hasBase : base validated = some baseType)
+    (unvalidated : validationTag target = none) : BaseView baseType target := by
+  cases view with
+  | refl => exact absurd unvalidated (validated_has_tag hasBase)
+  | validated hasBase' rest =>
+    rw [hasBase] at hasBase'
+    cases hasBase'
+    exact rest
+  | nonEmpty _ => simp [validationTag] at unvalidated
+  | _ => simp [base] at hasBase
+
+/-- A view from a type with no validation tag keeps the outer constructor, so
+an inversion clause applies to it. -/
+theorem unvalidated_view_shape {source target : ValueType Declaration} (view : BaseView source target)
+    (unvalidated : validationTag source = none) : target.ctorIdx = source.ctorIdx := by
+  cases view with
+  | refl => rfl
+  | validated hasBase _ => exact absurd unvalidated (validated_has_tag hasBase)
+  | _ => rfl
+
 theorem base_view {validated baseType : ValueType Declaration} (hasBase : base validated = some baseType) :
     BaseView validated baseType :=
   .validated hasBase (.refl _)
@@ -362,7 +400,13 @@ stream and optional elements, map values under the same key, both sides of a
 result, callable results under the same policy and parameters, record fields
 matched by label, and union members through the one-to-one pairing. With the
 tag rule above, a view into a validated position at any depth starts from the
-same validation, so a nested interval never widens to another interval. -/
+same validation, so a nested interval never widens to another interval. Set
+elements and module exports are fixed, a validated source viewed as a type
+with no validation tag is a view of its base, and a view from a type with no
+validation tag keeps its outer constructor. These steps take every view apart
+from the outside in: a validated target position is settled by the top-level
+tag rule, a validated source over an unvalidated target by its base, and any
+other pair by the inversion for its shared shape. -/
 theorem validated_widening (world : MembershipWorld Declaration Identity Source) :
     (∀ (source target : ValueType Declaration) candidate, BaseView source target →
       Membership.value world source candidate → Membership.value world target candidate) ∧
@@ -403,22 +447,35 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
           (sourceRest targetRest : UnionTail Declaration),
         BaseView (.union sourceFirst sourceSecond sourceRest) (.union targetFirst targetSecond targetRest) →
           MembersPaired (sourceFirst :: sourceSecond :: tailMembers sourceRest)
-            (targetFirst :: targetSecond :: tailMembers targetRest))) :=
+            (targetFirst :: targetSecond :: tailMembers targetRest)) ∧
+      (∀ source target : ValueType Declaration, BaseView (.set source) (.set target) → source = target) ∧
+      (∀ (sourceClosure targetClosure : ExportClosure)
+          (sourceExports targetExports : TypeVariableFreeTerm 0 String Declaration .exports),
+        BaseView (.module sourceClosure sourceExports) (.module targetClosure targetExports) →
+          sourceClosure = targetClosure ∧ sourceExports = targetExports)) ∧
+    (∀ validated baseType target : ValueType Declaration, BaseView validated target →
+      base validated = some baseType → validationTag target = none → BaseView baseType target) ∧
+    (∀ source target : ValueType Declaration, BaseView source target → validationTag source = none →
+      target.ctorIdx = source.ctorIdx) :=
   ⟨fun _ _ candidate view member => view_member world view candidate member,
     fun _ _ _ view tagged => view_into_validated view tagged,
     fun _ _ hasBase => ⟨base_view hasBase, base_never_views_validated hasBase⟩,
     fun _ _ sourceDistinct targetDistinct view => view_precision sourceDistinct targetDistinct view,
     fun _ _ candidate equiv => equivalent_members world equiv candidate,
     fun _ _ sourceDistinct targetDistinct view => view_tags sourceDistinct targetDistinct view,
-    fun _ _ view => list_view_parts view,
-    fun _ _ view => nonEmpty_view_parts view,
-    fun _ _ view => stream_view_parts view,
-    fun _ _ view => optional_view_parts view,
-    fun _ _ _ _ view => map_view_parts view,
-    fun _ _ _ _ view => result_view_parts view,
-    fun _ _ _ _ _ _ view => callable_view_parts view,
-    fun _ _ view => record_view_parts view,
-    fun _ _ _ _ _ _ view => union_view_parts view⟩
+    ⟨fun _ _ view => list_view_parts view,
+      fun _ _ view => nonEmpty_view_parts view,
+      fun _ _ view => stream_view_parts view,
+      fun _ _ view => optional_view_parts view,
+      fun _ _ _ _ view => map_view_parts view,
+      fun _ _ _ _ view => result_view_parts view,
+      fun _ _ _ _ _ _ view => callable_view_parts view,
+      fun _ _ view => record_view_parts view,
+      fun _ _ _ _ _ _ view => union_view_parts view,
+      fun _ _ view => set_view_parts view,
+      fun _ _ _ _ view => module_view_parts view⟩,
+    fun _ _ _ view hasBase unvalidated => validated_source_parts view hasBase unvalidated,
+    fun _ _ view unvalidated => unvalidated_view_shape view unvalidated⟩
 
 namespace Witness
 
@@ -550,11 +607,15 @@ theorem nested_interval_never_views :
     decide
 
 /-- The position mutant: an interval widens to a wider one in a result's value
-while the wider tag already occurs in the source's error, so membership,
-erasure and tag counts all agree. The real relation rejects it, and so does
-any relation that satisfies the result inversion clause and the top-level tag
+while the wider tag already occurs in the source's error, so the erasures are
+equal and the tag counts fit. The real relation rejects it, and so does any
+relation that satisfies the result inversion clause and the top-level tag
 clause of `validated_widening`. -/
 theorem positioned_interval_never_views :
+    eraseValidations (Declaration := Unit) (.result (.boundedInteger narrowPort) (.boundedInteger widePort)) =
+        eraseValidations (.result (.boundedInteger widePort) (.primitive .integer)) ∧
+      Submultiset (validationTags (.result (.boundedInteger widePort) (.primitive .integer) : WitnessType))
+        (validationTags (.result (.boundedInteger narrowPort) (.boundedInteger widePort) : WitnessType)) ∧
     ¬ BaseView (Declaration := Unit) (.result (.boundedInteger narrowPort) (.boundedInteger widePort))
         (.result (.boundedInteger widePort) (.primitive .integer)) ∧
       ∀ related : WitnessType → WitnessType → Prop,
@@ -574,8 +635,92 @@ theorem positioned_interval_never_views :
     intro related tagged parts view
     have same := tagged _ _ (.bounded widePort) (parts _ _ _ _ view).1 rfl
     simp [validationTag, narrowPort, widePort] at same
-  exact ⟨rejects BaseView (fun _ _ _ view tagged => (view_into_validated view tagged).1)
+  exact ⟨by simp [eraseValidations, IntegerBaseType, narrowPort, widePort],
+    ⟨[.bounded widePort], .refl _, .cons _ (.refl _)⟩,
+    rejects BaseView (fun _ _ _ view tagged => (view_into_validated view tagged).1)
       (fun _ _ _ _ view => result_view_parts view), rejects⟩
+
+def positionedResult : WitnessType := .result (.boundedInteger narrowPort) (.boundedInteger widePort)
+
+/-- The validated-source mutant: a `NonEmpty` source whose element widens an
+interval in place, viewed as a plain list. The erasures are equal and the tag
+counts fit, but the real relation rejects it. Any relation with the
+validated-source, list and result inversions and the top-level tag rule of
+`validated_widening` would force `narrowPort = widePort`, which is false. -/
+theorem nonempty_source_never_widens_inside :
+    eraseValidations (.nonEmpty positionedResult) =
+        eraseValidations (.list (.result (.boundedInteger widePort) (.primitive .integer)) : WitnessType) ∧
+      Submultiset (validationTags (.list (.result (.boundedInteger widePort) (.primitive .integer)) : WitnessType))
+        (validationTags (.nonEmpty positionedResult)) ∧
+    ¬ BaseView (.nonEmpty positionedResult) (.list (.result (.boundedInteger widePort) (.primitive .integer))) ∧
+      narrowPort ≠ widePort ∧
+      ∀ related : WitnessType → WitnessType → Prop,
+        (∀ source target tag, related source target → validationTag target = some tag →
+          validationTag source = some tag) →
+        (∀ validated baseType target, related validated target → base validated = some baseType →
+          validationTag target = none → related baseType target) →
+        (∀ source target, related (.list source) (.list target) → related source target) →
+        (∀ sourceValue sourceError targetValue targetError, related (.result sourceValue sourceError)
+            (.result targetValue targetError) → related sourceValue targetValue ∧ related sourceError targetError) →
+          related (.nonEmpty positionedResult) (.list (.result (.boundedInteger widePort) (.primitive .integer))) →
+            narrowPort = widePort := by
+  have forces : ∀ related : WitnessType → WitnessType → Prop,
+      (∀ source target tag, related source target → validationTag target = some tag →
+        validationTag source = some tag) →
+      (∀ validated baseType target, related validated target → base validated = some baseType →
+        validationTag target = none → related baseType target) →
+      (∀ source target, related (.list source) (.list target) → related source target) →
+      (∀ sourceValue sourceError targetValue targetError, related (.result sourceValue sourceError)
+          (.result targetValue targetError) → related sourceValue targetValue ∧ related sourceError targetError) →
+        related (.nonEmpty positionedResult) (.list (.result (.boundedInteger widePort) (.primitive .integer))) →
+          narrowPort = widePort := by
+    intro related tagged validatedSource lists results view
+    have element := lists _ _ (validatedSource _ _ _ view rfl rfl)
+    have same := tagged _ _ (.bounded widePort) (results _ _ _ _ element).1 rfl
+    simp only [validationTag, Option.some.injEq, ValidationTag.bounded.injEq] at same
+    exact same
+  have distinct : narrowPort ≠ widePort := by
+    intro same
+    have := congrArg Xsh.Validation.BoundedSpec.low same
+    simp [narrowPort, widePort] at this
+  refine ⟨by simp [positionedResult, eraseValidations, IntegerBaseType, narrowPort, widePort],
+    ⟨[.bounded widePort], .refl _, .cons _ (.cons _ (.refl _))⟩,
+    fun view => distinct (forces BaseView (fun _ _ _ view tagged => (view_into_validated view tagged).1)
+      (fun _ _ _ view hasBase unvalidated => validated_source_parts view hasBase unvalidated)
+      (fun _ _ view => list_view_parts view) (fun _ _ _ _ view => result_view_parts view) view),
+    distinct, forces⟩
+
+def narrowWideModule : WitnessType :=
+  .module .open (.exportValue "x" .required (.boundedInteger narrowPort)
+    (.exportValue "y" .required (.boundedInteger widePort) .exportsEmpty))
+
+def wideIntegerModule : WitnessType :=
+  .module .open (.exportValue "x" .required (.boundedInteger widePort)
+    (.exportValue "y" .required (.primitive .integer) .exportsEmpty))
+
+/-- The module mutant: export `x` widens an interval while `y` drops its
+validation, so the erasures are equal and the tag counts fit. The real
+relation rejects it, and so does any relation with the module inversion. -/
+theorem module_exports_never_widen :
+    eraseValidations narrowWideModule = eraseValidations wideIntegerModule ∧
+      Submultiset (validationTags wideIntegerModule) (validationTags narrowWideModule) ∧
+    ¬ BaseView narrowWideModule wideIntegerModule ∧
+      ∀ related : WitnessType → WitnessType → Prop,
+        (∀ sourceClosure targetClosure (sourceExports targetExports : TypeVariableFreeTerm 0 String Unit .exports),
+          related (.module sourceClosure sourceExports) (.module targetClosure targetExports) →
+            sourceClosure = targetClosure ∧ sourceExports = targetExports) →
+          ¬ related narrowWideModule wideIntegerModule := by
+  have rejects : ∀ related : WitnessType → WitnessType → Prop,
+      (∀ sourceClosure targetClosure (sourceExports targetExports : TypeVariableFreeTerm 0 String Unit .exports),
+        related (.module sourceClosure sourceExports) (.module targetClosure targetExports) →
+          sourceClosure = targetClosure ∧ sourceExports = targetExports) →
+        ¬ related narrowWideModule wideIntegerModule := by
+    intro related modules view
+    have same := (modules _ _ _ _ view).2
+    simp [narrowPort, widePort] at same
+  exact ⟨by simp [narrowWideModule, wideIntegerModule, eraseValidations, IntegerBaseType, narrowPort, widePort],
+    ⟨[.bounded widePort], .refl _, .cons _ (.refl _)⟩,
+    rejects BaseView (fun _ _ _ _ view => module_view_parts view), rejects⟩
 
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)

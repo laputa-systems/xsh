@@ -204,12 +204,23 @@ that pair. Counts cannot place a tag, so the theorem also inverts every
 congruence: a view between two lists, `NonEmpty`s, streams, optionals, maps
 with the same key, results, callables with the same policy and parameters,
 records or unions is a view between their matching parts, with record fields
-matched by label and union members by the one-to-one pairing. With the
-top-level tag rule this requires the exact validation at every depth: the
-witness rejects `Result[narrowPort, widePort]` as `Result[widePort, Int]`,
-whose members, erasures and tag counts all agree, for any relation that
-satisfies the result inversion and the top-level tag rule. The label premise mirrors Rust, where a record type is a map keyed
-by label (`Type::Record` in `src/sema/types.rs`) and cannot repeat one, and a
+matched by label and union members by the one-to-one pairing, and a view
+between two sets or two modules relates only equal types. A validated source
+viewed as a type with no validation tag is a view of its base, and a view from
+a type with no validation tag keeps its outer constructor. These clauses take
+every view apart from the outside in: the top-level tag rule settles a
+validated target position, the validated-source rule moves a validated source
+over an unvalidated target to its base, and the inversion for the shared
+outer constructor handles every other pair. So each validated position of the
+target is matched with the same validation in the source. The witnesses
+reject `Result[narrowPort, widePort]` as `Result[widePort, Int]`,
+`NonEmpty[Result[narrowPort, widePort]]` as `List[Result[widePort, Int]]`,
+and a module with exports `{x: narrowPort, y: widePort}` as one with
+`{x: widePort, y: Int}`. In each pair the erasures are equal and the tag
+counts fit, yet each witness shows that any relation with the clauses it names
+rejects its pair. The label premise mirrors Rust, where a record type is
+a map keyed by label (`Type::Record` in `src/sema/types.rs`) and cannot repeat
+one, and a
 schema that repeats a field is rejected separately with
 `check.duplicate-record-field`; the premise is assumed, not derived from that
 code. A witness shows that a record view can drop a duplicate label, so the
