@@ -359,6 +359,21 @@ theorem computed_complete {tokens rest : List Token} {bindings : List (String ×
       have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
       simp [parseComputedLets, valid, parsed, ih boundary fuel bound]
 
+theorem lets_fit_tokens {tokens rest : List Token} {lets : List (String × Nat)} {vars : List String}
+    (derivation : LetsSyntax tokens lets vars rest) : lets.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | immutable tail ih => simp_all <;> omega
+  | mutable tail ih => simp_all <;> omega
+
+theorem computed_fit_tokens {tokens rest : List Token} {bindings : List (String × SourceValue)}
+    (derivation : ComputedSyntax tokens bindings rest) : bindings.length ≤ tokens.length := by
+  induction derivation with
+  | empty => simp
+  | cons valid value tail ih =>
+    have consumed := value_consumes_tokens value
+    simp_all <;> omega
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
