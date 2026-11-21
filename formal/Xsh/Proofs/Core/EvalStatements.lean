@@ -74,6 +74,14 @@ theorem declare_typed_never_malformed (signatures : Signatures Declaration) (glo
       initializer type value typed consistent produced)
     targetTyped
 
+omit [DecidableEq Declaration] in
+theorem evaluated_failure_propagates (environment : Environment) (store : Store world) (expression : Xsh.Syntax.Expr)
+    (failure : Failure Declaration Identity Source) (after : Store world)
+    (failed : evaluate context environment store fuel [] expression = .failure failure) :
+    recover (StoreStep.failed failure after) = .propagated failure after := by
+  obtain ⟨error, rfl⟩ := Xsh.Proofs.Core.Eval.evaluate_runtimeOnly context environment store fuel [] expression failure failed
+  rfl
+
 end Instance
 
 section Root
@@ -81,7 +89,8 @@ section Root
 /-- BASE-ENV's statement-level store-write meaning with `Oracles.evaluate`
 and `Operate` answered by the covered-expression evaluator: the statement
 theorem holds for that instance; where the evaluator produces a value or a
-failure the instance returns it with the store unchanged; a declaration whose
+failure the instance returns it with the store unchanged, and every such
+failure is a runtime one that `try` propagates; a declaration whose
 initializer the evaluator answers commits that value or fails with that
 failure; a well-typed initializer in a consistent context never reaches the
 malformed-target fault; and compound `+=` on lists is `concatenate`. -/
@@ -95,6 +104,9 @@ theorem evaluated_store_writes (world : World Declaration Identity Source) (deci
       (oracles context fuel fallback).evaluate environment store expression = .ok (value, store)) ∧
     (∀ environment store expression failure, evaluate context environment store fuel [] expression = .failure failure →
       (oracles context fuel fallback).evaluate environment store expression = .error (failure, store)) ∧
+    (∀ environment (store : Store world) expression failure (after : Store world),
+      evaluate context environment store fuel [] expression = .failure failure →
+        recover (StoreStep.failed failure after) = .propagated failure after) ∧
     (∀ state kind target initializer value resolved declared,
       evaluate context state.environment state.store fuel [] initializer = .value value →
       resolveTarget (oracles context fuel fallback) state.environment target = some (resolved, declared) →
@@ -120,6 +132,7 @@ theorem evaluated_store_writes (world : World Declaration Identity Source) (deci
       (oracles context fuel fallback)).1,
     instance_value world context fuel fallback,
     instance_failure world context fuel fallback,
+    evaluated_failure_propagates world context fuel,
     declare_evaluated world decisions context fuel fallback,
     declare_failed world decisions context fuel fallback,
     fun signatures global state consistent functions kind target initializer type value resolved declared typed
