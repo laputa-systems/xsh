@@ -194,6 +194,32 @@ theorem parameters_complete {tokens rest : List Token} {parameters : List String
   | @cons name tokens rest others valid tail othersNonempty =>
     simpa [parseParameters] using parameter_list_complete (ParametersSyntax.cons valid tail othersNonempty) (by simp) fuel enough
 
+theorem expression_line_complete {tokens rest : List Token} {expression : SourceExpression}
+    (derivation : ExpressionSyntax tokens expression (.newline :: rest)) :
+    parseExpression tokens = some (expression, .newline :: rest) := by
+  cases derivation with
+  | value value =>
+    cases value with
+    | atom atom => cases atom <;> simp_all [parseExpression, parseAtom, isKeyword]
+    | binary left valid right =>
+      cases left <;> cases right <;> simp_all [parseExpression, parseAtom, isKeyword]
+  | comparison left valid right =>
+    cases left <;> cases right <;> simp_all [parseExpression, parseAtom, isKeyword]
+  | @call name ts _ arguments valid notOk notErr args =>
+    have parsed := arguments_complete args (ts.length + 1) (by have := arguments_fit_tokens args; omega)
+    unfold parseExpression
+    split <;> simp_all [isKeyword]
+  | ok value =>
+    have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
+    simp [parseExpression, parseConstructor, parsed]
+  | err value =>
+    have parsed := value_syntax_complete value (by intro op more impossible; cases impossible)
+    simp [parseExpression, parseConstructor, parsed]
+  | conditional left valid right thenValue elseValue =>
+    have parsedThen := value_syntax_complete thenValue (by intro op more impossible; cases impossible)
+    have parsedElse := value_syntax_complete elseValue (by intro op more impossible; cases impossible)
+    simp [parseExpression, atom_syntax_complete left, valid, atom_syntax_complete right, parsedThen, parsedElse]
+
 theorem constructor_is_not_an_ordinary_call :
     ¬ ExpressionSyntax [.word "Ok", .leftParen, .word "x", .rightParen]
         (.call "Ok" [.var "x"]) [] ∧
