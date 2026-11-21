@@ -70,7 +70,7 @@ theorem declaration_hoisting {world : World Declaration Identity Source} (machin
     simp only [runScript, failed]
   · intro activation environment mutable closures kind name parameters effects result body metadata test rest callable
       binder cell type kinded declared
-    simp only [hoistClosures, kinded, declared]
+    simp only [hoistClosures, hoistStatement, kinded, declared]
     rfl
   · intro fuel frame name cell unshadowed noClosure resolved absent
     simp only [evalExpr, unshadowed, noClosure, resolved, absent]

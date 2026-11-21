@@ -512,10 +512,12 @@ syntax form and the checker's expected type (P).
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
 (`statement_resolution`), for pattern captures and comprehension targets
-(`capture_resolution`, with capture names from `pattern_names`) and for
-function bodies (`body_resolution`); the scopes at a hoisted closure's
-declaration are a premise of `body_resolution` rather than derived from
-`runScript` (P).
+(`capture_resolution`, with capture names from `pattern_names`), for
+function bodies (`body_resolution`) and, from `runScript`, for the scopes at
+each top-level function's declaration (`hoisted_scopes`,
+`script_body_resolution`); that every closure a call finds is one hoisting
+or a declaration bound holds by the machine's construction, not a theorem
+(P).
 
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
@@ -673,7 +675,40 @@ does not declare, since each declaration hides the locals it shadows
 (`statement_hides`). `proc f(x) { let x = 2; return x }` gives `2` and a
 shadowing `let` in a nested block leaves `x` as `7`, as on the verification
 binary; a pass that resolves parameters above the body's own scope is
-rejected.
+rejected. For a script's top-level functions, `script_body_resolution`
+derives the premise on the declaration's scopes from `runScript`.
+
+The `hoisted_scopes` and `script_body_resolution` fragment roots, in
+[`Proofs/Core/Scripts.lean`](Xsh/Proofs/Core/Scripts.lean), derive those
+scopes from `runScript` (SPEC 3.1). The pass's scopes where a script's
+statements start (`scriptScopes`) declare its top-level functions and its
+program's payload-free variants in the script's scope, and each statement
+then declares its names in order. Under the canonical resolution, for a
+script whose top-level declarations are `proc`s and `pure`s (`modelled`;
+`stream` and `cli main` stay outside), every closure hoisting binds belongs
+to one of the script's declarations and is over an environment representing
+the pass's scopes after that declaration: the hoisted functions and variants
+and the top-level bindings declared before it, and none declared after it.
+So is the closure a declaration binds when it runs. `script_body_resolution`
+composes this with `body_resolution` for a script started in the empty
+lexical environment: a call of either closure resolves its body as the pass
+does (`CallsResolve`), with no premise on the scopes at the declaration.
+Hoisting now follows the pass on every statement form it models: a top-level
+`guard let` declares its target, sugar hoists as its expansion, and a
+`proc` or `pure` the checker gives no declaration fails the hoisting as its
+statement fails. `var count = 7; print (first()); proc first() -> Int {
+second() + count }; proc second() -> Int { 1 }; let later = 2; print
+(first())` prints `8` twice, as on the verification binary, and both of
+`first`'s closures agree with the pass on `count`, `second`, `first`, the
+variant `Info` and the unresolved `later`; a `guard let` binding read
+through a function called above its declaration gives `7`, as on the
+binary. A hoisting that closes every function over the environment after
+all bindings, one that omits the functions declared after a closure, and
+one that skips `guard let` are rejected. The verification binary fails
+`let r = first()` above `proc first() -> Int { 2 }` with `unknown captured
+name r`, though `first` does not read `r`; SPEC 3.1 makes only a read of a
+binding before its statement runs a failure, and the machine follows the
+SPEC.
 
 The `declaration_hoisting` fragment root, in
 [`Proofs/Core/Hoisting.lean`](Xsh/Proofs/Core/Hoisting.lean), models SPEC 3.1
