@@ -106,6 +106,20 @@ theorem atom_syntax_complete {tokens rest : List Token} {atom : SourceAtom}
   | number => rfl
   | name text rest valid => simp [parseAtom, valid]
 
+theorem value_syntax_complete {tokens rest : List Token} {value : SourceValue}
+    (derivation : ValueSyntax tokens value rest)
+    (boundary : ∀ op more, rest ≠ .operator op :: more) :
+    parseValue tokens = some (value, rest) := by
+  cases derivation with
+  | atom atom =>
+    have parsed := atom_syntax_complete atom
+    cases rest with
+    | nil => simp [parseValue, parsed]
+    | cons head tail =>
+      cases head <;> simp_all [parseValue]
+  | binary left valid right =>
+    simp [parseValue, atom_syntax_complete left, valid, atom_syntax_complete right]
+
 theorem argument_list_complete {tokens rest : List Token} {arguments : List SourceAtom}
     (derivation : ArgumentsSyntax tokens arguments rest) (nonempty : arguments ≠ []) :
     ∀ fuel, arguments.length ≤ fuel → parseArgumentList fuel tokens = some (arguments, rest) := by
