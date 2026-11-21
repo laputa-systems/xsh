@@ -59,7 +59,7 @@ environment when it is called, so a captured `var` is read as it is at the
 call, and it may write a captured mutable cell (SPEC 9.2). -/
 inductive Closure where
   | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
-      (parameters : List Xsh.Syntax.RawName) (body : FunctionBody)
+      (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody)
 
 /-- What an expression sees besides its environment, store and locals: the
 call activation, the local functions in scope, and the implicit `.` of the
@@ -763,12 +763,34 @@ def localClosure (closures : List (CellId × Closure)) (environment : Environmen
   | .ok cell => closures.lookup cell
   | .error _ => none
 
-/-- The parameter names of a declaration whose parameters have no defaults,
-annotations aside, and no rest parameter. -/
-def plainParameters : List Xsh.Syntax.Parameter → Option (List Xsh.Syntax.RawName)
-  | [] => some []
-  | .mk name _ none false :: rest => (plainParameters rest).map (name :: ·)
-  | _ :: _ => none
+def parameterNames (parameters : List Xsh.Syntax.Parameter) : List Xsh.Syntax.RawName :=
+  parameters.map fun | .mk name _ _ _ => name
+
+/-- Bind a call's arguments to a declaration's parameters (SPEC 9.2): each
+supplied argument to its parameter in order, then each omitted one to its
+default, evaluated by `evaluateDefault` in the declaration scope without the
+other parameters, in parameter order; a final rest parameter takes the
+remaining arguments as a `List`. -/
+def bindArguments (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    List Xsh.Syntax.Parameter → List (Value Declaration Identity Source) →
+      Result Declaration Identity Source (Locals Declaration Identity Source)
+  | [], [] => .value []
+  | [.mk name _ _ true], arguments => .value [(name, .list arguments)]
+  | .mk name _ _ false :: rest, argument :: arguments =>
+    (bindArguments evaluateDefault rest arguments).bind fun bound => .value ((name, argument) :: bound)
+  | .mk name _ (some default) false :: rest, [] =>
+    (evaluateDefault default).bind fun value =>
+      (bindArguments evaluateDefault rest []).bind fun bound => .value ((name, value) :: bound)
+  | _, _ => .stuck
+
+/-- The map a map comprehension builds from its key and value projections:
+a later projection of a key replaces an earlier one (SPEC 6.4, 6.5). -/
+def mapOfPairs (pairs : List (Value Declaration Identity Source)) : Option (List (MapKey × Value Declaration Identity Source)) :=
+  pairs.foldl (fun built pair =>
+    built.bind fun entries =>
+      match pair with
+      | .list [key, value] => (mapKeyOf key).map fun mapKey => upsert mapKey value entries
+      | _ => none) (some [])
 
 /-- A declared return type's kind: a `Result` type or any other. -/
 def returnKindOf {world : World Declaration Identity Source} (machine : Machine world) (result : Option Xsh.Syntax.TypeExpr) :
@@ -814,22 +836,28 @@ mutual
         | some value => .value value
         | none => .unsupported
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ =>
         valuedResult (runValue machine fuel (Frame.ofScope environment store locals (some store) scope) expression)
       | .call (.ident name) arguments =>
         match locals.lookup name, localClosure scope.closures environment name, positional arguments with
         | none, some (.mk cell defining captured writable parameters body), some values =>
           (evaluateAll (evalExpr machine fuel scope store environment locals) values).bind fun evaluated =>
-            if parameters.length = evaluated.length then
-              let callee : Scope Declaration Identity Source :=
-                ⟨scope.activation + machine.activationStep,
-                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩
+            (bindArguments
+                (evalExpr machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining [])
+                parameters evaluated).bind fun bound =>
               match body with
-              | .expression result .plain => evalExpr machine fuel callee store defining (parameters.zip evaluated) result
+              | .expression result .plain =>
+                evalExpr machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound result
               | .expression result .result =>
-                callBlock machine fuel callee store defining (parameters.zip evaluated) [.expression result] .result
-              | .block statements kind => callBlock machine fuel callee store defining (parameters.zip evaluated) statements kind
-            else .stuck
+                callBlock machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
+                  [.expression result] .result
+              | .block statements kind =>
+                callBlock machine fuel ⟨scope.activation + machine.activationStep,
+                  (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ store defining bound
+                  statements kind
         | _, _, _ =>
           match locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
           | none, none, "Ok", [] => .value (.ok (.scalar .unit))
@@ -895,20 +923,31 @@ mutual
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
       | .listComp value qualifiers => comprehend machine fuel frame qualifiers value
+      | .mapComp key value qualifiers =>
+        (comprehend machine fuel frame qualifiers (.list [key, value])).bind fun pairs next =>
+          match listValues pairs with
+          | some items =>
+            match mapOfPairs items with
+            | some entries => .value (.map entries) next
+            | none => .exec .unsupported
+          | none => .exec .stuck
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
         | none, some (.mk cell defining captured writable parameters body), some values =>
           resultThen frame (evaluateAll (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals) values)
             fun evaluated =>
-              if parameters.length = evaluated.length then
+              resultThen frame
+                (bindArguments
+                  (evalExpr machine fuel ⟨frame.activation + machine.activationStep,
+                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ frame.store defining [])
+                  parameters evaluated) fun bound =>
                 returnTo frame (bodyKind body)
                   (runBody machine fuel
-                    { Frame.ofScope defining frame.store (parameters.zip evaluated) (some frame.store)
+                    { Frame.ofScope defining frame.store bound (some frame.store)
                         ⟨frame.activation + machine.activationStep,
                           (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
                       writable }
                     (bodyStatements body))
-              else .exec .stuck
         | _, _, _ => fromEval frame (evalExpr machine fuel frame.scope frame.store frame.environment frame.locals expression)
       | .collect body =>
         collectWith frame (runBlock machine fuel { frame with collected := some [] } body)
@@ -1149,15 +1188,16 @@ mutual
           | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
           | _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
-        match kind, plainParameters parameters, (machine.namesAt frame.activation).declaration frame.environment name with
-        | .stream, _, _ | .cliMain, _, _ | _, none, _ => .unsupported
-        | _, _, none => .internal .malformedTarget frame
-        | _, some names, some (binder, cell, _) =>
+        match kind, (machine.namesAt frame.activation).declaration frame.environment name with
+        | .stream, _ | .cliMain, _ => .unsupported
+        | _, none => .internal .malformedTarget frame
+        | _, some (binder, cell, _) =>
           let environment := extend frame.environment [(name, binder, cell)]
           .normal { frame with
             environment
             locals := hide [name] frame.locals
-            closures := (cell, .mk cell environment frame.closures (mutableCaptures frame (captureNames names body)) names
+            closures := (cell, .mk cell environment frame.closures
+              (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
               (.block body (returnKindOf machine result))) :: frame.closures }
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>

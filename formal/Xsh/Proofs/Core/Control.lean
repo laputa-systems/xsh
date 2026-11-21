@@ -230,6 +230,32 @@ theorem selectorsOf_refines {world : World Declaration Identity Source}
     · exact refines_refl _
     · exact bind_refines (selectorsOf_refines each _ rest) fun _ => refines_refl _
 
+theorem bindArguments_refines
+    {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
+    ∀ parameters arguments, Refines (bindArguments evaluate parameters arguments) (bindArguments evaluate' parameters arguments)
+  | [], [] => refines_refl _
+  | [], _ :: _ => by simp only [bindArguments]; exact refines_refl _
+  | .mk name annotation default rest :: more, arguments => by
+    cases rest with
+    | true =>
+      cases more with
+      | nil => simp only [bindArguments]; exact refines_refl _
+      | cons _ _ =>
+        cases arguments <;> (simp only [bindArguments]; exact refines_refl _)
+    | false =>
+      cases arguments with
+      | cons argument others =>
+        simp only [bindArguments]
+        exact bind_refines (bindArguments_refines each more others) fun _ => refines_refl _
+      | nil =>
+        cases default with
+        | none => simp only [bindArguments]; exact refines_refl _
+        | some default =>
+          simp only [bindArguments]
+          exact bind_refines (each default) fun _ =>
+            bind_refines (bindArguments_refines each more []) fun _ => refines_refl _
+
 theorem guardElse_refines {world : World Declaration Identity Source} {first second : Exec world}
     (head : Exec.Refines first second) : Exec.Refines (guardElse first) (guardElse second) := by
   rcases head with out | same
@@ -353,6 +379,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.body _ _
   | refine loopStep_refines (fun _ => inner.loopValues _ _) ?_
   | refine resultExec_refines _ (selectorsOf_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
+  | refine resultThen_refines _ (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
   | refine guardElse_refines ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
@@ -419,6 +446,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | exact step_refines machine.context environment store (inner.expr scope store)
               (inner.call _ store) locals _
           | refine bind_refines (evaluateAll_refines (inner.expr _ _ _ _) _) fun _ => ?_
+          | refine bind_refines (bindArguments_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
           | refine bind_refines (inner.expr _ _ _ _ _) fun _ => ?_
           | split)
       call := fun scope store environment locals body kind => by
@@ -2123,15 +2151,16 @@ declarations get distinct binders within the name-table and nesting bounds,
 entering a block deepens the scope by one, and a shadowing declaration gets
 a cell distinct from the shadowed one. The declared type is still an oracle. -/
 theorem local_bindings {world : World Declaration Identity Source} (machine : Machine world) :
-    (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test names binder cell type,
-      kind ≠ .stream → kind ≠ .cliMain → plainParameters parameters = some names →
+    (∀ fuel (frame : Frame world) kind name parameters effects result body metadata test binder cell type,
+      kind ≠ .stream → kind ≠ .cliMain →
         (machine.namesAt frame.activation).declaration frame.environment name = some (binder, cell, type) →
           runStatement machine (fuel + 1) frame (.functionDef kind name parameters effects result body metadata test) =
             .normal { frame with
               environment := extend frame.environment [(name, binder, cell)]
               locals := hide [name] frame.locals
               closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures
-                (mutableCaptures frame (captureNames names body)) names (.block body (returnKindOf machine result))) ::
+                (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
+                (.block body (returnKindOf machine result))) ::
                 frame.closures }) ∧
     (∀ fuel (scope : Scope Declaration Identity Source) store environment locals value,
       scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value) ∧
@@ -2150,11 +2179,11 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
       (⟨activation, canonicalBinder name outer⟩ : CellId) ≠ ⟨activation, canonicalBinder name inner⟩) := by
   refine ⟨?_, ?_, fun _ _ => rfl, canonicalBinder_injective, enter_depth, fun base types resolved =>
     canonical_cells machine base types resolved, shadowing_cells_distinct⟩
-  · intro fuel frame kind name parameters effects result body metadata test names binder cell type notStream notMain
-      plain declared
+  · intro fuel frame kind name parameters effects result body metadata test binder cell type notStream notMain
+      declared
     cases kind
-    · simp [runStatement, plain, declared]
-    · simp [runStatement, plain, declared]
+    · simp [runStatement, declared]
+    · simp [runStatement, declared]
     · exact absurd rfl notStream
     · exact absurd rfl notMain
   · intro fuel scope store environment locals value present
@@ -3241,6 +3270,102 @@ theorem static_pass_uses :
     staticUses 64 [[]] [letX "1", .expression (ident xName)] =
       [(xName, some (canonicalBinder xName 1))] := by
   decide +kernel
+
+def declareDefaulted : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk pName none none false, .mk kName none (some (int "7")) false] none none
+    [.expression (.binary .add (ident pName) (ident kName))] none false
+
+/-- An omitted argument takes its default: `add(1)` is `8` and `add(1, 2)` is
+`3`. -/
+theorem default_parameters :
+    readInt rName (runFull [declareDefaulted, letR (call addName [int "1"])]) = some 8 ∧
+      readInt rName (runFull [declareDefaulted, letR (call addName [int "1", int "2"])]) = some 3 := by
+  decide +kernel
+
+def declareSeeing : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk pName none none false, .mk kName none (some (ident pName)) false] none none
+    [.expression (ident kName)] none false
+
+/-- A default cannot see the other parameters (SPEC 9.2): `k = p` finds no `p`. -/
+theorem default_cannot_see_parameters :
+    readAny rName (runFull [declareSeeing, letR (call addName [int "1"])]) = none := by
+  decide +kernel
+
+def boundLocal (target : Xsh.Syntax.RawName) : Result Unit Unit Unit (Locals Unit Unit Unit) → Bool
+  | .value bound => (bound.lookup target).isSome
+  | _ => false
+
+/-- Evaluating the default with the supplied parameters in scope binds `k`. -/
+theorem default_seeing_parameters_rejected :
+    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment
+        [(pName, integer intOne)]) [.mk pName none none false, .mk kName none (some (ident pName)) false]
+      [integer intOne]) = true ∧
+    boundLocal kName (bindArguments (evalExpr fullMachine 20 ⟨1, [], none⟩ fullStart.store fullStart.environment [])
+      [.mk pName none none false, .mk kName none (some (ident pName)) false] [integer intOne]) = false := by
+  decide +kernel
+
+def declareRest : Xsh.Syntax.Statement :=
+  .functionDef .pure addName [.mk kName none none true] none none [.expression (ident kName)] none false
+
+/-- A rest parameter takes the remaining arguments as a list. -/
+theorem rest_parameter :
+    listInts rName (runFull [declareRest, letR (call addName [int "1", int "2"])]) = some [1, 2] := by
+  decide +kernel
+
+def localBound (target : Xsh.Syntax.RawName) (outcome : Exec witnessWorld) : Bool :=
+  match frameOf outcome with
+  | some frame => (frame.locals.lookup target).isSome
+  | none => false
+
+/-- A parameter is bound only in its call: after `add(1)` the caller has no
+`p`. -/
+theorem parameter_scoped : localBound pName (runFull [declareDefaulted, letR (call addName [int "1"])]) = false := by
+  decide +kernel
+
+/-- A call that leaves its parameters among the caller's locals. -/
+def leakyParameters : Exec witnessWorld :=
+  match runFull [declareDefaulted] with
+  | .normal frame => .normal { frame with locals := (pName, integer intOne) :: frame.locals }
+  | other => other
+
+theorem leaky_parameters_rejected : localBound pName leakyParameters = true := by decide +kernel
+
+def mapComp : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name vName) none
+      (.mapComp (.binary .rem (ident iName) (int "2")) (ident iName) [.each (.name iName) (items ["1", "2", "7"])]),
+    letR (.index (ident vName) (int "1") false)]
+
+/-- `{i % 2: i for i in [1, 2, 7]}`: the later projection of key `1` wins, so
+`m[1]` is `7`. -/
+theorem map_comprehension_later_wins : readInt rName (runFull mapComp) = some 7 := by decide +kernel
+
+/-- A map built keeping the first projection of each key. -/
+def earlierWins (pairs : List (Value Unit Unit Unit)) : Option (List (MapKey × Value Unit Unit Unit)) :=
+  pairs.foldl (fun built pair =>
+    built.bind fun entries =>
+      match pair with
+      | .list [key, value] =>
+        (mapKeyOf key).map fun mapKey => if (entries.lookup mapKey).isSome then entries else upsert mapKey value entries
+      | _ => none) (some [])
+
+def firstEntry (built : Option (List (MapKey × Value Unit Unit Unit))) : Option Int :=
+  match built.bind fun entries => entries.lookup keyOne with
+  | some (.scalar (.integer value)) => some value.val
+  | _ => none
+
+theorem earlier_wins_rejected :
+    firstEntry (earlierWins [.list [integer intOne, integer intOne], .list [integer intOne, integer ⟨7, by decide⟩]]) = some 1 ∧
+      firstEntry (mapOfPairs [.list [integer intOne, integer intOne], .list [integer intOne, integer ⟨7, by decide⟩]]) =
+        some 7 := by
+  decide +kernel
+
+def keyFirst : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name vName) none
+    (.mapComp (.index (.list []) (int "0") false) (.binary .div (int "1") (int "0")) [.each (.name iName) (items ["1"])])]
+
+/-- The key is evaluated before the value: a failing key reports
+`index-out-of-range` even though the value would divide by zero. -/
+theorem map_key_before_value : runtimeFailure (runFull keyFirst) = some "index-out-of-range" := by decide +kernel
 
 end Witness
 
