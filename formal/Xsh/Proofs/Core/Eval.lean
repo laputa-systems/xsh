@@ -435,4 +435,47 @@ theorem evaluate_runtimeOnly (context : Context Declaration Identity Source) {wo
 
 end Failures
 
+section Order
+
+variable (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+  (environment : Environment) (store : Store world)
+
+/-- A binary operator other than `and`/`or` evaluates its left operand, then
+its right operand, then applies its value meaning. -/
+theorem binary_evaluation (fuel : Nat) (locals : Locals Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
+    (left right : Xsh.Syntax.Expr) (notAnd : operator ≠ .and) (notOr : operator ≠ .or) :
+    evaluate context environment store (fuel + 1) locals (.binary operator left right) =
+      (evaluate context environment store fuel locals left).bind fun first =>
+        (evaluate context environment store fuel locals right).bind fun second => binary context operator first second := by
+  cases operator
+  case and => exact absurd rfl notAnd
+  case or => exact absurd rfl notOr
+  all_goals rfl
+
+/-- A binary operator other than `and`/`or` reports its left operand's
+failure without evaluating the right operand. -/
+theorem left_failure_first (fuel : Nat) (locals : Locals Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
+    (left right : Xsh.Syntax.Expr) (failure : Failure Declaration Identity Source) (notAnd : operator ≠ .and)
+    (notOr : operator ≠ .or) (failed : evaluate context environment store fuel locals left = .failure failure) :
+    evaluate context environment store (fuel + 1) locals (.binary operator left right) = .failure failure := by
+  cases operator
+  case and => exact absurd rfl notAnd
+  case or => exact absurd rfl notOr
+  all_goals simp [evaluate, step, failed, Result.bind]
+
+/-- The right operand is evaluated only after the left one has produced a
+value, and its failure is then the result. -/
+theorem right_failure_second (fuel : Nat) (locals : Locals Declaration Identity Source)
+    (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr) (first : Value Declaration Identity Source)
+    (failure : Failure Declaration Identity Source) (notAnd : operator ≠ .and) (notOr : operator ≠ .or)
+    (produced : evaluate context environment store fuel locals left = .value first)
+    (failed : evaluate context environment store fuel locals right = .failure failure) :
+    evaluate context environment store (fuel + 1) locals (.binary operator left right) = .failure failure := by
+  cases operator
+  case and => exact absurd rfl notAnd
+  case or => exact absurd rfl notOr
+  all_goals simp [evaluate, step, produced, failed, Result.bind]
+
+end Order
+
 end Xsh.Proofs.Core.Eval
