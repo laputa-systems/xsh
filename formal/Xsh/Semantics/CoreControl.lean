@@ -84,7 +84,7 @@ def Frame.restore {world : World Declaration Identity Source} (outer inner : Fra
 
 /-- Leaving a scope restores the outer environment and locals and drops the
 cells allocated inside it, whatever the outcome. -/
-def scoped {world : World Declaration Identity Source} (outer : Frame world) : Exec world → Exec world
+def withinScope {world : World Declaration Identity Source} (outer : Frame world) : Exec world → Exec world
   | .normal inner => .normal (outer.restore inner)
   | .broke inner => .broke (outer.restore inner)
   | .continued inner => .continued (outer.restore inner)
@@ -181,13 +181,15 @@ def conditionMatch (context : Context Declaration Identity Source) (pattern : Xs
     | _ => matchPattern context pattern value
   else matchPattern context pattern value
 
+variable [DecidableEq Declaration]
+
 /-- Bind pattern captures as immutable cells in `frame`, which has already
 entered its scope. -/
 def bindCaptures {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
     (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) : Exec world :=
-  let resolved := captures.mapM fun (name, value) =>
-    (machine.resolution.declaration frame.environment name).map fun (binder, cell, type) =>
-      ((name, binder, cell), (cell, type, value))
+  let resolved := captures.mapM fun capture =>
+    (machine.resolution.declaration frame.environment capture.1).map fun declared =>
+      (((capture.1, declared.1, declared.2.1) : Declared), ((declared.2.1, declared.2.2, capture.2) : Binding Declaration Identity Source))
   match resolved with
   | none => .internal .malformedTarget frame
   | some entries =>
@@ -221,8 +223,6 @@ def bodyValue {world : World Declaration Identity Source} :
   | .outOfFuel => .outOfFuel
   | _ => .stuck
 
-variable [DecidableEq Declaration]
-
 mutual
   /-- Expressions, with block function bodies run as statements. -/
   def evalExpr {world : World Declaration Identity Source} (machine : Machine world) :
@@ -248,7 +248,7 @@ mutual
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
     | 0, _, _ => .outOfFuel
     | fuel + 1, frame, body =>
-      scoped frame (runTail machine fuel frame.enter body)
+      withinScope frame (runTail machine fuel frame.enter body)
 
   def runTail {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
@@ -274,7 +274,7 @@ mutual
   def runBlock {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → List Xsh.Syntax.Statement → Exec world
     | 0, _, _ => .outOfFuel
-    | fuel + 1, frame, body => scoped frame (runStatements machine fuel frame.enter body)
+    | fuel + 1, frame, body => withinScope frame (runStatements machine fuel frame.enter body)
 
   /-- A body that first binds pattern captures, in its own scope. -/
   def runBound {world : World Declaration Identity Source} (machine : Machine world) :
@@ -282,7 +282,7 @@ mutual
         List Xsh.Syntax.Statement → Exec world
     | 0, _, _, _ => .outOfFuel
     | fuel + 1, frame, captures, body =>
-      scoped frame ((bindCaptures machine frame.enter captures).andThen fun bound =>
+      withinScope frame ((bindCaptures machine frame.enter captures).andThen fun bound =>
         runStatements machine fuel bound body)
 
   def runStatement {world : World Declaration Identity Source} (machine : Machine world) :
@@ -317,6 +317,7 @@ mutual
               fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals value) fun result =>
                 fromStep frame frame.environment frame.locals
                   (assignPath world machine.decisions machine.raises machine.operate frame.store cell path op result)
+      | .expression (.valueBlock body) => runBlock machine fuel frame body
       | .expression value =>
         fromResult frame (evalExpr machine fuel frame.store frame.environment frame.locals value) fun _ => .normal frame
       | .returnValue (some value) =>
@@ -403,7 +404,7 @@ mutual
     | 0, _, _, _, _ => .outOfFuel
     | _ + 1, frame, _, [], _ => .normal frame
     | fuel + 1, frame, target, item :: rest, body =>
-      match scoped frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      match withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
           runStatements machine fuel bound body) with
       | .normal next | .continued next => runFor machine fuel next target rest body
       | .broke next => .normal next
@@ -439,7 +440,7 @@ mutual
               | .scalar (.boolean true) => runBound machine fuel frame captures body
               | .scalar (.boolean false) => runMatch machine fuel frame value rest
               | _ => .unsupported
-          | other => scoped frame other
+          | other => withinScope frame other
 end
 
 end Xsh.Semantics.CoreControl
