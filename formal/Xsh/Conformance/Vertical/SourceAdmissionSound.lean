@@ -522,6 +522,25 @@ theorem propagation_boundary_from_return {vars : List String}
     | assign member value => cases same
   | call validTarget validCallee args => simp
 
+theorem computed_boundary_from_return {vars : List String}
+    {tokens afterPropagation afterAssignment expressionTokens : List Token}
+    {propagation : Option SourcePropagation} {assignment : Option (String × SourceValue)}
+    (propagationSyntax : PropagationSyntax tokens propagation afterPropagation)
+    (assignmentSyntax : AssignmentSyntax vars afterPropagation assignment afterAssignment)
+    (returnLine : afterAssignment = .word "return" :: expressionTokens) :
+    ComputedBoundary tokens := by
+  intro name op left right valueTokens after same valid value
+  cases propagationSyntax with
+  | empty tokens =>
+    cases assignmentSyntax with
+    | empty => rw [returnLine] at same; simp at same
+    | assign member value => cases same
+  | call validTarget validCallee args =>
+    simp only [List.cons.injEq, Token.word.injEq, true_and] at same
+    rcases same with ⟨_, _, _, _, rfl⟩
+    cases value with
+    | binary first valid second => cases first
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
