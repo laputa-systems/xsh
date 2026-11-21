@@ -45,3 +45,38 @@ built in lib, tested in lib: true
 
 Handling policy, fixed before any scored call: the generated service bindings declare no
 facets. Both languages are told which kinds are transient and match variants.
+
+## D2: `Path.relative_to` returns a path outside its base unchanged
+
+```sh
+cd bench/codemode/defects/d2-relative-to
+xsh main.xsh
+```
+
+Observed:
+
+```text
+inside: logs/a.log
+outside: /etc/hosts
+```
+
+`xsht api method:Path.relative_to` states "The result is an error when the path is not
+below the requested base", but the signature is `Path.relative_to(base: Path) -> Path`
+and a path outside the base comes back unchanged, so a caller cannot tell a relative
+result from an absolute one. Either the contract text or the behavior is wrong. No
+development reference depends on the outside case; the tasks only relativize paths
+that a walk of the base produced.
+
+## Documentation gaps the development runs exposed
+
+Each is a fact a correct program needs that `xsht api` states wrongly or not at all.
+They are not product defects; they are recorded for the follow-up list.
+
+- `fs.walk` and `fs.files` obey `.gitignore` files by default, also outside a Git
+  checkout, but the signature shows only `gitignore: Bool = default`.
+- Many `xsht api` contracts say "Function arguments are positional-only; parameters
+  marked `= default` ... cannot be supplied as `name = value`", while `name: value`
+  arguments such as `fs.walk(root, gitignore: false, hidden: true)` and
+  `archive.create(..., collision: .Replace)` check and run.
+- `check.redundant-parens` is a hard check error, not a lint, and neither the tour nor
+  `xsht api language:core` says so; it caused 8 of the 24 failed development programs.
