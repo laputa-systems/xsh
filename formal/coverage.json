@@ -3000,8 +3000,10 @@
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-UNION"
+      "status": "closed",
+      "proof_root_id": "full.VAL-UNION",
+      "module": "Xsh.Validation.Core.Union",
+      "declaration": "Xsh.Validation.Core.Union.union_semantics"
     },
     {
       "id": "VAL-WIDEN",
@@ -15060,15 +15062,6 @@
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
       "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
-    },
-    {
-      "id": "fragment.Xsh.Validation.Core.Union.union_semantics",
-      "module": "Xsh.Validation.Core.Union",
-      "declaration": "Xsh.Validation.Core.Union.union_semantics",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Union membership is membership in a listed member, first-accepting-member selection in written order, and union-to-union fit under views.",
-      "boundary": "Conditional on ViewClosed; union fit uses the order-sensitive view relation; no selection mutant beyond the witnesses. Closes no full-core obligation."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",

@@ -203,13 +203,14 @@ value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
 and rejects the same write to the `NonEmpty` cell.
 
-The `union_semantics` fragment root is in
+VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
 membership is membership in a listed member, runtime selection returns the
 first accepting member in written order, and a union fits another when each
 member views as one of the other's in any order. Union admissibility, which
 rejects overlapping members, is a checker judgment and is not assumed; the
-overlap witness selects `UInt` for `5` and `Int` for `-5`.
+overlap witness selects `UInt` for `5` and `Int` for `-5`, and a last-match
+selector, which picks `Int` for `5`, is refuted.
 
 The `narrowing` fragment root is in
 [`Validation/Core/Narrow.lean`](Xsh/Validation/Core/Narrow.lean). It shows that a type
