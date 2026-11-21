@@ -2674,7 +2674,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 143);
+        assert_eq!(codes.len(), 144);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());
