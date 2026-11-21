@@ -599,6 +599,30 @@ theorem ordinary_body_not_record {vars : List String}
   | immutable tail => cases same
   | mutable tail => simp at same
 
+theorem body_syntax_complete {shape : ResultShape} {name : String} {parameters : List String}
+    {tokens rest : List Token} {function : SourceFunction}
+    (derivation : BodySyntax shape name parameters tokens function rest) :
+    parseFunctionBody shape name parameters tokens = some (function, rest) := by
+  cases derivation with
+  | body literal computed propagation assignment propAllowed compAllowed returnLine expression assigned result resultAllowed fresh closing =>
+    have parsed := ordinary_body_complete (name := name) literal computed propagation assignment propAllowed compAllowed
+      returnLine expression assigned result resultAllowed fresh closing
+      (literal_boundary_from_return computed propagation assignment returnLine)
+      (computed_boundary_from_return propagation assignment returnLine)
+      (propagation_boundary_from_return propagation assignment returnLine)
+      (assignment_boundary_from_return assignment returnLine expression)
+    unfold parseFunctionBody
+    split
+    · rename_i more target same
+      exact False.elim (ordinary_body_not_record literal computed propagation assignment returnLine target same rfl)
+    · exact parsed
+  | record shape parameters record returned admitted closing =>
+    subst shape
+    subst parameters
+    have parsed := record_body_complete (name := name) record returned admitted closing
+    cases record with
+    | record valid fields => simpa [parseFunctionBody] using parsed
+
 theorem quote_byte_outside_domain : ¬ Domain [34] [] := by
   intro domain
   obtain ⟨functions, scopes, admitted⟩ := domain
