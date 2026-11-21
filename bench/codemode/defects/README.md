@@ -67,6 +67,27 @@ result from an absolute one. Either the contract text or the behavior is wrong. 
 development reference depends on the outside case; the tasks only relativize paths
 that a walk of the base produced.
 
+## D3: a top-level `Str +=` statement checks but fails at run time
+
+```sh
+cd bench/codemode/defects/d3-top-level-str-append
+xsht check main.xsh   # passes
+xsh main.xsh          # exits 3
+xsh in-loop.xsh       # the same append inside a loop prints ab
+```
+
+Observed for `main.xsh` (`var text = "a"`, then `text += "b"` at top level):
+
+```text
+err[runtime.error]: += assignment cannot combine Str and Str
+```
+
+The same `+=` inside a `for` body or a `proc` works, and `Int +=` works at top level. A
+model's program hit it in the revision run (`dev-config-set/xsh-revised/1`, attempt 1);
+its repair avoided the append by joining a list that ends with an empty line, and passed. It was found during
+scored runs, so its handling is recorded rather than pre-set: the attempt counts as a
+runtime failure and is classified `compiler/runtime defect`; no reference is affected.
+
 ## Documentation gaps the development runs exposed
 
 Each is a fact a correct program needs that `xsht api` states wrongly or not at all.

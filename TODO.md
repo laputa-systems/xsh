@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 154
+Next: 159
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -103,12 +103,57 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
+### XSH-154 · P2 · An importer's `is mod.Facet` never matches the facet of an imported error
+
+- **Area:** Runtime
+- **Where:** importer-side lowering of qualified facet patterns, `compact_qualified_pattern_facet` in `src/runtime/eval/lower/patterns.rs`; reproducers `bench/codemode/defects/d1-imported-facet/` and its `narrowed/`
+- **Problem:** With `export error LibError = Down : Transient | Gone` in `lib.xsh`, an importer's `Err(is lib.Transient)` and `retry ... on (is lib.Transient)` never match `lib.LibError.Down`, while `error is Transient` inside `lib.xsh` is true for the same value wherever it was built. The checker accepts the pattern and even suggests `lib.Transient`, so a retry on a module's transient facet silently runs once. SPEC 4.10 says `is Facet` matches every variant that implements the facet. Found by the code mode experiment while writing service bindings; variant patterns (`lib.LibError.Down {..}`) do match.
+- **Recommendation:** Match the facet name an imported pattern resolves to against the names the error value carries, and add a native test that an importer's facet pattern and `retry on (is mod.Facet)` match errors built in either module.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-158 · P2 · A top-level `Str +=` statement checks but fails at run time
+
+- **Area:** Runtime
+- **Where:** top-level compound assignment on `Str`; reproducer `bench/codemode/defects/d3-top-level-str-append/main.xsh`
+- **Problem:** `var text = "a"` then `text += "b"` at the top level of a script passes `xsht check` and fails at run time with `+= assignment cannot combine Str and Str`. The same statement inside a `for` body or a `proc` works, and `Int +=` works at top level. A model's program in the code mode revision run hit it.
+- **Recommendation:** Find why the top-level lowering of `+=` rejects two `Str` operands, fix it, and add a native test for top-level `Str +=` beside the loop and proc forms.
+- **Fix with:** root-cause
+- **Effort:** S
+
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
 - **Where:** `src/sema/types.rs` (`matches_stored`, no callable arm; falls through to `matches_invariant`), SPEC `docs/templates/SPEC.md:1594-1602` (callable fit: a validated return may stand for its base at any depth), formal `Xsh.Validation.Core.Widen.Witness.callable_return_view_is_derived` (lane/lean-foundation)
 - **Problem:** `let ys: List[pure() -> Path] = xs` with `xs: List[pure() -> RelPath]` fails with `check.type-mismatch`, while the direct binding `let f: pure() -> Path = name` for a `pure() -> RelPath` function is accepted. The SPEC lets a validated type stand where its base is written in a callable's return type at any depth, and the Lean model derives this view. Rust's stored-value matcher has no callable arm, so a callable nested in a collection, record or union loses the return widening the SPEC grants.
 - **Recommendation:** Add a callable arm to `matches_stored` that applies the SPEC's callable fit (same kind, labels and parameter types; return compared by the stored view; effects may be fewer), with native tests for List, record and union nesting and a rejected case that changes a parameter type.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-155 · P3 · `Path.relative_to` returns a path outside its base unchanged
+
+- **Area:** Runtime
+- **Where:** `Path.relative_to`; reproducer `bench/codemode/defects/d2-relative-to/main.xsh`
+- **Problem:** `xsht api method:Path.relative_to` says "The result is an error when the path is not below the requested base", but the signature returns `Path` and `p"/etc/hosts".relative_to(p"/srv/app")` returns `/etc/hosts`, so a caller cannot tell a relative result from the unchanged input.
+- **Recommendation:** Decide the contract: return `Result[Path]` and fail outside the base, or keep `Path` and state that an outside path is returned unchanged; align the registry text and add a native test for the outside case.
+- **Fix with:** error-model
+- **Effort:** S
+
+### XSH-156 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
+
+- **Area:** Docs
+- **Where:** registry contract text for module functions; `fs.walk`, `fs.files`
+- **Problem:** Many contracts say "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`", while `name: value` arguments such as `fs.walk(root, gitignore: false, hidden: true)` and `archive.create(..., collision: .Replace)` check and run. `fs.walk` and `fs.files` obey `.gitignore` files by default, also outside a Git checkout, but the signature shows only `gitignore: Bool = default`. Agents in the code mode experiment had to learn both from failures.
+- **Recommendation:** State which spellings are accepted (`name: value` yes, `name = value` no) and print each default's value in signatures, starting with `gitignore`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-157 · P3 · `check.redundant-parens` is a hard error that no guide mentions
+
+- **Area:** Checker
+- **Where:** `check.redundant-parens`; evidence `bench/codemode/results/dev-initial-taxonomy.json`
+- **Problem:** Parentheses that do not change parsing, such as `x += (a + b)` or `and (id not in seen)`, are check errors. In the code mode development runs this one rule caused 8 of the 24 failed programs under both the current documentation and the compact guide; the tour and `xsht api language:core` do not mention it.
+- **Recommendation:** Decide whether the rule should stay an error or become a lint with an autofix; until then, state it in the tour and in `language:core`.
 - **Fix with:** none
 - **Effort:** S
 
