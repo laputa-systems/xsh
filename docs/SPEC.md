@@ -718,8 +718,10 @@ numbers, not between `Int` and `Float`, and not from anything to `Bool`.
 `Int` arithmetic is checked. Overflow fails with `integer-overflow`, and
 division or remainder by zero fails with `division-by-zero`. `/` truncates
 toward zero. `%` fails with `integer-overflow` whenever `/` on the same operands
-would, so the minimum `Int` `% -1` fails rather than giving `0`. `%` is integer-only. Non-negative bitset operations are methods:
-`.bit_and(mask)`, `.bit_or(mask)`, `.clear_bits(mask)`.
+would, so the minimum `Int` `% -1` fails rather than giving `0`. `%` is
+integer-only. Non-negative bitset operations are methods: `.bit_and(mask)`,
+`.bit_or(mask)`, `.clear_bits(mask)`. A negative receiver or mask fails with
+`integer-bitset`.
 
 `UInt` shares `Int`'s representation and operators but is never negative. The
 constraint is enforced wherever a value is stored or crosses a typed boundary:
