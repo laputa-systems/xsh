@@ -388,6 +388,9 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
       · simp only [evalExpr, closureFree, localClosure_none, hl]
     | binary operator left right notFallback _ _ =>
       cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr]
+    | ident name =>
+      simp only [evalExpr, closureFree, localClosure_none]
+      cases frame.locals.lookup name <;> rfl
     | _ => simp only [evalExpr]
 
 end Bridge
@@ -425,11 +428,11 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
 
 theorem closure_call_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument)
-    (cell : CellId) (defining : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
+    (cell : CellId) (callable : CallableKind) (defining : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
     (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody) (values : List Xsh.Syntax.Expr)
     (unshadowed : frame.locals.lookup name = none)
     (found : localClosure frame.closures frame.environment name =
-      some (.mk cell defining captured writable parameters body))
+      some (.mk cell callable defining captured writable parameters body))
     (supplied : positional arguments = some values) :
     evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
       (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
@@ -437,11 +440,11 @@ theorem closure_call_threads {world : World Declaration Identity Source} (machin
             (fun current default => returnValue current (evalExpr machine fuel
               { Frame.ofScope defining current.store [] (some current.store)
                   ⟨current.activation + machine.activationStep,
-                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
                 writable } default))
             after parameters evaluated).bind fun bound last =>
           callBlock machine fuel last ⟨last.activation + machine.activationStep,
-            (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
             writable (bodyStatements body) (bodyKind body) := by
   simp only [evalExpr, unshadowed, found, supplied]
 
@@ -490,9 +493,9 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
           (threadAll evaluate after rest).bind fun values last => .value (value :: values) last) ∧
     (∀ fuel (frame : Frame world) body, evalExpr machine (fuel + 1) frame (.valueBlock body) =
       runValue machine fuel frame (.valueBlock body)) ∧
-    (∀ fuel (frame : Frame world) name arguments cell defining captured writable parameters body values,
+    (∀ fuel (frame : Frame world) name arguments cell callable defining captured writable parameters body values,
       frame.locals.lookup name = none →
-        localClosure frame.closures frame.environment name = some (.mk cell defining captured writable parameters body) →
+        localClosure frame.closures frame.environment name = some (.mk cell callable defining captured writable parameters body) →
           positional arguments = some values →
             evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
               (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
@@ -500,11 +503,11 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
                     (fun current default => returnValue current (evalExpr machine fuel
                       { Frame.ofScope defining current.store [] (some current.store)
                           ⟨current.activation + machine.activationStep,
-                            (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
                         writable } default))
                     after parameters evaluated).bind fun bound last =>
                   callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                    (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
                     writable (bodyStatements body) (bodyKind body)) ∧
     (∀ (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
         (frame : Frame world) parameters arguments,
@@ -531,9 +534,10 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
     fun _ _ _ => by simp only [evalExpr],
-    fun fuel frame name arguments cell defining captured writable parameters body values unshadowed found supplied =>
-      closure_call_threads machine fuel frame name arguments cell defining captured writable parameters body values
-        unshadowed found supplied,
+    fun fuel frame name arguments cell callable defining captured writable parameters body values unshadowed found
+        supplied =>
+      closure_call_threads machine fuel frame name arguments cell callable defining captured writable parameters body
+        values unshadowed found supplied,
     bindArgumentsIn_lift,
     fun _ _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> exact ⟨_, rfl⟩,

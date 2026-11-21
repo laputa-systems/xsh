@@ -33,6 +33,17 @@ structure Machine (world : World Declaration Identity Source) where
   /-- Whether the checker gives a `guard let` subject an outermost `Result`
   type (SPEC 8.6). -/
   resultSubject : Environment → Xsh.Syntax.Expr → Bool
+  /-- The runtime's identity for the callable value a top-level function
+  declaration gives, by the cell its name is bound to. -/
+  callableReference : CellId → Reference Identity .callable
+  /-- The declaration cell a callable value's identity names. -/
+  callableCell : Reference Identity .callable → Option CellId
+  /-- The program's top-level declarations, whose record schemas and error
+  families give its constructors; the runtime makes them visible throughout
+  the program. -/
+  declarations : List Xsh.Syntax.Statement
+  /-- The checker's declaration identity for a type or error family name. -/
+  identity : Xsh.Syntax.RawName → Declaration
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -58,7 +69,8 @@ captures, its parameters and body. Its captured names are read through that
 environment when it is called, so a captured `var` is read as it is at the
 call, and it may write a captured mutable cell (SPEC 9.2). -/
 inductive Closure where
-  | mk (cell : CellId) (environment : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
+  | mk (cell : CellId) (kind : CallableKind) (environment : Environment) (captured : List (CellId × Closure))
+      (writable : List CellId)
       (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody)
 
 /-- What an expression sees besides its environment, store and locals: the
@@ -856,6 +868,115 @@ def callFunctionWith {world : World Declaration Identity Source} (machine : Mach
   | .block statements kind =>
     callBlock caller ⟨caller.activation + machine.activationStep, [], none⟩ defining parameters [] statements kind
 
+/-- A function declaration's callable kind; streams and `cli main` are not
+called as values. -/
+def callableKind : Xsh.Syntax.FunctionKind → Option CallableKind
+  | .proc => some .procedure
+  | .pure => some .pure
+  | _ => none
+
+/-- What `.call(...)` gives (SPEC 9.1): a `Proc` value's call is the proc's
+own `Result` when it returns one and `Ok` of any other value, `Ok(())` for
+none; a `Pure` value's call is its value. -/
+def callResult (kind : CallableKind) (value : Value Declaration Identity Source) : Value Declaration Identity Source :=
+  match kind with
+  | .procedure => wrapOk value
+  | _ => value
+
+/-- The top-level record schema a name declares (SPEC 4.7): its fields and
+whether it is nominal. -/
+def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    Option (List Xsh.Syntax.SchemaField × Bool) :=
+  declarations.findSome? fun
+    | .typeDef declared _ (.recordSchema fields) nominal _ | .export (.typeDef declared _ (.recordSchema fields) nominal _) =>
+      if declared = name then some (fields, nominal) else none
+    | _ => none
+
+/-- The top-level error family a name declares (SPEC 4.10): its variants. -/
+def familyOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    Option (List Xsh.Syntax.ErrorVariant) :=
+  declarations.findSome? fun
+    | .errorDef declared variants | .export (.errorDef declared variants) =>
+      if declared = name then some variants else none
+    | _ => none
+
+/-- A constructor call's arguments in written order, each with its label when
+it is named. -/
+def labelledArguments : List Xsh.Syntax.CallArgument → Option (List (Option Xsh.Syntax.RawName × Xsh.Syntax.Expr))
+  | [] => some []
+  | .positional value :: rest => (labelledArguments rest).map ((none, value) :: ·)
+  | .named label value :: rest => (labelledArguments rest).map ((some label, value) :: ·)
+  | _ :: _ => none
+
+/-- Where constructor arguments go (SPEC 4.7, 4.10): positional ones fill
+fields in declaration order, then named ones go to the field with their
+label; `none` when there are too many positional ones, a label is supplied
+twice, or a label names no remaining field. -/
+def placeArguments (spelling : Xsh.Syntax.RawName → String) (fields : List Xsh.Syntax.RawName)
+    (supplied : List (Option Xsh.Syntax.RawName × Value Declaration Identity Source)) :
+    Option (List (Option (Value Declaration Identity Source))) :=
+  let positional := supplied.filterMap fun entry => match entry.1 with
+    | none => some entry.2
+    | some _ => none
+  let named := supplied.filterMap fun entry => entry.1.map fun label => (spelling label, entry.2)
+  let remaining := (fields.drop positional.length).map spelling
+  if positional.length ≤ fields.length ∧ (named.map Prod.fst).Nodup ∧
+      (named.all fun entry => remaining.contains entry.1) = true then
+    some (positional.map some ++ remaining.map fun label => named.lookup label)
+  else none
+
+/-- The fields' values in declaration order: a supplied one as given, a
+missing one its default, evaluated through `evaluate` in the frame the one
+before left; a missing field without a default is stuck, which the checker
+rejects. -/
+def fillFields {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) :
+    Frame world → List (Xsh.Syntax.RawName × Option Xsh.Syntax.Expr) → List (Option (Value Declaration Identity Source)) →
+      Outcome world (List (String × Value Declaration Identity Source))
+  | frame, [], [] => .value [] frame
+  | frame, (name, _) :: rest, some value :: values =>
+    (fillFields spelling evaluate frame rest values).bind fun others after => .value ((spelling name, value) :: others) after
+  | frame, (name, some default) :: rest, none :: values =>
+    (evaluate frame default).bind fun value after =>
+      (fillFields spelling evaluate after rest values).bind fun others last => .value ((spelling name, value) :: others) last
+  | _, _, _ => .exec .stuck
+
+def schemaField : Xsh.Syntax.SchemaField → Xsh.Syntax.RawName × Option Xsh.Syntax.Expr
+  | .mk name _ default => (name, default)
+
+/-- The error a constructor builds (SPEC 4.10): its family's declaration
+identity, its variant and facets, its payload, and its message. -/
+def declaredError {world : World Declaration Identity Source} (machine : Machine world) (family : Xsh.Syntax.RawName)
+    (variant : Xsh.Syntax.RawName) (facets : List Xsh.Syntax.RawName) (message : String)
+    (payload : List (String × Value Declaration Identity Source)) : Value Declaration Identity Source :=
+  .error (ErrorData.mk (machine.identity family) (machine.context.spelling variant) (machine.context.spelling family)
+    message payload (facets.map machine.context.spelling) none [] none none)
+
+/-- `Family.Variant`, an error's message when nothing else gives one. -/
+def qualifiedName {world : World Declaration Identity Source} (machine : Machine world)
+    (family variant : Xsh.Syntax.RawName) : String :=
+  machine.context.spelling family ++ "." ++ machine.context.spelling variant
+
+/-- A payload variant's message: its `message: Str` field when it declares
+one, `otherwise` when it does not. -/
+def payloadMessage (payload : List (String × Value Declaration Identity Source)) (otherwise : String) : String :=
+  match payload.lookup "message" with
+  | some (.scalar (.string text)) => text
+  | _ => otherwise
+
+/-- The family and variant `Family.Variant` names, when `Family` is a declared
+error family not hidden by a local. -/
+def errorConstructor {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (receiver : Xsh.Syntax.Expr) (method : Xsh.Syntax.RawName) : Option (Xsh.Syntax.RawName × Xsh.Syntax.ErrorVariant) :=
+  match receiver with
+  | .ident family =>
+    match frame.locals.lookup family, familyOf machine.declarations family with
+    | none, some variants =>
+      (variants.find? fun | .mk variant _ _ => machine.context.spelling variant = machine.context.spelling method).map
+        (family, ·)
+    | _, _ => none
+  | _ => none
+
 def bodyKind : FunctionBody → ReturnKind
   | .expression _ kind | .block _ kind => kind
 
@@ -949,19 +1070,70 @@ mutual
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
           | .listComp _ _ | .mapComp _ _ _ =>
         runValue machine fuel frame expression
+      | .ident name =>
+        match frame.locals.lookup name, localClosure frame.closures frame.environment name with
+        | none, some (.mk cell callable _ _ _ _ _) => .value (.callable (machine.callableReference cell) callable) frame
+        | _, _ =>
+          threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
+            expression
+      | .call (.field receiver method) arguments =>
+        match errorConstructor machine frame receiver method, labelledArguments arguments with
+        | some (family, .mk variant [] facets), some [] =>
+          .value (declaredError machine family variant facets (qualifiedName machine family variant)
+            [("message", .scalar (.string (qualifiedName machine family variant)))]) frame
+        | some (family, .mk variant [] facets), some [(none, message)] =>
+          (evalExpr machine fuel frame message).bind fun written after =>
+            match written.eraseNominal with
+            | .scalar (.string text) =>
+              .value (declaredError machine family variant facets text [("message", .scalar (.string text))]) after
+            | _ => .exec .stuck
+        | some (family, .mk variant fields facets), some parts =>
+          (threadAll (evalExpr machine fuel) frame (parts.map Prod.snd)).bind fun values after =>
+            match placeArguments machine.context.spelling (fields.map Prod.fst) ((parts.map Prod.fst).zip values) with
+            | none => .exec .stuck
+            | some placed =>
+              (fillFields machine.context.spelling (evalExpr machine fuel) after
+                  (fields.map fun field => (field.1, none)) placed).bind fun payload last =>
+                .value (declaredError machine family variant facets
+                  (payloadMessage payload (qualifiedName machine family variant)) payload) last
+        | _, _ =>
+          match machine.context.spelling method, positional arguments with
+          | "call", some values =>
+            (evalExpr machine fuel frame receiver).bind fun callee after =>
+              match callee.eraseNominal with
+              | .callable reference _ =>
+                match (machine.callableCell reference).bind fun cell => after.closures.lookup cell with
+                | some (.mk cell callable defining captured writable parameters body) =>
+                  (threadAll (evalExpr machine fuel) after values).bind fun evaluated next =>
+                    (bindArgumentsIn
+                        (fun current default => returnValue current (evalExpr machine fuel
+                          { Frame.ofScope defining current.store [] (some current.store)
+                              ⟨current.activation + machine.activationStep,
+                                (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
+                            writable } default))
+                        next parameters evaluated).bind fun bound last =>
+                      (callBlock machine fuel last ⟨last.activation + machine.activationStep,
+                        (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
+                        writable (bodyStatements body) (bodyKind body)).bind fun result final =>
+                        .value (callResult callable result) final
+                | none => .exec .stuck
+              | _ => .exec .unsupported
+          | _, _ =>
+            threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
+              expression
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
-        | none, some (.mk cell defining captured writable parameters body), some values =>
+        | none, some (.mk cell callable defining captured writable parameters body), some values =>
           (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
             (bindArgumentsIn
                 (fun current default => returnValue current (evalExpr machine fuel
                   { Frame.ofScope defining current.store [] (some current.store)
                       ⟨current.activation + machine.activationStep,
-                        (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ with
+                        (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
                     writable } default))
                 after parameters evaluated).bind fun bound last =>
               callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                (cell, .mk cell defining captured writable parameters body) :: captured, none⟩ defining bound
+                (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
                 writable (bodyStatements body) (bodyKind body)
         | _, _, _ =>
           match frame.locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
@@ -970,8 +1142,21 @@ mutual
             (evalExpr machine fuel frame payload).bind fun value next => .value (.ok value) next
           | none, none, "Err", [.positional payload] =>
             (evalExpr machine fuel frame payload).bind fun value next => .value (.err value) next
-          | _, _, _, _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
-              expression
+          | _, _, _, _ =>
+            match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name,
+                labelledArguments arguments with
+            | none, none, some (fields, nominal), some parts =>
+              (threadAll (evalExpr machine fuel) frame (parts.map Prod.snd)).bind fun values after =>
+                match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1)
+                    ((parts.map Prod.fst).zip values) with
+                | none => .exec .stuck
+                | some placed =>
+                  (fillFields machine.context.spelling (evalExpr machine fuel) after (fields.map schemaField) placed).bind
+                    fun entries last =>
+                      .value (if nominal then .nominal (machine.identity name) (.record entries) else .record entries) last
+            | _, _, _, _ =>
+              threadStep machine.context (evalExpr machine fuel)
+                (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
               expression
 
@@ -1268,17 +1453,20 @@ mutual
           | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
           | _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
-        match kind, (machine.namesAt frame.activation).declaration frame.environment name with
-        | .stream, _ | .cliMain, _ => .unsupported
-        | _, none => .internal .malformedTarget frame
-        | _, some (binder, cell, _) =>
-          let environment := extend frame.environment [(name, binder, cell)]
-          .normal { frame with
-            environment
-            locals := hide [name] frame.locals
-            closures := (cell, .mk cell environment frame.closures
-              (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-              (.block body (returnKindOf machine result))) :: frame.closures }
+        match frame.callerStore, frame.environment.names with
+        | none, [_] =>
+          match callableKind kind, (machine.namesAt frame.activation).declaration frame.environment name with
+          | none, _ => .unsupported
+          | _, none => .internal .malformedTarget frame
+          | some callable, some (binder, cell, _) =>
+            let environment := extend frame.environment [(name, binder, cell)]
+            .normal { frame with
+              environment
+              locals := hide [name] frame.locals
+              closures := (cell, .mk cell callable environment frame.closures
+                (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
+                (.block body (returnKindOf machine result))) :: frame.closures }
+        | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
           match guardValue (machine.resultSubject next.environment initializer) subject with
@@ -1302,6 +1490,10 @@ mutual
       | .defer kind action =>
         .normal { frame with deferred := ⟨kind, action, frame.environment, frame.locals⟩ :: frame.deferred }
       | .sugar _ expansion => runStatement machine fuel frame expansion
+      | .typeDef _ _ _ _ _ | .errorDef _ _ =>
+        match frame.callerStore, frame.environment.names with
+        | none, [_] => .normal frame
+        | _, _ => .stuck
       | _ => .unsupported
 
   /-- `if`, `else if` and `else`: each branch is its own scope. -/

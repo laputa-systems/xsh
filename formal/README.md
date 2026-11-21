@@ -396,8 +396,7 @@ Statements:
 - `for` over a `Stream` (E)
 - stream producers and their `yield` (E)
 - `use` aliases, which need module loading (E)
-- `export` of anything but a binding; `type` and `error` declarations as
-  runtime binders (record and error constructors) (P); `stream` and `cli main`
+- `export` of anything but a binding (P); `stream` and `cli main`
   declarations, which need the stream and host argument models (E)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
@@ -419,8 +418,9 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: local functions as first-class `Proc`/`Pure` values with
-`.call` (P).
+Writes and values: named, spread and splice arguments to `.call` and its
+runtime argument checks (P); calls of a top-level function before its
+declaration, which Rust allows (P).
 
 Binders: declared types still come from the resolution oracle (P), and the
 resolution pass is tied to the machine for statements and statement lists
@@ -495,6 +495,48 @@ declares. The witness runs `let {key: a, value: b} = pair; guard let x = ok`
 under the canonical resolution, where `a`, `b` and `x` hold `1`, `2` and `7`
 and resolve to the pass's binders; the earlier pass, which declared only
 single-name lets, is rejected.
+
+The `callable_values` fragment root, in
+[`Proofs/Core/Callables.lean`](Xsh/Proofs/Core/Callables.lean), covers SPEC
+9.1 callable values. SPEC 3.1 allows declarations only at the top level
+("inside a callable body or any block they are `check.nested-declaration`"),
+so the machine refuses a function declaration in a block or a callable body
+and every callable value names a top-level declaration. A name bound to a
+local function evaluates to `Value.callable` with the runtime's identity for
+its declaration, an oracle (`callableReference`, `callableCell`).
+`value.call(...)` evaluates the receiver, then its arguments, and runs the
+named declaration through `callBlock` and `returnTo`, so it writes captured
+top-level `var`s through the caller's frame; a `Proc` value's call is the
+proc's own `Result` or `Ok` of its value, and a `Pure` value's call is its
+value. The witnesses run `var count = 0; proc bump() -> Int { count += 1;
+count }; let fns = [bump]` and give `fns[0].call()?` as `1`, then `2`, with
+`count = 2` (the verification binary prints the same), call `bump` through a
+record and through a `twice(action)` parameter, and call a pure `double` for
+`14`; a call that snapshots the store when the value is made gives `[1, 1]`
+and is rejected, and a `proc` declared in a block is refused. Rust also lets a
+top-level proc be called before its declaration, and reading a `var` not yet
+declared that way is a runtime `unknown captured name`; the SPEC's in-order
+rule does not say so, and the machine does not model it.
+
+The `declared_constructors` fragment root, in
+[`Proofs/Core/Constructors.lean`](Xsh/Proofs/Core/Constructors.lean), covers
+SPEC 4.7 and 4.10 constructors. `type` and `error` declarations are top-level
+only and bind no runtime name: the machine takes the program's declarations
+as a parameter, visible throughout as the runtime makes them, and the
+checker's declaration identity as the oracle `Machine.identity`. A record
+constructor evaluates its arguments once in written order, places positional
+ones in declaration order and named ones by label, fills a missing field from
+its default and builds the record in declaration order, nominal for a nominal
+schema. `Family.Variant(...)` builds an `Error` whose message is its one
+optional positional argument or `Family.Variant` for a payload-free variant,
+and its `message` field or `Family.Variant` for a payload variant. The
+witnesses match the verification binary: `Point(x: 1)` before `type Point`
+gives `{x: 1, y: 7}`, `Pair(right: bump(), left: bump())` gives left `2` and
+right `1`, `Labelled("x", 2)` fills fields positionally, and the `Fetch`
+errors carry `Fetch.Usage`, `custom`, `Fetch.Missing` with payload `where` and
+facet `NotFound`, and `boom`, which a variant pattern and a facet pattern then
+match. Declaration-order evaluation, label-free placement and a variant-only
+default message are rejected.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

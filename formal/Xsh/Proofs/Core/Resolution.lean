@@ -188,26 +188,29 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       · exact absurd bound (guardElse_not_normal _ _)
       · cases bound
     | functionDef kind name parameters effects result body metadata test =>
-      cases declared : (machine.namesAt frame.activation).declaration frame.environment name with
-      | none => cases kind <;> simp [runStatement, declared] at ran
-      | some entry =>
-        obtain ⟨binder, cell, type⟩ := entry
-        have shape := canonical_cells machine base types resolved frame.activation frame.environment name
-        rw [declared] at shape
-        cases typed : types frame.environment name with
-        | none => simp [typed] at shape
-        | some found =>
-          simp only [typed, Option.map_some, Option.some.injEq, Prod.mk.injEq] at shape
-          obtain ⟨same, _, _⟩ := shape
-          have depth : frame.environment.names.length = outer.length + 1 := by simpa using carried.1
-          have extended := extend_represents [(name, binder, cell)] frame.environment top outer carried
-            fun entry inside => by
-              simp only [List.mem_singleton] at inside
-              subst inside
-              rw [same, depth]
-          cases kind <;> simp only [runStatement, declared] at ran <;> first
-            | (cases ran; exact extended)
-            | cases ran
+      simp only [runStatement] at ran
+      split at ran
+      · cases declared : (machine.namesAt frame.activation).declaration frame.environment name with
+        | none => cases kind <;> simp [declared, callableKind] at ran
+        | some entry =>
+          obtain ⟨binder, cell, type⟩ := entry
+          have shape := canonical_cells machine base types resolved frame.activation frame.environment name
+          rw [declared] at shape
+          cases typed : types frame.environment name with
+          | none => simp [typed] at shape
+          | some found =>
+            simp only [typed, Option.map_some, Option.some.injEq, Prod.mk.injEq] at shape
+            obtain ⟨same, _, _⟩ := shape
+            have depth : frame.environment.names.length = outer.length + 1 := by simpa using carried.1
+            have extended := extend_represents [(name, binder, cell)] frame.environment top outer carried
+              fun entry inside => by
+                simp only [List.mem_singleton] at inside
+                subst inside
+                rw [same, depth]
+            cases kind <;> simp only [declared, callableKind] at ran <;> first
+              | (cases ran; exact extended)
+              | cases ran
+      · cases ran
     | sugar kind expansion =>
       simp only [runStatement] at ran
       simp only [staticDeclare]
@@ -300,6 +303,18 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
         obtain ⟨_, _, _, _, _, finished⟩ := toExec_normal (scopes.value frame value) ran
         cases finished
     | continueStmt => simp only [runStatement] at ran; cases ran
+    | typeDef name parameters body nominal bounds =>
+      simp only [runStatement] at ran
+      split at ran
+      · cases ran
+        exact carried
+      · cases ran
+    | errorDef name variants =>
+      simp only [runStatement] at ran
+      split at ran
+      · cases ran
+        exact carried
+      · cases ran
     | _ => simp only [runStatement] at ran; cases ran
 
 /-- Under the canonical resolution, a statement list that completes normally
