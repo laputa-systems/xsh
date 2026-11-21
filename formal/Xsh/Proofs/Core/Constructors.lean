@@ -47,28 +47,24 @@ theorem declared_constructors {world : World Declaration Identity Source} (machi
     (∀ fuel (frame : Frame world) name parameters body nominal bounds caller,
       frame.callerStore = some caller →
         runStatement machine (fuel + 1) frame (.typeDef name parameters body nominal bounds) = .stuck) ∧
-    (∀ fuel (frame : Frame world) receiver method arguments family variant facets,
+    (∀ fuel (frame : Frame world) receiver method family variant facets,
       errorConstructor machine frame receiver method = some (family, .mk variant [] facets) →
-        labelledArguments arguments = some [] →
-          evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
+          evalExpr machine (fuel + 1) frame (.call (.field receiver method) []) =
             .value (declaredError machine family variant facets (qualifiedName machine family variant)
               [("message", .scalar (.string (qualifiedName machine family variant)))]) frame) ∧
-    (∀ fuel (frame : Frame world) receiver method arguments family variant facets message,
+    (∀ fuel (frame : Frame world) receiver method family variant facets message,
       errorConstructor machine frame receiver method = some (family, .mk variant [] facets) →
-        labelledArguments arguments = some [(none, message)] →
-          evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
+          evalExpr machine (fuel + 1) frame (.call (.field receiver method) [.positional message]) =
             (evalExpr machine fuel frame message).bind fun written after =>
               match written.eraseNominal with
               | .scalar (.string text) =>
                 .value (declaredError machine family variant facets text [("message", .scalar (.string text))]) after
               | _ => .exec .stuck) ∧
-    (∀ fuel (frame : Frame world) receiver method arguments family variant first rest facets parts,
+    (∀ fuel (frame : Frame world) receiver method arguments family variant first rest facets,
       errorConstructor machine frame receiver method = some (family, .mk variant (first :: rest) facets) →
-        labelledArguments arguments = some parts →
           evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
-            (threadAll (evalExpr machine fuel) frame (parts.map Prod.snd)).bind fun values after =>
-              match placeArguments machine.context.spelling ((first :: rest).map Prod.fst)
-                  ((parts.map Prod.fst).zip values) with
+            (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+              match placeArguments machine.context.spelling ((first :: rest).map Prod.fst) supplied with
               | none => .exec .stuck
               | some placed =>
                 (fillFields machine.context.spelling (evalExpr machine fuel) after
@@ -88,14 +84,16 @@ theorem declared_constructors {world : World Declaration Identity Source} (machi
     simp [runStatement, calling]
   · intro fuel frame name parameters body nominal bounds caller calling
     simp [runStatement, calling]
-  · intro fuel frame receiver method arguments family variant facets named labelled
-    simp only [evalExpr, named, labelled]
-  · intro fuel frame receiver method arguments family variant facets message named labelled
-    simp only [evalExpr, named, labelled]
+  · intro fuel frame receiver method family variant facets named
+    simp only [evalExpr, named]
+  · intro fuel frame receiver method family variant facets message named
+    simp only [evalExpr, named]
     rfl
-  · intro fuel frame receiver method arguments family variant first rest facets parts named labelled
-    simp only [evalExpr, named, labelled]
-    rfl
+  · intro fuel frame receiver method arguments family variant first rest facets named
+    cases arguments with
+    | nil => simp only [evalExpr, named]; rfl
+    | cons argument others =>
+      cases argument <;> (simp only [evalExpr, named]; rfl)
   · intro payload text otherwise found
     simp [payloadMessage, found]
   · intro payload otherwise absent
@@ -132,6 +130,10 @@ def uName : Xsh.Syntax.RawName := name 128 (by decide)
 def mName : Xsh.Syntax.RawName := name 129 (by decide)
 def bName' : Xsh.Syntax.RawName := name 130 (by decide)
 def cName : Xsh.Syntax.RawName := name 131 (by decide)
+
+def nameOf (index : Nat) : Xsh.Syntax.RawName :=
+  [name 135 (by decide), name 136 (by decide), name 137 (by decide), name 138 (by decide)].getD index
+    (name 139 (by decide))
 
 def spellings : List (Xsh.Syntax.RawName × String) :=
   [(pointName, "Point"), (xField, "x"), (yField, "y"), (pairName, "Pair"), (leftField, "left"),
@@ -230,12 +232,12 @@ def declarationOrderPair : Exec witnessWorld :=
 `right: 1` in `left`. -/
 def positionalNamed : Option (List (Option (Value Unit Unit Unit))) :=
   placeArguments constructorProgram.spelling [leftField, rightField]
-    [(none, integer intOne), (none, integer ⟨2, by decide⟩)]
+    [.positional (integer intOne), .positional (integer ⟨2, by decide⟩)]
 
 theorem declaration_order_rejected :
     ((valueOf rName declarationOrderPair).bind recordInts) = some [("left", 1), ("right", 2)] ∧
       (placeArguments constructorProgram.spelling [leftField, rightField]
-          [(some rightField, integer intOne), (some leftField, integer ⟨2, by decide⟩)]).map
+          [.named "right" (integer intOne), .named "left" (integer ⟨2, by decide⟩)]).map
         (fun placed => placed.map fun entry => entry.bind intOf) = some [some 2, some 1] ∧
       (positionalNamed.map fun placed => placed.map fun entry => entry.bind intOf) = some [some 1, some 2] := by
   decide +kernel
@@ -319,6 +321,43 @@ def variantOnlyMessage : String := constructorProgram.spelling usageName
 
 theorem variant_only_message_rejected :
     variantOnlyMessage = "Usage" ∧ qualifiedName constructorMachine fetchName usageName = "Fetch.Usage" := by
+  decide +kernel
+
+def baseLocal : Xsh.Syntax.RawName := name 132 (by decide)
+def onlyLocal : Xsh.Syntax.RawName := name 133 (by decide)
+def fieldsLocal : Xsh.Syntax.RawName := name 134 (by decide)
+
+/-- `Point(...base)` with `base = {x: 2, y: 8}`, `Point(x:)` with `x = 1`,
+`Point(...only)` with `only = {x: 8}` and `Fetch.Bad(...fields)` with
+`fields = {message: "boom", code: 2}`; the verification binary prints
+`2 8 1 7 7` and `boom`. A pun `x:` is the named argument `x: x`. -/
+def spreadRun : Exec witnessWorld :=
+  runConstructors [
+    letOf baseLocal (.record [.named xField (int "2"), .named yField (int "8")]),
+    varOf xField "1",
+    letOf onlyLocal (.record [.named xField (int "8")]),
+    letOf fieldsLocal (.record [.named messageField (.literal (.string "boom")), .named codeField (int "2")]),
+    letOf (nameOf 0) (.call (ident pointName) [.namedSpread (ident baseLocal)]),
+    letOf (nameOf 1) (.call (ident pointName) [.named xField (ident xField)]),
+    letOf (nameOf 2) (.call (ident pointName) [.namedSpread (ident onlyLocal)]),
+    letOf (nameOf 3) (fetchCall badName [.namedSpread (ident fieldsLocal)])]
+
+theorem spread_and_pun_constructors :
+    ((valueOf (nameOf 0) spreadRun).bind recordInts) = some [("x", 2), ("y", 8)] ∧
+      ((valueOf (nameOf 1) spreadRun).bind recordInts) = some [("x", 1), ("y", 7)] ∧
+      ((valueOf (nameOf 2) spreadRun).bind recordInts) = some [("x", 8), ("y", 7)] ∧
+      (valueOf (nameOf 3) spreadRun).bind errorMessage = some "boom" := by
+  decide +kernel
+
+/-- A spread and a named argument for the same field is refused, as the
+checker's `check.named-arg` does; a constructor that lets the later one win
+would build `{x: 2, y: 1}`. -/
+theorem spread_duplicate_refused :
+    isStuck (runConstructors [letOf baseLocal (.record [.named xField (int "2"), .named yField (int "8")]),
+      letOf rName (.call (ident pointName) [.namedSpread (ident baseLocal), .named yField (int "1")])]) = true ∧
+      (placeArguments constructorProgram.spelling [xField, yField]
+          ([.named "x" (integer ⟨2, by decide⟩), .named "y" (integer ⟨8, by decide⟩)] :
+            List (Supplied Unit Unit Unit))).isSome = true := by
   decide +kernel
 
 /-- A `type` declared in a block is refused. -/

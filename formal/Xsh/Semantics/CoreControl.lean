@@ -13,6 +13,16 @@ open Xsh.Semantics.CoreEval
 
 variable {Declaration Identity Source : Type}
 
+/-- How a call's arguments fail to fit its parameters (SPEC 6.3, 9.1): a label
+no parameter has, a parameter supplied twice, a required parameter left out,
+or more positional arguments than parameters to take them. -/
+inductive ArgumentFault where
+  | unknownName (label : String)
+  | duplicate (label : String)
+  | missing (label : String)
+  | tooMany
+  deriving DecidableEq
+
 /-- What the statement machine is given: the expression context, the store's
 decisions, the runtime error values, compound assignment, the checker's
 binder, cell and type for each declared name and argv conversion (from
@@ -44,6 +54,10 @@ structure Machine (world : World Declaration Identity Source) where
   declarations : List Xsh.Syntax.Statement
   /-- The checker's declaration identity for a type or error family name. -/
   identity : Xsh.Syntax.RawName → Declaration
+  /-- The runtime error a call's arguments raise when they do not fit its
+  parameters, given the parameters a call fills by position and the
+  positional arguments it was given. -/
+  argumentError : ArgumentFault → Nat → Nat → Value Declaration Identity Source
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -745,20 +759,123 @@ def threadStep (context : Context Declaration Identity Source) {world : World De
     | _, _, _ => .exec .unsupported
   | _ => .exec .unsupported
 
-/-- `bindArguments` with the frame threaded through the defaults it
-evaluates, in parameter order after the supplied arguments. -/
-def bindArgumentsIn {world : World Declaration Identity Source}
+/-- An argument as a call receives it: positional, or under a label. -/
+inductive Supplied (Declaration Identity Source : Type) where
+  | positional (value : Value Declaration Identity Source)
+  | named (label : String) (value : Value Declaration Identity Source)
+
+/-- A call's arguments evaluated once each in written order (SPEC 6.3), each
+in the frame the one before it left: an `@` splice supplies a list's items
+positionally and a `...` spread a record's fields by label. -/
+def threadArguments {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) :
+    Frame world → List Xsh.Syntax.CallArgument → Outcome world (List (Supplied Declaration Identity Source))
+  | frame, [] => .value [] frame
+  | frame, .positional value :: rest =>
+    (evaluate frame value).bind fun result after =>
+      (threadArguments spelling evaluate after rest).bind fun others last => .value (.positional result :: others) last
+  | frame, .named label value :: rest =>
+    (evaluate frame value).bind fun result after =>
+      (threadArguments spelling evaluate after rest).bind fun others last =>
+        .value (.named (spelling label) result :: others) last
+  | frame, .splice value :: rest =>
+    (evaluate frame value).bind fun result after =>
+      match listValues result with
+      | some items =>
+        (threadArguments spelling evaluate after rest).bind fun others last =>
+          .value (items.map .positional ++ others) last
+      | none => .exec .stuck
+  | frame, .namedSpread value :: rest =>
+    (evaluate frame value).bind fun result after =>
+      match result.eraseNominal with
+      | .record fields =>
+        (threadArguments spelling evaluate after rest).bind fun others last =>
+          .value (fields.map (fun field => .named field.1 field.2) ++ others) last
+      | _ => .exec .stuck
+
+def Supplied.positionalValue : Supplied Declaration Identity Source → Option (Value Declaration Identity Source)
+  | .positional value => some value
+  | .named _ _ => none
+
+def Supplied.namedValue : Supplied Declaration Identity Source → Option (String × Value Declaration Identity Source)
+  | .positional _ => none
+  | .named label value => some (label, value)
+
+/-- What a parameter receives: an argument, its default, or, for a final rest
+parameter, the remaining positional arguments. -/
+inductive Slot (Declaration Identity Source : Type) where
+  | given (value : Value Declaration Identity Source)
+  | defaulted (default : Xsh.Syntax.Expr)
+  | rest (values : List (Value Declaration Identity Source))
+
+/-- Place positional arguments on parameters in order and labelled ones by
+name (SPEC 9.2): a parameter takes its positional argument, else its label,
+else its default; a final rest parameter takes the remaining positional
+arguments. A label given to a parameter already filled by position, a label
+no parameter has, a required parameter left out, or a positional argument
+with no parameter left is a fault. -/
+def placeParameters (spelling : Xsh.Syntax.RawName → String) :
+    List Xsh.Syntax.Parameter → List (Value Declaration Identity Source) →
+      List (String × Value Declaration Identity Source) → Except ArgumentFault (List (Xsh.Syntax.RawName × Slot Declaration Identity Source))
+  | [], [], [] => .ok []
+  | [], [], (label, _) :: _ => .error (.unknownName label)
+  | [], _ :: _, _ => .error .tooMany
+  | [.mk name _ _ true], values, [] => .ok [(name, .rest values)]
+  | [.mk _ _ _ true], _, (label, _) :: _ => .error (.unknownName label)
+  | .mk name _ _ false :: rest, value :: values, named =>
+    match named.lookup (spelling name) with
+    | some _ => .error (.duplicate (spelling name))
+    | none =>
+      match placeParameters spelling rest values named with
+      | .ok slots => .ok ((name, .given value) :: slots)
+      | .error fault => .error fault
+  | .mk name _ default false :: rest, [], named =>
+    match named.lookup (spelling name), default with
+    | some value, _ =>
+      match placeParameters spelling rest [] (named.filter fun entry => entry.1 != spelling name) with
+      | .ok slots => .ok ((name, .given value) :: slots)
+      | .error fault => .error fault
+    | none, some expression =>
+      match placeParameters spelling rest [] named with
+      | .ok slots => .ok ((name, .defaulted expression) :: slots)
+      | .error fault => .error fault
+    | none, none => .error (.missing (spelling name))
+  | .mk _ _ _ true :: _ :: _, _, _ => .error .tooMany
+
+/-- The first label given twice. -/
+def repeatedLabel : List (String × Value Declaration Identity Source) → Option String
+  | [] => none
+  | (label, _) :: rest => if (rest.lookup label).isSome then some label else repeatedLabel rest
+
+/-- Where a call's arguments go: a label given twice is a fault, and the rest
+is `placeParameters`. -/
+def placeCall (spelling : Xsh.Syntax.RawName → String) (parameters : List Xsh.Syntax.Parameter)
+    (supplied : List (Supplied Declaration Identity Source)) :
+    Except ArgumentFault (List (Xsh.Syntax.RawName × Slot Declaration Identity Source)) :=
+  let named := supplied.filterMap Supplied.namedValue
+  match repeatedLabel named with
+  | some label => .error (.duplicate label)
+  | none => placeParameters spelling parameters (supplied.filterMap Supplied.positionalValue) named
+
+/-- The parameters a call can fill by position. -/
+def fixedCount (parameters : List Xsh.Syntax.Parameter) : Nat :=
+  (parameters.filter fun | .mk _ _ _ rest => !rest).length
+
+/-- The parameters' values in parameter order: an argument as given, a default
+evaluated by `evaluateDefault` in the frame the one before it left, after
+every supplied argument (SPEC 9.2), and a rest parameter's `List`. -/
+def bindSlots {world : World Declaration Identity Source}
     (evaluateDefault : Frame world → Xsh.Syntax.Expr → Valued world) :
-    Frame world → List Xsh.Syntax.Parameter → List (Value Declaration Identity Source) →
+    Frame world → List (Xsh.Syntax.RawName × Slot Declaration Identity Source) →
       Outcome world (Locals Declaration Identity Source)
-  | frame, [], [] => .value [] frame
-  | frame, [.mk name _ _ true], arguments => .value [(name, .list arguments)] frame
-  | frame, .mk name _ _ false :: rest, argument :: arguments =>
-    (bindArgumentsIn evaluateDefault frame rest arguments).bind fun bound after => .value ((name, argument) :: bound) after
-  | frame, .mk name _ (some default) false :: rest, [] =>
+  | frame, [] => .value [] frame
+  | frame, (name, .given value) :: rest =>
+    (bindSlots evaluateDefault frame rest).bind fun bound after => .value ((name, value) :: bound) after
+  | frame, (name, .defaulted default) :: rest =>
     (evaluateDefault frame default).bind fun value after =>
-      (bindArgumentsIn evaluateDefault after rest []).bind fun bound last => .value ((name, value) :: bound) last
-  | _, _, _ => .exec .stuck
+      (bindSlots evaluateDefault after rest).bind fun bound last => .value ((name, value) :: bound) last
+  | frame, (name, .rest values) :: rest =>
+    (bindSlots evaluateDefault frame rest).bind fun bound after => .value ((name, .list values) :: bound) after
 
 /-- The selectors of an assignment path, index expressions evaluated in path
 order through `evaluate`, each in the frame the one before it left and each
@@ -900,25 +1017,16 @@ def familyOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawNa
       if declared = name then some variants else none
     | _ => none
 
-/-- A constructor call's arguments in written order, each with its label when
-it is named. -/
-def labelledArguments : List Xsh.Syntax.CallArgument → Option (List (Option Xsh.Syntax.RawName × Xsh.Syntax.Expr))
-  | [] => some []
-  | .positional value :: rest => (labelledArguments rest).map ((none, value) :: ·)
-  | .named label value :: rest => (labelledArguments rest).map ((some label, value) :: ·)
-  | _ :: _ => none
-
 /-- Where constructor arguments go (SPEC 4.7, 4.10): positional ones fill
-fields in declaration order, then named ones go to the field with their
-label; `none` when there are too many positional ones, a label is supplied
-twice, or a label names no remaining field. -/
+fields in declaration order, then labelled ones, given by name, pun or a
+record spread, go to the field with their label; `none` when there are too
+many positional ones, a label is supplied twice, or a label names no
+remaining field, which the checker rejects. -/
 def placeArguments (spelling : Xsh.Syntax.RawName → String) (fields : List Xsh.Syntax.RawName)
-    (supplied : List (Option Xsh.Syntax.RawName × Value Declaration Identity Source)) :
+    (supplied : List (Supplied Declaration Identity Source)) :
     Option (List (Option (Value Declaration Identity Source))) :=
-  let positional := supplied.filterMap fun entry => match entry.1 with
-    | none => some entry.2
-    | some _ => none
-  let named := supplied.filterMap fun entry => entry.1.map fun label => (spelling label, entry.2)
+  let positional := supplied.filterMap Supplied.positionalValue
+  let named := supplied.filterMap Supplied.namedValue
   let remaining := (fields.drop positional.length).map spelling
   if positional.length ≤ fields.length ∧ (named.map Prod.fst).Nodup ∧
       (named.all fun entry => remaining.contains entry.1) = true then
@@ -1045,6 +1153,35 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
   | .broke frame => .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none }
   | other => .exec other
 
+/-- A call of a local function: its arguments evaluated in written order and
+placed on its parameters, a misfit raising the runtime argument error (SPEC
+9.1: "their arguments are checked at runtime"), omitted defaults evaluated in
+the declaration scope, and its body run through `callBlock` in a fresh
+activation with its captured cells writable. -/
+def invokeWith {world : World Declaration Identity Source} (machine : Machine world)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
+    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+  match closure with
+  | .mk cell callable defining captured writable parameters body =>
+    (threadArguments machine.context.spelling evaluate frame arguments).bind fun supplied after =>
+      match placeCall machine.context.spelling parameters supplied with
+      | .error fault =>
+        .exec (.failed (.runtime (machine.argumentError fault (fixedCount parameters)
+          (supplied.filterMap Supplied.positionalValue).length)) after)
+      | .ok slots =>
+        (bindSlots
+            (fun current default => returnValue current (evaluate
+              { Frame.ofScope defining current.store [] (some current.store)
+                  ⟨current.activation + machine.activationStep,
+                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
+                writable } default))
+            after slots).bind fun bound last =>
+          callBlock last ⟨last.activation + machine.activationStep,
+            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
+            writable (bodyStatements body) (bodyKind body)
+
 mutual
   /-- Expressions, with the frame threaded through them: operands, arguments,
   indices and branches evaluate left to right, each in the frame the one
@@ -1077,19 +1214,19 @@ mutual
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
             expression
       | .call (.field receiver method) arguments =>
-        match errorConstructor machine frame receiver method, labelledArguments arguments with
-        | some (family, .mk variant [] facets), some [] =>
+        match errorConstructor machine frame receiver method, arguments with
+        | some (family, .mk variant [] facets), [] =>
           .value (declaredError machine family variant facets (qualifiedName machine family variant)
             [("message", .scalar (.string (qualifiedName machine family variant)))]) frame
-        | some (family, .mk variant [] facets), some [(none, message)] =>
+        | some (family, .mk variant [] facets), [.positional message] =>
           (evalExpr machine fuel frame message).bind fun written after =>
             match written.eraseNominal with
             | .scalar (.string text) =>
               .value (declaredError machine family variant facets text [("message", .scalar (.string text))]) after
             | _ => .exec .stuck
-        | some (family, .mk variant fields facets), some parts =>
-          (threadAll (evalExpr machine fuel) frame (parts.map Prod.snd)).bind fun values after =>
-            match placeArguments machine.context.spelling (fields.map Prod.fst) ((parts.map Prod.fst).zip values) with
+        | some (family, .mk variant fields facets), _ =>
+          (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+            match placeArguments machine.context.spelling (fields.map Prod.fst) supplied with
             | none => .exec .stuck
             | some placed =>
               (fillFields machine.context.spelling (evalExpr machine fuel) after
@@ -1097,45 +1234,26 @@ mutual
                 .value (declaredError machine family variant facets
                   (payloadMessage payload (qualifiedName machine family variant)) payload) last
         | _, _ =>
-          match machine.context.spelling method, positional arguments with
-          | "call", some values =>
+          match machine.context.spelling method with
+          | "call" =>
             (evalExpr machine fuel frame receiver).bind fun callee after =>
               match callee.eraseNominal with
               | .callable reference _ =>
                 match (machine.callableCell reference).bind fun cell => after.closures.lookup cell with
-                | some (.mk cell callable defining captured writable parameters body) =>
-                  (threadAll (evalExpr machine fuel) after values).bind fun evaluated next =>
-                    (bindArgumentsIn
-                        (fun current default => returnValue current (evalExpr machine fuel
-                          { Frame.ofScope defining current.store [] (some current.store)
-                              ⟨current.activation + machine.activationStep,
-                                (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                            writable } default))
-                        next parameters evaluated).bind fun bound last =>
-                      (callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                        (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-                        writable (bodyStatements body) (bodyKind body)).bind fun result final =>
-                        .value (callResult callable result) final
+                | some closure =>
+                  (invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) after closure arguments).bind
+                    fun result final =>
+                      match closure with
+                      | .mk _ callable _ _ _ _ _ => .value (callResult callable result) final
                 | none => .exec .stuck
               | _ => .exec .unsupported
-          | _, _ =>
+          | _ =>
             threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
               expression
       | .call (.ident name) arguments =>
-        match frame.locals.lookup name, localClosure frame.closures frame.environment name, positional arguments with
-        | none, some (.mk cell callable defining captured writable parameters body), some values =>
-          (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
-            (bindArgumentsIn
-                (fun current default => returnValue current (evalExpr machine fuel
-                  { Frame.ofScope defining current.store [] (some current.store)
-                      ⟨current.activation + machine.activationStep,
-                        (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                    writable } default))
-                after parameters evaluated).bind fun bound last =>
-              callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-                writable (bodyStatements body) (bodyKind body)
-        | _, _, _ =>
+        match frame.locals.lookup name, localClosure frame.closures frame.environment name with
+        | none, some closure => invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments
+        | _, _ =>
           match frame.locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
           | none, none, "Ok", [] => .value (.ok (.scalar .unit)) frame
           | none, none, "Ok", [.positional payload] =>
@@ -1143,18 +1261,16 @@ mutual
           | none, none, "Err", [.positional payload] =>
             (evalExpr machine fuel frame payload).bind fun value next => .value (.err value) next
           | _, _, _, _ =>
-            match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name,
-                labelledArguments arguments with
-            | none, none, some (fields, nominal), some parts =>
-              (threadAll (evalExpr machine fuel) frame (parts.map Prod.snd)).bind fun values after =>
-                match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1)
-                    ((parts.map Prod.fst).zip values) with
+            match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name with
+            | none, none, some (fields, nominal) =>
+              (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+                match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1) supplied with
                 | none => .exec .stuck
                 | some placed =>
                   (fillFields machine.context.spelling (evalExpr machine fuel) after (fields.map schemaField) placed).bind
                     fun entries last =>
                       .value (if nominal then .nominal (machine.identity name) (.record entries) else .record entries) last
-            | _, _, _, _ =>
+            | _, _, _ =>
               threadStep machine.context (evalExpr machine fuel)
                 (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame

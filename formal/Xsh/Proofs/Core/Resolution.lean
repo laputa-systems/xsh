@@ -345,6 +345,129 @@ theorem statements_resolve {world : World Declaration Identity Source} (machine 
 
 end Statements
 
+section Captures
+
+variable [DecidableEq Declaration]
+
+omit [DecidableEq Declaration] in
+theorem resolveCaptures_canonical {world : World Declaration Identity Source} (machine : Machine world)
+    (base : Oracles world) (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (activation : Nat) (environment : Environment) :
+    ∀ (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) entries,
+      resolveCaptures (machine.namesAt activation) environment captures = some entries →
+        ∀ entry ∈ entries, entry.1.2.1 = canonicalBinder entry.1.1 environment.names.length
+  | [], entries, found => by
+    simp only [resolveCaptures, Option.some.injEq] at found
+    subst found
+    intro entry inside
+    cases inside
+  | (captured, value) :: rest, entries, found => by
+    simp only [resolveCaptures] at found
+    split at found
+    · rename_i binder cell type others declared remaining
+      simp only [Option.some.injEq] at found
+      subst found
+      have shape := canonical_cells machine base types resolved activation environment captured
+      rw [declared] at shape
+      cases typed : types environment captured with
+      | none => simp [typed] at shape
+      | some found =>
+        simp only [typed, Option.map_some, Option.some.injEq, Prod.mk.injEq] at shape
+        obtain ⟨same, _, _⟩ := shape
+        intro entry inside
+        rcases List.mem_cons.mp inside with first | later
+        · subst first
+          exact same
+        · exact resolveCaptures_canonical machine base types resolved activation environment rest others remaining
+            entry later
+    · cases found
+
+/-- Under the canonical resolution, pattern captures bound in a fresh scope,
+as a match arm, `if let`, `while let`, a `??` handler or a `guard let` else
+block binds them, declare their names in a new innermost static scope. -/
+theorem bindCaptures_resolves {world : World Declaration Identity Source} (machine : Machine world)
+    (base : Oracles world) (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (frame next : Frame world)
+    (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) (scopes : StaticScopes)
+    (carried : Represents frame.environment.names scopes)
+    (bound : bindCaptures machine frame.enter captures = .normal next) :
+    Represents next.environment.names (staticBind [] (captures.map Prod.fst) :: scopes) := by
+  obtain ⟨entries, found, names, _, environment, _, _⟩ := bindCaptures_binds machine frame.enter next captures bound
+  have entered := represents_enter carried
+  have depth : frame.enter.environment.names.length = scopes.length + 1 := by
+    simpa [Frame.enter] using entered.1
+  have binders := resolveCaptures_canonical machine base types resolved frame.enter.activation
+    frame.enter.environment captures entries found
+  rw [environment, ← names]
+  have shaped : entries.map (·.1.1) = (entries.map Prod.fst).map Prod.fst := by simp
+  rw [shaped]
+  exact extend_represents (entries.map Prod.fst) frame.enter.environment [] scopes entered fun entry inside => by
+    obtain ⟨original, member, same⟩ := List.mem_map.mp inside
+    subst same
+    rw [binders original member, depth]
+
+/-- Under the canonical resolution, a comprehension or `for` target bound in
+a fresh scope declares its names in a new innermost static scope. -/
+theorem enteredTarget_resolves {world : World Declaration Identity Source} (machine : Machine world)
+    (base : Oracles world) (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (frame next : Frame world)
+    (target : Xsh.Syntax.BindingTarget) (item : Value Declaration Identity Source) (scopes : StaticScopes)
+    (carried : Represents frame.environment.names scopes)
+    (bound : bindTarget machine frame.enter .immutable target item = .normal next) :
+    Represents next.environment.names (staticBind [] (targetNames target) :: scopes) :=
+  bindTarget_resolves machine base types resolved frame.enter next .immutable target item [] scopes
+    (represents_enter carried) bound
+
+/-- A body run after its captures are bound, as a match arm's or an
+`if let`'s: when it completes normally, its lexical environment represents
+the pass's scopes after its statements, starting from the captures' scope. -/
+theorem boundBody_resolves {world : World Declaration Identity Source} (machine : Machine world)
+    (base : Oracles world) (types : Environment → Xsh.Syntax.RawName → Option (ValueType Declaration))
+    (resolved : machine.resolution = canonicalResolution base types) (fuel : Nat) (frame bound last : Frame world)
+    (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) (body : List Xsh.Syntax.Statement)
+    (scopes : StaticScopes) (carried : Represents frame.environment.names scopes)
+    (entered : bindCaptures machine frame.enter captures = .normal bound)
+    (ran : runStatements machine fuel bound body = .normal last) :
+    Represents last.environment.names (staticDeclareAll (staticBind [] (captures.map Prod.fst) :: scopes) body) :=
+  statements_resolve machine base types resolved fuel bound body last _ scopes
+    (bindCaptures_resolves machine base types resolved frame bound captures scopes carried entered) ran
+
+end Captures
+
+section CaptureRoot
+
+variable [DecidableEq Declaration]
+
+/-- The resolution pass in pattern captures and comprehension targets. Under
+the canonical resolution, the captures a match arm, `if let`, `while let`, a
+`??` handler or a `guard let` else block binds in its fresh scope declare
+their names in a new innermost static scope, and so does a comprehension's
+or `for` loop's target; a bound body that completes normally leaves a lexical
+environment representing the pass's scopes after its statements, starting
+from the captures' scope. -/
+theorem capture_resolution {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ base types, machine.resolution = canonicalResolution base types →
+      (∀ (frame next : Frame world) captures scopes, Represents frame.environment.names scopes →
+        bindCaptures machine frame.enter captures = .normal next →
+          Represents next.environment.names (staticBind [] (captures.map Prod.fst) :: scopes)) ∧
+      (∀ (frame next : Frame world) target item scopes, Represents frame.environment.names scopes →
+        bindTarget machine frame.enter .immutable target item = .normal next →
+          Represents next.environment.names (staticBind [] (targetNames target) :: scopes)) ∧
+      (∀ fuel (frame bound last : Frame world) captures body scopes, Represents frame.environment.names scopes →
+        bindCaptures machine frame.enter captures = .normal bound →
+          runStatements machine fuel bound body = .normal last →
+            Represents last.environment.names
+              (staticDeclareAll (staticBind [] (captures.map Prod.fst) :: scopes) body)) :=
+  fun base types resolved =>
+    ⟨fun frame next captures scopes carried bound =>
+        bindCaptures_resolves machine base types resolved frame next captures scopes carried bound,
+      fun frame next target item scopes carried bound =>
+        enteredTarget_resolves machine base types resolved frame next target item scopes carried bound,
+      fun fuel frame bound last captures body scopes carried entered ran =>
+        boundBody_resolves machine base types resolved fuel frame bound last captures body scopes carried entered ran⟩
+
+end CaptureRoot
+
 section Root
 
 variable [DecidableEq Declaration]
@@ -442,6 +565,27 @@ def namesOnlyDeclare : StaticScopes → Xsh.Syntax.Statement → StaticScopes
 theorem names_only_pass_rejected :
     agrees (destructured.foldl namesOnlyDeclare [[]]) destructuredRun [aName] = false ∧
       agrees (destructured.foldl namesOnlyDeclare [[]]) destructuredRun [xName] = false := by
+  decide +kernel
+
+/-- Captures `k = 1, v = 2` bound in a fresh scope, as a `{key: k, value: v}`
+arm binds them, and a comprehension target `i` bound per item, resolve to the
+binders of the pass's new innermost scope. -/
+def armCaptures : Exec witnessWorld :=
+  bindCaptures canonicalMachine start.enter [(kName, integer intOne), (vName, integer ⟨2, by decide⟩)]
+
+def comprehensionTarget : Exec witnessWorld :=
+  bindTarget canonicalMachine start.enter .immutable (.name iName) (integer intOne)
+
+theorem captures_resolve :
+    agrees (staticBind [] [kName, vName] :: [[]]) armCaptures [kName, vName] = true ∧
+      agrees (staticBind [] [iName] :: [[]]) comprehensionTarget [iName] = true := by
+  decide +kernel
+
+/-- A pass that declares captures in the enclosing scope instead of a new one
+gives them the wrong binders. -/
+theorem outer_scope_captures_rejected :
+    agrees [staticBind [] [kName, vName]] armCaptures [kName] = false ∧
+      agrees [staticBind [] [iName]] comprehensionTarget [iName] = false := by
   decide +kernel
 
 end Witness

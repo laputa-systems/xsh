@@ -418,14 +418,15 @@ Expressions:
 Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
 and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
-Writes and values: named, spread and splice arguments to `.call` and its
-runtime argument checks (P); calls of a top-level function before its
-declaration, which Rust allows (P).
+Writes and values: calls of a top-level function before its declaration,
+which Rust allows (P); `.Variant` constructors, which need a leading-dot
+syntax form and the checker's expected type (P).
 
-Binders: declared types still come from the resolution oracle (P), and the
+Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
-(`statement_resolution`), not inside the nested scopes of pattern captures,
-comprehension targets and function bodies (P).
+(`statement_resolution`) and for pattern captures and comprehension targets
+(`capture_resolution`), not for function bodies, and capture names are the
+match's rather than a static function of every pattern form (P).
 
 The `resolution_and_captures` fragment root adds the syntax-directed
 resolution pass (`staticResolve`, `staticUses`, `staticCaptures`), the
@@ -537,6 +538,33 @@ errors carry `Fetch.Usage`, `custom`, `Fetch.Missing` with payload `where` and
 facet `NotFound`, and `boom`, which a variant pattern and a facet pattern then
 match. Declaration-order evaluation, label-free placement and a variant-only
 default message are rejected.
+
+The `call_arguments` fragment root, in
+[`Proofs/Core/Arguments.lean`](Xsh/Proofs/Core/Arguments.lean), gives every
+call of a local function, direct or through `.call(...)`, one argument binder
+(`invokeWith`): arguments evaluate once in written order, an `@` splice
+supplies a list's items positionally and a `...record` spread its fields by
+label, positional arguments fill parameters in order and labelled ones bind
+by name, then a default or a final rest parameter's `List`. A label given twice
+or to a parameter already filled by position, an unknown label, a missing
+required parameter and an extra positional argument are runtime failures
+that `try` does not capture. The witnesses match the verification binary:
+`sub(right: 2, left: 7)`, `sub(...pair)`, `sub(7, right: 2)`, `total(1,
+@more)` and `total(1, 2, @more, 8)` give `5 7 5 10 20`, `[sub][0].call(7, 2)?`
+gives `5`, and `call(1, 2, 7)` and `call(1)` fail with `expected 2 arguments,
+found 3` and `found 1`, escaping `try`. Rust does not compile a named argument
+to a dynamic `.call` and rejects a spread or splice there, where SPEC 6.3
+allows named arguments; the machine follows the SPEC. A mutant for each check
+(dropping unknown labels, keeping the first of two, `null` for a missing
+parameter, dropping extra arguments) is rejected. Constructors take their
+arguments, puns and `...base` spreads through the same `threadArguments`.
+
+The `capture_resolution` fragment root, also in `Proofs/Core/Resolution.lean`,
+extends the pass into nested scopes: under the canonical resolution, pattern
+captures bound in a fresh scope and comprehension and `for` targets declare
+their names in a new innermost static scope, and a bound body's statements
+carry `Represents` from there. A pass that declares captures in the enclosing
+scope is rejected.
 
 The `local_bindings` fragment root covers local function declarations, which
 bind a closure over the declaring environment that reads captured cells at the

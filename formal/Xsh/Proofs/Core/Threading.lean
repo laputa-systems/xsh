@@ -295,34 +295,57 @@ theorem lift_bind_eq {world : World Declaration Identity Source} {α β : Type} 
     (fromEval frame result).bind next = fromEval frame (result.bind next') := by
   cases result <;> first | exact tail _ | rfl
 
-/-- With defaults that leave the frame as it is, the machine's threaded
-binder is `bindArguments`, so `parameters_and_maps` describes it. -/
-theorem bindArgumentsIn_lift {world : World Declaration Identity Source}
+/-- With positional arguments only and defaults that leave the frame as it
+is, the machine's placement and binding is `bindArguments`, so
+`parameters_and_maps` describes it. -/
+theorem bindSlots_lift {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
-    ∀ (frame : Frame world) parameters arguments,
-      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
-        fromEval frame (bindArguments evaluateDefault parameters arguments)
-  | _, [], [] => rfl
-  | _, [], _ :: _ => rfl
-  | frame, .mk name annotation default rest :: more, arguments => by
+    ∀ (frame : Frame world) parameters values slots,
+      placeParameters spelling parameters values [] = .ok slots →
+        bindSlots (fun current default => fromEval current (evaluateDefault default)) frame slots =
+          fromEval frame (bindArguments evaluateDefault parameters values)
+  | _, [], [], slots, placed => by
+    simp only [placeParameters, Except.ok.injEq] at placed
+    subst placed
+    rfl
+  | _, [], _ :: _, _, placed => by simp [placeParameters] at placed
+  | frame, .mk name annotation default rest :: more, values, slots, placed => by
     cases rest with
     | true =>
       cases more with
-      | nil => rfl
-      | cons _ _ => cases arguments <;> rfl
+      | nil =>
+        simp only [placeParameters, Except.ok.injEq] at placed
+        subst placed
+        rfl
+      | cons _ _ => simp [placeParameters] at placed
     | false =>
-      cases arguments with
-      | cons argument others =>
-        rw [bindArgumentsIn, bindArguments, bindArgumentsIn_lift evaluateDefault frame more others]
-        exact lift_bind_eq fun _ => rfl
+      cases values with
+      | cons value values =>
+        simp only [placeParameters, List.lookup] at placed
+        cases tail : placeParameters spelling more values [] with
+        | error _ => rw [tail] at placed; cases placed
+        | ok others =>
+          rw [tail] at placed
+          simp only [Except.ok.injEq] at placed
+          subst placed
+          simp only [bindSlots, bindArguments]
+          rw [bindSlots_lift spelling evaluateDefault frame more values others tail]
+          exact lift_bind_eq fun _ => rfl
       | nil =>
         cases default with
-        | none => rfl
+        | none => simp [placeParameters, List.lookup] at placed
         | some default =>
-          rw [bindArgumentsIn, bindArguments]
-          exact lift_bind_eq fun _ => by
-            rw [bindArgumentsIn_lift evaluateDefault frame more []]
-            exact lift_bind_eq fun _ => rfl
+          simp only [placeParameters, List.lookup] at placed
+          cases tail : placeParameters spelling more [] [] with
+          | error _ => rw [tail] at placed; cases placed
+          | ok others =>
+            rw [tail] at placed
+            simp only [Except.ok.injEq] at placed
+            subst placed
+            simp only [bindSlots, bindArguments]
+            exact lift_bind_eq fun _ => by
+              rw [bindSlots_lift spelling evaluateDefault frame more [] others tail]
+              exact lift_bind_eq fun _ => rfl
 
 theorem localClosure_none (environment : Environment) (name : Xsh.Syntax.RawName) :
     localClosure [] environment name = none := by
@@ -427,26 +450,12 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
     | simp only [evalExpr, threadStep]
 
 theorem closure_call_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
-    (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument)
-    (cell : CellId) (callable : CallableKind) (defining : Environment) (captured : List (CellId × Closure)) (writable : List CellId)
-    (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody) (values : List Xsh.Syntax.Expr)
+    (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument) (closure : Closure)
     (unshadowed : frame.locals.lookup name = none)
-    (found : localClosure frame.closures frame.environment name =
-      some (.mk cell callable defining captured writable parameters body))
-    (supplied : positional arguments = some values) :
+    (found : localClosure frame.closures frame.environment name = some closure) :
     evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
-      (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
-        (bindArgumentsIn
-            (fun current default => returnValue current (evalExpr machine fuel
-              { Frame.ofScope defining current.store [] (some current.store)
-                  ⟨current.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                writable } default))
-            after parameters evaluated).bind fun bound last =>
-          callBlock machine fuel last ⟨last.activation + machine.activationStep,
-            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-            writable (bodyStatements body) (bodyKind body) := by
-  simp only [evalExpr, unshadowed, found, supplied]
+      invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments := by
+  simp only [evalExpr, unshadowed, found]
 
 /-- Store threading through the statement machine's expressions (SPEC 9.2: "A
 writable capture must refer to mutable storage with exactly that type";
@@ -460,9 +469,9 @@ leaves the environment and locals as it found them. A binary operator's
 operands, a list's elements and a call's arguments evaluate left to right,
 each in the frame the one before it left; a value block nested in an
 expression runs as a block in the current frame; a local function's call
-binds its arguments, evaluating omitted defaults in the frame the arguments
-left (with defaults that leave the frame as it is, this is `bindArguments`),
-and runs its body through `callBlock`, which returns through `returnTo`, so
+places its arguments through `invokeWith`, evaluating omitted defaults in the
+frame the arguments left (with positional arguments only and defaults that
+leave the frame as it is, this is `bindArguments`), and runs its body through `callBlock`, which returns through `returnTo`, so
 the caller's cells come back as the callee left them from a call nested
 anywhere in an expression; and a call in statement position is the same
 evaluation. -/
@@ -493,26 +502,15 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
           (threadAll evaluate after rest).bind fun values last => .value (value :: values) last) ∧
     (∀ fuel (frame : Frame world) body, evalExpr machine (fuel + 1) frame (.valueBlock body) =
       runValue machine fuel frame (.valueBlock body)) ∧
-    (∀ fuel (frame : Frame world) name arguments cell callable defining captured writable parameters body values,
-      frame.locals.lookup name = none →
-        localClosure frame.closures frame.environment name = some (.mk cell callable defining captured writable parameters body) →
-          positional arguments = some values →
-            evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
-              (threadAll (evalExpr machine fuel) frame values).bind fun evaluated after =>
-                (bindArgumentsIn
-                    (fun current default => returnValue current (evalExpr machine fuel
-                      { Frame.ofScope defining current.store [] (some current.store)
-                          ⟨current.activation + machine.activationStep,
-                            (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
-                        writable } default))
-                    after parameters evaluated).bind fun bound last =>
-                  callBlock machine fuel last ⟨last.activation + machine.activationStep,
-                    (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ defining bound
-                    writable (bodyStatements body) (bodyKind body)) ∧
+    (∀ fuel (frame : Frame world) name arguments closure,
+      frame.locals.lookup name = none → localClosure frame.closures frame.environment name = some closure →
+        evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
+          invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments) ∧
     (∀ (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
-        (frame : Frame world) parameters arguments,
-      bindArgumentsIn (fun current default => fromEval current (evaluateDefault default)) frame parameters arguments =
-        fromEval frame (bindArguments evaluateDefault parameters arguments)) ∧
+        (frame : Frame world) parameters values slots,
+      placeParameters machine.context.spelling parameters values [] = .ok slots →
+        bindSlots (fun current default => fromEval current (evaluateDefault default)) frame slots =
+          fromEval frame (bindArguments evaluateDefault parameters values)) ∧
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
@@ -534,11 +532,9 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
     fun _ _ _ => by simp only [evalExpr],
-    fun fuel frame name arguments cell callable defining captured writable parameters body values unshadowed found
-        supplied =>
-      closure_call_threads machine fuel frame name arguments cell callable defining captured writable parameters body
-        values unshadowed found supplied,
-    bindArgumentsIn_lift,
+    fun fuel frame name arguments closure unshadowed found =>
+      closure_call_threads machine fuel frame name arguments closure unshadowed found,
+    fun evaluateDefault => bindSlots_lift machine.context.spelling evaluateDefault,
     fun _ _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> exact ⟨_, rfl⟩,
     fun before after cell held => ?_,
