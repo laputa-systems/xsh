@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 150
+Next: 151
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -66,6 +66,15 @@ out of scope.
 - **Recommendation:** Recheck each closed root's import closure (`leanchecker --fresh <module>`) as the per-closure gate. Size the whole-project paranoid run from a measured baseline: give it its own budget within the plan's 45-minute clean-room cap, or run the paranoid kernel with more threads in a dedicated slot. Record the measured time per run, and treat certificate-heavy modules as the first optimization target.
 - **Fix with:** make-it-fast
 - **Effort:** M
+
+### XSH-150 · P2 · `Path.with_ext` panics when the extension contains a separator
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval.rs:7865-7869` (`PathBuf::set_extension` called without validating the extension)
+- **Problem:** `p"a".with_ext("/../..")` aborts the interpreter with exit 101 instead of returning a specified error. Rust's `set_extension` panics on an extension containing a path separator, and XSH passes the user string straight through.
+- **Recommendation:** Reject an extension containing `/` (or NUL) with a SPEC-named error before calling `set_extension`, document it in the SPEC's Path methods, and add native tests for the separator case and for `p"...b".with_ext("")`.
+- **Fix with:** none
+- **Effort:** S
 
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
