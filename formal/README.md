@@ -158,7 +158,8 @@ recovery catches only catchable failures and propagates `type-error`.
 [`Semantics/Connected/CoreEmbedding.lean`](Xsh/Semantics/Connected/CoreEmbedding.lean)
 embeds the connected machine's runtime types and values into Core, and a
 connected value with a connected type is a Core member of that type's image.
-The connected store in
+The callable contract decision is noncomputable and uses classical proposition
+decidability. The connected store in
 [`Semantics/Connected/Store.lean`](Xsh/Semantics/Connected/Store.lean) is
 guarded by `StoreTyped`: every cell stores the Core typing
 (`CoreWorld.HasType`) of its embedded value at the embedded type, together with
@@ -190,16 +191,43 @@ The validated-type obligations use the Core types directly.
 base, and the base-view relation: a validated position at any depth of
 `NonEmpty`, a list, map value, stream element, optional, result, callable
 return, record field or union member may stand for its base. Record fields
-and union members are matched in any order. Core membership reads a retained
+and union members are matched in any order, with each target member paired
+once. `RowsDistinct` requires distinct labels in every nested row, and
+`eraseValidations` replaces validated positions with their bases. The erased
+equivalence `≈` (`ErasedEquiv`) is the least equivalence that is closed under
+the positions a view descends through and swaps adjacent record fields or
+union members. Equivalent types view each other in both directions, and a
+record keeps its field count. Core membership reads a retained
 stream or callable contract upward-closed under views, because stream items
 are checked against the retained type as they are produced.
+
 VAL-WIDEN is closed by `validated_widening` in
-[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean): every view
+[`Validation/Core/Widen.lean`](Xsh/Validation/Core/Widen.lean). Every view
 carries members to members in every world, a view into a validated type starts
 from the same tag with a base that views to the target's base, and no base
-views as its validated type. Nested intervals are not views, even though the
-interval-containment fragment relates them. Module export types are not yet
-viewed.
+views as its validated type. A view between types whose rows have distinct
+labels is precise: erasing validations on both sides gives equivalent types,
+and equivalent types have the same members in every world. Such a view also
+introduces no validation at any depth: `validationTags` lists the tag of every
+validated position, and for each tag the target has at most as many
+occurrences as the source. So `List[narrowPort]` does not view as
+`List[widePort]`, and the witness shows that the tag clause alone rejects
+that pair. Counts cannot place a tag, so the theorem also inverts every
+congruence: a view between two lists, `NonEmpty`s, streams, optionals, maps
+with the same key, results, callables with the same policy and parameters,
+records or unions is a view between their matching parts, with record fields
+matched by label and union members by the one-to-one pairing. With the
+top-level tag rule this requires the exact validation at every depth: the
+witness rejects `Result[narrowPort, widePort]` as `Result[widePort, Int]`,
+whose members, erasures and tag counts all agree, for any relation that
+satisfies the result inversion and the top-level tag rule. The label premise mirrors Rust, where a record type is a map keyed
+by label (`Type::Record` in `src/sema/types.rs`) and cannot repeat one, and a
+schema that repeats a field is rejected separately with
+`check.duplicate-record-field`; the premise is assumed, not derived from that
+code. A witness shows that a record view can drop a duplicate label, so the
+erased types differ in field count and are not equivalent. Nested intervals
+are not views, even though the interval-containment fragment relates them. A
+module contract entry must match its kind and full signature exactly.
 
 VAL-ERASE is closed by `validated_erasure` in
 [`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member
@@ -207,19 +235,19 @@ read at its base is a base member, erasure is the identity for `NonEmpty`,
 `RelPath` and bounded integers, removes exactly the declaration wrapper of a
 nominal member, and keeps references and every base-view observation.
 
-VAL-STORE is closed by `validated_store` in
-[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean). It shows that a cell of a
+The `validated_store` fragment in
+[`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean) shows that a cell of a
 validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
-and rejects the same write to the `NonEmpty` cell.
+and rejects the same write to the `NonEmpty` cell. Store mutation through `+=` and path writes are not modelled. VAL-STORE remains planned.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union
 membership is membership in a listed member, runtime selection returns the
-first accepting member in written order, and a union fits another when each
-member views as one of the other's in any order. Union admissibility, which
+first accepting member in written order, and membership is preserved when each member views as one of the other's
+in any order. General union fit and admissibility belong to G4/TYPE-*. Union admissibility, which
 rejects overlapping members, is a checker judgment and is not assumed; the
 overlap witness selects `UInt` for `5` and `Int` for `-5`, and a last-match
 selector, which picks `Int` for `5`, is refuted.
@@ -323,14 +351,18 @@ VAL-PRESERVE is closed by `validated_operations` in
 `extend`, `+` with a `NonEmpty` on either side, a single-clause comprehension
 without a filter and element replacement keep a `NonEmpty`; filtering, slicing
 and comprehensions with several clauses return only the base list; `.extend`
-and `+=` on a `NonEmpty` variable are store writes that commit and keep the
-type; and `.parent()` and `.normalize()` keep a `RelPath`. The path operations
+returns a new `NonEmpty`, and `+=` on a `NonEmpty` variable is a store write
+that commits and keeps the type; and `.parent()` and `.normalize()` keep a
+`RelPath`. The path operations
 read a path by its non-trivial components, as `strip_prefix` does, in
 [`Validation/Core/Paths.lean`](Xsh/Validation/Core/Paths.lean), so `a//b` and
 `a/./b` have parent `a`; `.normalize()` resolves `.` and `..` lexically, and
 both return `.` when nothing is left. The witnesses show `relative_to`,
 `with_ext`, `components` and `Port` arithmetic leaving their validated type,
-and kill a result-type rule that keeps `NonEmpty` after filtering.
+including `p"...b".with_ext("")`, which gives `..` and fails
+`.require(RelPath)`. A nominal spread `{...pkg, version: v}` gives a plain
+structural record that is not a nominal member. The witnesses also kill a
+result-type rule that keeps `NonEmpty` after filtering.
 These definitions follow the SPEC and claim no Rust correspondence.
 
 The `introduction_routes` fragment root is in

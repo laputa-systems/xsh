@@ -115,9 +115,9 @@ theorem union_view_member (world : MembershipWorld Declaration Identity Source)
 /-- Union membership and selection over every Core union. A value is a member
 of a union exactly when it is a member of one listed member type, the union is
 not a runtime wrapper, and runtime selection returns the first member in
-written order that accepts the value, or none when no member does. A union
-fits another union when each of its members views as one of the other's,
-whatever the order. No premise restricts the world. -/
+written order that accepts the value, or none when no member does. Membership is preserved when each member views as one of the other's,
+whatever the order. General union fit and admissibility belong to G4/TYPE-*.
+No premise restricts the world. -/
 theorem union_semantics (world : MembershipWorld Declaration Identity Source) [DecidableEq Declaration]
     (contracts : ContractDecisions world) :
     (∀ (union : ValueType Declaration) members candidate, unionMembers union = some members →

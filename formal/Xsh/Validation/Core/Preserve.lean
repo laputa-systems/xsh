@@ -541,7 +541,9 @@ theorem listItems_references {candidate : Value Declaration Identity Source}
     rw [empty] at present
     cases present
 
-theorem extend_commits (world : Xsh.Semantics.CoreWorld.World Declaration Identity Source) [DecidableEq Declaration]
+/-- `+=` on a `NonEmpty` variable: the concatenated value is written back to
+the variable's cell, the write commits, and the cell still holds a `NonEmpty`. -/
+theorem add_assign_commits (world : Xsh.Semantics.CoreWorld.World Declaration Identity Source) [DecidableEq Declaration]
     (decisions : Xsh.Semantics.CoreWorld.Decisions world) (store : Xsh.Semantics.CoreWorld.Store world)
     (cell : Xsh.Semantics.Environments.CellId) (current : Xsh.Semantics.CoreWorld.Cell world)
     (element : ValueType Declaration) (other result : Value Declaration Identity Source)
@@ -576,9 +578,9 @@ theorem extend_commits (world : Xsh.Semantics.CoreWorld.World Declaration Identi
 /-- Validated-type operations over every Core world, type and value. The
 preserving operations keep `NonEmpty` and `RelPath`, `.parent()` reading the
 path by its non-trivial components; filtering, slicing and comprehensions with
-several clauses return only the base list type; and `.extend` or `+=` on a
-`NonEmpty` variable is a store write that commits and keeps the variable a
-`NonEmpty`. -/
+several clauses return only the base list type. `.extend` returns a new
+`NonEmpty` and is covered by concatenation; `+=` on a `NonEmpty` variable is the
+store write, which commits and keeps the variable a `NonEmpty`. -/
 theorem validated_operations (world : Xsh.Semantics.CoreWorld.World Declaration Identity Source)
     [DecidableEq Declaration] (decisions : Xsh.Semantics.CoreWorld.Decisions world) :
     ((∀ (element : ValueType Declaration) receiver item result,
@@ -626,7 +628,7 @@ theorem validated_operations (world : Xsh.Semantics.CoreWorld.World Declaration 
             Membership.value world.membership (.nonEmpty element) replaced.contents.value) :=
   ⟨preserving_operations world.membership, base_results world.membership,
     fun store cell current element other result present mutableCell validated otherMember otherReferences extended =>
-      extend_commits world decisions store cell current element other result present mutableCell validated otherMember
+      add_assign_commits world decisions store cell current element other result present mutableCell validated otherMember
         otherReferences extended⟩
 
 namespace Witness
@@ -666,7 +668,18 @@ def relativeTo (target origin : PathBytes) : PathBytes :=
   join (List.replicate (readComponents (components origin)).length [dotByte, dotByte] ++
     readComponents (components target))
 
-def withExt (path extension : PathBytes) : PathBytes := path ++ dotByte :: extension
+/-- `.with_ext(ext)` on a path that ends in a normal name, read as Rust's
+`set_extension` reads it: the name keeps its stem, which is the bytes before
+its last dot unless that dot is its first byte, and gains `.ext` when `ext` is
+not empty. Names `.` and `..`, a trailing slash and an extension that holds a
+slash are not modelled. -/
+def withExt (path extension : PathBytes) : PathBytes :=
+  let reversedName := path.reverse.takeWhile (· != slashByte)
+  let directory := (path.reverse.dropWhile (· != slashByte)).reverse
+  let stem := match reversedName.dropWhile (· != dotByte) with
+    | _ :: reversedStem => if reversedStem = [] then reversedName.reverse else reversedStem.reverse
+    | [] => reversedName.reverse
+  directory ++ stem ++ (if extension = [] then [] else dotByte :: extension)
 
 def port : Xsh.Validation.BoundedSpec :=
   ⟨.int, 1, 255, by decide, by unfold Xsh.Validation.IntegerBase.accepts; decide,
@@ -677,12 +690,39 @@ theorem base_operations_do_not_preserve :
       comprehendMany words (fun _ => []) = some (.list []) ∧
       ¬ Membership.value openWorld (.nonEmpty (.primitive .string)) (.list [] : Value Unit Unit Unit) ∧
       isRelPath (asciiBytes [97]) ∧ ¬ isRelPath (relativeTo (asciiBytes [97]) (asciiBytes [98])) ∧
-      ¬ isRelPath (withExt (asciiBytes [97]) (asciiBytes [47, 46, 46, 47, 46, 46])) ∧
+      isRelPath (asciiBytes [46, 46, 46, 98]) ∧ withExt (asciiBytes [46, 46, 46, 98]) [] = asciiBytes [46, 46] ∧
+      ¬ isRelPath (withExt (asciiBytes [46, 46, 46, 98]) []) ∧
       (components (asciiBytes [97, 47, 46, 46])).contains (asciiBytes [46, 46]) ∧
       ¬ isRelPath (asciiBytes [46, 46]) ∧
       port.accepts 255 ∧ ¬ port.accepts (255 + 1) := by
   refine ⟨rfl, rfl, by simp [Membership.value, Value.eraseNominal], ?_⟩
   decide
+
+/-- `{...base, name: value}` copies the fields of a record or nominal record and
+sets one field; the result is an ordinary structural record. -/
+def spreadWith (base : Value Unit Unit Unit) (name : String) (value : Value Unit Unit Unit) :
+    Option (Value Unit Unit Unit) :=
+  match base.eraseNominal with
+  | .record fields => some (.record ((name, value) :: fields.filter fun field => field.1 != name))
+  | _ => none
+
+def packageFields : TypeVariableFreeTerm 0 String Unit .row := .rowField "name" (.primitive .string) .rowEmpty
+
+def package : Value Unit Unit Unit := .nominal () (.record [("name", .scalar (.string "xsh"))])
+
+def spreadPackage : Value Unit Unit Unit :=
+  .record [("version", .scalar (.string "2")), ("name", .scalar (.string "xsh"))]
+
+theorem nominal_spread_is_structural :
+    Membership.value openWorld (.nominal () packageFields) package ∧
+      spreadWith package "version" (.scalar (.string "2")) = some spreadPackage ∧
+      Membership.value openWorld
+        (.record (.rowField "name" (.primitive .string) (.rowField "version" (.primitive .string) .rowEmpty)))
+        spreadPackage ∧
+      ¬ Membership.value openWorld (.nominal () packageFields) spreadPackage := by
+  refine ⟨?_, rfl, ?_, ?_⟩ <;>
+    simp [package, packageFields, spreadPackage, Membership.value, Membership.recordFields, Membership.row,
+      Membership.primitive, Value.eraseNominal, List.lookup]
 
 def filterResultMutant (element : ValueType Unit) : ValueType Unit := .nonEmpty element
 
