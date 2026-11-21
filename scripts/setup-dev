@@ -24,4 +24,10 @@ if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
 fi
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 rustup toolchain install
+case "$(uname -m)" in
+  x86_64) target=x86_64-unknown-linux-musl ;;
+  aarch64) target=aarch64-unknown-linux-musl ;;
+  *) echo "setup-dev supports x86_64 and aarch64 only" >&2; exit 1 ;;
+esac
+rustup target add "$target"
 cargo fetch --locked
