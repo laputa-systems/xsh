@@ -2520,8 +2520,10 @@
       "id": "BASE-ENV",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.BASE-ENV"
+      "status": "closed",
+      "proof_root_id": "full.BASE-ENV",
+      "module": "Xsh.Proofs.Core.Writes",
+      "declaration": "Xsh.Proofs.Core.Writes.environments_and_store_writes"
     },
     {
       "id": "BASE-NUM",
@@ -2999,8 +3001,10 @@
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-STORE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-STORE",
+      "module": "Xsh.Validation.Core.Store",
+      "declaration": "Xsh.Validation.Core.Store.validated_store_writes"
     },
     {
       "id": "VAL-UNION",
@@ -15103,7 +15107,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Lexical and activation resolution, lookup, and whole-cell assignment and declaration over the Core-guarded store: commit exactly for members, type-error with the store unchanged otherwise, and try recovery that propagates type-error.",
-      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only. Patterns, compound assignment, field and index path writes with their schema and index-out-of-range failures, unwinding and cleanup, and machine steps are not modelled; the connected machine still uses its own store. Closes no full-core obligation."
+      "boundary": "Covers whole-cell assignment and single-cell declaration on the CoreWorld API only; patterns, compound assignment, path writes, environment assignment and unwinding are in environments_and_store_writes. Closes no full-core obligation by itself."
     },
     {
       "id": "fragment.Xsh.Validation.Core.Nominal.nominal_provenance",
@@ -15166,7 +15170,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A Core-guarded cell of a validated type accepts exactly members, and a value widened into a base-view cell keeps its value and references while later writes leave the holder unchanged.",
-      "boundary": "Store mutation through += and path writes are not modelled. Closes no full-core obligation."
+      "boundary": "Whole-cell assignment and widening copies only; path writes and += are in validated_store_writes. Closes no full-core obligation by itself."
     }
   ],
   "artifact_certificates": [

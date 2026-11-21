@@ -185,6 +185,43 @@ not modelled here. The witnesses accept a `UInt` write, reject `-1` with the
 store unchanged, keep NaN Float bits, and detect a store without its guard and
 a mutated binder.
 
+BASE-ENV is closed by `environments_and_store_writes` in
+[`Proofs/Core/Writes.lean`](Xsh/Proofs/Core/Writes.lean), over the store-writing
+forms of [`Semantics/CoreWrites.lean`](Xsh/Semantics/CoreWrites.lean). It
+contains `environments_and_typed_stores` and covers each store-writing form of
+the frozen core's `Statement` syntax after name resolution and operand
+evaluation, which belong to the evaluator:
+
+- `let`/`var` with a `BindingTarget` (name, `_`, record with or without `..`),
+  also used by `for` and `guard let`, is `declareTarget`. SPEC 7: "all fields
+  are selected before any name becomes visible"; the declaration commits every
+  cell or none, and `_` binds nothing.
+- `target = right` and `target op= right` for an `AssignTarget` root with
+  field, key and index selectors is `assignPath`. SPEC 7: "Selectors evaluate
+  once in path order, then the right side, then the update commits; a failed
+  update leaves the target unchanged", and a compound operator "reads the
+  target's current value when it commits". The update re-checks the whole
+  cell, a `=` update reads back its value at the path, an index outside the
+  list is `index-out-of-range` (SPEC 6.6, assignment does not count from the
+  end), and a negative key into `Map[UInt, V]` is the Schema error (SPEC 6.6).
+  The binary operator meaning is a parameter; BASE-NUM owns it.
+- `e"NAME" = value` is `setEnvironment` on the evaluator overlay; a NUL value
+  fails (SPEC 10.5).
+- `try` and unwinding are `unwind` and `tryBlock`: cleanups run innermost first
+  on the store the failure left, an earlier failure stays primary, `try`
+  catches raised errors and `type-error` propagates (SPEC 4.2).
+
+The SPEC names no error kind for a missing map key under a deeper selector or
+for a NUL environment value; `Raises` carries them, and the witnesses use
+Rust's `map-missing` and `env-value`. Pattern selection in `match`, `if let`
+and `while let` belongs to the match semantics; its bindings are declared as
+`declareAll` declares a target's. The witnesses commit a field write and read
+it back, reject a negative `UInt` field and an out-of-range or negative index
+with the store unchanged, reject a negative `Map[UInt, V]` key, show that `+=`
+reads the target after the right side, and reject an `env` value with NUL.
+Mutants detected: a non-atomic destructuring that keeps the first cell, and a
+cleanup failure that would replace a primary `type-error`.
+
 BASE-NUM is closed by `numeric_semantics` in
 [`Proofs/Base/Num.lean`](Xsh/Proofs/Base/Num.lean). It keeps the checked Int,
 UInt and Duration results and IEEE Float equality. `%` fails with
@@ -307,7 +344,17 @@ validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
 value and references, and later writes to the wider cell leave the validated
 holder unchanged. The witness empties a `List[Str]` copy of a `NonEmpty[Str]`
-and rejects the same write to the `NonEmpty` cell. Store mutation through `+=` and path writes are not modelled. VAL-STORE remains planned.
+and rejects the same write to the `NonEmpty` cell.
+
+VAL-STORE is closed by `validated_store_writes` in the same module. It adds
+every store-writing form of BASE-ENV: a field, key or index write or a compound
+assignment commits exactly when the whole updated cell value is a member, and
+otherwise raises `type-error` with the store unchanged, so no write breaks a
+refinement or a nominal schema; a committed write leaves a member in its cell
+and every other cell, including a validated holder, unchanged. `+=` on a
+`NonEmpty` cell commits through VAL-PRESERVE's `add_assign_commits`. The
+witnesses reject emptying a `NonEmpty` field through a path write and extend a
+`NonEmpty` cell with `+=`.
 
 VAL-UNION is closed by `union_semantics` in
 [`Validation/Core/Union.lean`](Xsh/Validation/Core/Union.lean). It shows that union

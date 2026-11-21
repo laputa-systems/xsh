@@ -75,6 +75,8 @@ inductive InternalFault where
   | missingCell (cell : CellId)
   | immutableCell (cell : CellId)
   | occupiedCell (cell : CellId)
+  | malformedPath (cell : CellId)
+  | malformedTarget
   deriving DecidableEq
 
 inductive StoreStep (world : World Declaration Identity Source) where
