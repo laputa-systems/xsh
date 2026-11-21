@@ -131,6 +131,7 @@ import Xsh.Conformance.Vertical.SourceAdmissionSound
 import Xsh.Conformance.Vertical.SourceClassification
 import Xsh.Conformance.Vertical.SourceStrings
 import Xsh.Conformance.Vertical.SourceClassifier
+import Xsh.Conformance.Vertical.SourceTreeSpans
 import Xsh.Conformance.Vertical.FactsIRConsistency
 
 import Xsh.Semantics.Connected.StoreRuntime
