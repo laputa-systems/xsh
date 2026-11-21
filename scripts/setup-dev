@@ -11,7 +11,7 @@ packages='build-essential ca-certificates curl docker.io git git-lfs pkg-config 
 if [ "$(id -u)" -eq 0 ]; then
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
-elif command -v sudo >/dev/null 2>&1; then
+elif command -v sudo >/dev/null 2>&1 && { id -nG | tr " " "\n" | grep -qx sudo || sudo -n true 2>/dev/null; }; then
   sudo apt-get update
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
   sudo usermod -aG docker "$(id -un)"
