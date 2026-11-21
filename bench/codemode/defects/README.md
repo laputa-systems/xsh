@@ -30,5 +30,18 @@ retry on the facet: 3 after 3 attempts
 importer's `Err(is lib.Transient)` and `retry ... on (is lib.Transient)` never do, so the
 retry silently runs once. Variant patterns (`lib.LibError.Down {..}`) do match.
 
+`narrowed/` shows that the error value keeps its facet: wherever the error was built,
+`error is Transient` inside `lib.xsh` is true, and `is lib.Transient` in the importer is
+false. The fault is in matching a qualified facet pattern, so look first at how the
+importer lowers `is lib.Transient` (`compact_qualified_pattern_facet` in
+`src/runtime/eval/lower/patterns.rs`) against the facet names an error value carries.
+
+```text
+built in lib, tested in main: false
+built in main, tested in main: false
+built in main, tested in lib: true
+built in lib, tested in lib: true
+```
+
 Handling policy, fixed before any scored call: the generated service bindings declare no
 facets. Both languages are told which kinds are transient and match variants.

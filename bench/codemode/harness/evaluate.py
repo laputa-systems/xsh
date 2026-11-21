@@ -116,7 +116,10 @@ def failure_feedback(arm: str, run: VariantRun) -> str:
 def evaluate(arm: str, task: Task, code: str, directory: Path) -> Evaluation:
     program = prepare_program(arm, task, code, directory / "program")
     commands = external_commands(arm, code)
-    checked = boundary.check_xsh(program) if arm == "xsh" else boundary.check_ts(program)
+    try:
+        checked = boundary.check_xsh(program) if arm == "xsh" else boundary.check_ts(program)
+    except boundary.BoundaryError as failure:
+        return Evaluation("infra-error", str(failure), None, None, commands=commands)
     check_record = checked.to_json()
     if checked.timed_out or checked.exit is None:
         return Evaluation("infra-error", "the checker timed out", None, check_record, commands=commands,

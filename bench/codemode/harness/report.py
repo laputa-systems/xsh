@@ -295,6 +295,21 @@ def repair_rows(cells: list[Cell], conditions: list[str]) -> list[str]:
     return rows
 
 
+def command_rows(cells: list[Cell], conditions: list[str]) -> list[str]:
+    rows = ["| Condition | Final programs that start external commands | Commands (programs using them) |", "|---|---|---|"]
+    for condition in conditions:
+        mine = [c for c in cells if c.condition == condition and c.attempts]
+        used: Counter = Counter()
+        users = 0
+        for cell in mine:
+            commands = cell.attempts[-1]["commands"]
+            users += bool(commands)
+            used.update(set(commands))
+        shown = ", ".join(f"`{name}` {n}" for name, n in used.most_common()) or "none"
+        rows.append(f"| {condition} | {users}/{len(mine)} | {shown} |")
+    return rows
+
+
 def taxonomy_rows(taxonomy: dict, conditions: list[str]) -> list[str]:
     counts: Counter = Counter()
     for entry in taxonomy.get("attempts", []):
@@ -325,6 +340,11 @@ def render(runs: list[Path], taxonomy_path: Path | None) -> str:
     lines += ["", f"Recorded cells: {len(cells)}. Missing or incomplete cells: {len(missing)}.", ""]
     if missing:
         lines += [f"- {m['cell']}: {m['state']}" for m in missing] + [""]
+    discarded = [cell_of(r) for out in runs for p in sorted(out.glob("discarded/*/*/trial.json")) if (r := trial.load(p))]
+    if discarded:
+        tokens = sum(c.tokens.total for c in discarded)
+        lines += [f"Discarded after an infrastructure failure and rerun: {len(discarded)} trials, "
+                  f"{sum(c.model_calls for c in discarded)} model calls, {tokens:,} tokens (not in the tables below).", ""]
     infra = [c for c in cells if c.state == "infra-error" or "provider-error" in c.statuses]
     if infra:
         lines += ["Infrastructure or provider failures (kept in the counts as not correct):", ""]
@@ -345,6 +365,8 @@ def render(runs: list[Path], taxonomy_path: Path | None) -> str:
         *task_rows(cells, conditions), "",
         "## Accounting", "", *accounting_rows(cells, conditions), "",
         "## Repairs", "", *repair_rows(cells, conditions), "", *diagnostics_rows(cells), "",
+        "## External commands", "", "Literal command heads in each trial's last program (`run CMD` in XSH, "
+        "`spawn`/`execFile` with a literal program in TypeScript).", "", *command_rows(cells, conditions), "",
     ]
     if taxonomy_path is not None:
         taxonomy = json.loads(taxonomy_path.read_text())

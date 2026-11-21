@@ -1,6 +1,5 @@
 import argparse
 import json
-import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -12,6 +11,7 @@ import manifest
 import model
 import prompts
 import report
+import session
 import tasks
 import trial
 from config import RUNS
@@ -26,6 +26,11 @@ def references(args: argparse.Namespace) -> int:
     good = True
     rows = []
     for task in tasks.load(args.split, args.task):
+        try:
+            prompts.xsh_api_facts(task.data["xsh_api"])
+        except RuntimeError as missing:
+            good = False
+            print(f"{task.id:28} xsh_api selectors do not all resolve: {missing}", flush=True)
         for arm in args.arm or ARMS:
             started = time.perf_counter()
             result = evaluate.evaluate(arm, task, task.reference(arm), out / task.id / f"reference-{arm}")
@@ -97,9 +102,13 @@ def run_cells(args: argparse.Namespace) -> int:
         if record is not None and record.state == "infra-error" and not args.retry_infra:
             continue
         if record is not None and record.state == "infra-error":
-            shutil.rmtree(trial.trial_directory(out, cell["task"], cell["condition"], cell["sample"]))
+            directory = trial.trial_directory(out, cell["task"], cell["condition"], cell["sample"])
+            kept = out / "discarded" / cell["task"] / f"{directory.name}-infra-{int(time.time())}"
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            directory.rename(kept)
         pending.append(cell)
-    manifest.log_event(out, {"event": "start", "pending": len(pending), "jobs": args.jobs, "resume": args.resume})
+    manifest.log_event(out, {"event": "start", "pending": len(pending), "jobs": args.jobs, "resume": args.resume,
+                             "retry_infra": args.retry_infra, "harness": manifest.harness_revision()})
     backoff = model.Backoff()
     stopped = None
 
@@ -142,6 +151,13 @@ def context(args: argparse.Namespace) -> int:
         if other.exists():
             text = other.read_text()
             print(f"{name}: sha256 {contexts.digest(text)}, {len(text.encode())} bytes")
+    selected = path.parent / "selected.md"
+    published = contexts.agent_context_path()
+    if selected.exists() and published.exists():
+        if contexts.published_body(published.read_text()) != selected.read_text():
+            print("docs/agent-context.md differs from contexts/selected.md; edit the template or the snippet")
+            return 1
+        print("docs/agent-context.md publishes selected.md byte for byte")
     return 0
 
 
@@ -190,6 +206,99 @@ def verify_guide(args: argparse.Namespace) -> int:
     failed = sum(not r.ok for r in results)
     print(f"{len(results) - failed} of {len(results)} guide checks hold")
     return 1 if failed else 0
+
+
+def run_sessions(args: argparse.Namespace) -> int:
+    out = Path(args.out).resolve()
+    if args.resume:
+        loaded = manifest.load(out)
+    else:
+        selected = tasks.load(args.split, args.task)
+        loaded = manifest.create(out, "sessions", selected, args.condition, args.samples, args.seed, 1, args.split)
+    manifest.verify_toolchain()
+    manifest.verify_images()
+    by_id = {t.id: t for t in tasks.load(loaded["split"], sorted(loaded["tasks"]))}
+    for task_id, digest in loaded["tasks"].items():
+        if by_id[task_id].digest() != digest:
+            raise RuntimeError(f"{task_id} changed since the manifest was written")
+    status = 0
+    for cell in loaded["schedule"]:
+        directory = session.session_directory(out, cell["task"], cell["condition"], cell["sample"])
+        record_path = directory / "session.json"
+        if record_path.exists():
+            previous = json.loads(record_path.read_text())
+            if previous["state"] == "done":
+                continue
+            kept = directory.with_name(f"{directory.name}.interrupted-{int(time.time())}")
+            directory.rename(kept)
+        elif directory.exists():
+            directory.rename(directory.with_name(f"{directory.name}.incomplete-{int(time.time())}"))
+        expected = loaded["contexts"][cell["condition"]]
+        record = session.run_session(
+            by_id[cell["task"]], prompts.CONDITIONS[cell["condition"]], cell["sample"], out,
+            None if expected is None else expected["sha256"],
+        )
+        print(f"{cell['cell']:44} {record.state:11} {record.verdict:9} turns {record.turns} tools {record.tools} "
+              f"{record.elapsed_seconds:.0f}s stopped by {record.stopped_by}{' ERROR ' + record.error if record.error else ''}",
+              flush=True)
+        status |= 3 if record.state == "interrupted" else 0
+    return status
+
+
+def failures(args: argparse.Namespace) -> int:
+    out = Path(args.out).resolve()
+    for path in sorted(out.glob("trials/*/*/trial.json")):
+        record = trial.load(path)
+        if record is None:
+            continue
+        for attempt in record.attempts:
+            if attempt.status == "correct" or (args.condition and record.condition not in args.condition):
+                continue
+            print(f"## {record.task}/{record.condition}/{record.sample}/{attempt.index} {attempt.status}")
+            print(f"detail: {attempt.detail}")
+            if attempt.feedback:
+                print("feedback:")
+                print(attempt.feedback)
+            if attempt.code_file:
+                print(f"```\n{(path.parent / attempt.code_file).read_text()}```")
+            print()
+    return 0
+
+
+SUGGESTED = {
+    "check.redundant-parens": "syntax/binding", "check.named-arg": "syntax/binding",
+    "check.bare-print-ident": "syntax/binding", "parse.expected-ident": "syntax/binding",
+    "check.standard-module-shadow": "syntax/binding", "check.return-outside-callable": "syntax/binding",
+    "check.module-member": "missing/misunderstood API", "check.unknown-method": "missing/misunderstood API",
+    "check.unknown-module-api": "missing/misunderstood API", "check.unresolved-name": "missing/misunderstood API",
+    "check.try-result": "result/optional/error handling", "check.result-fallback": "result/optional/error handling",
+    "check.type-mismatch": "result/optional/error handling",
+}
+
+
+def taxonomy_draft(args: argparse.Namespace) -> int:
+    out = Path(args.out).resolve()
+    entries = []
+    for path in sorted(out.glob("trials/*/*/trial.json")):
+        record = trial.load(path)
+        if record is None:
+            continue
+        for attempt in record.attempts:
+            if attempt.status == "correct":
+                continue
+            codes = (attempt.evaluation or {}).get("diagnostic_codes", [])
+            if attempt.status in ("infra-error", "provider-error"):
+                category = "harness/provider"
+            elif codes:
+                category = SUGGESTED.get(codes[0], "")
+            else:
+                category = ""
+            entries.append({
+                "cell": record.cell, "attempt": attempt.index, "condition": record.condition, "task": record.task,
+                "status": attempt.status, "codes": codes, "category": category, "note": "",
+            })
+    print(json.dumps({"run": out.name, "attempts": entries}, indent=2))
+    return 0
 
 
 def render_report(args: argparse.Namespace) -> int:
@@ -249,14 +358,32 @@ def main() -> int:
     p.add_argument("context", choices=["candidate.md", "revised.md", "selected.md"])
     p.set_defaults(func=verify_guide)
 
+    p = sub.add_parser("sessions", help="run or resume tool-enabled agent sessions (XSH conditions)")
+    task_options(p)
+    p.add_argument("--out", required=True)
+    p.add_argument("--condition", action="append", choices=sorted(c for c in prompts.CONDITIONS if c != "ts"))
+    p.add_argument("--samples", type=int, default=1)
+    p.add_argument("--seed", type=int, default=20261121)
+    p.add_argument("--resume", action="store_true")
+    p.set_defaults(func=run_sessions)
+
+    p = sub.add_parser("failures", help="print every attempt that was not correct, for classification")
+    p.add_argument("out")
+    p.add_argument("--condition", action="append")
+    p.set_defaults(func=failures)
+
+    p = sub.add_parser("taxonomy-draft", help="draft a failure taxonomy with categories suggested from diagnostic codes")
+    p.add_argument("out")
+    p.set_defaults(func=taxonomy_draft)
+
     p = sub.add_parser("report", help="report saved trials")
     p.add_argument("runs", nargs="+")
     p.add_argument("--taxonomy", type=Path)
     p.set_defaults(func=render_report)
 
     args = parser.parse_args()
-    if args.command == "trials" and not args.resume and not args.condition:
-        parser.error("trials needs --condition unless it resumes")
+    if args.command in ("trials", "sessions") and not args.resume and not args.condition:
+        parser.error(f"{args.command} needs --condition unless it resumes")
     if args.command == "trials" and args.jobs > 2:
         parser.error("keep model concurrency at 2 or below on the shared host")
     return args.func(args)

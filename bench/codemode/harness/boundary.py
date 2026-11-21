@@ -18,7 +18,8 @@ from config import (
     HARNESS,
 )
 
-CHECK_TIMEOUT_S = 120
+CHECK_TIMEOUT_S = 300
+START_ATTEMPTS = 3
 SERVICE_READY_S = 60
 OUTPUT_LIMIT = 200_000
 PATH_VALUE = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -63,24 +64,43 @@ def clip(text: bytes) -> str:
 
 
 def kill_container(name: str) -> None:
-    subprocess.run(["docker", "kill", name], capture_output=True, check=False)
+    subprocess.run(["docker", "kill", name], capture_output=True, check=False, timeout=120)
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=120)
+
+
+def started(name: str) -> bool:
+    found = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.StartedAt}}", name], capture_output=True, text=True, check=False, timeout=120,
+    )
+    return found.returncode == 0 and not found.stdout.strip().startswith("0001-01-01")
 
 
 def execute(command: list[str], name: str, timeout_s: float, stdin: bytes | None = None) -> Execution:
-    started = time.perf_counter()
-    try:
-        completed = subprocess.run(
-            command, input=stdin if stdin is not None else b"", capture_output=True, timeout=timeout_s, check=False,
-        )
-    except subprocess.TimeoutExpired as expired:
-        kill_container(name)
+    for attempt in range(START_ATTEMPTS):
+        attempt_name = name if attempt == 0 else f"{name}-r{attempt}"
+        attempt_command = [attempt_name if part == name else part for part in command]
+        clock = time.perf_counter()
+        try:
+            completed = subprocess.run(
+                attempt_command, input=stdin if stdin is not None else b"", capture_output=True, timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as expired:
+            ran = started(attempt_name)
+            kill_container(attempt_name)
+            if not ran:
+                continue
+            return Execution(
+                attempt_command, None, clip(expired.stdout or b""), clip(expired.stderr or b""),
+                time.perf_counter() - clock, True,
+            )
+        if completed.returncode == 125 and b"docker" in completed.stderr.lower():
+            continue
         return Execution(
-            command, None, clip(expired.stdout or b""), clip(expired.stderr or b""), time.perf_counter() - started, True,
+            attempt_command, completed.returncode, clip(completed.stdout), clip(completed.stderr),
+            time.perf_counter() - clock, False,
         )
-    return Execution(
-        command, completed.returncode, clip(completed.stdout), clip(completed.stderr), time.perf_counter() - started,
-        False,
-    )
+    raise BoundaryError(f"docker did not start {name} in {START_ATTEMPTS} attempts")
 
 
 def container_name(kind: str) -> str:
