@@ -63,6 +63,22 @@ starting Docker.
 Linux verification runs the default native suite and the Rust and privileged
 Linux tests inside the pinned image. The first run downloads that image.
 
+## Cold capsule costs
+
+A cold `ubuntu:24.04` x86-64 container with eight CPUs, an inner Docker daemon
+on the `vfs` storage driver, and a fresh clone of this repository at the lane
+commit measured the following. The host was shared and loaded, so these are
+wall times on a busy host, not best-case figures.
+
+| Step | Wall time |
+| --- | --- |
+| `scripts/setup-dev` as root | 44 s |
+| `cargo dev build` | 117 s |
+| pinned image pull, nested `vf` daemon | 314 s |
+
+`cargo dev test linux` then builds the Rust and native suites inside the pinned
+image. See [Testing](TESTING.md#linux) for what it runs.
+
 The host builds the Linux musl product target, so the host needs that target's
 standard library and a C toolchain for it; `scripts/setup-dev` installs both.
 On an x86-64 host the build also links through the toolchain's `rust-lld`,
