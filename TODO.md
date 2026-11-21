@@ -22,15 +22,6 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-### XSH-168 · P3 · `cargo dev check` runs formatter checks the tree is not meant to pass
-
-- **Area:** Tooling
-- **Where:** `dev/build.xsh:166` (`check-rustfmt`: `cargo fmt --all -- --check`), the later `xsht fmt --check` stage of `cargo dev check`
-- **Problem:** `cargo dev check` fails on every checkout: `cargo fmt --check` reports diffs in `build.rs`, `crates/` and `tests/`, and `xsht fmt --check` reports 1,045 unformatted files. The repository does not run formatters (AGENTS.md), and no gate or CI path runs these stages, so the command is permanently red and a newcomer following it cannot tell a real failure from the expected one. The cold Ubuntu 24.04 capsule run of 2026-11-21 stopped there after build and clippy passed.
-- **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
-- **Fix with:** none
-- **Effort:** S
-
 ### XSH-144 · P1 · user and group mutations leave /etc/shadow readable under the umask
 
 - **Area:** Security
@@ -190,6 +181,15 @@ out of scope.
 - **Where:** `check.redundant-parens`; evidence `bench/codemode/results/dev-initial-taxonomy.json`
 - **Problem:** Parentheses that do not change parsing, such as `x += (a + b)` or `and (id not in seen)`, are check errors. In the code mode development runs this one rule caused 8 of the 24 failed programs under both the current documentation and the compact guide; the tour and `xsht api language:core` do not mention it.
 - **Recommendation:** Decide whether the rule should stay an error or become a lint with an autofix; until then, state it in the tour and in `language:core`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-168 · P3 · `cargo dev check` runs formatter checks the tree is not meant to pass
+
+- **Area:** Tooling
+- **Where:** `dev/build.xsh:166` (`check-rustfmt`: `cargo fmt --all -- --check`), the later `xsht fmt --check` stage of `cargo dev check`
+- **Problem:** `cargo dev check` fails on every checkout: `cargo fmt --check` reports diffs in `build.rs`, `crates/` and `tests/`, and `xsht fmt --check` reports 1,045 unformatted files. The repository does not run formatters (AGENTS.md), and no gate or CI path runs these stages, so the command is permanently red and a newcomer following it cannot tell a real failure from the expected one. The cold Ubuntu 24.04 capsule run of 2026-11-21 stopped there after build and clippy passed.
+- **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
 - **Fix with:** none
 - **Effort:** S
 
