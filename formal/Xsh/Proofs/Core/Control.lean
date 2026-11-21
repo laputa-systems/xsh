@@ -614,4 +614,100 @@ theorem for_passes_return {world : World Declaration Identity Source} (machine :
 
 end Laws
 
+section Bindings
+
+theorem resolveCaptures_aligned {world : World Declaration Identity Source} (resolution : Oracles world)
+    (environment : Environment) :
+    ∀ (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source)) entries,
+      resolveCaptures resolution environment captures = some entries →
+        entries.map (·.1.1) = captures.map Prod.fst ∧ entries.map (·.2.2.2) = captures.map Prod.snd ∧
+          ∀ entry ∈ entries, entry.2.1 = entry.1.2.2
+  | [], entries, resolved => by
+    simp only [resolveCaptures, Option.some.injEq] at resolved
+    subst resolved
+    simp
+  | (captured, value) :: rest, entries, resolved => by
+    simp only [resolveCaptures] at resolved
+    split at resolved
+    · rename_i binder cell type others declared remaining
+      simp only [Option.some.injEq] at resolved
+      subst resolved
+      obtain ⟨names, values, cells⟩ := resolveCaptures_aligned resolution environment rest others remaining
+      refine ⟨by simp [names], by simp [values], ?_⟩
+      intro entry inside
+      simp only [List.mem_cons] at inside
+      rcases inside with same | later
+      · subst same
+        rfl
+      · exact cells entry later
+    · simp at resolved
+
+variable [DecidableEq Declaration]
+
+/-- Pattern captures (`if let`, `while let`, `match` arms) are bound as
+immutable cells holding the captured values; a captured name hides a local of
+that name and, when the checker's names and binders are distinct, resolves to
+its cell. -/
+theorem bindCaptures_binds {world : World Declaration Identity Source} (machine : Machine world) (frame next : Frame world)
+    (captures : List (Xsh.Syntax.RawName × Value Declaration Identity Source))
+    (bound : bindCaptures machine frame captures = .normal next) :
+    ∃ entries, resolveCaptures machine.resolution frame.environment captures = some entries ∧
+      entries.map (·.1.1) = captures.map Prod.fst ∧ entries.map (·.2.2.2) = captures.map Prod.snd ∧
+      next.environment = extend frame.environment (entries.map Prod.fst) ∧
+      next.locals = hide (captures.map Prod.fst) frame.locals ∧
+      (∀ entry ∈ entries, ∃ held, next.store entry.1.2.2 = some held ∧ held.contents.value = entry.2.2.2 ∧
+        held.mutability = .immutable) ∧
+      (((entries.map Prod.fst).map Prod.fst).Nodup → ((entries.map Prod.fst).map (·.2.1)).Nodup →
+        ∀ entry ∈ entries, next.environment.cellOf entry.1.1 = .ok entry.1.2.2) := by
+  unfold bindCaptures at bound
+  split at bound
+  · cases bound
+  · rename_i entries resolved
+    obtain ⟨names, values, cells⟩ := resolveCaptures_aligned machine.resolution frame.environment captures entries resolved
+    cases declared : declareAll world machine.decisions frame.store .immutable frame.store (entries.map Prod.snd) with
+    | committed store =>
+      rw [declared] at bound
+      simp only [fromStep, Exec.normal.injEq] at bound
+      subst bound
+      obtain ⟨_, _, held, _⟩ := Xsh.Proofs.Core.Writes.declareAll_committed world machine.decisions frame.store
+        .immutable (entries.map Prod.snd) frame.store store declared
+      refine ⟨entries, resolved, names, values, rfl, rfl, ?_, ?_⟩
+      · intro entry inside
+        obtain ⟨found, present, mutability, _, value⟩ := held entry.2 (List.mem_map_of_mem inside)
+        rw [cells entry inside] at present
+        exact ⟨found, present, value, mutability⟩
+      · intro distinctNames distinctBinders entry inside
+        exact Xsh.Proofs.Core.Statements.declared_names_resolve frame.environment (entries.map Prod.fst)
+          distinctNames distinctBinders entry.1.1 entry.1.2.1 entry.1.2.2 (List.mem_map_of_mem inside)
+    | failed failure store => rw [declared] at bound; cases bound
+    | internal fault store => rw [declared] at bound; cases bound
+
+/-- A `for` variable or `let` target is bound through the checker's resolution
+and `declareTarget`; with distinct names and binders each declared name
+resolves to its cell. -/
+theorem bindTarget_binds {world : World Declaration Identity Source} (machine : Machine world) (frame next : Frame world)
+    (mutability : Mutability) (target : Xsh.Syntax.BindingTarget) (value : Value Declaration Identity Source)
+    (bound : bindTarget machine frame mutability target value = .normal next) :
+    ∃ resolved declared, resolveTarget machine.names frame.environment target = some (resolved, declared) ∧
+      declareTarget world machine.decisions frame.store mutability resolved value = .committed next.store ∧
+      next.environment = extend frame.environment declared ∧
+      next.locals = hide (declared.map Prod.fst) frame.locals ∧
+      ((declared.map Prod.fst).Nodup → (declared.map (·.2.1)).Nodup →
+        ∀ name binder cell, (name, binder, cell) ∈ declared → next.environment.cellOf name = .ok cell) := by
+  unfold bindTarget at bound
+  split at bound
+  · cases bound
+  · rename_i resolved declared found
+    cases committed : declareTarget world machine.decisions frame.store mutability resolved value with
+    | committed store =>
+      rw [committed] at bound
+      simp only [fromStep, Exec.normal.injEq] at bound
+      subst bound
+      exact ⟨resolved, declared, found, committed, rfl, rfl,
+        Xsh.Proofs.Core.Statements.declared_names_resolve frame.environment declared⟩
+    | failed failure store => rw [committed] at bound; cases bound
+    | internal fault store => rw [committed] at bound; cases bound
+
+end Bindings
+
 end Xsh.Proofs.Core.Control
