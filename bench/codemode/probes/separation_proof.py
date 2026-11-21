@@ -27,12 +27,13 @@ def variant_words(task: tasks.Task, variant: str) -> set[str]:
 
 
 def main() -> int:
-    runs = [RUNS / name for name in sys.argv[1:]]
+    split = sys.argv[1]
+    runs = [RUNS / name for name in sys.argv[2:]]
     background = set()
     for context in CONTEXTS.glob("*.md"):
         background |= set(WORD.findall(context.read_text()))
     good = True
-    for task in tasks.load("dev"):
+    for task in tasks.load(split):
         public = variant_words(task, task.variants[0]) | set(WORD.findall(json.dumps(task.data)))
         hidden = set()
         for variant in task.variants[1:]:
@@ -41,7 +42,7 @@ def main() -> int:
         prompts = [p for run in runs for p in (run / "trials" / task.id).glob("*/prompt-*.md")]
         leaked = {}
         for prompt in prompts:
-            found = sorted(w for w in secret if w in prompt.read_text())
+            found = sorted(secret & set(WORD.findall(prompt.read_text())))
             if found:
                 leaked[str(prompt.relative_to(RUNS))] = found[:5]
         good &= not leaked
