@@ -151,10 +151,11 @@ pub(crate) fn step(
         }
     }
     for (index, interest) in interests.iter().enumerate() {
-        if interest.requested.contains(PollFlags::IN) && !ready.iter().any(|(seen, _)| *seen == index) {
-            if let Some(flags) = fifo_readiness_missed_by_poll(borrowed[index]) {
-                ready.push((index, flags));
-            }
+        if interest.requested.contains(PollFlags::IN)
+            && !ready.iter().any(|(seen, _)| *seen == index)
+            && let Some(flags) = fifo_readiness_missed_by_poll(borrowed[index])
+        {
+            ready.push((index, flags));
         }
     }
     ready.sort_by_key(|(index, _)| *index);
