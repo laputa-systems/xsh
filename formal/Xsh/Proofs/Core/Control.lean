@@ -247,6 +247,15 @@ theorem collectWith_refines {world : World Declaration Identity Source} (outer :
   · subst same
     exact valued_refl _
 
+theorem returnTo_refines {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind)
+    {first second : Exec world} (head : Exec.Refines first second) :
+    Valued.Refines (returnTo caller kind first) (returnTo caller kind second) := by
+  rcases head with out | same
+  · subst out
+    exact Or.inl rfl
+  · subst same
+    exact valued_refl _
+
 theorem valuedResult_refines {world : World Declaration Identity Source} {first second : Valued world}
     (head : Valued.Refines first second) : Refines (valuedResult first) (valuedResult second) := by
   rcases head with out | same
@@ -340,6 +349,8 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.comprehendItems _ _ _ _ _
   | exact inner.loopValues _ _
   | refine collectWith_refines _ ?_
+  | refine returnTo_refines _ _ ?_
+  | exact inner.body _ _
   | refine loopStep_refines (fun _ => inner.loopValues _ _) ?_
   | refine resultExec_refines _ (selectorsOf_refines (inner.expr _ _ _ _) _ _) fun _ => ?_
   | refine guardElse_refines ?_
@@ -701,6 +712,19 @@ theorem collectWith_persists {world : World Declaration Identity Source} {before
   | unsupported => exact head
   | outOfFuel => exact head
 
+theorem returnTo_persists {world : World Declaration Identity Source} (caller : Frame world) (kind : ReturnKind)
+    {first : Exec world} (head : Keeps caller.store first) : VKeeps caller.store (returnTo caller kind first) := by
+  unfold returnTo
+  split
+  · exact persists_keep (head _ rfl)
+  · split
+    · exact persists_keep (head _ rfl)
+    · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present
+  · intro last present; cases present
+  · intro last present; cases present
+
 theorem withStore_keeps {world : World Declaration Identity Source} {before store : Store world}
     (kept : Persists before store) (status : Exec world) : Keeps before (status.withStore store) := by
   cases status <;> (intro last present; cases present <;> exact kept)
@@ -796,6 +820,8 @@ theorem bindTarget_entered {world : World Declaration Identity Source} (machine 
 /-- The statement functions at `fuel` keep every cell of the frame they start
 from. -/
 structure Persisting {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  body : ∀ frame statements, Keeps frame.store (runBody machine fuel frame statements)
+  tail : ∀ frame statements, Keeps frame.store (runTail machine fuel frame statements)
   value : ∀ frame expression, VKeeps frame.store (runValue machine fuel frame expression)
   scope : ∀ frame body, VKeeps frame.store (valueScope machine fuel frame body)
   valueTail : ∀ frame body, VKeeps frame.store (runValueTail machine fuel frame body)
@@ -854,6 +880,9 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.comprehendItems _ _ _ _ _
   | exact inner.loopValues _ _
   | refine collectWith_persists _ ?_
+  | refine returnTo_persists _ _ ?_
+  | exact inner.body _ _
+  | exact inner.tail _ _
   | refine loopStep_persists (fun _ => inner.loopValues _ _) ?_
   | refine resultExec_persists _ _ fun _ => ?_
   | refine guardElse_persists ?_
@@ -868,6 +897,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
+      body := fun _ _ => by simp only [runBody]; exact fun _ present => by cases present
+      tail := fun _ _ => by simp only [runTail]; exact fun _ present => by cases present
       value := fun _ _ => by simp only [runValue]; exact fun _ present => by cases present
       scope := fun _ _ => by simp only [valueScope]; exact fun _ present => by cases present
       valueTail := fun _ _ => by simp only [runValueTail]; exact fun _ present => by cases present
@@ -890,6 +921,8 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
+      body := fun frame statements => by simp only [runBody]; close_persists
+      tail := fun frame statements => by simp only [runTail]; close_persists
       value := fun frame expression => by simp only [runValue]; close_persists
       scope := fun frame body => by simp only [valueScope]; close_persists
       valueTail := fun frame body => by simp only [runValueTail]; close_persists
@@ -1391,17 +1424,18 @@ theorem callee_cells_fresh {world : World Declaration Identity Source} (store : 
     simp at bound
     omega
 
-/-- A callee cannot write a cell its caller holds. -/
+/-- A callee cannot write a cell its caller holds unless it is one of the
+callee's captured mutable cells. -/
 theorem callee_cannot_write_caller {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (target : Xsh.Syntax.AssignTarget) (op : Xsh.Syntax.AssignOp) (value : Xsh.Syntax.Expr)
     (root : Xsh.Syntax.RawName) (path : List PathSpec) (cell : CellId) (caller : Store world) (held : Cell world)
     (fielded : flatten machine.context.spelling target = some (root, path))
     (resolved : frame.environment.cellOf root = .ok cell) (calling : frame.callerStore = some caller)
-    (holds : caller cell = some held) :
+    (holds : caller cell = some held) (notWritable : frame.writable.contains cell = false) :
     runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported := by
   cases target with
   | env key => simp [flatten] at fielded
-  | _ => simp [runStatement, fielded, resolved, calling, holds]
+  | _ => simp [runStatement, fielded, resolved, calling, holds, notWritable]
 
 /-- A function body's cells end with the call: a cell absent from the store
 at the call is absent from every frame the body leaves with. -/
@@ -1792,7 +1826,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
         store ⟨activation + step, binder⟩ = none) ∧
     (∀ fuel frame target op value root path cell caller held,
       flatten machine.context.spelling target = some (root, path) → frame.environment.cellOf root = .ok cell →
-        frame.callerStore = some caller → caller cell = some held →
+        frame.callerStore = some caller → caller cell = some held → frame.writable.contains cell = false →
           runStatement machine (fuel + 1) frame (.assign target op value) = .unsupported) ∧
     (∀ fuel frame body last, frameOf (runBody machine (fuel + 1) frame body) = some last →
       ∀ cell, frame.store cell = none → last.store cell = none) :=
@@ -1964,8 +1998,9 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
             .normal { frame with
               environment := extend frame.environment [(name, binder, cell)]
               locals := hide [name] frame.locals
-              closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures names
-                (.block body (returnKindOf machine result))) :: frame.closures }) ∧
+              closures := (cell, .mk cell (extend frame.environment [(name, binder, cell)]) frame.closures
+                (mutableCaptures frame (captureNames names body)) names (.block body (returnKindOf machine result))) ::
+                frame.closures }) ∧
     (∀ fuel (scope : Scope Declaration Identity Source) store environment locals value,
       scope.item = some value → evalExpr machine (fuel + 1) scope store environment locals .item = .value value) ∧
     (∀ (outer inner : Frame world),
