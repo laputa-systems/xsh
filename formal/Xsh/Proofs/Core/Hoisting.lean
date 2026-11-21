@@ -36,8 +36,12 @@ theorem declaration_hoisting {world : World Declaration Identity Source} (machin
     (∀ (frame : Frame world) body,
       hoist machine frame body =
         (hoistNames machine frame.activation frame.environment (hoistedNames body)).bind fun environment =>
-          (hoistClosures machine frame.activation environment [] frame.closures body).map fun closures =>
-            { frame with environment, locals := hide (hoistedNames body) frame.locals, closures }) ∧
+          match bindCaptures machine { frame with environment, locals := hide (hoistedNames body) frame.locals }
+              (bareVariants machine) with
+          | .normal bound =>
+            (hoistClosures machine frame.activation bound.environment [] frame.closures body).map fun closures =>
+              { bound with closures }
+          | _ => none) ∧
     (∀ activation environment mutable closures kind name parameters effects result body metadata test rest callable
         binder cell type,
       callableKind kind = some callable →
@@ -176,6 +180,82 @@ theorem uninitialized_mutants_rejected :
           (callFunctionWith constructorMachine (evalExpr constructorMachine 9) (callBlock constructorMachine 9))
           frame (ident countName))) = some true ∧
       (readFrame.map fun frame => readsAsFailure (fromEval frame (Result.value (Value.scalar .null)))) = some false := by
+  decide +kernel
+
+def evenName : Xsh.Syntax.RawName := name 180 (by decide)
+def oddName : Xsh.Syntax.RawName := name 181 (by decide)
+def firstFn : Xsh.Syntax.RawName := name 182 (by decide)
+def secondFn : Xsh.Syntax.RawName := name 183 (by decide)
+def levelName : Xsh.Syntax.RawName := name 184 (by decide)
+def infoName : Xsh.Syntax.RawName := name 185 (by decide)
+def warnName : Xsh.Syntax.RawName := name 186 (by decide)
+def levelParam : Xsh.Syntax.RawName := name 187 (by decide)
+def nameFn : Xsh.Syntax.RawName := name 188 (by decide)
+
+def parity (self other : Xsh.Syntax.RawName) (base : Bool) : Xsh.Syntax.Statement :=
+  .functionDef .pure self [.mk nName none none false] none none
+    [.ifStmt [(.binary .eq (ident nName) (int "0"), [.returnValue (some (.literal (.bool base)))])] none,
+      .expression (call other [.binary .sub (ident nName) (int "1")])] none false
+
+/-- `print (isEven(8))` above `isEven` and `isOdd`, which call each other, and
+`print (first())` above `first` and the `second` it calls; the binary prints
+`true` and `7`. -/
+def mutualProgram : List Xsh.Syntax.Statement :=
+  [letOf (output 0) (call evenName [int "8"]), letOf (output 1) (call firstFn []),
+    parity evenName oddName true, parity oddName evenName false,
+    .functionDef .proc firstFn [] none none [.expression (call secondFn [])] none false,
+    .functionDef .proc secondFn [] none none [.expression (int "7")] none false]
+
+def boolOf : Value Unit Unit Unit → Option Bool
+  | .scalar (.boolean flag) => some flag
+  | _ => none
+
+theorem mutual_calls_hoisted :
+    (valueOf (output 0) (runHoisted mutualProgram)).bind boolOf = some true ∧
+      readInt (output 1) (runHoisted mutualProgram) = some 7 := by
+  decide +kernel
+
+/-- A callee that sees only the functions hoisted before its own declaration:
+`first`'s body run with its captured closures alone does not find `second`. -/
+def firstAlone : Exec witnessWorld :=
+  match hoist constructorMachine fullStart mutualProgram with
+  | some hoisted =>
+    match localClosure hoisted.closures hoisted.environment firstFn with
+    | some (.mk cell callable defining captured writable parameters body) =>
+      runBody constructorMachine 60
+        { Frame.ofScope defining hoisted.store [] (some hoisted.store)
+            ⟨1, (cell, .mk cell callable defining captured writable parameters body) :: captured, none⟩ with
+          writable } (bodyStatements body)
+    | none => .unsupported
+  | none => .unsupported
+
+theorem earlier_functions_only_rejected : returnedInt firstAlone = none := by
+  decide +kernel
+
+def enumProgram : Context Unit Unit Unit :=
+  { constructorProgram with
+    spelling := fun named =>
+      if named = infoName then "Info" else if named = warnName then "Warn" else if named = levelName then "Level"
+      else constructorProgram.spelling named }
+
+/-- `enum Level { Info, Warn }`. -/
+def declareLevel : Xsh.Syntax.Statement :=
+  .typeDef levelName [] (.tagUnion [.mk infoName [] none, .mk warnName [] none]) true none
+
+def enumMachine : Machine witnessWorld :=
+  { constructorMachine with context := enumProgram, declarations := constructorMachine.declarations ++ [declareLevel] }
+
+/-- `print (name(Info))` above `enum Level { Info, Warn }` and the `name` that
+matches it; the binary prints `info`. -/
+def enumRun : Exec witnessWorld :=
+  runScript enumMachine 90 fullStart
+    [letOf rName (call nameFn [ident infoName]), declareLevel,
+      .functionDef .pure nameFn [.mk levelParam none none false] none none
+        [.matchStmt (ident levelParam)
+          [(.constructor infoName none, none, [.returnValue (some (.literal (.string "info")))]),
+            (.constructor warnName none, none, [.returnValue (some (.literal (.string "warn")))])]] none false]
+
+theorem enum_hoisted : (valueOf rName enumRun).bind textOf = some "info" := by
   decide +kernel
 
 end Witness
