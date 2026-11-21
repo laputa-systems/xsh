@@ -331,6 +331,16 @@ theorem module_view_parts {sourceClosure targetClosure : ExportClosure}
   | refl => exact ⟨rfl, rfl⟩
   | validated hasBase _ => simp [base] at hasBase
 
+theorem nominal_view_parts {sourceDeclaration targetDeclaration : Declaration}
+    {sourceFields targetFields : RecordType Declaration}
+    (view : BaseView (.nominal sourceDeclaration sourceFields) (.nominal targetDeclaration targetFields)) :
+    sourceDeclaration = targetDeclaration ∧ sourceFields = targetFields := by
+  cases view with
+  | refl => exact ⟨rfl, rfl⟩
+  | validated hasBase rest =>
+    have := view_from_unvalidated rest (base_is_unvalidated hasBase)
+    simp [validationTag] at this
+
 /-- A validated source viewed as a type with no validation tag is a view of
 its base: the only step that leaves a validated source is the step to its
 base. -/
@@ -401,12 +411,13 @@ result, callable results under the same policy and parameters, record fields
 matched by label, and union members through the one-to-one pairing. With the
 tag rule above, a view into a validated position at any depth starts from the
 same validation, so a nested interval never widens to another interval. Set
-elements and module exports are fixed, a validated source viewed as a type
-with no validation tag is a view of its base, and a view from a type with no
-validation tag keeps its outer constructor. These steps take every view apart
-from the outside in: a validated target position is settled by the top-level
-tag rule, a validated source over an unvalidated target by its base, and any
-other pair by the inversion for its shared shape. -/
+elements, module exports and nominal types are fixed, a validated source
+viewed as a type with no validation tag is a view of its base, and a view from
+a type with no validation tag keeps its outer constructor. These steps take
+every view apart from the outside in: a validated target position is settled
+by the top-level tag rule, a validated source over an unvalidated target by
+its base, and any other pair by the inversion for its shared shape; leaf
+shapes have no validated positions. -/
 theorem validated_widening (world : MembershipWorld Declaration Identity Source) :
     (∀ (source target : ValueType Declaration) candidate, BaseView source target →
       Membership.value world source candidate → Membership.value world target candidate) ∧
@@ -452,7 +463,10 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
       (∀ (sourceClosure targetClosure : ExportClosure)
           (sourceExports targetExports : TypeVariableFreeTerm 0 String Declaration .exports),
         BaseView (.module sourceClosure sourceExports) (.module targetClosure targetExports) →
-          sourceClosure = targetClosure ∧ sourceExports = targetExports)) ∧
+          sourceClosure = targetClosure ∧ sourceExports = targetExports) ∧
+      (∀ (sourceDeclaration targetDeclaration : Declaration) (sourceFields targetFields : RecordType Declaration),
+        BaseView (.nominal sourceDeclaration sourceFields) (.nominal targetDeclaration targetFields) →
+          sourceDeclaration = targetDeclaration ∧ sourceFields = targetFields)) ∧
     (∀ validated baseType target : ValueType Declaration, BaseView validated target →
       base validated = some baseType → validationTag target = none → BaseView baseType target) ∧
     (∀ source target : ValueType Declaration, BaseView source target → validationTag source = none →
@@ -473,7 +487,8 @@ theorem validated_widening (world : MembershipWorld Declaration Identity Source)
       fun _ _ view => record_view_parts view,
       fun _ _ _ _ _ _ view => union_view_parts view,
       fun _ _ view => set_view_parts view,
-      fun _ _ _ _ view => module_view_parts view⟩,
+      fun _ _ _ _ view => module_view_parts view,
+      fun _ _ _ _ view => nominal_view_parts view⟩,
     fun _ _ _ view hasBase unvalidated => validated_source_parts view hasBase unvalidated,
     fun _ _ view unvalidated => unvalidated_view_shape view unvalidated⟩
 
@@ -721,6 +736,34 @@ theorem module_exports_never_widen :
   exact ⟨by simp [narrowWideModule, wideIntegerModule, eraseValidations, IntegerBaseType, narrowPort, widePort],
     ⟨[.bounded widePort], .refl _, .cons _ (.refl _)⟩,
     rejects BaseView (fun _ _ _ _ view => module_view_parts view), rejects⟩
+
+def relativeNominal : WitnessType := .nominal () (.rowField "p" .relativePath .rowEmpty)
+
+def pathNominal : WitnessType := .nominal () (.rowField "p" (.primitive .path) .rowEmpty)
+
+/-- The nominal mutant: one declaration over two field rows, where the target
+widens the `RelPath` field to `Path`. The erasures are equal and the tag counts
+fit, but nothing fits a nominal type except itself: the real relation rejects
+the pair, and so does any relation with the nominal inversion. -/
+theorem nominal_fields_never_widen :
+    eraseValidations relativeNominal = eraseValidations pathNominal ∧
+      Submultiset (validationTags pathNominal) (validationTags relativeNominal) ∧
+      ¬ BaseView relativeNominal pathNominal ∧
+      ∀ related : WitnessType → WitnessType → Prop,
+        (∀ (sourceDeclaration targetDeclaration : Unit) (sourceFields targetFields : RecordType Unit),
+          related (.nominal sourceDeclaration sourceFields) (.nominal targetDeclaration targetFields) →
+            sourceDeclaration = targetDeclaration ∧ sourceFields = targetFields) →
+          ¬ related relativeNominal pathNominal := by
+  have rejects : ∀ related : WitnessType → WitnessType → Prop,
+      (∀ (sourceDeclaration targetDeclaration : Unit) (sourceFields targetFields : RecordType Unit),
+        related (.nominal sourceDeclaration sourceFields) (.nominal targetDeclaration targetFields) →
+          sourceDeclaration = targetDeclaration ∧ sourceFields = targetFields) →
+        ¬ related relativeNominal pathNominal := by
+    intro related nominals view
+    have same := (nominals _ _ _ _ view).2
+    simp at same
+  exact ⟨rfl, ⟨[.nominal ()], .refl _, .cons_cons _ (.cons _ .slnil)⟩,
+    rejects BaseView (fun _ _ _ _ view => nominal_view_parts view), rejects⟩
 
 def pureReturning (result : WitnessType) : WitnessType :=
   .callable (.signature .pure .argumentsEmpty result)
