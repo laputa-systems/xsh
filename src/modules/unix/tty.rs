@@ -185,8 +185,10 @@ fn open_flag(name: &str, span: Span) -> Result<rustix::fs::OFlags, RuntimeError>
 fn status_names(flags: rustix::fs::OFlags, span: Span) -> Vec<Value> {
     let mut names = vec![];
     for name in ["direct", "noatime", "nofollow", "directory", "dsync", "sync", "append", "nonblock", "noctty"] {
-        if let Ok(flag) = open_flag(name, span) {
-            if flags.contains(flag) { names.push(Value::Str(name.into())); }
+        if let Ok(flag) = open_flag(name, span)
+            && flags.contains(flag)
+        {
+            names.push(Value::Str(name.into()));
         }
     }
     names

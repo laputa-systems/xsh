@@ -365,7 +365,7 @@ fn block_words<'a>(
 
 fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), String> {
     for table in [&document.strings, &document.names] {
-        let unique: std::collections::HashSet<_> = table.iter().collect();
+        let unique: rustc_hash::FxHashSet<_> = table.iter().collect();
         if unique.len() != table.len() { return Err("table has repeated spellings".to_string()); }
     }
     for (index, row) in document.rows.iter().enumerate() {
@@ -555,7 +555,7 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                 if block.flags != 0 || count.checked_mul(3) != Some(entries.len()) {
                     return Err("record entries count or flags invalid".to_string());
                 }
-                for entry in entries.chunks_exact(3) {
+                for entry in entries.as_chunks::<3>().0 {
                     if entry[0] != 0 || entry[1] == 0 || entry[1] as usize > document.names.len() || !document.row_before(entry[2], user)?.tag.is_expression() {
                         return Err("invalid record entry".to_string());
                     }
@@ -1007,7 +1007,7 @@ fn export_arithmetic_document(
         let entries = extra.get_mut(start..end).ok_or("invalid record range")?;
         let (count, entries) = entries.split_first_mut().ok_or("empty record block")?;
         if (*count as usize).checked_mul(3) != Some(entries.len()) { return Err("invalid record count".to_string()); }
-        for entry in entries.chunks_exact_mut(3) {
+        for entry in entries.as_chunks_mut::<3>().0 {
             let spelling = Name::from_symbol(Symbol::from_raw(entry[1])).as_str().to_string();
             if spelling == "<invalid-symbol>" { return Err("record label has no spelling".to_string()); }
             let index = match names.iter().position(|name| *name == spelling) {

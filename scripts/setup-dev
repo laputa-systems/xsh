@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/.."
+. /etc/os-release
+if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 24.04 ]; then
+  echo 'setup-dev supports Ubuntu 24.04 only' >&2
+  exit 1
+fi
+packages='build-essential ca-certificates curl docker.io git git-lfs musl-tools pkg-config python3 ripgrep sudo zip'
+if [ "$(id -u)" -eq 0 ]; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
+elif command -v sudo >/dev/null 2>&1 && { id -nG | tr " " "\n" | grep -qx sudo || sudo -n true 2>/dev/null; }; then
+  sudo apt-get update
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
+  sudo usermod -aG docker "$(id -un)"
+else
+  account=$(id -un)
+  su -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y $packages && usermod -aG docker $account"
+fi
+if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+fi
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+rustup toolchain install
+case "$(uname -m)" in
+  x86_64) target=x86_64-unknown-linux-musl ;;
+  aarch64) target=aarch64-unknown-linux-musl ;;
+  *) echo "setup-dev supports x86_64 and aarch64 only" >&2; exit 1 ;;
+esac
+rustup target add "$target"
+cargo fetch --locked

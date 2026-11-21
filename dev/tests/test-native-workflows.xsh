@@ -212,3 +212,34 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}
 
   assert log.read_text()? == f"{identity.euid}|{home}|{temp}|test|--exact|native-workflow-contract"
 }
+
+test test_linux_root_caller_uses_a_private_unprivileged_test_home { |ctx|
+  if system.uname()?.sysname != "Linux" or unix.id()?.euid != 0 {
+    test.skip("requires a root Linux test process")
+    return
+  }
+  let fixture_root = test.temp_dir(ctx, name: "native-root-caller")?
+  fixture_root.chmod(0o777)
+  let target_dir = fp"{fixture_root}/target"
+  target_dir.mkdir()
+  let product_dir = fp"{target_dir}/x86_64-unknown-linux-musl/verification"
+  product_dir.parent().mkdir()
+  product_dir.mkdir()
+  let log = fp"{fixture_root}/observed"
+  fp"{product_dir}/xsht".write(
+    f"""#!{ctx.xsh_bin}
+use unix
+let home = env.get("HOME")?
+fp"{{home}}/probe".write("writable")?
+p"{log}".write(f"{{unix.id()?.euid}}|{{home}}")?
+""",
+    mode: 0o755,
+  )
+  let workflow_context = {...fixtures.linux_context(fixture_root, "verification")?, target_dir: target_dir}
+  env ({HOST_UID: "1000", HOST_GID: "1000", XSH_ROOT_NATIVE_TESTS: "1"}) {
+    test_workflows.native(workflow_context, test_workflows.Verification, [])
+  }
+  let observed = log.read_text()?
+  assert observed.starts_with("1000|")
+  assert fixture_root.display() not in observed
+}

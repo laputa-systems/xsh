@@ -199,7 +199,7 @@ export proc native(
   ctx: context.Context,
   profile: TestProfile,
   filters: List[Str],
-) [process, env, error, io] -> Result[Unit, Error] {
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let xsht = product_path(ctx, profile, Xsht)
   if ctx.target.os == "linux" and unix.id()?.euid == 0 {
     let host_uid = env.get("HOST_UID")?.trim() as Int
@@ -212,7 +212,15 @@ export proc native(
       ))
     }
 
-    let scratch = fp"{ctx.root}/.work/tmp/native-tests-{host_uid}-{host_gid}"
+    let root_scratch = if env.get_or("XSH_ROOT_NATIVE_TESTS", "")? == "1" { fs.tempdir()? } else { null }
+    let scratch = if let directory = root_scratch {
+      let scratch_path = directory.host_path()?
+      stages.execute(stages.command("test-xsh-scratch-owner", ctx.target.triple, "chown",
+        ["chown", f"{host_uid}:{host_gid}", scratch_path.display()], ctx.root, {}))
+      scratch_path
+    } else {
+      fp"{ctx.root}/.work/tmp/native-tests-{host_uid}-{host_gid}"
+    }
     let home = fp"{scratch}/home"
     let temp = fp"{scratch}/tmp"
     let as_host = ["setpriv", f"--reuid={host_uid}", f"--regid={host_gid}", "--clear-groups"]
