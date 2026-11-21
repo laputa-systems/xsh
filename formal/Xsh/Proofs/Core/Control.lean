@@ -401,4 +401,217 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
 
 end Persistence
 
+section Scopes
+
+/-- Every frame an outcome carries has `frame`'s environment and locals. -/
+def Restores {world : World Declaration Identity Source} (frame : Frame world) (outcome : Exec world) : Prop :=
+  ∀ last, frameOf outcome = some last → last.environment = frame.environment ∧ last.locals = frame.locals
+
+theorem withinScope_restores {world : World Declaration Identity Source} (outer : Frame world) (inner : Exec world) :
+    Restores outer (withinScope outer inner) := by
+  cases inner <;> (intro last present; cases present <;> exact ⟨rfl, rfl⟩)
+
+theorem iterate_restores {world : World Declaration Identity Source} {frame : Frame world} {first : Exec world}
+    {next : Frame world → Exec world} (head : Restores frame first) (tail : ∀ middle, Restores middle (next middle)) :
+    Restores frame (first.iterate next) := by
+  cases first with
+  | normal middle =>
+    intro last present
+    obtain ⟨environment, locals⟩ := head middle rfl
+    obtain ⟨environment', locals'⟩ := tail middle last present
+    exact ⟨environment'.trans environment, locals'.trans locals⟩
+  | continued middle =>
+    intro last present
+    obtain ⟨environment, locals⟩ := head middle rfl
+    obtain ⟨environment', locals'⟩ := tail middle last present
+    exact ⟨environment'.trans environment, locals'.trans locals⟩
+  | _ => exact head
+
+theorem fromResult_restores {world : World Declaration Identity Source} (frame : Frame world)
+    (result : Result Declaration Identity Source (Value Declaration Identity Source))
+    {next : Value Declaration Identity Source → Exec world} (tail : ∀ value, Restores frame (next value)) :
+    Restores frame (fromResult frame result next) := by
+  cases result with
+  | value value => exact tail value
+  | _ => intro last present; cases present <;> exact ⟨rfl, rfl⟩
+
+variable [DecidableEq Declaration]
+
+/-- The scoped statement forms at `fuel` leave their frame's environment and
+locals in place: a block, a pattern-bound body, `if`, `while`, `for`, `loop`
+and `match`. -/
+structure Restoring {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat) : Prop where
+  block : ∀ frame statements, Restores frame (runBlock machine fuel frame statements)
+  bound : ∀ frame captures statements, Restores frame (runBound machine fuel frame captures statements)
+  branches : ∀ frame branches otherwise, Restores frame (runIf machine fuel frame branches otherwise)
+  whiles : ∀ frame condition body, Restores frame (runWhile machine fuel frame condition body)
+  fors : ∀ frame target items body, Restores frame (runFor machine fuel frame target items body)
+  loops : ∀ frame body, Restores frame (runLoop machine fuel frame body)
+  arms : ∀ frame value arms, Restores frame (runMatch machine fuel frame value arms)
+
+set_option hygiene false in
+local macro "close_restores" : tactic => `(tactic| repeat' (first
+  | exact inner.block _ _
+  | exact inner.bound _ _ _
+  | exact inner.branches _ _ _
+  | exact inner.whiles _ _ _
+  | exact inner.fors _ _ _ _
+  | exact inner.loops _ _
+  | exact inner.arms _ _ _
+  | exact withinScope_restores _ _
+  | exact fun _ present => by cases present <;> exact ⟨rfl, rfl⟩
+  | refine fromResult_restores _ _ fun _ => ?_
+  | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
+  | refine iterate_restores ?_ fun _ => ?_
+  | split))
+
+theorem restoring {world : World Declaration Identity Source} (machine : Machine world) :
+    ∀ fuel, Restoring machine fuel
+  | 0 => {
+      block := fun _ _ => by simp only [runBlock]; exact fun _ present => by cases present
+      bound := fun _ _ _ => by simp only [runBound]; exact fun _ present => by cases present
+      branches := fun _ _ _ => by simp only [runIf]; exact fun _ present => by cases present
+      whiles := fun _ _ _ => by simp only [runWhile]; exact fun _ present => by cases present
+      fors := fun _ _ _ _ => by simp only [runFor]; exact fun _ present => by cases present
+      loops := fun _ _ => by simp only [runLoop]; exact fun _ present => by cases present
+      arms := fun _ _ _ => by simp only [runMatch]; exact fun _ present => by cases present }
+  | fuel + 1 => by
+    have inner := restoring machine fuel
+    exact {
+      block := fun frame statements => by simp only [runBlock]; close_restores
+      bound := fun frame captures statements => by simp only [runBound]; close_restores
+      branches := fun frame branches otherwise => by simp only [runIf]; close_restores
+      whiles := fun frame condition body => by simp only [runWhile]; close_restores
+      fors := fun frame target items body => by simp only [runFor]; close_restores
+      loops := fun frame body => by simp only [runLoop]; close_restores
+      arms := fun frame value arms => by simp only [runMatch]; close_restores }
+
+end Scopes
+
+section Preservation
+
+/-- A typing context the frame satisfies: a local holds a member of its
+type, and a name read through the environment resolves to a cell whose
+members are members of the name's type. -/
+def StoreConsistent (world : World Declaration Identity Source) (environment : Environment) (store : Store world)
+    (types : Xsh.Typing.Core.Expressions.TypeContext Declaration) (locals : Locals Declaration Identity Source) :
+    Prop :=
+  (∀ name type, types name = some type →
+    match locals.lookup name with
+    | some value => Membership.value world.membership type value
+    | none => ∃ cell found, environment.cellOf name = .ok cell ∧ store cell = some found ∧
+        ∀ candidate, HasType world found.contents.typeTag candidate → Membership.value world.membership type candidate) ∧
+  ∀ name value, locals.lookup name = some value → types name ≠ none
+
+theorem storeConsistent_consistent (world : World Declaration Identity Source) (environment : Environment)
+    (store : Store world) (types : Xsh.Typing.Core.Expressions.TypeContext Declaration)
+    (locals : Locals Declaration Identity Source)
+    (consistent : StoreConsistent world environment store types locals) :
+    Xsh.Proofs.Core.EvalTyping.Consistent world environment store types locals := by
+  refine ⟨fun name type typed => ?_, consistent.2⟩
+  have promised := consistent.1 name type typed
+  cases found : locals.lookup name with
+  | some value =>
+    simp only [found] at promised ⊢
+    exact promised
+  | none =>
+    simp only [found] at promised ⊢
+    obtain ⟨cell, held, resolved, present, members⟩ := promised
+    exact ⟨cell, held, resolved, present, members _ held.contents.wellTyped⟩
+
+theorem storeConsistent_persists (world : World Declaration Identity Source) (environment : Environment)
+    {before after : Store world} (types : Xsh.Typing.Core.Expressions.TypeContext Declaration)
+    (locals : Locals Declaration Identity Source) (kept : Persists before after)
+    (consistent : StoreConsistent world environment before types locals) :
+    StoreConsistent world environment after types locals := by
+  refine ⟨fun name type typed => ?_, consistent.2⟩
+  have promised := consistent.1 name type typed
+  cases found : locals.lookup name with
+  | some value =>
+    simp only [found] at promised ⊢
+    exact promised
+  | none =>
+    simp only [found] at promised ⊢
+    obtain ⟨cell, held, resolved, present, members⟩ := promised
+    obtain ⟨now, nowPresent, sameType⟩ := kept cell held present
+    exact ⟨cell, now, resolved, nowPresent, by rw [sameType]; exact members⟩
+
+/-- An outcome that keeps the frame's cells and restores its scope keeps it
+consistent with any typing context it satisfied. -/
+theorem scoped_preserves (world : World Declaration Identity Source) {frame : Frame world} {outcome : Exec world}
+    (types : Xsh.Typing.Core.Expressions.TypeContext Declaration) (kept : Keeps frame.store outcome)
+    (restored : Restores frame outcome)
+    (consistent : StoreConsistent world frame.environment frame.store types frame.locals) :
+    ∀ last, frameOf outcome = some last → StoreConsistent world last.environment last.store types last.locals ∧
+      Xsh.Proofs.Core.EvalTyping.Consistent world last.environment last.store types last.locals := by
+  intro last present
+  obtain ⟨environment, locals⟩ := restored last present
+  rw [environment, locals]
+  have after := storeConsistent_persists world frame.environment types frame.locals (kept last present) consistent
+  exact ⟨after, storeConsistent_consistent world _ _ types _ after⟩
+
+end Preservation
+
+section Laws
+
+variable [DecidableEq Declaration]
+
+theorem while_false {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame : Frame world) (body : List Xsh.Syntax.Statement) :
+    runWhile machine (fuel + 2) frame (.literal (.bool false)) body = .normal frame := by
+  simp [runWhile, evalExpr, step, literal, fromResult, boolean, Value.eraseNominal]
+
+theorem loop_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame next : Frame world) (body : List Xsh.Syntax.Statement)
+    (broke : runBlock machine fuel frame body = .broke next) :
+    runLoop machine (fuel + 1) frame body = .normal next := by
+  simp [runLoop, broke, Exec.iterate]
+
+theorem for_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame next : Frame world) (target : Xsh.Syntax.BindingTarget) (item : Value Declaration Identity Source)
+    (rest : List (Value Declaration Identity Source)) (body : List Xsh.Syntax.Statement)
+    (broke : withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      runStatements machine fuel bound body) = .broke next) :
+    runFor machine (fuel + 1) frame target (item :: rest) body = .normal next := by
+  simp only [runFor, broke, Exec.iterate]
+
+theorem while_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame next : Frame world) (condition : Xsh.Syntax.Expr) (body : List Xsh.Syntax.Statement)
+    (plain : ∀ subject pattern, condition ≠ .patternCondition subject pattern)
+    (holds : ∀ tested, evalExpr machine fuel frame.store frame.environment frame.locals condition = .value tested →
+      tested.eraseNominal = .scalar (.boolean true))
+    (tested : Value Declaration Identity Source)
+    (evaluated : evalExpr machine fuel frame.store frame.environment frame.locals condition = .value tested)
+    (broke : runBlock machine fuel frame body = .broke next) :
+    runWhile machine (fuel + 1) frame condition body = .normal next := by
+  have isTrue := holds tested evaluated
+  cases condition
+  case patternCondition subject pattern => exact absurd rfl (plain subject pattern)
+  all_goals simp only [runWhile, evaluated, fromResult, isTrue, broke, Exec.iterate]
+
+/-- A block passes a `break` out to the loop around it, restoring its scope. -/
+theorem block_passes_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame inner : Frame world) (body : List Xsh.Syntax.Statement)
+    (broke : runStatements machine fuel frame.enter body = .broke inner) :
+    runBlock machine (fuel + 1) frame body = .broke (frame.restore inner) := by
+  simp [runBlock, broke, withinScope]
+
+theorem return_skips_rest {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame last : Frame world) (statement : Xsh.Syntax.Statement) (rest : List Xsh.Syntax.Statement)
+    (value : Value Declaration Identity Source)
+    (returned : runStatement machine fuel frame statement = .returned value last) :
+    runStatements machine (fuel + 1) frame (statement :: rest) = .returned value last := by
+  simp [runStatements, returned, Exec.andThen]
+
+theorem for_passes_return {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (frame last : Frame world) (target : Xsh.Syntax.BindingTarget) (item : Value Declaration Identity Source)
+    (rest : List (Value Declaration Identity Source)) (body : List Xsh.Syntax.Statement)
+    (value : Value Declaration Identity Source)
+    (returned : withinScope frame ((bindTarget machine frame.enter .immutable target item).andThen fun bound =>
+      runStatements machine fuel bound body) = .returned value last) :
+    runFor machine (fuel + 1) frame target (item :: rest) body = .returned value last := by
+  simp only [runFor, returned, Exec.iterate]
+
+end Laws
+
 end Xsh.Proofs.Core.Control
