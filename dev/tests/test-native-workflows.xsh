@@ -239,5 +239,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{home}}")?
   env ({HOST_UID: "1000", HOST_GID: "1000", XSH_ROOT_NATIVE_TESTS: "1"}) {
     test_workflows.native(workflow_context, test_workflows.Verification, [])
   }
-  assert log.read_text()?.starts_with("1000|/tmp/")
+  let observed = log.read_text()?
+  assert observed.starts_with("1000|")
+  assert fixture_root.display() not in observed
 }
