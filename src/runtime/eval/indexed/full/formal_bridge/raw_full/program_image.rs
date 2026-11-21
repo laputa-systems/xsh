@@ -520,6 +520,8 @@ image_unit_enums! {
     xsh_registry::signature::ArithmeticSignature { Integer, Float, StringConcatenation, ListConcatenation, SetDifference, DurationPair, DurationScale, IntegerScale, DurationRatio }
     crate::sema::sealed_operation::MembershipDomain { List, Set, Map, UnsignedMap, Record, Str, Bytes, Path, EnvPath }
     crate::sema::wrapper_operation::WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
+    crate::syntax::arena::UnknownFields { Preserve, Reject, Strip }
+    crate::modules::MethodReceiver { PathConstructor, Result, EnvPathList, Path, Int, Float, List, Map, Record, Stream, Str, Bytes, Status, Digest, Regex, ProcessHandle, NetJob, FsRoot, NonEmpty, RelPath, Set }
     CheckedPatternVariantKind { Tag, Error }
     Effect { Fs, Net, Process, Env, Time, Error, Io }
     AssignOp { Set, Add, Sub, Mul, Div, Rem }
@@ -754,6 +756,7 @@ image_structs! {
 }
 
 image_enums! {
+    crate::sema::schemes::RegisteredArgumentCheck { Unsigned(ty) = 0, UIntMapKey = 1 }
     schemes::FullOperationBinding { Selected(signature) = 0, Forwarded(ordinal) = 1 }
     schemes::FullMethodBinding { Selected(id) = 0, SelectedFunction(id) = 1, Forwarded(ordinal) = 2 }
     schemes::FullWrapperBinding { Selected(selection) = 0, Forwarded(ordinal) = 1 }
@@ -1023,9 +1026,179 @@ macro_rules! image_unsupported {
 }
 
 image_unsupported! {
-    crate::runtime::eval::require::PreparedSchema => "prepared schemas",
     crate::runtime::eval::ModuleCallPlan => "prepared module call plans",
-    crate::sema::schemes::RegisteredCallPlan => "registered call plans",
+}
+
+fn registered_signatures() -> &'static [&'static crate::modules::ModuleFnSig] {
+    static SIGNATURES: std::sync::OnceLock<Vec<&'static crate::modules::ModuleFnSig>> = std::sync::OnceLock::new();
+    SIGNATURES.get_or_init(|| {
+        let spec = crate::modules::api_spec();
+        let mut signatures: Vec<&'static crate::modules::ModuleFnSig> = spec.module_entries()
+            .flat_map(|(_, module)| module.functions.iter()).flat_map(|function| function.overloads.iter())
+            .chain(spec.method_entries().flat_map(|(_, methods)| methods.iter())
+                .flat_map(|method| method.overloads.iter().map(|overload| &overload.sig)))
+            .collect();
+        let mut operations = registered_runtime_ops().iter().collect::<Vec<_>>();
+        operations.sort_unstable_by_key(|(raw, _)| **raw);
+        for (_, &op) in operations {
+            for signature in crate::modules::signature::native_static_operation_signatures(op) {
+                if !signatures.iter().any(|existing| std::ptr::eq(*existing, signature)) {
+                    signatures.push(signature);
+                }
+            }
+        }
+        signatures
+    })
+}
+
+impl ImageCodec for crate::sema::schemes::RegisteredCallPlan {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        let Some(index) = registered_signatures().iter().position(|signature| std::ptr::eq(*signature, self.signature)) else {
+            return unsupported("call plan signature is not registered");
+        };
+        let Ok(index) = u32::try_from(index) else { return unsupported("registered signature index exceeds u32") };
+        self.receiver.put(output)?;
+        self.name.put(output)?;
+        index.put(output)?;
+        self.argument_slots.put(output)?;
+        self.argument_checks.put(output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        let receiver = ImageCodec::take(input)?;
+        let name = ImageCodec::take(input)?;
+        let index = u32::take(input)? as usize;
+        let Some(&signature) = registered_signatures().get(index) else { return malformed("registered signature index is invalid") };
+        Ok(Self { receiver, name, signature, argument_slots: ImageCodec::take(input)?, argument_checks: ImageCodec::take(input)? })
+    }
+}
+
+#[test]
+fn registered_call_plan_image_preserves_signature_identity() {
+    use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan};
+    use crate::sema::types::Type;
+    let spec = crate::modules::api_spec();
+    let function = &spec.module_overloads("json", "decode").unwrap()[0];
+    let method = &spec.method_overloads(crate::modules::MethodReceiver::List, "push").unwrap()[0].sig;
+    for (receiver, name, signature) in [
+        (None, "decode", function),
+        (Some(crate::modules::MethodReceiver::List), "push", method),
+    ] {
+        let plan = RegisteredCallPlan {
+            receiver,
+            name: Arc::from(name),
+            signature,
+            argument_slots: Arc::from([0usize]),
+            argument_checks: Arc::from([Some(RegisteredArgumentCheck::Unsigned(Type::UInt)), Some(RegisteredArgumentCheck::UIntMapKey)]),
+        };
+        let mut output = ImageWriter::default();
+        plan.put(&mut output).unwrap();
+        let mut input = ImageReader::new(&output.bytes);
+        let decoded = RegisteredCallPlan::take(&mut input).unwrap();
+        input.finish().unwrap();
+        assert_eq!(decoded, plan);
+        let mut reencoded = ImageWriter::default();
+        decoded.put(&mut reencoded).unwrap();
+        assert_eq!(reencoded.bytes, output.bytes);
+        assert!(RegisteredCallPlan::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+    }
+}
+
+impl ImageCodec for crate::sema::types::Type {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::runtime::eval::indexed::semantic::{SemanticPoolBuilder, SemanticPools};
+        let mut pools = SemanticPools::default();
+        let id = SemanticPoolBuilder::default().intern_type(&mut pools, self)
+            .map_err(|error| ImageError::Unsupported(format!("semantic type cannot be encoded: {error:?}")))?;
+        id.put(output)?;
+        put_semantic(&pools.export_raw(&SymbolOwner::new()), output)
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        input.nested(|input| {
+            let id = TypeId::take(input)?;
+            let raw = take_semantic(input, SymbolOwner::new())?;
+            let (pools, _) = crate::runtime::eval::indexed::semantic::SemanticPools::from_raw(raw);
+            pools.verify().map_err(|error| ImageError::Malformed(format!("semantic type tables are invalid: {error:?}")))?;
+            pools.to_type(id).map_err(|error| ImageError::Malformed(format!("semantic type is invalid: {error:?}")))
+        })
+    }
+}
+
+impl ImageCodec for crate::runtime::eval::require::PreparedSchema {
+    fn put(&self, output: &mut ImageWriter) -> ImageResult<()> {
+        use crate::runtime::eval::require::PreparedSchema as S;
+        match self {
+            S::UnknownFields(policy, schema) => { 0u8.put(output)?; policy.put(output)?; schema.put(output) }
+            S::Validate(ty) => { 1u8.put(output)?; ty.put(output) }
+            S::Record(fields) => { 2u8.put(output)?; fields.put(output) }
+            S::List(schema) => { 3u8.put(output)?; schema.put(output) }
+            S::Map(key, schema) => { 4u8.put(output)?; key.put(output)?; schema.put(output) }
+            S::Optional(schema) => { 5u8.put(output)?; schema.put(output) }
+            S::WireEnum(mapping) => { 6u8.put(output)?; mapping.put(output) }
+            S::Union(ty, members) => { 7u8.put(output)?; ty.put(output)?; members.put(output) }
+            S::Validated(ty, schema) => { 8u8.put(output)?; ty.put(output)?; schema.put(output) }
+            S::Set(ty) => { 9u8.put(output)?; ty.put(output) }
+        }
+    }
+
+    fn take(input: &mut ImageReader<'_>) -> ImageResult<Self> {
+        use crate::runtime::eval::require::PreparedSchema as S;
+        input.nested(|input| Ok(match input.u8()? {
+            0 => S::UnknownFields(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            1 => S::Validate(ImageCodec::take(input)?),
+            2 => S::Record(ImageCodec::take(input)?),
+            3 => S::List(ImageCodec::take(input)?),
+            4 => S::Map(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            5 => S::Optional(ImageCodec::take(input)?),
+            6 => S::WireEnum(ImageCodec::take(input)?),
+            7 => S::Union(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            8 => S::Validated(ImageCodec::take(input)?, ImageCodec::take(input)?),
+            9 => S::Set(ImageCodec::take(input)?),
+            _ => return malformed("prepared schema tag is invalid"),
+        }))
+    }
+}
+
+#[test]
+fn prepared_schema_image_round_trip_and_malformed_inputs() {
+    use crate::runtime::eval::require::PreparedSchema as S;
+    use crate::sema::types::Type;
+    use crate::sema::wire_enums::WireEnumMapping;
+    use crate::syntax::arena::UnknownFields;
+
+    let symbols = SymbolOwner::new();
+    symbols.with_current(|| {
+        let name = Name::intern("schema_image_field");
+        let leaf = Arc::new(S::Validate(Type::Int));
+        let mapping = Arc::new(WireEnumMapping { type_name: name, variants: BTreeMap::from([(name, Arc::from("value"))]) });
+        let schemas = [
+            S::UnknownFields(UnknownFields::Reject, Arc::clone(&leaf)),
+            S::Validate(Type::Str),
+            S::Record(vec![(name, Arc::clone(&leaf))]),
+            S::List(Arc::clone(&leaf)),
+            S::Map(Type::Str, Arc::clone(&leaf)),
+            S::Optional(Arc::clone(&leaf)),
+            S::WireEnum(mapping),
+            S::Union(Type::Union(vec![Type::Int, Type::Str]), vec![Arc::clone(&leaf)]),
+            S::Validated(Type::non_empty(Type::Int), Arc::clone(&leaf)),
+            S::Set(Type::Str),
+        ];
+        for schema in schemas {
+            let mut output = ImageWriter::default();
+            schema.put(&mut output).unwrap();
+            let mut input = ImageReader::new(&output.bytes);
+            let decoded = S::take(&mut input).unwrap();
+            input.finish().unwrap();
+            assert_eq!(decoded, schema);
+            let mut reencoded = ImageWriter::default();
+            decoded.put(&mut reencoded).unwrap();
+            assert_eq!(reencoded.bytes, output.bytes);
+            assert!(S::take(&mut ImageReader::new(&output.bytes[..output.bytes.len() - 1])).is_err());
+        }
+        assert!(S::take(&mut ImageReader::new(&[255])).is_err());
+        assert!(S::take(&mut ImageReader::new(&[3; 65])).is_err());
+    });
 }
 
 pub(super) fn put_semantic(semantic: &RawSemanticPools, output: &mut ImageWriter) -> ImageResult<()> {
