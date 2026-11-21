@@ -3941,8 +3941,8 @@ Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 `Result` tail stays nested (`try { op() }` is `Result[Result[T]]`; write
 `try { op()? }`). Explicit `?`, failed conversions (`value as T`),
 statement-position `Result[Unit]` failures,
-failed assertions, and failed plain `run` statements inside the block become
-`Err`. `return`, `break`, and `continue` keep their ordinary targets, so
+failed assertions, failed plain `run` statements, and the `Map[UInt, V]` key
+`Schema` failure (6.6) inside the block become `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
 type failures, other runtime failures such as `index-out-of-range`,
 `division-by-zero` and `integer-overflow`, `exit`, and cancellation are not
