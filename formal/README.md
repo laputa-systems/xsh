@@ -761,8 +761,10 @@ G0–G10 structure when updating it.
 [`Conformance/Vertical/SourceAdmission.lean`](Xsh/Conformance/Vertical/SourceAdmission.lean)
 proves the fragment root `Xsh.Conformance.Vertical.SourceAdmission.source_admission`.
 SRC-ADMIT stays planned: the root has no parse-failure judgment, its string
-rejection clauses are stated over the Lean scanner itself, `D` admits no string
-literals, comments or module inputs, and no Rust lexer correspondence is shown.
+rejection clauses are the Lean scanner's relational reading, `D` admits no
+string literals, comments or module inputs, and no Rust lexer correspondence is
+shown. The relations `DeclaredString` and `EscapeError` relate the scanner's own
+decisions; they are not an independent SPEC reading of source strings.
 It decides, for arbitrary source bytes and no imported inputs, one of three
 outcomes, each with an exact declarative range:
 
@@ -772,10 +774,15 @@ outcomes, each with an exact declarative range:
   projection for every function, and a tokenization whose trees satisfy the
   independent grammar, ordered propagation, record-call exclusion, and the
   supported-word guard.
-- `rejected (.invalidUtf8 span)` holds exactly on inputs with a first invalid
-  UTF-8 offset; the span starts there and runs to the end of input.
+- `rejected (.invalidUtf8 span)` holds exactly where the bytes before the span
+  are well-formed UTF-8 and no well-formed UTF-8 sequence starts at the span's
+  start, stated against `ValidUtf8` and `StartsSeq` rather than the detector.
+  The classifier's offset is the least such offset, and the span runs to the end
+  of input.
 - `rejected (.invalidEscape span)` and `rejected (.unterminatedString span)`
-  hold exactly over the declared string envelope `E`: well-formed UTF-8 with no
+  hold exactly over the declared string envelope `E`, through the relational
+  `DeclaredString` (whose invalid-escape case carries `EscapeError`): well-formed
+  UTF-8 with no
   `#` comment byte, no `r"`, `b"`, `f"`, `fp"`, `g"`, `p"`, `rx"`, or `e"`
   opener, no `"""`, no `${` or `$(` interpolation marker, and no `'` byte.
   An invalid escape spans the backslash through the
@@ -786,7 +793,8 @@ outcomes, each with an exact declarative range:
 - `outside` holds for everything else and makes no SPEC claim: valid UTF-8,
   outside `D`, and either outside `E` or scanning clean.
 
-The accepted outcome also yields the positioned tokens of the exact bytes, the
+The accepted outcome also yields a `ScopesProjection` from the accepted
+functions to the returned scopes, the positioned tokens of the exact bytes, the
 grammar derivation, the decimal interpretation of every number token within the
 bound, and a span for the token list that lies within the source. A node's span
 is its own tokens' span by construction. `D` contains no quote byte, so an

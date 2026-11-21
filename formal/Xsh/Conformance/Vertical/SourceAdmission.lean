@@ -69,16 +69,22 @@ theorem accepted_node_spans {bytes : List UInt8} {moduleInputs : List (List UInt
     ∃ positioned tokens, PositionedLexed 0 (bytes.map UInt8.toNat) positioned ∧
       positioned.map (fun entry => entry.1) = tokens ∧
       FunctionsSyntax tokens functions ∧
-      (∀ span, TokenSpan positioned = some span → 0 ≤ span.start ∧
-        span.stop ≤ bytes.length) := by
+      (∀ span, TokenSpan positioned = some span → span.stop ≤ bytes.length) := by
   obtain ⟨tokens, positioned, positions, projection, grammar, _⟩ :=
     accepted_positioned_tokens accepted
   refine ⟨positioned, tokens, positions, projection, grammar, ?_⟩
   intro span found
   have bounds := token_span_within_source positions found
-  refine ⟨bounds.1, ?_⟩
   rw [List.length_map] at bounds
-  omega
+  simpa using bounds.2
+
+/-- An accepted input's scopes are the projection of the functions the classifier names. -/
+theorem accepted_scope_projection {bytes : List UInt8} {moduleInputs : List (List UInt8)}
+    {functions : List SourceFunction} {scopes : List (List (String × Nat))}
+    (accepted : classify bytes moduleInputs = .accepted functions scopes) :
+    ScopesProjection functions scopes := by
+  obtain ⟨_, _, _, _, _, projected⟩ := accepted_positioned_tokens accepted
+  exact projected
 
 theorem source_admission (bytes : List UInt8) (moduleInputs : List (List UInt8)) :
     (Domain bytes moduleInputs ↔
@@ -92,14 +98,15 @@ theorem source_admission (bytes : List UInt8) (moduleInputs : List (List UInt8))
         ¬ Domain bytes moduleInputs ∧ (∀ span, ¬ InvalidUtf8At bytes span) ∧
           (InEnvelope bytes = false ∨ DeclaredString bytes 0 .clean)) ∧
       (∀ functions scopes, classify bytes moduleInputs = .accepted functions scopes →
-        ∃ positioned tokens, PositionedLexed 0 (bytes.map UInt8.toNat) positioned ∧
-          positioned.map (fun entry => entry.1) = tokens ∧
-          FunctionsSyntax tokens functions ∧
-          (∀ span, TokenSpan positioned = some span → 0 ≤ span.start ∧
-            span.stop ≤ bytes.length)) := by
+        ScopesProjection functions scopes ∧
+          ∃ positioned tokens, PositionedLexed 0 (bytes.map UInt8.toNat) positioned ∧
+            positioned.map (fun entry => entry.1) = tokens ∧
+            FunctionsSyntax tokens functions ∧
+            (∀ span, TokenSpan positioned = some span → span.stop ≤ bytes.length)) := by
   refine ⟨domain_iff_classified_accepted bytes moduleInputs,
     fun span => classify_invalid_utf8_iff bytes moduleInputs span, ?_, ?_,
-    fun functions scopes accepted => accepted_node_spans accepted⟩
+    fun functions scopes accepted =>
+      ⟨accepted_scope_projection accepted, accepted_node_spans accepted⟩⟩
   · intro failure notUtf8
     rw [classify_string_iff bytes moduleInputs failure notUtf8]
     exact ⟨fun found => ⟨found.1, (declared_string_iff bytes 0 (.failed failure)).mp found.2⟩,
