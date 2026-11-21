@@ -195,7 +195,7 @@ read at its base is a base member, erasure is the identity for `NonEmpty`,
 `RelPath` and bounded integers, removes exactly the declaration wrapper of a
 nominal member, and keeps references and every base-view observation.
 
-The `validated_store` fragment root is in
+VAL-STORE is closed by `validated_store` in
 [`Validation/Core/Store.lean`](Xsh/Validation/Core/Store.lean). It shows that a cell of a
 validated type accepts exactly members, any other write is a `type-error`
 that keeps the store, a validated value copied into a base-view cell keeps its
