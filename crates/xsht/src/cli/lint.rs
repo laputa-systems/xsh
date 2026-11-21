@@ -7,6 +7,7 @@ use crate::xsht::config::FileToolConfig;
 use crate::xsht::edit::{
     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
 };
+use crate::xsht::export_analysis::{self, ExportModule};
 use crate::xsht::lint::{
     CallableEdgeFacts, LintOptions, LintProbeTransport, Linter, finalize_callable_reachability,
     lint_code_selected, lint_requires_check_output, lint_unused_callable_enabled, range_source_id,
@@ -327,6 +328,9 @@ struct ResolvedLintConfig {
     lint_options: LintOptions,
     line_width: usize,
     module_roots: Vec<PathBuf>,
+    /// `[dead-code] public-api`: this module's exports are a published
+    /// interface, so the workspace unused-export rule reports nothing in it.
+    public_api: bool,
 }
 
 struct WorkspaceModule {
@@ -546,6 +550,15 @@ fn lint_workspace_with_parallelism(
     let mut workspace = LintWorkspace::new(sources, program, modules, roots, input_errors);
     let callable_edge_facts =
         CallableEdgeFactStore::new(callable_reachability_sources(&workspace));
+    // A fix round can change the reference graph, for example by rewriting a
+    // schema literal into a named type. Reporting the workspace analysis from
+    // the pre-fix text would then be stale, so a fix run leaves it to the next
+    // ordinary lint.
+    let export_diagnostics = if fix {
+        FxHashMap::default()
+    } else {
+        workspace_export_diagnostics(&workspace, discovery.only.as_deref())
+    };
     timings.record(Stage::Load, load_started.elapsed());
 
     let mut results = Vec::new();
@@ -608,6 +621,7 @@ fn lint_workspace_with_parallelism(
                 root_work,
                 true,
                 &callable_edge_facts,
+                &export_diagnostics,
                 timings,
                 &mut results,
                 &mut index,
@@ -618,6 +632,7 @@ fn lint_workspace_with_parallelism(
             &workspace,
             workers,
             &callable_edge_facts,
+            &export_diagnostics,
             timings,
             &mut results,
             &mut index,
@@ -633,6 +648,7 @@ fn lint_workspace_roots_in_ordered_batches(
     workspace: &LintWorkspace,
     workers: usize,
     callable_edge_facts: &CallableEdgeFactStore,
+    export_diagnostics: &FxHashMap<String, Vec<Diagnostic>>,
     timings: &StageTimings,
     results: &mut Vec<LintResult>,
     index: &mut usize,
@@ -676,6 +692,7 @@ fn lint_workspace_roots_in_ordered_batches(
                 root_work,
                 false,
                 callable_edge_facts,
+                export_diagnostics,
                 timings,
                 results,
                 index,
@@ -823,6 +840,7 @@ fn append_lint_workspace_root_work(
     root_work: LintWorkspaceRootWork,
     fix: bool,
     callable_edge_facts: &CallableEdgeFactStore,
+    export_diagnostics: &FxHashMap<String, Vec<Diagnostic>>,
     timings: &StageTimings,
     results: &mut Vec<LintResult>,
     index: &mut usize,
@@ -842,7 +860,14 @@ fn append_lint_workspace_root_work(
                     .diagnostics
                     .extend(finalize_callable_reachability(&view, &source_facts));
             }
-            finish_lint_workspace_root(workspace, root, pending, fix, timings)
+            finish_lint_workspace_root(
+                workspace,
+                root,
+                pending,
+                fix,
+                export_diagnostics,
+                timings,
+            )
         }
     };
     for mut result in root_results {
@@ -1136,6 +1161,7 @@ fn finish_lint_workspace_root(
     root: &str,
     pending: LintWorkspaceRootPending,
     fix: bool,
+    export_diagnostics: &FxHashMap<String, Vec<Diagnostic>>,
     timings: &StageTimings,
 ) -> Vec<LintResult> {
     let checked_diagnostics = pending.checked_diagnostics;
@@ -1148,6 +1174,9 @@ fn finish_lint_workspace_root(
         let Some(module) = workspace.modules.get(&key) else {
             continue;
         };
+        if let Some(found) = export_diagnostics.get(&key) {
+            linted.diagnostics.extend(found.iter().cloned());
+        }
         for diagnostic in checked_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
@@ -1602,6 +1631,45 @@ impl LintWorkspace {
             Some(module.source_id),
         )
     }
+
+    fn export_modules(&self) -> Vec<ExportModule<'_>> {
+        self.modules
+            .iter()
+            .map(|(key, module)| {
+                let options = &module.config.lint_options;
+                ExportModule {
+                    key: key.as_str(),
+                    path: &module.path,
+                    source_id: module.source_id,
+                    text: &module.text,
+                    statements: module.statements,
+                    imports: &module.imports,
+                    test_file: options.native_test_file,
+                    public_api: module.config.public_api,
+                    enabled: options.dead_code
+                        && !options
+                            .excluded_rules
+                            .contains(&DiagnosticCode::LintUnusedExport),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Analyze exports across every loaded module. The rule is off in a module
+/// whose configuration excludes `[dead-code]` or names `lint.unused-export`,
+/// but that module's own references still keep other modules' exports live.
+fn workspace_export_diagnostics(
+    workspace: &LintWorkspace,
+    only: Option<&[DiagnosticCode]>,
+) -> FxHashMap<String, Vec<Diagnostic>> {
+    let modules = workspace.export_modules();
+    if !modules.iter().any(|module| module.enabled) {
+        return FxHashMap::default();
+    }
+    let include_reduced_use =
+        only.is_some_and(|only| only.contains(&DiagnosticCode::LintUnusedExport));
+    export_analysis::unused_export_diagnostics(&workspace.program, &modules, include_reduced_use)
 }
 
 fn callable_reachability_sources(workspace: &LintWorkspace) -> FxHashSet<SourceId> {
@@ -1900,6 +1968,11 @@ fn lint_config_for_file(
         lint_options,
         line_width,
         module_roots,
+        public_api: is_path_excluded(
+            &tool_config.config_dir,
+            Path::new(file),
+            &tool_config.config.dead_code.public_api,
+        ),
     })
 }
 
@@ -2450,6 +2523,7 @@ mod tests {
             lint_options: LintOptions::default(),
             line_width: DEFAULT_LINE_WIDTH,
             module_roots: Vec::<PathBuf>::new(),
+            public_api: false,
         }
     }
 

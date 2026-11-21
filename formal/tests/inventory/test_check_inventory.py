@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -120,7 +122,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1261, len(result["fragment_roots"]))
+        self.assertEqual(1279, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair", "artifact.raw-ir-structure", "artifact.raw-ir-features"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual(["BASE-NUM", "EFF-LATTICE", "VAL-ERASE", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-STORE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
@@ -1812,6 +1814,166 @@ class InventoryCheckerTests(unittest.TestCase):
                 (ROOT / "xsh-lean.md").read_text(), obligations + [obligations[0]]
             )
 
+
+    def implementation_inputs(self) -> tuple[list[dict[str, object]], list[object], dict[str, Path]]:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        return (
+            coverage["implementation_proofs"],
+            coverage["universal_theorems"],
+            CHECKER.lean_module_sources(ROOT / "formal"),
+        )
+
+    def implementation_copy(self, directory: str) -> Path:
+        copy = Path(directory)
+        shutil.copytree(ROOT / "formal", copy / "formal")
+        shutil.copytree(
+            ROOT / "dev/verify/aeneas",
+            copy / "dev/verify/aeneas",
+            ignore=shutil.ignore_patterns(".lake"),
+        )
+        for name in ("src/arith.rs", "src/duration.rs", "src/syntax/node.rs"):
+            (copy / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, copy / name)
+        return copy
+
+    def assert_copy_is_stale(self, relative: str, original: str, replacement: str) -> None:
+        proofs, obligations, _ = self.implementation_inputs()
+        with tempfile.TemporaryDirectory() as directory:
+            copy = self.implementation_copy(directory)
+            modules = CHECKER.lean_module_sources(copy / "formal")
+            self.assertEqual(
+                2, len(CHECKER.validate_implementation_proofs(copy, proofs, obligations, modules))
+            )
+            path = copy / relative
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(1, text.count(original))
+            path.write_text(text.replace(original, replacement), encoding="utf-8")
+            with self.assertRaisesRegex(
+                CHECKER.InventoryError, f"stale implementation proof .*{relative} changed"
+            ):
+                CHECKER.validate_implementation_proofs(copy, proofs, obligations, modules)
+
+    def test_changed_formal_specification_makes_an_implementation_proof_stale(self) -> None:
+        self.assert_copy_is_stale(
+            "formal/Xsh/Core/Arith.lean", "  | .rem, a, b => a.tmod b", "  | .rem, a, b => a.emod b"
+        )
+
+    def test_changed_harness_specification_makes_an_implementation_proof_stale(self) -> None:
+        self.assert_copy_is_stale(
+            "dev/verify/aeneas/lean/XshImpl/ArithSpec.lean",
+            "  (intOp? op).map fun op => Xsh.Core.Arith.checked op left right",
+            "  none",
+        )
+
+    def test_proof_sources_must_cover_the_harness_and_its_formal_imports(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["proof_sources"] = [
+            item for item in proofs[0]["proof_sources"] if item["path"] != "formal/Xsh/Values/Scalars.lean"
+        ]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "proof sources differ .*Scalars.lean"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_reproduction_cannot_depend_on_the_disposable_work_tree(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["reproduction"][1]["command"] = [".work/bin/lean-slot", "dev/verify/aeneas/check.sh"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "disposable .work tree"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_proofs_match_live_sources_and_pins(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        self.assertEqual(
+            ["impl.arith.checked_int_binary", "impl.duration.checked_duration_binary"],
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules),
+        )
+
+    def test_changed_source_makes_an_implementation_proof_stale(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["sources"][0]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CHECKER.InventoryError, "stale implementation proof .*src/arith.rs changed"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_translation_makes_an_implementation_proof_stale(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[1]["translation"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CHECKER.InventoryError, "stale implementation proof .*XshArithSlice.lean changed"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_toolchain_makes_an_implementation_proof_stale(self) -> None:
+        for key, value, message in (
+            ("charon", "0.1.316 (0000000)", "does not pin"),
+            ("extraction_rust", "nightly-2026-11-09", "does not pin"),
+            ("lean", "4.36.0", "is not leanprover/lean4:v4.36.0"),
+            ("mathlib", "0" * 40, "manifest pins mathlib"),
+        ):
+            with self.subTest(key=key):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["toolchain"][key] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_changed_library_source_makes_an_implementation_proof_stale(self) -> None:
+        for key, value, message in (
+            ("aeneas_library_repository", "https://github.com/AeneasVerif/aeneas.git", "does not require aeneas"),
+            ("aeneas_library", "5a392f4b80a4d0d05abc240eb2a7fa70622a9a35", "manifest pins aeneas"),
+        ):
+            with self.subTest(key=key):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["toolchain"][key] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_copy_must_be_the_verbatim_declaration(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["copies"][0]["declaration"] = "pub enum UnaryOp {"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "is not the verbatim"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_stale_implementation_proof_skips_identity_checks(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["status"] = "stale"
+        proofs[0]["sources"][0]["sha256"] = "0" * 64
+        proofs[0]["toolchain"]["charon"] = "unpinned"
+        self.assertEqual(2, len(CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)))
+
+    def test_implementation_proof_cannot_attach_to_a_closed_obligation(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["obligation"] = "BASE-NUM"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must name a planned obligation"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_proof_names_live_theorems_and_formal_specifications(self) -> None:
+        for field, value, message in (
+            ("negative_controls", ["XshImpl.Controls.absent_control"], "names no theorem"),
+            ("theorem", "XshImpl.Arith.absent_refinement", "names no theorem"),
+            ("specification", ["XshImpl.Arith.decode"], "is not a formal definition"),
+        ):
+            with self.subTest(field=field):
+                proofs, obligations, modules = self.implementation_inputs()
+                proofs[0]["proof"][field] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_translation_must_define_the_subject(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["translation"]["definition"] = "xsh_arith_slice.arith.absent"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "translation does not define"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_implementation_proof_keeps_its_own_evidence_class(self) -> None:
+        proofs, obligations, modules = self.implementation_inputs()
+        proofs[0]["evidence_class"] = "SPEC_PROVED"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must use EXTRACTED_REFINEMENT"):
+            CHECKER.validate_implementation_proofs(ROOT, proofs, obligations, modules)
+
+    def test_coverage_requires_schema_four_and_the_extracted_refinement_class(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["schema"] = 3
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unsupported coverage schema"):
+            CHECKER.validate_coverage(ROOT, coverage)
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["evidence_classes"] = coverage["evidence_classes"][:4]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "five campaign evidence classes"):
+            CHECKER.validate_coverage(ROOT, coverage)
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,12 +11,12 @@ export pure is_sha256(text: Str) -> Bool {
 pure text(entry: Map[Str, Any], key: Str) -> Result[Str] {
   let value = entry.get(key)?.require(Str)?
   guard value != "" else { return Err(error.failure(f"{key} must be a nonempty string")) }
-  return Ok(value)
+  value
 }
 
 pure optional_text(entry: Map[Str, Any], key: Str) -> Result[Str?] {
   if key in entry { return Ok(text(entry, key)?) }
-  return Ok(null)
+  null
 }
 
 pure valid_url(url: Str) -> Bool {
@@ -56,7 +56,7 @@ export proc load_sources(file: Path) -> Result[List[Input], Error] {
     let version = text(entry, "version")?
     let sha256 = text(entry, "sha256")?
     guard is_sha256(sha256) else { return Err(error.failure(f"{file}: {name}: invalid sha256")) }
-    guard ("url" in entry) != ("urls" in entry) else { return Err(error.failure(f"{file}: {name}: exactly one of url and urls is required")) }
+    guard "url" in entry != "urls" in entry else { return Err(error.failure(f"{file}: {name}: exactly one of url and urls is required")) }
     let urls = if "url" in entry { [entry.get("url")?.require(Str)?] } else { entry.get("urls")?.require(List[Str])? }
     guard !urls.is_empty() else { return Err(error.failure(f"{file}: {name}: urls must not be empty")) }
     var seen: List[Str] = []
@@ -73,7 +73,7 @@ export proc load_sources(file: Path) -> Result[List[Input], Error] {
     let purpose = optional_text(entry, "purpose")?
     entries = [@entries, {name: name, version: version, sha256: sha256, urls: urls, size: size, role: role, target: target, license: license, purpose: purpose, data: entry}]
   }
-  return Ok(entries)
+  entries
 }
 
 ## A file digest and byte count.
@@ -88,7 +88,7 @@ export proc digest_file(file: Path) -> Result[FileDigest, Error] {
 
 ## Return a file's lowercase SHA-256.
 export proc sha256_file(file: Path) -> Result[Str, Error] {
-  return Ok(hash.sha256(file)?.hex())
+  hash.sha256(file)?.hex()
 }
 
 ## Verify a regular file against its source pin.

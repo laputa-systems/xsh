@@ -1,0 +1,20 @@
+[package]
+name = "xsh-arith-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "xsh_arith_fuzz"
+path = "fuzz_targets/checked_int_binary.rs"
+crate-type = ["staticlib"]
+test = false
+doc = false
+bench = false
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+debug = 1
+
+[workspace]

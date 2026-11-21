@@ -181,7 +181,15 @@ test test_unterminated_regex_literals_are_lexical_errors { |ctx|
 }
 
 test test_string_escape_errors_are_lexical { |ctx|
-  for source in ["print \"a\\qb\"\n", "print \"a\\\nprint \"b\"\n", "print \"a\\x4\"\n"] {
+  for source in [
+    "print \"a\\qb\"\n",
+    "print \"a\\\nprint \"b\"\n",
+    "print \"a\\\r\nprint \"b\"\n",
+    "print \"a\\x4\"\n",
+    "print \"a\\x+f\"\n",
+    "print \"a\\xa\u{e9}\"\n",
+    "print f\"a\\xa\u{e9}\"\n",
+  ] {
     expect_rejected(ctx, source, "lex.invalid-escape")
   }
   for source in ["print \"abc\n", "print \"a\\"] {

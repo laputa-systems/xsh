@@ -80,6 +80,13 @@ import Xsh.Semantics.CoreWrites
 import Xsh.Proofs.Core.Writes
 import Xsh.Semantics.CoreStatements
 import Xsh.Proofs.Core.Statements
+import Xsh.Semantics.CoreEval
+import Xsh.Proofs.Core.Eval
+import Xsh.Typing.Core.Expressions
+import Xsh.Proofs.Core.EvalTyping
+import Xsh.Proofs.Core.EvalStatements
+import Xsh.Semantics.CoreControl
+import Xsh.Proofs.Core.Control
 import Xsh.Proofs.Base.Num
 import Xsh.Proofs.Base.Step
 import Xsh.Proofs.Base.Progress
@@ -150,6 +157,11 @@ import Xsh.Conformance.Vertical.Facts
 import Xsh.Conformance.Vertical.FactsDocument
 import Xsh.Conformance.Vertical.FactsCertificate
 import Xsh.Conformance.Vertical.SourceAdmissionSound
+import Xsh.Conformance.Vertical.SourceClassification
+import Xsh.Conformance.Vertical.SourceStrings
+import Xsh.Conformance.Vertical.SourceClassifier
+import Xsh.Conformance.Vertical.SourceTreeSpans
+import Xsh.Conformance.Vertical.SourceAdmission
 import Xsh.Conformance.Vertical.FactsIRConsistency
 
 import Xsh.Semantics.Connected.StoreRuntime

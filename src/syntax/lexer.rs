@@ -771,13 +771,14 @@ impl<'a> Lexer<'a> {
             b'0' => decoded.push(0),
             b'x' => {
                 let hex_start = self.offset;
-                if self.offset + 2 <= self.source.len() {
-                    let hex = &self.source[self.offset..self.offset + 2];
-                    if let Ok(value) = u8::from_str_radix(hex, 16) {
-                        decoded.push(value);
-                        self.offset += 2;
-                        return;
-                    }
+                if let Some(hex) = self.source.as_bytes().get(self.offset..self.offset + 2)
+                    && hex.iter().all(u8::is_ascii_hexdigit)
+                    && let Ok(hex) = std::str::from_utf8(hex)
+                    && let Ok(value) = u8::from_str_radix(hex, 16)
+                {
+                    decoded.push(value);
+                    self.offset += 2;
+                    return;
                 }
                 self.invalid_escape(escape_start, hex_start);
             }
@@ -803,6 +804,10 @@ impl<'a> Lexer<'a> {
             b'u' if bytes => self.diagnostics.push(bytes_unicode_escape_diagnostic(
                 self.span(escape_start, self.offset),
             )),
+            b'\r' if self.peek_byte() == Some(b'\n') => {
+                self.offset += 1;
+                self.invalid_escape(escape_start, self.offset);
+            }
             _ => self.invalid_escape(escape_start, self.offset),
         }
     }

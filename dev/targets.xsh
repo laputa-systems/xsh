@@ -86,16 +86,6 @@ export pure host_arch_tag(machine: Str) -> Result[HostArch, Error] {
   }
 }
 
-## Decodes a supported target triple into its closed identity.
-export pure target_id(triple: Str) -> Result[TargetId, Error] {
-  match triple {
-    "x86_64-unknown-linux-musl" => X86_64LinuxMusl
-    "aarch64-unknown-linux-musl" => Aarch64LinuxMusl
-    "aarch64-apple-darwin" => Aarch64AppleDarwin
-    else => Err(TargetError.Unsupported(target: triple))
-  }
-}
-
 ## Resolves one supported Rust target triple into its complete policy record.
 export pure resolve(triple: Str) -> Result[Target, Error] {
   match triple {

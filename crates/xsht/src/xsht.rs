@@ -10,6 +10,8 @@ pub(crate) mod commands;
 pub(crate) mod config;
 #[path = "edit.rs"]
 pub(crate) mod edit;
+#[path = "export_analysis.rs"]
+pub(crate) mod export_analysis;
 #[path = "format.rs"]
 pub mod format;
 #[path = "grep.rs"]

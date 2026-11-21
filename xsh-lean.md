@@ -2,11 +2,13 @@
 
 **Status:** active since the owner restarted the Lean lane on 2026-11-03. The
 connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,261 `SPEC_PROVED` fragment
+`formal/coverage.json` is the only inventory: 1,279 `SPEC_PROVED` fragment
 roots, fifteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
 at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and 77 universal
 obligations, of which eight are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
-VAL-PRESERVE, VAL-REQUIRE, VAL-STORE, VAL-UNION and VAL-WIDEN. `formal/README.md` describes each accepted
+VAL-PRESERVE, VAL-REQUIRE, VAL-STORE, VAL-UNION and VAL-WIDEN, plus two
+`EXTRACTED_REFINEMENT` implementation proofs (schema 4, see
+`formal/IMPL.md`). `formal/README.md` describes each accepted
 fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
 validates the inventory against this plan. Completed slices are recorded in
 Git history, not here.
@@ -94,7 +96,7 @@ reachability does not establish adequacy.
 
 ## Deliverables
 
-1. A complete, drift-checked inventory of the post-consolidation core, its formal definitions, theorem roots, trusted boundaries, and four separate evidence classes.
+1. A complete, drift-checked inventory of the post-consolidation core, its formal definitions, theorem roots, trusted boundaries, and its separate evidence classes.
 2. A total independent Lean model, checker, operational semantics, and proofs for the whole inventoried core, including validation, effects, calls, control, cleanup, resources, streams, raw IR, and lowering.
 3. A development-only source/IR export and independently checked translation path, plus actual Rust conformance, fixed adversarial cases, minimized regressions, and kernel-certified canonical artifacts.
 4. Reproducible fixed gates, a bounded discovery runner, audit controls, current canonical documentation, and G10 aggregate theorems on a fresh checkout.
@@ -116,6 +118,7 @@ Keep evidence distinct in the ledger:
 - `RUST_CONFORMANCE`: actual Rust and formal behavior agree for named inputs, schedules, binaries, and gates; this is finite evidence.
 - `ARTIFACT_CERTIFIED`: a closed proposition about identified source/IR bytes has a kernel-checked certificate using the verified validator.
 - `EXTERNAL_ASSUMPTION`: an explicit named primitive, host, platform, or tool boundary contract.
+- `EXTRACTED_REFINEMENT`: a kernel-checked theorem relating a mechanically extracted model of identified production Rust source to the independent definitions, conditional on the named extraction pipeline and library models. Schema 4 records it in `implementation_proofs` with source, copy, translation, harness, specification, library-revision and toolchain identities; any change makes the record stale until it is regenerated and rechecked. It is not a proof of a shipped binary and closes no obligation by itself.
 
 Each class names its subject. A `SPEC_PROVED` theorem about a Lean model of an implementation proves that model, and the record says so. `RUST_CONFORMANCE` is reserved for evidence that actually ran Rust. An `ARTIFACT_CERTIFIED` record names its artifact kind (original source bytes with their module inputs, source document, raw-IR document, candidate fact set, or source/IR pair), the artifact identity, and the exact proposition checked. A certificate for emitted IR does not prove that the producing compiler is correct on other inputs, and does not prove that Rust or any other runtime executes that IR correctly.
 
@@ -418,6 +421,15 @@ implementation's choices, and never assume conformance as a premise. The raw
 indexed machine is the first instance; state its existing step-simulation and
 mode-equivalence obligations as instances rather than proving them twice.
 Require an inhabited instance and a mutant that drops a premise.
+
+Proofs about selected production functions or compiled harness artifacts are
+an experiment within this obligation; universal verification of Rust, LLVM,
+Linux, external commands and native libraries stays outside the completion
+criteria. The first are the extracted refinements of `checked_int_binary` and
+`checked_duration_binary` in `formal/IMPL.md`, related to BASE-NUM, BASE-STEP,
+LOWER-STEP and MODE-EQUIV. They prove the shared arithmetic decisions, not
+their constant-preparation and execution adapters, and IMPL-REFINE stays
+planned.
 
 ### G9 — Conformance and adversarial closure
 
