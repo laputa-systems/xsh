@@ -127,7 +127,7 @@ disk-backed native test unless the Rust API must inspect or construct source.
 
 | Suite | Location |
 |---|---|
-| Native XSH | `test_roots` in `xsht-config.ini`: `tests/xsh`, `core/tests`, `dev/tests`, and `showcase/tests` |
+| Native XSH | `test_roots` in `xsht-config.ini`: `tests`, `core/tests`, `dev/tests`, and `showcase/tests` |
 | Root Rust tests | `tests/`, including the `integration` aggregate and separate host-boundary targets |
 | Tooling and syntax | `crates/xsht/tests/` |
 | Interactive | `crates/xshi/src/interactive/` and `crates/xshi/tests/` |
@@ -172,9 +172,9 @@ Compile area owns the remainder of the root library and integration harnesses:
 `test-core-unit` and `test-core-integration` skip only the prefixes that a
 focused area case runs. Some harnesses cannot be Change cases. The gate's Cargo
 adapter needs libtest's JSON listing and a nonempty selection, so the
-`harness = false` suites (`papaparse_test_suite`, the INI `corpus`,
-`toml_test_suite` and `yaml_test_suite`) and the libraries with no tests have
-none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
+`harness = false` benchmark (`xshi`'s `bench`, which needs the `benchmark` and
+`laputa-asterinas` features) and the libraries with no tests have none. The
+codec conformance suites live with the `laputa-deser` crates. Three more
 stay with manual lanes: the root-only `core_compat_extra` modules and `linux_priv`
 are `#[ignore]`d outside the privileged `cargo dev test linux` container, which
 runs them with `--ignored` from the ordinary build, and `profile_parity` compares
@@ -913,7 +913,7 @@ docker run --rm --privileged -v "$PWD":/work -w /work xsh-test \
 ```
 
 It skips where dnsmasq or real root is absent. The in-process fake world
-(`tests/support/dhcp_fake.xsh`) is a test-only `ClientIo`; production
+(`core/tests/support/dhcp_fake.xsh`) is a test-only `ClientIo`; production
 networking cannot be redirected to it.
 
 Idle cost of a bound client (`test_a_bound_client_idles_without_polling_or_growth`,
@@ -1189,9 +1189,11 @@ sample.
 
 ### Profile btop
 
-`dev/perf/btop-profile.xsh` is a Linux release workload. Set `XSH_BIN` to the
-absolute release binary built from the revision under test. The profile checks
-host readiness before and after the run and requires `perf-gate-ready` to pass.
+`dev/perf/btop-profile.xsh` is an in-process Linux workload. Run it with the
+release `xsh` built from the revision under test, and require `perf-gate-ready`
+to pass before and after the run; the script does not check readiness itself.
+It fails when a run's p95 frame time exceeds 250 ms or the 1k-to-2k
+process-join median ratio exceeds 3.0.
 
 On 2026-11-14, release `1598ef041` in pinned Linux image `3564b3d70fac`
 passed five runs of twenty preloaded 1,000-process frames at 120 by 40, seed

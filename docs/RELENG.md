@@ -19,7 +19,8 @@ rebuilds the standard library (`-Z build-std=std`) with
 `xsh/net xsh/tools xsht/native-tests`, and selects the target CPU in
 `dev/targets.xsh`: `x86-64-v3` for x86_64 and `neoverse-n2` without SVE for
 aarch64. `xsht/native-tests` enables `xsh/default`, including SSH, through
-Cargo feature unification. Linux products link statically against musl with mold.
+Cargo feature unification. Linux products link statically against musl: with the
+host's mold on x86_64 Linux hosts, and with `rust-lld` (the image default) elsewhere.
 
 Darwin products link through the system C compiler driver without ICF: Apple's
 `ld` has no ICF option, and the pinned `rust-lld` cannot read the macOS 27 SDK
