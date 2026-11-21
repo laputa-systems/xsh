@@ -11,7 +11,7 @@ import model
 import prompts
 from config import MODEL, THINKING
 from fixtures import snapshot, tree_effects
-from session_tools import Session
+from session_tools import Session, SessionInfraError
 from tasks import Task
 
 SESSION_SCHEMA = "codemode-session/2"
@@ -225,13 +225,16 @@ def run_session(
     except model.ProviderUnavailable as unavailable:
         error = str(unavailable)
         stopped_by = "provider"
+    except SessionInfraError as failure:
+        error = f"infrastructure: {failure}"
+        stopped_by = "infra"
     if service is not None:
         service.stop()
     after = snapshot(work)
     calls = service.calls() if service is not None else []
     effects = {"tree": tree_effects(before, after), "service_calls": len(calls),
                "duplicate_writes": sum(1 for c in calls if c.get("outcome") == "duplicate-write")}
-    counts = {"api": 0, "edit": 0, "check": 0, "run": 0, "refused": 0}
+    counts = {"api": 0, "edit": 0, "check": 0, "run": 0, "refused": 0, "infra": 0}
     doc_bytes = 0
     log = state / "tools.jsonl"
     if log.exists():
@@ -243,13 +246,14 @@ def run_session(
     program = workspace / "main.xsh"
     final = None
     verdict = "no-program"
-    if program.exists():
+    if program.exists() and stopped_by != "infra":
         result = evaluate.evaluate("xsh", task, program.read_text(), directory / "final")
         final = result.to_json()
         verdict = result.status
     record = SessionRecord(
         SESSION_SCHEMA, f"{task.id}/{condition.name}/{sample}", task.id, task.digest(), condition.name, digest, sample,
-        MODEL, THINKING, "interrupted" if stopped_by == "provider" else "done", error, turns, usage_totals(replies),
+        MODEL, THINKING, {"provider": "interrupted", "infra": "infra-error"}.get(stopped_by, "done"), error, turns,
+        usage_totals(replies),
         counts, doc_bytes, model_seconds + tool_seconds, model_seconds, tool_seconds, stopped_by, effects, final,
         verdict, started, time.time(),
     )

@@ -10,6 +10,10 @@ EDITABLE_SUFFIX = ".xsh"
 RESULT_CHARS = 12_000
 
 
+class SessionInfraError(RuntimeError):
+    pass
+
+
 class Session:
     def __init__(self, state: Path, service: str | None, timeout_s: float, env: dict[str, str]) -> None:
         self.state = state
@@ -34,7 +38,11 @@ class Session:
                 flags += ["-e", f"{key}={value}"]
         else:
             flags += ["-w", "/task"]
-        return boundary.execute([*flags, XSH_IMAGE, *argv], name, self.timeout_s + 10)
+        try:
+            return boundary.execute([*flags, XSH_IMAGE, *argv], name, self.timeout_s + 60)
+        except boundary.BoundaryError as failure:
+            self.record({"tool": "infra", "detail": str(failure)})
+            raise SessionInfraError(str(failure)) from failure
 
     def call(self, name: str, arguments: dict) -> tuple[str, bool]:
         if name == "api":
