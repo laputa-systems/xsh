@@ -2949,8 +2949,10 @@
       "id": "VAL-ERASE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-ERASE"
+      "status": "closed",
+      "proof_root_id": "full.VAL-ERASE",
+      "module": "Xsh.Validation.Core.Erase",
+      "declaration": "Xsh.Validation.Core.Erase.validated_erasure"
     },
     {
       "id": "VAL-INTRO",

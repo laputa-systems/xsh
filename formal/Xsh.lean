@@ -92,6 +92,7 @@ import Xsh.Validation.SetRequire
 import Xsh.Enums.WireConversion
 import Xsh.Validation.BoundedRefinements
 import Xsh.Validation.Core.Widen
+import Xsh.Validation.Core.Erase
 import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver

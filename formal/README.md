@@ -186,6 +186,12 @@ whose retained contracts are closed under views; a world that retains a
 statement, and the witnesses record it. Nested intervals are not views, even
 though the interval-containment fragment relates them.
 
+VAL-ERASE is closed by `validated_erasure` in
+[`Validation/Core/Erase.lean`](Xsh/Validation/Core/Erase.lean): a member
+read at its base is a base member, erasure is the identity for `NonEmpty`,
+`RelPath` and bounded integers, removes exactly the declaration wrapper of a
+nominal member, and keeps references and every base-view observation.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws
