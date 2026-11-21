@@ -229,6 +229,20 @@ publishing anything, contrast `.require(UInt)` with the `type-error` of a
 typed store, and detect a check that skips nested conversion. Error paths,
 `require_exact` and `require_stripped` are not modelled.
 
+VAL-NOMINAL is closed by `nominal_provenance` in
+[`Validation/Core/Nominal.lean`](Xsh/Validation/Core/Nominal.lean). Core
+membership alone admits a forged `.nominal d (.record [])`, so the theorem
+adds a provenance judgment over value-forming expressions: scalar, list and
+record literals, constructor calls, `.require`, store reads, field reads and
+spreads. Every nominal identity in a produced value came from the store or was
+named by a constructor or `.require` target in the expression, so a nominal
+member was introduced there or read from the store. Constructors check their
+schema; declarations that share a name and shape across modules stay distinct.
+Calls, iteration and the other expression forms are not in this language; a
+machine that adds them must show they are nominal-transparent. The witnesses
+include a constructor resolved to another module's declaration, which the
+theorem rejects.
+
 Allocation now uses one generic typed-cell operation in
 [`Semantics/Environments.lean`](Xsh/Semantics/Environments.lean). Both the
 connected execution machine and shared-value store consume it. General laws

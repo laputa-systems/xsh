@@ -2974,8 +2974,10 @@
       "id": "VAL-NOMINAL",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.VAL-NOMINAL"
+      "status": "closed",
+      "proof_root_id": "full.VAL-NOMINAL",
+      "module": "Xsh.Validation.Core.Nominal",
+      "declaration": "Xsh.Validation.Core.Nominal.nominal_provenance"
     },
     {
       "id": "VAL-PRESERVE",
