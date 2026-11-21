@@ -37,6 +37,29 @@ spreads, updates, nested records, other statements, and calls of record-local
 functions are outside this shape. The pair certifies the identified documents;
 Rust execution is observed in finite bridge tests, not modelled.
 
+[`IR/Raw/Structure.lean`](Xsh/IR/Raw/Structure.lean) models the structural
+`xsh-raw-ir-v1` document of an indexed store (scope `indexed-store-structure-v1`):
+instruction, pattern, stage, value and driver tables with their tags named by
+ordinal, payload words, blocks, functions, parameters, captures, strings, bytes,
+locations, copy pools and the counts of the semantic pools. The payload shape of
+every tag in [`IR/Raw/Schema.lean`](Xsh/IR/Raw/Schema.lean) is generated from the
+Rust schema macros by a test-only exporter, and a Rust test requires the generated
+text and the exported document in [`IR/Raw/Exported.lean`](Xsh/IR/Raw/Exported.lean)
+to match. `document_decode_iff` shows that decoding is exactly the inverse of
+encoding on documents whose rows have their declared arity. `StructuralWF` is an
+independent inductive specification of payload fitting (exact consumption, identity
+ranges, operand categories and precedence inside owner segments, slot bounds, block
+flags, descending pattern and stage entries, single claims) plus table conditions;
+`verifyCodes_iff` shows the fuel-indexed checker accepts exactly the decoded
+documents that satisfy it, and `fitFuel_mono` shows more fuel never changes an
+accepted payload. Every checker definition is structurally recursive. The exported
+points fixture is accepted, and ten one-fact mutations of it are rejected; those
+eleven theorems set `maxRecDepth` to 10000 locally because the kernel evaluates the
+whole 7.3 KB document. The model is structural only: semantic pools, scheme tables
+and prepared values appear as counts, and nothing here shows that Rust's
+`FullVerifier` makes the same decisions or that the IR executes correctly. It
+supersedes the earlier synthetic four-tag decoder model.
+
 The independent base machine models integer-field record construction in source
 order and field reads through named bindings. Its proofs cover preservation,
 termination, and exclusion of record shape faults for well-formed executions;

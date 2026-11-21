@@ -56,7 +56,9 @@ macro_rules! raw_full_rows {
     };
 }
 
+mod document;
 mod program_image;
+mod shapes;
 
 raw_full_rows! {
     source_id: SourceId,

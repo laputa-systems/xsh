@@ -120,8 +120,8 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(1269, len(result["fragment_roots"]))
-        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair"}, result["artifact_certificates"])
+        self.assertEqual(1248, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls", "artifact.integer-record-local-ir", "artifact.integer-record-local-pair", "artifact.raw-ir-structure"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual(["BASE-NUM", "EFF-LATTICE", "VAL-ERASE", "VAL-PRESERVE", "VAL-REQUIRE", "VAL-STORE", "VAL-UNION", "VAL-WIDEN"], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
@@ -526,27 +526,6 @@ class InventoryCheckerTests(unittest.TestCase):
                 "fragment.Xsh.IR.Raw.readWords_success_length",
                 "fragment.Xsh.IR.Raw.readPayload_success_length_and_bounds",
                 "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.decode_success_respects_tag_payload_schema",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.successful_words_row_payload_has_length_and_bounds",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.unaligned_tables_are_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.aligned_row_index_and_reference_metadata_errors_are_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_range_reference_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_bounds_payload_start_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.payload_range_past_table_end_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.unknown_tag_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.singleton_tag_with_wrong_payload_length_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_tag_with_nonzero_payload_length_is_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.valid_singleton_payload_is_accepted",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_payload_guard_mutation_is_detected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
-                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
             },
             raw_roots,
         )

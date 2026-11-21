@@ -311,6 +311,16 @@ macro_rules! pattern_borrow_row {
     };
 }
 
+#[cfg(test)]
+macro_rules! pattern_payload_shape {
+    (Normal) => { Vec::new() };
+    (Normal, { $($field:ident: $field_ty:ty),* }) => {
+        vec![$(<$field_ty as super::wire_shape::PayloadWords>::shape()),*]
+    };
+    (Normal, ($tuple_ty:ty)) => { vec![<$tuple_ty as super::wire_shape::PayloadWords>::shape()] };
+    (Text, { $($field:ident: $field_ty:ty),* }) => { vec![super::wire_shape::PayloadShape::TextPattern] };
+}
+
 macro_rules! pattern_schema {
     (
         $enum_keyword:ident $tag_enum:ident {
@@ -343,6 +353,18 @@ macro_rules! pattern_schema {
         pub(in crate::runtime::eval) const PATTERN_TAGS: &[FullPatternTag] = &[
             $(FullPatternTag::$variant,)*
         ];
+
+        #[cfg(test)]
+        impl $tag_enum {
+            pub(in crate::runtime::eval) fn payload_shape(self) -> Vec<super::wire_shape::PayloadShape> {
+                match self {
+                    $(Self::$variant => pattern_payload_shape!($mode
+                        $(, { $($field: $field_ty),* })?
+                        $(, ($tuple_ty))?
+                    ),)*
+                }
+            }
+        }
 
         pub(in crate::runtime::eval) enum PatternView<'a> {
             $(
@@ -626,6 +648,18 @@ macro_rules! instruction_schema {
         pub(in crate::runtime::eval) const INSTRUCTION_TAGS: &[FullTag] = &[
             $($(FullTag::$tag,)*)*
         ];
+
+        #[cfg(test)]
+        impl FullTag {
+            pub(in crate::runtime::eval) fn payload_shape(self) -> Vec<super::wire_shape::PayloadShape> {
+                match self {
+                    $($(Self::$tag => vec![
+                        $($(<$tuple_ty as super::wire_shape::PayloadWords>::shape(),)*)?
+                        $($(<$field_ty as super::wire_shape::PayloadWords>::shape(),)*)?
+                    ],)*)*
+                }
+            }
+        }
 
         pub(in crate::runtime::eval) const INSTRUCTION_TAG_NAMES: &[&str] = &[
             $($(stringify!($tag),)*)*
@@ -2009,6 +2043,15 @@ macro_rules! driver_verify_field {
     };
 }
 
+#[cfg(test)]
+macro_rules! driver_payload_shape {
+    ($ty:ty) => { <$ty as super::wire_shape::PayloadWords>::shape() };
+    ($ty:ty, eager) => { <$ty as super::wire_shape::PayloadWords>::shape() };
+    ($ty:ty, child) => { super::wire_shape::PayloadShape::Word(super::wire_shape::WordRole::ChildProgram) };
+    ($ty:ty, slot_count) => { super::wire_shape::PayloadShape::Word(super::wire_shape::WordRole::Raw) };
+    ($ty:ty, identity) => { super::wire_shape::PayloadShape::Word(super::wire_shape::WordRole::BindingIdentity) };
+}
+
 macro_rules! driver_schema {
     (
         $tag_enum:ident;
@@ -2026,6 +2069,15 @@ macro_rules! driver_schema {
 
         pub(in crate::runtime::eval) enum DriverPayloadRowRef<'a> {
             $($variant { $($field: &'a $write_ty),* },)*
+        }
+
+        #[cfg(test)]
+        impl $tag_enum {
+            pub(in crate::runtime::eval) fn payload_shape(self) -> Vec<super::wire_shape::PayloadShape> {
+                match self {
+                    $(Self::$variant => vec![$(driver_payload_shape!($read_ty $(, $policy)?)),*],)*
+                }
+            }
         }
 
         pub(in crate::runtime::eval) enum DriverPayloadView<'a> {
