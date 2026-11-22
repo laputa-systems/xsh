@@ -154,6 +154,7 @@ structure Consumer (world : World Declaration Identity Source) where
   body : List Xsh.Syntax.Statement
   sink : Option Nat
   stages : List Xsh.Syntax.PipeStage
+  limit : Option Nat
   gathers : Option Nat
 
 /-- A statement runs in an environment, a store, an environment-variable
@@ -891,7 +892,7 @@ def consumerOf {world : World Declaration Identity Source} (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Consumer world :=
   { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
     activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
-    collected := frame.collected, writable := frame.writable, target, body, sink := none, stages := [], gathers := none }
+    collected := frame.collected, writable := frame.writable, target, body, sink := none, stages := [], limit := none, gathers := none }
 
 /-- The items a stream table entry gathers. -/
 def gatheringAt {Declaration Identity Source : Type} (streams : List (StreamState Declaration Identity Source)) (slot : Nat) :
@@ -986,10 +987,15 @@ def Frame.gather {world : World Declaration Identity Source} (frame : Frame worl
 /-- A pipeline gathering the items one yielded item became into its
 stream's entry. -/
 def Frame.gatherAll {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
-    (out : Value Declaration Identity Source) : Exec world :=
+    (limit : Option Nat) (out : Value Declaration Identity Source) : Exec world :=
   match listValues out, frame.streams[index]? with
   | some items, some (.gathering gathered) =>
-    .normal { frame with streams := frame.streams.set index (.gathering (gathered ++ items)) }
+    match limit with
+    | some count =>
+      if count ≤ gathered.length + items.length then
+        .broke { frame with streams := frame.streams.set index (.gathering ((gathered ++ items).take count)) }
+      else .normal { frame with streams := frame.streams.set index (.gathering (gathered ++ items)) }
+    | none => .normal { frame with streams := frame.streams.set index (.gathering (gathered ++ items)) }
   | _, _ => .stuck
 
 /-- The consumer `.collect()` pushes for the stream at `index`. -/
@@ -1066,7 +1072,12 @@ def gathered {world : World Declaration Identity Source} (loop : Frame world) (i
     | some (.gathering items) =>
       .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }
     | _ => .exec .stuck
-  | .exec (.normal _) | .exec (.consumed .broke _) => .exec .stuck
+  | .exec (.consumed .broke last) =>
+    match last.streams[index]? with
+    | some (.gathering items) =>
+      .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }
+    | _ => .exec .stuck
+  | .exec (.normal _) => .exec .stuck
   | .exec outcome => .exec ((consumeProducer loop (.exec outcome)).withCollected loop.collected)
 
 /-- What a serial stage does with its block's value: `where` keeps the item
@@ -1093,13 +1104,43 @@ inductive PipelineEnd where
   | counted
 
 /-- A structured pipeline's stages split before a closing `count()` or
-`collect()`, which ends the pipeline with its own value (SPEC 13.1). -/
-def pipelineSplit : List Xsh.Syntax.PipeStage → List Xsh.Syntax.PipeStage × PipelineEnd
-  | stages =>
+`collect()`, which ends the pipeline with its own value (SPEC 13.1), and
+before a `take(n)` that ends its transformations, which stops pulling once
+`n` items have reached it. -/
+def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
+    List Xsh.Syntax.PipeStage × Option Xsh.Syntax.Expr × PipelineEnd :=
+  let (body, ending) : List Xsh.Syntax.PipeStage × PipelineEnd :=
     match stages.getLast? with
     | some (.stream .count [] none) => (stages.dropLast, .counted)
     | some (.stream .collect [] none) => (stages.dropLast, .collected)
     | _ => (stages, .collected)
+  match body.getLast? with
+  | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
+  | _ => (body, none, ending)
+
+/-- A `take(n)` count, evaluated once before the source is pulled. -/
+def pipelineLimit {world : World Declaration Identity Source}
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) :
+    Option Xsh.Syntax.Expr → Outcome world (Option Nat)
+  | none => .value none frame
+  | some count =>
+    (evaluate frame count).bind fun value after =>
+      match value.eraseNominal with
+      | .scalar (.integer bound) => if 0 ≤ bound.val then .value (some bound.val.toNat) after else .exec .stuck
+      | _ => .exec .stuck
+
+/-- What is left of a `take` limit after an item became `count` items:
+`none` once the limit is reached. -/
+def afterItems (limit : Option Nat) (count : Nat) : Option (Option Nat) :=
+  match limit with
+  | none => some none
+  | some bound => if bound ≤ count then none else some (some (bound - count))
+
+/-- The items an item became, cut to a `take` limit. -/
+def limitTake {α : Type} (limit : Option Nat) (items : List α) : List α :=
+  match limit with
+  | none => items
+  | some bound => items.take bound
 
 /-- A pipeline's value once its items have passed the stages: the
 collected list, or the count a closing `count()` gives. -/
@@ -1115,11 +1156,12 @@ def finishPipeline {world : World Declaration Identity Source} (ending : Pipelin
 /-- A structured pipeline over a list source (SPEC 13.1): its items pass the
 stages through `run`, then the closing stage gives the value. -/
 def runPipeline {world : World Declaration Identity Source}
-    (run : Frame world → List Xsh.Syntax.PipeStage → List (Value Declaration Identity Source) → Valued world)
-    (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage) :
-    Valued world :=
+    (run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world)
+    (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
+    (limit : Option Nat) : Valued world :=
   match listValues source with
-  | some items => (run next (pipelineSplit stages).1 items).bind fun out last => finishPipeline (pipelineSplit stages).2 out last
+  | some items =>
+    (run next (pipelineSplit stages).1 limit items).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
   | none => .exec .unsupported
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
@@ -1825,15 +1867,18 @@ mutual
             expression
       | .structuredPipeline input stages =>
         (evalExpr machine fuel frame input).bind fun source next =>
-          match pendingStream machine next source with
-          | some (index, some (closure, supplied)) =>
-            (gathered next index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
-                { next with
-                  streams := next.streams.set index (.gathering [])
-                  consumers := { sinkConsumer next index with stages := (pipelineSplit stages).1 } :: next.consumers }
-                closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2 out last
-          | some (_, none) => finishPipeline (pipelineSplit stages).2 (.list []) next
-          | none => runPipeline (stageItems machine fuel) next source stages
+          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
+            match pendingStream machine after source, limit with
+            | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some (closure, supplied)), _ =>
+              (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                  { after with
+                    streams := after.streams.set index (.gathering [])
+                    consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
+                      after.consumers }
+                  closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => finishPipeline (pipelineSplit stages).2.2 (.list []) after
+            | none, _ => runPipeline (stageItems machine fuel) after source stages limit
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
@@ -2106,25 +2151,32 @@ mutual
             | .replace => stageItem machine fuel after rest result
             | .expand =>
               match listValues result with
-              | some items => stageItems machine fuel after rest items
+              | some items => stageItems machine fuel after rest none items
               | none => .exec .stuck
         | none => .exec .unsupported
 
   /-- Items through the stages one at a time, each reaching the end of the
   stages before the next starts, as live and list sources alike are pulled
-  (SPEC 13.2). -/
+  (SPEC 13.2); under a `take` limit no item is pulled once the limit is
+  reached. -/
   def stageItems {world : World Declaration Identity Source} (machine : Machine world) :
-      Nat → Frame world → List Xsh.Syntax.PipeStage → List (Value Declaration Identity Source) → Valued world
-    | 0, _, _, _ => .exec .outOfFuel
-    | fuel + 1, frame, stages, items =>
-      match items with
-      | [] => .value (.list []) frame
-      | item :: rest =>
+      Nat → Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world
+    | 0, _, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, stages, limit, items =>
+      match items, limit with
+      | _, some 0 | [], _ => .value (.list []) frame
+      | item :: rest, _ =>
         (stageItem machine fuel frame stages item).bind fun first after =>
-          (stageItems machine fuel after stages rest).bind fun later last =>
-            match first, later with
-            | .list head, .list tail => .value (.list (head ++ tail)) last
-            | _, _ => .exec .stuck
+          match first with
+          | .list head =>
+            match afterItems limit head.length with
+            | none => .value (.list (limitTake limit head)) after
+            | some remaining =>
+              (stageItems machine fuel after stages remaining rest).bind fun later last =>
+                match later with
+                | .list tail => .value (.list (head ++ tail)) last
+                | _ => .exec .stuck
+          | _ => .exec .stuck
 
   /-- `loop { ... }` as an expression: its value is what `break` gives it. -/
   def loopValue {world : World Declaration Identity Source} (machine : Machine world) :
@@ -2316,7 +2368,7 @@ mutual
             | some index, stages =>
               resumeProducer next
                 ((stageItem machine fuel (consumerFrame next loop outer) stages result).toExec fun out after =>
-                  after.gatherAll index out)
+                  after.gatherAll index loop.limit out)
             | none, _ =>
               let consuming := consumerFrame next loop outer
               resumeProducer next
@@ -2342,7 +2394,7 @@ mutual
               | some index, stages =>
                 resumeProducer current
                   ((stageItem machine fuel (consumerFrame current loop outer) stages item).toExec fun out after =>
-                    after.gatherAll index out)
+                    after.gatherAll index loop.limit out)
               | none, _ =>
                 resumeProducer current
                   (leaveBlock machine fuel (consumerFrame current loop outer)

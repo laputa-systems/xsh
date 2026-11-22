@@ -503,8 +503,9 @@ environment).
 Statements:
 
 - pipelines over a `Result` source, value-call stages, and every stage
-  but argument-free `where`, `map` and `flat-map` with a closing `count()` or
-  `collect()`, and a `Stream[T]` from anything but a producer (E)
+  but argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
+  a closing `count()` or `collect()`, and a `Stream[T]` from anything but a
+  producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -811,8 +812,15 @@ yield passes the item through them in the pipeline's scope and gathers what
 it becomes into the stream's entry. As the binary records `1, 20, 1, 21, 7`
 and gives `[0,7]` for `count(2) |> map { |x| trace += [x + 20]; x * 7 }`, so
 do the witnesses, which reject collecting the source first, and a piped
-stream is consumed. Other stages, value calls, `Result` sources and
-early-stopping stages are outside the model.
+stream is consumed. A `take(n)` that ends the transformations is evaluated
+once before the source is pulled and stops pulling once `n` items have
+reached it: a list's later items never run, and a producer stops as on its
+consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for
+`[1, 2, 7] |> map { ... } |> take(2)`, `1, 20, 1, 21, 7` for a mapped
+`count(8) |> take(2)` and nothing for `count(8) |> take(0)`, so do the
+witnesses, which reject a producer that runs on and a list mapped before it
+is cut. Other stages, value calls and `Result` sources are outside the
+model.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
