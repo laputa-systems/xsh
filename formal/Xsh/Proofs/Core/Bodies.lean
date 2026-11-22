@@ -298,7 +298,9 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
       split at finished
       · cases finished
         exact keep _ locals
-      · exact keep _ ((resumeProducer_normal finished).2.trans locals)
+      · split at finished
+        · exact keep _ ((gather_normal finished).2.trans locals)
+        · exact keep _ ((resumeProducer_normal finished).2.trans locals)
       · cases finished
     | yieldDelegate value =>
       simp only [runStatement] at ran
@@ -312,7 +314,10 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
         · cases finished
           exact keep _ locals
         · cases finished
-      · exact keep _ ((delegateItems_normal (fun _ _ _ resumed => resumeProducer_normal resumed) _ _ _
+      · exact keep _ ((delegateItems_normal (fun _ _ _ resumed => by
+          split at resumed
+          · exact gather_normal resumed
+          · exact resumeProducer_normal resumed) _ _ _
           finished).2.trans locals)
       · cases finished
     | assert condition message =>

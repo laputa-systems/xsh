@@ -502,8 +502,8 @@ environment).
 
 Statements:
 
-- stream pipelines and stages, `.collect()` on a stream, comprehensions over
-  one, and a `Stream[T]` from anything but a producer (E)
+- stream pipelines and stages, comprehensions over a stream, and a
+  `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -773,6 +773,13 @@ one-pass. As the binary prints `created`, `yield 0`, `got 0`, `producer defer`
 and nothing for a second loop over a stored stream, and pulls `yield
 @count(2)` on demand inside another producer, closing it before its parent
 goes on, so do the witnesses; a stream that restarts on each loop is rejected.
+`.collect()` on a pending stream runs its producer with a sink consumer that
+appends each yielded item to the stream's entry in the table, then gives the
+gathered list and closes the stream; on a consumed stream it gives `[]`. As
+the binary prints `created`, a `yield` per item, `producer defer`, the items
+and `[]` for two `.collect()`s of one stored stream, so does the witness,
+which also gathers a delegated list's items in turn and rejects a
+`.collect()` that restarts the producer.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

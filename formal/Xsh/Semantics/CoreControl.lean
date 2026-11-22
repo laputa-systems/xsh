@@ -126,15 +126,18 @@ inductive Supplied (Declaration Identity Source : Type) where
   | named (label : String) (value : Value Declaration Identity Source)
 
 /-- A created stream (SPEC 9.5): a producer call not yet consumed, with its
-arguments evaluated at creation, or one that has run. Streams are one-pass,
-so a consumed stream yields nothing again. -/
+arguments evaluated at creation, one `.collect()` is running, with the items
+it has gathered, or one that has run. Streams are one-pass, so a consumed
+stream yields nothing again. -/
 inductive StreamState (Declaration Identity Source : Type) where
   | pending (closure : Closure) (supplied : List (Supplied Declaration Identity Source))
+  | gathering (items : List (Value Declaration Identity Source))
   | done
 
 /-- A `for` loop consuming a stream producer: its frame without the store
 and environment variables, which the producer threads, and its target and
-body. -/
+body; or, with a `sink`, a `.collect()` gathering the items into that
+stream's entry. -/
 structure Consumer (world : World Declaration Identity Source) where
   environment : Environment
   locals : Locals Declaration Identity Source
@@ -147,6 +150,7 @@ structure Consumer (world : World Declaration Identity Source) where
   writable : List CellId
   target : Xsh.Syntax.BindingTarget
   body : List Xsh.Syntax.Statement
+  sink : Option Nat
 
 /-- A statement runs in an environment, a store, an environment-variable
 overlay and the locals of the function it is in. Inside a function body
@@ -883,7 +887,7 @@ def consumerOf {world : World Declaration Identity Source} (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Consumer world :=
   { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
     activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
-    collected := frame.collected, writable := frame.writable, target, body }
+    collected := frame.collected, writable := frame.writable, target, body, sink := none }
 
 /-- The frame a `yield` runs the consuming loop's body in: the loop's scope
 with the producer's store and environment variables. -/
@@ -921,13 +925,24 @@ def pendingStream {world : World Declaration Identity Source} (machine : Machine
     (machine.streamIndex reference).bind fun index =>
       match frame.streams[index]? with
       | some (.pending closure supplied) => some (index, some (closure, supplied))
-      | some .done => some (index, none)
+      | some _ => some (index, none)
       | none => none
   | _ => none
 
 /-- A frame whose stream at `index` has been consumed. -/
 def Frame.consume {world : World Declaration Identity Source} (frame : Frame world) (index : Nat) : Frame world :=
   { frame with streams := frame.streams.set index .done }
+
+/-- `.collect()` gathering one yielded item into its stream's entry. -/
+def Frame.gather {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
+    (item : Value Declaration Identity Source) : Exec world :=
+  match frame.streams[index]? with
+  | some (.gathering items) => .normal { frame with streams := frame.streams.set index (.gathering (items ++ [item])) }
+  | _ => .stuck
+
+/-- The consumer `.collect()` pushes for the stream at `index`. -/
+def sinkConsumer {world : World Declaration Identity Source} (frame : Frame world) (index : Nat) : Consumer world :=
+  { consumerOf frame .discard [] with sink := some index }
 
 /-- A delegated stream's run, back in its parent producer: a finished child
 lets the parent go on; anything else leaves with it. -/
@@ -958,6 +973,16 @@ def consumeProducer {world : World Declaration Identity Source} (loop : Frame wo
   | .exec (.broke last) => .broke { last with consumers := loop.consumers }
   | .exec (.continued last) => .continued { last with consumers := loop.consumers }
   | .exec other => other
+
+/-- `.collect()` once the producer has run: a producer that finished gives
+the items it gathered and closes the stream; anything else leaves with it. -/
+def gathered {world : World Declaration Identity Source} (loop : Frame world) (index : Nat) : Valued world → Valued world
+  | .value _ last =>
+    match last.streams[index]? with
+    | some (.gathering items) => .value (.list items) { last.consume index with consumers := loop.consumers }
+    | _ => .exec .stuck
+  | .exec (.normal _) | .exec (.consumed _ _) => .exec .stuck
+  | .exec outcome => .exec (consumeProducer loop (.exec outcome))
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
@@ -1695,6 +1720,18 @@ mutual
                       | .mk _ callable _ _ _ _ _ => .value (callResult callable result) final
                 | none => .exec .stuck
               | _ => .exec .unsupported
+          | "collect" =>
+            match arguments with
+            | [] =>
+              (evalExpr machine fuel frame receiver).bind fun subject after =>
+                match pendingStream machine after subject with
+                | some (index, some (closure, supplied)) =>
+                  gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                    { after with streams := after.streams.set index (.gathering []),
+                                 consumers := sinkConsumer after index :: after.consumers } closure supplied)
+                | some (_, none) => .value (.list []) after
+                | none => .exec .unsupported
+            | _ => .exec .unsupported
           | name =>
             if isNumericMethod name then numericCall machine.context (evalExpr machine fuel) frame receiver name arguments
             else
@@ -2072,11 +2109,14 @@ mutual
           match next.collected, next.consumers with
           | some gathered, _ => .normal { next with collected := some (gathered ++ [result]) }
           | none, loop :: outer =>
-            let consuming := consumerFrame next loop outer
-            resumeProducer next
-              (leaveBlock machine fuel consuming
-                ((bindTarget machine consuming.enter .immutable loop.target result).andThen fun bound =>
-                  runStatements machine fuel bound loop.body))
+            match loop.sink with
+            | some index => next.gather index result
+            | none =>
+              let consuming := consumerFrame next loop outer
+              resumeProducer next
+                (leaveBlock machine fuel consuming
+                  ((bindTarget machine consuming.enter .immutable loop.target result).andThen fun bound =>
+                    runStatements machine fuel bound loop.body))
           | none, [] => .unsupported
       | .yieldDelegate value =>
         (runValue machine fuel frame value).toExec fun result next =>
@@ -2091,10 +2131,13 @@ mutual
             | none => .unsupported
           | none, some items, loop :: outer =>
             delegateItems (fun current item =>
-              resumeProducer current
-                (leaveBlock machine fuel (consumerFrame current loop outer)
-                  ((bindTarget machine (consumerFrame current loop outer).enter .immutable loop.target item).andThen
-                    fun bound => runStatements machine fuel bound loop.body))) next items
+              match loop.sink with
+              | some index => current.gather index item
+              | none =>
+                resumeProducer current
+                  (leaveBlock machine fuel (consumerFrame current loop outer)
+                    ((bindTarget machine (consumerFrame current loop outer).enter .immutable loop.target item).andThen
+                      fun bound => runStatements machine fuel bound loop.body))) next items
           | _, _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
         match frame.callerStore, frame.environment.names with

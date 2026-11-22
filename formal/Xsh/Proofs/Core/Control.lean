@@ -301,6 +301,13 @@ theorem consumeProducer_refines {world : World Declaration Identity Source} (loo
   · subst out; exact Or.inl rfl
   · subst same; exact exec_refl _
 
+theorem gathered_refines {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
+    {first second : Valued world} (refined : Valued.Refines first second) :
+    Valued.Refines (gathered loop index first) (gathered loop index second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact valued_refl _
+
 theorem resumeProducer_refines {world : World Declaration Identity Source} (producer : Frame world)
     {first second : Exec world} (refined : Exec.Refines first second) :
     Exec.Refines (resumeProducer producer first) (resumeProducer producer second) := by
@@ -628,6 +635,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine guardElse_refines ?_
   | refine annotate_refines _ ?_
   | refine withOverlay_refines _ ?_
+  | refine gathered_refines _ _ ?_
   | refine consumeProducer_refines _ ?_
   | refine delegatedStream_refines ?_
   | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
@@ -708,6 +716,8 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
           | exact numericCall_refines _ inner.expr _ _ _ _
+          | refine gathered_refines _ _ ?_
+          | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
           | refine valued_bind_refines (threadEntries_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (threadArguments_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines ?_ fun _ _ => ?_
@@ -1078,6 +1088,27 @@ theorem consumeProducer_persists {world : World Declaration Identity Source} (lo
     | normal last | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last =>
       exact fun scope present => by cases present; exact kept last rfl
     | stuck | unsupported | outOfFuel => exact kept
+
+theorem gathered_persists {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
+    {before : Store world} {outcome : Valued world} (kept : VKeeps before outcome) :
+    VKeeps before (gathered loop index outcome) := by
+  cases outcome with
+  | value _ last =>
+    simp only [gathered]
+    split
+    · exact kept
+    · exact fun _ present => by cases present
+  | exec inner =>
+    cases inner with
+    | normal _ | consumed _ _ => exact fun _ present => by cases present
+    | _ => exact consumeProducer_persists loop kept
+
+theorem gather_persists {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
+    (item : Value Declaration Identity Source) : Keeps frame.store (frame.gather index item) := by
+  unfold Frame.gather
+  split
+  · exact fun _ present => by cases present; exact persists_refl _
+  · exact fun _ present => by cases present
 
 theorem resumeProducer_persists {world : World Declaration Identity Source} (producer : Frame world)
     {before : Store world} {outcome : Exec world} (kept : Keeps before outcome) :
@@ -1455,6 +1486,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine guardElse_persists ?_
   | refine annotate_persists _ ?_
   | refine withOverlay_persists _ ?_
+  | refine gathered_persists _ _ ?_
+  | exact gather_persists _ _ _
   | refine consumeProducer_persists _ ?_
   | refine delegatedStream_persists ?_
   | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
@@ -1491,6 +1524,8 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
     | exact numericCall_persists _ inner.expr _ _ _ _
+    | refine gathered_persists _ _ ?_
+    | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
     | refine vbind_persists (threadEntries_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (threadArguments_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists ?_ fun _ _ => ?_
@@ -1935,12 +1970,40 @@ theorem consumeProducer_restores {world : World Declaration Identity Source} (lo
       exact fun scope present => by cases present; exact restored last rfl
     | stuck | unsupported | outOfFuel => exact restored
 
+theorem gathered_restores {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
+    {outcome : Valued world} (restored : VRestores loop outcome) : VRestores loop (gathered loop index outcome) := by
+  cases outcome with
+  | value _ last =>
+    simp only [gathered]
+    split
+    · exact restored
+    · exact fun _ present => by cases present
+  | exec inner =>
+    cases inner with
+    | normal _ | consumed _ _ => exact fun _ present => by cases present
+    | _ => exact consumeProducer_restores loop restored
+
+theorem gather_restores {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
+    (item : Value Declaration Identity Source) : Restores frame (frame.gather index item) := by
+  unfold Frame.gather
+  split
+  · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
+  · exact fun _ present => by cases present
+
 theorem resumeProducer_normal {world : World Declaration Identity Source} {producer next : Frame world}
     {outcome : Exec world} (resumed : resumeProducer producer outcome = .normal next) :
     next.environment = producer.environment ∧ next.locals = producer.locals := by
   cases outcome <;> simp only [resumeProducer] at resumed <;> first
     | (cases resumed; exact ⟨rfl, rfl⟩)
     | cases resumed
+
+theorem gather_normal {world : World Declaration Identity Source} {frame next : Frame world} {index : Nat}
+    {item : Value Declaration Identity Source} (gathered : frame.gather index item = .normal next) :
+    next.environment = frame.environment ∧ next.locals = frame.locals := by
+  unfold Frame.gather at gathered
+  split at gathered
+  · cases gathered; exact ⟨rfl, rfl⟩
+  · cases gathered
 
 theorem delegateItems_normal {world : World Declaration Identity Source}
     {yieldOne : Frame world → Value Declaration Identity Source → Exec world}
@@ -2260,6 +2323,8 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | (apply settled_exec; assumption)
   | refine annotate_restores _ ?_
   | refine withOverlay_restores _ ?_
+  | refine gathered_restores _ _ ?_
+  | exact gather_restores _ _ _
   | refine consumeProducer_restores _ ?_
   | exact invokeSupplied_restores _ _ (callBlock_restores _ _) _ _ _
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_

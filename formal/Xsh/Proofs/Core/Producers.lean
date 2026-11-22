@@ -23,7 +23,10 @@ of a stream producer runs the producer with the loop as its consumer; each
 store and environment, then resumes the producer; a body that completes or
 continues resumes it, while one that breaks, returns or fails stops it,
 unwinding its scopes, where its `defer`s run and its `errdefer`s and `try`s do
-not see a failure of its own; and the loop then leaves as its body did. -/
+not see a failure of its own; and the loop then leaves as its body did.
+`.collect()` on a pending stream runs its producer with a sink consumer that
+appends each yielded item to the stream's entry, then gives the gathered list
+and closes the stream; on a consumed stream it gives the empty list. -/
 theorem stream_producers [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) :
     (∀ (producer after : Frame world),
@@ -43,9 +46,29 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     (∀ (loop last : Frame world) value, consumeProducer loop (.exec (.consumed (.returned value) last)) =
       .returned value { last with consumers := loop.consumers }) ∧
     (∀ (loop last : Frame world) failure, consumeProducer loop (.exec (.consumed (.failed failure) last)) =
-      .failed failure { last with consumers := loop.consumers }) :=
-  ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
-    fun _ _ _ => rfl, fun _ _ _ => rfl⟩
+      .failed failure { last with consumers := loop.consumers }) ∧
+    (∀ (fuel : Nat) (frame : Frame world) receiver method,
+      errorConstructor machine frame receiver method = none → machine.context.spelling method = "collect" →
+      evalExpr machine (fuel + 1) frame (.call (.field receiver method) []) =
+        (evalExpr machine fuel frame receiver).bind fun subject after =>
+          match pendingStream machine after subject with
+          | some (index, some (closure, supplied)) =>
+            gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+              { after with streams := after.streams.set index (.gathering []),
+                           consumers := sinkConsumer after index :: after.consumers } closure supplied)
+          | some (_, none) => .value (.list []) after
+          | none => .exec .unsupported) ∧
+    (∀ (frame : Frame world) index items item, frame.streams[index]? = some (.gathering items) →
+      frame.gather index item = .normal { frame with streams := frame.streams.set index (.gathering (items ++ [item])) }) ∧
+    (∀ (loop last : Frame world) index items value, last.streams[index]? = some (.gathering items) →
+      gathered loop index (.value value last) = .value (.list items) { last.consume index with consumers := loop.consumers }) := by
+  refine ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
+    fun _ _ _ => rfl, fun _ _ _ => rfl, fun fuel frame receiver method plain spelled => ?_,
+    fun frame index items item held => by simp only [Frame.gather, held],
+    fun loop last index items value held => by simp only [gathered, held]⟩
+  simp only [evalExpr, plain, spelled]
+  refine congrArg _ (funext fun subject => funext fun after => ?_)
+  rcases pendingStream machine after subject with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;> rfl
 
 end Root
 
@@ -200,6 +223,54 @@ theorem stream_value_witness :
 second loop; the model's second loop yields nothing. -/
 theorem restarting_stream_rejected :
     readList traceVar (runCanonical storedScript) ≠ some [8, 1, 0, 7, 1, 0, 1, 1] := by
+  decide +kernel
+
+def collectName : Xsh.Syntax.RawName := name 284 (by decide)
+def gatheredVar : Xsh.Syntax.RawName := name 285 (by decide)
+def againVar : Xsh.Syntax.RawName := name 286 (by decide)
+def listedFn : Xsh.Syntax.RawName := name 287 (by decide)
+
+def collectMachine : Machine witnessWorld :=
+  { scriptMachine with
+    context := { scriptMachine.context with
+      spelling := fun named => if named = collectName then "collect" else scriptMachine.context.spelling named } }
+
+def collectOf (receiver : Xsh.Syntax.Expr) : Xsh.Syntax.Expr := .call (.field receiver collectName) []
+
+def runCollect (script : List Xsh.Syntax.Statement) : Exec witnessWorld := runScript collectMachine 90 fullStart script
+
+/-- `let s = count(2); trace += [2]; let xs = s.collect(); let ys = s.collect()`,
+as the verification binary prints `created`, a `yield` per item, `producer
+defer`, the items and `[]` (for `count(3)`, `[0,1,2]`): the call creates the stream, `.collect()` runs the
+producer to its end gathering every item, and the consumed stream gathers
+nothing again. -/
+def collectScript : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   letOf streamLocal (.call (ident countFn) [.positional (int "2")]),
+   note "2",
+   letOf gatheredVar (collectOf (ident streamLocal)),
+   letOf againVar (collectOf (ident streamLocal))]
+
+/-- `stream listed() -> Stream[Int] { yield 7; yield @[8, 2] }` collected:
+a delegated list's items are gathered in turn, as the binary prints
+`[7,0,1,8,9]` for a producer that also delegates `count(2)` between them. -/
+def listedScript : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []),
+   .functionDef .stream listedFn [] none none [.yield (int "7"), .yieldDelegate (items ["8", "2"])] none false,
+   letOf gatheredVar (collectOf (.call (ident listedFn) []))]
+
+theorem collect_witness :
+    readList traceVar (runCollect collectScript) = some [2, 1, 1, 7] ∧
+      readList gatheredVar (runCollect collectScript) = some [0, 1] ∧
+      readList againVar (runCollect collectScript) = some [] ∧
+      readList gatheredVar (runCollect listedScript) = some [7, 8, 2] := by
+  decide +kernel
+
+/-- A `.collect()` that restarted the producer would gather `[0, 1]` again
+and run `count` twice; the model gathers nothing. -/
+theorem recollecting_rejected :
+    readList traceVar (runCollect collectScript) ≠ some [2, 1, 1, 7, 1, 1, 7] ∧
+      readList againVar (runCollect collectScript) ≠ some [0, 1] := by
   decide +kernel
 
 end Witness
