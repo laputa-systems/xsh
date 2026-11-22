@@ -348,6 +348,12 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
       · cases ran
         exact hides_refl _
       · cases ran
+    | exit status =>
+      simp only [runStatement] at ran
+      obtain ⟨_, _, _, _, _, finished⟩ := toExec_normal (scopes.expr frame status) ran
+      split at finished
+      · split at finished <;> cases finished
+      · cases finished
     | _ => simp only [runStatement] at ran; cases ran
 
 /-- A body's locals: exactly its parameters not declared in `top`, the body's

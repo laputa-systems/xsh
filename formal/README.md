@@ -487,7 +487,7 @@ Statements:
 - `use` aliases, which need module loading (E)
 - `stream` and `cli main` declarations, which need the stream and host
   argument models (E)
-- `with` resource scopes, `exit`, signal hooks and command statements (E)
+- `with` resource scopes, signal hooks and command statements (E)
 
 Expressions:
 
@@ -702,6 +702,19 @@ with the environment the scope entered with, so the overrides and the
 body's own assignments are undone. The witnesses follow the verification
 binary's `inner`, `true true` and `true`, and reject a scope that keeps its
 overrides. `cd` and `within` scopes are not modelled.
+
+The `script_exit` fragment root, in
+[`Proofs/Core/Exits.lean`](Xsh/Proofs/Core/Exits.lean), adds `exit status`
+(SPEC 8.9) as the machine outcome `exited`. The status is evaluated once and
+must be from 0 to 255, else the runtime `exit-status` fails; the exit leaves
+every scope through its deferred actions, `errdefer` among them only for a
+nonzero status or after a cleanup failure; a cleanup failure is reported and
+the exit stays primary; `try` does not capture it; and a call's `exit` ends
+its caller. The verification binary prints `errdefer f`, `defer f`, `defer top`
+and exits 3 for an `exit 3` inside `try`, runs only `defer f` for `exit 0`,
+runs an `errdefer` after a failing `defer` and still exits 0, and fails an
+out-of-range status with `exit-status`; the witnesses check each, with a
+counter the actions add to, and reject a `try` that captures the exit.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

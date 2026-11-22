@@ -64,6 +64,8 @@ structure Machine (world : World Declaration Identity Source) where
   uninitialized : Xsh.Syntax.RawName → Value Declaration Identity Source
   /-- The wire strings of Str-backed enums, which `.require` converts. -/
   enums : WireEnums Declaration
+  /-- The runtime error an `exit` status outside 0 to 255 raises (SPEC 8.9). -/
+  exitStatus : Value Declaration Identity Source
   /-- The checker's declaration of the error family a failed `.require` raises
   its schema error in (SPEC 5.3). -/
   schemaFamily : Declaration
@@ -160,6 +162,9 @@ inductive Exec (world : World Declaration Identity Source) where
   | returned (value : Value Declaration Identity Source) (frame : Frame world)
   | failed (failure : Failure Declaration Identity Source) (frame : Frame world)
   | internal (fault : InternalFault) (frame : Frame world)
+  /-- `exit status` (SPEC 8.9): the script ends with `status`, unwinding every
+  scope; `try` does not capture it. -/
+  | exited (status : Nat) (frame : Frame world)
   | stuck
   | unsupported
   | outOfFuel
@@ -210,13 +215,15 @@ def withinScope {world : World Declaration Identity Source} (outer : Frame world
   | .returned value inner => .returned value (outer.restore inner)
   | .failed failure inner => .failed failure (outer.restore inner)
   | .internal fault inner => .internal fault (outer.restore inner)
+  | .exited status inner => .exited status (outer.restore inner)
   | other => other
 
 def Frame.enter {world : World Declaration Identity Source} (frame : Frame world) : Frame world :=
   { frame with environment := { frame.environment with names := enterScope frame.environment.names }, deferred := [] }
 
 def frameOf {world : World Declaration Identity Source} : Exec world → Option (Frame world)
-  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .internal _ frame =>
+  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .internal _ frame
+  | .exited _ frame =>
     some frame
   | _ => none
 
@@ -224,7 +231,8 @@ def frameOf {world : World Declaration Identity Source} : Exec world → Option 
 internal fault. -/
 def pendingOf {world : World Declaration Identity Source} :
     Exec world → List (Deferred Declaration Identity Source)
-  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame => frame.deferred
+  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .exited _ frame =>
+    frame.deferred
   | _ => []
 
 def isErr (value : Value Declaration Identity Source) : Bool :=
@@ -232,11 +240,13 @@ def isErr (value : Value Declaration Identity Source) : Bool :=
   | .err _ => true
   | _ => false
 
-/-- A block leaves with an error when a failure leaves it or the function
-returns an `Err` through it (SPEC 8.7). -/
+/-- A block leaves with an error when a failure leaves it, the function
+returns an `Err` through it (SPEC 8.7), or an `exit` leaves it with a nonzero
+status or after a cleanup failure (SPEC 8.9). -/
 def exitsWithError {world : World Declaration Identity Source} : Exec world → Bool
   | .failed _ _ => true
   | .returned value _ => isErr value
+  | .exited status frame => status != 0 || !frame.reported.isEmpty
   | _ => false
 
 def Exec.withStore {world : World Declaration Identity Source} (store : Store world) : Exec world → Exec world
@@ -246,13 +256,16 @@ def Exec.withStore {world : World Declaration Identity Source} (store : Store wo
   | .returned value frame => .returned value { frame with store := store }
   | .failed failure frame => .failed failure { frame with store := store }
   | .internal fault frame => .internal fault { frame with store := store }
+  | .exited status frame => .exited status { frame with store := store }
   | other => other
 
-/-- A deferred action failed: an earlier failure stays primary and the new one
-is reported; otherwise the new one becomes primary (SPEC 8.7). -/
+/-- A deferred action failed: an earlier failure or an `exit` stays primary
+and the new failure is reported; otherwise the new one becomes primary
+(SPEC 8.7, 8.9). -/
 def cleanupFailed {world : World Declaration Identity Source} (failure : Failure Declaration Identity Source)
     (store : Store world) : Exec world → Exec world
   | .failed primary frame => .failed primary { frame with store := store, reported := frame.reported ++ [failure] }
+  | .exited status frame => .exited status { frame with store := store, reported := frame.reported ++ [failure] }
   | .normal frame | .broke frame | .continued frame | .returned _ frame | .internal _ frame =>
     .failed failure { frame with store := store }
   | other => other
@@ -779,6 +792,7 @@ def withOverlay {world : World Declaration Identity Source} (overlay : Overlay) 
   | .exec (.returned value frame) => .exec (.returned value { frame with overlay })
   | .exec (.failed failure frame) => .exec (.failed failure { frame with overlay })
   | .exec (.internal fault frame) => .exec (.internal fault { frame with overlay })
+  | .exec (.exited status frame) => .exec (.exited status { frame with overlay })
   | other => other
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
@@ -1120,6 +1134,8 @@ def returnTo {world : World Declaration Identity Source} (caller : Frame world) 
     | .result => .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay }
     | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store, overlay := callee.overlay })
   | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+  | .exited status callee =>
+    .exec (.exited status { caller with store := keep caller.store callee.store, overlay := callee.overlay })
   | .unsupported => .exec .unsupported
   | .outOfFuel => .exec .outOfFuel
   | _ => .exec .stuck
@@ -1882,6 +1898,13 @@ mutual
           | some bound => bindTarget machine next .immutable target bound
           | none => guardElse (runBlock machine fuel next otherwise)
       | .continueStmt => .continued frame
+      | .exit status =>
+        (evalExpr machine fuel frame status).toExec fun value next =>
+          match value.eraseNominal with
+          | .scalar (.integer code) =>
+            if 0 ≤ code.val ∧ code.val ≤ 255 then .exited code.val.toNat next
+            else .failed (.runtime machine.exitStatus) next
+          | _ => .unsupported
       | .matchStmt subject arms =>
         (evalExpr machine fuel frame subject).toExec fun value next =>
           runMatch machine fuel next value arms

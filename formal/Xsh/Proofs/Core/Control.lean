@@ -936,6 +936,7 @@ theorem collectWith_persists {world : World Declaration Identity Source} {before
   | returned value inner => intro last present; cases present; exact head inner rfl
   | failed failure inner => intro last present; cases present; exact head inner rfl
   | internal fault inner => intro last present; cases present; exact head inner rfl
+  | exited status inner => intro last present; cases present; exact head inner rfl
   | stuck => exact head
   | unsupported => exact head
   | outOfFuel => exact head
@@ -948,6 +949,7 @@ theorem returnTo_persists {world : World Declaration Identity Source} (caller : 
   · split
     · exact persists_keep (head _ rfl)
     · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present; exact persists_keep (head _ rfl)
   · intro last present; cases present; exact persists_keep (head _ rfl)
   · intro last present; cases present
   · intro last present; cases present
@@ -1010,7 +1012,8 @@ theorem withOverlay_persists {world : World Declaration Identity Source} (overla
   | value value frame => exact kept
   | exec inner =>
     cases inner with
-    | normal frame | broke frame | continued frame | returned _ frame | failed _ frame | internal _ frame =>
+    | normal frame | broke frame | continued frame | returned _ frame | failed _ frame | internal _ frame
+    | exited _ frame =>
       exact fun scope present => by cases present; exact kept frame rfl
     | stuck | unsupported | outOfFuel => exact kept
 
@@ -1520,6 +1523,10 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
                 intro last present
                 cases present
                 exact persists_trans reached (ran after (by rw [result]; rfl))
+              | exited _ after =>
+                intro last present
+                cases present
+                exact persists_trans reached (ran after (by rw [result]; rfl))
               | _ => exact fun _ present => by cases present
       statements := fun frame statements => by simp only [runStatements]; close_persists
       block := fun frame statements => by simp only [runBlock]; close_persists
@@ -1732,6 +1739,7 @@ theorem collectWith_restores {world : World Declaration Identity Source} {frame 
   | returned _ inner => intro last present; cases present; exact head inner rfl
   | failed _ inner => intro last present; cases present; exact head inner rfl
   | internal _ inner => intro last present; cases present; exact head inner rfl
+  | exited _ inner => intro last present; cases present; exact head inner rfl
   | stuck => exact vrestores_none rfl
   | unsupported => exact vrestores_none rfl
   | outOfFuel => exact vrestores_none rfl
@@ -1750,6 +1758,7 @@ theorem returnTo_restores {world : World Declaration Identity Source} (caller : 
   · split
     · exact ⟨rfl, rfl⟩
     · intro last present; cases present; exact ⟨rfl, rfl⟩
+  · intro last present; cases present; exact ⟨rfl, rfl⟩
   · intro last present; cases present; exact ⟨rfl, rfl⟩
   · exact vrestores_none rfl
   · exact vrestores_none rfl
@@ -1805,7 +1814,7 @@ theorem withOverlay_restores {world : World Declaration Identity Source} (overla
   | exec inner =>
     cases inner with
     | normal last => exact restored.elim
-    | broke last | continued last | returned _ last | failed _ last | internal _ last =>
+    | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last =>
       exact fun scope present => by cases present; exact restored last rfl
     | stuck | unsupported | outOfFuel => exact restored
 
@@ -3488,6 +3497,7 @@ def machine : Machine witnessWorld where
   uninitialized := fun _ => .scalar (.string "unknown captured name")
   enums := ⟨fun _ => none⟩
   schemaFamily := ()
+  exitStatus := .scalar (.string "exit-status")
   hostEnvironment := fun _ => none
   envMissing := fun name => .scalar (.string ("env-missing " ++ name))
   invalidUtf8 := fun name => .scalar (.string ("invalid-utf8 " ++ name))

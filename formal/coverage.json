@@ -15229,6 +15229,15 @@
       "boundary": "cd and within scopes, List[Path] search-path values and child-process inheritance are not modelled; argv conversion is the machine's oracle. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Exits.script_exit",
+      "module": "Xsh.Proofs.Core.Exits",
+      "declaration": "Xsh.Proofs.Core.Exits.script_exit",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.9 exit status: the status is evaluated once and from 0 to 255 ends the script as the exited outcome, otherwise the runtime exit-status fails; leaving each scope runs its deferred actions, errdefer only for a nonzero status or after a cleanup failure; a cleanup failure is reported and the exit stays primary; try does not capture it; and a call's exit ends its caller.",
+      "boundary": "The process exit itself, the exit effect requirement and the script-level defers outside any block are not modelled; witnesses use a block around the script body. Witnesses follow the verification binary's output and statuses on named scripts; it does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

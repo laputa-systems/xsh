@@ -330,6 +330,12 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       · cases ran
         exact carried
       · cases ran
+    | exit status =>
+      simp only [runStatement] at ran
+      obtain ⟨_, _, _, _, _, finished⟩ := toExec_normal (scopes.expr frame status) ran
+      split at finished
+      · split at finished <;> cases finished
+      · cases finished
     | _ => simp only [runStatement] at ran; cases ran
 
 /-- Under the canonical resolution, a statement list that completes normally

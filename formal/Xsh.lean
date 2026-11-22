@@ -98,6 +98,7 @@ import Xsh.Proofs.Core.Contexts
 import Xsh.Proofs.Core.Exports
 import Xsh.Proofs.Core.NumericMethods
 import Xsh.Proofs.Core.EnvironmentReads
+import Xsh.Proofs.Core.Exits
 import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables
