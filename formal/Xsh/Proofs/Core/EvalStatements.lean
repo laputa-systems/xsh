@@ -185,6 +185,7 @@ def context : Context Unit Unit Unit where
   policy := quietNaNPolicy
   spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"
   functions := fun _ => none
+  sameDeclaration := fun _ _ => true
 
 def environment : Environment := ⟨emptyLexicalEnvironment, []⟩
 

@@ -55,6 +55,9 @@ structure Context (Declaration Identity Source : Type) where
   policy : NaNPolicy
   spelling : Xsh.Syntax.RawName → String
   functions : Functions
+  /-- Whether two nominal declarations are the same one: the identity a
+  variant's type carries. -/
+  sameDeclaration : Declaration → Declaration → Bool
 
 inductive Result (Declaration Identity Source : Type) (α : Type) where
   | value (value : α)
@@ -178,11 +181,12 @@ mutual
   /-- Structural language equality (SPEC 6.2, owner decision 1): Float
   elements compare by IEEE value, list items pairwise, map entries and record
   fields by key whatever their order, set elements as sets, `Ok` and `Err`
-  payloads structurally, and a `null` equals only `null`. Nominal wrappers are
+  payloads structurally, variants by declaration, name and payload, and a
+  `null` equals only `null`. Nominal wrappers are
   erased at every level. `none` is a comparison the model does not cover:
-  variants, errors and handles, or operands of different types. -/
-  def valueEqual : Value Declaration Identity Source → Value Declaration Identity Source → Option Bool
-    | .nominal _ inner, right => valueEqual inner right
+  errors and handles, or operands of different types. -/
+  def valueEqual (same : Declaration → Declaration → Bool) : Value Declaration Identity Source → Value Declaration Identity Source → Option Bool
+    | .nominal _ inner, right => valueEqual same inner right
     | .scalar left, right =>
       match right.eraseNominal with
       | .scalar other => scalarsEqual left other
@@ -191,7 +195,7 @@ mutual
         | _ => none
     | .list items, right =>
       match right.eraseNominal with
-      | .list others => itemsEqual items others
+      | .list others => itemsEqual same items others
       | .environmentPaths paths => some (pathsEqual paths items)
       | .scalar .null => some false
       | _ => none
@@ -201,7 +205,7 @@ mutual
       | none => if isNull right then some false else none
     | .map entries, right =>
       match right.eraseNominal with
-      | .map others => if entries.length = others.length then entriesEqual entries others else some false
+      | .map others => if entries.length = others.length then entriesEqual same entries others else some false
       | .scalar .null => some false
       | _ => none
     | .set keys, right =>
@@ -211,44 +215,50 @@ mutual
       | _ => none
     | .record fields, right =>
       match right.eraseNominal with
-      | .record others => if fields.length = others.length then fieldsEqual fields others else some false
+      | .record others => if fields.length = others.length then fieldsEqual same fields others else some false
       | .scalar .null => some false
       | _ => none
     | .ok inner, right =>
       match right.eraseNominal with
-      | .ok other => valueEqual inner other
+      | .ok other => valueEqual same inner other
       | .err _ | .scalar .null => some false
       | _ => none
     | .err inner, right =>
       match right.eraseNominal with
-      | .err other => valueEqual inner other
+      | .err other => valueEqual same inner other
       | .ok _ | .scalar .null => some false
+      | _ => none
+    | .tagged declaration variant fields, right =>
+      match right.eraseNominal with
+      | .tagged other otherVariant others =>
+        if same declaration other && variant == otherVariant then itemsEqual same fields others else some false
+      | .scalar .null => some false
       | _ => none
     | left, right => if isNull right && !isNull left then some false else none
 
-  def itemsEqual : List (Value Declaration Identity Source) → List (Value Declaration Identity Source) → Option Bool
+  def itemsEqual (same : Declaration → Declaration → Bool) : List (Value Declaration Identity Source) → List (Value Declaration Identity Source) → Option Bool
     | [], [] => some true
     | [], _ :: _ | _ :: _, [] => some false
     | item :: items, other :: others =>
-      (valueEqual item other).bind fun same => if same then itemsEqual items others else some false
+      (valueEqual same item other).bind fun equal => if equal then itemsEqual same items others else some false
 
   /-- Every entry of the first map is in the second with an equal value; with
   equal sizes and distinct keys, the maps are equal. -/
-  def entriesEqual : List (MapKey × Value Declaration Identity Source) →
+  def entriesEqual (same : Declaration → Declaration → Bool) : List (MapKey × Value Declaration Identity Source) →
       List (MapKey × Value Declaration Identity Source) → Option Bool
     | [], _ => some true
     | (key, value) :: rest, others =>
       match others.lookup key with
       | none => some false
-      | some other => (valueEqual value other).bind fun same => if same then entriesEqual rest others else some false
+      | some other => (valueEqual same value other).bind fun equal => if equal then entriesEqual same rest others else some false
 
-  def fieldsEqual : List (String × Value Declaration Identity Source) →
+  def fieldsEqual (same : Declaration → Declaration → Bool) : List (String × Value Declaration Identity Source) →
       List (String × Value Declaration Identity Source) → Option Bool
     | [], _ => some true
     | (label, value) :: rest, others =>
       match others.lookup label with
       | none => some false
-      | some other => (valueEqual value other).bind fun same => if same then fieldsEqual rest others else some false
+      | some other => (valueEqual same value other).bind fun equal => if equal then fieldsEqual same rest others else some false
 end
 
 /-- Whether `needle` occurs as a contiguous run of `haystack`. -/
@@ -258,21 +268,22 @@ def containsRun {α : Type} [BEq α] (needle : List α) : List α → Bool
 
 /-- Whether some item equals `needle`; an uncovered comparison before the
 first equal item is uncovered. -/
-def anyEqual (needle : Value Declaration Identity Source) :
+def anyEqual (same : Declaration → Declaration → Bool) (needle : Value Declaration Identity Source) :
     List (Value Declaration Identity Source) → Option Bool
   | [] => some false
-  | item :: items => (valueEqual item needle).bind fun same => if same then some true else anyEqual needle items
+  | item :: items => (valueEqual same item needle).bind fun equal => if equal then some true else anyEqual same needle items
 
 /-- `needle in container` (SPEC 6.2): substring containment in a `Str`, byte
 containment in `Bytes`, an equal item in a `List`, a `Path` entry of
 `env.PATH`, key presence in a `Map` (whatever its value, `null` included), an
 element of a `Set`, and a `Str` field label of a record. A `Path` container is
 outside the model. -/
-def membership (needle container : Value Declaration Identity Source) : Option Bool :=
+def membership (same : Declaration → Declaration → Bool) (needle container : Value Declaration Identity Source) :
+    Option Bool :=
   match needle.eraseNominal, container.eraseNominal with
   | .scalar (.string part), .scalar (.string text) => some (containsRun part.toList text.toList)
   | .scalar (.bytes part), .scalar (.bytes data) => some (containsRun part data)
-  | _, .list items => anyEqual needle items
+  | _, .list items => anyEqual same needle items
   | .scalar (.path entry), .environmentPaths paths => some (paths.contains entry)
   | _, .map entries => (mapKeyOf needle).map fun key => entries.any fun entry => entry.1 == key
   | _, .set keys => (mapKeyOf needle).map keys.contains
@@ -306,13 +317,14 @@ def decided : Option Bool → Result Declaration Identity Source (Value Declarat
 
 /-- `in` and `not in`, and `==` and `!=` where the operands are not two
 scalars of one family the operator table gives its own meaning. -/
-def structural (operator : Xsh.Syntax.BinaryOp) (left right : Value Declaration Identity Source) :
+def structural (same : Declaration → Declaration → Bool) (operator : Xsh.Syntax.BinaryOp)
+    (left right : Value Declaration Identity Source) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
   match operator with
-  | .eq => decided (valueEqual left right)
-  | .ne => decided ((valueEqual left right).map not)
-  | .member => decided (membership left right)
-  | .notMember => decided ((membership left right).map not)
+  | .eq => decided (valueEqual same left right)
+  | .ne => decided ((valueEqual same left right).map not)
+  | .member => decided (membership same left right)
+  | .notMember => decided ((membership same left right).map not)
   | _ =>
     match left.eraseNominal, right.eraseNominal with
     | .set first, .set second =>
@@ -360,8 +372,8 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     | .add, _ => .value (.scalar (.string (a ++ b)))
     | .eq, _ => .value (boolean (decide (a = b)))
     | .ne, _ => .value (boolean (!decide (a = b)))
-    | .member, _ => decided (membership left right)
-    | .notMember, _ => decided ((membership left right).map not)
+    | .member, _ => decided (membership context.sameDeclaration left right)
+    | .notMember, _ => decided ((membership context.sameDeclaration left right).map not)
     | _, some comparison =>
       .value (boolean (orders comparison (lexBefore (codePoints a) (codePoints b)) (decide (a = b))))
     | _, none => .unsupported
@@ -373,11 +385,11 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     match operator, scalarsEqual a b with
     | .eq, some same => .value (boolean same)
     | .ne, some same => .value (boolean (!same))
-    | _, _ => structural operator left right
+    | _, _ => structural context.sameDeclaration operator left right
   | _, _ =>
     match operator, listValues left, listValues right with
     | .add, some first, some second => .value (.list (first ++ second))
-    | _, _, _ => structural operator left right
+    | _, _, _ => structural context.sameDeclaration operator left right
 
 def unary (context : Context Declaration Identity Source) :
     Xsh.Syntax.UnaryOp → Value Declaration Identity Source → Result Declaration Identity Source (Value Declaration Identity Source)

@@ -492,8 +492,8 @@ Expressions:
 
 - first-class local functions (P)
 - a `Result[Bool]` condition of a value `if` (P)
-- equality and membership of variants, errors and handles, and `in` on a
-  `Path` container (P)
+- equality and membership of errors and handles, and `in` on a `Path`
+  container (P)
 - named, spread and splice arguments, methods and value pipelines (P)
 - the contextual `.require()` (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
@@ -539,7 +539,9 @@ The `structural_equality_and_membership` fragment root, in
 pair (SPEC 4.5, 6.2, owner decision 1). `==` is the structural equality
 `valueEqual`: Floats compare by IEEE value at every depth, list items pairwise,
 map entries and record fields by key whatever their order, set elements as
-sets, `Ok` and `Err` payloads structurally, and a `null` equals only `null`.
+sets, `Ok` and `Err` payloads structurally, variants by declaration, name
+and payload (a `Fault(1)` of another enum is unequal), and a `null` equals
+only `null`.
 `in` is substring containment in a `Str`, byte containment in `Bytes`, an equal
 item in a `List`, a `Path` entry of `env.PATH`, key presence in a `Map` (a key
 whose value is `null` is present), an element of a `Set`, and a `Str` label of
@@ -553,7 +555,8 @@ key is present; and `s | t`, `s & t` and `s - t` for `s = set.from([3, 1, 2])`
 and `t = set.from([2, 4])` are `[1,2,3,4]`, `[2]` and `[1,3]`. The mutants it
 rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
-concatenates its operands. Variants, errors and handles are not compared, a
+concatenates its operands, and variant equality by name alone. Errors and
+handles are not compared, a
 `Path` container is outside the model, and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
 order, and that is not proved.

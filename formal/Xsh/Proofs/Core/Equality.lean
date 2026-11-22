@@ -12,10 +12,10 @@ open Xsh.Semantics.CoreEval
 
 section Laws
 
-variable {Declaration Identity Source : Type}
+variable {Declaration Identity Source : Type} (same : Declaration → Declaration → Bool)
 
 theorem valueEqual_erase (left right : Value Declaration Identity Source) :
-    valueEqual left.eraseNominal right = valueEqual left right := by
+    valueEqual same left.eraseNominal right = valueEqual same left right := by
   match left with
   | .nominal _ inner => simpa [Value.eraseNominal, valueEqual] using valueEqual_erase inner right
   | .scalar _ | .list _ | .map _ | .set _ | .stream _ | .record _ | .filesystemEntry _ | .module _ _ | .ok _
@@ -26,7 +26,7 @@ theorem valueEqual_erase (left right : Value Declaration Identity Source) :
 /-- A value that is not `null` is unequal to `null`: `T == T?` compares the
 `null` case (SPEC 6.2). -/
 theorem valueEqual_null (value : Value Declaration Identity Source) (present : isNull value = false) :
-    valueEqual value (.scalar .null) = some false := by
+    valueEqual same value (.scalar .null) = some false := by
   match value with
   | .nominal _ inner =>
     have : isNull inner = false := by simpa [isNull, Value.eraseNominal] using present
@@ -45,53 +45,53 @@ order is not observed. -/
 theorem fieldsEqual_lookup :
     ∀ (fields others others' : List (String × Value Declaration Identity Source)),
       (∀ label, others.lookup label = others'.lookup label) →
-        fieldsEqual fields others = fieldsEqual fields others'
+        fieldsEqual same fields others = fieldsEqual same fields others'
   | [], _, _, _ => by simp [fieldsEqual]
-  | (label, value) :: rest, others, others', same => by
-    simp only [fieldsEqual, same label]
+  | (label, value) :: rest, others, others', lookups => by
+    simp only [fieldsEqual, lookups label]
     split
     · rfl
     · congr 1
       funext equal
       split
-      · exact fieldsEqual_lookup rest others others' same
+      · exact fieldsEqual_lookup rest others others' lookups
       · rfl
 
 theorem record_order_free (fields others others' : List (String × Value Declaration Identity Source))
-    (sameSize : others.length = others'.length) (same : ∀ label, others.lookup label = others'.lookup label) :
-    valueEqual (.record fields) (.record others) = valueEqual (.record fields) (.record others') := by
-  simp only [valueEqual, Value.eraseNominal, sameSize, fieldsEqual_lookup fields others others' same]
+    (sameSize : others.length = others'.length) (lookups : ∀ label, others.lookup label = others'.lookup label) :
+    valueEqual same (.record fields) (.record others) = valueEqual same (.record fields) (.record others') := by
+  simp only [valueEqual, Value.eraseNominal, sameSize, fieldsEqual_lookup same fields others others' lookups]
 
 theorem entriesEqual_lookup :
     ∀ (entries others others' : List (MapKey × Value Declaration Identity Source)),
       (∀ key, others.lookup key = others'.lookup key) →
-        entriesEqual entries others = entriesEqual entries others'
+        entriesEqual same entries others = entriesEqual same entries others'
   | [], _, _, _ => by simp [entriesEqual]
-  | (key, value) :: rest, others, others', same => by
-    simp only [entriesEqual, same key]
+  | (key, value) :: rest, others, others', lookups => by
+    simp only [entriesEqual, lookups key]
     split
     · rfl
     · congr 1
       funext equal
       split
-      · exact entriesEqual_lookup rest others others' same
+      · exact entriesEqual_lookup rest others others' lookups
       · rfl
 
 theorem map_order_free (entries others others' : List (MapKey × Value Declaration Identity Source))
-    (sameSize : others.length = others'.length) (same : ∀ key, others.lookup key = others'.lookup key) :
-    valueEqual (.map entries) (.map others) = valueEqual (.map entries) (.map others') := by
-  simp only [valueEqual, Value.eraseNominal, sameSize, entriesEqual_lookup entries others others' same]
+    (sameSize : others.length = others'.length) (lookups : ∀ key, others.lookup key = others'.lookup key) :
+    valueEqual same (.map entries) (.map others) = valueEqual same (.map entries) (.map others') := by
+  simp only [valueEqual, Value.eraseNominal, sameSize, entriesEqual_lookup same entries others others' lookups]
 
 theorem valueEqual_scalar (scalar : Scalar) (right : Value Declaration Identity Source) {other : Scalar}
-    (shape : right.eraseNominal = .scalar other) : valueEqual (.scalar scalar) right = scalarsEqual scalar other := by
+    (shape : right.eraseNominal = .scalar other) : valueEqual same (.scalar scalar) right = scalarsEqual scalar other := by
   unfold valueEqual
   simp [shape]
 
 /-- `==` and `!=` are structural equality on every pair of operands. -/
 theorem equality_is_structural (context : Context Declaration Identity Source) (left right : Value Declaration Identity Source) :
-    binary context .eq left right = decided (valueEqual left right) ∧
-      binary context .ne left right = decided ((valueEqual left right).map not) := by
-  rw [← valueEqual_erase left right]
+    binary context .eq left right = decided (valueEqual context.sameDeclaration left right) ∧
+      binary context .ne left right = decided ((valueEqual context.sameDeclaration left right).map not) := by
+  rw [← valueEqual_erase context.sameDeclaration left right]
   constructor <;>
   · unfold binary
     split
@@ -99,22 +99,22 @@ theorem equality_is_structural (context : Context Declaration Identity Source) (
     all_goals first
       | (simp only [leftShape, rightShape, valueEqual, scalarsEqual, scalarEqual, decided, integerOperator,
           ordering, floatOperator, boolean, Option.map, floatValueNeq]; done)
-      | (simp only [leftShape, valueEqual_scalar _ right rightShape]
+      | (simp only [leftShape, valueEqual_scalar _ _ right rightShape]
          split
          all_goals first
            | (simp_all [decided, boolean]; done)
            | (simp only [structural]
-              rw [← valueEqual_erase left, leftShape, valueEqual_scalar _ right rightShape]))
+              rw [← valueEqual_erase context.sameDeclaration left, leftShape, valueEqual_scalar _ _ right rightShape]))
       | (split
          all_goals first
            | (simp_all; done)
            | simp only [structural, valueEqual_erase])
 
-/-- `in` and `not in` are the membership decision on every pair of operands. -/
+/-- `in` and `not in` are the membership same decision on every pair of operands. -/
 theorem membership_is_decision (context : Context Declaration Identity Source)
     (needle container : Value Declaration Identity Source) :
-    binary context .member needle container = decided (membership needle container) ∧
-      binary context .notMember needle container = decided ((membership needle container).map not) := by
+    binary context .member needle container = decided (membership context.sameDeclaration needle container) ∧
+      binary context .notMember needle container = decided ((membership context.sameDeclaration needle container).map not) := by
   constructor <;>
   · unfold binary
     split
@@ -130,7 +130,7 @@ theorem membership_is_decision (context : Context Declaration Identity Source)
 /-- A map's key is present whatever value it holds, `null` included. -/
 theorem map_key_presence (needle : Value Declaration Identity Source) (key : MapKey)
     (entries : List (MapKey × Value Declaration Identity Source)) (keyed : mapKeyOf needle = some key) :
-    membership needle (.map entries) = some (entries.any fun entry => entry.1 == key) := by
+    membership same needle (.map entries) = some (entries.any fun entry => entry.1 == key) := by
   unfold membership
   split <;> simp_all [Value.eraseNominal]
 
@@ -184,14 +184,14 @@ theorem setOf_spec (keys : List MapKey) : (setOf keys).Nodup ∧ ∀ key, key �
 
 /-- Two sets with the same elements are equal, whatever order and repeats
 built them (SPEC 4.5). -/
-theorem sets_with_same_elements_equal (first second : List MapKey) (same : ∀ key, key ∈ first ↔ key ∈ second) :
-    valueEqual (Declaration := Declaration) (Identity := Identity) (Source := Source)
+theorem sets_with_same_elements_equal (first second : List MapKey) (members : ∀ key, key ∈ first ↔ key ∈ second) :
+    valueEqual same (Declaration := Declaration) (Identity := Identity) (Source := Source)
       (.set (setOf first)) (.set (setOf second)) = some true := by
   obtain ⟨firstDistinct, firstMembers⟩ := setOf_spec first
   obtain ⟨secondDistinct, secondMembers⟩ := setOf_spec second
   have permuted : (setOf first).Perm (setOf second) :=
     (List.perm_ext_iff_of_nodup firstDistinct secondDistinct).mpr fun key => by
-      rw [firstMembers, secondMembers, same]
+      rw [firstMembers, secondMembers, members]
   simp only [valueEqual, Value.eraseNominal, permuted.length_eq, beq_self_eq_true, Bool.true_and,
     Option.some.injEq, List.all_eq_true]
   intro key found
@@ -212,40 +212,56 @@ theorem set_operations (first second : List MapKey) :
 
 /-- Float items compare by IEEE value inside composite values (owner decision 1). -/
 theorem float_items_ieee (left right : FloatBits) :
-    valueEqual (Declaration := Declaration) (Identity := Identity) (Source := Source)
+    valueEqual same (Declaration := Declaration) (Identity := Identity) (Source := Source)
       (.list [.scalar (.float left)]) (.list [.scalar (.float right)]) = some (floatValueEq left right) := by
   simp only [valueEqual, itemsEqual, Value.eraseNominal, scalarsEqual, scalarEqual, Option.bind_some]
   cases floatValueEq left right <;> rfl
 
+/-- Two variants are equal when they have the same declaration and variant
+name and equal payloads, compared with the declarations' own equality. -/
+theorem variant_equality [DecidableEq Declaration] (declaration other : Declaration) (variant otherVariant : String)
+    (fields others : List (Value Declaration Identity Source)) :
+    valueEqual (fun first second => decide (first = second)) (.tagged declaration variant fields)
+        (.tagged other otherVariant others) =
+      if declaration = other ∧ variant = otherVariant then itemsEqual (fun first second => decide (first = second)) fields others
+      else some false := by
+  by_cases sameDeclaration : declaration = other <;> by_cases sameVariant : variant = otherVariant <;>
+    simp [valueEqual, Value.eraseNominal, sameDeclaration, sameVariant]
+
 /-- The `structural_equality_and_membership` fragment root (SPEC 4.5, 6.2,
 owner decision 1): `==`/`!=` are structural equality and `in`/`not in` the
-membership decision on every operand pair; Floats compare by IEEE value inside
+membership same decision on every operand pair; Floats compare by IEEE value inside
 lists; a non-`null` value is unequal to `null`; record and map equality read
 the other operand only by label or key; a map key is present whatever its
-value; two sets with the same elements are equal however they were built; and
-`|`, `&`, `-` give distinct elements of the union, intersection and
+value; two sets with the same elements are equal however they were built; variants are equal when their declaration,
+name and payload are; and `|`, `&`, `-` give distinct elements of the union, intersection and
 difference. -/
-theorem structural_equality_and_membership (context : Context Declaration Identity Source) :
+theorem structural_equality_and_membership [DecidableEq Declaration] (context : Context Declaration Identity Source) :
     (∀ left right : Value Declaration Identity Source,
-      binary context .eq left right = decided (valueEqual left right) ∧
-        binary context .ne left right = decided ((valueEqual left right).map not)) ∧
+      binary context .eq left right = decided (valueEqual context.sameDeclaration left right) ∧
+        binary context .ne left right = decided ((valueEqual context.sameDeclaration left right).map not)) ∧
     (∀ needle container : Value Declaration Identity Source,
-      binary context .member needle container = decided (membership needle container) ∧
-        binary context .notMember needle container = decided ((membership needle container).map not)) ∧
+      binary context .member needle container = decided (membership context.sameDeclaration needle container) ∧
+        binary context .notMember needle container = decided ((membership context.sameDeclaration needle container).map not)) ∧
     (∀ left right : FloatBits,
-      valueEqual (Declaration := Declaration) (Identity := Identity) (Source := Source)
+      valueEqual context.sameDeclaration (Declaration := Declaration) (Identity := Identity) (Source := Source)
         (.list [.scalar (.float left)]) (.list [.scalar (.float right)]) = some (floatValueEq left right)) ∧
-    (∀ value : Value Declaration Identity Source, isNull value = false → valueEqual value (.scalar .null) = some false) ∧
+    (∀ value : Value Declaration Identity Source, isNull value = false → valueEqual context.sameDeclaration value (.scalar .null) = some false) ∧
+    (context.sameDeclaration = (fun first second => decide (first = second)) →
+      ∀ (declaration other : Declaration) variant otherVariant (fields others : List (Value Declaration Identity Source)),
+        valueEqual context.sameDeclaration (.tagged declaration variant fields) (.tagged other otherVariant others) =
+          if declaration = other ∧ variant = otherVariant then itemsEqual context.sameDeclaration fields others
+          else some false) ∧
     (∀ fields others others' : List (String × Value Declaration Identity Source),
       others.length = others'.length → (∀ label, others.lookup label = others'.lookup label) →
-        valueEqual (.record fields) (.record others) = valueEqual (.record fields) (.record others')) ∧
+        valueEqual context.sameDeclaration (.record fields) (.record others) = valueEqual context.sameDeclaration (.record fields) (.record others')) ∧
     (∀ entries others others' : List (MapKey × Value Declaration Identity Source),
       others.length = others'.length → (∀ key, others.lookup key = others'.lookup key) →
-        valueEqual (.map entries) (.map others) = valueEqual (.map entries) (.map others')) ∧
+        valueEqual context.sameDeclaration (.map entries) (.map others) = valueEqual context.sameDeclaration (.map entries) (.map others')) ∧
     (∀ (needle : Value Declaration Identity Source) key entries, mapKeyOf needle = some key →
-      membership needle (.map entries) = some (entries.any fun entry => entry.1 == key)) ∧
+      membership context.sameDeclaration needle (.map entries) = some (entries.any fun entry => entry.1 == key)) ∧
     (∀ first second : List MapKey, (∀ key, key ∈ first ↔ key ∈ second) →
-      valueEqual (Declaration := Declaration) (Identity := Identity) (Source := Source)
+      valueEqual context.sameDeclaration (Declaration := Declaration) (Identity := Identity) (Source := Source)
         (.set (setOf first)) (.set (setOf second)) = some true) ∧
     (∀ first second : List MapKey,
       (∀ keys, setOperation .union first second = some keys →
@@ -254,8 +270,13 @@ theorem structural_equality_and_membership (context : Context Declaration Identi
         keys.Nodup ∧ ∀ key, key ∈ keys ↔ key ∈ first ∧ key ∈ second) ∧
       (∀ keys, setOperation .sub first second = some keys →
         keys.Nodup ∧ ∀ key, key ∈ keys ↔ key ∈ first ∧ key ∉ second)) :=
-  ⟨equality_is_structural context, membership_is_decision context, float_items_ieee, valueEqual_null,
-    record_order_free, map_order_free, map_key_presence, sets_with_same_elements_equal, set_operations⟩
+  ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameDeclaration,
+    valueEqual_null context.sameDeclaration,
+    fun decides declaration other variant otherVariant fields others => by
+      rw [decides]; exact variant_equality declaration other variant otherVariant fields others,
+    record_order_free context.sameDeclaration,
+    map_order_free context.sameDeclaration, map_key_presence context.sameDeclaration,
+    sets_with_same_elements_equal context.sameDeclaration, set_operations⟩
 
 end Laws
 
@@ -391,6 +412,32 @@ theorem value_sensitive_membership_rejected :
 theorem concatenating_union_rejected :
     (setOf [key 3, key 1, key 2] ++ setOf [key 2, key 4]).length = 5 ∧
       (readSet (run locals (.binary .union (ident sName) (ident tName)))).map List.length = some 4 := by
+  decide +kernel
+
+def tag (declaration : Nat) (variant : String) (payload : List (Value Nat Unit Unit)) : Value Nat Unit Unit :=
+  .tagged declaration variant payload
+
+def natInt (value : Int) : Value Nat Unit Unit := .scalar (match validateInt? value with
+  | some valid => .integer valid
+  | none => .null)
+
+def sameNat : Nat → Nat → Bool := fun first second => decide (first = second)
+
+/-- Variants compare by declaration, name and payload: `Fault(1)` equals
+`Fault(1)` and differs from `Fault(2)`, from `Info`, and from a `Fault(1)`
+of another enum. -/
+theorem variant_witness :
+    valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 1 "Fault" [natInt 1]) = some true ∧
+    valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 1 "Fault" [natInt 2]) = some false ∧
+    valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 1 "Info" []) = some false ∧
+    valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some false := by
+  decide +kernel
+
+/-- Comparing variants by name alone calls a `Fault(1)` of another enum equal;
+the model does not. -/
+theorem name_only_variant_equality_rejected :
+    valueEqual (fun _ _ => true) (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some true ∧
+      valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some false := by
   decide +kernel
 
 end Witness

@@ -294,8 +294,9 @@ theorem decided_runtimeOnly (decision : Option Bool) :
   intro failure failed
   cases decision <;> simp [decided] at failed
 
-theorem structural_runtimeOnly (operator : Xsh.Syntax.BinaryOp) (left right : Value Declaration Identity Source) :
-    RuntimeOnly (structural operator left right) := by
+theorem structural_runtimeOnly (same : Declaration → Declaration → Bool) (operator : Xsh.Syntax.BinaryOp)
+    (left right : Value Declaration Identity Source) :
+    RuntimeOnly (structural same operator left right) := by
   intro failure failed
   unfold structural at failed
   repeat' split at failed
@@ -312,7 +313,7 @@ theorem binary_runtimeOnly (context : Context Declaration Identity Source) (oper
     | exact integerResult_runtimeOnly _ _ failure failed
     | exact durationResult_runtimeOnly _ _ failure failed
     | exact decided_runtimeOnly _ failure failed
-    | exact structural_runtimeOnly _ _ _ failure failed
+    | exact structural_runtimeOnly _ _ _ _ failure failed
     | simp at failed
 
 theorem unary_runtimeOnly (context : Context Declaration Identity Source) (operator : Xsh.Syntax.UnaryOp)
