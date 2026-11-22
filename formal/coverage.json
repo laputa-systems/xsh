@@ -15184,6 +15184,15 @@
       "boundary": "The context frame's region span is not modelled; a type failure is not annotated; rendering in tracebacks is not modelled. Witnesses follow the verification binary's (ctx: ...) annotation of a propagated schema error; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Exports.exported_declarations",
+      "module": "Xsh.Proofs.Core.Exports",
+      "declaration": "Xsh.Proofs.Core.Exports.exported_declarations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 3.1 and 3.3 exports in a script: an exported declaration runs, hoists and declares its names in the resolution pass exactly as the declaration it wraps, and an exported proc or pure is hoisted with the script's other functions.",
+      "boundary": "A module's export interface, module loading and the doc-comment requirement before export are not modelled. Witnesses follow the verification binary on an exported pure called above its declaration and an exported let; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

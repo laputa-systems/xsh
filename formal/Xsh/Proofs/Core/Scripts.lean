@@ -19,9 +19,10 @@ variable {Declaration Identity Source : Type} [DecidableEq Declaration]
 
 section Pass
 
-/-- A statement with its sugar expanded. -/
+/-- A statement with its sugar expanded and its `export` removed. -/
 def unsugared : Xsh.Syntax.Statement → Xsh.Syntax.Statement
   | .sugar _ expansion => unsugared expansion
+  | .export declaration => unsugared declaration
   | statement => statement
 
 /-- Whether a top-level statement is inside the machine's model: any
@@ -29,6 +30,7 @@ statement but a `stream` or `cli main` declaration. -/
 def modelled : Xsh.Syntax.Statement → Bool
   | .functionDef kind _ _ _ _ _ _ _ => (callableKind kind).isSome
   | .sugar _ expansion => modelled expansion
+  | .export declaration => modelled declaration
   | _ => true
 
 /-- The payload-free variants a program's enums declare (SPEC 4.8:
@@ -250,6 +252,12 @@ theorem hoistStatement_resolves {world : World Declaration Identity Source} (mac
     simp only [modelled] at fits
     exact hoistStatement_resolves machine base types resolved activation expansion environment mutable closures result
       top outer fits carried hoisted
+  | .export declaration, environment, mutable, closures, result, top, outer, fits, carried, hoisted => by
+    simp only [hoistStatement] at hoisted
+    simp only [modelled] at fits
+    simp only [staticDeclare, unsugared]
+    exact hoistStatement_resolves machine base types resolved activation declaration environment mutable closures result
+      top outer fits carried hoisted
   | .assign _ _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .expression _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .tailName _, environment, mutable, closures, result, top, outer, _, carried, hoisted
@@ -268,7 +276,6 @@ theorem hoistStatement_resolves {world : World Declaration Identity Source} (mac
   | .exit _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .matchStmt _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .use _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
-  | .export _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .typeDef _ _ _ _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .errorDef _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
   | .signalHook _ _ _ _, environment, mutable, closures, result, top, outer, _, carried, hoisted
@@ -423,6 +430,10 @@ theorem functionDef_binds {world : World Declaration Identity Source} (machine :
     case sugar form expansion =>
       simp only [runStatement] at ran
       exact functionDef_binds machine fuel frame next expansion kind name parameters effects result body metadata test
+        core ran
+    case «export» declaration =>
+      simp only [runStatement] at ran
+      exact functionDef_binds machine fuel frame next declaration kind name parameters effects result body metadata test
         core ran
     all_goals simp [unsugared] at core
 

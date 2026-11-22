@@ -127,6 +127,7 @@ def declaredBy : Xsh.Syntax.Statement → List Xsh.Syntax.RawName
   | .guardHandled target _ _ _ _ => targetNames target
   | .functionDef _ name _ _ _ _ _ _ => [name]
   | .sugar _ expansion => declaredBy expansion
+  | .export declaration => declaredBy declaration
   | _ => []
 
 theorem staticDeclare_declared (top : List Xsh.Syntax.RawName) (outer : StaticScopes) :
@@ -138,9 +139,12 @@ theorem staticDeclare_declared (top : List Xsh.Syntax.RawName) (outer : StaticSc
   | .sugar _ expansion => by
     simp only [staticDeclare, declaredBy]
     exact staticDeclare_declared top outer expansion
+  | .export declaration => by
+    simp only [staticDeclare, declaredBy]
+    exact staticDeclare_declared top outer declaration
   | .assign _ _ _ | .expression _ | .tailName _ | .returnValue _ | .yield _ | .yieldDelegate _ | .defer _ _
     | .ifStmt _ _ | .whileStmt _ _ | .forStmt _ _ _ | .withScope _ _ _ | .loopStmt _ | .assert _ _ | .breakStmt _
-    | .continueStmt | .exit _ | .matchStmt _ _ | .use _ _ | .export _ | .typeDef _ _ _ _ _ | .errorDef _ _
+    | .continueStmt | .exit _ | .matchStmt _ _ | .use _ _ | .typeDef _ _ _ _ _ | .errorDef _ _
     | .signalHook _ _ _ _ | .command _ _ => rfl
 
 /-- `after` holds exactly the locals of `before` that `names` does not hide. -/
@@ -234,6 +238,9 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
     | sugar kind expansion =>
       simp only [runStatement] at ran
       exact statement_hides machine base types resolved fuel frame expansion next ran
+    | «export» declaration =>
+      simp only [runStatement] at ran
+      exact statement_hides machine base types resolved fuel frame declaration next ran
     | ifStmt branches otherwise => exact controlled (.ifStmt branches otherwise) trivial ran
     | whileStmt condition body => exact controlled (.whileStmt condition body) trivial ran
     | forStmt target iterable body => exact controlled (.forStmt target iterable body) trivial ran

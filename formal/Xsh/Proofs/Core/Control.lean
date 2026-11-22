@@ -2734,7 +2734,7 @@ def staticBind (scope : List Xsh.Syntax.RawName) (names : List Xsh.Syntax.RawNam
 /-- The scopes after a statement, for the declaring statements: a `let`,
 `var` or `const`, a `guard let` and a local function declare their names in
 the innermost scope, a destructuring target every name it binds, and sugar
-declares what its expansion does; every other covered statement leaves its
+declares what its expansion does, an `export` what its declaration does; every other covered statement leaves its
 scopes as it found them. -/
 def staticDeclare : StaticScopes → Xsh.Syntax.Statement → StaticScopes
   | top :: outer, .binding _ target _ _ => staticBind top (targetNames target) :: outer
@@ -2742,6 +2742,7 @@ def staticDeclare : StaticScopes → Xsh.Syntax.Statement → StaticScopes
   | top :: outer, .guardHandled target _ _ _ _ => staticBind top (targetNames target) :: outer
   | top :: outer, .functionDef _ name _ _ _ _ _ _ => (name :: top) :: outer
   | scopes, .sugar _ expansion => staticDeclare scopes expansion
+  | scopes, .export declaration => staticDeclare scopes declaration
   | scopes, _ => scopes
 
 /-- The pass over a statement list: each use, in order, with the binder it

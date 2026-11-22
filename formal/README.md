@@ -484,8 +484,8 @@ Statements:
 - `for` over a `Stream` (E)
 - stream producers and their `yield` (E)
 - `use` aliases, which need module loading (E)
-- `export` of anything but a binding (P); `stream` and `cli main`
-  declarations, which need the stream and host argument models (E)
+- `stream` and `cli main` declarations, which need the stream and host
+  argument models (E)
 - `with` resource scopes, `exit`, signal hooks and command statements (E)
 
 Expressions:
@@ -494,7 +494,7 @@ Expressions:
 - a `Result[Bool]` condition of a value `if` (P)
 - equality and membership of errors and handles, and `in` on a `Path`
   container (P)
-- named, spread and splice arguments, methods and value pipelines (P)
+- methods and value pipelines (P)
 - the contextual `.require()` (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
@@ -641,6 +641,16 @@ body reports `(ctx: outer step)`, and so does an index out of range, while a
 `fail`, which returns its `Err`, is not annotated. The witnesses check a
 propagated error and an `Err` value, and reject a `ctx` that annotates data.
 The frame's span is not modelled.
+
+The `exported_declarations` fragment root, in
+[`Proofs/Core/Exports.lean`](Xsh/Proofs/Core/Exports.lean), runs `export` in a
+script (SPEC 3.1, 3.3): an exported declaration runs, hoists and declares
+names in the resolution pass exactly as the declaration it wraps, so an
+exported `proc` or `pure` is hoisted with the script's other functions. The
+verification binary prints `3` for an exported `pure` called above its
+declaration and `14` for `twice(seven)` over an exported `let`; the witnesses
+check both shapes and reject a script that does not hoist an exported
+function. A module's export interface and loading are not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

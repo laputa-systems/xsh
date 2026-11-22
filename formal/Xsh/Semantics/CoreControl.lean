@@ -1801,6 +1801,7 @@ mutual
       | .defer kind action =>
         .normal { frame with deferred := ⟨kind, action, frame.environment, frame.locals⟩ :: frame.deferred }
       | .sugar _ expansion => runStatement machine fuel frame expansion
+      | .export declaration => runStatement machine fuel frame declaration
       | .typeDef _ _ _ _ _ | .errorDef _ _ =>
         match frame.callerStore, frame.environment.names with
         | none, [_] => .normal frame
@@ -1935,7 +1936,7 @@ end
 /-- The functions a script declares at its top level. -/
 def hoistedNames : List Xsh.Syntax.Statement → List Xsh.Syntax.RawName
   | [] => []
-  | .functionDef kind name _ _ _ _ _ _ :: rest =>
+  | .functionDef kind name _ _ _ _ _ _ :: rest | .export (.functionDef kind name _ _ _ _ _ _) :: rest =>
     if (callableKind kind).isSome then name :: hoistedNames rest else hoistedNames rest
   | _ :: rest => hoistedNames rest
 
@@ -1984,6 +1985,8 @@ def hoistStatement {world : World Declaration Identity Source} (machine : Machin
     | none, _ => some (environment, mutable, closures)
   | environment, mutable, closures, .sugar _ expansion =>
     hoistStatement machine activation environment mutable closures expansion
+  | environment, mutable, closures, .export declaration =>
+    hoistStatement machine activation environment mutable closures declaration
   | environment, mutable, closures, _ => some (environment, mutable, closures)
 
 /-- Each top-level function's closure before any statement runs: over the

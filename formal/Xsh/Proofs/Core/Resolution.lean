@@ -129,9 +129,12 @@ theorem staticDeclare_cons (top : List Xsh.Syntax.RawName) (outer : StaticScopes
   | .sugar _ expansion => by
     obtain ⟨inner, shape⟩ := staticDeclare_cons top outer expansion
     exact ⟨inner, by simp only [staticDeclare]; exact shape⟩
+  | .export declaration => by
+    obtain ⟨inner, shape⟩ := staticDeclare_cons top outer declaration
+    exact ⟨inner, by simp only [staticDeclare]; exact shape⟩
   | .assign _ _ _ | .expression _ | .tailName _ | .returnValue _ | .yield _ | .yieldDelegate _ | .defer _ _
     | .ifStmt _ _ | .whileStmt _ _ | .forStmt _ _ _ | .withScope _ _ _ | .loopStmt _ | .assert _ _ | .breakStmt _
-    | .continueStmt | .exit _ | .matchStmt _ _ | .use _ _ | .export _ | .typeDef _ _ _ _ _ | .errorDef _ _
+    | .continueStmt | .exit _ | .matchStmt _ _ | .use _ _ | .typeDef _ _ _ _ _ | .errorDef _ _
     | .signalHook _ _ _ _ | .command _ _ => ⟨top, rfl⟩
 
 theorem guardElse_not_normal {world : World Declaration Identity Source} (outcome : Exec world) (last : Frame world) :
@@ -215,6 +218,10 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       simp only [runStatement] at ran
       simp only [staticDeclare]
       exact statement_resolves machine base types resolved fuel frame expansion next top outer carried ran
+    | «export» declaration =>
+      simp only [runStatement] at ran
+      simp only [staticDeclare]
+      exact statement_resolves machine base types resolved fuel frame declaration next top outer carried ran
     | ifStmt branches otherwise => exact controlled (.ifStmt branches otherwise) trivial ran
     | whileStmt condition body => exact controlled (.whileStmt condition body) trivial ran
     | forStmt target iterable body => exact controlled (.forStmt target iterable body) trivial ran
