@@ -299,6 +299,14 @@ def okName : Xsh.Syntax.RawName := name 68 (by decide)
 def errName : Xsh.Syntax.RawName := name 69 (by decide)
 def recName : Xsh.Syntax.RawName := name 70 (by decide)
 def uName : Xsh.Syntax.RawName := name 71 (by decide)
+def pathName : Xsh.Syntax.RawName := name 72 (by decide)
+def subPathName : Xsh.Syntax.RawName := name 73 (by decide)
+def oddPathName : Xsh.Syntax.RawName := name 74 (by decide)
+
+def pathValue (bytes : List UInt8) : WitnessValue :=
+  match NativePath.fromBytes? bytes with
+  | some path => .scalar (.path path)
+  | none => .scalar .null
 
 def bits (value : Nat) (bounded : value < signed64Width) : WitnessValue := .scalar (.float ⟨value, bounded⟩)
 def one : WitnessValue := bits 4607182418800017408 (by decide)
@@ -323,7 +331,9 @@ def locals : Locals Unit Unit Unit :=
     (sName, .set (setOf [key 3, key 1, key 2])), (tName, .set (setOf [key 2, key 4])),
     (uName, .set (setOf [key 2, key 3, key 1])),
     (okName, .ok (int 1)), (errName, .err (.scalar (.string "e"))),
-    (recName, .record [("b", int 1), ("a", int 2)])]
+    (recName, .record [("b", int 1), ("a", int 2)]),
+    (pathName, pathValue "usr/share/xsh".toUTF8.toList), (subPathName, pathValue "usr/share".toUTF8.toList),
+    (oddPathName, pathValue [0xFF, 0x73])]
 
 def readBool : Result Unit Unit Unit WitnessValue → Option Bool
   | .value (.scalar (.boolean value)) => some value
@@ -383,6 +393,19 @@ theorem nested_equality_witness :
       (.list [.list [.literal (.integer "1")], .list [.literal (.integer "2")]]) = some true ∧
     ask .eq (.record [.named aName (.list [.literal (.integer "1")])])
       (.record [.named aName (.list [.literal (.integer "2")])]) = some false := by
+  decide +kernel
+
+/-- As the verification binary prints `true true true false true` for
+`"share" in p`, `"/xs" in p`, `p"usr/share" in p`, `"bin" in p` and `"" in p`
+with `p = p"usr/share/xsh"`; a path that is not valid UTF-8 is outside the
+model. -/
+theorem path_membership_witness :
+    ask .member (str "share") (ident pathName) = some true ∧
+    ask .member (str "/xs") (ident pathName) = some true ∧
+    ask .member (ident subPathName) (ident pathName) = some true ∧
+    ask .member (str "bin") (ident pathName) = some false ∧
+    ask .member (str "") (ident pathName) = some true ∧
+    ask .member (str "s") (ident oddPathName) = none := by
   decide +kernel
 
 /-- Raw-bit equality, the representation equality codecs keep, calls `[nan]`

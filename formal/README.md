@@ -491,8 +491,8 @@ Statements:
 Expressions:
 
 - a `Result[Bool]` condition of a value `if` (P)
-- equality and membership of errors and handles, and `in` on a `Path`
-  container (P)
+- equality and membership of errors and handles, and `in` on a `Path` whose
+  bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
 - the contextual `.require()` (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
@@ -539,8 +539,9 @@ and payload (a `Fault(1)` of another enum is unequal), and a `null` equals
 only `null`.
 `in` is substring containment in a `Str`, byte containment in `Bytes`, an equal
 item in a `List`, a `Path` entry of `env.PATH`, key presence in a `Map` (a key
-whose value is `null` is present), an element of a `Set`, and a `Str` label of
-a record. `|`, `&` and `-` give the distinct elements of the union,
+whose value is `null` is present), an element of a `Set`, a `Str` label of
+a record, and a `Str` or `Path` in the display text of a `Path`, here its
+bytes when they are valid UTF-8. `|`, `&` and `-` give the distinct elements of the union,
 intersection and difference, and two sets with the same elements are equal
 however they were built. Its witnesses agree with what the verification
 binary prints for the same programs: `[1.0, -0.0] == [1.0, 0.0]`,
@@ -552,7 +553,7 @@ rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
 concatenates its operands, and variant equality by name alone. Errors and
 handles are not compared, a
-`Path` container is outside the model, and String containment is stated on
+`Path` whose bytes are not valid UTF-8 is outside membership, and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
 order, and that is not proved.
 

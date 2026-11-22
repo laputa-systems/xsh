@@ -280,16 +280,24 @@ def anyEqual (same : Declaration → Declaration → Bool) (needle : Value Decla
   | [] => some false
   | item :: items => (valueEqual same item needle).bind fun equal => if equal then some true else anyEqual same needle items
 
+/-- Whether a path's display text is its bytes: they are valid UTF-8. -/
+def displayable (path : NativePath) : Bool := (String.fromUTF8? ⟨path.bytes.toArray⟩).isSome
+
 /-- `needle in container` (SPEC 6.2): substring containment in a `Str`, byte
 containment in `Bytes`, an equal item in a `List`, a `Path` entry of
 `env.PATH`, key presence in a `Map` (whatever its value, `null` included), an
-element of a `Set`, and a `Str` field label of a record. A `Path` container is
-outside the model. -/
+element of a `Set`, a `Str` field label of a record, and display-text
+containment of a `Str` or `Path` in a `Path` whose bytes are valid UTF-8; a
+path that is not is outside the model. -/
 def membership (same : Declaration → Declaration → Bool) (needle container : Value Declaration Identity Source) :
     Option Bool :=
   match needle.eraseNominal, container.eraseNominal with
   | .scalar (.string part), .scalar (.string text) => some (containsRun part.toList text.toList)
   | .scalar (.bytes part), .scalar (.bytes data) => some (containsRun part data)
+  | .scalar (.string part), .scalar (.path path) =>
+    if displayable path then some (containsRun part.toUTF8.toList path.bytes) else none
+  | .scalar (.path part), .scalar (.path path) =>
+    if displayable part && displayable path then some (containsRun part.bytes path.bytes) else none
   | _, .list items => anyEqual same needle items
   | .scalar (.path entry), .environmentPaths paths => some (paths.contains entry)
   | _, .map entries => (mapKeyOf needle).map fun key => entries.any fun entry => entry.1 == key
