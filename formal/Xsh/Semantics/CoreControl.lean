@@ -325,9 +325,9 @@ def integerHole (parsed : Option Int) : Match Declaration Identity Source :=
   | some value => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.integer value))]
   | none => .failed
 
-/-- The value a text-pattern hole takes (SPEC 6.10): a `Str`, or an `Int` for
-`d`, `x`, `o` and `b`; the `Float` letters `f`, `e` and `g` need Float literal
-rounding, which is outside the model. -/
+/-- The value a text-pattern hole takes (SPEC 6.10): a `Str`, an `Int` for
+`d`, `x`, `o` and `b`, or a finite `Float` for `f`, `e` and `g`, rounded as a
+literal is. -/
 def holeValue (spelling : Xsh.Syntax.RawName → String) (spec : Option Xsh.Syntax.RawName) (taken : List Char) :
     Match Declaration Identity Source :=
   match spec.map spelling with
@@ -339,6 +339,10 @@ def holeValue (spelling : Xsh.Syntax.RawName → String) (spec : Option Xsh.Synt
   | some "x" => integerHole (radix 16 'x' taken)
   | some "o" => integerHole (radix 8 'o' taken)
   | some "b" => integerHole (radix 2 'b' taken)
+  | some "f" | some "e" | some "g" =>
+    match Xsh.Values.FloatLiterals.holeFloat taken with
+    | some bits => .matched [(⟨⟨0, by decide⟩⟩, .scalar (.float bits))]
+    | none => .failed
   | some _ => .unsupported
 
 /-- A hole's capture under its name, or none for `{_}`. -/

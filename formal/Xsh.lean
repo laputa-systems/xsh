@@ -34,6 +34,7 @@ import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
 import Xsh.Values.FloatArith
 import Xsh.Values.FloatOps
+import Xsh.Values.FloatLiterals
 import Xsh.Values.OrderedSet
 import Xsh.Sets.Algebra
 import Xsh.Values.MapPresence

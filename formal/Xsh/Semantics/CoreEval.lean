@@ -3,6 +3,7 @@ import Xsh.Values.IntegerOps
 import Xsh.Values.DurationOps
 import Xsh.Values.FloatOps
 import Xsh.Values.FloatEquality
+import Xsh.Values.FloatLiterals
 
 namespace Xsh.Semantics.CoreEval
 

@@ -501,11 +501,9 @@ Expressions:
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `$NAME` and `$PATH` reads (E), `$?` (E)
-- Float literal and `parse_float` rounding, method calls behind
+- `parse_float`, method calls behind
   `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
 
-Patterns: the `Float` text holes `f`, `e` and `g`, which need Float literal
-and `parse_float` rounding, outside the model as for BASE-NUM (P).
 
 Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
 syntax form and the checker's expected type (P).
@@ -934,7 +932,19 @@ ties, the signed-zero and infinity cases, and the conversions of 2.5, -2.5 and
 2^63. The rejected mutants are ties-away rounding, operand exponents decoded
 one too high, unsigned zero results, a non-NaN result for 0/0, `.round()` with
 ties to even, negation as `0 - x`, total-order comparison, and bitsets over
-magnitudes. Outside the model: Float literal and `parse_float` rounding, the
+magnitudes. Float literals and the `Float` text holes `f`, `e` and `g` round
+in [`Values/FloatLiterals.lean`](Xsh/Values/FloatLiterals.lean): the
+`float_literal_rounding` root gives a literal the exact decimal value of its
+digits and exponent, rounded to the nearest binary64 with ties to even and
+overflow to infinity, shows `decimalFloat` computes it and nothing else meets
+it, and keeps a text hole's reading finite. Its witnesses are the bits Rust's
+`str::parse::<f64>` gives for `1.0`, `0.25`, `1.5e6`, `10e-3`, `0.1`,
+`0.30000000000000004`, `1E+2`, `123.456e-2`, `1e400` (infinity), `5e-324` and
+`2e-324`, the lexer's refusals `1.`, `1`, `1e` and `.5`, and the text hole's
+`-1.5e3`, `7`, `1.`, `.5` and `-0` against its refusals `nan`, `inf`, `1e999`
+and `1.5 `; truncation is rejected. A context whose `literals.float` is
+`decimalFloat` gives Float literals that meaning; the expression contexts take
+the lexer's reading as a parameter. Outside the model: `parse_float`, the
 Float math methods such as `atan2` and `format_number`, and the identity of the
 `float-conversion` error, which the conversions collapse to `none`. The model
 claims no Rust or hardware conformance. Witnesses that evaluate binary64

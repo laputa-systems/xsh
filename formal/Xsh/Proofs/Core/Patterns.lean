@@ -486,6 +486,22 @@ theorem names_mutants_rejected :
   have := perm.length_eq
   simp [allAlternativeNames, swapped, patternNames, itemNames] at this
 
+/-- The bits a hole's capture holds, if it matched one `Float`. -/
+def floatCapture : Match Unit Unit Unit → Option Nat
+  | .matched [(_, .scalar (.float bits))] => some bits.val
+  | _ => none
+
+def isFailed : Match Unit Unit Unit → Bool
+  | .failed => true
+  | _ => false
+
+/-- An `f` hole reads `1.5e3` as `1500.0`, as Rust's text pattern does, and
+fails on `nan`, which a Float hole refuses. -/
+theorem float_hole_reads :
+    floatCapture (holeValue (fun _ => "f") (some ⟨⟨0, by decide⟩⟩) "1.5e3".toList) = some 4654311885213007872 ∧
+      isFailed (holeValue (fun _ => "f") (some ⟨⟨0, by decide⟩⟩) "nan".toList) = true := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Patterns

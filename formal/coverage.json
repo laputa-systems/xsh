@@ -15193,6 +15193,15 @@
       "boundary": "A module's export interface, module loading and the doc-comment requirement before export are not modelled. Witnesses follow the verification binary on an exported pure called above its declaration and an exported let; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Values.FloatLiterals.float_literal_rounding",
+      "module": "Xsh.Values.FloatLiterals",
+      "declaration": "Xsh.Values.FloatLiterals.float_literal_rounding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 2 Numbers, 4.3 and 6.10 Float literals and text holes: a literal in the lexer's grammar means its exact decimal value, digits times ten to the exponent over ten to the fraction length, rounded to the nearest binary64 with ties to even and overflow to infinity; decimalFloat computes that value, nothing else meets it and it is never NaN; and a Float text hole's reading is finite.",
+      "boundary": "parse_float is not modelled; the expression contexts take the lexer's reading as a parameter, which decimalFloat instantiates; witnesses compare bits with Rust's str::parse::<f64> as computed for named inputs. It does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",
