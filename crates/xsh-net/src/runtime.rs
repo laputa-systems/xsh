@@ -14,7 +14,6 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -108,7 +107,7 @@ enum NetTransport {
     Request(NetRequest),
     Download(NetDownload),
     Upload(NetUpload),
-    PreparedDownload(NetDownload, std::path::PathBuf),
+    PreparedDownload(NetDownload, Arc<super::DownloadOutput>),
     PreparedUpload(NetUpload, Vec<u8>),
 }
 
@@ -145,7 +144,6 @@ struct TerminalCompletion {
 
 struct ActiveOperation {
     task: Task<()>,
-    atomic_download_output: Option<PathBuf>,
 }
 
 /// One accepted transport operation. The receiver is intentionally private to
@@ -903,17 +901,11 @@ async fn driver_loop(runtime: NetRuntime, reader: Async<UnixStream>) {
                             .lock()
                             .ok()
                             .and_then(|terminals| terminals.get(&id).cloned());
-                        let cancellation_runtime = runtime.clone();
                         runtime
                             .inner
                             .executor
                             .spawn(async move {
                                 active_operation.task.cancel().await;
-                                if let Some(output) = active_operation.atomic_download_output {
-                                    let _ = cancellation_runtime
-                                        .run_file(move || super::remove_download_output(&output))
-                                        .await;
-                                }
                                 if let Some(terminal) = terminal {
                                     terminal.complete(Err(NetError::new(
                                         "net-canceled",
@@ -978,11 +970,6 @@ async fn driver_loop(runtime: NetRuntime, reader: Async<UnixStream>) {
                     for (id, active_operation) in std::mem::take(&mut active) {
                         runtime.inner.active.fetch_sub(1, Ordering::AcqRel);
                         active_operation.task.cancel().await;
-                        if let Some(output) = active_operation.atomic_download_output {
-                            let _ = runtime
-                                .run_file(move || super::remove_download_output(&output))
-                                .await;
-                        }
                         if let Some(terminal) = runtime
                             .inner
                             .terminals
@@ -1011,7 +998,6 @@ async fn driver_loop(runtime: NetRuntime, reader: Async<UnixStream>) {
             let operation_runtime = runtime.clone();
             let id = operation.id;
             let terminal = Arc::clone(&operation.terminal);
-            let atomic_download_output = atomic_download_output(&operation.transport);
             terminal.mark_transport_started();
             let task = runtime.inner.executor.spawn(async move {
                 let result =
@@ -1029,7 +1015,6 @@ async fn driver_loop(runtime: NetRuntime, reader: Async<UnixStream>) {
                 id,
                 ActiveOperation {
                     task,
-                    atomic_download_output,
                 },
             );
         }
@@ -1141,13 +1126,6 @@ fn transport_total_timeout(transport: &NetTransport) -> Option<Duration> {
             download.timeout
         }
         NetTransport::Upload(upload) | NetTransport::PreparedUpload(upload, _) => upload.timeout,
-    }
-}
-
-fn atomic_download_output(transport: &NetTransport) -> Option<PathBuf> {
-    match transport {
-        NetTransport::PreparedDownload(download, output) if download.atomic => Some(output.clone()),
-        _ => None,
     }
 }
 

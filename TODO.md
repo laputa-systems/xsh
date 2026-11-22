@@ -31,15 +31,6 @@ out of scope.
 - **Fix with:** deduplicate, os-boundaries
 - **Effort:** S
 
-### XSH-177 · P1 · Download publication can overwrite protected destinations and delete another operation's output
-
-- **Area:** Networking and filesystem ownership
-- **Where:** `crates/xsh-net/src/lib.rs:1433-1453,1483-1492,1516-1532,1736-1789,1868-1875`; defaults at `src/runtime/eval/modules/net.rs:110-132`; cancellation cleanup at `crates/xsh-net/src/runtime.rs:902-919`
-- **Problem:** At 956a67a, default atomic `net.download({url, dest, overwrite: false})` checks destination existence only before transfer and later uses replacing `fs::rename`. A real loopback HTTP fixture created a sentinel destination after receiving the request; the pinned-nightly verification-profile XSH on native Linux GNU returned success and replaced it with the response. Exact-source helper probes separately show that destination-plus-PID staging gives same-process downloads to one destination the same temporary path: one can publish the other's bytes, then the second finalization deletes that published destination before its rename fails. A missing staging source also loses the old destination because overwrite finalization pre-unlinks it. These collision/publication-failure results are helper-level evidence, not concurrent HTTP reproductions. In explicit in-place overwrite mode, a malformed redirect also deletes an existing destination before output acquisition; this is premature cleanup, not evidence about atomic-mode preservation.
-- **Recommendation:** Give each download an exclusively created unique sibling and retained file/directory handles. Write through its owned descriptor and clean up only output acquired by that operation. Publish with one atomic replace or true no-replace operation, preserving the destination on failure and failing closed when unsupported; never pre-unlink or fall back to check-then-rename. Reuse xsh-root publication primitives after anchoring the destination parent without changing the net API's existing path semantics. Add barrier-controlled regressions for a destination created after preflight, concurrent same-destination jobs, failed publication, cancellation and redirect failure before output acquisition. Assert final bytes and returned results.
-- **Fix with:** os-boundaries, lifecycle-concurrency
-- **Effort:** M
-
 ### XSH-179 · P1 · Int sum and reduce-by silently wrap instead of reporting overflow
 
 - **Area:** Runtime aggregation

@@ -26,7 +26,8 @@ use std::num::NonZeroUsize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1411,7 +1412,7 @@ async fn h12_response_record(
 async fn h12_write_download_response(
     runtime: &runtime::NetRuntime,
     response: Response<Incoming>,
-    path: &Path,
+    output: Arc<DownloadOutput>,
     limit: u64,
     overwrite: bool,
     config: &RequestConfig,
@@ -1430,11 +1431,8 @@ async fn h12_write_download_response(
             value: value.to_str().unwrap_or_default().to_string(),
         })
         .collect();
-    let path = path.to_path_buf();
-    let output_path = path.clone();
-    runtime
-        .run_file(move || create_download_output(&output_path, overwrite))
-        .await?;
+    let output_to_open = Arc::clone(&output);
+    runtime.run_file(move || output_to_open.acquire(overwrite)).await?;
     let mut body = response.into_body();
     let mut bytes = 0_u64;
     while let Some(frame) = next_response_frame(&mut body, config).await? {
@@ -1447,10 +1445,10 @@ async fn h12_write_download_response(
                     format!("response body exceeds {limit} bytes"),
                 ));
             }
-            let path = path.clone();
+            let output = Arc::clone(&output);
             let data = data.to_vec();
             runtime
-                .run_file(move || append_download_data(&path, &data))
+                .run_file(move || output.append(&data))
                 .await?;
         }
     }
@@ -1472,7 +1470,7 @@ async fn h12_download_with_redirects(
     request: HttpRequest,
     config: &RequestConfig,
     download: &NetDownload,
-    output: PathBuf,
+    output: Arc<DownloadOutput>,
 ) -> NetResult<NetResponse> {
     let mut request = request;
     let mut followed = 0_usize;
@@ -1480,17 +1478,7 @@ async fn h12_download_with_redirects(
         let response = h12_send(client, &request, config).await?;
         let status = response.status().as_u16();
         let location = location_header(&response);
-        let step = match redirect_step(status, location.as_deref(), &request.url, followed, config)
-        {
-            Ok(step) => step,
-            Err(error) => {
-                let output = output.clone();
-                let _ = runtime
-                    .run_file(move || remove_download_output(&output))
-                    .await;
-                return Err(error);
-            }
-        };
+        let step = redirect_step(status, location.as_deref(), &request.url, followed, config)?;
         if let RedirectStep::Follow(target) = step {
             h12_discard_response(response, config).await?;
             follow_redirect(&mut request, status, target);
@@ -1507,29 +1495,20 @@ async fn h12_download_with_redirects(
         let result = h12_write_download_response(
             runtime,
             response,
-            &output,
+            Arc::clone(&output),
             download.max_body_bytes.unwrap_or(u64::MAX),
             download.overwrite,
             config,
         )
         .await;
-        let response = match result {
-            Ok(response) => response,
-            Err(error) => {
-                let output = output.clone();
-                let _ = runtime
-                    .run_file(move || remove_download_output(&output))
-                    .await;
-                return Err(error);
-            }
-        };
+        let response = result?;
         if download.atomic {
-            let output = output.clone();
+            let output = Arc::clone(&output);
             let destination = download.dest.clone();
             let overwrite = download.overwrite;
-            runtime
-                .run_file(move || finalize_atomic_download(&output, &destination, overwrite))
-                .await?;
+            runtime.run_file(move || output.publish(&destination, overwrite)).await?;
+        } else {
+            output.keep();
         }
         return Ok(NetResponse {
             url: download.url.clone(),
@@ -1604,7 +1583,7 @@ async fn run_download(
     runtime: &runtime::NetRuntime,
     agent: &NetAgent,
     download: NetDownload,
-    output: PathBuf,
+    output: Arc<DownloadOutput>,
     protocol: runtime::NetProtocol,
     accepted_at: Instant,
 ) -> NetResult<NetResponse> {
@@ -1630,18 +1609,11 @@ async fn run_download(
         runtime::NetProtocol::Http1 => &agent.h1_client,
         runtime::NetProtocol::Auto => &agent.auto_client,
     };
-    let cleanup_output = output.clone();
-    let result = async_with_total_timeout(config.timeout, accepted_at, async {
+    async_with_total_timeout(config.timeout, accepted_at, async {
         let request = request_builder(&request)?;
         h12_download_with_redirects(runtime, client, request, &config, &download, output).await
     })
-    .await;
-    if result.is_err() && download.atomic {
-        let _ = runtime
-            .run_file(move || remove_download_output(&cleanup_output))
-            .await;
-    }
-    result
+    .await
 }
 
 async fn run_upload(
@@ -1733,7 +1705,51 @@ fn read_upload_source(path: &Path) -> NetResult<Vec<u8>> {
     Ok(bytes)
 }
 
-fn prepare_download_destination(download: &NetDownload) -> NetResult<PathBuf> {
+struct DownloadOutput {
+    path: PathBuf,
+    file: Mutex<Option<File>>,
+    atomic: bool,
+    published: AtomicBool,
+}
+
+impl DownloadOutput {
+    fn acquire(&self, overwrite: bool) -> NetResult<()> {
+        if !self.atomic {
+            let file = OpenOptions::new().write(true).create(true).create_new(!overwrite)
+                .truncate(overwrite).open(&self.path)
+                .map_err(|error| NetError::from_io("net-write", error))?;
+            *self.file.lock().map_err(|_| NetError::new("net-write", "download file lock poisoned"))? = Some(file);
+        }
+        Ok(())
+    }
+
+    fn append(&self, data: &[u8]) -> NetResult<()> {
+        self.file.lock().map_err(|_| NetError::new("net-write", "download file lock poisoned"))?
+            .as_mut().ok_or_else(|| NetError::new("net-write", "download output not acquired"))?
+            .write_all(data).map_err(|error| NetError::from_io("net-write", error))
+    }
+
+    fn publish(&self, destination: &Path, overwrite: bool) -> NetResult<()> {
+        finalize_atomic_download(&self.path, destination, overwrite)?;
+        self.keep();
+        Ok(())
+    }
+
+    fn keep(&self) {
+        self.published.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for DownloadOutput {
+    fn drop(&mut self) {
+        let acquired = self.file.get_mut().map(|file| file.is_some()).unwrap_or(false);
+        if acquired && !self.published.load(Ordering::Acquire) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn prepare_download_destination(download: &NetDownload) -> NetResult<Arc<DownloadOutput>> {
     if !download.overwrite && download.dest.exists() {
         return Err(NetError::new("net-dest", "destination exists"));
     }
@@ -1742,51 +1758,34 @@ fn prepare_download_destination(download: &NetDownload) -> NetResult<PathBuf> {
     {
         fs::create_dir_all(parent).map_err(|error| NetError::from_io("net-dest", error))?;
     }
-    Ok(if download.atomic {
-        temp_download_path(&download.dest)
+    let (path, file) = if download.atomic {
+        loop {
+            let path = temp_download_path(&download.dest);
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => break (path, Some(file)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(NetError::from_io("net-write", error)),
+            }
+        }
     } else {
-        download.dest.clone()
-    })
-}
-
-fn create_download_output(path: &Path, overwrite: bool) -> NetResult<()> {
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .create_new(!overwrite)
-        .truncate(overwrite)
-        .open(path)
-        .map(|_| ())
-        .map_err(|error| NetError::from_io("net-write", error))
-}
-
-fn append_download_data(path: &Path, data: &[u8]) -> NetResult<()> {
-    OpenOptions::new()
-        .append(true)
-        .open(path)
-        .and_then(|mut file| file.write_all(data))
-        .map_err(|error| NetError::from_io("net-write", error))
-}
-
-fn remove_download_output(path: &Path) -> NetResult<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(NetError::from_io("net-write", error)),
-    }
+        (download.dest.clone(), None)
+    };
+    Ok(Arc::new(DownloadOutput { path, file: Mutex::new(file), atomic: download.atomic, published: AtomicBool::new(false) }))
 }
 
 fn finalize_atomic_download(output: &Path, destination: &Path, overwrite: bool) -> NetResult<()> {
-    if overwrite && destination.exists() {
-        fs::remove_file(destination).map_err(|error| {
-            let _ = fs::remove_file(output);
-            NetError::from_io("net-rename", error)
+    if overwrite {
+        fs::rename(output, destination).map_err(|error| NetError::from_io("net-rename", error))
+    } else {
+        fs::hard_link(output, destination).map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                NetError::new("net-dest", "destination exists")
+            } else {
+                NetError::from_io("net-rename", error)
+            }
         })?;
+        fs::remove_file(output).map_err(|error| NetError::from_io("net-rename", error))
     }
-    fs::rename(output, destination).map_err(|error| {
-        let _ = fs::remove_file(output);
-        NetError::from_io("net-rename", error)
-    })
 }
 
 fn request_config(request: &NetRequest, accepted_at: Instant) -> RequestConfig {
@@ -1870,7 +1869,8 @@ fn temp_download_path(dest: &Path) -> PathBuf {
         .file_name()
         .map(|name| name.to_os_string())
         .unwrap_or_else(|| "download".into());
-    name.push(format!(".tmp.{}", std::process::id()));
+    static NEXT_DOWNLOAD: AtomicU64 = AtomicU64::new(0);
+    name.push(format!(".tmp.{}.{}", std::process::id(), NEXT_DOWNLOAD.fetch_add(1, Ordering::Relaxed)));
     dest.with_file_name(name)
 }
 
@@ -2230,5 +2230,218 @@ impl ServerCertVerifier for DisabledVerifier {
             SignatureScheme::ED25519,
             SignatureScheme::ED448,
         ]
+    }
+}
+
+#[cfg(test)]
+mod download_publication_tests {
+    use super::*;
+
+    fn directory(name: &str) -> PathBuf {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp")
+            .join(format!("xsh-download-{}-{name}", std::process::id()));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn download(dest: PathBuf, url: String, overwrite: bool, atomic: bool) -> NetDownload {
+        NetDownload { url, dest, headers: Vec::new(), timeout: Some(Duration::from_secs(10)),
+            dns_timeout: None, connect_timeout: None, tls_timeout: None, headers_timeout: None,
+            body_idle_timeout: None, redirects: 1, redirect_limit: RedirectLimit::Error,
+            fail_status: false, max_body_bytes: None, atomic, overwrite }
+    }
+
+    fn agent(owner: &NetRuntimeOwner) -> NetAgent {
+        make_agent(&NetAgentKey { pool: "download-test".into(), tls_verify: false,
+            ca_certificate: None, system_ca_file: None, max_idle_per_host: 1,
+            idle_timeout: Duration::from_secs(1) }, owner.executor()).unwrap()
+    }
+
+    #[test]
+    fn loopback_destination_created_during_transfer() {
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        let dir = directory("loopback-race");
+        let dest = dir.join("output");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (go_tx, go_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\ndown").unwrap();
+            ready_tx.send(()).unwrap();
+            go_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            stream.write_all(b"load").unwrap();
+        });
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let op = owner.submit_download(agent(&owner), download(dest.clone(), url, false, true), NetProtocol::Http1).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        fs::write(&dest, b"sentinel").unwrap();
+        go_tx.send(()).unwrap();
+        let err = op.receive().unwrap().unwrap_err();
+        assert_eq!(err.kind, "net-dest");
+        assert_eq!(fs::read(&dest).unwrap(), b"sentinel");
+        server.join().unwrap();
+        owner.shutdown();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn concurrent_downloads_do_not_delete_published_output() {
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        let dir = directory("concurrent");
+        let dest = dir.join("output");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (first_tx, first_rx) = mpsc::channel();
+        let (second_tx, second_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut first, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            first.read(&mut request).unwrap();
+            ready_tx.send(()).unwrap();
+            let (mut second, _) = listener.accept().unwrap();
+            second.read(&mut request).unwrap();
+            ready_tx.send(()).unwrap();
+            first_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            first.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfirst").unwrap();
+            second_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            second.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
+        });
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let first = owner.submit_download(agent(&owner), download(dest.clone(), url.clone(), true, true), NetProtocol::Http1).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let second = owner.submit_download(agent(&owner), download(dest.clone(), url, true, true), NetProtocol::Http1).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+        first_tx.send(()).unwrap();
+        first.receive().unwrap().unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"first");
+        second_tx.send(()).unwrap();
+        second.receive().unwrap().unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"second");
+        server.join().unwrap();
+        owner.shutdown();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn canceled_download_removes_its_staging_file() {
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        let dir = directory("cancel");
+        let dest = dir.join("output");
+        fs::write(&dest, b"sentinel").unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\ndown").unwrap();
+            ready_tx.send(()).unwrap();
+            done_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        });
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let op = owner.submit_download(agent(&owner), download(dest.clone(), url, true, true), NetProtocol::Http1).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        op.cancel().unwrap();
+        assert_eq!(op.receive().unwrap().unwrap_err().kind, "net-canceled");
+        assert_eq!(fs::read(&dest).unwrap(), b"sentinel");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        done_tx.send(()).unwrap();
+        server.join().unwrap();
+        owner.shutdown();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn malformed_redirect_does_not_remove_in_place_destination() {
+        use std::net::TcpListener;
+        let dir = directory("redirect");
+        let dest = dir.join("output");
+        fs::write(&dest, b"sentinel").unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n").unwrap();
+        });
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let op = owner.submit_download(agent(&owner), download(dest.clone(), url, true, false), NetProtocol::Http1).unwrap();
+        assert_eq!(op.receive().unwrap().unwrap_err().kind, "net-redirect");
+        assert_eq!(fs::read(&dest).unwrap(), b"sentinel");
+        server.join().unwrap();
+        owner.shutdown();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_in_place_download_removes_partial_output() {
+        use std::net::TcpListener;
+        let dir = directory("in-place-partial");
+        let dest = dir.join("output");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\ndown").unwrap();
+        });
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let op = owner.submit_download(agent(&owner), download(dest.clone(), url, false, false), NetProtocol::Http1).unwrap();
+        assert!(op.receive().unwrap().is_err());
+        assert!(!dest.exists());
+        server.join().unwrap();
+        owner.shutdown();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn destination_created_during_transfer_is_preserved() {
+        let dir = directory("no-replace");
+        let dest = dir.join("output");
+        let staging = temp_download_path(&dest);
+        fs::write(&staging, b"download").unwrap();
+        fs::write(&dest, b"sentinel").unwrap();
+        assert!(finalize_atomic_download(&staging, &dest, false).is_err());
+        assert_eq!(fs::read(&dest).unwrap(), b"sentinel");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn same_process_downloads_own_distinct_staging_files() {
+        let dir = directory("distinct");
+        let dest = dir.join("output");
+        let first = temp_download_path(&dest);
+        let second = temp_download_path(&dest);
+        assert_ne!(first, second);
+        fs::write(&first, b"first").unwrap();
+        fs::write(&second, b"second").unwrap();
+        finalize_atomic_download(&first, &dest, true).unwrap();
+        finalize_atomic_download(&second, &dest, true).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"second");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_publication_preserves_existing_destination() {
+        let dir = directory("failed-publish");
+        let dest = dir.join("output");
+        fs::write(&dest, b"sentinel").unwrap();
+        assert!(finalize_atomic_download(&dir.join("missing"), &dest, true).is_err());
+        assert_eq!(fs::read(&dest).unwrap(), b"sentinel");
+        fs::remove_dir_all(dir).unwrap();
     }
 }
