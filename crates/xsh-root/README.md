@@ -39,4 +39,4 @@ a check cannot redirect the operation. `metadata` and `set_owner` never follow a
 final symbolic link, `hard_link` links the link itself, and `set_mode` fails on a
 final link. `OpenOptions::no_symlinks` gives file opens the same strictness.
 `rename` with `RenameMode::NoReplace` fails with `AlreadyExists` instead of
-replacing. `make_node` creates special files on Linux only.
+replacing. `make_node` creates special files on Linux and macOS.

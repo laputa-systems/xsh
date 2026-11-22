@@ -11,9 +11,10 @@ the frozen source commit and tree. A universal obligation is planned or
 closed. A row closes only when its theorem covers the whole frozen core for
 that obligation; it then names a public theorem in a module reachable from
 `Xsh` that is not a fragment root, and the axiom audit rejects a closed root
-that is absent, not a theorem, or outside the project modules. `EFF-LATTICE`
-is closed. A module that holds a closed root needs no fragment row. The
-fragment roots below close no obligation; each row's boundary names its
+that is absent, not a theorem, or outside the project modules. Read the
+`universal_theorems` rows for the current closed obligations. A module that
+holds a closed root needs no fragment row. The fragment roots below close no
+obligation; each row's boundary names its
 limits. The finite Rust-conformance ledger holds only the named tests that ran
 against binaries built from that commit. Each case is evidence for its own test
 only. The `artifact_certificates` list holds `ARTIFACT_CERTIFIED` records, one
@@ -36,6 +37,25 @@ those atoms and fields of that local. Fields have distinct non-keyword names;
 spreads, updates, nested records, other statements, and calls of record-local
 functions are outside this shape. The pair certifies the identified documents;
 Rust execution is observed in finite bridge tests, not modelled.
+
+Record construction and projection stay in the independent
+[`BaseMachine`](Xsh/Semantics/BaseMachine.lean). Scalarizing fields in both
+readers could make source and IR agree through the same projection mistake.
+The machine's integer-record tag describes an exact ordered field shape;
+relating it to Core membership's record-width rule remains separate work.
+Record entries use canonical positions in the exported `names` table, and
+field reads use the `strings` table. Both tables carry spellings rather than
+process-local interner words. The bridge's
+`record_local_labels_are_canonical_across_interner_states` test checks that
+unrelated interning leaves the exported document unchanged.
+
+The [record-local pair certificate](Xsh/Conformance/Vertical/RecordLocalPairCertificate.lean)
+rejects its entry-order mutation through exact lowering even though the
+recorded fixture results agree. That mutation does not demonstrate a semantic
+ordering difference. Record facts remain a separate extension. Supporting
+`IntFieldSlot` reads requires those facts because Rust selects that row form
+from checker type facts. Callers of record-local functions must retain
+projection as a machine step when their admitted shape is extended.
 
 [`IR/Raw/Structure.lean`](Xsh/IR/Raw/Structure.lean) models the structural
 `xsh-raw-ir-v1` document of an indexed store (scope `indexed-store-structure-v1`):

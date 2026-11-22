@@ -551,8 +551,8 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         "last" => (
             "Returns the last stream item.",
-            "The source must be exhausted to determine the last value, so this terminal is not streaming in memory use.",
-            &["stream", "terminal", "materialization"],
+            "The source must be exhausted to determine the last value.",
+            &["stream", "terminal"],
             "last() -> Result[T, Error]",
         ),
         "unique-by" => (
@@ -580,9 +580,9 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "range(start: Int, end: Int) -> Stream[Int]",
         ),
         "repeat" => (
-            "Repeats a value as a stream.",
-            "An unbounded repeat must be limited by a downstream terminal or the caller owns the resulting nontermination.",
-            &["stream", "producer", "unbounded"],
+            "Repeats the input sequence a fixed number of times.",
+            "The count must be nonnegative. Positive counts materialize the input before repeating it; a zero count cancels the source without pulling items.",
+            &["stream", "repetition", "materialization"],
             "repeat(count: Int) -> Stream[T]",
         ),
         "tee" => (
@@ -653,7 +653,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         "shuffle" => (
             "Randomizes the order of all stream items.",
-            "The input is materialized before shuffling and the result is intentionally nondeterministic.",
+            "The input is materialized before shuffling. The seed controls a deterministic shuffle; omitting it uses seed 0.",
             &["stream", "terminal", "random"],
             "shuffle(seed?: Int) -> Stream[T]",
         ),
@@ -664,8 +664,8 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "table.print(columns: List[Str] = default) -> Unit",
         ),
         "text.lines" => (
-            "Adapts text into a lazy line stream.",
-            "Line decoding is UTF-8 based and consumption remains tied to the source stream lifecycle.",
+            "Splits text into lines for a pipeline.",
+            "The input must be Str. The adapter materializes all lines before downstream stages run, including take(0).",
             &["stream", "text", "utf8", "adapter"],
             "text.lines(text: Str) -> Stream[Str]",
         ),

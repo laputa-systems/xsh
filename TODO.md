@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 177
+Next: 184
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -25,18 +25,55 @@ out of scope.
 ### XSH-144 · P1 · user and group mutations leave /etc/shadow readable under the umask
 
 - **Area:** Security
-- **Where:** `src/modules/user.rs:345` (`write_atomic`), `src/modules/user.rs:106-128,154-158` (`user.add`, `user.remove`), `src/modules/group.rs:214`; correct helper `src/modules/fs.rs:2849-2865`
-- **Problem:** `user.add` and `user.remove` rewrite `/etc/passwd` and `/etc/shadow`, and `group.add` and `group.remove` rewrite the group file, through a private `write_atomic` that creates the replacement with `fs::write` and renames it. `fs::write` creates the file with mode 0666 minus the umask, so under root's usual umask 022 a rewritten `/etc/shadow` becomes 0644 and every local user can read the password hashes. The shared `fs::write_atomic` in `src/modules/fs.rs` already keeps the existing file's mode; the private copies duplicate it without that rule. The private temp name `<path>.<pid>.tmp` is also predictable.
+- **Where:** `src/modules/user.rs:345` (`write_atomic`), `src/modules/user.rs:106-128,154-158` (`user.add`, `user.remove`), `src/modules/group.rs:214`; shared mode-preserving helper `src/modules/fs.rs:2852-2874`
+- **Problem:** `user.add` and `user.remove` rewrite `/etc/passwd` and `/etc/shadow`, and `group.add` and `group.remove` rewrite the group file, through private `write_atomic` copies that create the replacement with `fs::write` and rename it. `fs::write` creates the file with mode 0666 minus the umask, so a rewritten shadow file can become readable by every local user. Reproduced at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU: a real `user.add` against scratch account fixtures changed shadow mode 0640 to 0644 under umask 022. The shared `fs::write_atomic` already preserves the destination mode; that does not establish preservation of its ownership. The private temp name `<path>.<pid>.tmp` is also predictable.
 - **Recommendation:** Delete the private `write_atomic` copies in user.rs and group.rs and call `fs::write_atomic` (or the rooted variant), which preserves the destination mode. Add a native test that `user.add` on a 0640 shadow fixture leaves it 0640 under umask 022.
 - **Fix with:** deduplicate, os-boundaries
 - **Effort:** S
 
+### XSH-177 · P1 · Download publication can overwrite protected destinations and delete another operation's output
+
+- **Area:** Networking and filesystem ownership
+- **Where:** `crates/xsh-net/src/lib.rs:1433-1453,1483-1492,1516-1532,1736-1789,1868-1875`; defaults at `src/runtime/eval/modules/net.rs:110-132`; cancellation cleanup at `crates/xsh-net/src/runtime.rs:902-919`
+- **Problem:** At 956a67a, default atomic `net.download({url, dest, overwrite: false})` checks destination existence only before transfer and later uses replacing `fs::rename`. A real loopback HTTP fixture created a sentinel destination after receiving the request; the pinned-nightly verification-profile XSH on native Linux GNU returned success and replaced it with the response. Exact-source helper probes separately show that destination-plus-PID staging gives same-process downloads to one destination the same temporary path: one can publish the other's bytes, then the second finalization deletes that published destination before its rename fails. A missing staging source also loses the old destination because overwrite finalization pre-unlinks it. These collision/publication-failure results are helper-level evidence, not concurrent HTTP reproductions. In explicit in-place overwrite mode, a malformed redirect also deletes an existing destination before output acquisition; this is premature cleanup, not evidence about atomic-mode preservation.
+- **Recommendation:** Give each download an exclusively created unique sibling and retained file/directory handles. Write through its owned descriptor and clean up only output acquired by that operation. Publish with one atomic replace or true no-replace operation, preserving the destination on failure and failing closed when unsupported; never pre-unlink or fall back to check-then-rename. Reuse xsh-root publication primitives after anchoring the destination parent without changing the net API's existing path semantics. Add barrier-controlled regressions for a destination created after preflight, concurrent same-destination jobs, failed publication, cancellation and redirect failure before output acquisition. Assert final bytes and returned results.
+- **Fix with:** os-boundaries, lifecycle-concurrency
+- **Effort:** M
+
+### XSH-178 · P1 · Account mutations corrupt existing credential fields and serialize invalid records
+
+- **Area:** Account database integrity
+- **Where:** `src/modules/user.rs:96-137,269-306`; `src/modules/group.rs:49-62,151-181`; unchecked arguments at `src/runtime/eval/lowered_run/module_accounts.rs:44-69`
+- **Problem:** Account parsers omit the password field, coerce invalid numeric IDs to zero and discard unrepresentable rows; renderers reconstruct every record with password marker `x`. New GECOS/home/shell values are serialized without delimiter validation. Reproduced through real APIs at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU, using scratch databases only: `user.add("demo", uid: 2001, gid: 2001, gecos: "Demo: Operations")?` returned success, changed an unrelated valid `root:*:0:0:root:/root:/bin/sh` row to `root:x:...`, converted an existing `not-a-number` UID to 0 and emitted an eight-field demo row. `group.add` similarly rewrote `admins:*:not-a-number:alice` as `admins:x:0:alice`. This is content corruption independent of XSH-144's mode loss; privilege escalation was not demonstrated.
+- **Recommendation:** Preserve password/hash fields and untouched records faithfully. Validate existing IDs and record shape before writing, preserving unsupported rows losslessly or rejecting the mutation without changing either database. Validate new IDs and every serialized field, rejecting colon/newline/NUL and native paths that cannot be represented faithfully. Remove parse-error-to-zero and silent row dropping. Native fixtures must compare whole database bytes for valid non-x markers/hashes, malformed IDs, GECOS/home/shell delimiters, preservation on error and normal add/remove; retain the separate XSH-144 permission checks.
+- **Fix with:** make-invalid-states-unrepresentable, durable-state
+- **Effort:** M
+
+### XSH-179 · P1 · Int sum and reduce-by silently wrap instead of reporting overflow
+
+- **Area:** Runtime aggregation
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1722-1732`; `src/runtime/eval/lowered_run.rs:912-930,8243-8262`; `src/runtime/eval/lower.rs:9982-9985`; checked arithmetic contract in `docs/SPEC.md:728-731`
+- **Problem:** The sum terminal uses plain `i64 +=`; scalar reduce-by and projected record accumulation have separate unchecked `a + b` helpers. At 956a67a, `let total = [9223372036854775807, 1] |> sum`, followed by `print f"{total}"`, returns -9223372036854775808 with status 0 in the pinned-nightly verification-profile binary on native Linux GNU. Ordinary `print (9223372036854775807 + 1)` instead reports `integer-overflow` with status 3, as the checked Int contract requires. Live-stream sum, scalar `reduce-by(sum: true)` and projected-record reduce-by each reproduced the silent wrap. Fused-worker callers share these helpers by source inspection but were not separately executed.
+- **Recommendation:** Use the canonical checked Int addition decision for terminal, scalar and recursive record accumulation, propagating its error and span through currently infallible helpers and fused callers. Add independent expected-error cases for positive overflow and negative underflow across list/live sum and scalar/projected/fused reductions, with normal small totals and existing Float reduce-by behavior as controls. Assert source cleanup and no further pulls after failure; comparing two paths sharing an unchecked helper is not an oracle.
+- **Fix with:** root-cause, single-source-of-truth
+- **Effort:** M
+
+### XSH-180 · P1 · min and max compare admitted Float and Duration values by type name
+
+- **Area:** Runtime ordering
+- **Where:** `src/sema/sealed_operation.rs:25-40`; `src/sema/check/stream.rs:499-509`; `src/runtime/eval/lowered_ops.rs:833-848`; `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1754-1762`; `crates/xsh-registry/src/reference.rs:601-608`; `tests/fixtures/runtime/generic-pipeline-aggregates.xsh:53-54`
+- **Problem:** MinMaxItem admits Float and Duration, but min/max call a sort comparator with no Float or Duration arm; homogeneous values fall through to equal type names. At 956a67a, a real script binding `numbers = [9.0, 1.0]` and printing `numbers |> min()?` and `numbers |> max()?` yields `9 1`, status 0, with the pinned-nightly verification-profile binary on native Linux GNU. Inferred generic Float wrappers produce the same wrong result, and `[9s, 1s]` yields `9s 1s`. Existing generic aggregate tests pass because their Float assertions compare two routes sharing this comparator. The numeric API promises extrema. SPEC also preserves broader List/Result/opaque acceptance without defining its ordering; those semantics and NaN are open decisions, not additional proved bugs.
+- **Recommendation:** Correct comparison for admitted finite Float and Duration values without waiting for the broader domain decision. Keep min/max admission distinct from the intentionally narrower sort-key domain, and preserve currently specified nonnumeric acceptance until an explicit contract change. Replace type-name fallback for numeric extrema with value comparison and independent expected values in both input orders, covering direct/generic and list/live routes. Audit reduce-by min/max, which shares the comparator by source inspection. Use the linked draft RFC for NaN, ties and broader ordering choices; do not silently turn that RFC into an approved language change.
+- **Fix with:** typing-audit, make-invalid-states-unrepresentable, test-audit
+- **Effort:** M
+- **Design:** docs/rfc/XSH-180-min-max-ordering.md
+
 ### XSH-145 · P2 · Credential and module paths come from the caller's environment in shipped code
 
 - **Area:** Security
-- **Where:** `src/modules/user.rs:325-335`, `src/modules/group.rs:200-204`, `core/lib/auth.xsh:120-205` (`passwd_path`, `shadow_path`, `lookup_user`), `core/lib/accounts.xsh:87-88,141,157,182`, `src/modules/linux/kernel.rs:350-352` (`XSH_MODULES_DIR`), `crates/xshi/src/interactive/builtin.rs:357` (`XSH_CORE_DIR`)
-- **Problem:** Test seams are compiled into shipped products without a gate. `XSH_PASSWD_FILE`, `XSH_SHADOW_FILE` and `XSH_GROUP_FILE` redirect the account files that `user.*`, `group.*` and the shipped `su`, `login` and `passwd` applets read and rewrite. `lookup_user` and `authenticate` then trust the redirected files, so any applet that runs with more privilege than its caller can be pointed at a caller-written passwd and shadow file. `XSH_MODULES_DIR` chooses which `.ko` image `modprobe` loads, and `XSH_CORE_DIR` chooses which core scripts `xshi` executes. Only tests set them, and none is documented. Today the escalation is latent: Laputa marks the interpreted `su` and `passwd` setuid, and Linux ignores that (LAP ticket filed alongside). Any future privileged path that honors it makes this exploitable. unproven: no current privileged path that preserves the caller's environment has been demonstrated.
-- **Recommendation:** Remove the environment overrides from production code. Give tests a fixture root through the native test host, or compile the overrides only under `cfg(test)` and a test-only feature that shipped products never enable. Add a test that a shipped-feature build ignores `XSH_SHADOW_FILE`.
+- **Where:** `src/modules/user.rs:325-335`, `src/modules/group.rs:200-204`, `core/lib/auth.xsh:120-205` (`passwd_path`, `shadow_path`, `lookup_user`), `core/su.xsh`, `core/passwd.xsh`; current login guards at `core/lib/accounts.xsh:121-143`; `src/modules/linux/kernel.rs:350-352` (`XSH_MODULES_DIR`), `crates/xshi/src/interactive/builtin.rs:357` (`XSH_CORE_DIR`)
+- **Problem:** Test seams remain in shipped code: `XSH_PASSWD_FILE`, `XSH_SHADOW_FILE` and `XSH_GROUP_FILE` redirect the native account mutations, while `su` and `passwd` still call the environment-sensitive auth helpers directly. Current `login` is partially hardened: `accounts.login_user` and `accounts.authenticate` force canonical passwd/shadow paths for effective UID 0, and unprivileged fixture identities must match the caller. `XSH_MODULES_DIR` still chooses kernel-module images and `XSH_CORE_DIR` chooses core scripts. These environment-selected authorities become a security boundary when a caller reaches a more privileged execution context. unproven: no current privileged path preserving an attacker's environment has been demonstrated; this review did not qualify external Laputa privilege configuration.
+- **Recommendation:** Make production authority selection explicit and independent of an untrusted inherited environment at privileged boundaries. Move fixture roots behind a native test-host capability or a test-only feature excluded from shipped products, and audit the remaining auth, module and core-script callers. Retain the current login identity/canonical-path guards. Verify a shipped-feature build cannot redirect privileged credential reads or mutations through the fixture variables, without claiming a privilege escalation until a real privileged call path is demonstrated.
 - **Fix with:** security, isolate-effects
 - **Effort:** M
 
@@ -70,27 +107,18 @@ out of scope.
 ### XSH-151 · P2 · `.require` rejects every `stat: false` directory entry against a record schema
 
 - **Area:** Runtime
-- **Where:** Entry `.require`/`.require_exact`/`.require_stripped` for entries from `fs.children(path, stat: false)`; reproduction: `fs.children(p"tree", stat: false)` then `entry.require({name: Str})`
-- **Problem:** An unstat'd entry fails any non-empty record schema under all three field policies with `expected Record, found Record`, while a stat'd entry converts (`.require({kind: Kind})` succeeds). SPEC 5.3 says the policy does not change which containers a slot admits, and the message names the same kind on both sides.
+- **Where:** Entry `.require`/`.require_exact`/`.require_stripped` for `fs.children(path, stat: false)`; define `type EntryName = {name: Str}` and call `entry.require(EntryName)` (and the other two policies)
+- **Problem:** An unstat'd entry fails a non-empty named record schema under all three field policies with `expected Record, found Record`, while a stat'd entry exposes its record fields. Reproduced at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU: keep, exact and stripped each returned status 3 for an available `name` field. SPEC 5.3 says the policy does not change which containers a slot admits. Use a named type alias in the reproducer; inline `.require({name: Str})` is not current type-argument syntax.
 - **Recommendation:** Make an unstat'd entry expose its available fields as a record for schema checks (or reject with a message naming the missing fields), and add native tests for keep, exact and stripped against `stat: false` entries.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-152 · P2 · Module values are accepted into record schemas and fail internally on enum fields
+### XSH-152 · P2 · Module values enter record schemas and later fail internal runtime guards
 
 - **Area:** Runtime
-- **Where:** `.require(T)` on a loaded module value where `T` is a record type; e.g. `module.load(p"plug.xsh")?.require({tag: Kind})`
-- **Problem:** A module value checked against a record schema is accepted (`.require({x: Int})` succeeds), which the SPEC does not provide for: module values are checked against `module { ... }` contracts. With a Str-backed enum field the check fails with the internal message `lowered expression expected Record` instead of a schema error.
+- **Where:** `.require(T)` on a loaded module where `T` is a named record type: `type Fields = {x: Int}`; for the enum witness define `enum Kind: Str { One = "one" }` and `type Fields = {tag: Kind}`. Use `module.load(p"plug.xsh")?.require(Fields)?` with the corresponding export.
+- **Problem:** At 956a67a, requiring a module with a plain Int export against a named record schema accepts the conversion, then using the result fails the driver's checked-type guard. A Str-backed enum field still fails internally with `lowered expression expected Record`. Both cases were reproduced with the pinned-nightly verification-profile binary on native Linux GNU. The SPEC provides module contracts (`module { ... }`) for checking module values, not a conversion into record representations. Neither an accepted schema conversion followed by an internal guard failure nor an internal enum-field diagnostic gives the caller an ordinary schema error. Use named record aliases; inline `.require({x: Int})` is invalid current syntax.
 - **Recommendation:** Reject a module value against a record schema with a schema error naming the kinds, unless the SPEC is changed to allow it; add native tests for a plain field and an enum field.
-- **Fix with:** none
-- **Effort:** S
-
-### XSH-153 · P2 · A module contract with a `pure` entry fails with `compact.indexed-build`
-
-- **Area:** Runtime
-- **Where:** `type PureG = module { export pure g() -> Int }` then `module.load(p"plug3.xsh")?.require(PureG)` in the verification binary
-- **Problem:** Requiring a module against a contract whose entry is a `pure` function fails with the internal diagnostic `compact.indexed-build` rather than accepting the module or reporting a contract violation.
-- **Recommendation:** Find why the indexed build rejects the pure contract entry, fix it, and add a native test that a matching pure export is accepted and a proc export is reported as mismatched.
 - **Fix with:** none
 - **Effort:** S
 
@@ -134,8 +162,8 @@ out of scope.
 
 - **Area:** Networking
 - **Where:** `crates/xsh-net/src/lib.rs:189-234,690-696` (`lookup_dns_server`, `dns_io_error`), `tests/runtime/modules.rs` (`LocalDnsServer`), `tests/xsh/stdlib/dns.xsh`
-- **Problem:** Explicit-server `dns.lookup` sets a blocking UDP socket timeout, but `dns_io_error` recognizes only `ErrorKind::TimedOut`. [Rust documents](https://doc.rust-lang.org/stable/std/net/struct.UdpSocket.html#method.set_read_timeout) that Unix socket timeouts typically return `WouldBlock`, which this code maps to `dns-lookup`, so callers cannot consistently identify a DNS deadline expiry. The test server handles both error kinds, but the DNS transport tests only exercise successful replies. This is a source finding; a native XSH reproducer is still required.
-- **Recommendation:** Extend the existing loopback DNS fixture to receive a query and withhold its reply, then reproduce the error through native `dns.lookup` on the pinned Linux/musl target. Normalize `WouldBlock` and `TimedOut` to `dns-timeout` at the configured blocking-socket timeout boundary, without reclassifying unrelated resolver errors. Cover both error kinds directly and assert the native timeout kind and a bounded completion time; retain the existing successful A/AAAA cases and bounded fixture cleanup. The regression must need no external DNS or new daemon. Run the applicable Linux gate and the existing macOS qualification path.
+- **Problem:** Explicit-server `dns.lookup` sets a blocking UDP socket timeout, but `dns_io_error` recognizes only `ErrorKind::TimedOut`. [Rust documents](https://doc.rust-lang.org/stable/std/net/struct.UdpSocket.html#method.set_read_timeout) that Unix socket timeouts typically return `WouldBlock`, which this code maps to `dns-lookup`. Reproduced at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU: a loopback UDP endpoint withholding its reply to `dns.lookup("fixture.test", "A", "127.0.0.1:<port>", 20ms)?` produced status 3 and `dns-lookup: Resource temporarily unavailable (os error 11)`. Callers cannot consistently identify deadline expiry. The test server handles both error kinds, but current transport tests exercise successful replies. Pinned Linux/musl and macOS qualification remain outstanding.
+- **Recommendation:** Extend the existing loopback DNS fixture to receive a query and withhold its reply. Normalize `WouldBlock` and `TimedOut` to `dns-timeout` at the configured blocking-socket timeout boundary, without reclassifying unrelated resolver errors. Cover both error kinds directly and assert the native timeout kind and bounded completion; retain successful A/AAAA cases and bounded fixture cleanup. The regression needs no external DNS or new daemon. Qualify it through the applicable pinned Linux/musl gate and existing macOS path.
 - **Fix with:** error-model, os-boundaries
 - **Effort:** S
 
@@ -146,6 +174,87 @@ out of scope.
 - **Problem:** A non-generic `proc` or `pure` has no scheme body facts, so lowering captures every top-level binding declared before it, read or not. A hoisted call made before such a binding's statement has run then fails with `runtime.error` `unknown captured name` (exit 3): `print (first()); let b = 3; proc first() -> Int { 2 }` fails on `b`, and `let r = first(); proc first() -> Int { 2 }` fails on `r`. SPEC 3.1 makes a call fail only when it reads a binding before that binding's statement has run, and the Lean machine (Scripts.hoisted_scopes) follows the SPEC.
 - **Recommendation:** Capture only the bindings `bodies.binding_reads.read_within` finds in the body and its default expressions (it includes assignment targets). A patch doing exactly that fixes both cases and passes declaration-hoisting, lowering-coverage, test-type-agreement and test-runtime, but changes slot counts in the exported IR: 13 test-lowering and test-runtime-unit cases fail, 10 of them the Lean-certified arithmetic and raw-IR documents (for example `excess` drops from 3 to 2 slots) and 3 verifier mutation tests that target a capture. Land it as a Lean-campaign slice that regenerates the documents with `write_lean_raw_ir_modules`, re-proves the artifact certificates, and updates those verifier tests. A runtime-only skip keyed on `use_location` is unsound: it misses tail and record-shorthand reads. Acceptance: tests/xsh/declaration-hoisting.xsh gains a case that prints 2, 2, 5 for `let r = first(); print (r); print (first()); let later = 3; print (later + first()); proc first() -> Int { 2 }`, the uninitialized-read and write-only capture cases still pass, and `lake build` plus check-inventory pass with the regenerated documents.
 - **Fix with:** none
+- **Effort:** M
+
+### XSH-181 · P2 · A timed-out file-backed HTTP request can block interpreter shutdown
+
+- **Area:** Network lifecycle
+- **Where:** `crates/xsh-net/src/lib.rs:1720-1732`; `crates/xsh-net/src/runtime.rs:323-353,685-693,763-769,1090-1122`; existing synthetic timeout test at `runtime.rs:1428-1442`
+- **Problem:** body_file and upload sources are opened/read synchronously on a file worker. The operation deadline can stop waiting for that action, but shutdown joins the still-blocked worker without a bound. Reproduced at 956a67a through native Linux GNU verification-profile XSH: a real FIFO with no writer was used in `net.request({method: "POST", url: "http://127.0.0.1:9/", body_file: fifo, timeout: 20ms})`; the Err branch wrote a marker, yet the process remained blocked through a three-second harness limit and required killing/reaping its owned child. Thus the timeout returns but teardown does not complete. Upload shares the source-level mechanism but was not separately executed. The existing synthetic test releases its stall before owner.shutdown, so it cannot detect this failure.
+- **Recommendation:** Admit only supported file descriptor classes and ensure file-backed operations observe cancellation/deadlines. Reject a no-peer FIFO promptly at a nonblocking admission boundary or use cancellable readiness-based I/O; avoid a stat/open race. Make owner shutdown complete after an operation deadline without an external writer, and do not substitute detached permanently blocked workers for cleanup. Add a bounded subprocess regression with an actual FIFO that asserts both the request error and whole-process exit, plus a normal regular-file control.
+- **Fix with:** lifecycle-concurrency, os-boundaries
+- **Effort:** M
+
+### XSH-182 · P2 · The fresh-proof runner stops enforcing its deadline while draining child output
+
+- **Area:** Formal verification lifecycle
+- **Where:** `formal/scripts/check-fresh.py:215-223,236-245` (`run_guarded`); `formal/tests/test_check_fresh.py`
+- **Problem:** run_guarded applies wall_limit_seconds to process.wait, then calls relay.join without a deadline. A subprocess leader can exit successfully while a descendant retains its stdout pipe, leaving the runner blocked indefinitely after the timed wait has finished. Executing the production helper with a leader that starts a sleeping pipe-inheriting child and exits 0 kept a one-second run blocked beyond three seconds; killing the owned descendant then let it report passed/result 0 despite the expired limit. This proves the runner defect, not that a Lean campaign has already encountered it. It is distinct from XSH-149's insufficient paranoid-check budget.
+- **Recommendation:** Track one monotonic deadline through leader reaping, output drain and owned-descendant cleanup. On expiry, terminate/reap the owned process group with bounded escalation and return 124, preserving incremental output and signal forwarding. Add a subprocess regression whose leader exits while a descendant retains the output pipe; require bounded failure, cleaned descendants and no late success report. Keep ordinary success and cancellation controls.
+- **Fix with:** lifecycle-concurrency
+- **Effort:** S
+
+### XSH-148 · P3 · The checker rejects validated callable returns inside collections
+
+- **Area:** Checker
+- **Where:** `src/sema/types.rs` (`matches_stored`, no callable arm; falls through to `matches_invariant`), SPEC `docs/templates/SPEC.md:1594-1602` (callable fit: a validated return may stand for its base at any depth), formal `Xsh.Validation.Core.Widen.Witness.callable_return_view_is_derived` (lane/lean-foundation)
+- **Problem:** `let ys: List[pure() -> Path] = xs` with `xs: List[pure() -> RelPath]` fails with `check.type-mismatch`, while the direct binding `let f: pure() -> Path = name` for a `pure() -> RelPath` function is accepted. The SPEC lets a validated type stand where its base is written in a callable's return type at any depth, and the Lean model derives this view. Rust's stored-value matcher has no callable arm, so a callable nested in a collection, record or union loses the return widening the SPEC grants.
+- **Recommendation:** Add a callable arm to `matches_stored` that applies the SPEC's callable fit (same kind, labels and parameter types; return compared by the stored view; effects may be fewer), with native tests for List, record and union nesting and a rejected case that changes a parameter type.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-154 · P3 · A path write to a missing map key raises `missing-field` with a Debug-formatted key
+
+- **Area:** Runtime
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/assignments.rs:149-165` (write path) versus `src/runtime/eval/lowered_ops.rs:2612` (read path, `map-missing`)
+- **Problem:** Reading a missing key fails with `map-missing`, but a compound update or deeper path write through a missing key (`m["k"] += 1`, `m["k"].x = 1`) fails with `missing-field` and a message rendering the key as `Str("k")`. The two paths name the same condition differently and the write message leaks Rust Debug formatting.
+- **Recommendation:** Raise the read path's kind and message for a missing key on the write path, state the kind in the SPEC's map-assignment rules, and add native tests for compound and nested writes through a missing key.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-161 · P3 · `Path.relative_to` returns a path outside its base unchanged
+
+- **Area:** Runtime
+- **Where:** `Path.relative_to`; reproducer `bench/codemode/defects/d2-relative-to/main.xsh`
+- **Problem:** `xsht api method:Path.relative_to` says "The result is an error when the path is not below the requested base", but the signature returns `Path` and `p"/etc/hosts".relative_to(p"/srv/app")` returns `/etc/hosts`, so a caller cannot tell a relative result from the unchanged input.
+- **Recommendation:** Decide the contract: return `Result[Path]` and fail outside the base, or keep `Path` and state that an outside path is returned unchanged; align the registry text and add a native test for the outside case.
+- **Fix with:** error-model
+- **Effort:** S
+
+### XSH-162 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
+
+- **Area:** Docs
+- **Where:** `crates/xsht/src/api.rs:688` (`POSITIONAL_ONLY_NOTE` and its API-contract consumers); `fs.walk` and `fs.files` signatures/default rendering
+- **Problem:** Many contracts say "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`", while `name: value` arguments such as `fs.walk(root, gitignore: false, hidden: true)` and `archive.create(..., collision: .Replace)` check and run, and some functions require them: `csv.encode(rows, true, ",", columns)` is `check.named-arg` for `headers`, `delimiter` and `columns`, and `path.rename(dest, true)` for `to`, so following the text literally is rejected. In the held-out runs this was the most frequent diagnostic, in 18 programs under both XSH contexts. `fs.walk` and `fs.files` obey `.gitignore` files by default, also outside a Git checkout, but the signature shows only `gitignore: Bool = default`. Agents in the code mode experiment had to learn both from failures.
+- **Recommendation:** State which spellings are accepted (`name: value` yes, `name = value` no) and print each default's value in signatures, starting with `gitignore`.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-163 · P3 · The tour and core API omit the redundant-parenthesis hard error
+
+- **Area:** Checker
+- **Where:** `check.redundant-parens`; `docs/templates/user-tour.md`; `xsht api language:core`; existing guidance in `docs/templates/agent-context.md:25` and `docs/templates/getting-started.md:65`
+- **Problem:** Parentheses that do not change parsing, such as `x += (a + b)` or `and (id not in seen)`, are check errors. The code mode development runs recorded 8 of 24 failed programs from this rule. The compact agent context and getting-started guide now explain the hard error, but the tour and `xsht api language:core` still omit it. The earlier claim that no guide mentions the rule is no longer current.
+- **Recommendation:** Document the current hard-error rule in the generated tour source and `language:core`, with accepted and rejected examples. Any later proposal to change it into a lint should be a separate language-policy decision; do not silently change checker behavior while filling this documentation gap.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-168 · P3 · `cargo dev check` runs formatter checks the tree is not meant to pass
+
+- **Area:** Tooling
+- **Where:** `dev/build.xsh:166` (`check-rustfmt`: `cargo fmt --all -- --check`), the later `xsht fmt --check` stage of `cargo dev check`
+- **Problem:** `cargo dev check` fails on every checkout: `cargo fmt --check` reports diffs in `build.rs`, `crates/` and `tests/`, and `xsht fmt --check` reports 1,045 unformatted files. The repository does not run formatters (AGENTS.md), and no gate or CI path runs these stages, so the command is permanently red and a newcomer following it cannot tell a real failure from the expected one. The cold Ubuntu 24.04 capsule run of 2026-11-21 stopped there after build and clippy passed.
+- **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-170 · P3 · named, spread and splice arguments to a callable value's .call are rejected although SPEC 6.3 allows them
+
+- **Area:** Checker and calls
+- **Where:** src/sema (call checking for callable values); docs/templates/SPEC.md 6.3
+- **Problem:** SPEC 6.3 lets a record spread target a local that holds a callable value and allows named arguments in calls. For a callable value, the verification binary rejects f.call(...pair)? with check.named-spread (named argument spreading requires a statically checked callable signature), and the formal foundation lane found a named argument to a dynamic .call fails to compile (compact.indexed-build) and an @ splice there is check.call-splice. The Lean machine follows the SPEC (root call_arguments), so its named .call witness has no binary match.
+- **Recommendation:** Decide whether the SPEC or the checker is right. Either type a callable value's .call against the referenced declaration's signature so named, spread and splice arguments work, or narrow SPEC 6.3 and 4.x to say those forms need a statically known callee. Acceptance: a native test pins the chosen behaviour for named, spread and splice arguments through .call, and the call_arguments root's boundary row matches it.
+- **Fix with:** checker or SPEC
 - **Effort:** M
 
 ### XSH-172 · P3 · lane/namespace-native always skips its 13 lsipc and lslocks tests
@@ -169,8 +278,8 @@ out of scope.
 ### XSH-175 · P3 · net.download and net.request send no User-Agent
 
 - **Area:** Network API
-- **Where:** src/modules (net.download, net.request, net.download_many HTTP client)
-- **Problem:** XSH's HTTP client sends no User-Agent unless the caller adds one. git.kernel.org answers such requests with 403 (curl with an empty agent gets 403, with any agent 200), so Laputa's `make fetch` could not fetch linux-firmware files on a fresh host until PM added its own header (laputa 601e4597).
+- **Where:** `crates/xsh-net/src/lib.rs:1125-1141` (`h12_request`), `:1699-1706` (`request_builder`), `:1603-1636` (`run_download`); `src/runtime/eval/modules/net.rs:86-131,265-286`
+- **Problem:** The native net API sends no User-Agent unless the caller supplies one. At 956a67a, two real loopback net.download requests from the pinned-nightly verification-profile binary on native Linux GNU contained Host but no User-Agent; request and batch download use the same header builder by source inspection. The existing report records git.kernel.org returning 403 without an agent and Laputa adding its own header in 601e4597; that external service behavior was not requalified in this review. The core curl/wget applets already add their own agents.
 - **Recommendation:** Send a default `User-Agent: xsh/<version>` that a caller's header replaces, and document it in the net reference. Acceptance: a native test against a local server sees the default agent, and a caller-supplied User-Agent replaces it rather than duplicating it.
 - **Fix with:** none
 - **Effort:** S
@@ -184,68 +293,14 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
-### XSH-148 · P3 · The checker rejects validated callable returns inside collections
+### XSH-183 · P3 · The formal inventory counts block-commented Lean imports as reachable
 
-- **Area:** Checker
-- **Where:** `src/sema/types.rs` (`matches_stored`, no callable arm; falls through to `matches_invariant`), SPEC `docs/templates/SPEC.md:1594-1602` (callable fit: a validated return may stand for its base at any depth), formal `Xsh.Validation.Core.Widen.Witness.callable_return_view_is_derived` (lane/lean-foundation)
-- **Problem:** `let ys: List[pure() -> Path] = xs` with `xs: List[pure() -> RelPath]` fails with `check.type-mismatch`, while the direct binding `let f: pure() -> Path = name` for a `pure() -> RelPath` function is accepted. The SPEC lets a validated type stand where its base is written in a callable's return type at any depth, and the Lean model derives this view. Rust's stored-value matcher has no callable arm, so a callable nested in a collection, record or union loses the return widening the SPEC grants.
-- **Recommendation:** Add a callable arm to `matches_stored` that applies the SPEC's callable fit (same kind, labels and parameter types; return compared by the stored view; effects may be fewer), with native tests for List, record and union nesting and a rejected case that changes a parameter type.
-- **Fix with:** none
+- **Area:** Formal coverage inventory
+- **Where:** `formal/scripts/check-inventory.py:1516-1540` (`lean_import_graph`, `reachable_lean_modules`); existing `strip_lean_comments` and `formal/tests/inventory`
+- **Problem:** The import scanner removes -- comments but reads import lines inside Lean /- ... -/ block comments. At reviewed revision 956a67a, a scratch source substitution wrapped Xsh.lean's sole import of Xsh.Validation.Core.Erase in a block comment; the real graph still reported it reachable, and fragment/obligation validation accepted all 1307 fragment roots and 77 obligations, including closed VAL-ERASE. Comment stripping showed the import was absent. This is a false source-reachability assurance, not a proof of theorem unsoundness: audit-axioms.sh independently builds/imports every project module. No mutated full Lean build was run, and current live imports are intact.
+- **Recommendation:** Build reachability and implementation-import closure from one comment-aware parser, reusing the existing Lean comment handling rather than another line heuristic. Add source-level negative cases for a sole import inside ordinary/nested block comments and an active-import control. Assert the unreachable closed obligation is rejected; mutating only the computed reachable set does not exercise this bug. Retain the independent kernel/axiom audit.
+- **Fix with:** test-audit, single-source-of-truth
 - **Effort:** S
-
-### XSH-154 · P3 · A path write to a missing map key raises `missing-field` with a Debug-formatted key
-
-- **Area:** Runtime
-- **Where:** `src/runtime/eval/assignments.rs:149,162` (write path) versus `src/runtime/eval/lowered_ops.rs:2612` (read path, `map-missing`)
-- **Problem:** Reading a missing key fails with `map-missing`, but a compound update or deeper path write through a missing key (`m["k"] += 1`, `m["k"].x = 1`) fails with `missing-field` and a message rendering the key as `Str("k")`. The two paths name the same condition differently and the write message leaks Rust Debug formatting.
-- **Recommendation:** Raise the read path's kind and message for a missing key on the write path, state the kind in the SPEC's map-assignment rules, and add native tests for compound and nested writes through a missing key.
-- **Fix with:** none
-- **Effort:** S
-
-### XSH-161 · P3 · `Path.relative_to` returns a path outside its base unchanged
-
-- **Area:** Runtime
-- **Where:** `Path.relative_to`; reproducer `bench/codemode/defects/d2-relative-to/main.xsh`
-- **Problem:** `xsht api method:Path.relative_to` says "The result is an error when the path is not below the requested base", but the signature returns `Path` and `p"/etc/hosts".relative_to(p"/srv/app")` returns `/etc/hosts`, so a caller cannot tell a relative result from the unchanged input.
-- **Recommendation:** Decide the contract: return `Result[Path]` and fail outside the base, or keep `Path` and state that an outside path is returned unchanged; align the registry text and add a native test for the outside case.
-- **Fix with:** error-model
-- **Effort:** S
-
-### XSH-162 · P3 · `xsht api` misstates named arguments and omits the walk `.gitignore` default
-
-- **Area:** Docs
-- **Where:** registry contract text for module functions; `fs.walk`, `fs.files`
-- **Problem:** Many contracts say "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`", while `name: value` arguments such as `fs.walk(root, gitignore: false, hidden: true)` and `archive.create(..., collision: .Replace)` check and run, and some functions require them: `csv.encode(rows, true, ",", columns)` is `check.named-arg` for `headers`, `delimiter` and `columns`, and `path.rename(dest, true)` for `to`, so following the text literally is rejected. In the held-out runs this was the most frequent diagnostic, in 18 programs under both XSH contexts. `fs.walk` and `fs.files` obey `.gitignore` files by default, also outside a Git checkout, but the signature shows only `gitignore: Bool = default`. Agents in the code mode experiment had to learn both from failures.
-- **Recommendation:** State which spellings are accepted (`name: value` yes, `name = value` no) and print each default's value in signatures, starting with `gitignore`.
-- **Fix with:** none
-- **Effort:** S
-
-### XSH-163 · P3 · `check.redundant-parens` is a hard error that no guide mentions
-
-- **Area:** Checker
-- **Where:** `check.redundant-parens`; evidence `bench/codemode/results/dev-initial-taxonomy.json`
-- **Problem:** Parentheses that do not change parsing, such as `x += (a + b)` or `and (id not in seen)`, are check errors. In the code mode development runs this one rule caused 8 of the 24 failed programs under both the current documentation and the compact guide; the tour and `xsht api language:core` do not mention it.
-- **Recommendation:** Decide whether the rule should stay an error or become a lint with an autofix; until then, state it in the tour and in `language:core`.
-- **Fix with:** none
-- **Effort:** S
-
-### XSH-168 · P3 · `cargo dev check` runs formatter checks the tree is not meant to pass
-
-- **Area:** Tooling
-- **Where:** `dev/build.xsh:166` (`check-rustfmt`: `cargo fmt --all -- --check`), the later `xsht fmt --check` stage of `cargo dev check`
-- **Problem:** `cargo dev check` fails on every checkout: `cargo fmt --check` reports diffs in `build.rs`, `crates/` and `tests/`, and `xsht fmt --check` reports 1,045 unformatted files. The repository does not run formatters (AGENTS.md), and no gate or CI path runs these stages, so the command is permanently red and a newcomer following it cannot tell a real failure from the expected one. The cold Ubuntu 24.04 capsule run of 2026-11-21 stopped there after build and clippy passed.
-- **Recommendation:** Decide whether formatting is checked. If not, drop the two formatter stages from `cargo dev check` and keep clippy, `xsht check`, `xsht lint` and the remaining contracts; if it is, format once and keep the stages. Until then docs/DEVELOPMENT.md leaves `cargo dev check` out of the newcomer path.
-- **Fix with:** none
-- **Effort:** S
-
-### XSH-170 · P3 · named, spread and splice arguments to a callable value's .call are rejected although SPEC 6.3 allows them
-
-- **Area:** Checker and calls
-- **Where:** src/sema (call checking for callable values); docs/templates/SPEC.md 6.3
-- **Problem:** SPEC 6.3 lets a record spread target a local that holds a callable value and allows named arguments in calls. For a callable value, the verification binary rejects f.call(...pair)? with check.named-spread (named argument spreading requires a statically checked callable signature), and the formal foundation lane found a named argument to a dynamic .call fails to compile (compact.indexed-build) and an @ splice there is check.call-splice. The Lean machine follows the SPEC (root call_arguments), so its named .call witness has no binary match.
-- **Recommendation:** Decide whether the SPEC or the checker is right. Either type a callable value's .call against the referenced declaration's signature so named, spread and splice arguments work, or narrow SPEC 6.3 and 4.x to say those forms need a statically known callee. Acceptance: a native test pins the chosen behaviour for named, spread and splice arguments through .call, and the call_arguments root's boundary row matches it.
-- **Fix with:** checker or SPEC
-- **Effort:** M
 
 ### XSH-166 · P4 · A user type named like a built-in record cascades into a misleading mismatch
 

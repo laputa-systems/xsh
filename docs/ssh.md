@@ -259,8 +259,8 @@ suite passed 34 of 34.
 Two independent reviews cover the client: one of the
 [protocol and its implementation](reviews/XSH-111-ssh-client-review.md), and one of
 the [Graviola primitives](reviews/XSH-111-graviola-review.md) it calls. Neither
-they nor the tests are formal verification of the protocol, and the residual
-findings of both are tracked in `TODO.md`.
+they nor the tests are formal verification of the protocol. The limitations
+below remain part of the client contract.
 
 - It defends against an active network attacker who tries to impersonate the
   server (host-key verification before authentication), alter or inject packets
