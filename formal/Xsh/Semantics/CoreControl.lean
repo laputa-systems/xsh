@@ -137,7 +137,9 @@ inductive StreamState (Declaration Identity Source : Type) where
 /-- A `for` loop consuming a stream producer: its frame without the store
 and environment variables, which the producer threads, and its target and
 body; or, with a `sink`, a `.collect()` gathering the items into that
-stream's entry. -/
+stream's entry. Inside a `collect` block, `gathers` names the stream table
+entry that holds the block's list while the producer runs, so each run of
+the body appends to the list the one before it left. -/
 structure Consumer (world : World Declaration Identity Source) where
   environment : Environment
   locals : Locals Declaration Identity Source
@@ -151,6 +153,7 @@ structure Consumer (world : World Declaration Identity Source) where
   target : Xsh.Syntax.BindingTarget
   body : List Xsh.Syntax.Statement
   sink : Option Nat
+  gathers : Option Nat
 
 /-- A statement runs in an environment, a store, an environment-variable
 overlay and the locals of the function it is in. Inside a function body
@@ -887,7 +890,30 @@ def consumerOf {world : World Declaration Identity Source} (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Consumer world :=
   { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
     activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
-    collected := frame.collected, writable := frame.writable, target, body, sink := none }
+    collected := frame.collected, writable := frame.writable, target, body, sink := none, gathers := none }
+
+/-- The items a stream table entry gathers. -/
+def gatheringAt {Declaration Identity Source : Type} (streams : List (StreamState Declaration Identity Source)) (slot : Nat) :
+    Option (List (Value Declaration Identity Source)) :=
+  match streams[slot]? with
+  | some (.gathering items) => some items
+  | _ => none
+
+/-- A stream table with `entry` at `slot`, appended when `slot` is the next
+index. -/
+def placeEntry {Declaration Identity Source : Type} (streams : List (StreamState Declaration Identity Source)) (slot : Nat)
+    (entry : StreamState Declaration Identity Source) : List (StreamState Declaration Identity Source) :=
+  if slot < streams.length then streams.set slot entry else streams ++ [entry]
+
+/-- The frame a `for` loop over a producer runs it in: its consumer pushed
+and, inside a `collect` block, the block's list moved to the entry `slot`. -/
+def Frame.consuming {world : World Declaration Identity Source} (frame : Frame world) (slot : Nat)
+    (target : Xsh.Syntax.BindingTarget) (body : List Xsh.Syntax.Statement) : Frame world :=
+  { frame with
+    streams := match frame.collected with
+      | some items => placeEntry frame.streams slot (.gathering items)
+      | none => frame.streams
+    consumers := { consumerOf frame target body with gathers := frame.collected.map fun _ => slot } :: frame.consumers }
 
 /-- The frame a `yield` runs the consuming loop's body in: the loop's scope
 with the producer's store and environment variables. -/
@@ -896,13 +922,29 @@ def consumerFrame {world : World Declaration Identity Source} (producer : Frame 
   { environment := loop.environment, store := producer.store, overlay := producer.overlay, locals := loop.locals,
     callerStore := loop.callerStore, activation := loop.activation, deferred := loop.deferred,
     reported := producer.reported, waited := producer.waited, breakValue := none, closures := loop.closures,
-    item := loop.item, collected := loop.collected, writable := loop.writable, consumers := outer,
-    streams := producer.streams }
+    item := loop.item,
+    collected := match loop.gathers with
+      | some slot => gatheringAt producer.streams slot
+      | none => loop.collected,
+    writable := loop.writable, consumers := outer, streams := producer.streams }
+
+/-- The stream table after a consumer's body ran: a body inside a `collect`
+block leaves its list in the entry its consumer gathers into. -/
+def gatheredBack {world : World Declaration Identity Source} (consumers : List (Consumer world))
+    (collected : Option (List (Value Declaration Identity Source))) (streams : List (StreamState Declaration Identity Source)) :
+    List (StreamState Declaration Identity Source) :=
+  match consumers, collected with
+  | loop :: _, some items =>
+    match loop.gathers with
+    | some slot => streams.set slot (.gathering items)
+    | none => streams
+  | _, _ => streams
 
 /-- The producer's frame after its consumer's body ran: the store, the
 environment variables and the streams as the body left them. -/
 def Frame.resumedBy {world : World Declaration Identity Source} (producer after : Frame world) : Frame world :=
-  { producer with store := after.store, overlay := after.overlay, streams := after.streams }
+  { producer with store := after.store, overlay := after.overlay,
+                  streams := gatheredBack producer.consumers after.collected after.streams }
 
 /-- After the loop body a `yield` ran: a body that completed or continued
 resumes the producer with the store and environment it left; one that broke,
@@ -957,21 +999,53 @@ def delegateItems {world : World Declaration Identity Source} (yieldOne : Frame 
   | frame, [] => .normal frame
   | frame, item :: rest => (yieldOne frame item).andThen fun next => delegateItems yieldOne next rest
 
+/-- An outcome whose frame holds `collected` as its `collect` block's list. -/
+def Exec.withCollected {world : World Declaration Identity Source}
+    (collected : Option (List (Value Declaration Identity Source))) : Exec world → Exec world
+  | .normal frame => .normal { frame with collected }
+  | .broke frame => .broke { frame with collected }
+  | .continued frame => .continued { frame with collected }
+  | .returned value frame => .returned value { frame with collected }
+  | .failed failure frame => .failed failure { frame with collected }
+  | .internal fault frame => .internal fault { frame with collected }
+  | .exited status frame => .exited status { frame with collected }
+  | .consumed exit frame => .consumed exit { frame with collected }
+  | other => other
+
+/-- A loop's frame once its producer has run: its consumers its own again
+and, inside a `collect` block, the block's list back from the entry its
+consumer gathered into. -/
+def Frame.closedLoop {world : World Declaration Identity Source} (loop last : Frame world) : Frame world :=
+  { last with
+    consumers := loop.consumers
+    collected := match last.consumers with
+      | consumer :: _ =>
+        match consumer.gathers with
+        | some slot => gatheringAt last.streams slot
+        | none => last.collected
+      | [] => last.collected
+    streams := match last.consumers with
+      | consumer :: _ =>
+        match consumer.gathers with
+        | some slot => last.streams.set slot .done
+        | none => last.streams
+      | [] => last.streams }
+
 /-- A `for` loop over a producer call, once the producer has run: a producer
 that finished ends the loop, a consumed exit leaves the loop as its body did,
-and anything else leaves with it; the loop's consumers are its own again. -/
+and anything else leaves with it; the loop's frame is closed. -/
 def consumeProducer {world : World Declaration Identity Source} (loop : Frame world) : Valued world → Exec world
-  | .value _ last => .normal { last with consumers := loop.consumers }
-  | .exec (.consumed .broke last) => .normal { last with consumers := loop.consumers }
-  | .exec (.consumed (.returned value) last) => .returned value { last with consumers := loop.consumers }
-  | .exec (.consumed (.failed failure) last) => .failed failure { last with consumers := loop.consumers }
-  | .exec (.normal last) => .normal { last with consumers := loop.consumers }
-  | .exec (.failed failure last) => .failed failure { last with consumers := loop.consumers }
-  | .exec (.exited status last) => .exited status { last with consumers := loop.consumers }
-  | .exec (.internal fault last) => .internal fault { last with consumers := loop.consumers }
-  | .exec (.returned value last) => .returned value { last with consumers := loop.consumers }
-  | .exec (.broke last) => .broke { last with consumers := loop.consumers }
-  | .exec (.continued last) => .continued { last with consumers := loop.consumers }
+  | .value _ last => .normal (loop.closedLoop last)
+  | .exec (.consumed .broke last) => .normal (loop.closedLoop last)
+  | .exec (.consumed (.returned value) last) => .returned value (loop.closedLoop last)
+  | .exec (.consumed (.failed failure) last) => .failed failure (loop.closedLoop last)
+  | .exec (.normal last) => .normal (loop.closedLoop last)
+  | .exec (.failed failure last) => .failed failure (loop.closedLoop last)
+  | .exec (.exited status last) => .exited status (loop.closedLoop last)
+  | .exec (.internal fault last) => .internal fault (loop.closedLoop last)
+  | .exec (.returned value last) => .returned value (loop.closedLoop last)
+  | .exec (.broke last) => .broke (loop.closedLoop last)
+  | .exec (.continued last) => .continued (loop.closedLoop last)
   | .exec other => other
 
 /-- `.collect()` once the producer has run: a producer that finished gives
@@ -979,10 +1053,11 @@ the items it gathered and closes the stream; anything else leaves with it. -/
 def gathered {world : World Declaration Identity Source} (loop : Frame world) (index : Nat) : Valued world → Valued world
   | .value _ last =>
     match last.streams[index]? with
-    | some (.gathering items) => .value (.list items) { last.consume index with consumers := loop.consumers }
+    | some (.gathering items) =>
+      .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }
     | _ => .exec .stuck
-  | .exec (.normal _) | .exec (.consumed _ _) => .exec .stuck
-  | .exec outcome => .exec (consumeProducer loop (.exec outcome))
+  | .exec (.normal _) | .exec (.consumed .broke _) => .exec .stuck
+  | .exec outcome => .exec ((consumeProducer loop (.exec outcome)).withCollected loop.collected)
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
@@ -1904,9 +1979,18 @@ mutual
       | .each target iterable :: rest =>
         (evalExpr machine fuel frame iterable).bind
           fun source next =>
-            match iterationItems source with
-            | some items => comprehendItems machine fuel next target items rest value
-            | none => .exec .unsupported
+            match pendingStream machine next source with
+            | some (index, some (closure, supplied)) =>
+              gathered next index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                { next with
+                  streams := next.streams.set index (.gathering [])
+                  consumers := { consumerOf next target [.yieldDelegate (.listComp value rest)] with gathers := some index } ::
+                    next.consumers } closure supplied)
+            | some (_, none) => .value (.list []) next
+            | none =>
+              match iterationItems source with
+              | some items => comprehendItems machine fuel next target items rest value
+              | none => .exec .unsupported
 
   def comprehendItems {world : World Declaration Identity Source} (machine : Machine world) :
       Nat → Frame world → Xsh.Syntax.BindingTarget → List (Value Declaration Identity Source) →
@@ -2076,7 +2160,7 @@ mutual
         | none, some closure@(.mk _ .producer _ _ _ _ _) =>
           consumeProducer frame
             (invokeWith machine (evalExpr machine fuel) (callBlock machine fuel)
-              { frame with consumers := consumerOf frame target body :: frame.consumers } closure arguments)
+              (frame.consuming frame.streams.length target body) closure arguments)
         | _, _ =>
           (evalExpr machine fuel frame (.call (.ident producer) arguments)).toExec fun source next =>
             match iterationItems source with
@@ -2088,7 +2172,7 @@ mutual
           | some (index, some (closure, supplied)) =>
             consumeProducer (next.consume index)
               (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
-                { next.consume index with consumers := consumerOf next target body :: next.consumers } closure supplied)
+                ((next.consume index).consuming index target body) closure supplied)
           | some (_, none) => .normal next
           | none =>
             match iterationItems source with
@@ -2122,7 +2206,7 @@ mutual
         (runValue machine fuel frame value).toExec fun result next =>
           match next.collected, listValues result, next.consumers with
           | some gathered, some items, _ => .normal { next with collected := some (gathered ++ items) }
-          | none, none, loop :: outer =>
+          | none, none, _ :: _ =>
             match pendingStream machine next result with
             | some (index, some (closure, supplied)) =>
               delegatedStream (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel) (next.consume index)

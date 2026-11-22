@@ -502,8 +502,8 @@ environment).
 
 Statements:
 
-- stream pipelines and stages, comprehensions over a stream, and a
-  `Stream[T]` from anything but a producer (E)
+- stream pipelines and stages, and a `Stream[T]` from anything but a
+  producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -779,7 +779,17 @@ gathered list and closes the stream; on a consumed stream it gives `[]`. As
 the binary prints `created`, a `yield` per item, `producer defer`, the items
 and `[]` for two `.collect()`s of one stored stream, so does the witness,
 which also gathers a delegated list's items in turn and rejects a
-`.collect()` that restarts the producer.
+`.collect()` that restarts the producer. Inside a `collect` block a loop over
+a producer gathers into a stream table entry: each run of the body continues
+the list the run before it left, and the loop takes it back when the producer
+has run. The machine before this lost every item, as the producer's frame did
+not carry the body's list; as the binary prints `[0,1]` and `[0]` for
+`collect { for x in count(2) { yield x } }` without and with a `break`, so do
+the witnesses. A comprehension whose `for` qualifier is a pending stream pulls
+it the same way, the loop's body yielding the rest of the comprehension for
+each item: as the binary prints `[7]` for `[x * 7 for x in count(2) if x > 0]`,
+so does the witness, and a second comprehension over the consumed stream
+gives `[]`.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

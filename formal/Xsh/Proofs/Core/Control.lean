@@ -1089,6 +1089,17 @@ theorem consumeProducer_persists {world : World Declaration Identity Source} (lo
       exact fun scope present => by cases present; exact kept last rfl
     | stuck | unsupported | outOfFuel => exact kept
 
+theorem withCollected_persists {world : World Declaration Identity Source}
+    (collected : Option (List (Value Declaration Identity Source))) {before : Store world} {outcome : Exec world}
+    (kept : Keeps before outcome) : Keeps before (outcome.withCollected collected) := by
+  cases outcome <;> first
+    | exact kept
+    | (intro last present
+       simp only [Exec.withCollected, frameOf, Option.some.injEq] at present
+       subst present
+       have held := kept _ rfl
+       exact held)
+
 theorem gathered_persists {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
     {before : Store world} {outcome : Valued world} (kept : VKeeps before outcome) :
     VKeeps before (gathered loop index outcome) := by
@@ -1100,8 +1111,12 @@ theorem gathered_persists {world : World Declaration Identity Source} (loop : Fr
     · exact fun _ present => by cases present
   | exec inner =>
     cases inner with
-    | normal _ | consumed _ _ => exact fun _ present => by cases present
-    | _ => exact consumeProducer_persists loop kept
+    | normal _ => exact fun _ present => by cases present
+    | consumed exit _ =>
+      cases exit with
+      | broke => exact fun _ present => by cases present
+      | _ => exact withCollected_persists _ (consumeProducer_persists loop kept)
+    | _ => exact withCollected_persists _ (consumeProducer_persists loop kept)
 
 theorem gather_persists {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
     (item : Value Declaration Identity Source) : Keeps frame.store (frame.gather index item) := by
@@ -1970,6 +1985,17 @@ theorem consumeProducer_restores {world : World Declaration Identity Source} (lo
       exact fun scope present => by cases present; exact restored last rfl
     | stuck | unsupported | outOfFuel => exact restored
 
+theorem withCollected_restores {world : World Declaration Identity Source}
+    (collected : Option (List (Value Declaration Identity Source))) {frame : Frame world} {outcome : Exec world}
+    (restored : Restores frame outcome) : Restores frame (outcome.withCollected collected) := by
+  cases outcome <;> first
+    | exact restored
+    | (intro last present
+       simp only [Exec.withCollected, frameOf, Option.some.injEq] at present
+       subst present
+       have held := restored _ rfl
+       exact held)
+
 theorem gathered_restores {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
     {outcome : Valued world} (restored : VRestores loop outcome) : VRestores loop (gathered loop index outcome) := by
   cases outcome with
@@ -1980,8 +2006,12 @@ theorem gathered_restores {world : World Declaration Identity Source} (loop : Fr
     · exact fun _ present => by cases present
   | exec inner =>
     cases inner with
-    | normal _ | consumed _ _ => exact fun _ present => by cases present
-    | _ => exact consumeProducer_restores loop restored
+    | normal _ => exact fun _ present => by cases present
+    | consumed exit _ =>
+      cases exit with
+      | broke => exact fun _ present => by cases present
+      | _ => exact withCollected_restores _ (consumeProducer_restores loop restored)
+    | _ => exact withCollected_restores _ (consumeProducer_restores loop restored)
 
 theorem gather_restores {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
     (item : Value Declaration Identity Source) : Restores frame (frame.gather index item) := by
@@ -3200,7 +3230,7 @@ theorem control_restores {world : World Declaration Identity Source} (machine : 
           | some (index, some (closure, supplied)) =>
             consumeProducer (next.consume index)
               (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
-                { next.consume index with consumers := consumerOf next target body :: next.consumers } closure supplied)
+                ((next.consume index).consuming index target body) closure supplied)
           | some (_, none) => .normal next
           | none =>
             match iterationItems source with

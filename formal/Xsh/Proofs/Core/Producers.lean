@@ -26,7 +26,10 @@ unwinding its scopes, where its `defer`s run and its `errdefer`s and `try`s do
 not see a failure of its own; and the loop then leaves as its body did.
 `.collect()` on a pending stream runs its producer with a sink consumer that
 appends each yielded item to the stream's entry, then gives the gathered list
-and closes the stream; on a consumed stream it gives the empty list. -/
+and closes the stream; on a consumed stream it gives the empty list. Inside a
+`collect` block the loop's consumer gathers into a stream table entry: each
+run of the body starts from the list there and leaves its list there, and the
+loop's frame takes the list back when the producer has run. -/
 theorem stream_producers [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) :
     (∀ (producer after : Frame world),
@@ -42,11 +45,11 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     (∀ exit (last : Frame world), exitsWithError (.consumed exit last) = false) ∧
     (∀ exit (last : Frame world), capture (.exec (.consumed exit last)) = .exec (.consumed exit last)) ∧
     (∀ (loop last : Frame world), consumeProducer loop (.exec (.consumed .broke last)) =
-      .normal { last with consumers := loop.consumers }) ∧
+      .normal (loop.closedLoop last)) ∧
     (∀ (loop last : Frame world) value, consumeProducer loop (.exec (.consumed (.returned value) last)) =
-      .returned value { last with consumers := loop.consumers }) ∧
+      .returned value (loop.closedLoop last)) ∧
     (∀ (loop last : Frame world) failure, consumeProducer loop (.exec (.consumed (.failed failure) last)) =
-      .failed failure { last with consumers := loop.consumers }) ∧
+      .failed failure (loop.closedLoop last)) ∧
     (∀ (fuel : Nat) (frame : Frame world) receiver method,
       errorConstructor machine frame receiver method = none → machine.context.spelling method = "collect" →
       evalExpr machine (fuel + 1) frame (.call (.field receiver method) []) =
@@ -61,11 +64,23 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     (∀ (frame : Frame world) index items item, frame.streams[index]? = some (.gathering items) →
       frame.gather index item = .normal { frame with streams := frame.streams.set index (.gathering (items ++ [item])) }) ∧
     (∀ (loop last : Frame world) index items value, last.streams[index]? = some (.gathering items) →
-      gathered loop index (.value value last) = .value (.list items) { last.consume index with consumers := loop.consumers }) := by
+      gathered loop index (.value value last) =
+        .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }) ∧
+    (∀ (producer : Frame world) loop outer slot, producer.consumers = loop :: outer → loop.gathers = some slot →
+      (consumerFrame producer loop outer).collected = gatheringAt producer.streams slot) ∧
+    (∀ (producer after : Frame world) loop outer slot items, producer.consumers = loop :: outer →
+      loop.gathers = some slot → after.collected = some items →
+      (producer.resumedBy after).streams = after.streams.set slot (.gathering items)) ∧
+    (∀ (loop last : Frame world) consumer rest slot, last.consumers = consumer :: rest → consumer.gathers = some slot →
+      (loop.closedLoop last).collected = gatheringAt last.streams slot) := by
   refine ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
     fun _ _ _ => rfl, fun _ _ _ => rfl, fun fuel frame receiver method plain spelled => ?_,
     fun frame index items item held => by simp only [Frame.gather, held],
-    fun loop last index items value held => by simp only [gathered, held]⟩
+    fun loop last index items value held => by simp only [gathered, held],
+    fun producer loop outer slot _ gathers => by simp only [consumerFrame, gathers],
+    fun producer after loop outer slot items pushed gathers collected => by
+      simp only [Frame.resumedBy, gatheredBack, pushed, gathers, collected],
+    fun loop last consumer rest slot pushed gathers => by simp only [Frame.closedLoop, pushed, gathers]⟩
   simp only [evalExpr, plain, spelled]
   refine congrArg _ (funext fun subject => funext fun after => ?_)
   rcases pendingStream machine after subject with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;> rfl
@@ -271,6 +286,43 @@ and run `count` twice; the model gathers nothing. -/
 theorem recollecting_rejected :
     readList traceVar (runCollect collectScript) ≠ some [2, 1, 1, 7, 1, 1, 7] ∧
       readList againVar (runCollect collectScript) ≠ some [0, 1] := by
+  decide +kernel
+
+/-- `let xs = collect { for x in count(2) { yield x } }` and the same loop
+breaking after its first item, as the verification binary prints `[0,1]` and
+`[0]`: inside a `collect` block each run of the consuming loop's body appends
+to the list the run before it left, while the producer holds the loop. -/
+def collectLoopScript (breaking : Bool) : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   letOf gatheredVar (.collect [.forStmt (.name xItem) (.call (ident countFn) [.positional (int "2")])
+     ([.yield (ident xItem)] ++ if breaking then [.breakStmt none] else [])])]
+
+theorem collect_loop_witness :
+    readList gatheredVar (runCollect (collectLoopScript false)) = some [0, 1] ∧
+      readList gatheredVar (runCollect (collectLoopScript true)) = some [0] := by
+  decide +kernel
+
+/-- A body that started each run from the list the loop began with, as the
+machine did before, gathers nothing; the model gathers both items. -/
+theorem forgetting_body_rejected :
+    readList gatheredVar (runCollect (collectLoopScript false)) ≠ some [] := by
+  decide +kernel
+
+/-- `let zs = [x * 7 for x in s if x > 0]` over `let s = count(2)`, then the
+same comprehension again, as the verification binary prints `[7]` for the
+first: the comprehension pulls the stream through its qualifiers, and the
+consumed stream gives `[]`. -/
+def comprehensionScript : List Xsh.Syntax.Statement :=
+  let comprehension := Xsh.Syntax.Expr.listComp (.binary .mul (ident xItem) (int "7"))
+    [.each (.name xItem) (ident streamLocal), .when (.binary .gt (ident xItem) (int "0"))]
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   letOf streamLocal (.call (ident countFn) [.positional (int "2")]),
+   letOf gatheredVar comprehension, letOf againVar comprehension]
+
+theorem stream_comprehension_witness :
+    readList gatheredVar (runCollect comprehensionScript) = some [7] ∧
+      readList againVar (runCollect comprehensionScript) = some [] ∧
+      readList traceVar (runCollect comprehensionScript) = some [1, 1, 7] := by
   decide +kernel
 
 end Witness
