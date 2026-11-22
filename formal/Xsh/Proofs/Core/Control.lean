@@ -308,6 +308,13 @@ theorem resumeProducer_refines {world : World Declaration Identity Source} (prod
   · subst out; exact Or.inl rfl
   · subst same; exact exec_refl _
 
+theorem delegateItems_refines {world : World Declaration Identity Source}
+    {yieldOne yieldOne' : Frame world → Value Declaration Identity Source → Exec world}
+    (each : ∀ frame item, Exec.Refines (yieldOne frame item) (yieldOne' frame item)) :
+    ∀ frame items, Exec.Refines (delegateItems yieldOne frame items) (delegateItems yieldOne' frame items)
+  | _, [] => exec_refl _
+  | frame, item :: rest => andThen_refines (each frame item) fun next => delegateItems_refines each next rest
+
 theorem controlValue_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -605,6 +612,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine withOverlay_refines _ ?_
   | refine consumeProducer_refines _ ?_
   | refine resumeProducer_refines _ ?_
+  | refine delegateItems_refines (fun _ _ => ?_) _ _
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
@@ -1061,6 +1069,13 @@ theorem resumeProducer_persists {world : World Declaration Identity Source} (pro
   | consumed _ after => exact fun scope present => by cases present; exact kept after rfl
   | stuck | unsupported | outOfFuel => exact kept
 
+theorem delegateItems_persists {world : World Declaration Identity Source}
+    {yieldOne : Frame world → Value Declaration Identity Source → Exec world}
+    (each : ∀ frame item, Keeps frame.store (yieldOne frame item)) :
+    ∀ frame items, Keeps frame.store (delegateItems yieldOne frame items)
+  | frame, [] => fun last present => by cases present; exact persists_refl _
+  | frame, item :: rest => andThen_persists (each frame item) fun next => delegateItems_persists each next rest
+
 theorem controlValue_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1406,6 +1421,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine withOverlay_persists _ ?_
   | refine consumeProducer_persists _ ?_
   | refine resumeProducer_persists _ ?_
+  | refine delegateItems_persists (fun _ _ => ?_) _ _
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
   | refine inner.leaves _ _ ?_
@@ -1887,6 +1903,23 @@ theorem resumeProducer_normal {world : World Declaration Identity Source} {produ
   cases outcome <;> simp only [resumeProducer] at resumed <;> first
     | (cases resumed; exact ⟨rfl, rfl⟩)
     | cases resumed
+
+theorem delegateItems_normal {world : World Declaration Identity Source}
+    {yieldOne : Frame world → Value Declaration Identity Source → Exec world}
+    (keeps : ∀ frame item next, yieldOne frame item = .normal next →
+      next.environment = frame.environment ∧ next.locals = frame.locals) :
+    ∀ frame items next, delegateItems yieldOne frame items = .normal next →
+      next.environment = frame.environment ∧ next.locals = frame.locals
+  | frame, [], next, done => by cases done; exact ⟨rfl, rfl⟩
+  | frame, item :: rest, next, done => by
+    simp only [delegateItems] at done
+    cases yielded : yieldOne frame item with
+    | normal middle =>
+      rw [yielded] at done
+      obtain ⟨environment, locals⟩ := delegateItems_normal keeps middle rest next done
+      obtain ⟨environment', locals'⟩ := keeps frame item middle yielded
+      exact ⟨environment.trans environment', locals.trans locals'⟩
+    | _ => rw [yielded] at done; cases done
 
 theorem resumeProducer_restores {world : World Declaration Identity Source} (frame producer : Frame world)
     (same : producer.environment = frame.environment ∧ producer.locals = frame.locals) (outcome : Exec world) :

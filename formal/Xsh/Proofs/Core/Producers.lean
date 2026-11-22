@@ -136,6 +136,31 @@ theorem eager_producer_rejected :
     readList traceVar (runCanonical (streamScript firstTwo)) ≠ some [1, 1, 1, 1, 1, 1, 1, 1, 7, 2, 2] := by
   decide +kernel
 
+def pairsFn : Xsh.Syntax.RawName := name 279 (by decide)
+def delegating : Xsh.Syntax.RawName := name 280 (by decide)
+
+/-- `stream pairs() -> Stream[Int] { defer { trace += [7] }; trace += [1];
+yield @[7, 8, 2]; trace += [8] }` and a loop that notes `2` per item and
+breaks after `8`. -/
+def delegationScript (breaking : Bool) : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []),
+   .functionDef .stream pairsFn [] none none
+     [.defer .exit (.valueBlock [note "7"]), note "1", .yieldDelegate (items ["7", "8", "2"]), note "8"] none false,
+   .functionDef .proc delegating [] none none
+     [.forStmt (.name xItem) (.call (ident pairsFn) [])
+       ([note "2"] ++ if breaking then [.ifStmt [(.binary .eq (ident xItem) (int "8"), [.breakStmt none])] none] else []),
+      .expression (int "0")] none false,
+   letOf resultVar (.call (ident delegating) [])]
+
+/-- As the verification binary prints `before`, `got 7`, `got 8`,
+`producer defer` for a loop that breaks at the second delegated item, and
+`before`, three items, `after`, `producer defer` for one that does not:
+`yield @list` yields each item in turn and stops when the loop does. -/
+theorem delegation_witness :
+    readList traceVar (runCanonical (delegationScript true)) = some [1, 2, 2, 7] ∧
+      readList traceVar (runCanonical (delegationScript false)) = some [1, 2, 2, 2, 8, 7] := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Producers

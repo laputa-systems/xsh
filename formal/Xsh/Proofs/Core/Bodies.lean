@@ -306,6 +306,8 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
       split at finished
       · cases finished
         exact keep _ locals
+      · exact keep _ ((delegateItems_normal (fun _ _ _ resumed => resumeProducer_normal resumed) _ _ _
+          finished).2.trans locals)
       · cases finished
     | assert condition message =>
       simp only [runStatement] at ran

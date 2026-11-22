@@ -888,6 +888,13 @@ def resumeProducer {world : World Declaration Identity Source} (producer : Frame
   | .consumed exit after => .consumed exit { producer with store := after.store, overlay := after.overlay }
   | other => other
 
+/-- `yield @items` to a consuming loop: each item yielded in order, the
+producer going on only while each one resumes it. -/
+def delegateItems {world : World Declaration Identity Source} (yieldOne : Frame world → Value Declaration Identity Source → Exec world) :
+    Frame world → List (Value Declaration Identity Source) → Exec world
+  | frame, [] => .normal frame
+  | frame, item :: rest => (yieldOne frame item).andThen fun next => delegateItems yieldOne next rest
+
 /-- A `for` loop over a producer call, once the producer has run: a producer
 that finished ends the loop, a consumed exit leaves the loop as its body did,
 and anything else leaves with it; the loop's consumers are its own again. -/
@@ -2011,9 +2018,15 @@ mutual
           | none, [] => .unsupported
       | .yieldDelegate value =>
         (runValue machine fuel frame value).toExec fun result next =>
-          match next.collected, listValues result with
-          | some gathered, some items => .normal { next with collected := some (gathered ++ items) }
-          | _, _ => .unsupported
+          match next.collected, listValues result, next.consumers with
+          | some gathered, some items, _ => .normal { next with collected := some (gathered ++ items) }
+          | none, some items, loop :: outer =>
+            delegateItems (fun current item =>
+              resumeProducer current
+                (leaveBlock machine fuel (consumerFrame current loop outer)
+                  ((bindTarget machine (consumerFrame current loop outer).enter .immutable loop.target item).andThen
+                    fun bound => runStatements machine fuel bound loop.body))) next items
+          | _, _, _ => .unsupported
       | .functionDef kind name parameters _ result body _ _ =>
         match frame.callerStore, frame.environment.names with
         | none, [_] =>

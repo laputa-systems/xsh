@@ -15252,8 +15252,8 @@
       "declaration": "Xsh.Proofs.Core.Producers.stream_producers",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "SPEC 9.5 stream producers consumed by a for loop: each yield runs the loop's body on the item in the loop's scope, sharing the store and environment, then resumes the producer; a body that completes or continues resumes it; one that breaks, returns or fails stops it as the consumed outcome, which runs the producer's defers but not its errdefers, passes its trys, and leaves the loop as the body did.",
-      "boundary": "Only a for loop whose iterable is a direct producer call is modelled; Stream values, storing or passing them, yield delegation to a stream, pipelines and stages are not, and a producer call elsewhere is unsupported. The expression_store_threading closure-call law now needs a closure that is not a producer. Witnesses follow the verification binary's interleaving on named programs; it does not close BASE-STEP and claims no Rust conformance."
+      "scope": "SPEC 9.5 stream producers consumed by a for loop: each yield, and each item of a yield @list in turn, runs the loop's body on the item in the loop's scope, sharing the store and environment, then resumes the producer; a body that completes or continues resumes it; one that breaks, returns or fails stops it as the consumed outcome, which runs the producer's defers but not its errdefers, passes its trys, and leaves the loop as the body did.",
+      "boundary": "Only a for loop whose iterable is a direct producer call is modelled; Stream values, storing or passing them, yield @ delegation to a stream, pipelines and stages are not, and a producer call elsewhere is unsupported. The expression_store_threading closure-call law now needs a closure that is not a producer. Witnesses follow the verification binary's interleaving on named programs; it does not close BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",

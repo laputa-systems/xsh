@@ -483,8 +483,8 @@ environment).
 Statements:
 
 - a `Stream` value a producer call gives outside the iterable of a `for`
-  loop, stored or passed before it is consumed, `yield` delegation to one,
-  and stream pipelines and stages (E)
+  loop, stored or passed before it is consumed, `yield @` delegation to a
+  stream, and stream pipelines and stages (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -742,7 +742,11 @@ leaves the loop as the body did. The verification binary prints `yield 0`,
 `got 0`, `yield 1`, `got 1`, `producer defer`, `1` for a loop that breaks after
 two items and three `yield`s, `producer defer`, `2` for a loop that returns;
 the witnesses check both orders with a trace list and reject running the
-producer to its end before the loop. Calling a producer anywhere but as a
+producer to its end before the loop. `yield @list` yields each item in turn
+and stops when the loop does: as the binary prints `before`, `got 7`,
+`got 8`, `producer defer` for a loop that breaks at the second delegated item
+and runs the rest after the delegation when the loop does not, so do the
+witnesses. Calling a producer anywhere but as a
 `for` loop's iterable is unsupported, because stream values are not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
