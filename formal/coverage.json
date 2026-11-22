@@ -15130,6 +15130,15 @@
       "boundary": "Variants, errors, process errors, modules and handles are not compared, nor are operands of different types; a Path container's display-text membership and unsigned map-key validation are not modelled; String containment is stated on code points, not UTF-8 bytes; set element order is map key order only when keyBefore is a total order, which is not proved. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.MatchValues.match_values",
+      "module": "Xsh.Proofs.Core.MatchValues",
+      "declaration": "Xsh.Proofs.Core.MatchValues.match_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 6.8 match expressions: the subject is evaluated once and the arms are tried in order; an arm whose pattern fails passes to the next, an unguarded arm that selects the subject gives its body's value in a scope holding the pattern's captures, and with no arm left the match fails with the runtime match-no-arm; the match leaves the environment and locals as it found them and keeps every cell already in the store.",
+      "boundary": "Exhaustiveness is the checker's and is not modelled; a guarded arm's behaviour is checked by witnesses, not stated universally; patterns outside matchPattern are unsupported. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -492,7 +492,7 @@ Expressions:
 
 - first-class local functions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
-- `match` as an expression, slices, guarded `?.` and `?[]` (P)
+- slices, guarded `?.` and `?[]` (P)
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
 - record spread, shorthand, computed and path fields (P)
@@ -559,6 +559,21 @@ concatenates its operands. Variants, errors and handles are not compared, a
 `Path` container is outside the model, and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
 order, and that is not proved.
+
+The `match_values` fragment root, in
+[`Proofs/Core/MatchValues.lean`](Xsh/Proofs/Core/MatchValues.lean), adds
+`match` as an expression (SPEC 6.8). The subject is evaluated once and the
+arms are tried in order: a failing pattern or guard passes to the next arm,
+and the first arm that selects the subject gives its body's value in a scope
+holding the pattern's captures, which do not resolve after the match. A match
+with no such arm, statement or expression, fails with the runtime
+`match-no-arm`, which `try` does not capture; before this root the statement
+machine was stuck there. Its witnesses follow the verification binary: a
+holding guard selects its arm, a failing one falls through to `else`, a
+block body gives its tail, and a statement `match` over `3` with only a `1`
+arm exits 3 with `match-no-arm`. The mutants it rejects ignore guards or bind
+the captures in the enclosing scope. Exhaustiveness belongs to the checker
+and is not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

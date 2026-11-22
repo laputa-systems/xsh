@@ -29,6 +29,8 @@ structure Errors (Declaration Identity Source : Type) where
   indexOutOfRange : Value Declaration Identity Source
   missingField : Value Declaration Identity Source
   mapMissing : Value Declaration Identity Source
+  /-- A `match` whose arms all fail to select the subject (SPEC 6.8). -/
+  matchNoArm : Value Declaration Identity Source
 
 /-- Whether a function returns a `Result`, which decides where its failures
 go (SPEC 8.3, 8.7). -/

@@ -1231,7 +1231,7 @@ mutual
         | some value => .value value frame
         | none => .exec .unsupported
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ | .mapComp _ _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ =>
         runValue machine fuel frame expression
       | .ident name =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name,
@@ -1365,6 +1365,8 @@ mutual
           | .err _, fallback | .scalar .null, fallback => runValue machine fuel next fallback
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
+      | .matchExpr subject arms =>
+        (evalExpr machine fuel frame subject).bind fun value next => matchValue machine fuel next value arms
       | .listComp value qualifiers => comprehend machine fuel frame qualifiers value
       | .mapComp key value qualifiers =>
         (comprehend machine fuel frame qualifiers (.list [key, value])).bind fun pairs next =>
@@ -1728,7 +1730,7 @@ mutual
     | 0, _, _, _ => .outOfFuel
     | fuel + 1, frame, value, arms =>
       match arms with
-      | [] => .stuck
+      | [] => .failed (.runtime machine.context.errors.matchNoArm) frame
       | (pattern, guard, body) :: rest =>
         match matchPattern machine.context machine.typeTest pattern value with
         | .failed => runMatch machine fuel frame value rest
@@ -1745,6 +1747,39 @@ mutual
                   | .scalar (.boolean false) => runMatch machine fuel next value rest
                   | _ => .unsupported
             | other => leaveBlock machine fuel frame other
+
+  /-- `match` as an expression (SPEC 6.8): the first arm whose pattern selects
+  the subject and whose guard holds gives the value of its body, evaluated in
+  the arm's own scope with the pattern's captures bound; with no such arm the
+  match fails with `match-no-arm`. -/
+  def matchValue {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → Value Declaration Identity Source →
+        List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Valued world
+    | 0, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, value, arms =>
+      match arms with
+      | [] => .exec (.failed (.runtime machine.context.errors.matchNoArm) frame)
+      | (pattern, guard, body) :: rest =>
+        match matchPattern machine.context machine.typeTest pattern value with
+        | .failed => matchValue machine fuel frame value rest
+        | .unsupported => .exec .unsupported
+        | .matched captures =>
+          match guard with
+          | none =>
+            settle (leaveBlock machine fuel frame)
+              ((bindCaptures machine frame.enter captures).thenValued fun bound => runValue machine fuel bound body)
+          | some condition =>
+            match bindCaptures machine frame.enter captures with
+            | .normal bound =>
+              ((evalExpr machine fuel bound condition).leave frame).bind fun tested next =>
+                match tested.eraseNominal with
+                | .scalar (.boolean true) =>
+                  settle (leaveBlock machine fuel next)
+                    ((bindCaptures machine next.enter captures).thenValued fun rebound =>
+                      runValue machine fuel rebound body)
+                | .scalar (.boolean false) => matchValue machine fuel next value rest
+                | _ => .exec .unsupported
+            | other => settle (leaveBlock machine fuel frame) (.exec other)
 end
 
 /-- The functions a script declares at its top level. -/

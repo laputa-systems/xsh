@@ -180,6 +180,7 @@ def context : Context Unit Unit Unit where
     indexOutOfRange := message "index-out-of-range"
     missingField := message "missing-field"
     mapMissing := message "missing-key"
+    matchNoArm := message "match-no-arm"
   }
   policy := quietNaNPolicy
   spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"

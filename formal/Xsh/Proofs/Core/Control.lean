@@ -486,6 +486,8 @@ structure Refining {world : World Declaration Identity Source} (machine : Machin
   loops : ∀ frame body, Exec.Refines (runLoop machine fuel frame body) (runLoop machine bigger frame body)
   arms : ∀ frame value arms,
     Exec.Refines (runMatch machine fuel frame value arms) (runMatch machine bigger frame value arms)
+  matchValues : ∀ frame value arms,
+    Valued.Refines (matchValue machine fuel frame value arms) (matchValue machine bigger frame value arms)
 
 set_option hygiene false in
 /-- Close a refinement goal between the same machine step at two fuels, given
@@ -501,6 +503,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.fors _ _ _ _
   | exact inner.loops _ _
   | exact inner.arms _ _ _
+  | exact inner.matchValues _ _ _
   | exact inner.tail _ _
   | exact inner.value _ _
   | exact inner.scope _ _
@@ -509,6 +512,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact valued_refl _
   | refine toExec_refines (inner.expr _ _) fun _ _ => ?_
   | refine toExec_refines (outcomeLeave_refines _ (inner.expr _ _)) fun _ _ => ?_
+  | refine valued_bind_refines (outcomeLeave_refines _ (inner.expr _ _)) fun _ _ => ?_
   | refine toExec_refines ?_ fun _ _ => ?_
   | refine thenValued_refines ?_ fun _ => ?_
   | refine valued_bind_refines ?_ fun _ _ => ?_
@@ -577,7 +581,8 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
       whiles := fun _ _ _ => Or.inl (by simp [runWhile])
       fors := fun _ _ _ _ => Or.inl (by simp [runFor])
       loops := fun _ _ => Or.inl (by simp [runLoop])
-      arms := fun _ _ _ => Or.inl (by simp [runMatch]) }
+      arms := fun _ _ _ => Or.inl (by simp [runMatch])
+      matchValues := fun _ _ _ => Or.inl (by simp [matchValue]) }
   | fuel + 1, extra => by
     have inner := refining machine fuel extra
     rw [show fuel + 1 + extra = (fuel + extra) + 1 by omega]
@@ -645,7 +650,8 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
       whiles := fun frame condition body => by simp only [runWhile]; close_refines
       fors := fun frame target items body => by simp only [runFor]; close_refines
       loops := fun frame body => by simp only [runLoop]; close_refines
-      arms := fun frame value arms => by simp only [runMatch]; close_refines }
+      arms := fun frame value arms => by simp only [runMatch]; close_refines
+      matchValues := fun frame value arms => by simp only [matchValue]; close_refines }
 
 end Fuel
 
@@ -1167,6 +1173,7 @@ structure Persisting {world : World Declaration Identity Source} (machine : Mach
   fors : ∀ frame target items body, Keeps frame.store (runFor machine fuel frame target items body)
   loops : ∀ frame body, Keeps frame.store (runLoop machine fuel frame body)
   arms : ∀ frame value arms, Keeps frame.store (runMatch machine fuel frame value arms)
+  matchValues : ∀ frame value arms, VKeeps frame.store (matchValue machine fuel frame value arms)
 
 set_option hygiene false in
 /-- Close a persistence goal for one machine step, given `inner` for the
@@ -1181,6 +1188,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.fors _ _ _ _
   | exact inner.loops _ _
   | exact inner.arms _ _ _
+  | exact inner.matchValues _ _ _
   | exact bindTarget_persists _ _ _ _ _
   | exact fromStep_persists _ _ _ _ (assignPath_persists _ _ _ _ _ _ _ _ _)
   | exact vkeeps_value _ (persists_refl _)
@@ -1264,7 +1272,7 @@ theorem persisting_arms {world : World Declaration Identity Source} (machine : M
   intro frame value arms
   simp only [runMatch]
   split
-  · exact fun _ present => by cases present
+  · exact fun _ present => by cases present; exact persists_refl _
   · split
     · exact inner.arms _ _ _
     · exact fun _ present => by cases present
@@ -1279,6 +1287,28 @@ theorem persisting_arms {world : World Declaration Identity Source} (machine : M
           · exact inner.arms _ _ _
           · exact fun _ present => by cases present
         · exact inner.leaves _ _ (bindCaptures_entered _ _ _)
+
+theorem persisting_matchValues {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Persisting machine fuel) :
+    ∀ frame value arms, VKeeps frame.store (matchValue machine (fuel + 1) frame value arms) := by
+  intro frame value arms
+  simp only [matchValue]
+  split
+  · exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
+  · split
+    · exact inner.matchValues _ _ _
+    · exact vkeeps_exec fun _ present => by cases present
+    · split
+      · close_persists
+      · split
+        · rename_i bound entered
+          refine vbind_persists (outcomeLeave_persists
+            (bindCaptures_entered machine frame _ bound (by rw [entered]; rfl)) (inner.expr _ _)) fun _ _ => ?_
+          split
+          · close_persists
+          · exact inner.matchValues _ _ _
+          · exact vkeeps_exec fun _ present => by cases present
+        · close_persists
 
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
@@ -1305,7 +1335,8 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
       whiles := fun _ _ _ => by simp only [runWhile]; exact fun _ present => by cases present
       fors := fun _ _ _ _ => by simp only [runFor]; exact fun _ present => by cases present
       loops := fun _ _ => by simp only [runLoop]; exact fun _ present => by cases present
-      arms := fun _ _ _ => by simp only [runMatch]; exact fun _ present => by cases present }
+      arms := fun _ _ _ => by simp only [runMatch]; exact fun _ present => by cases present
+      matchValues := fun _ _ _ => by simp only [matchValue]; exact vkeeps_exec fun _ present => by cases present }
   | fuel + 1 => by
     have inner := persisting machine fuel
     exact {
@@ -1358,7 +1389,8 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
       whiles := fun frame condition body => by simp only [runWhile]; close_persists
       fors := fun frame target items body => by simp only [runFor]; close_persists
       loops := fun frame body => by simp only [runLoop]; close_persists
-      arms := persisting_arms machine fuel inner }
+      arms := persisting_arms machine fuel inner
+      matchValues := persisting_matchValues machine fuel inner }
 
 end Persistence
 
@@ -1398,6 +1430,12 @@ block leaves with a value or through another exit. -/
 def Settled {world : World Declaration Identity Source} {α : Type} : Outcome world α → Prop
   | .exec (.normal _) => False
   | _ => True
+
+theorem settled_exec {world : World Declaration Identity Source} {α : Type} {outcome : Exec world}
+    (abnormal : ∀ frame, outcome = .normal frame → False) : Settled (α := α) (.exec outcome) := by
+  cases outcome with
+  | normal frame => exact abnormal frame rfl
+  | _ => trivial
 
 /-- A result leaves with a value or another exit, never a bare normal
 completion, and a value's frame and every frame an outcome carries have
@@ -1803,6 +1841,7 @@ structure Restoring {world : World Declaration Identity Source} (machine : Machi
   fors : ∀ frame target items body, Restores frame (runFor machine fuel frame target items body)
   loops : ∀ frame body, Restores frame (runLoop machine fuel frame body)
   arms : ∀ frame value arms, Restores frame (runMatch machine fuel frame value arms)
+  matchValues : ∀ frame value arms, VRestores frame (matchValue machine fuel frame value arms)
 
 set_option hygiene false in
 local macro "close_restores" : tactic => `(tactic| repeat' (first
@@ -1824,11 +1863,14 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact inner.fors _ _ _ _
   | exact inner.loops _ _
   | exact inner.arms _ _ _
+  | exact inner.matchValues _ _ _
   | exact withinScope_restores _ _
   | exact leave_restores _ _ _ _
   | exact inner.valueTail _ _
+  | exact settled_of_vrestores (inner.value _ _)
   | exact settled_of_vrestores (inner.comprehends _ _ _)
   | refine thenValued_settled fun _ => ?_
+  | (apply settled_exec; assumption)
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_
   | exact callBlock_restores _ _ _ _ _ _ _ _ _
   | exact threadStep_restores _ inner.expr
@@ -1842,6 +1884,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
   | refine vbind_restores (invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
+  | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_) fun _ _ => ?_
   | refine vbind_restores (inner.expr _ _) fun _ _ => ?_
@@ -1881,7 +1924,8 @@ theorem restoring {world : World Declaration Identity Source} (machine : Machine
       whiles := fun _ _ _ => by simp only [runWhile]; exact fun _ present => by cases present
       fors := fun _ _ _ _ => by simp only [runFor]; exact fun _ present => by cases present
       loops := fun _ _ => by simp only [runLoop]; exact fun _ present => by cases present
-      arms := fun _ _ _ => by simp only [runMatch]; exact fun _ present => by cases present }
+      arms := fun _ _ _ => by simp only [runMatch]; exact fun _ present => by cases present
+      matchValues := fun _ _ _ => by simp only [matchValue]; exact vrestores_none rfl }
   | fuel + 1 => by
     have inner := restoring machine fuel
     exact {
@@ -1906,7 +1950,8 @@ theorem restoring {world : World Declaration Identity Source} (machine : Machine
       whiles := fun frame condition body => by simp only [runWhile]; close_restores
       fors := fun frame target items body => by simp only [runFor]; close_restores
       loops := fun frame body => by simp only [runLoop]; close_restores
-      arms := fun frame value arms => by simp only [runMatch]; close_restores }
+      arms := fun frame value arms => by simp only [runMatch]; close_restores
+      matchValues := fun frame value arms => by simp only [matchValue]; close_restores }
 
 end Scopes
 

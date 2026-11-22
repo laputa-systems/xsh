@@ -88,6 +88,7 @@ import Xsh.Proofs.Core.EvalStatements
 import Xsh.Proofs.Core.Equality
 import Xsh.Semantics.CoreControl
 import Xsh.Proofs.Core.Control
+import Xsh.Proofs.Core.MatchValues
 import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables
