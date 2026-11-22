@@ -404,16 +404,18 @@ theorem keep_self {world : World Declaration Identity Source} (store : Store wor
 plain function's result, is that result in the caller. -/
 theorem returnValue_fromEval {world : World Declaration Identity Source} (caller inner : Frame world)
     (sameStore : inner.store = caller.store) (sameOverlay : inner.overlay = caller.overlay)
+    (sameStreams : inner.streams = caller.streams)
     (result : Result Declaration Identity Source (Value Declaration Identity Source)) :
     returnValue caller (fromEval inner result) = fromEval caller result := by
   cases result with
   | value value =>
-    show Outcome.value value { caller with store := keep caller.store inner.store, overlay := inner.overlay } = _
-    rw [sameStore, sameOverlay, keep_self]
+    show Outcome.value value
+      { caller with store := keep caller.store inner.store, overlay := inner.overlay, streams := inner.streams } = _
+    rw [sameStore, sameOverlay, sameStreams, keep_self]
     rfl
   | failure failure =>
     show returnTo caller .plain (.failed failure inner) = _
-    cases failure <;> (simp only [returnTo]; rw [sameStore, sameOverlay, keep_self]; rfl)
+    cases failure <;> (simp only [returnTo]; rw [sameStore, sameOverlay, sameStreams, keep_self]; rfl)
   | _ => rfl
 
 variable [DecidableEq Declaration]
@@ -442,7 +444,7 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
           { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] }
           result closureFree (definitions name defining parameters result found) definitions evaluated resultSupported]
         exact returnValue_fromEval frame
-          { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] } rfl rfl _)
+          { frame with environment := defining, locals := locals, callerStore := some frame.store, writable := [] } rfl rfl rfl _)
       expression evaluable supported
     refine Eq.trans ?_ agrees
     cases evaluable with
@@ -582,11 +584,11 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
             body)) ∧
     (∀ (caller callee : Frame world) kind value,
       ∃ result, returnTo caller kind (.returned value callee) =
-        .value result { caller with store := keep caller.store callee.store, overlay := callee.overlay }) ∧
+        .value result { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }) ∧
     (∀ (before after : Store world) cell, before cell ≠ none → keep before after cell = after cell) ∧
     (∀ fuel (frame : Frame world) name arguments,
       runValue machine (fuel + 1) frame (.call (.ident name) arguments) =

@@ -288,6 +288,12 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       split at finished
       · cases finished
         exact keep _ environment
+      · split at finished
+        · exact keep _ ((delegatedStream_normal
+            (invokeSupplied_restores _ _ (callBlock_restores _ _) _ _ _) finished).1.trans environment)
+        · cases finished
+          exact keep _ environment
+        · cases finished
       · exact keep _ ((delegateItems_normal (fun _ _ _ resumed => resumeProducer_normal resumed) _ _ _
           finished).1.trans environment)
       · cases finished

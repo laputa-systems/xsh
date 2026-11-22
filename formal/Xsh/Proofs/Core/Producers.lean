@@ -27,15 +27,15 @@ not see a failure of its own; and the loop then leaves as its body did. -/
 theorem stream_producers [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) :
     (∀ (producer after : Frame world),
-      resumeProducer producer (.normal after) = .normal { producer with store := after.store, overlay := after.overlay } ∧
-      resumeProducer producer (.continued after) = .normal { producer with store := after.store, overlay := after.overlay } ∧
-      resumeProducer producer (.broke after) = .consumed .broke { producer with store := after.store, overlay := after.overlay }) ∧
+      resumeProducer producer (.normal after) = .normal (producer.resumedBy after) ∧
+      resumeProducer producer (.continued after) = .normal (producer.resumedBy after) ∧
+      resumeProducer producer (.broke after) = .consumed .broke (producer.resumedBy after)) ∧
     (∀ (producer after : Frame world) value,
       resumeProducer producer (.returned value after) =
-        .consumed (.returned value) { producer with store := after.store, overlay := after.overlay }) ∧
+        .consumed (.returned value) (producer.resumedBy after)) ∧
     (∀ (producer after : Frame world) failure,
       resumeProducer producer (.failed failure after) =
-        .consumed (.failed failure) { producer with store := after.store, overlay := after.overlay }) ∧
+        .consumed (.failed failure) (producer.resumedBy after)) ∧
     (∀ exit (last : Frame world), exitsWithError (.consumed exit last) = false) ∧
     (∀ exit (last : Frame world), capture (.exec (.consumed exit last)) = .exec (.consumed exit last)) ∧
     (∀ (loop last : Frame world), consumeProducer loop (.exec (.consumed .broke last)) =
@@ -159,6 +159,47 @@ def delegationScript (breaking : Bool) : List Xsh.Syntax.Statement :=
 theorem delegation_witness :
     readList traceVar (runCanonical (delegationScript true)) = some [1, 2, 2, 7] ∧
       readList traceVar (runCanonical (delegationScript false)) = some [1, 2, 2, 2, 8, 7] := by
+  decide +kernel
+
+def streamLocal : Xsh.Syntax.RawName := name 281 (by decide)
+def outerFn : Xsh.Syntax.RawName := name 282 (by decide)
+def yItem : Xsh.Syntax.RawName := name 283 (by decide)
+
+def recordItem (item : Xsh.Syntax.RawName) : Xsh.Syntax.Statement :=
+  .assign (.name traceVar) .add (.list [ident item])
+
+/-- `let s = count(8); trace += [8]; for x in s { trace += [x]; if x == 0 { break } };
+for y in s { trace += [y] }`, as the verification binary prints `created`,
+`yield 0`, `got 0`, `producer defer` and nothing for the second loop: the
+call creates the stream without running the body, the break closes it, and
+a consumed stream yields nothing again. -/
+def storedScript : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   letOf streamLocal (.call (ident countFn) [.positional (int "8")]),
+   note "8",
+   .forStmt (.name xItem) (ident streamLocal)
+     [recordItem xItem, .ifStmt [(.binary .eq (ident xItem) (int "0"), [.breakStmt none])] none],
+   .forStmt (.name yItem) (ident streamLocal) [recordItem yItem]]
+
+/-- `stream outer() -> Stream[Int] { yield 7; yield @count(2); yield 8 }`
+consumed by a loop recording each item, as the binary prints `z 7`,
+`yield 0`, `z 0`, `yield 1`, `z 1`, `producer defer`, `z 8`: the delegated
+stream is pulled on demand and closed before its parent goes on. -/
+def delegatingScript : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   .functionDef .stream outerFn [] none none
+     [.yield (int "7"), .yieldDelegate (.call (ident countFn) [.positional (int "2")]), .yield (int "8")] none false,
+   .forStmt (.name xItem) (.call (ident outerFn) []) [recordItem xItem]]
+
+theorem stream_value_witness :
+    readList traceVar (runCanonical storedScript) = some [8, 1, 0, 7] ∧
+      readList traceVar (runCanonical delegatingScript) = some [7, 1, 0, 1, 1, 7, 8] := by
+  decide +kernel
+
+/-- A stream that restarts on each loop would run `count` again for the
+second loop; the model's second loop yields nothing. -/
+theorem restarting_stream_rejected :
+    readList traceVar (runCanonical storedScript) ≠ some [8, 1, 0, 7, 1, 0, 1, 1] := by
   decide +kernel
 
 end Witness

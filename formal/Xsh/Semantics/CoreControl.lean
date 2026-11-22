@@ -67,6 +67,10 @@ structure Machine (world : World Declaration Identity Source) where
   /-- The clock a `retry backoff` form reads: the milliseconds since its first
   attempt started, at the end of each attempt, a host observation (SPEC 8.8). -/
   retryClock : Nat → Nat
+  /-- The runtime's identity for the stream created at an index. -/
+  streamReference : Nat → Reference Identity .stream
+  /-- The creation index a stream identity names. -/
+  streamIndex : Reference Identity .stream → Option Nat
   /-- The runtime error an `exit` status outside 0 to 255 raises (SPEC 8.9). -/
   exitStatus : Value Declaration Identity Source
   /-- The checker's declaration of the error family a failed `.require` raises
@@ -116,6 +120,18 @@ structure Scope (Declaration Identity Source : Type) where
   closures : List (CellId × Closure)
   item : Option (Value Declaration Identity Source)
 
+/-- An argument as a call receives it: positional, or under a label. -/
+inductive Supplied (Declaration Identity Source : Type) where
+  | positional (value : Value Declaration Identity Source)
+  | named (label : String) (value : Value Declaration Identity Source)
+
+/-- A created stream (SPEC 9.5): a producer call not yet consumed, with its
+arguments evaluated at creation, or one that has run. Streams are one-pass,
+so a consumed stream yields nothing again. -/
+inductive StreamState (Declaration Identity Source : Type) where
+  | pending (closure : Closure) (supplied : List (Supplied Declaration Identity Source))
+  | done
+
 /-- A `for` loop consuming a stream producer: its frame without the store
 and environment variables, which the producer threads, and its target and
 body. -/
@@ -164,6 +180,9 @@ structure Frame (world : World Declaration Identity Source) where
   /-- The `for` loops consuming the stream producers this frame runs in,
   innermost first: each `yield` runs the innermost loop's body (SPEC 9.5). -/
   consumers : List (Consumer world)
+  /-- The streams the program has created, by creation order: evaluator
+  state that calls share, as the store is. -/
+  streams : List (StreamState Declaration Identity Source)
 
 def Frame.scope {world : World Declaration Identity Source} (frame : Frame world) : Scope Declaration Identity Source :=
   ⟨frame.activation, frame.closures, frame.item⟩
@@ -174,7 +193,7 @@ def Frame.ofScope {world : World Declaration Identity Source} (environment : Env
     (scope : Scope Declaration Identity Source) : Frame world :=
   { environment, store, overlay := [], locals, callerStore, activation := scope.activation, deferred := [],
     reported := [], waited := [], breakValue := none, closures := scope.closures, item := scope.item,
-    collected := none, writable := [], consumers := [] }
+    collected := none, writable := [], consumers := [], streams := [] }
 
 /-- How a `for` loop's body left while it consumed a stream producer: the
 producer's scopes unwind and the loop then leaves this way (SPEC 9.5). -/
@@ -873,20 +892,48 @@ def consumerFrame {world : World Declaration Identity Source} (producer : Frame 
   { environment := loop.environment, store := producer.store, overlay := producer.overlay, locals := loop.locals,
     callerStore := loop.callerStore, activation := loop.activation, deferred := loop.deferred,
     reported := producer.reported, waited := producer.waited, breakValue := none, closures := loop.closures,
-    item := loop.item, collected := loop.collected, writable := loop.writable, consumers := outer }
+    item := loop.item, collected := loop.collected, writable := loop.writable, consumers := outer,
+    streams := producer.streams }
+
+/-- The producer's frame after its consumer's body ran: the store, the
+environment variables and the streams as the body left them. -/
+def Frame.resumedBy {world : World Declaration Identity Source} (producer after : Frame world) : Frame world :=
+  { producer with store := after.store, overlay := after.overlay, streams := after.streams }
 
 /-- After the loop body a `yield` ran: a body that completed or continued
 resumes the producer with the store and environment it left; one that broke,
 returned or failed stops the producer, which unwinds as `consumed`. -/
 def resumeProducer {world : World Declaration Identity Source} (producer : Frame world) : Exec world → Exec world
-  | .normal after | .continued after => .normal { producer with store := after.store, overlay := after.overlay }
-  | .broke after => .consumed .broke { producer with store := after.store, overlay := after.overlay }
-  | .returned value after => .consumed (.returned value) { producer with store := after.store, overlay := after.overlay }
-  | .failed failure after => .consumed (.failed failure) { producer with store := after.store, overlay := after.overlay }
-  | .exited status after => .exited status { producer with store := after.store, overlay := after.overlay }
-  | .internal fault after => .internal fault { producer with store := after.store, overlay := after.overlay }
-  | .consumed exit after => .consumed exit { producer with store := after.store, overlay := after.overlay }
+  | .normal after | .continued after => .normal (producer.resumedBy after)
+  | .broke after => .consumed .broke (producer.resumedBy after)
+  | .returned value after => .consumed (.returned value) (producer.resumedBy after)
+  | .failed failure after => .consumed (.failed failure) (producer.resumedBy after)
+  | .exited status after => .exited status (producer.resumedBy after)
+  | .internal fault after => .internal fault (producer.resumedBy after)
+  | .consumed exit after => .consumed exit (producer.resumedBy after)
   | other => other
+
+/-- The not yet consumed stream a value names, with its creation index. -/
+def pendingStream {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (value : Value Declaration Identity Source) : Option (Nat × Option (Closure × List (Supplied Declaration Identity Source))) :=
+  match value.eraseNominal with
+  | .stream reference =>
+    (machine.streamIndex reference).bind fun index =>
+      match frame.streams[index]? with
+      | some (.pending closure supplied) => some (index, some (closure, supplied))
+      | some .done => some (index, none)
+      | none => none
+  | _ => none
+
+/-- A frame whose stream at `index` has been consumed. -/
+def Frame.consume {world : World Declaration Identity Source} (frame : Frame world) (index : Nat) : Frame world :=
+  { frame with streams := frame.streams.set index .done }
+
+/-- A delegated stream's run, back in its parent producer: a finished child
+lets the parent go on; anything else leaves with it. -/
+def delegatedStream {world : World Declaration Identity Source} : Valued world → Exec world
+  | .value _ last => .normal last
+  | .exec outcome => outcome
 
 /-- `yield @items` to a consuming loop: each item yielded in order, the
 producer going on only while each one resumes it. -/
@@ -1044,11 +1091,6 @@ def threadStep (context : Context Declaration Identity Source) {world : World De
         else .exec .stuck
     | _, _, _ => .exec .unsupported
   | _ => .exec .unsupported
-
-/-- An argument as a call receives it: positional, or under a label. -/
-inductive Supplied (Declaration Identity Source : Type) where
-  | positional (value : Value Declaration Identity Source)
-  | named (label : String) (value : Value Declaration Identity Source)
 
 /-- A call's arguments evaluated once each in written order (SPEC 6.3), each
 in the frame the one before it left: an `@` splice supplies a list's items
@@ -1245,16 +1287,16 @@ def returnTo {world : World Declaration Identity Source} (caller : Frame world) 
     Exec world → Valued world
   | .returned value callee =>
     .value (match kind with | .result => wrapOk value | .plain => value)
-      { caller with store := keep caller.store callee.store, overlay := callee.overlay }
+      { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }
   | .failed (.raised error) callee =>
     match kind with
-    | .result => .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay }
-    | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store, overlay := callee.overlay })
-  | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+    | .result => .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }
+    | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })
+  | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })
   | .exited status callee =>
-    .exec (.exited status { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+    .exec (.exited status { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })
   | .consumed exit callee =>
-    .exec (.consumed exit { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+    .exec (.consumed exit { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })
   | .unsupported => .exec .unsupported
   | .outOfFuel => .exec .outOfFuel
   | _ => .exec .stuck
@@ -1492,21 +1534,16 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
   | .broke frame => .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none }
   | other => .exec other
 
-/-- A call of a local function: its arguments evaluated in written order and
-placed on its parameters, a misfit raising the runtime argument error (SPEC
-9.1: "their arguments are checked at runtime"), omitted defaults evaluated in
-the declaration scope, and its body run through `callBlock` in a fresh
-activation with its captured cells writable. The body sees the closures its
-caller sees: every function is declared at the top level, so every body sees
-every top-level function. -/
-def invokeWith {world : World Declaration Identity Source} (machine : Machine world)
+/-- A call of `closure` with its arguments already evaluated (SPEC 6.3, 9.2):
+they fill the parameters by position and label, omitted defaults evaluate in
+the declaration scope, and the body runs through `callBlock`. -/
+def invokeSupplied {world : World Declaration Identity Source} (machine : Machine world)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
     (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
       List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
-    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+    (after : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) : Valued world :=
   match closure with
   | .mk cell callable defining captured writable parameters body =>
-    (threadArguments machine.context.spelling evaluate frame arguments).bind fun supplied after =>
       match placeCall machine.context.spelling parameters supplied with
       | .error fault =>
         .exec (.failed (.runtime (machine.argumentError fault (fixedCount parameters)
@@ -1524,6 +1561,21 @@ def invokeWith {world : World Declaration Identity Source} (machine : Machine wo
             (cell, .mk cell callable defining captured writable parameters body) :: captured ++ last.closures, none⟩
             defining bound
             writable (bodyStatements body) (bodyKind body)
+
+/-- A call of a local function: its arguments evaluated in written order and
+placed on its parameters, a misfit raising the runtime argument error (SPEC
+9.1: "their arguments are checked at runtime"), omitted defaults evaluated in
+the declaration scope, and its body run through `callBlock` in a fresh
+activation with its captured cells writable. The body sees the closures its
+caller sees: every function is declared at the top level, so every body sees
+every top-level function. -/
+def invokeWith {world : World Declaration Identity Source} (machine : Machine world)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
+    (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+  (threadArguments machine.context.spelling evaluate frame arguments).bind fun supplied after =>
+    invokeSupplied machine evaluate callBlock after closure supplied
 
 mutual
   /-- Expressions, with the frame threaded through them: operands, arguments,
@@ -1651,7 +1703,10 @@ mutual
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
         | none, some closure@(.mk _ callable _ _ _ _ _) =>
-          if callable = .producer then .exec .unsupported
+          if callable = .producer then
+            (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+              .value (.stream (machine.streamReference after.streams.length))
+                { after with streams := after.streams ++ [.pending closure supplied] }
           else invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments
         | _, _ =>
           match frame.locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
@@ -1703,7 +1758,7 @@ mutual
       returnTo caller kind
         (runBody machine fuel
           { Frame.ofScope defining caller.store parameters (some caller.store) scope with
-              writable, overlay := caller.overlay, consumers := caller.consumers }
+              writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
           body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
@@ -1992,9 +2047,16 @@ mutual
             | none => .unsupported
       | .forStmt target iterable body =>
         (evalExpr machine fuel frame iterable).toExec fun source next =>
-          match iterationItems source with
-          | some items => runFor machine fuel next target items body
-          | none => .unsupported
+          match pendingStream machine next source with
+          | some (index, some (closure, supplied)) =>
+            consumeProducer (next.consume index)
+              (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                { next.consume index with consumers := consumerOf next target body :: next.consumers } closure supplied)
+          | some (_, none) => .normal next
+          | none =>
+            match iterationItems source with
+            | some items => runFor machine fuel next target items body
+            | none => .unsupported
       | .loopStmt body => runLoop machine fuel frame body
       | .breakStmt none => .broke frame
       | .breakStmt (some value) =>
@@ -2020,6 +2082,13 @@ mutual
         (runValue machine fuel frame value).toExec fun result next =>
           match next.collected, listValues result, next.consumers with
           | some gathered, some items, _ => .normal { next with collected := some (gathered ++ items) }
+          | none, none, loop :: outer =>
+            match pendingStream machine next result with
+            | some (index, some (closure, supplied)) =>
+              delegatedStream (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel) (next.consume index)
+                closure supplied)
+            | some (_, none) => .normal next
+            | none => .unsupported
           | none, some items, loop :: outer =>
             delegateItems (fun current item =>
               resumeProducer current

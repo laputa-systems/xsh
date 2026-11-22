@@ -39,7 +39,7 @@ theorem script_exit [DecidableEq Declaration] {world : World Declaration Identit
     (∀ code (last : Frame world), capture (.exec (.exited code last)) = .exec (.exited code last)) ∧
     (∀ (caller callee : Frame world) kind code,
       returnTo caller kind (.exited code callee) =
-        .exec (.exited code { caller with store := keep caller.store callee.store, overlay := callee.overlay })) := by
+        .exec (.exited code { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })) := by
   exact ⟨fun _ => rfl, fun _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ => rfl, fun _ _ _ _ => rfl⟩
 
 /-- The `retry_backoff` fragment root (SPEC 8.8): `retry backoff first..cap

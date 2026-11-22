@@ -502,9 +502,8 @@ environment).
 
 Statements:
 
-- a `Stream` value a producer call gives outside the iterable of a `for`
-  loop, stored or passed before it is consumed, `yield @` delegation to a
-  stream, and stream pipelines and stages (E)
+- stream pipelines and stages, `.collect()` on a stream, comprehensions over
+  one, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -766,8 +765,14 @@ producer to its end before the loop. `yield @list` yields each item in turn
 and stops when the loop does: as the binary prints `before`, `got 7`,
 `got 8`, `producer defer` for a loop that breaks at the second delegated item
 and runs the rest after the delegation when the loop does not, so do the
-witnesses. Calling a producer anywhere but as a
-`for` loop's iterable is unsupported, because stream values are not modelled.
+witnesses. A producer call anywhere else creates a `Stream` value without
+running the body, its arguments evaluated at the call: the frame's `streams`
+table, which calls share, holds it as pending until a `for` loop or a `yield @`
+consumes it, and a consumed stream yields nothing again, as streams are
+one-pass. As the binary prints `created`, `yield 0`, `got 0`, `producer defer`
+and nothing for a second loop over a stored stream, and pulls `yield
+@count(2)` on demand inside another producer, closing it before its parent
+goes on, so do the witnesses; a stream that restarts on each loop is rejected.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

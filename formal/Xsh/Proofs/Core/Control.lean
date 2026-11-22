@@ -308,6 +308,12 @@ theorem resumeProducer_refines {world : World Declaration Identity Source} (prod
   · subst out; exact Or.inl rfl
   · subst same; exact exec_refl _
 
+theorem delegatedStream_refines {world : World Declaration Identity Source} {first second : Valued world}
+    (refined : Valued.Refines first second) : Exec.Refines (delegatedStream first) (delegatedStream second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact exec_refl _
+
 theorem delegateItems_refines {world : World Declaration Identity Source}
     {yieldOne yieldOne' : Frame world → Value Declaration Identity Source → Exec world}
     (each : ∀ frame item, Exec.Refines (yieldOne frame item) (yieldOne' frame item)) :
@@ -439,6 +445,24 @@ theorem bindSlots_refines {world : World Declaration Identity Source}
         valued_bind_refines (bindSlots_refines each after rest) fun _ _ => valued_refl _
     · exact valued_bind_refines (bindSlots_refines each frame rest) fun _ _ => valued_refl _
 
+theorem invokeSupplied_refines {world : World Declaration Identity Source} (machine : Machine world)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame expression, Valued.Refines (evaluate frame expression) (evaluate' frame expression))
+    {callBlock callBlock' : Frame world → Scope Declaration Identity Source → Environment →
+      Locals Declaration Identity Source → List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      Valued.Refines (callBlock caller scope defining parameters writable body kind)
+        (callBlock' caller scope defining parameters writable body kind))
+    (frame : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) :
+    Valued.Refines (invokeSupplied machine evaluate callBlock frame closure supplied)
+      (invokeSupplied machine evaluate' callBlock' frame closure supplied) := by
+  unfold invokeSupplied
+  split
+  split
+  · exact valued_refl _
+  · exact valued_bind_refines (bindSlots_refines (fun _ _ => returnValue_refines _ (each _ _)) _ _) fun _ _ =>
+      blocks _ _ _ _ _ _ _
+
 theorem invokeWith_refines {world : World Declaration Identity Source} (machine : Machine world)
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame expression, Valued.Refines (evaluate frame expression) (evaluate' frame expression))
@@ -449,14 +473,8 @@ theorem invokeWith_refines {world : World Declaration Identity Source} (machine 
         (callBlock' caller scope defining parameters writable body kind))
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
     Valued.Refines (invokeWith machine evaluate callBlock frame closure arguments)
-      (invokeWith machine evaluate' callBlock' frame closure arguments) := by
-  unfold invokeWith
-  split
-  refine valued_bind_refines (threadArguments_refines _ each _ _) fun _ _ => ?_
-  split
-  · exact valued_refl _
-  · exact valued_bind_refines (bindSlots_refines (fun _ _ => returnValue_refines _ (each _ _)) _ _) fun _ _ =>
-      blocks _ _ _ _ _ _ _
+      (invokeWith machine evaluate' callBlock' frame closure arguments) :=
+  valued_bind_refines (threadArguments_refines _ each _ _) fun _ _ => invokeSupplied_refines machine each blocks _ _ _
 
 theorem fillFields_refines {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -611,6 +629,8 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine annotate_refines _ ?_
   | refine withOverlay_refines _ ?_
   | refine consumeProducer_refines _ ?_
+  | refine delegatedStream_refines ?_
+  | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
   | refine resumeProducer_refines _ ?_
   | refine delegateItems_refines (fun _ _ => ?_) _ _
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
@@ -1069,6 +1089,12 @@ theorem resumeProducer_persists {world : World Declaration Identity Source} (pro
   | consumed _ after => exact fun scope present => by cases present; exact kept after rfl
   | stuck | unsupported | outOfFuel => exact kept
 
+theorem delegatedStream_persists {world : World Declaration Identity Source} {before : Store world}
+    {outcome : Valued world} (kept : VKeeps before outcome) : Keeps before (delegatedStream outcome) := by
+  cases outcome with
+  | value _ last => exact fun scope present => by cases present; exact kept
+  | exec inner => exact kept
+
 theorem delegateItems_persists {world : World Declaration Identity Source}
     {yieldOne : Frame world → Value Declaration Identity Source → Exec world}
     (each : ∀ frame item, Keeps frame.store (yieldOne frame item)) :
@@ -1181,6 +1207,22 @@ theorem bindSlots_persists {world : World Declaration Identity Source}
         vbind_persists (bindSlots_persists each after rest) fun _ last => persists_refl last.store
     · exact vbind_persists (bindSlots_persists each frame rest) fun _ last => persists_refl last.store
 
+theorem invokeSupplied_persists {world : World Declaration Identity Source} (machine : Machine world)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame expression, VKeeps frame.store (evaluate frame expression))
+    {callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      VKeeps caller.store (callBlock caller scope defining parameters writable body kind))
+    (frame : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) :
+    VKeeps frame.store (invokeSupplied machine evaluate callBlock frame closure supplied) := by
+  unfold invokeSupplied
+  split
+  split
+  · intro last present; cases present; exact persists_refl _
+  · refine vbind_persists (bindSlots_persists (fun current default => ?_) _ _) fun _ _ => blocks _ _ _ _ _ _ _
+    exact returnValue_persists _ (each _ _)
+
 theorem invokeWith_persists {world : World Declaration Identity Source} (machine : Machine world)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame expression, VKeeps frame.store (evaluate frame expression))
@@ -1189,14 +1231,8 @@ theorem invokeWith_persists {world : World Declaration Identity Source} (machine
     (blocks : ∀ caller scope defining parameters writable body kind,
       VKeeps caller.store (callBlock caller scope defining parameters writable body kind))
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
-    VKeeps frame.store (invokeWith machine evaluate callBlock frame closure arguments) := by
-  unfold invokeWith
-  split
-  refine vbind_persists (threadArguments_persists _ each _ _) fun _ _ => ?_
-  split
-  · intro last present; cases present; exact persists_refl _
-  · refine vbind_persists (bindSlots_persists (fun current default => ?_) _ _) fun _ _ => blocks _ _ _ _ _ _ _
-    exact returnValue_persists _ (each _ _)
+    VKeeps frame.store (invokeWith machine evaluate callBlock frame closure arguments) :=
+  vbind_persists (threadArguments_persists _ each _ _) fun _ _ => invokeSupplied_persists machine each blocks _ _ _
 
 theorem fillFields_persists {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1420,6 +1456,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine annotate_persists _ ?_
   | refine withOverlay_persists _ ?_
   | refine consumeProducer_persists _ ?_
+  | refine delegatedStream_persists ?_
+  | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
   | refine resumeProducer_persists _ ?_
   | refine delegateItems_persists (fun _ _ => ?_) _ _
   | refine settle_persists (inner.leaves _) ?_
@@ -1921,6 +1959,13 @@ theorem delegateItems_normal {world : World Declaration Identity Source}
       exact ⟨environment.trans environment', locals.trans locals'⟩
     | _ => rw [yielded] at done; cases done
 
+theorem delegatedStream_normal {world : World Declaration Identity Source} {frame next : Frame world}
+    {outcome : Valued world} (restored : VRestores frame outcome) (done : delegatedStream outcome = .normal next) :
+    next.environment = frame.environment ∧ next.locals = frame.locals := by
+  cases outcome with
+  | value _ last => cases done; exact restored
+  | exec inner => cases done; exact restored.elim
+
 theorem resumeProducer_restores {world : World Declaration Identity Source} (frame producer : Frame world)
     (same : producer.environment = frame.environment ∧ producer.locals = frame.locals) (outcome : Exec world) :
     Restores frame (resumeProducer producer outcome) := by
@@ -2032,6 +2077,20 @@ theorem bindSlots_restores {world : World Declaration Identity Source}
         vbind_restores (bindSlots_restores each after rest) fun _ _ => ⟨rfl, rfl⟩
     · exact vbind_restores (bindSlots_restores each frame rest) fun _ _ => ⟨rfl, rfl⟩
 
+theorem invokeSupplied_restores {world : World Declaration Identity Source} (machine : Machine world)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    {callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+      List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world}
+    (blocks : ∀ caller scope defining parameters writable body kind,
+      VRestores caller (callBlock caller scope defining parameters writable body kind))
+    (frame : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) :
+    VRestores frame (invokeSupplied machine evaluate callBlock frame closure supplied) := by
+  unfold invokeSupplied
+  split
+  split
+  · intro last present; cases present; exact ⟨rfl, rfl⟩
+  · exact vbind_restores (bindSlots_restores (fun _ _ => returnValue_restores _ _) _ _) fun _ _ => blocks _ _ _ _ _ _ _
+
 theorem invokeWith_restores {world : World Declaration Identity Source} (machine : Machine world)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
     {callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
@@ -2040,13 +2099,8 @@ theorem invokeWith_restores {world : World Declaration Identity Source} (machine
       VRestores caller (callBlock caller scope defining parameters writable body kind))
     (each : ∀ frame expression, VRestores frame (evaluate frame expression))
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) :
-    VRestores frame (invokeWith machine evaluate callBlock frame closure arguments) := by
-  unfold invokeWith
-  split
-  refine vbind_restores (threadArguments_restores _ each _ _) fun _ _ => ?_
-  split
-  · intro last present; cases present; exact ⟨rfl, rfl⟩
-  · exact vbind_restores (bindSlots_restores (fun _ _ => returnValue_restores _ _) _ _) fun _ _ => blocks _ _ _ _ _ _ _
+    VRestores frame (invokeWith machine evaluate callBlock frame closure arguments) :=
+  vbind_restores (threadArguments_restores _ each _ _) fun _ _ => invokeSupplied_restores machine evaluate blocks _ _ _
 
 theorem fillFields_restores {world : World Declaration Identity Source} (spelling : Xsh.Syntax.RawName → String)
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -2207,6 +2261,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine annotate_restores _ ?_
   | refine withOverlay_restores _ ?_
   | refine consumeProducer_restores _ ?_
+  | exact invokeSupplied_restores _ _ (callBlock_restores _ _) _ _ _
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_
   | exact callBlock_restores _ _ _ _ _ _ _ _ _
   | exact threadStep_restores _ inner.expr
@@ -2651,7 +2706,7 @@ theorem call_activation {world : World Declaration Identity Source} (machine : M
     (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
           body) ∧
     (machine.namesAt scope.activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found =>
@@ -2727,14 +2782,14 @@ function fails the call. -/
 theorem return_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
     (failure : Failure Declaration Identity Source) (caller callee : Frame world) :
     returnTo caller .result (.failed (.raised error) callee) =
-      .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+      .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
     returnTo caller .plain (.failed failure callee) =
-      .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay }) ∧
+      .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }) ∧
     returnTo caller .result (.returned value callee) =
-      .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
-    returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+      .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
+    returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
     (∀ inner, returnTo caller .result (.failed (.runtime inner) callee) =
-      .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay })) :=
+      .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })) :=
   ⟨rfl, by cases failure <;> rfl, rfl, rfl, fun _ => rfl⟩
 
 /-- One `retry` attempt: success is `Ok`; a raised failure the filter selects
@@ -2827,7 +2882,7 @@ theorem call_returns {world : World Declaration Identity Source} (machine : Mach
     (kind : ReturnKind) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
           body) :=
   rfl
 
@@ -3076,6 +3131,24 @@ theorem control_restores {world : World Declaration Identity Source} (machine : 
     | loopStmt body => exact scopes.loops frame body
     | forStmt target iterable body =>
       have plain : ∀ source, Restores frame ((evalExpr machine fuel frame source).toExec fun source next =>
+          match pendingStream machine next source with
+          | some (index, some (closure, supplied)) =>
+            consumeProducer (next.consume index)
+              (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                { next.consume index with consumers := consumerOf next target body :: next.consumers } closure supplied)
+          | some (_, none) => .normal next
+          | none =>
+            match iterationItems source with
+            | some items => runFor machine fuel next target items body
+            | none => .unsupported) := fun source => by
+        refine toExec_restores (scopes.expr _ _) fun value middle => ?_
+        split
+        · exact consumeProducer_restores _ (invokeSupplied_restores _ _ (callBlock_restores _ _) _ _ _)
+        · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
+        · split
+          · exact scopes.fors _ target _ body
+          · exact fun _ present => by cases present
+      have plainItems : ∀ source, Restores frame ((evalExpr machine fuel frame source).toExec fun source next =>
           match iterationItems source with
           | some items => runFor machine fuel next target items body
           | none => .unsupported) := fun source => by
@@ -3090,7 +3163,7 @@ theorem control_restores {world : World Declaration Identity Source} (machine : 
           simp only [runStatement]
           split
           · exact consumeProducer_restores _ (invokeWith_restores _ _ (callBlock_restores _ _) scopes.expr _ _ _)
-          · exact plain _
+          · exact plainItems _
         all_goals exact plain _
       all_goals exact plain _
     | matchStmt subject arms =>
@@ -3240,7 +3313,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind environment declared,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
             body) ∧
       (machine.namesAt scope.activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
@@ -3341,18 +3414,18 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
             body)) ∧
     (∀ (value error : Value Declaration Identity Source) failure (caller callee : Frame world),
       returnTo caller .result (.failed (.raised error) callee) =
-        .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+        .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
       returnTo caller .plain (.failed failure callee) =
-        .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay }) ∧
+        .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }) ∧
       returnTo caller .result (.returned value callee) =
-        .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
-      returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+        .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
+      returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams } ∧
       ∀ inner, returnTo caller .result (.failed (.runtime inner) callee) =
-        .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay })) :=
+        .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams })) :=
   ⟨propagate_cases,
     fun _ _ _ => rfl,
     fun fuel frame inner target body pattern delays => error_forms machine fuel frame inner target body pattern delays,
@@ -3485,7 +3558,7 @@ theorem resolution_and_captures {world : World Declaration Identity Source} (mac
     (∀ (caller callee : Frame world) kind value,
       returnTo caller kind (.returned value callee) =
         .value (match kind with | .result => wrapOk value | .plain => value)
-          { caller with store := keep caller.store callee.store, overlay := callee.overlay }) :=
+          { caller with store := keep caller.store callee.store, overlay := callee.overlay, streams := callee.streams }) :=
   ⟨fun _ _ carried => represents_enter carried,
     fun _ _ _ carried name => represents_declare carried name,
     fun _ _ carried name => represents_lookup carried name,
@@ -3623,6 +3696,8 @@ def machine : Machine witnessWorld where
   schemaFamily := ()
   exitStatus := .scalar (.string "exit-status")
   retryClock := fun _ => 0
+  streamReference := fun _ => ⟨()⟩
+  streamIndex := fun _ => some 0
   hostEnvironment := fun _ => none
   envMissing := fun name => .scalar (.string ("env-missing " ++ name))
   invalidUtf8 := fun name => .scalar (.string ("invalid-utf8 " ++ name))

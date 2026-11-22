@@ -96,7 +96,7 @@ theorem call_arguments {world : World Declaration Identity Source} (machine : Ma
     cases default <;> (simp only [placeParameters, present]; rfl)
   · intro evaluate callBlock frame cell callable defining captured writable parameters body arguments supplied after
       fault threaded placed
-    simp only [invokeWith, threaded, Outcome.bind, placed]
+    simp only [invokeWith, invokeSupplied, threaded, Outcome.bind, placed]
 
 end Root
 
