@@ -90,7 +90,7 @@ use super::lower::{
 };
 use super::lowered_ops::{
     append_lowered_list_element, append_lowered_map_literal, checked_int_binary,
-    compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bytes_arg,
+    compare_lowered_extrema, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bytes_arg,
     lowered_bytes_parts, lowered_bytes_value, lowered_contains_value, lowered_index_from_end_value,
     lowered_index_value, lowered_map_key_value, lowered_map_literal_key, lowered_method_value,
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
@@ -894,14 +894,14 @@ fn lowered_reduce_combine(
     match op {
         ReduceByOp::Sum => lowered_reduce_sum(acc, value, span),
         ReduceByOp::Min => Ok(
-            if compare_lowered_sort_keys(&value, &acc) == std::cmp::Ordering::Less {
+            if compare_lowered_extrema(&value, &acc) == std::cmp::Ordering::Less {
                 value
             } else {
                 acc
             },
         ),
         ReduceByOp::Max => Ok(
-            if compare_lowered_sort_keys(&value, &acc) == std::cmp::Ordering::Greater {
+            if compare_lowered_extrema(&value, &acc) == std::cmp::Ordering::Greater {
                 value
             } else {
                 acc
@@ -916,7 +916,7 @@ fn lowered_reduce_sum(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (acc, value) {
-        (LoweredValue::Int(a), LoweredValue::Int(b)) => Ok(LoweredValue::Int(a + b)),
+        (LoweredValue::Int(a), LoweredValue::Int(b)) => Ok(LoweredValue::Int(checked_int_binary(BinaryOp::Add, a, b, span)?)),
         (LoweredValue::Float(a), LoweredValue::Float(b)) => Ok(LoweredValue::Float(
             crate::runtime::value::FloatValue::new(a.0 + b.0),
         )),
@@ -924,7 +924,7 @@ fn lowered_reduce_sum(
         | (acc @ LoweredValue::RecordVec(_), value @ LoweredValue::RecordVec(_))
         | (acc @ LoweredValue::Record(_), value @ LoweredValue::RecordVec(_))
         | (acc @ LoweredValue::RecordVec(_), value @ LoweredValue::Record(_)) => {
-            Ok(lowered_sum_records(acc, value))
+            lowered_sum_records(acc, value, span)
         }
         (acc, value) => Err(RuntimeError::new(
             "type-error",
@@ -8243,7 +8243,8 @@ impl Evaluator {
                             *acc_value = lowered_sum_values(
                                 std::mem::replace(acc_value, LoweredValue::Unit),
                                 field_value,
-                            );
+                                span,
+                            )?;
                         }
                     } else {
                         for (name, source_field) in &state.projection.value_fields {
@@ -8259,7 +8260,8 @@ impl Evaluator {
                                 *acc_value = lowered_sum_values(
                                     std::mem::replace(acc_value, LoweredValue::Unit),
                                     field_value,
-                                );
+                                    span,
+                                )?;
                             } else {
                                 lowered_record_vec_insert(Arc::make_mut(acc), *name, field_value);
                             }

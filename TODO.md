@@ -31,23 +31,14 @@ out of scope.
 - **Fix with:** deduplicate, os-boundaries
 - **Effort:** S
 
-### XSH-179 · P1 · Int sum and reduce-by silently wrap instead of reporting overflow
-
-- **Area:** Runtime aggregation
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1722-1732`; `src/runtime/eval/lowered_run.rs:912-930,8243-8262`; `src/runtime/eval/lower.rs:9982-9985`; checked arithmetic contract in `docs/SPEC.md:728-731`
-- **Problem:** The sum terminal uses plain `i64 +=`; scalar reduce-by and projected record accumulation have separate unchecked `a + b` helpers. At 956a67a, `let total = [9223372036854775807, 1] |> sum`, followed by `print f"{total}"`, returns -9223372036854775808 with status 0 in the pinned-nightly verification-profile binary on native Linux GNU. Ordinary `print (9223372036854775807 + 1)` instead reports `integer-overflow` with status 3, as the checked Int contract requires. Live-stream sum, scalar `reduce-by(sum: true)` and projected-record reduce-by each reproduced the silent wrap. Fused-worker callers share these helpers by source inspection but were not separately executed.
-- **Recommendation:** Use the canonical checked Int addition decision for terminal, scalar and recursive record accumulation, propagating its error and span through currently infallible helpers and fused callers. Add independent expected-error cases for positive overflow and negative underflow across list/live sum and scalar/projected/fused reductions, with normal small totals and existing Float reduce-by behavior as controls. Assert source cleanup and no further pulls after failure; comparing two paths sharing an unchecked helper is not an oracle.
-- **Fix with:** root-cause, single-source-of-truth
-- **Effort:** M
-
-### XSH-180 · P1 · min and max compare admitted Float and Duration values by type name
+### XSH-180 · P2 · min and max have no specified order for NaN, ties and non-numeric items
 
 - **Area:** Runtime ordering
 - **Where:** `src/sema/sealed_operation.rs:25-40`; `src/sema/check/stream.rs:499-509`; `src/runtime/eval/lowered_ops.rs:833-848`; `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1754-1762`; `crates/xsh-registry/src/reference.rs:601-608`; `tests/fixtures/runtime/generic-pipeline-aggregates.xsh:53-54`
-- **Problem:** MinMaxItem admits Float and Duration, but min/max call a sort comparator with no Float or Duration arm; homogeneous values fall through to equal type names. At 956a67a, a real script binding `numbers = [9.0, 1.0]` and printing `numbers |> min()?` and `numbers |> max()?` yields `9 1`, status 0, with the pinned-nightly verification-profile binary on native Linux GNU. Inferred generic Float wrappers produce the same wrong result, and `[9s, 1s]` yields `9s 1s`. Existing generic aggregate tests pass because their Float assertions compare two routes sharing this comparator. The numeric API promises extrema. SPEC also preserves broader List/Result/opaque acceptance without defining its ordering; those semantics and NaN are open decisions, not additional proved bugs.
-- **Recommendation:** Correct comparison for admitted finite Float and Duration values without waiting for the broader domain decision. Keep min/max admission distinct from the intentionally narrower sort-key domain, and preserve currently specified nonnumeric acceptance until an explicit contract change. Replace type-name fallback for numeric extrema with value comparison and independent expected values in both input orders, covering direct/generic and list/live routes. Audit reduce-by min/max, which shares the comparator by source inspection. Use the linked draft RFC for NaN, ties and broader ordering choices; do not silently turn that RFC into an approved language change.
+- **Problem:** MinMaxItem admits Float and Duration, and before 2026-11-22 min/max compared them by type name, so `[9.0, 1.0] |> min()` gave `9.0`. Finite Float and Duration extrema now compare by value on the list, live, generic and reduce-by routes (`tests/xsh/numeric-aggregate-regressions.xsh`). NaN falls back to the sort comparator, and the SPEC still accepts List, Result and opaque items without defining their order; those are open decisions, not proved bugs.
+- **Recommendation:** Decide NaN, tie and non-numeric ordering through the linked draft RFC, update the SPEC, and replace the remaining sort-comparator fallback in `compare_lowered_extrema` to match; do not silently turn the RFC into an approved language change.
 - **Fix with:** typing-audit, make-invalid-states-unrepresentable, test-audit
-- **Effort:** M
+- **Effort:** S
 - **Design:** docs/rfc/XSH-180-min-max-ordering.md
 
 ### XSH-145 · P2 · Credential and module paths come from the caller's environment in shipped code

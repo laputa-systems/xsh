@@ -830,6 +830,15 @@ pub(super) fn lowered_sort_key_orderable(value: &LoweredValue) -> bool {
     }
 }
 
+pub(super) fn compare_lowered_extrema(left: &LoweredValue, right: &LoweredValue) -> Ordering {
+    match (left, right) {
+        (LoweredValue::Float(left), LoweredValue::Float(right))
+            if left.0.is_finite() && right.0.is_finite() => left.0.partial_cmp(&right.0).unwrap(),
+        (LoweredValue::Duration(left), LoweredValue::Duration(right)) => left.millis.cmp(&right.millis),
+        _ => compare_lowered_sort_keys(left, right),
+    }
+}
+
 pub(super) fn compare_lowered_sort_keys(left: &LoweredValue, right: &LoweredValue) -> Ordering {
     if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
         return left.cmp(right);

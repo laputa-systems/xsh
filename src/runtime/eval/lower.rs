@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::lowered_ops::{
-    lowered_binary_op, lowered_value_matches,
+    checked_int_binary, lowered_binary_op, lowered_value_matches,
 };
 use super::{
     DeferKind, CheckedPatternField, CheckedPatternVariantKey, CheckedPatternVariantKind,
@@ -9907,7 +9907,7 @@ pub(super) fn take_shared<T: Clone>(shared: Arc<T>) -> T {
     Arc::try_unwrap(shared).unwrap_or_else(|still_shared| (*still_shared).clone())
 }
 
-pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> LoweredValue {
+pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
     match (&mut acc, val) {
         (LoweredValue::Record(acc_map), LoweredValue::Record(val_map)) => {
             let acc_map = Arc::make_mut(acc_map);
@@ -9917,7 +9917,8 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
                         *acc_value = lowered_sum_values(
                             std::mem::replace(acc_value, LoweredValue::Unit),
                             value,
-                        );
+                            span,
+                        )?;
                     }
                     None => {
                         acc_map.insert(key, value);
@@ -9933,7 +9934,8 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
                         *acc_value = lowered_sum_values(
                             std::mem::replace(acc_value, LoweredValue::Unit),
                             value,
-                        );
+                            span,
+                        )?;
                     }
                     None => {
                         lowered_record_vec_insert(acc_map, key, value);
@@ -9950,7 +9952,8 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
                         *acc_value = lowered_sum_values(
                             std::mem::replace(acc_value, LoweredValue::Unit),
                             value,
-                        );
+                            span,
+                        )?;
                     }
                     None => {
                         acc_map.insert(Arc::<str>::from(key_text.as_str()), value);
@@ -9966,7 +9969,8 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
                         *acc_value = lowered_sum_values(
                             std::mem::replace(acc_value, LoweredValue::Unit),
                             value,
-                        );
+                            span,
+                        )?;
                     }
                     None => {
                         lowered_record_vec_insert(acc_map, Name::intern(key.as_ref()), value);
@@ -9976,12 +9980,12 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
         }
         _ => {}
     }
-    acc
+    Ok(acc)
 }
 
-pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> LoweredValue {
-    match (acc, val) {
-        (LoweredValue::Int(a), LoweredValue::Int(b)) => LoweredValue::Int(a + b),
+pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
+    Ok(match (acc, val) {
+        (LoweredValue::Int(a), LoweredValue::Int(b)) => LoweredValue::Int(checked_int_binary(BinaryOp::Add, a, b, span)?),
         (LoweredValue::Float(a), LoweredValue::Float(b)) => {
             LoweredValue::Float(crate::runtime::value::FloatValue::new(a.0 + b.0))
         }
@@ -10011,7 +10015,8 @@ pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> Lowere
                         *acc_value = lowered_sum_values(
                             std::mem::replace(acc_value, LoweredValue::Unit),
                             value,
-                        );
+                            span,
+                        )?;
                     }
                     None => {
                         acc_map.insert(key, value);
@@ -10023,10 +10028,10 @@ pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> Lowere
         (acc @ LoweredValue::RecordVec(_), val @ LoweredValue::RecordVec(_))
         | (acc @ LoweredValue::Record(_), val @ LoweredValue::RecordVec(_))
         | (acc @ LoweredValue::RecordVec(_), val @ LoweredValue::Record(_)) => {
-            lowered_sum_records(acc, val)
+            lowered_sum_records(acc, val, span)?
         }
         (acc, _) => acc,
-    }
+    })
 }
 
 pub(super) fn lowered_tag_key(value: &LoweredValue) -> Option<&str> {

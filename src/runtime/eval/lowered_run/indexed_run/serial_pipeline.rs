@@ -2,7 +2,7 @@ use super::{
     Arc, BTreeMap, ControlFlow, DEFAULT_PAR_MAP_WORKERS, Evaluator, FullExecution,
     FullStageTag, FullTag,
     LoweredValue, RuntimeError, SmallVec, Span, StreamValue, TraceError, TraceKind,
-    TracePayload, ReduceByOp, btree_map, bytes_module, compare_lowered_sort_keys,
+    TracePayload, ReduceByOp, btree_map, bytes_module, checked_int_binary, compare_lowered_extrema, compare_lowered_sort_keys,
     indexed_allocation_error, indexed_error, indexed_range_values, indexed_value,
     lowered_bytes_value, lowered_count_key, lowered_nonnegative_count, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list,
@@ -1726,7 +1726,7 @@ impl IndexedMaterializedStage {
                             return Err(RuntimeError::new("type-error", "sum expected Int stream")
                                 .with_span(span));
                         };
-                        sum += value;
+                        sum = checked_int_binary(crate::syntax::node::BinaryOp::Add, sum, value, span)?;
                     }
                     Ok(sum)
                 })();
@@ -1754,12 +1754,12 @@ impl IndexedMaterializedStage {
                                 FullStageTag::Min => std::cmp::min_by(
                                     previous,
                                     item,
-                                    compare_lowered_sort_keys,
+                                    compare_lowered_extrema,
                                 ),
                                 FullStageTag::Max => std::cmp::max_by(
                                     previous,
                                     item,
-                                    compare_lowered_sort_keys,
+                                    compare_lowered_extrema,
                                 ),
                                 _ => unreachable!(),
                             },

@@ -13,7 +13,7 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_indexed_comp_target, bind_lowered_comp_target, btree_map,
     bytes_contains, bytes_module,
-    check_env_name, checked_int_binary, compare_lowered_sort_keys, compound_assignment_value,
+    check_env_name, checked_int_binary, compare_lowered_extrema, compare_lowered_sort_keys, compound_assignment_value,
     error_constructor, execute_run_with_policy, exit_status, fs_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or,
     lowered_bytes_parts, lowered_bytes_value,
