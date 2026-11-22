@@ -15162,8 +15162,8 @@
       "declaration": "Xsh.Proofs.Core.Conditions.control_conditions",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "SPEC 8.3 control positions: an if or while condition, and each operand of !, and and or in one, gives the Bool of a Result[Bool]'s Ok and raises its Err's error as under ?; and with a false left operand and or with a true one give that value without running the right operand; the statement machine tests if and while conditions this way, and a value if takes the Bool of a whole condition's Ok and raises its Err.",
-      "boundary": "and, or and ! over Result operands in a value if condition are not modelled; the checker's check.if-condition, check.try-context and effect requirements are not modelled. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+      "scope": "SPEC 8.3 control positions: an if or while condition, and each operand of !, and and or in one, gives the Bool of a Result[Bool]'s Ok and raises its Err's error as under ?; and with a false left operand and or with a true one give that value without running the right operand; the statement machine tests if, while and value if conditions this way, and CoreEval.evaluate's controlCondition, which agrees with it on every Evaluable condition, tests a value if's the same way.",
+      "boundary": "The checker's check.if-condition, check.try-context and effect requirements are not modelled. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Requires.require_expression",

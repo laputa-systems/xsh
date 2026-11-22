@@ -483,7 +483,6 @@ theorem branches_member (types : TypeContext Declaration) (locals : Locals Decla
         (fun branch inside => conditionsTyped branch (by simp [inside]))
         (fun branch inside => valuesTyped branch (by simp [inside])) otherwiseTyped chosen
     · simp at chosen
-    · simp at chosen
 
 theorem fields_member (types : TypeContext Declaration)
     (evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))

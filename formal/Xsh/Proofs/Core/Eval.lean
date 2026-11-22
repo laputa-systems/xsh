@@ -138,6 +138,23 @@ theorem evaluateFields_refines (context : Context Declaration Identity Source)
       bind_refines (evaluateFields_refines context each rest) fun _ => refines_refl _
   | .computed _ _ :: _ | .path _ _ :: _ | .shorthand _ :: _ | .spread _ :: _ => refines_refl _
 
+theorem controlCondition_refines
+    {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
+    ∀ condition, Refines (controlCondition evaluate condition) (controlCondition evaluate' condition) := by
+  intro condition
+  fun_induction controlCondition evaluate condition with
+  | case1 left right ihLeft ihRight | case2 left right ihLeft ihRight =>
+    simp only [controlCondition]
+    refine bind_refines ihLeft fun first => ?_
+    split <;> first | exact refines_refl _ | exact ihRight
+  | case3 operand ih =>
+    simp only [controlCondition]
+    exact bind_refines ih fun _ => refines_refl _
+  | case4 condition notAnd notOr notNot =>
+    rw [controlCondition.eq_4 evaluate' condition notAnd notOr notNot]
+    exact bind_refines (each _) fun _ => refines_refl _
+
 theorem branches_refines
     {evaluate evaluate' : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, Refines (evaluate source) (evaluate' source)) :
@@ -145,11 +162,10 @@ theorem branches_refines
   | [], otherwise => each otherwise
   | (condition, value) :: rest, otherwise => by
     simp only [branches]
-    refine bind_refines (each condition) fun result => ?_
+    refine bind_refines (controlCondition_refines each condition) fun result => ?_
     split
     · exact each value
     · exact branches_refines each rest otherwise
-    · exact refines_refl _
     · exact refines_refl _
 
 theorem step_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
@@ -366,18 +382,39 @@ theorem evaluateFields_noTypeFailure (context : Context Declaration Identity Sou
   | .computed _ _ :: _ | .path _ _ :: _ | .shorthand _ :: _ | .spread _ :: _ =>
       noTypeFailure_of_no_failure (by simp [evaluateFields])
 
+theorem controlCondition_noTypeFailure
+    {evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ source, NoTypeFailure (evaluate source)) :
+    ∀ condition, NoTypeFailure (controlCondition evaluate condition) := by
+  intro condition
+  fun_induction controlCondition evaluate condition with
+  | case1 left right ihLeft ihRight | case2 left right ihLeft ihRight =>
+    exact bind_noTypeFailure ihLeft fun first => by
+      split
+      · exact noTypeFailure_of_no_failure (by simp)
+      · exact ihRight
+      · exact noTypeFailure_of_no_failure (by simp)
+  | case3 operand ih =>
+    exact bind_noTypeFailure ih fun tested => by
+      split <;> exact noTypeFailure_of_no_failure (by simp)
+  | case4 condition notAnd notOr notNot =>
+    exact bind_noTypeFailure (each condition) fun tested => by
+      split
+      · exact noTypeFailure_of_no_failure (by simp)
+      · exact fun failure failed => by
+          simp only [Result.failure.injEq] at failed
+          exact ⟨_, Or.inr failed.symm⟩
+      · exact noTypeFailure_of_no_failure (by simp)
+
 theorem branches_noTypeFailure
     {evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
     (each : ∀ source, NoTypeFailure (evaluate source)) :
     ∀ conditions otherwise, NoTypeFailure (branches evaluate conditions otherwise)
   | [], otherwise => each otherwise
-  | (condition, value) :: rest, otherwise => bind_noTypeFailure (each condition) fun tested => by
+  | (condition, value) :: rest, otherwise => bind_noTypeFailure (controlCondition_noTypeFailure each condition) fun tested => by
       split
       · exact each value
       · exact branches_noTypeFailure each rest otherwise
-      · exact fun failure failed => by
-          simp only [Result.failure.injEq] at failed
-          exact ⟨_, Or.inr failed.symm⟩
       · exact noTypeFailure_of_no_failure (by simp)
 
 theorem step_noTypeFailure (context : Context Declaration Identity Source) {world : World Declaration Identity Source}

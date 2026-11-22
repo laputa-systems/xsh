@@ -617,16 +617,45 @@ def conditionValue (tested : Value Declaration Identity Source) : Option (Except
   | .err error => some (.error error)
   | _ => none
 
+/-- A condition in a control position (SPEC 8.3): its `Bool`; a
+`Result[Bool]` gives the `Bool` of its `Ok` and raises the error of its
+`Err`, and so does each operand of `!`, `and` and `or`; `and` and `or` skip
+the operand they do not need. -/
+def controlCondition (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
+    Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
+  | .binary .and left right =>
+    (controlCondition evaluate left).bind fun first =>
+      match first.eraseNominal with
+      | .scalar (.boolean false) => .value (boolean false)
+      | .scalar (.boolean true) => controlCondition evaluate right
+      | _ => .unsupported
+  | .binary .or left right =>
+    (controlCondition evaluate left).bind fun first =>
+      match first.eraseNominal with
+      | .scalar (.boolean true) => .value (boolean true)
+      | .scalar (.boolean false) => controlCondition evaluate right
+      | _ => .unsupported
+  | .unary .not operand =>
+    (controlCondition evaluate operand).bind fun tested =>
+      match tested.eraseNominal with
+      | .scalar (.boolean value) => .value (boolean !value)
+      | _ => .unsupported
+  | condition =>
+    (evaluate condition).bind fun tested =>
+      match conditionValue tested with
+      | some (.ok value) => .value (boolean value)
+      | some (.error error) => .failure (.raised error)
+      | none => .unsupported
+
 def branches (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
     List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | [], otherwise => evaluate otherwise
   | (condition, value) :: rest, otherwise =>
-    (evaluate condition).bind fun result =>
-      match conditionValue result with
-      | some (.ok true) => evaluate value
-      | some (.ok false) => branches evaluate rest otherwise
-      | some (.error error) => .failure (.raised error)
-      | none => .stuck
+    (controlCondition evaluate condition).bind fun tested =>
+      match tested.eraseNominal with
+      | .scalar (.boolean true) => evaluate value
+      | .scalar (.boolean false) => branches evaluate rest otherwise
+      | _ => .stuck
 
 /-- One evaluation step over `recurse`, which evaluates a subterm one fuel
 level down in the given environment, and `callBlock`, which runs a block

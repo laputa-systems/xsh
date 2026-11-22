@@ -22,8 +22,7 @@ a `Result[Bool]` condition gives the `Bool` of its `Ok` and raises the error of
 its `Err`, as under `?`, and so does each operand of `!`, `and` and `or`
 there; `and` with a false left operand and `or` with a true one give that
 value without running the right operand, which therefore cannot fail;
-`if` and `while` test their conditions this way; and a value `if` takes the
-`Bool` of a condition's `Ok` and raises its `Err`'s error. -/
+and `if`, `while` and a value `if` all test their conditions this way. -/
 theorem control_conditions [DecidableEq Declaration] {world : World Declaration Identity Source}
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame after : Frame world) :
     (∀ left right, controlValue evaluate frame left = .value (.scalar (.boolean false)) after →
@@ -47,20 +46,25 @@ theorem control_conditions [DecidableEq Declaration] {world : World Declaration 
     (∀ (tested inner : Value Declaration Identity Source) value, tested.eraseNominal = .ok inner →
       inner.eraseNominal = .scalar (.boolean value) → conditionValue tested = some (.ok value)) ∧
     (∀ condition value rest otherwise (tested : Value Declaration Identity Source),
-      evaluate frame condition = .value tested after →
+      controlValue evaluate frame condition = .value tested after →
         threadBranches evaluate frame ((condition, value) :: rest) otherwise =
-          match conditionValue tested with
-          | some (.ok true) => evaluate after value
-          | some (.ok false) => threadBranches evaluate after rest otherwise
-          | some (.error error) => .exec (.failed (.raised error) after)
-          | none => .exec .stuck) := by
+          match tested.eraseNominal with
+          | .scalar (.boolean true) => evaluate after value
+          | .scalar (.boolean false) => threadBranches evaluate after rest otherwise
+          | _ => .exec .stuck) := by
   refine ⟨fun left right ran => ?_, fun left right ran => ?_, fun left right ran => ?_,
     fun operand value ran => ?_, fun condition tested notAnd notOr notNot ran => ?_,
     fun tested error shape => by simp [conditionValue, shape],
     fun tested inner value shape inside => by simp [conditionValue, shape, inside],
     fun condition value rest otherwise tested ran => by
       simp only [threadBranches, ran, Outcome.bind]
-      split <;> simp_all⟩
+      generalize tested.eraseNominal = shape
+      cases shape with
+      | scalar scalar =>
+        cases scalar with
+        | boolean flag => cases flag <;> rfl
+        | _ => rfl
+      | _ => rfl⟩
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
@@ -134,6 +138,27 @@ theorem value_if_results :
       some 8 ∧
     raisedBoom (runHolding [.binding .letBinding (.name xName) none (.ifExpr [(ident gName, int "1")] (int "8"))]) =
       true := by
+  decide +kernel
+
+def valueIf (condition : Xsh.Syntax.Expr) : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name xName) none (.ifExpr [(condition, int "7")] (int "8"))]
+
+/-- `!`, `and` and `or` over `Result[Bool]` operands in a value `if`: as the
+verification binary gives `Err` for `if ok_true() and !bad() { 1 } else { 2 }`
+in a `Result` proc and `1` for `if ok_true() and ok_true()`, an `Err` operand
+raises its error and `Ok` operands give their `Bool`s. -/
+theorem value_if_operands :
+    raisedBoom (runHolding (valueIf (.binary .and (ident fName) (.unary .not (ident gName))))) = true ∧
+    readInt xName (runHolding (valueIf (.binary .and (ident fName) (ident rName)))) = some 8 ∧
+    readInt xName (runHolding (valueIf (.unary .not (ident rName)))) = some 7 ∧
+    readInt xName (runHolding (valueIf (.binary .or (ident rName) (ident fName)))) = some 7 := by
+  decide +kernel
+
+/-- Testing only the whole condition, as the value `if` did before, leaves
+`Ok(true) and Ok(false)` without a `Bool`: the run is stuck instead of `8`. -/
+theorem whole_condition_rejected :
+    conditionValue (.scalar (.integer ⟨0, by decide⟩) : Value Unit Unit Unit) = none ∧
+      readInt xName (runHolding (valueIf (.binary .and (ident fName) (ident rName)))) = some 8 := by
   decide +kernel
 
 end Witness

@@ -510,8 +510,6 @@ Statements:
 
 Expressions:
 
-- `and`, `or` and `!` over `Result[Bool]` operands in a value `if`
-  condition (P)
 - equality and membership of errors and handles, and `in` on a `Path` whose
   bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
@@ -632,11 +630,14 @@ then cannot fail. Its witnesses follow the verification binary on
 `ok(false) and bad()`, `ok(true) or bad()`, `! ok(false)`,
 `while ok(i < 2)` and an `Err` reached through `ok(true) and bad()`. The
 mutants it rejects test both operands before combining them, or accept only
-plain `Bool` operands. A value `if`, in both evaluators, takes the `Bool` of
-a whole condition's `Ok` and raises its `Err`'s error, as the verification
-binary gives `7 8` and then the `Err` for `if ok(true)`, `if ok(false)` and
-`if bad()`; `and`, `or` and `!` over `Result` operands there remain outside
-the model.
+plain `Bool` operands. A value `if`, in both evaluators, tests each condition
+the same way, through `controlValue` in the machine and `controlCondition` in
+`CoreEval.evaluate`, which agree on every `Evaluable` condition: as the
+verification binary gives `7 8` and then the `Err` for `if ok(true)`,
+`if ok(false)` and `if bad()`, `Err` for `if ok_true() and !bad()` in a
+`Result` proc and `1` for `if ok_true() and ok_true()`, so do the witnesses.
+Before, a value `if` tested only the whole condition, so `Ok(true) and
+Ok(false)` was stuck; that mutant is rejected.
 
 The `require_expression` fragment root, in
 [`Proofs/Core/Requires.lean`](Xsh/Proofs/Core/Requires.lean), connects the

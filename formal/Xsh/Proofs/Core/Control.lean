@@ -353,11 +353,10 @@ theorem threadBranches_refines {world : World Declaration Identity Source}
   | frame, [], otherwise => each frame otherwise
   | frame, (condition, value) :: rest, otherwise => by
     simp only [threadBranches]
-    refine valued_bind_refines (each frame condition) fun result after => ?_
+    refine valued_bind_refines (controlValue_refines each frame condition) fun result after => ?_
     split
     · exact each after value
     · exact threadBranches_refines each after rest otherwise
-    · exact valued_refl _
     · exact valued_refl _
 
 theorem threadStep_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
@@ -1182,11 +1181,10 @@ theorem threadBranches_persists {world : World Declaration Identity Source}
   | frame, [], otherwise => each frame otherwise
   | frame, (condition, value) :: rest, otherwise => by
     simp only [threadBranches]
-    refine vbind_persists (each frame condition) fun result after => ?_
+    refine vbind_persists (controlValue_persists each frame condition) fun result after => ?_
     split
     · exact each after value
     · exact threadBranches_persists each after rest otherwise
-    · exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
     · exact vkeeps_exec fun _ present => by cases present
 
 set_option hygiene false in
@@ -2100,11 +2098,10 @@ theorem threadBranches_restores {world : World Declaration Identity Source}
   | frame, [], otherwise => each frame otherwise
   | frame, (condition, value) :: rest, otherwise => by
     simp only [threadBranches]
-    refine vbind_restores (each frame condition) fun result after => ?_
+    refine vbind_restores (controlValue_restores each frame condition) fun result after => ?_
     split
     · exact each after value
     · exact threadBranches_restores each after rest otherwise
-    · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
     · exact vrestores_none rfl
 
 set_option hygiene false in

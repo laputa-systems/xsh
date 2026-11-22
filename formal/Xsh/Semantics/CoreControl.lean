@@ -1126,12 +1126,11 @@ def threadBranches {world : World Declaration Identity Source}
     Frame world → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr → Valued world
   | frame, [], otherwise => evaluate frame otherwise
   | frame, (condition, value) :: rest, otherwise =>
-    (evaluate frame condition).bind fun result after =>
-      match conditionValue result with
-      | some (.ok true) => evaluate after value
-      | some (.ok false) => threadBranches evaluate after rest otherwise
-      | some (.error error) => .exec (.failed (.raised error) after)
-      | none => .exec .stuck
+    (controlValue evaluate frame condition).bind fun tested after =>
+      match tested.eraseNominal with
+      | .scalar (.boolean true) => evaluate after value
+      | .scalar (.boolean false) => threadBranches evaluate after rest otherwise
+      | _ => .exec .stuck
 
 /-- `CoreEval.step` with the frame threaded: the same forms and operator
 meanings (`binary`, `unary`, `indexAt`, `fieldOf`), each operand evaluated in

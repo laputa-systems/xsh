@@ -131,31 +131,48 @@ theorem branch_agrees {world : World Declaration Identity Source} {frame : Frame
     | _ => rfl
   | _ => rfl
 
-theorem condition_agrees {world : World Declaration Identity Source} {frame : Frame world}
-    (shape : Option (Except (Value Declaration Identity Source) Bool)) {whenTrue whenFalse : Valued world}
-    {referenceTrue referenceFalse : Result Declaration Identity Source (Value Declaration Identity Source)}
-    (onTrue : referenceTrue ≠ .unsupported → whenTrue = fromEval frame referenceTrue)
-    (onFalse : referenceFalse ≠ .unsupported → whenFalse = fromEval frame referenceFalse)
-    (supported : (match (generalizing := false) shape with
-      | some (.ok true) => referenceTrue
-      | some (.ok false) => referenceFalse
-      | some (.error error) => .failure (.raised error)
-      | none => .stuck) ≠ .unsupported) :
-    (match (generalizing := false) shape with
-      | some (.ok true) => whenTrue
-      | some (.ok false) => whenFalse
-      | some (.error error) => .exec (.failed (.raised error) frame)
-      | none => .exec .stuck) =
-    fromEval frame (match (generalizing := false) shape with
-      | some (.ok true) => referenceTrue
-      | some (.ok false) => referenceFalse
-      | some (.error error) => .failure (.raised error)
-      | none => .stuck) := by
-  match shape with
-  | some (.ok true) => exact onTrue supported
-  | some (.ok false) => exact onFalse supported
-  | some (.error _) => rfl
-  | none => rfl
+theorem controlValue_agrees {world : World Declaration Identity Source} {frame : Frame world}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    {reference : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ source, Evaluable source → reference source ≠ .unsupported →
+      evaluate frame source = fromEval frame (reference source)) (condition : Xsh.Syntax.Expr) :
+    Evaluable condition → controlCondition reference condition ≠ .unsupported →
+      controlValue evaluate frame condition = fromEval frame (controlCondition reference condition) := by
+  fun_induction controlCondition reference condition with
+  | case1 left right ihLeft ihRight | case2 left right ihLeft ihRight =>
+    intro evaluable supported
+    cases evaluable with
+    | binary _ _ _ _ lefty righty =>
+      simp only [controlValue, controlCondition] at supported ⊢
+      refine lift_bind (ihLeft lefty) (fun first _ firstSupported => ?_) supported
+      generalize first.eraseNominal = shape at firstSupported ⊢
+      cases shape with
+      | scalar scalar =>
+        cases scalar with
+        | boolean flag => cases flag <;> first | rfl | exact ihRight righty firstSupported
+        | _ => rfl
+      | _ => rfl
+  | case3 operand ih =>
+    intro evaluable supported
+    cases evaluable with
+    | unary _ _ evaluated =>
+      simp only [controlValue, controlCondition] at supported ⊢
+      refine lift_bind (ih evaluated) (fun tested _ _ => ?_) supported
+      generalize tested.eraseNominal = shape
+      cases shape with
+      | scalar scalar =>
+        cases scalar with
+        | boolean flag => rfl
+        | _ => rfl
+      | _ => rfl
+  | case4 condition notAnd notOr notNot =>
+    intro evaluable supported
+    rw [controlValue.eq_4 evaluate frame condition notAnd notOr notNot]
+    refine lift_bind (each condition evaluable) (fun tested _ _ => ?_) supported
+    generalize conditionValue tested = shape
+    cases shape with
+    | none => rfl
+    | some result => cases result <;> rfl
 
 theorem threadBranches_agrees {world : World Declaration Identity Source} {frame : Frame world}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -169,8 +186,9 @@ theorem threadBranches_agrees {world : World Declaration Identity Source} {frame
   | [], otherwise, _, _, last, supported => each otherwise last supported
   | (condition, value) :: rest, otherwise, tests, values, last, supported => by
     simp only [threadBranches, branches] at supported ⊢
-    refine lift_bind (each condition (tests condition value (by simp))) (fun tested _ testedSupported => ?_) supported
-    exact condition_agrees (conditionValue tested) (each value (values condition value (by simp)))
+    refine lift_bind (controlValue_agrees each condition (tests condition value (by simp)))
+      (fun tested _ testedSupported => ?_) supported
+    exact branch_agrees tested.eraseNominal (each value (values condition value (by simp)))
       (threadBranches_agrees each rest otherwise (fun first second inside => tests first second (by simp [inside]))
         (fun first second inside => values first second (by simp [inside])) last)
       testedSupported
