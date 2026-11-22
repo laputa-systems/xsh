@@ -86,3 +86,40 @@ test test_unix_id_supplementary_is_the_kernel_group_list {
     assert gid in [entry.gid for entry in identity.groups]
   }
 }
+
+test test_user_account_records_remain_intact { |ctx|
+  let passwd = test.temp_path(ctx, name: "records-passwd")
+  let shadow = test.temp_path(ctx, name: "records-shadow")
+  let original = "root:*:000:0:root:/root:/bin/sh\n"
+  passwd.write(original)
+  shadow.write("root:$hash:0:0:99999:7:::\n")
+  let script = test.temp_file(ctx, name: "records-user.xsh", contents: b"let _ = user.add(\"demo\", uid: 2001, gid: 2001)?\nuser.remove(\"demo\")?\n")?
+  run XSH_PASSWD_FILE=$passwd XSH_SHADOW_FILE=$shadow "xsh" $script
+  assert passwd.read_text()? == original
+  assert shadow.read_text()? == "root:$hash:0:0:99999:7:::\n"
+}
+
+test test_user_account_invalid_records_are_rejected { |ctx|
+  let passwd = test.temp_path(ctx, name: "invalid-passwd")
+  let shadow = test.temp_path(ctx, name: "invalid-shadow")
+  let script = test.temp_file(ctx, name: "invalid-user.xsh", contents: b"test.error_kind(user.add(\"demo\", gecos: \"bad:value\"), \"user-add\")\ntest.error_kind(user.add(\"demo\", home: p\"/bad:home\"), \"user-add\")\ntest.error_kind(user.add(\"demo\", shell: p\"/bad\\nsh\"), \"user-add\")\ntest.error_kind(user.add(\"demo\", uid: -1), \"user-add\")\ntest.error_kind(user.add(\"demo\", gid: 4294967295), \"user-add\")\ntest.error_kind(user.add(\"demo\", gecos: \"bad\\0value\"), \"user-add\")\ntest.error_kind(user.add(\"demo\", home: Path.parse_bytes(b\"/bad\\xff\")?), \"user-add\")\n")?
+  let original = "root:*:0:0:root:/root:/bin/sh\n"
+  passwd.write(original)
+  shadow.write("root:*:0:0:99999:7:::\n")
+  run XSH_PASSWD_FILE=$passwd XSH_SHADOW_FILE=$shadow "xsh" $script
+  assert passwd.read_text()? == original
+  assert shadow.read_text()? == "root:*:0:0:99999:7:::\n"
+}
+
+test test_user_malformed_database_is_unchanged { |ctx|
+  let passwd = test.temp_path(ctx, name: "malformed-passwd")
+  let shadow = test.temp_path(ctx, name: "malformed-shadow")
+  let original = "root:*:0:0:root:/root:/bin/sh\nbroken:!:not-a-number:5::/:/bin/sh\n"
+  let shadow_original = "root:hash:0:0:99999:7:::\n"
+  passwd.write(original)
+  shadow.write(shadow_original)
+  let script = test.temp_file(ctx, name: "malformed-user.xsh", contents: b"test.error_kind(user.add(\"demo\"), \"user-add\")\ntest.error_kind(user.remove(\"root\"), \"user-remove\")\n")?
+  run XSH_PASSWD_FILE=$passwd XSH_SHADOW_FILE=$shadow "xsh" $script
+  assert passwd.read_text()? == original
+  assert shadow.read_text()? == shadow_original
+}

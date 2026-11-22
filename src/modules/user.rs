@@ -103,42 +103,41 @@ pub(crate) fn add(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     validate_name(name, "user-name", span)?;
+    let name = AccountField::new(name, "user-add", span)?;
+    let gecos = AccountField::new(gecos, "user-add", span)?;
+    let home_path = match home {
+        Some(value) => String::from_utf8(value.bytes).map_err(|_| RuntimeError::new("user-add", "home is not UTF-8").with_span(span))?,
+        None => format!("/home/{}", name.0),
+    };
+    let shell_path = match shell {
+        Some(value) => String::from_utf8(value.bytes).map_err(|_| RuntimeError::new("user-add", "shell is not UTF-8").with_span(span))?,
+        None => "/bin/sh".to_string(),
+    };
+    let home = AccountField::new(&home_path, "user-add", span)?;
+    let shell = AccountField::new(&shell_path, "user-add", span)?;
     let passwd_path = passwd_file();
     let shadow_path = shadow_file();
-    let mut users = parse_passwd(&read_optional(&passwd_path, span, "user-add")?);
-    if users.iter().any(|entry| entry.name == name) {
+    let mut text = read_optional(&passwd_path, span, "user-add")?;
+    let users = parse_passwd(&text, span, "user-add")?;
+    if users.iter().any(|entry| entry.name == name.0) {
         return Err(RuntimeError::new("user-add", "user already exists").with_span(span));
     }
     let uid = uid.unwrap_or_else(|| next_id(users.iter().map(|entry| entry.uid)));
     let gid = gid.unwrap_or(uid);
-    let home_path = home
-        .map(|value| value.display())
-        .unwrap_or_else(|| format!("/home/{name}"));
-    let shell_path = shell
-        .map(|value| value.display())
-        .unwrap_or_else(|| "/bin/sh".to_string());
-    users.push(PasswdEntry {
-        name: name.to_string(),
-        uid,
-        gid,
-        gecos: gecos.to_string(),
-        home: home_path.clone(),
-        shell: shell_path.clone(),
-    });
-    write_atomic(&passwd_path, &render_passwd(&users), span, "user-add")?;
+    account_id(uid, "user-add", span)?;
+    account_id(gid, "user-add", span)?;
     let shadow_text = read_optional(&shadow_path, span, "user-add")?;
-    if !shadow_text.is_empty() {
-        let mut lines = shadow_text.lines().map(str::to_string).collect::<Vec<_>>();
-        if !lines
-            .iter()
-            .any(|line| line.split(':').next() == Some(name))
-        {
-            lines.push(format!("{name}:!:0:0:99999:7:::"));
-            write_atomic(&shadow_path, &(lines.join("\n") + "\n"), span, "user-add")?;
-        }
+    if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
+    text.push_str(&format!("{}:x:{}:{}:{}:{}:{}\n", name.0, uid, gid, gecos.0, home.0, shell.0));
+    let mut shadow = shadow_text.clone();
+    if !shadow.is_empty() && !shadow.lines().any(|line| line.split(':').next() == Some(name.0)) {
+        if !shadow.ends_with('\n') { shadow.push('\n'); }
+        shadow.push_str(&format!("{}:!:0:0:99999:7:::\n", name.0));
     }
+    write_atomic(&passwd_path, &text, span, "user-add")?;
+    if shadow != shadow_text { write_atomic(&shadow_path, &shadow, span, "user-add")?; }
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
-        (Arc::from("name"), Value::Str(name.into())),
+        (Arc::from("name"), Value::Str(name.0.into())),
         (Arc::from("uid"), Value::Int(uid)),
         (Arc::from("gid"), Value::Int(gid)),
         (
@@ -154,27 +153,17 @@ pub(crate) fn remove(name: &str, remove_home: bool, span: Span) -> Result<Value,
     let passwd_path = passwd_file();
     let shadow_path = shadow_file();
     let users_text = read_optional(&passwd_path, span, "user-remove")?;
-    let mut users = parse_passwd(&users_text);
-    let Some(entry) = users.iter().find(|entry| entry.name == name).cloned() else {
+    let users = parse_passwd(&users_text, span, "user-remove")?;
+    let Some(entry) = users.iter().find(|entry| entry.name == name) else {
         return Err(RuntimeError::new("user-remove", "user was not found").with_span(span));
     };
-    users.retain(|entry| entry.name != name);
-    write_atomic(&passwd_path, &render_passwd(&users), span, "user-remove")?;
     let shadow_text = read_optional(&shadow_path, span, "user-remove")?;
-    if !shadow_text.is_empty() {
-        let lines = shadow_text
-            .lines()
-            .filter(|line| line.split(':').next() != Some(name))
-            .collect::<Vec<_>>();
-        write_atomic(
-            &shadow_path,
-            &(lines.join("\n") + "\n"),
-            span,
-            "user-remove",
-        )?;
-    }
+    let filtered = users_text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
+    let shadow = shadow_text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
+    write_atomic(&passwd_path, &filtered, span, "user-remove")?;
+    if !shadow_text.is_empty() { write_atomic(&shadow_path, &shadow, span, "user-remove")?; }
     if remove_home {
-        let _ = fs::remove_dir_all(entry.home);
+        let _ = fs::remove_dir_all(&entry.home);
     }
     Ok(Value::Unit)
 }
@@ -266,50 +255,49 @@ fn cstr_to_bytes(ptr: *const libc::c_char) -> Vec<u8> {
     }
 }
 
-#[derive(Clone)]
-struct PasswdEntry {
-    name: String,
+pub(crate) struct AccountField<'a>(pub(crate) &'a str);
+
+impl<'a> AccountField<'a> {
+    pub(crate) fn new(value: &'a str, kind: &str, span: Span) -> Result<Self, RuntimeError> {
+        if value.contains([':', '\n', '\r', '\0']) {
+            return Err(RuntimeError::new(kind, "invalid account field").with_span(span));
+        }
+        Ok(Self(value))
+    }
+}
+
+pub(crate) fn account_id(id: i64, kind: &str, span: Span) -> Result<(), RuntimeError> {
+    if !(0..u32::MAX as i64).contains(&id) {
+        return Err(RuntimeError::new(kind, "account id is out of range").with_span(span));
+    }
+    Ok(())
+}
+
+struct PasswdEntry<'a> {
+    name: &'a str,
     uid: i64,
-    gid: i64,
-    gecos: String,
-    home: String,
-    shell: String,
+    home: &'a str,
 }
 
-fn parse_passwd(text: &str) -> Vec<PasswdEntry> {
-    text.lines()
-        .filter_map(|line| {
-            let fields = line.split(':').collect::<Vec<_>>();
-            (fields.len() >= 7).then(|| PasswdEntry {
-                name: fields[0].to_string(),
-                uid: fields[2].parse().unwrap_or(0),
-                gid: fields[3].parse().unwrap_or(0),
-                gecos: fields[4].to_string(),
-                home: fields[5].to_string(),
-                shell: fields[6].to_string(),
-            })
-        })
-        .collect()
-}
-
-fn render_passwd(entries: &[PasswdEntry]) -> String {
-    entries
-        .iter()
-        .map(|entry| {
-            format!(
-                "{}:x:{}:{}:{}:{}:{}",
-                entry.name, entry.uid, entry.gid, entry.gecos, entry.home, entry.shell
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n"
+fn parse_passwd<'a>(text: &'a str, span: Span, kind: &str) -> Result<Vec<PasswdEntry<'a>>, RuntimeError> {
+    text.split_terminator('\n').map(|line| {
+        let fields = line.split(':').collect::<Vec<_>>();
+        if fields.len() != 7 || fields.iter().any(|field| AccountField::new(field, kind, span).is_err()) {
+            return Err(RuntimeError::new(kind, "invalid passwd record").with_span(span));
+        }
+        let uid = fields[2].parse::<u32>().map_err(|_| RuntimeError::new(kind, "invalid passwd uid").with_span(span))?;
+        let gid = fields[3].parse::<u32>().map_err(|_| RuntimeError::new(kind, "invalid passwd gid").with_span(span))?;
+        account_id(i64::from(uid), kind, span)?;
+        account_id(i64::from(gid), kind, span)?;
+        Ok(PasswdEntry { name: fields[0], uid: i64::from(uid), home: fields[5] })
+    }).collect()
 }
 
 fn validate_name(name: &str, kind: &str, span: Span) -> Result<(), RuntimeError> {
     if name.is_empty()
         || name.contains(':')
         || name.contains('\n')
+        || name.contains('\r')
         || name.contains('\0')
         || name.starts_with('-')
     {

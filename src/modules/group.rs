@@ -1,6 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::value::{RuntimeError, Value};
+use super::user::{AccountField, account_id};
 use crate::source::Span;
 use std::ffi::{CStr, CString};
 use std::fs;
@@ -48,18 +49,18 @@ pub(crate) fn by_gid(gid: u32, span: Span) -> Result<Value, RuntimeError> {
 
 pub(crate) fn add(name: &str, gid: Option<i64>, span: Span) -> Result<Value, RuntimeError> {
     validate_name(name, "group-name", span)?;
+    let name_field = AccountField::new(name, "group-add", span)?;
     let path = group_file();
-    let mut groups = parse_group(&read_optional(&path, span, "group-add")?);
+    let mut text = read_optional(&path, span, "group-add")?;
+    let groups = parse_group(&text, span, "group-add")?;
     if groups.iter().any(|entry| entry.name == name) {
         return Err(RuntimeError::new("group-add", "group already exists").with_span(span));
     }
     let gid = gid.unwrap_or_else(|| next_id(groups.iter().map(|entry| entry.gid)));
-    groups.push(GroupEntry {
-        name: name.to_string(),
-        gid,
-        members: Vec::new(),
-    });
-    write_atomic(&path, &render_group(&groups), span, "group-add")?;
+    account_id(gid, "group-add", span)?;
+    if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
+    text.push_str(&format!("{}:x:{}:\n", name_field.0, gid));
+    write_atomic(&path, &text, span, "group-add")?;
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("name"), Value::Str(name.into())),
         (Arc::from("gid"), Value::Int(gid)),
@@ -70,12 +71,13 @@ pub(crate) fn add(name: &str, gid: Option<i64>, span: Span) -> Result<Value, Run
 pub(crate) fn remove(name: &str, span: Span) -> Result<Value, RuntimeError> {
     validate_name(name, "group-name", span)?;
     let path = group_file();
-    let mut groups = parse_group(&read_optional(&path, span, "group-remove")?);
+    let text = read_optional(&path, span, "group-remove")?;
+    let groups = parse_group(&text, span, "group-remove")?;
     if !groups.iter().any(|entry| entry.name == name) {
         return Err(RuntimeError::new("group-remove", "group was not found").with_span(span));
     }
-    groups.retain(|entry| entry.name != name);
-    write_atomic(&path, &render_group(&groups), span, "group-remove")?;
+    let filtered = text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
+    write_atomic(&path, &filtered, span, "group-remove")?;
     Ok(Value::Unit)
 }
 
@@ -148,43 +150,28 @@ fn cstr_to_string(ptr: *const libc::c_char) -> String {
     }
 }
 
-#[derive(Clone)]
-struct GroupEntry {
-    name: String,
+struct GroupEntry<'a> {
+    name: &'a str,
     gid: i64,
-    members: Vec<String>,
 }
 
-fn parse_group(text: &str) -> Vec<GroupEntry> {
-    text.lines()
-        .filter_map(|line| {
-            let fields = line.split(':').collect::<Vec<_>>();
-            (fields.len() >= 4).then(|| GroupEntry {
-                name: fields[0].to_string(),
-                gid: fields[2].parse().unwrap_or(0),
-                members: fields[3]
-                    .split(',')
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string)
-                    .collect(),
-            })
-        })
-        .collect()
-}
-
-fn render_group(entries: &[GroupEntry]) -> String {
-    entries
-        .iter()
-        .map(|entry| format!("{}:x:{}:{}", entry.name, entry.gid, entry.members.join(",")))
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n"
+fn parse_group<'a>(text: &'a str, span: Span, kind: &str) -> Result<Vec<GroupEntry<'a>>, RuntimeError> {
+    text.split_terminator('\n').map(|line| {
+        let fields = line.split(':').collect::<Vec<_>>();
+        if fields.len() != 4 || fields.iter().any(|field| AccountField::new(field, kind, span).is_err()) {
+            return Err(RuntimeError::new(kind, "invalid group record").with_span(span));
+        }
+        let gid = fields[2].parse::<u32>().map_err(|_| RuntimeError::new(kind, "invalid group gid").with_span(span))?;
+        account_id(i64::from(gid), kind, span)?;
+        Ok(GroupEntry { name: fields[0], gid: i64::from(gid) })
+    }).collect()
 }
 
 fn validate_name(name: &str, kind: &str, span: Span) -> Result<(), RuntimeError> {
     if name.is_empty()
         || name.contains(':')
         || name.contains('\n')
+        || name.contains('\r')
         || name.contains('\0')
         || name.starts_with('-')
     {

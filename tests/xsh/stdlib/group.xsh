@@ -22,3 +22,25 @@ test test_group_lookup_and_mutation_contracts { |ctx|
   test.error_kind(group.lookup("definitely-missing-xsh-group"), "group-not-found")
   test.error_kind(group.add("-bad"), "group-name")
 }
+
+test test_group_account_records_remain_intact { |ctx|
+  let file = test.temp_path(ctx, name: "records-group")
+  let original = "admins:*:0002:alice,,bob\n"
+  file.write(original)
+  let script = test.temp_file(ctx, name: "records-group.xsh", contents: b"let _ = group.add(\"demo\", gid: 2001)?\ngroup.remove(\"demo\")?\n")?
+  run XSH_GROUP_FILE=$file "xsh" $script
+  assert file.read_text()? == original
+}
+
+test test_group_invalid_records_are_rejected { |ctx|
+  let file = test.temp_path(ctx, name: "invalid-group")
+  let original = "admins:*:not-a-number:alice\n"
+  file.write(original)
+  let script = test.temp_file(ctx, name: "invalid-group.xsh", contents: b"test.error_kind(group.add(\"demo\"), \"group-add\")\ntest.error_kind(group.remove(\"admins\"), \"group-remove\")\n")?
+  run XSH_GROUP_FILE=$file "xsh" $script
+  assert file.read_text()? == original
+  file.write("admins:*:2:alice\n")
+  let invalid_id = test.temp_file(ctx, name: "invalid-group-id.xsh", contents: b"test.error_kind(group.add(\"demo\", gid: -1), \"group-add\")\n")?
+  run XSH_GROUP_FILE=$file "xsh" $invalid_id
+  assert file.read_text()? == "admins:*:2:alice\n"
+}

@@ -40,15 +40,6 @@ out of scope.
 - **Fix with:** os-boundaries, lifecycle-concurrency
 - **Effort:** M
 
-### XSH-178 · P1 · Account mutations corrupt existing credential fields and serialize invalid records
-
-- **Area:** Account database integrity
-- **Where:** `src/modules/user.rs:96-137,269-306`; `src/modules/group.rs:49-62,151-181`; unchecked arguments at `src/runtime/eval/lowered_run/module_accounts.rs:44-69`
-- **Problem:** Account parsers omit the password field, coerce invalid numeric IDs to zero and discard unrepresentable rows; renderers reconstruct every record with password marker `x`. New GECOS/home/shell values are serialized without delimiter validation. Reproduced through real APIs at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU, using scratch databases only: `user.add("demo", uid: 2001, gid: 2001, gecos: "Demo: Operations")?` returned success, changed an unrelated valid `root:*:0:0:root:/root:/bin/sh` row to `root:x:...`, converted an existing `not-a-number` UID to 0 and emitted an eight-field demo row. `group.add` similarly rewrote `admins:*:not-a-number:alice` as `admins:x:0:alice`. This is content corruption independent of XSH-144's mode loss; privilege escalation was not demonstrated.
-- **Recommendation:** Preserve password/hash fields and untouched records faithfully. Validate existing IDs and record shape before writing, preserving unsupported rows losslessly or rejecting the mutation without changing either database. Validate new IDs and every serialized field, rejecting colon/newline/NUL and native paths that cannot be represented faithfully. Remove parse-error-to-zero and silent row dropping. Native fixtures must compare whole database bytes for valid non-x markers/hashes, malformed IDs, GECOS/home/shell delimiters, preservation on error and normal add/remove; retain the separate XSH-144 permission checks.
-- **Fix with:** make-invalid-states-unrepresentable, durable-state
-- **Effort:** M
-
 ### XSH-179 · P1 · Int sum and reduce-by silently wrap instead of reporting overflow
 
 - **Area:** Runtime aggregation
