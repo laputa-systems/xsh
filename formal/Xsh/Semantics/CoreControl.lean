@@ -745,6 +745,42 @@ def environmentString {world : World Declaration Identity Source} (machine : Mac
     | some text => .ok (.scalar (.string text))
     | none => .err (machine.invalidUtf8 name)
 
+/-- The overrides an `env (overlay) { ... }` scope applies (SPEC 10.4): each
+field or `Str` key with its value converted as an argv item. `none` is a
+value the conversion does not cover. -/
+def scopeOverrides {world : World Declaration Identity Source} (machine : Machine world)
+    (overrides : Value Declaration Identity Source) : Option (List (List UInt8 × List UInt8)) :=
+  let convert := fun (entries : List (String × Value Declaration Identity Source)) =>
+    entries.mapM fun (name, value) => (machine.resolution.argv value).map fun bytes => (name.toUTF8.toList, bytes)
+  match overrides.eraseNominal with
+  | .record fields => convert fields
+  | .map entries =>
+    (entries.mapM fun (entry : MapKey × Value Declaration Identity Source) => match entry.1 with
+      | .string name => some (name, entry.2)
+      | _ => none).bind convert
+  | _ => none
+
+/-- The overlay with every override set in order; a NUL value fails. -/
+def applyOverrides {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay) :
+    List (List UInt8 × List UInt8) → Except (Failure Declaration Identity Source) Overlay
+  | [] => .ok overlay
+  | (name, value) :: rest =>
+    match setEnvironment machine.raises overlay name value with
+    | .ok next => applyOverrides machine next rest
+    | .error failure => .error failure
+
+/-- A scope's outcome with the environment it entered with: the scope's
+assignments and overrides end with it however it is left (SPEC 10.4). -/
+def withOverlay {world : World Declaration Identity Source} (overlay : Overlay) : Valued world → Valued world
+  | .value value frame => .value value { frame with overlay }
+  | .exec (.normal frame) => .exec (.normal { frame with overlay })
+  | .exec (.broke frame) => .exec (.broke { frame with overlay })
+  | .exec (.continued frame) => .exec (.continued { frame with overlay })
+  | .exec (.returned value frame) => .exec (.returned value { frame with overlay })
+  | .exec (.failed failure frame) => .exec (.failed failure { frame with overlay })
+  | .exec (.internal fault frame) => .exec (.internal fault { frame with overlay })
+  | other => other
+
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
 of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
@@ -1421,7 +1457,7 @@ mutual
                     | some bound => (evalExpr machine fuel middle bound).bind fun high last => Outcome.value (some high) last).bind
                     fun high last => fromEval last (sliceOf present low high)
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ | .errorContext _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ | .errorContext _ _ | .contextScope .env _ _ =>
         runValue machine fuel frame expression
       | .ident name =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name,
@@ -1564,6 +1600,17 @@ mutual
           | .err _, fallback | .scalar .null, fallback => runValue machine fuel next fallback
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
+      | .contextScope .env input body =>
+        (evalExpr machine fuel frame input).bind fun overrides next =>
+          match scopeOverrides machine overrides with
+          | none => .exec .unsupported
+          | some entries =>
+            match applyOverrides machine next.overlay entries with
+            | .error (.runtime error) => .value (.err error) next
+            | .error failure => .exec (.failed failure next)
+            | .ok applied =>
+              (withOverlay next.overlay (valueScope machine fuel { next with overlay := applied } body)).bind
+                fun tail last => .value (.ok tail) last
       | .errorContext message body =>
         (evalExpr machine fuel frame message).bind fun described next =>
           match described.eraseNominal with

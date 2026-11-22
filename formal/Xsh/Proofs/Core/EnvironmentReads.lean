@@ -51,6 +51,32 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
   · simp only [environmentString, found, decoded]
   · simp only [environmentString, missing]
 
+/-- The `environment_scopes` fragment root (SPEC 10.4): `env (overlay) { body }`
+evaluates its overlay, sets each converted field in order, and runs the body
+as a value block, giving `Ok` of its tail; a NUL value is the scope's own
+`Err`; and however the body ends, its frame returns with the environment the
+scope entered with, the scope's overrides and the body's assignments undone. -/
+theorem environment_scopes [DecidableEq Declaration] {world : World Declaration Identity Source}
+    (machine : Machine world) (fuel : Nat) (frame : Frame world) :
+    (∀ input body, runValue machine (fuel + 1) frame (.contextScope .env input body) =
+      (evalExpr machine fuel frame input).bind fun overrides next =>
+        match scopeOverrides machine overrides with
+        | none => .exec .unsupported
+        | some entries =>
+          match applyOverrides machine next.overlay entries with
+          | .error (.runtime error) => .value (.err error) next
+          | .error failure => .exec (.failed failure next)
+          | .ok applied =>
+            (withOverlay next.overlay (valueScope machine fuel { next with overlay := applied } body)).bind
+              fun tail last => .value (.ok tail) last) ∧
+    (∀ (overlay : Overlay) (value : Value Declaration Identity Source) (last : Frame world),
+      withOverlay overlay (.value value last) = .value value { last with overlay }) ∧
+    (∀ (overlay : Overlay) failure (last : Frame world),
+      withOverlay overlay (.exec (.failed failure last)) = .exec (.failed failure { last with overlay })) ∧
+    (∀ (overlay : Overlay) value (last : Frame world),
+      withOverlay overlay (.exec (.returned value last)) = .exec (.returned value { last with overlay })) :=
+  ⟨fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl⟩
+
 end Root
 
 namespace Witness
@@ -71,8 +97,12 @@ def slot (index : Nat) : Xsh.Syntax.RawName :=
   [name 244 (by decide), name 245 (by decide), name 246 (by decide), name 247 (by decide),
     name 248 (by decide)].getD index (name 249 (by decide))
 
+def scopedKey : Xsh.Syntax.RawName := name 250 (by decide)
+def assignedKey : Xsh.Syntax.RawName := name 251 (by decide)
+
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
+  else if named = scopedKey then "XSH_PROBE_A" else if named = assignedKey then "XSH_PROBE_B"
   else if named = badKey then "XSH_PROBE_BAD" else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
@@ -138,6 +168,43 @@ is the unset variable's `Err`. -/
 theorem local_overlay_rejected :
     errOf (some (environmentString envMachine [] "XSH_PROBE_HOME")) = some "env-missing XSH_PROBE_HOME" ∧
       textOf (readOutput 1 envRun) = some "set-in-proc" := by
+  decide +kernel
+
+def isErrValue : Option (Value Unit Unit Unit) → Bool
+  | some (.err _) => true
+  | _ => false
+
+def inScope (value : String) (body : List Xsh.Syntax.Statement) : Xsh.Syntax.Expr :=
+  .contextScope .env (.record [.named scopedKey (.literal (.string value))]) body
+
+/-- `let v = env ({XSH_PROBE_A: "inner"}) { e"XSH_PROBE_B" = "assigned"; e"XSH_PROBE_A"? }?`,
+then reads of both variables after the scope, and a scope whose value holds
+a NUL, as the verification binary prints `inner`, `true true` and `true`. -/
+def scopeScript : List Xsh.Syntax.Statement :=
+  [letOf (slot 0) (.tryExpr (inScope "inner"
+      [.assign (.env assignedKey) .set (.literal (.string "assigned")), .expression (.tryExpr (.envString scopedKey))])),
+   letOf (slot 1) (.envString scopedKey),
+   letOf (slot 2) (.envString assignedKey),
+   letOf (slot 3) (inScope "x\u0000y" [.expression (int "1")])]
+
+def scopeRun : Exec witnessWorld := runScript envMachine 90 fullStart scopeScript
+
+def plainText : Option (Value Unit Unit Unit) → Option String
+  | some (.scalar (.string text)) => some text
+  | _ => none
+
+theorem environment_scope_witness :
+    plainText (readOutput 0 scopeRun) = some "inner" ∧
+    isErrValue (readOutput 1 scopeRun) = true ∧
+    isErrValue (readOutput 2 scopeRun) = true ∧
+    isErrValue (readOutput 3 scopeRun) = true := by
+  decide +kernel
+
+/-- A scope that keeps its overrides after it ends leaves `XSH_PROBE_A`
+set; the model restores the environment it entered with. -/
+theorem leaking_scope_rejected :
+    textOf (some (environmentString envMachine [("XSH_PROBE_A".toUTF8.toList, "inner".toUTF8.toList)] "XSH_PROBE_A")) =
+      some "inner" ∧ isErrValue (readOutput 1 scopeRun) = true := by
   decide +kernel
 
 end Witness

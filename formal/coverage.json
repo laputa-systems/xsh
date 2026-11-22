@@ -15220,6 +15220,15 @@
       "boundary": "The starting environment is the machine's hostEnvironment input, an assumption about the process; env scopes, env.PATH, the computed-name readers and child-process inheritance are not modelled, and the env-missing and invalid-utf8 error values are machine parameters. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.EnvironmentReads.environment_scopes",
+      "module": "Xsh.Proofs.Core.EnvironmentReads",
+      "declaration": "Xsh.Proofs.Core.EnvironmentReads.environment_scopes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 10.4 env (overlay) { body }: the overlay's converted fields are set in order and the body runs as a value block, giving Ok of its tail; a NUL value is the scope's own Err; and however the body ends its frame returns with the environment the scope entered with.",
+      "boundary": "cd and within scopes, List[Path] search-path values and child-process inheritance are not modelled; argv conversion is the machine's oracle. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -497,7 +497,7 @@ Expressions:
   bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
 - the contextual `.require()` (P)
-- `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
+- `retry backoff` (E), `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
 
@@ -693,6 +693,15 @@ binary on a script that reads an unset variable, assigns it in a called
 `proc` and reads it back, assigns it at the top, and reads a preset and a
 non-UTF-8 variable (`true`, `set-in-proc`, `top preset`, `true`); a call with
 its own empty environment is rejected.
+
+The `environment_scopes` root, in the same module, adds `env (overlay) { ... }`
+(SPEC 10.4): the overlay's fields convert as argv items and are set in order,
+the body runs as a value block, and the scope gives `Ok` of its tail; a NUL
+value is the scope's own `Err`; and however the body ends, its frame returns
+with the environment the scope entered with, so the overrides and the
+body's own assignments are undone. The witnesses follow the verification
+binary's `inner`, `true true` and `true`, and reject a scope that keeps its
+overrides. `cd` and `within` scopes are not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

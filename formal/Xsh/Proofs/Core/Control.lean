@@ -288,6 +288,12 @@ theorem annotate_refines {world : World Declaration Identity Source} (text : Str
   · subst out; exact Or.inl rfl
   · subst same; exact valued_refl _
 
+theorem withOverlay_refines {world : World Declaration Identity Source} (overlay : Overlay) {first second : Valued world}
+    (refined : Valued.Refines first second) : Valued.Refines (withOverlay overlay first) (withOverlay overlay second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact valued_refl _
+
 theorem controlValue_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -581,6 +587,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine toExec_refines (selectorsOf_refines (fun _ _ => inner.expr _ _) _ _ _) fun _ _ => ?_
   | refine guardElse_refines ?_
   | refine annotate_refines _ ?_
+  | refine withOverlay_refines _ ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
@@ -997,6 +1004,16 @@ theorem annotate_persists {world : World Declaration Identity Source} (text : St
   · exact fun scope present => by cases present; exact kept _ rfl
   · exact kept
 
+theorem withOverlay_persists {world : World Declaration Identity Source} (overlay : Overlay) {before : Store world}
+    {outcome : Valued world} (kept : VKeeps before outcome) : VKeeps before (withOverlay overlay outcome) := by
+  cases outcome with
+  | value value frame => exact kept
+  | exec inner =>
+    cases inner with
+    | normal frame | broke frame | continued frame | returned _ frame | failed _ frame | internal _ frame =>
+      exact fun scope present => by cases present; exact kept frame rfl
+    | stuck | unsupported | outOfFuel => exact kept
+
 theorem controlValue_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1338,6 +1355,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine loopStep_persists (fun _ => inner.loopValues _ _) ?_
   | refine guardElse_persists ?_
   | refine annotate_persists _ ?_
+  | refine withOverlay_persists _ ?_
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
   | refine inner.leaves _ _ ?_
@@ -1780,6 +1798,17 @@ theorem annotate_restores {world : World Declaration Identity Source} (text : St
   · exact fun scope present => by cases present; exact restored _ rfl
   · exact restored
 
+theorem withOverlay_restores {world : World Declaration Identity Source} (overlay : Overlay) {frame : Frame world}
+    {outcome : Valued world} (restored : VRestores frame outcome) : VRestores frame (withOverlay overlay outcome) := by
+  cases outcome with
+  | value value last => exact restored
+  | exec inner =>
+    cases inner with
+    | normal last => exact restored.elim
+    | broke last | continued last | returned _ last | failed _ last | internal _ last =>
+      exact fun scope present => by cases present; exact restored last rfl
+    | stuck | unsupported | outOfFuel => exact restored
+
 theorem controlValue_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -2056,6 +2085,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine thenValued_settled fun _ => ?_
   | (apply settled_exec; assumption)
   | refine annotate_restores _ ?_
+  | refine withOverlay_restores _ ?_
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_
   | exact callBlock_restores _ _ _ _ _ _ _ _ _
   | exact threadStep_restores _ inner.expr
@@ -2098,6 +2128,15 @@ theorem restoring_expr {world : World Declaration Identity Source} (machine : Ma
   simp only [evalExpr]
   close_restores
 
+-- The macro closes every `runValue` arm in one search, and its cost grows with the arms.
+set_option maxHeartbeats 400000 in
+theorem restoring_value {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
+    (inner : Restoring machine fuel) :
+    ∀ frame expression, VRestores frame (runValue machine (fuel + 1) frame expression) := by
+  intro frame expression
+  simp only [runValue]
+  close_restores
+
 theorem restoring {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Restoring machine fuel
   | 0 => {
@@ -2122,7 +2161,7 @@ theorem restoring {world : World Declaration Identity Source} (machine : Machine
     have inner := restoring machine fuel
     exact {
       expr := restoring_expr machine fuel inner
-      value := fun frame expression => by simp only [runValue]; close_restores
+      value := restoring_value machine fuel inner
       scope := fun frame body => by simp only [valueScope]; close_restores
       retries := fun frame pattern body delays => by simp only [retryLoop]; close_restores
       handlers := fun frame item captures body => by simp only [handlerScope]; close_restores
