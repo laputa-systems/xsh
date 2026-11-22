@@ -10,6 +10,8 @@ For Ubuntu bootstrap and default verification, see [Development](docs/DEVELOPMEN
 
 ## Commands and invariants
 
+`make clean` removes this checkout’s build output in `./target`. It refuses symlinks and ordinary files at those paths.
+
 - Build: `cargo dev build`; run the narrowest applicable check with `cargo dev gate PATH...`.
 - Run Linux verification with `cargo dev test linux` through `Dockerfile.test`; see [Testing](docs/TESTING.md) for manual commands and profiles.
 - Native XSH tests own language behavior; Rust tests cover host boundaries the native harness cannot express.
