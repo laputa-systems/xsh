@@ -1075,10 +1075,11 @@ async fn prepare_transport(
         NetTransport::Request(request) => {
             if let super::NetBody::File(path) = &request.body {
                 let path = path.clone();
+                let terminal = Arc::clone(&operation.terminal);
                 let bytes = super::async_with_total_timeout(
                     total_timeout,
                     operation.accepted_at,
-                    runtime.run_file(move || super::read_request_body_file(&path)),
+                    runtime.run_file(move || super::read_source_file(&path, "net-body-file", || terminal.completed.load(Ordering::Acquire))),
                 )
                 .await?;
                 request.body = super::NetBody::Bytes(bytes);
@@ -1098,10 +1099,11 @@ async fn prepare_transport(
         NetTransport::Upload(upload) => {
             let upload = upload.clone();
             let source = upload.source.clone();
+            let terminal = Arc::clone(&operation.terminal);
             let body = super::async_with_total_timeout(
                 total_timeout,
                 operation.accepted_at,
-                runtime.run_file(move || super::read_upload_source(&source)),
+                runtime.run_file(move || super::read_source_file(&source, "net-source", || terminal.completed.load(Ordering::Acquire))),
             )
             .await?;
             Some(NetTransport::PreparedUpload(upload, body))
@@ -1355,6 +1357,87 @@ mod tests {
         assert_eq!(response.status, 200);
         owner.shutdown();
         let _ = std::fs::remove_file(source);
+    }
+
+    #[test]
+    fn file_backed_request_shutdown_is_bounded() {
+        const CHILD: &str = "XSH_NET_FIFO_SHUTDOWN_CHILD";
+        if let Some(path) = std::env::var_os(CHILD) {
+            timed_out_regular_file_request_shutdown_completes();
+            let mut owner = NetRuntimeOwner::new().unwrap();
+            let agent = crate::make_agent(&NetAgentKey {
+                pool: "fifo-shutdown".to_string(), tls_verify: false,
+                ca_certificate: None, system_ca_file: None, max_idle_per_host: 1,
+                idle_timeout: Duration::from_secs(1),
+            }, owner.executor()).unwrap();
+            let operation = owner.submit_request(agent, NetRequest {
+                method: "POST".to_string(), url: "http://127.0.0.1:9/".to_string(),
+                headers: Vec::new(), body: NetBody::File(path.into()),
+                timeout: Some(Duration::from_millis(20)), dns_timeout: None,
+                connect_timeout: None, tls_timeout: None, headers_timeout: None,
+                body_idle_timeout: None, redirects: 0, redirect_limit: RedirectLimit::Error,
+                fail_status: false, max_body_bytes: 1024,
+            }, NetProtocol::Http1).unwrap();
+            let error = operation.try_receive(Duration::from_secs(2)).unwrap().unwrap().unwrap_err();
+            assert!(error.kind == "net-timeout" || error.kind == "net-body-file", "{error:?}");
+            eprintln!("fifo request error: {}", error.kind);
+            owner.shutdown();
+            return;
+        }
+        use std::os::unix::ffi::OsStrExt;
+        use std::process::Command;
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let path = scratch.join(format!("xsh-net-shutdown-fifo-{}", std::process::id()));
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "runtime::tests::file_backed_request_shutdown_is_bounded", "--nocapture"])
+            .env(CHILD, &path).stdout(std::process::Stdio::null()).spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() { break Some(status); }
+            if Instant::now() >= deadline { child.kill().unwrap(); child.wait().unwrap(); break None; }
+            thread::sleep(Duration::from_millis(10));
+        };
+        std::fs::remove_file(path).unwrap();
+        assert!(status.is_some_and(|status| status.success()), "child did not exit successfully within 3 seconds");
+    }
+
+    #[test]
+    fn timed_out_regular_file_request_shutdown_completes() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release_tx, release_rx) = bounded::<()>(1);
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let source = scratch.join(format!("xsh-net-regular-timeout-{}", std::process::id()));
+        std::fs::write(&source, b"file body").unwrap();
+        let mut owner = NetRuntimeOwner::new().unwrap();
+        let agent = crate::make_agent(&NetAgentKey {
+            pool: "regular-timeout".to_string(), tls_verify: false, ca_certificate: None,
+            system_ca_file: None, max_idle_per_host: 1, idle_timeout: Duration::from_secs(1),
+        }, owner.executor()).unwrap();
+        let operation = owner.submit_request(agent, NetRequest {
+            method: "POST".to_string(), url: format!("http://{address}/"), headers: Vec::new(),
+            body: NetBody::File(source.clone()), timeout: Some(Duration::from_millis(100)),
+            dns_timeout: None, connect_timeout: None, tls_timeout: None, headers_timeout: None,
+            body_idle_timeout: None, redirects: 0, redirect_limit: RedirectLimit::Error,
+            fail_status: false, max_body_bytes: 1024,
+        }, NetProtocol::Http1).unwrap();
+        let error = operation.try_receive(Duration::from_secs(2)).unwrap().unwrap().unwrap_err();
+        assert_eq!(error.kind, "net-timeout");
+        let started = Instant::now();
+        owner.shutdown();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        release_tx.send(()).unwrap();
+        server.join().unwrap();
+        std::fs::remove_file(source).unwrap();
     }
 
     #[test]

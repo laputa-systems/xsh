@@ -23,6 +23,7 @@ use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
+use std::os::unix::fs::OpenOptionsExt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -1689,20 +1690,35 @@ fn request_body_bytes(body: &NetBody) -> NetResult<Vec<u8>> {
     }
 }
 
-fn read_request_body_file(path: &Path) -> NetResult<Vec<u8>> {
-    let mut file = File::open(path).map_err(|error| NetError::from_io("net-body-file", error))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|error| NetError::from_io("net-body-file", error))?;
-    Ok(bytes)
+fn open_regular_source(path: &Path, kind: &'static str) -> NetResult<File> {
+    let file = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)
+        .map_err(|error| NetError::from_io(kind, error))?;
+    require_regular_file(&file, kind)?;
+    Ok(file)
 }
 
-fn read_upload_source(path: &Path) -> NetResult<Vec<u8>> {
-    let mut file = File::open(path).map_err(|error| NetError::from_io("net-source", error))?;
+fn require_regular_file(file: &File, kind: &'static str) -> NetResult<()> {
+    let metadata = file.metadata().map_err(|error| NetError::from_io(kind, error))?;
+    if !metadata.is_file() {
+        return Err(NetError::new(kind, "network file must be a regular file"));
+    }
+    Ok(())
+}
+
+fn read_source_file(path: &Path, kind: &'static str, canceled: impl Fn() -> bool) -> NetResult<Vec<u8>> {
+    let mut file = open_regular_source(path, kind)?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|error| NetError::from_io("net-body-file", error))?;
-    Ok(bytes)
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        if canceled() {
+            return Err(NetError::new("net-canceled", "network file operation canceled"));
+        }
+        let count = file.read(&mut buffer).map_err(|error| NetError::from_io("net-body-file", error))?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
 }
 
 struct DownloadOutput {
@@ -1716,8 +1732,12 @@ impl DownloadOutput {
     fn acquire(&self, overwrite: bool) -> NetResult<()> {
         if !self.atomic {
             let file = OpenOptions::new().write(true).create(true).create_new(!overwrite)
-                .truncate(overwrite).open(&self.path)
+                .custom_flags(libc::O_NONBLOCK).open(&self.path)
                 .map_err(|error| NetError::from_io("net-write", error))?;
+            require_regular_file(&file, "net-write")?;
+            if overwrite {
+                file.set_len(0).map_err(|error| NetError::from_io("net-write", error))?;
+            }
             *self.file.lock().map_err(|_| NetError::new("net-write", "download file lock poisoned"))? = Some(file);
         }
         Ok(())

@@ -140,15 +140,6 @@ out of scope.
 - **Fix with:** none
 - **Effort:** M
 
-### XSH-181 · P2 · A timed-out file-backed HTTP request can block interpreter shutdown
-
-- **Area:** Network lifecycle
-- **Where:** `crates/xsh-net/src/lib.rs:1720-1732`; `crates/xsh-net/src/runtime.rs:323-353,685-693,763-769,1090-1122`; existing synthetic timeout test at `runtime.rs:1428-1442`
-- **Problem:** body_file and upload sources are opened/read synchronously on a file worker. The operation deadline can stop waiting for that action, but shutdown joins the still-blocked worker without a bound. Reproduced at 956a67a through native Linux GNU verification-profile XSH: a real FIFO with no writer was used in `net.request({method: "POST", url: "http://127.0.0.1:9/", body_file: fifo, timeout: 20ms})`; the Err branch wrote a marker, yet the process remained blocked through a three-second harness limit and required killing/reaping its owned child. Thus the timeout returns but teardown does not complete. Upload shares the source-level mechanism but was not separately executed. The existing synthetic test releases its stall before owner.shutdown, so it cannot detect this failure.
-- **Recommendation:** Admit only supported file descriptor classes and ensure file-backed operations observe cancellation/deadlines. Reject a no-peer FIFO promptly at a nonblocking admission boundary or use cancellable readiness-based I/O; avoid a stat/open race. Make owner shutdown complete after an operation deadline without an external writer, and do not substitute detached permanently blocked workers for cleanup. Add a bounded subprocess regression with an actual FIFO that asserts both the request error and whole-process exit, plus a normal regular-file control.
-- **Fix with:** lifecycle-concurrency, os-boundaries
-- **Effort:** M
-
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
