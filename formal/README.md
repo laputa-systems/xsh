@@ -502,10 +502,9 @@ environment).
 
 Statements:
 
-- stream pipelines over a `Stream` or `Result` source, value-call stages,
-  and every stage but argument-free `where`, `map` and `flat-map` with a
-  closing `count()` or `collect()`, and a `Stream[T]` from anything but a
-  producer (E)
+- pipelines over a `Result` source, value-call stages, and every stage
+  but argument-free `where`, `map` and `flat-map` with a closing `count()` or
+  `collect()`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -806,9 +805,14 @@ of the value's list on in turn; the pipeline gives the list of items that
 reach its end, or their count under a closing `count()`. As the verification
 binary records `a1 b10 a2 b20` and gives `[11,21]` for two `map` stages over
 `[1, 2]`, and `2` for `where { |x| x > 1 } |> count` over `[1, 2, 3]`, so do
-the witnesses, and a stage-by-stage order is rejected. Other stages, value
-calls, `Stream` and `Result` sources and early-stopping stages are outside
-the model.
+the witnesses, and a stage-by-stage order is rejected. A pending stream
+source runs its producer with a sink consumer that carries the stages: each
+yield passes the item through them in the pipeline's scope and gathers what
+it becomes into the stream's entry. As the binary records `1, 20, 1, 21, 7`
+and gives `[0,7]` for `count(2) |> map { |x| trace += [x + 20]; x * 7 }`, so
+do the witnesses, which reject collecting the source first, and a piped
+stream is consumed. Other stages, value calls, `Result` sources and
+early-stopping stages are outside the model.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

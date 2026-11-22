@@ -153,6 +153,7 @@ structure Consumer (world : World Declaration Identity Source) where
   target : Xsh.Syntax.BindingTarget
   body : List Xsh.Syntax.Statement
   sink : Option Nat
+  stages : List Xsh.Syntax.PipeStage
   gathers : Option Nat
 
 /-- A statement runs in an environment, a store, an environment-variable
@@ -890,7 +891,7 @@ def consumerOf {world : World Declaration Identity Source} (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Consumer world :=
   { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
     activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
-    collected := frame.collected, writable := frame.writable, target, body, sink := none, gathers := none }
+    collected := frame.collected, writable := frame.writable, target, body, sink := none, stages := [], gathers := none }
 
 /-- The items a stream table entry gathers. -/
 def gatheringAt {Declaration Identity Source : Type} (streams : List (StreamState Declaration Identity Source)) (slot : Nat) :
@@ -981,6 +982,15 @@ def Frame.gather {world : World Declaration Identity Source} (frame : Frame worl
   match frame.streams[index]? with
   | some (.gathering items) => .normal { frame with streams := frame.streams.set index (.gathering (items ++ [item])) }
   | _ => .stuck
+
+/-- A pipeline gathering the items one yielded item became into its
+stream's entry. -/
+def Frame.gatherAll {world : World Declaration Identity Source} (frame : Frame world) (index : Nat)
+    (out : Value Declaration Identity Source) : Exec world :=
+  match listValues out, frame.streams[index]? with
+  | some items, some (.gathering gathered) =>
+    .normal { frame with streams := frame.streams.set index (.gathering (gathered ++ items)) }
+  | _, _ => .stuck
 
 /-- The consumer `.collect()` pushes for the stream at `index`. -/
 def sinkConsumer {world : World Declaration Identity Source} (frame : Frame world) (index : Nat) : Consumer world :=
@@ -1815,7 +1825,15 @@ mutual
             expression
       | .structuredPipeline input stages =>
         (evalExpr machine fuel frame input).bind fun source next =>
-          runPipeline (stageItems machine fuel) next source stages
+          match pendingStream machine next source with
+          | some (index, some (closure, supplied)) =>
+            (gathered next index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                { next with
+                  streams := next.streams.set index (.gathering [])
+                  consumers := { sinkConsumer next index with stages := (pipelineSplit stages).1 } :: next.consumers }
+                closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2 out last
+          | some (_, none) => finishPipeline (pipelineSplit stages).2 (.list []) next
+          | none => runPipeline (stageItems machine fuel) next source stages
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
@@ -2293,9 +2311,13 @@ mutual
           match next.collected, next.consumers with
           | some gathered, _ => .normal { next with collected := some (gathered ++ [result]) }
           | none, loop :: outer =>
-            match loop.sink with
-            | some index => next.gather index result
-            | none =>
+            match loop.sink, loop.stages with
+            | some index, [] => next.gather index result
+            | some index, stages =>
+              resumeProducer next
+                ((stageItem machine fuel (consumerFrame next loop outer) stages result).toExec fun out after =>
+                  after.gatherAll index out)
+            | none, _ =>
               let consuming := consumerFrame next loop outer
               resumeProducer next
                 (leaveBlock machine fuel consuming
@@ -2315,9 +2337,13 @@ mutual
             | none => .unsupported
           | none, some items, loop :: outer =>
             delegateItems (fun current item =>
-              match loop.sink with
-              | some index => current.gather index item
-              | none =>
+              match loop.sink, loop.stages with
+              | some index, [] => current.gather index item
+              | some index, stages =>
+                resumeProducer current
+                  ((stageItem machine fuel (consumerFrame current loop outer) stages item).toExec fun out after =>
+                    after.gatherAll index out)
+              | none, _ =>
                 resumeProducer current
                   (leaveBlock machine fuel (consumerFrame current loop outer)
                     ((bindTarget machine (consumerFrame current loop outer).enter .immutable loop.target item).andThen
