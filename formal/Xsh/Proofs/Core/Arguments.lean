@@ -246,6 +246,30 @@ theorem argument_check_mutants_rejected :
       droppingExtra [(none, 1), (none, 2), (none, 7)] = none := by
   decide +kernel
 
+def pickLocal : Xsh.Syntax.RawName := name 170 (by decide)
+
+/-- `type Op = proc(left: Int, right: Int) -> Int; let pick: Op = sub;
+pick(7, 2); pick(right: 2, left: 7)`: a local holding a callable value is
+called by name with the callee's own result and its parameter labels, as the
+verification binary prints `5 5`. -/
+def heldCalls : List Xsh.Syntax.Statement :=
+  [declareSub, letOf pickLocal (ident subName),
+    letOf (nth 0) (.call (ident pickLocal) [.positional (int "7"), .positional (int "2")]),
+    letOf (nth 1) (.call (ident pickLocal) [named rightField (int "2"), named leftField (int "7")])]
+
+theorem held_callable_calls :
+    readInt (nth 0) (runArguments heldCalls) = some 5 ∧ readInt (nth 1) (runArguments heldCalls) = some 5 := by
+  decide +kernel
+
+/-- A call that wraps the result as `.call(...)` does gives `Ok(5)`, which is
+not the `Int` the binary prints. -/
+theorem wrapped_held_call_rejected :
+    (match callResult .procedure (.scalar (.integer ⟨5, by decide⟩) : Value Unit Unit Unit) with
+      | .ok _ => true
+      | _ => false) = true ∧
+      readInt (nth 0) (runArguments heldCalls) = some 5 := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Arguments

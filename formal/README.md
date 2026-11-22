@@ -490,7 +490,9 @@ Statements:
 
 Expressions:
 
-- first-class local functions (P)
+- calling a callable value outside the scope where its closure is visible,
+  such as a local function passed to, returned from or stored by another
+  function (P)
 - a `Result[Bool]` condition of a value `if` (P)
 - equality and membership of errors and handles, and `in` on a `Path`
   container (P)
@@ -761,7 +763,9 @@ or to a parameter already filled by position, an unknown label, a missing
 required parameter and an extra positional argument are runtime failures
 that `try` does not capture. The witnesses match the verification binary:
 `sub(right: 2, left: 7)`, `sub(...pair)`, `sub(7, right: 2)`, `total(1,
-@more)` and `total(1, 2, @more, 8)` give `5 7 5 10 20`, `[sub][0].call(7, 2)?`
+@more)` and `total(1, 2, @more, 8)` give `5 7 5 10 20`; a local holding a
+callable value, `let pick: Op = sub`, is called by name with the callee's own
+result, so `pick(7, 2)` and `pick(right: 2, left: 7)` give `5 5`; `[sub][0].call(7, 2)?`
 gives `5`, and `call(1, 2, 7)` and `call(1)` fail with `expected 2 arguments,
 found 3` and `found 1`, escaping `try`. Rust does not compile a named argument
 to a dynamic `.call` and rejects a spread or splice there, where SPEC 6.3

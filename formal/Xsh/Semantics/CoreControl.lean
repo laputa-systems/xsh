@@ -1098,6 +1098,24 @@ def callableKind : Xsh.Syntax.FunctionKind → Option CallableKind
   | .pure => some .pure
   | _ => none
 
+/-- The callable value a local or a binding holds, which a call of that name
+invokes with the callee's own result (SPEC 9.4). -/
+def heldCallable {world : World Declaration Identity Source} (frame : Frame world) (name : Xsh.Syntax.RawName) :
+    Option (Reference Identity .callable) :=
+  match frame.locals.lookup name, frame.environment.cellOf name with
+  | some value, _ =>
+    match value.eraseNominal with
+    | .callable reference _ => some reference
+    | _ => none
+  | none, .ok cell =>
+    match frame.store cell with
+    | some found =>
+      match found.contents.value.eraseNominal with
+      | .callable reference _ => some reference
+      | _ => none
+    | none => none
+  | none, .error _ => none
+
 /-- What `.call(...)` gives (SPEC 9.1): a `Proc` value's call is the proc's
 own `Result` when it returns one and `Ok` of any other value, `Ok(())` for
 none; a `Pure` value's call is its value. -/
@@ -1459,8 +1477,14 @@ mutual
                   else .exec .stuck
                 | none => .exec .stuck
             | _, _, _, _ =>
-              threadStep machine.context (evalExpr machine fuel)
-                (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+              match machine.context.functions name, heldCallable frame name with
+              | none, some reference =>
+                match (machine.callableCell reference).bind fun cell => frame.closures.lookup cell with
+                | some closure => invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments
+                | none => .exec .stuck
+              | _, _ =>
+                threadStep machine.context (evalExpr machine fuel)
+                  (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
               expression
 

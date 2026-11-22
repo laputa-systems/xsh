@@ -426,7 +426,9 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
           apply supported
           simp only [evaluate, step, hl, hf]
         · simp only [evalExpr, closureFree, localClosure_none, hl, hf]
-      · simp only [evalExpr, closureFree, localClosure_none, hl]
+      · exfalso
+        apply supported
+        simp only [evaluate, step, hl]
     | binary operator left right notFallback _ _ =>
       cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr]
     | ident name =>
