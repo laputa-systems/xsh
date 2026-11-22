@@ -68,9 +68,9 @@ acceptance does not wait for this campaign.
   proved on the environment API, not through machine steps. BASE-NUM is
   closed at the value level: Float arithmetic, negation, comparisons and
   conversions are modeled on raw bits in `Xsh.Values.FloatOps`, but the base
-  machine's own steps still evaluate Int only. Float literal rounding is
-  modeled in `Xsh.Values.FloatLiterals`; `parse_float`, the Float math methods
-  and the `float-conversion` error identity are outside the model. BASE-ENV, BASE-STEP, BASE-PROGRESS and
+  machine's own steps still evaluate Int only. Float literal and
+  `parse_float` rounding are modeled in `Xsh.Values.FloatLiterals`; the Float
+  math methods and the `float-conversion` error identity are outside the model. BASE-ENV, BASE-STEP, BASE-PROGRESS and
   BASE-RUNNER close only when their theorems hold for the frozen core's syntax,
   values and host request families. BASE-STEP also closes only when every
   numeric step result satisfies the BASE-NUM meanings: `ArithmeticMeaning`,

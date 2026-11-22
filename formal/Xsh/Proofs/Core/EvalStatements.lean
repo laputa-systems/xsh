@@ -183,6 +183,7 @@ def context : Context Unit Unit Unit where
     matchNoArm := message "match-no-arm"
     bitset := message "integer-bitset"
     floatConversion := message "float-conversion"
+    parseFloat := message "parse-float"
   }
   policy := quietNaNPolicy
   spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"

@@ -247,4 +247,44 @@ theorem hole_float_witnesses :
     holeFloat "e".toList = none ∧ holeFloat "1.5 ".toList = none := by
   decide +kernel
 
+/-- Rust's `char::is_whitespace`: the Unicode `White_Space` code points. -/
+def rustWhitespace (character : Char) : Bool :=
+  let code := character.toNat
+  (0x09 ≤ code ∧ code ≤ 0x0D) || code = 0x20 || code = 0x85 || code = 0xA0 || code = 0x1680 ||
+    (0x2000 ≤ code ∧ code ≤ 0x200A) || code = 0x2028 || code = 0x2029 || code = 0x202F || code = 0x205F ||
+    code = 0x3000
+
+/-- `text.parse_float()` (SPEC 6.11 conversions): the text trimmed of
+whitespace and with every `_` removed, read by Rust's `f64` grammar: an
+optional sign and `inf`, `infinity` or `nan` in any case, or a decimal with an
+optional fraction and exponent rounded as a literal is, overflowing to
+infinity. `none` is the `parse-float` failure. -/
+def parseFloatText (text : String) : Option FloatBits :=
+  let trimmed := ((text.toList.dropWhile rustWhitespace).reverse.dropWhile rustWhitespace).reverse
+  let cleaned := trimmed.filter (· ≠ '_')
+  let (negative, unsigned) : Bool × List Char := match cleaned with
+    | '-' :: rest => (true, rest)
+    | '+' :: rest => (false, rest)
+    | rest => (false, rest)
+  let word := String.ofList (unsigned.map Char.toLower)
+  if cleaned.isEmpty then none
+  else if word = "inf" ∨ word = "infinity" then some (floatInfinity negative)
+  else if word = "nan" then some (if negative then floatNegativeQuietNaN else floatQuietNaN)
+  else holeRounded cleaned
+
+/-- As Rust's `parse_float_text` reads them: padding and `_` removed,
+`inf`, `-Infinity` and `nan` in any case, overflow to infinity, and an empty
+or malformed text refused. -/
+theorem parse_float_witnesses :
+    (parseFloatText "  1_000.5\n").map Fin.val = some 4652011706887700480 ∧
+    (parseFloatText "\u00A01.5").map Fin.val = some 4609434218613702656 ∧
+    (parseFloatText "inf").map Fin.val = some 9218868437227405312 ∧
+    (parseFloatText "-Infinity").map Fin.val = some 18442240474082181120 ∧
+    (parseFloatText "NaN").map Fin.val = some 9221120237041090560 ∧
+    (parseFloatText "1e400").map Fin.val = some 9218868437227405312 ∧
+    (parseFloatText "-0.0").map Fin.val = some 9223372036854775808 ∧
+    parseFloatText "" = none ∧ parseFloatText "   " = none ∧ parseFloatText "abc" = none ∧
+    parseFloatText "1.5x" = none ∧ parseFloatText "." = none := by
+  decide +kernel
+
 end Xsh.Values.FloatLiterals

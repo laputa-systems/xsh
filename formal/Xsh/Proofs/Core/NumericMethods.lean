@@ -23,7 +23,9 @@ call evaluates its receiver, then its arguments in order, and gives the
 BASE-NUM meanings: `.float()` is `IntToFloatMeaning`'s conversion, `.floor()`,
 `.ceil()` and `.round()` are `Ok` of the `ToIntMeaning` result under their
 bounds or `Err` of the conversion error, and the bitset methods are
-`BitsetMeaning`'s result, a negative operand failing with `integer-bitset`. -/
+`BitsetMeaning`'s result, a negative operand failing with `integer-bitset`;
+and `.parse_float()` is `Ok` of `parseFloatText`'s reading or `Err` of the
+parse error. -/
 theorem numeric_methods (errors : Errors Declaration Identity Source) :
     (∀ value : IntValue, numericMethod errors "float" (.scalar (.integer value)) [] = .value (float (intToFloat value)) ∧
       FloatOps.IntToFloatMeaning value (intToFloat value)) ∧
@@ -42,6 +44,10 @@ theorem numeric_methods (errors : Errors Declaration Identity Source) :
         | some value => .value (.ok (integer value))
         | none => .value (.err errors.floatConversion)) ∧
       FloatOps.ToIntMeaning FloatOps.RoundAwayBound bits (FloatOps.floatRound bits)) ∧
+    (∀ text, numericMethod errors "parse_float" (.scalar (.string text)) [] =
+      match Xsh.Values.FloatLiterals.parseFloatText text with
+      | some bits => .value (.ok (float bits))
+      | none => .value (.err errors.parseFloat)) ∧
     (∀ name operator (value mask : IntValue), bitsetOperator name = some operator →
       numericMethod errors name (.scalar (.integer value)) [.scalar (.integer mask)] =
         (match IntegerOps.applyBitset operator value mask with
@@ -51,7 +57,7 @@ theorem numeric_methods (errors : Errors Declaration Identity Source) :
   refine ⟨fun value => ⟨rfl, FloatOps.int_to_float_meaning value⟩,
     fun bits => ⟨rfl, FloatOps.float_to_int_meaning _ _ FloatOps.floor_is_correct bits⟩,
     fun bits => ⟨rfl, FloatOps.float_to_int_meaning _ _ FloatOps.ceil_is_correct bits⟩,
-    fun bits => ⟨rfl, FloatOps.float_to_int_meaning _ _ FloatOps.round_is_correct bits⟩,
+    fun bits => ⟨rfl, FloatOps.float_to_int_meaning _ _ FloatOps.round_is_correct bits⟩, fun _ => rfl,
     fun name operator value mask named => ⟨?_, IntegerOps.apply_bitset_meaning operator value mask⟩⟩
   unfold numericMethod
   simp only [List.map, Value.eraseNominal, named]
@@ -86,6 +92,11 @@ def methodMachine : Machine witnessWorld :=
   { machine with context := { machine.context with
       spelling := methodSpelling
       literals := { machine.context.literals with float := Xsh.Values.FloatLiterals.decimalFloat } } }
+
+/-- `methodMachine` with `parse_float` spelled too. -/
+def parseMachine : Machine witnessWorld :=
+  { methodMachine with context := { methodMachine.context with
+      spelling := fun named => if named = name 227 (by decide) then "parse_float" else methodSpelling named } }
 
 def method (receiver : Xsh.Syntax.Expr) (named : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.Expr) :
     Xsh.Syntax.Expr :=
@@ -138,6 +149,19 @@ theorem negative_bitset_fails :
       (match IntegerOps.bitsetOnMagnitudes .bitAnd ⟨-1, by decide⟩ ⟨1, by decide⟩ with
         | .value result => some result.val
         | .negativeOperand => none) = some 1 := by
+  decide +kernel
+
+def parseMethod : Xsh.Syntax.RawName := name 227 (by decide)
+
+/-- As the verification binary gives `true` for `"  1_000.5\n".parse_float()? == 1000.5`
+and an `Err` for `"abc".parse_float()`. -/
+theorem parse_float_witness :
+    floatBits ((readValue (runStatements parseMachine 40 start
+      [letValue (method (.literal (.string "  1_000.5\n")) parseMethod [])])).bind fun
+        | .ok inner => some inner
+        | _ => none) = some 4652011706887700480 ∧
+      isErr (readValue (runStatements parseMachine 40 start
+        [letValue (method (.literal (.string "abc")) parseMethod [])])) = true := by
   decide +kernel
 
 /-- Rounding `-2.5` with ties to even gives `-2`; the model rounds away from

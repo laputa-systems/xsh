@@ -15207,8 +15207,8 @@
       "declaration": "Xsh.Proofs.Core.NumericMethods.numeric_methods",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "SPEC 4.2, 4.3 and 6.3 numeric methods: .float() gives IntToFloatMeaning's conversion; .floor(), .ceil() and .round() give Ok of the ToIntMeaning result under FloorBound, CeilBound and RoundAwayBound or Err of the conversion error; .bit_and, .bit_or and .clear_bits give BitsetMeaning's result, a negative operand failing with the runtime integer-bitset; the machine evaluates the receiver, then the arguments in order.",
-      "boundary": "Other methods, including the Float math methods and parse_float, are not modelled; the conversion error's identity is the context's value. Witnesses follow the verification binary's output on named programs; it does not close BASE-STEP and claims no Rust conformance."
+      "scope": "SPEC 4.2, 4.3 and 6.3 numeric methods: .float() gives IntToFloatMeaning's conversion; .floor(), .ceil() and .round() give Ok of the ToIntMeaning result under FloorBound, CeilBound and RoundAwayBound or Err of the conversion error; .bit_and, .bit_or and .clear_bits give BitsetMeaning's result, a negative operand failing with the runtime integer-bitset; .parse_float() gives Ok of parseFloatText's reading, Rust's trimmed, underscore-free f64 grammar, or Err of the parse error; the machine evaluates the receiver, then the arguments in order.",
+      "boundary": "Other methods, including the Float math methods, are not modelled; the sign of a NaN parse_float reads follows its text, which equality cannot observe; the conversion error's identity is the context's value. Witnesses follow the verification binary's output on named programs; it does not close BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",

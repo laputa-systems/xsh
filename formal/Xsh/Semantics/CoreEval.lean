@@ -34,6 +34,8 @@ structure Errors (Declaration Identity Source : Type) where
   bitset : Value Declaration Identity Source
   /-- The error a Float to Int conversion's `Err` holds (SPEC 4.3). -/
   floatConversion : Value Declaration Identity Source
+  /-- The error `parse_float`'s `Err` holds. -/
+  parseFloat : Value Declaration Identity Source
   /-- A `match` whose arms all fail to select the subject (SPEC 6.8). -/
   matchNoArm : Value Declaration Identity Source
 
@@ -540,8 +542,9 @@ def bitsetOperator : String → Option IntegerOps.BitsetOp
 /-- The numeric conversion and bitset methods (SPEC 4.2, 4.3): `.float()` on
 an `Int`; `.floor()`, `.ceil()` and `.round()` on a `Float`, each `Ok` of the
 `Int` or `Err` of the conversion error when the value is NaN, infinite or out
-of range; and `.bit_and`, `.bit_or` and `.clear_bits` on non-negative `Int`s,
-a negative operand failing with `integer-bitset`. -/
+of range; `.parse_float()` on a `Str`, `Ok` of its reading or `Err` of the
+parse error; and `.bit_and`, `.bit_or` and `.clear_bits` on non-negative
+`Int`s, a negative operand failing with `integer-bitset`. -/
 def numericMethod (errors : Errors Declaration Identity Source) (name : String)
     (receiver : Value Declaration Identity Source) (arguments : List (Value Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
@@ -554,6 +557,10 @@ def numericMethod (errors : Errors Declaration Identity Source) (name : String)
   | "floor", .scalar (.float bits), [] => converted (floatFloor bits)
   | "ceil", .scalar (.float bits), [] => converted (floatCeil bits)
   | "round", .scalar (.float bits), [] => converted (floatRound bits)
+  | "parse_float", .scalar (.string text), [] =>
+    match Xsh.Values.FloatLiterals.parseFloatText text with
+    | some bits => .value (.ok (float bits))
+    | none => .value (.err errors.parseFloat)
   | method, .scalar (.integer value), [.scalar (.integer mask)] =>
     match bitsetOperator method with
     | some operator =>
@@ -564,7 +571,7 @@ def numericMethod (errors : Errors Declaration Identity Source) (name : String)
   | _, _, _ => .unsupported
 
 def isNumericMethod : String → Bool
-  | "float" | "floor" | "ceil" | "round" | "bit_and" | "bit_or" | "clear_bits" => true
+  | "float" | "floor" | "ceil" | "round" | "bit_and" | "bit_or" | "clear_bits" | "parse_float" => true
   | _ => false
 
 def negativeLiteral : Xsh.Syntax.Expr → Bool

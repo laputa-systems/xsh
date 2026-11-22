@@ -501,7 +501,6 @@ Expressions:
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `$NAME` and `$PATH` reads (E), `$?` (E)
-- `parse_float` (P)
 
 
 Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
@@ -659,7 +658,8 @@ order; `.float()` is `IntToFloatMeaning`'s conversion, `.floor()`, `.ceil()`
 and `.round()` are `Ok` of the `ToIntMeaning` result under their bounds or
 `Err` of the conversion error, and `.bit_and`, `.bit_or` and `.clear_bits` are
 `BitsetMeaning`'s result, a negative operand failing with the runtime
-`integer-bitset` that `try` does not capture. Its witnesses follow the
+`integer-bitset` that `try` does not capture; `.parse_float()` is `Ok` of
+`parseFloatText`'s reading or `Err` of the parse error. Its witnesses follow the
 verification binary's `true 3 -3 2 3`, `true` and bitset results, with Float
 literals read by `decimalFloat`, and reject magnitude bitsets and ties-to-even
 rounding.
@@ -956,8 +956,12 @@ it, and keeps a text hole's reading finite. Its witnesses are the bits Rust's
 `-1.5e3`, `7`, `1.`, `.5` and `-0` against its refusals `nan`, `inf`, `1e999`
 and `1.5 `; truncation is rejected. A context whose `literals.float` is
 `decimalFloat` gives Float literals that meaning; the expression contexts take
-the lexer's reading as a parameter. Outside the model: `parse_float`, the
-Float math methods such as `atan2` and `format_number`, and the identity of the
+the lexer's reading as a parameter. `parseFloatText` reads `parse_float`'s
+text as Rust's `parse_float_text` does: trimmed of Unicode whitespace, every
+`_` removed, `inf`, `infinity` and `nan` in any case, otherwise a decimal
+rounded as a literal is, overflowing to infinity; the witnesses check padded
+and underscored text, the special words, overflow, `-0.0` and four refusals.
+Outside the model: the Float math methods such as `atan2` and `format_number`, and the identity of the
 `float-conversion` error, which the conversions collapse to `none`. The model
 claims no Rust or hardware conformance. Witnesses that evaluate binary64
 rounding with `decide` raise `maxRecDepth` to 10000, because `Nat.log2`
