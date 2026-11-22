@@ -390,6 +390,15 @@ theorem threadArguments_refines {world : World Declaration Identity Source} (spe
            · exact valued_bind_refines (threadArguments_refines spelling each after rest) fun _ _ => valued_refl _
            · exact valued_refl _)
 
+theorem numericCall_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    Valued.Refines (numericCall context evaluate frame receiver name arguments)
+      (numericCall context evaluate' frame receiver name arguments) :=
+  valued_bind_refines (each frame receiver) fun _ after =>
+    valued_bind_refines (threadArguments_refines _ each after arguments) fun _ _ => valued_refl _
+
 theorem bindSlots_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -643,6 +652,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
+          | exact numericCall_refines _ inner.expr _ _ _ _
           | refine valued_bind_refines (threadEntries_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (threadArguments_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines ?_ fun _ _ => ?_
@@ -1067,6 +1077,17 @@ theorem threadArguments_persists {world : World Declaration Identity Source} (sp
                persists_refl last.store
            · exact vkeeps_exec fun _ present => by cases present)
 
+theorem numericCall_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    VKeeps frame.store (numericCall context evaluate frame receiver name arguments) :=
+  vbind_persists (each frame receiver) fun _ after =>
+    vbind_persists (threadArguments_persists _ each after arguments) fun _ last => by
+      split
+      · exact fromEval_persists _ _
+      · exact vkeeps_exec fun _ present => by cases present
+
 theorem bindSlots_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1345,6 +1366,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
     | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
+    | exact numericCall_persists _ inner.expr _ _ _ _
     | refine vbind_persists (threadEntries_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (threadArguments_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists ?_ fun _ _ => ?_
@@ -1836,6 +1858,17 @@ theorem threadArguments_restores {world : World Declaration Identity Source} (sp
            · exact vbind_restores (threadArguments_restores spelling each after rest) fun _ _ => ⟨rfl, rfl⟩
            · exact vrestores_none rfl)
 
+theorem numericCall_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    VRestores frame (numericCall context evaluate frame receiver name arguments) :=
+  vbind_restores (each frame receiver) fun _ after =>
+    vbind_restores (threadArguments_restores _ each after arguments) fun _ last => by
+      split
+      · exact fromEval_restores _ _
+      · exact vrestores_none rfl
+
 theorem bindSlots_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -2035,6 +2068,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine vbind_restores (fromEval_restores _ _) fun _ _ => ?_
+  | exact numericCall_restores _ inner.expr _ _ _ _
   | refine vbind_restores (threadEntries_restores _ inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_) fun _ _ => ?_
@@ -2052,6 +2086,8 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores ?_ fun _ _ => ?_
   | split))
 
+-- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.
+set_option maxHeartbeats 400000 in
 theorem restoring_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (inner : Restoring machine fuel) :
     ∀ frame expression, VRestores frame (evalExpr machine (fuel + 1) frame expression) := by

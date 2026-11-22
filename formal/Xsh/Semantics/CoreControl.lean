@@ -907,6 +907,17 @@ def Supplied.positionalValue : Supplied Declaration Identity Source → Option (
   | .positional value => some value
   | .named _ _ => none
 
+/-- A numeric method call (SPEC 6.3): the receiver evaluates first, then each
+argument once in written order. -/
+def numericCall {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) (receiver : Xsh.Syntax.Expr)
+    (name : String) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+  (evaluate frame receiver).bind fun target after =>
+    (threadArguments context.spelling evaluate after arguments).bind fun supplied last =>
+      match supplied.mapM Supplied.positionalValue with
+      | some values => fromEval last (numericMethod context.errors name target values)
+      | none => .exec .unsupported
+
 def Supplied.namedValue : Supplied Declaration Identity Source → Option (String × Value Declaration Identity Source)
   | .positional _ => none
   | .named label value => some (label, value)
@@ -1448,9 +1459,11 @@ mutual
                       | .mk _ callable _ _ _ _ _ => .value (callResult callable result) final
                 | none => .exec .stuck
               | _ => .exec .unsupported
-          | _ =>
-            threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
-              expression
+          | name =>
+            if isNumericMethod name then numericCall machine.context (evalExpr machine fuel) frame receiver name arguments
+            else
+              threadStep machine.context (evalExpr machine fuel)
+                (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
         | none, some closure => invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments

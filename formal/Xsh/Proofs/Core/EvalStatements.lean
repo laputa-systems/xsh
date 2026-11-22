@@ -181,6 +181,8 @@ def context : Context Unit Unit Unit where
     missingField := message "missing-field"
     mapMissing := message "missing-key"
     matchNoArm := message "match-no-arm"
+    bitset := message "integer-bitset"
+    floatConversion := message "float-conversion"
   }
   policy := quietNaNPolicy
   spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"

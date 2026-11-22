@@ -501,8 +501,7 @@ Expressions:
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `$NAME` and `$PATH` reads (E), `$?` (E)
-- `parse_float`, method calls behind
-  `IntToFloatMeaning`, `ToIntMeaning` and `BitsetMeaning` (P)
+- `parse_float` (P)
 
 
 Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
@@ -651,6 +650,19 @@ verification binary prints `3` for an exported `pure` called above its
 declaration and `14` for `twice(seven)` over an exported `let`; the witnesses
 check both shapes and reject a script that does not hoist an exported
 function. A module's export interface and loading are not modelled.
+
+The `numeric_methods` fragment root, in
+[`Proofs/Core/NumericMethods.lean`](Xsh/Proofs/Core/NumericMethods.lean),
+gives the machine the numeric method calls whose values BASE-NUM describes
+(SPEC 4.2, 4.3, 6.3). The receiver evaluates first, then the arguments in
+order; `.float()` is `IntToFloatMeaning`'s conversion, `.floor()`, `.ceil()`
+and `.round()` are `Ok` of the `ToIntMeaning` result under their bounds or
+`Err` of the conversion error, and `.bit_and`, `.bit_or` and `.clear_bits` are
+`BitsetMeaning`'s result, a negative operand failing with the runtime
+`integer-bitset` that `try` does not capture. Its witnesses follow the
+verification binary's `true 3 -3 2 3`, `true` and bitset results, with Float
+literals read by `decimalFloat`, and reject magnitude bitsets and ties-to-even
+rounding.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

@@ -30,6 +30,10 @@ structure Errors (Declaration Identity Source : Type) where
   indexOutOfRange : Value Declaration Identity Source
   missingField : Value Declaration Identity Source
   mapMissing : Value Declaration Identity Source
+  /-- A bitset method given a negative receiver or mask (SPEC 4.2). -/
+  bitset : Value Declaration Identity Source
+  /-- The error a Float to Int conversion's `Err` holds (SPEC 4.3). -/
+  floatConversion : Value Declaration Identity Source
   /-- A `match` whose arms all fail to select the subject (SPEC 6.8). -/
   matchNoArm : Value Declaration Identity Source
 
@@ -526,6 +530,42 @@ def sliceOf (base : Value Declaration Identity Source) (low high : Option (Value
     | none, .scalar (.bytes data) => .value (.scalar (.bytes (sliceItems data start finish)))
     | none, _ => .unsupported
   | _, _ => .unsupported
+
+def bitsetOperator : String → Option IntegerOps.BitsetOp
+  | "bit_and" => some .bitAnd
+  | "bit_or" => some .bitOr
+  | "clear_bits" => some .clearBits
+  | _ => none
+
+/-- The numeric conversion and bitset methods (SPEC 4.2, 4.3): `.float()` on
+an `Int`; `.floor()`, `.ceil()` and `.round()` on a `Float`, each `Ok` of the
+`Int` or `Err` of the conversion error when the value is NaN, infinite or out
+of range; and `.bit_and`, `.bit_or` and `.clear_bits` on non-negative `Int`s,
+a negative operand failing with `integer-bitset`. -/
+def numericMethod (errors : Errors Declaration Identity Source) (name : String)
+    (receiver : Value Declaration Identity Source) (arguments : List (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let converted := fun (result : Option IntValue) =>
+    match result with
+    | some value => Result.value (Value.ok (integer value))
+    | none => Result.value (Value.err errors.floatConversion)
+  match name, receiver.eraseNominal, arguments.map Value.eraseNominal with
+  | "float", .scalar (.integer value), [] => .value (float (intToFloat value))
+  | "floor", .scalar (.float bits), [] => converted (floatFloor bits)
+  | "ceil", .scalar (.float bits), [] => converted (floatCeil bits)
+  | "round", .scalar (.float bits), [] => converted (floatRound bits)
+  | method, .scalar (.integer value), [.scalar (.integer mask)] =>
+    match bitsetOperator method with
+    | some operator =>
+      match IntegerOps.applyBitset operator value mask with
+      | .value result => .value (integer result)
+      | .negativeOperand => .failure (.runtime errors.bitset)
+    | none => .unsupported
+  | _, _, _ => .unsupported
+
+def isNumericMethod : String → Bool
+  | "float" | "floor" | "ceil" | "round" | "bit_and" | "bit_or" | "clear_bits" => true
+  | _ => false
 
 def negativeLiteral : Xsh.Syntax.Expr → Bool
   | .unary .neg (.literal (.integer _)) => true
