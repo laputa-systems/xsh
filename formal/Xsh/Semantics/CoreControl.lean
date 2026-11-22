@@ -658,6 +658,18 @@ def propagate (value : Value Declaration Identity Source) :
   | .err error => .failure (.raised error)
   | _ => .unsupported
 
+/-- The receiver of `?.` or `?[` (SPEC 6.7): `none` for a `null`, which makes
+the whole operation `null`; a `Result` propagates as `?` does; anything else
+is the receiver itself. An unguarded receiver is itself. -/
+def hopOf (guarded : Bool) (receiver : Value Declaration Identity Source) :
+    Result Declaration Identity Source (Option (Value Declaration Identity Source)) :=
+  if guarded then
+    match receiver.eraseNominal with
+    | .scalar .null => .value none
+    | .ok _ | .err _ => (propagate receiver).bind fun present => .value (some present)
+    | _ => .value (some receiver)
+  else .value (some receiver)
+
 /-- `try { ... }` (SPEC 8.8): a raised failure becomes `Err`, normal completion
 `Ok` of the tail; runtime and type failures, and every other exit, pass on. -/
 def capture {world : World Declaration Identity Source} : Valued world → Valued world
@@ -1230,6 +1242,34 @@ mutual
         match frame.item with
         | some value => .value value frame
         | none => .exec .unsupported
+      | .nullSafeField base name =>
+        (evalExpr machine fuel frame base).bind fun receiver next =>
+          (fromEval next (hopOf true receiver)).bind fun hop after =>
+            match hop with
+            | none => .value (.scalar .null) after
+            | some present => fromEval after (fieldOf machine.context name present)
+      | .index base key true =>
+        (evalExpr machine fuel frame base).bind fun receiver next =>
+          (fromEval next (hopOf true receiver)).bind fun hop after =>
+            match hop with
+            | none => .value (.scalar .null) after
+            | some present =>
+              (evalExpr machine fuel after key).bind fun selector last =>
+                fromEval last (indexAt machine.context (negativeLiteral key) present selector)
+      | .slice base start finish guarded =>
+        (evalExpr machine fuel frame base).bind fun receiver next =>
+          (fromEval next (hopOf guarded receiver)).bind fun hop after =>
+            match hop with
+            | none => .value (.scalar .null) after
+            | some present =>
+              (match start with
+                | none => Outcome.value (α := Option (Value Declaration Identity Source)) none after
+                | some bound => (evalExpr machine fuel after bound).bind fun low middle => Outcome.value (some low) middle).bind
+                fun low middle =>
+                  (match finish with
+                    | none => Outcome.value (α := Option (Value Declaration Identity Source)) none middle
+                    | some bound => (evalExpr machine fuel middle bound).bind fun high last => Outcome.value (some high) last).bind
+                    fun high last => fromEval last (sliceOf present low high)
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
           | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ =>
         runValue machine fuel frame expression

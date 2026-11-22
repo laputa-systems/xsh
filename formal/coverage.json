@@ -15139,6 +15139,15 @@
       "boundary": "Exhaustiveness is the checker's and is not modelled; a guarded arm's behaviour is checked by witnesses, not stated universally; patterns outside matchPattern are unsupported. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Slices.slices_and_guarded_hops",
+      "module": "Xsh.Proofs.Core.Slices",
+      "declaration": "Xsh.Proofs.Core.Slices.slices_and_guarded_hops",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 6.6 slices and SPEC 6.7 optional chaining: a slice of a List, Str (by Unicode scalar value) or Bytes is a contiguous run of it whose length is its clamped end less its clamped start, a negative bound counts from the end, an omitted bound is the start or the end; a guarded field, index or slice on a null receiver is null without evaluating its index or bounds, an Err receiver raises its error and an Ok receiver gives its payload as ? does, and any other receiver runs the ordinary operation.",
+      "boundary": "Guarded method calls are outside the model, as are methods; that a slice's result has its receiver's type is not stated; the receiver's static type, which decides a Result[T?] hop, is approximated by its value. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

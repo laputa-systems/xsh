@@ -601,8 +601,10 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (invokeWith_refines machine inner.expr inner.call _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
+          | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (threadArguments_refines _ inner.expr _ _) fun _ _ => ?_
+          | refine valued_bind_refines ?_ fun _ _ => ?_
           | split)
       call := fun caller scope defining parameters writable body kind => by
         simp only [callBlock]
@@ -1248,8 +1250,10 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (invokeWith_persists machine inner.expr inner.call _ _ _) fun _ _ => ?_
     | refine vbind_persists (inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
+    | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
     | refine vbind_persists (threadArguments_persists _ inner.expr _ _) fun _ _ => ?_
+    | refine vbind_persists ?_ fun _ _ => ?_
     | split)
 
 theorem persisting_value {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
@@ -1885,6 +1889,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
+  | refine vbind_restores (fromEval_restores _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_) fun _ _ => ?_
   | refine vbind_restores (inner.expr _ _) fun _ _ => ?_
@@ -1897,6 +1902,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
   | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
   | refine iterate_restores ?_ fun _ => ?_
+  | refine vbind_restores ?_ fun _ _ => ?_
   | split))
 
 theorem restoring_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)

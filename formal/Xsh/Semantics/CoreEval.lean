@@ -85,6 +85,7 @@ def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Id
   | .float lexeme => match literals.float lexeme with | some bits => .value (float bits) | none => .stuck
   | .duration lexeme => match literals.duration lexeme with | some value => .value (duration value) | none => .stuck
   | .string value => .value (.scalar (.string value))
+  | .bytes value => .value (.scalar (.bytes value))
   | _ => .unsupported
 
 def integerResult (errors : Errors Declaration Identity Source) :
@@ -415,6 +416,40 @@ def indexAt (context : Context Declaration Identity Source) (fromEnd : Bool)
       | some found => .value found
       | none => .failure (.runtime context.errors.missingField)
     | _, _ => .unsupported
+
+/-- A slice bound counted from the end when negative, clamped into
+`[0, length]` (SPEC 6.6). -/
+def clampBound (length : Nat) (bound : Int) : Nat :=
+  let shifted : Int := if bound < 0 then (length : Int) + bound else bound
+  (max 0 (min shifted (length : Int))).toNat
+
+/-- The items from the clamped start up to the clamped end; an end before the
+start gives no items. -/
+def sliceItems {α : Type} (items : List α) (low high : Option Int) : List α :=
+  let start := clampBound items.length (low.getD 0)
+  let finish := clampBound items.length (high.getD items.length)
+  (items.drop start).take (finish - start)
+
+/-- An omitted bound, or an `Int` one. -/
+def boundOf : Option (Value Declaration Identity Source) → Option (Option Int)
+  | none => some none
+  | some bound =>
+    match bound.eraseNominal with
+    | .scalar (.integer value) => some (some value.val)
+    | _ => none
+
+/-- `value[low..high]` (SPEC 6.6) on a `List`, a `Str` by Unicode scalar
+values, or `Bytes` by bytes. -/
+def sliceOf (base : Value Declaration Identity Source) (low high : Option (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match boundOf low, boundOf high with
+  | some start, some finish =>
+    match listValues base, base.eraseNominal with
+    | some items, _ => .value (.list (sliceItems items start finish))
+    | none, .scalar (.string text) => .value (.scalar (.string (String.ofList (sliceItems text.toList start finish))))
+    | none, .scalar (.bytes data) => .value (.scalar (.bytes (sliceItems data start finish)))
+    | none, _ => .unsupported
+  | _, _ => .unsupported
 
 def negativeLiteral : Xsh.Syntax.Expr → Bool
   | .unary .neg (.literal (.integer _)) => true

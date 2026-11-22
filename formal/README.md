@@ -492,7 +492,6 @@ Expressions:
 
 - first-class local functions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
-- slices, guarded `?.` and `?[]` (P)
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
 - record spread, shorthand, computed and path fields (P)
@@ -574,6 +573,22 @@ block body gives its tail, and a statement `match` over `3` with only a `1`
 arm exits 3 with `match-no-arm`. The mutants it rejects ignore guards or bind
 the captures in the enclosing scope. Exhaustiveness belongs to the checker
 and is not modelled.
+
+The `slices_and_guarded_hops` fragment root, in
+[`Proofs/Core/Slices.lean`](Xsh/Proofs/Core/Slices.lean), adds slices
+(SPEC 6.6) and the guarded `?.field`, `?[index]` and `?[low..high]`
+(SPEC 6.7). A slice of a `List`, a `Str` by Unicode scalar values or `Bytes`
+by bytes is a contiguous run of it; a negative bound counts from the end,
+both bounds are clamped into the value, an omitted bound is its start or end,
+and an end before the start gives an empty value. A guarded operation on a
+`null` receiver is `null` without evaluating its index or bounds, a `Result`
+receiver propagates as `?` does, and any other receiver runs the ordinary
+operation. Its witnesses follow the verification binary: `xs[-3..]`,
+`xs[2..1]`, `xs[-10..10]` and `xs[..-1]`, `"aé🦀"[1..3]` as `é🦀`,
+`"hello"[..-1]` as `hell`, `b"abcdef"[2..5]`, and `null` receivers whose index
+is a division by zero. The mutants it rejects evaluate the index before
+testing the receiver, or read a negative start as zero. A guarded method call
+is outside the model, as methods are.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
