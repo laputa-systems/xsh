@@ -495,7 +495,7 @@ Expressions:
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
 - named, spread and splice arguments, methods and value pipelines (P)
-- `.require` (P), `ctx` error contexts (P)
+- the contextual `.require()` (P), `ctx` error contexts (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `$NAME` and `$PATH` reads (E), `$?` (E)
@@ -613,6 +613,18 @@ then cannot fail. Its witnesses follow the verification binary on
 `while ok(i < 2)` and an `Err` reached through `ok(true) and bad()`. The
 mutants it rejects test both operands before combining them, or accept only
 plain `Bool` operands. A value `if` still takes plain `Bool` conditions.
+
+The `require_expression` fragment root, in
+[`Proofs/Core/Requires.lean`](Xsh/Proofs/Core/Requires.lean), connects the
+machine's `value.require(T)` to the validation model (SPEC 5.3). The value is
+evaluated once and given to `Require.requireValue` with the `keep` field
+policy, on the machine's membership world and contract decisions, for the
+checker's `T`. So the closed VAL-REQUIRE theorem `recursive_require` applies
+to what the machine gives: each `Ok` is a member of `T`, and each `Err` is
+the schema error of the conversion's failure. The witnesses give
+`7.require(Int)` as `Ok(7)` and `"x".require(Int)` as a schema error, and
+reject a `.require` that passes its value through. The contextual
+`.require()` needs the checker's expected type and is not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

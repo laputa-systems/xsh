@@ -3382,6 +3382,8 @@ def machine : Machine witnessWorld where
     | .unknownName label => .scalar (.string ("unknown argument " ++ label))
     | .duplicate label => .scalar (.string ("argument " ++ label ++ " supplied twice"))
   uninitialized := fun _ => .scalar (.string "unknown captured name")
+  enums := ⟨fun _ => none⟩
+  schemaFamily := ()
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 

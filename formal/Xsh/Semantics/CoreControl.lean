@@ -1,4 +1,5 @@
 import Xsh.Semantics.CoreEval
+import Xsh.Validation.Core.Require
 
 namespace Xsh.Semantics.CoreControl
 
@@ -61,6 +62,11 @@ structure Machine (world : World Declaration Identity Source) where
   /-- The runtime error a callable raises when it reads a top-level binding
   whose statement has not run yet (SPEC 3.1). -/
   uninitialized : Xsh.Syntax.RawName → Value Declaration Identity Source
+  /-- The wire strings of Str-backed enums, which `.require` converts. -/
+  enums : WireEnums Declaration
+  /-- The checker's declaration of the error family a failed `.require` raises
+  its schema error in (SPEC 5.3). -/
+  schemaFamily : Declaration
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -704,6 +710,14 @@ def threadFields {world : World Declaration Identity Source} (context : Context 
       (threadFields context evaluate after rest).bind fun fields last => .value ((context.spelling name, value) :: fields) last
   | _, _ :: _ => .exec .unsupported
 
+/-- `value.require(T)` (SPEC 5.3), on the machine's membership world and
+contract decisions: the validation model's `requireValue`, which keeps extra
+record fields. -/
+def requireValue {world : World Declaration Identity Source} (machine : Machine world)
+    (type : ValueType Declaration) (candidate : Value Declaration Identity Source) : Value Declaration Identity Source :=
+  Xsh.Validation.Core.Require.requireValue ⟨world.membership, machine.decisions.contracts, machine.enums⟩
+    machine.schemaFamily .keep type candidate
+
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
 of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
@@ -1313,6 +1327,11 @@ mutual
             match braceValue entries with
             | some value => .value value after
             | none => .exec .unsupported
+      | .require value (some schema) =>
+        (evalExpr machine fuel frame value).bind fun candidate next =>
+          match machine.typeOf schema with
+          | some type => .value (requireValue machine type candidate) next
+          | none => .exec .unsupported
       | .nullSafeField base name =>
         (evalExpr machine fuel frame base).bind fun receiver next =>
           (fromEval next (hopOf true receiver)).bind fun hop after =>

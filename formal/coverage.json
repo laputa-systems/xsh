@@ -15166,6 +15166,15 @@
       "boundary": "The condition of a value if keeps plain Bool conditions; the checker's check.if-condition, check.try-context and effect requirements are not modelled. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Requires.require_expression",
+      "module": "Xsh.Proofs.Core.Requires",
+      "declaration": "Xsh.Proofs.Core.Requires.require_expression",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 5.3 value.require(T): the machine evaluates the value once and gives the validation model's requireValue with the keep field policy for the checker's T, so by the closed VAL-REQUIRE theorem every Ok it gives is a member of T in the machine's membership world and every Err is the schema error of the conversion's failure.",
+      "boundary": "The contextual .require() needs the checker's expected type and is not modelled; T comes from the machine's typeOf oracle. Witnesses check Int; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",
