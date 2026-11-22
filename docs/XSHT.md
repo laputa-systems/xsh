@@ -211,6 +211,11 @@ rechecked; a fix is declined if it adds checker diagnostics or drops comments.
 that command. `xsht lint --list` prints the catalog used by the generated
 [lint reference](reference/lints.md).
 
+`lint.unused-callable` reports an unexported callable that no bundle entry
+reaches. A `proc main` or `cli main` is an entry in every module, including one
+the bundle imports, because the same file may also run as a script; native
+tests are entries only in the entry script.
+
 `lint.unused-const` reports a private top-level constant that is never read.
 Exported constants are part of the module interface and are not reported by this rule.
 

@@ -313,3 +313,15 @@ test test_lint_reports_unused_private_const { |ctx|
   let reported = lint(file, ["--only", "lint.unused-const"])?
   assert headers(reported.stderr) == ["warn[lint.unused-const]: unused constant `unused`"], reported.stderr
 }
+
+test test_lint_keeps_the_main_of_a_module_that_is_also_run_directly { |ctx|
+  let root = test.temp_dir(ctx, name: "dual-use-main")?
+  fp"{root}/helper.xsh".write(
+    "##! Library that also runs as a command.\n## Exposes the shared API.\nexport pure public_api() -> Int {\n  return 1\n}\n\npure cli_helper() -> Int {\n  return 2\n}\n\nproc main() {\n  print cli_helper()\n}\n",
+  )
+  let entry = fp"{root}/entry.xsh"
+  entry.write("use helper\n\nproc main() {\n  print helper.public_api()\n}\n")
+  let reported = lint(entry, ["--only", "lint.unused-callable"])?
+  assert reported.status.exited_with(0), reported.stderr
+  assert headers(reported.stderr) == [], reported.stderr
+}

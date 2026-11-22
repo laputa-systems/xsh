@@ -358,16 +358,18 @@ impl<'a> CallableReachability<'a> {
         let mut callable_indices = FxHashMap::default();
         for (index, callable) in self.callables.iter().enumerate() {
             callable_indices.insert(callable.definition, index);
+            // A module's `main` is its entry when the module is run directly,
+            // even where the bundle imports it; tests run only in the entry.
             if callable.exported
-                || (callable.namespace == 0
-                    && callable.proc_entry
+                || (callable.proc_entry
                     && (callable.name == "main"
                         // A subcommand `cli main` entry is named `main WORD...`.
                         || callable.name.as_str().starts_with("main ")
-                        || self
-                            .arena
-                            .function_def(callable.definition)
-                            .test_declaration))
+                        || (callable.namespace == 0
+                            && self
+                                .arena
+                                .function_def(callable.definition)
+                                .test_declaration)))
             {
                 root_targets.insert(index);
             }
