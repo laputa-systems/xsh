@@ -1118,6 +1118,15 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
   | _ => (body, none, ending)
 
+/-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
+`Ok` giving its collection and an `Err` raising its error. -/
+def pipelineSource (source : Value Declaration Identity Source) :
+    Except (Value Declaration Identity Source) (Value Declaration Identity Source) :=
+  match source.eraseNominal with
+  | .ok inner => .ok inner
+  | .err error => .error error
+  | _ => .ok source
+
 /-- A `take(n)` count, evaluated once before the source is pulled. -/
 def pipelineLimit {world : World Declaration Identity Source}
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) :
@@ -1866,7 +1875,10 @@ mutual
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
             expression
       | .structuredPipeline input stages =>
-        (evalExpr machine fuel frame input).bind fun source next =>
+        (evalExpr machine fuel frame input).bind fun result next =>
+          match pipelineSource result with
+          | .error error => .exec (.failed (.raised error) next)
+          | .ok source =>
           (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
             match pendingStream machine after source, limit with
             | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)

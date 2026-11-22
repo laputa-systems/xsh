@@ -22,7 +22,8 @@ stage |> ...` passes each item through every stage before the next item
 starts, a list source's items in order and a pending stream's as its
 producer yields them to a sink consumer that carries the stages, gathering
 what each item becomes into the stream's entry and closing the stream at the
-end. A stage block binds the item to its parameter or, without one, to `.`,
+end; a source inside one outer `Result` is its `Ok` collection, and an
+`Err` raises its error. A stage block binds the item to its parameter or, without one, to `.`,
 in its own scope, and its tail is its value; `where` keeps the item when that
 value is `true`, `map` replaces it and `flat-map` passes each item of the
 value's list on in turn. A `take(n)` ending the transformations is evaluated
@@ -35,19 +36,22 @@ keeps every cell already in the store. -/
 theorem structured_pipelines [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
     (∀ input stages, evalExpr machine (fuel + 1) frame (.structuredPipeline input stages) =
-      (evalExpr machine fuel frame input).bind fun source next =>
-        (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
-          match pendingStream machine after source, limit with
-          | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)
-          | some (index, some (closure, supplied)), _ =>
-            (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
-                { after with
-                  streams := after.streams.set index (.gathering [])
-                  consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
-                    after.consumers }
-                closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
-          | some (_, none), _ => finishPipeline (pipelineSplit stages).2.2 (.list []) after
-          | none, _ => runPipeline (stageItems machine fuel) after source stages limit) ∧
+      (evalExpr machine fuel frame input).bind fun result next =>
+        match pipelineSource result with
+        | .error error => .exec (.failed (.raised error) next)
+        | .ok source =>
+          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
+            match pendingStream machine after source, limit with
+            | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some (closure, supplied)), _ =>
+              (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
+                  { after with
+                    streams := after.streams.set index (.gathering [])
+                    consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
+                      after.consumers }
+                  closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => finishPipeline (pipelineSplit stages).2.2 (.list []) after
+            | none, _ => runPipeline (stageItems machine fuel) after source stages limit) ∧
     (∀ source stages limit items, listValues source = some items →
       runPipeline (stageItems machine fuel) frame source stages limit =
         (stageItems machine fuel frame (pipelineSplit stages).1 limit items).bind fun out last =>
@@ -65,6 +69,8 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
               | .list tail => .value (.list (head ++ tail)) last
               | _ => .exec .stuck
         | _ => .exec .stuck) ∧
+    (∀ (inner error : Value Declaration Identity Source),
+      pipelineSource (.ok inner) = .ok inner ∧ pipelineSource (.err error) = .error error) ∧
     (∀ bound count, bound ≤ count → afterItems (some bound) count = none) ∧
     (∀ (gathering : Frame world) index bound out items gathered, listValues out = some items →
       gathering.streams[index]? = some (.gathering gathered) → bound ≤ gathered.length + items.length →
@@ -86,6 +92,7 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
   refine ⟨fun input stages => ?_, fun source stages limit items listed => by simp only [runPipeline, listed],
     fun stages items => by cases items <;> rfl,
     fun stages item rest limit nonzero => ?_,
+    fun _ _ => ⟨rfl, rfl⟩,
     fun bound count reached => by simp [afterItems, reached],
     fun gathering index bound out items gathered listed held reached => by
       simp only [Frame.gatherAll, listed, held, reached, if_true],
@@ -93,10 +100,14 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     fun _ => rfl, fun _ _ _ _ => ⟨rfl, rfl, rfl, rfl⟩,
     fun input stages => (restoring machine fuel).expr frame _, fun input stages => (persisting machine fuel).expr frame _⟩
   · simp only [evalExpr]
-    refine congrArg _ (funext fun source => funext fun next => ?_)
-    refine congrArg _ (funext fun limit => funext fun after => ?_)
-    rcases pendingStream machine after source with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;>
-      rcases limit with _ | _ | bound <;> rfl
+    refine congrArg _ (funext fun result => funext fun next => ?_)
+    cases sourced : pipelineSource result with
+    | error error => simp only [sourced]
+    | ok source =>
+      simp only [sourced]
+      refine congrArg _ (funext fun limit => funext fun after => ?_)
+      rcases pendingStream machine after source with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;>
+        rcases limit with _ | _ | bound <;> rfl
   · rcases limit with _ | _ | bound
     · rfl
     · exact absurd rfl nonzero
@@ -222,6 +233,34 @@ one that mapped every list item before cutting would note `7`. -/
 theorem eager_take_rejected :
     readList traceVar (runCanonical (streamTakeScript "2")) ≠ some [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 7] ∧
       readList traceVar (runCanonical listTakeScript) ≠ some [1, 2, 7] := by
+  decide +kernel
+
+def okList : Xsh.Syntax.RawName := name 297 (by decide)
+def errList : Xsh.Syntax.RawName := name 298 (by decide)
+
+/-- Locals holding `Ok([1, 2])` and `Err("boom")`. -/
+def resultHolding : Frame witnessWorld :=
+  { start with locals := [(okList, .ok (.list [.scalar (.integer ⟨1, by decide⟩), .scalar (.integer ⟨2, by decide⟩)])),
+      (errList, .err (.scalar (.string "boom")))] }
+
+def countOf (source : Xsh.Syntax.RawName) : List Xsh.Syntax.Statement :=
+  [letOf countVar (.structuredPipeline (ident source) [.stream .count [] none])]
+
+def raisedBoom : Exec witnessWorld → Bool
+  | .failed (.raised (.scalar (.string "boom"))) _ => true
+  | _ => false
+
+/-- `Ok([1, 2]) |> count()` and `Err(boom) |> count()`: as the verification
+binary counts `2` items through an `Ok` source and fails with the `Err`'s
+error at the pipeline, the model removes one outer `Result`. -/
+theorem result_source_witness :
+    readInt countVar (runStatements machine 40 resultHolding (countOf okList)) = some 2 ∧
+      raisedBoom (runStatements machine 40 resultHolding (countOf errList)) = true := by
+  decide +kernel
+
+/-- Treating a `Result` source as a one-item collection would count `1`. -/
+theorem result_as_item_rejected :
+    readInt countVar (runStatements machine 40 resultHolding (countOf okList)) ≠ some 1 := by
   decide +kernel
 
 end Witness

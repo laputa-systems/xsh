@@ -502,7 +502,7 @@ environment).
 
 Statements:
 
-- pipelines over a `Result` source, value-call stages, and every stage
+- value-call stages, and every stage
   but argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
   a closing `count()` or `collect()`, and a `Stream[T]` from anything but a
   producer (E)
@@ -819,8 +819,11 @@ consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for
 `[1, 2, 7] |> map { ... } |> take(2)`, `1, 20, 1, 21, 7` for a mapped
 `count(8) |> take(2)` and nothing for `count(8) |> take(0)`, so do the
 witnesses, which reject a producer that runs on and a list mapped before it
-is cut. Other stages, value calls and `Result` sources are outside the
-model.
+is cut. A source inside one outer `Result` is its `Ok` collection, and an
+`Err` raises its error at the pipeline, as the binary counts `2` items
+through `good() |> count()` and fails with the error for `bad() |>`; a
+`Result` taken as a one-item collection is rejected. Other stages and value
+calls are outside the model.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
