@@ -492,8 +492,9 @@ Expressions:
 
 - first-class local functions (P)
 - `and`/`or` operands of a `Result[Bool]` condition (P)
-- `match` as an expression, comparison chains, `in`, set literals and set
-  operators, slices, guarded `?.` and `?[]` (P)
+- `match` as an expression, slices, guarded `?.` and `?[]` (P)
+- equality and membership of variants, errors and handles, and `in` on a
+  `Path` container (P)
 - record spread, shorthand, computed and path fields (P)
 - named, spread and splice arguments, methods and value pipelines (P)
 - `.require` (P), `ctx` error contexts (P)
@@ -529,6 +530,35 @@ cells (SPEC 9.2). Its witnesses are a counter closure, a write that reaches the
 captured cell rather than the call site's shadowing one, and the pass on a
 straight-line program; the mutants lose the write or write the call site's
 cell.
+
+Set literals, set comprehensions and comparison chains are rejected by the
+parser (`parse.set-literal`, `parse.comparison-chain`), so the syntax model has
+no form for them.
+
+The `structural_equality_and_membership` fragment root, in
+[`Proofs/Core/Equality.lean`](Xsh/Proofs/Core/Equality.lean), gives `==`,
+`!=`, `in`, `not in` and the set operators their meaning on every operand
+pair (SPEC 4.5, 6.2, owner decision 1). `==` is the structural equality
+`valueEqual`: Floats compare by IEEE value at every depth, list items pairwise,
+map entries and record fields by key whatever their order, set elements as
+sets, `Ok` and `Err` payloads structurally, and a `null` equals only `null`.
+`in` is substring containment in a `Str`, byte containment in `Bytes`, an equal
+item in a `List`, a `Path` entry of `env.PATH`, key presence in a `Map` (a key
+whose value is `null` is present), an element of a `Set`, and a `Str` label of
+a record. `|`, `&` and `-` give the distinct elements of the union,
+intersection and difference, and two sets with the same elements are equal
+however they were built. Its witnesses agree with what the verification
+binary prints for the same programs: `[1.0, -0.0] == [1.0, 0.0]`,
+`[nan] == [nan]` and `nan in [nan]` are `true`, `false` and `false`; an `Int?`
+holding 3 is not `null`; `{b: 1, a: 2} == {a: 2, b: 1}`; a `null`-valued map
+key is present; and `s | t`, `s & t` and `s - t` for `s = set.from([3, 1, 2])`
+and `t = set.from([2, 4])` are `[1,2,3,4]`, `[2]` and `[1,3]`. The mutants it
+rejects are raw-bit Float equality, record equality in written field order,
+membership that requires a non-`null` map value, and a union that
+concatenates its operands. Variants, errors and handles are not compared, a
+`Path` container is outside the model, and String containment is stated on
+code points. The set order is map key order only if `keyBefore` is a total
+order, and that is not proved.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

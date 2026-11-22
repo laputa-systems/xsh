@@ -284,14 +284,12 @@ mutual
     | item
     | lastStatus
     | list (elements : List Expr)
-    | set (elements : List Expr)
     | record (fields : List RecordField)
     | ifExpr (branches : List (Expr × Expr)) (otherwise : Expr)
     | matchExpr (subject : Expr) (arms : List (Pattern × Option Expr × Expr))
     /-- `let pattern = subject` in an `if` or `while` condition. -/
     | patternCondition (subject : Expr) (pattern : Pattern)
     | unary (op : UnaryOp) (value : Expr)
-    | comparisonChain (first : Expr) (rest : List (BinaryOp × Expr))
     | binary (op : BinaryOp) (left right : Expr)
     | call (callee : Expr) (arguments : List CallArgument)
     | valuePipelineCall (input call : Expr)
@@ -323,7 +321,6 @@ mutual
     | resourceScope (bindings : List (Option RawName × Expr)) (body : List Statement)
     | listComp (value : Expr) (qualifiers : List Qualifier)
     | mapComp (key value : Expr) (qualifiers : List Qualifier)
-    | setComp (value : Expr) (qualifiers : List Qualifier)
 
   /-- Statements in the lexical fragment; block lists introduce local scope. -/
   inductive Statement where
@@ -472,7 +469,6 @@ mutual
       | .item => []
       | .lastStatus => []
       | .list elements => freeExprsFuel fuel bound elements
-      | .set elements => freeExprsFuel fuel bound elements
       | .record fields => freeRecordFieldsFuel fuel bound fields
       | .ifExpr branches otherwise =>
           branches.flatMap (fun (condition, value) =>
@@ -487,9 +483,6 @@ mutual
       | .patternCondition subject pattern =>
           freeExprFuel fuel bound subject ++ withoutBoundNames bound (pattern.freeReferencesFuel fuel)
       | .unary _ value => freeExprFuel fuel bound value
-      | .comparisonChain first rest =>
-          freeExprFuel fuel bound first ++
-            rest.flatMap (fun (_, value) => freeExprFuel fuel bound value)
       | .binary _ left right => freeExprFuel fuel bound left ++ freeExprFuel fuel bound right
       | .call callee arguments =>
           freeExprFuel fuel bound callee ++ freeCallArgumentsFuel fuel bound arguments
@@ -539,8 +532,6 @@ mutual
           freeComprehensionFuel fuel bound qualifiers [value]
       | .mapComp key value qualifiers =>
           freeComprehensionFuel fuel bound qualifiers [key, value]
-      | .setComp value qualifiers =>
-          freeComprehensionFuel fuel bound qualifiers [value]
 
   /-- Declarations extend only the source-order suffix of their block. -/
   def freeStatementsFuel : Nat → List RawName → List Statement → List RawName

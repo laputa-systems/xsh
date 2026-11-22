@@ -15121,6 +15121,15 @@
       "boundary": "Parameters with defaults and rest apply to local functions; named, spread and splice arguments are not modelled, nor are static functions' defaults. The machine's use of these laws is checked by witnesses. It does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Equality.structural_equality_and_membership",
+      "module": "Xsh.Proofs.Core.Equality",
+      "declaration": "Xsh.Proofs.Core.Equality.structural_equality_and_membership",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 4.5 sets, SPEC 6.2 equality and membership, owner decision 1: on every operand pair, == and != are the structural equality valueEqual and in and not in the membership decision; Float items compare by IEEE value inside lists; a non-null value is unequal to null; record and map equality read the other operand only by label or key, so field order is not observed; a map key is present whatever its value, null included; two sets with the same elements are equal however they were built; and |, & and - give the distinct elements of the union, intersection and difference.",
+      "boundary": "Variants, errors, process errors, modules and handles are not compared, nor are operands of different types; a Path container's display-text membership and unsigned map-key validation are not modelled; String containment is stated on code points, not UTF-8 bytes; set element order is map key order only when keyBefore is a total order, which is not proved. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -134,7 +134,189 @@ def scalarEqual : Scalar → Scalar → Option Bool
   | .float left, .float right => some (floatValueEq left right)
   | .string left, .string right => some (decide (left = right))
   | .duration left, .duration right => some (decide (left.val = right.val))
+  | .bytes left, .bytes right => some (decide (left = right))
+  | .path left, .path right => some (decide (left = right))
+  | .digest left, .digest right => some (decide (left = right))
+  | .regex left, .regex right => some (decide (left = right))
   | _, _ => none
+
+def mapKeyOf (candidate : Value Declaration Identity Source) : Option MapKey :=
+  match candidate.eraseNominal with
+  | .scalar (.string value) => some (.string value)
+  | .scalar (.integer value) => some (.integer value)
+  | .scalar (.boolean value) => some (.boolean value)
+  | .scalar (.bytes value) => some (.bytes value)
+  | .scalar (.path value) => some (.path value)
+  | .scalar (.duration value) => some (.duration value)
+  | _ => none
+
+/-- Scalar equality where a `T` is compared with a `T?` (SPEC 6.2): `null`
+equals only `null`. -/
+def scalarsEqual : Scalar → Scalar → Option Bool
+  | .null, .null => some true
+  | .null, _ | _, .null => some false
+  | left, right => scalarEqual left right
+
+def isNull (value : Value Declaration Identity Source) : Bool :=
+  match value.eraseNominal with
+  | .scalar .null => true
+  | _ => false
+
+/-- Whether `paths` holds exactly the `Path` items of `items`, in order: an
+`env.PATH` value compared with a `List[Path]`. -/
+def pathsEqual (paths : List NativePath) (items : List (Value Declaration Identity Source)) : Bool :=
+  paths.length == items.length &&
+    (paths.zip items).all fun (path, item) =>
+      match item.eraseNominal with
+      | .scalar (.path other) => decide (path = other)
+      | _ => false
+
+mutual
+  /-- Structural language equality (SPEC 6.2, owner decision 1): Float
+  elements compare by IEEE value, list items pairwise, map entries and record
+  fields by key whatever their order, set elements as sets, `Ok` and `Err`
+  payloads structurally, and a `null` equals only `null`. Nominal wrappers are
+  erased at every level. `none` is a comparison the model does not cover:
+  variants, errors and handles, or operands of different types. -/
+  def valueEqual : Value Declaration Identity Source → Value Declaration Identity Source → Option Bool
+    | .nominal _ inner, right => valueEqual inner right
+    | .scalar left, right =>
+      match right.eraseNominal with
+      | .scalar other => scalarsEqual left other
+      | _ => match left with
+        | .null => some false
+        | _ => none
+    | .list items, right =>
+      match right.eraseNominal with
+      | .list others => itemsEqual items others
+      | .environmentPaths paths => some (pathsEqual paths items)
+      | .scalar .null => some false
+      | _ => none
+    | .environmentPaths paths, right =>
+      match listValues right with
+      | some others => some (pathsEqual paths others)
+      | none => if isNull right then some false else none
+    | .map entries, right =>
+      match right.eraseNominal with
+      | .map others => if entries.length = others.length then entriesEqual entries others else some false
+      | .scalar .null => some false
+      | _ => none
+    | .set keys, right =>
+      match right.eraseNominal with
+      | .set others => some (keys.length == others.length && keys.all others.contains)
+      | .scalar .null => some false
+      | _ => none
+    | .record fields, right =>
+      match right.eraseNominal with
+      | .record others => if fields.length = others.length then fieldsEqual fields others else some false
+      | .scalar .null => some false
+      | _ => none
+    | .ok inner, right =>
+      match right.eraseNominal with
+      | .ok other => valueEqual inner other
+      | .err _ | .scalar .null => some false
+      | _ => none
+    | .err inner, right =>
+      match right.eraseNominal with
+      | .err other => valueEqual inner other
+      | .ok _ | .scalar .null => some false
+      | _ => none
+    | left, right => if isNull right && !isNull left then some false else none
+
+  def itemsEqual : List (Value Declaration Identity Source) → List (Value Declaration Identity Source) → Option Bool
+    | [], [] => some true
+    | [], _ :: _ | _ :: _, [] => some false
+    | item :: items, other :: others =>
+      (valueEqual item other).bind fun same => if same then itemsEqual items others else some false
+
+  /-- Every entry of the first map is in the second with an equal value; with
+  equal sizes and distinct keys, the maps are equal. -/
+  def entriesEqual : List (MapKey × Value Declaration Identity Source) →
+      List (MapKey × Value Declaration Identity Source) → Option Bool
+    | [], _ => some true
+    | (key, value) :: rest, others =>
+      match others.lookup key with
+      | none => some false
+      | some other => (valueEqual value other).bind fun same => if same then entriesEqual rest others else some false
+
+  def fieldsEqual : List (String × Value Declaration Identity Source) →
+      List (String × Value Declaration Identity Source) → Option Bool
+    | [], _ => some true
+    | (label, value) :: rest, others =>
+      match others.lookup label with
+      | none => some false
+      | some other => (valueEqual value other).bind fun same => if same then fieldsEqual rest others else some false
+end
+
+/-- Whether `needle` occurs as a contiguous run of `haystack`. -/
+def containsRun {α : Type} [BEq α] (needle : List α) : List α → Bool
+  | [] => needle.isEmpty
+  | first :: rest => needle.isPrefixOf (first :: rest) || containsRun needle rest
+
+/-- Whether some item equals `needle`; an uncovered comparison before the
+first equal item is uncovered. -/
+def anyEqual (needle : Value Declaration Identity Source) :
+    List (Value Declaration Identity Source) → Option Bool
+  | [] => some false
+  | item :: items => (valueEqual item needle).bind fun same => if same then some true else anyEqual needle items
+
+/-- `needle in container` (SPEC 6.2): substring containment in a `Str`, byte
+containment in `Bytes`, an equal item in a `List`, a `Path` entry of
+`env.PATH`, key presence in a `Map` (whatever its value, `null` included), an
+element of a `Set`, and a `Str` field label of a record. A `Path` container is
+outside the model. -/
+def membership (needle container : Value Declaration Identity Source) : Option Bool :=
+  match needle.eraseNominal, container.eraseNominal with
+  | .scalar (.string part), .scalar (.string text) => some (containsRun part.toList text.toList)
+  | .scalar (.bytes part), .scalar (.bytes data) => some (containsRun part data)
+  | _, .list items => anyEqual needle items
+  | .scalar (.path entry), .environmentPaths paths => some (paths.contains entry)
+  | _, .map entries => (mapKeyOf needle).map fun key => entries.any fun entry => entry.1 == key
+  | _, .set keys => (mapKeyOf needle).map keys.contains
+  | .scalar (.string label), .record fields => some (fields.any fun field => field.1 == label)
+  | _, _ => none
+
+/-- `key` placed before the first element it sorts before. -/
+def placeKey (key : MapKey) : List MapKey → List MapKey
+  | [] => [key]
+  | other :: rest => if keyBefore key other then key :: other :: rest else other :: placeKey key rest
+
+/-- `key` added to a set kept in map key order (SPEC 4.5): an element it
+holds is not added again. -/
+def insertKey (key : MapKey) (keys : List MapKey) : List MapKey :=
+  if keys.contains key then keys else placeKey key keys
+
+/-- The set holding `keys`, in map key order without repeats, whatever order
+built it. -/
+def setOf (keys : List MapKey) : List MapKey := keys.foldl (fun built key => insertKey key built) []
+
+/-- `|`, `&` and `-` on two sets (SPEC 6.2). -/
+def setOperation : Xsh.Syntax.BinaryOp → List MapKey → List MapKey → Option (List MapKey)
+  | .union, left, right => some (setOf (left ++ right))
+  | .intersect, left, right => some (setOf (left.filter right.contains))
+  | .sub, left, right => some (setOf (left.filter fun key => !right.contains key))
+  | _, _, _ => none
+
+def decided : Option Bool → Result Declaration Identity Source (Value Declaration Identity Source)
+  | some value => .value (.scalar (.boolean value))
+  | none => .unsupported
+
+/-- `in` and `not in`, and `==` and `!=` where the operands are not two
+scalars of one family the operator table gives its own meaning. -/
+def structural (operator : Xsh.Syntax.BinaryOp) (left right : Value Declaration Identity Source) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match operator with
+  | .eq => decided (valueEqual left right)
+  | .ne => decided ((valueEqual left right).map not)
+  | .member => decided (membership left right)
+  | .notMember => decided ((membership left right).map not)
+  | _ =>
+    match left.eraseNominal, right.eraseNominal with
+    | .set first, .set second =>
+      match setOperation operator first second with
+      | some keys => .value (.set keys)
+      | none => .unsupported
+    | _, _ => .unsupported
 
 /-- The value meaning of a binary operator on two evaluated operands. -/
 def binary (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
@@ -175,6 +357,8 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     | .add, _ => .value (.scalar (.string (a ++ b)))
     | .eq, _ => .value (boolean (decide (a = b)))
     | .ne, _ => .value (boolean (!decide (a = b)))
+    | .member, _ => decided (membership left right)
+    | .notMember, _ => decided ((membership left right).map not)
     | _, some comparison =>
       .value (boolean (orders comparison (lexBefore (codePoints a) (codePoints b)) (decide (a = b))))
     | _, none => .unsupported
@@ -183,14 +367,14 @@ def binary (context : Context Declaration Identity Source) (operator : Xsh.Synta
     | .mul => durationResult context.errors (DurationOps.multiply b a)
     | _ => .unsupported
   | .scalar a, .scalar b =>
-    match operator, scalarEqual a b with
+    match operator, scalarsEqual a b with
     | .eq, some same => .value (boolean same)
     | .ne, some same => .value (boolean (!same))
-    | _, _ => .unsupported
+    | _, _ => structural operator left right
   | _, _ =>
     match operator, listValues left, listValues right with
     | .add, some first, some second => .value (.list (first ++ second))
-    | _, _, _ => .unsupported
+    | _, _, _ => structural operator left right
 
 def unary (context : Context Declaration Identity Source) :
     Xsh.Syntax.UnaryOp → Value Declaration Identity Source → Result Declaration Identity Source (Value Declaration Identity Source)
@@ -210,16 +394,6 @@ def fieldOf (context : Context Declaration Identity Source) (name : Xsh.Syntax.R
       | some found => .value found
       | none => .failure (.runtime context.errors.missingField)
     | _ => .unsupported
-
-def mapKeyOf (candidate : Value Declaration Identity Source) : Option MapKey :=
-  match candidate.eraseNominal with
-  | .scalar (.string value) => some (.string value)
-  | .scalar (.integer value) => some (.integer value)
-  | .scalar (.boolean value) => some (.boolean value)
-  | .scalar (.bytes value) => some (.bytes value)
-  | .scalar (.path value) => some (.path value)
-  | .scalar (.duration value) => some (.duration value)
-  | _ => none
 
 def indexAt (context : Context Declaration Identity Source) (fromEnd : Bool)
     (base key : Value Declaration Identity Source) : Result Declaration Identity Source (Value Declaration Identity Source) :=

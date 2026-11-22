@@ -623,7 +623,7 @@ theorem binary_booleans (operator : Xsh.Syntax.BinaryOp) {first second : Value D
   simp only [binary, firstShape, secondShape] at produced
   simp only [equalities, List.mem_cons, List.not_mem_nil, or_false] at equality
   rcases equality with rfl | rfl <;>
-    simp only [scalarEqual, Result.value.injEq] at produced <;>
+    simp only [scalarsEqual, scalarEqual, Result.value.injEq] at produced <;>
     (subst produced; exact bool_member world.membership _)
 
 theorem binary_lists {element : ValueType Declaration} {first second : Value Declaration Identity Source}

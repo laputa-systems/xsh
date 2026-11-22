@@ -289,6 +289,20 @@ theorem literal_runtimeOnly (literals : Literals) (value : Xsh.Syntax.Literal) :
   repeat' split at failed
   all_goals simp at failed
 
+theorem decided_runtimeOnly (decision : Option Bool) :
+    RuntimeOnly (Declaration := Declaration) (Identity := Identity) (Source := Source) (decided decision) := by
+  intro failure failed
+  cases decision <;> simp [decided] at failed
+
+theorem structural_runtimeOnly (operator : Xsh.Syntax.BinaryOp) (left right : Value Declaration Identity Source) :
+    RuntimeOnly (structural operator left right) := by
+  intro failure failed
+  unfold structural at failed
+  repeat' split at failed
+  all_goals first
+    | exact decided_runtimeOnly _ failure failed
+    | simp at failed
+
 theorem binary_runtimeOnly (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
     (left right : Value Declaration Identity Source) : RuntimeOnly (binary context operator left right) := by
   intro failure failed
@@ -297,6 +311,8 @@ theorem binary_runtimeOnly (context : Context Declaration Identity Source) (oper
   all_goals first
     | exact integerResult_runtimeOnly _ _ failure failed
     | exact durationResult_runtimeOnly _ _ failure failed
+    | exact decided_runtimeOnly _ failure failed
+    | exact structural_runtimeOnly _ _ _ failure failed
     | simp at failed
 
 theorem unary_runtimeOnly (context : Context Declaration Identity Source) (operator : Xsh.Syntax.UnaryOp)
