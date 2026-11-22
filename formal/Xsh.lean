@@ -93,6 +93,7 @@ import Xsh.Proofs.Core.Slices
 import Xsh.Proofs.Core.Records
 import Xsh.Proofs.Core.Conditions
 import Xsh.Proofs.Core.Requires
+import Xsh.Proofs.Core.Contexts
 import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables

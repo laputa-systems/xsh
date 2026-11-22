@@ -282,6 +282,12 @@ theorem threadEntries_refines {world : World Declaration Identity Source} (conte
     valued_bind_refines (each frame key) fun _ after => valued_bind_refines (each after operand) fun _ middle =>
       valued_bind_refines (threadEntries_refines context each middle rest) fun _ _ => valued_refl _
 
+theorem annotate_refines {world : World Declaration Identity Source} (text : String) {first second : Valued world}
+    (refined : Valued.Refines first second) : Valued.Refines (annotate text first) (annotate text second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact valued_refl _
+
 theorem controlValue_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -564,6 +570,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine loopStep_refines (fun _ => inner.loopValues _ _) ?_
   | refine toExec_refines (selectorsOf_refines (fun _ _ => inner.expr _ _) _ _ _) fun _ _ => ?_
   | refine guardElse_refines ?_
+  | refine annotate_refines _ ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
@@ -971,6 +978,14 @@ theorem threadEntries_persists {world : World Declaration Identity Source} (cont
     vbind_persists (each frame key) fun _ after => vbind_persists (each after operand) fun _ middle =>
       vbind_persists (threadEntries_persists context each middle rest) fun _ last => persists_refl last.store
 
+theorem annotate_persists {world : World Declaration Identity Source} (text : String) {before : Store world}
+    {outcome : Valued world} (kept : VKeeps before outcome) : VKeeps before (annotate text outcome) := by
+  unfold annotate
+  split
+  · exact fun scope present => by cases present; exact kept _ rfl
+  · exact fun scope present => by cases present; exact kept _ rfl
+  · exact kept
+
 theorem controlValue_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1299,6 +1314,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.tail _ _
   | refine loopStep_persists (fun _ => inner.loopValues _ _) ?_
   | refine guardElse_persists ?_
+  | refine annotate_persists _ ?_
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
   | refine inner.leaves _ _ ?_
@@ -1732,6 +1748,14 @@ theorem threadEntries_restores {world : World Declaration Identity Source} (cont
     vbind_restores (each frame key) fun _ after => vbind_restores (each after operand) fun _ middle =>
       vbind_restores (threadEntries_restores context each middle rest) fun _ _ => ⟨rfl, rfl⟩
 
+theorem annotate_restores {world : World Declaration Identity Source} (text : String) {frame : Frame world}
+    {outcome : Valued world} (restored : VRestores frame outcome) : VRestores frame (annotate text outcome) := by
+  unfold annotate
+  split
+  · exact fun scope present => by cases present; exact restored _ rfl
+  · exact fun scope present => by cases present; exact restored _ rfl
+  · exact restored
+
 theorem controlValue_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -1995,6 +2019,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact settled_of_vrestores (inner.comprehends _ _ _)
   | refine thenValued_settled fun _ => ?_
   | (apply settled_exec; assumption)
+  | refine annotate_restores _ ?_
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_
   | exact callBlock_restores _ _ _ _ _ _ _ _ _
   | exact threadStep_restores _ inner.expr

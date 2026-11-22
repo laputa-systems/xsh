@@ -495,7 +495,7 @@ Expressions:
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
 - named, spread and splice arguments, methods and value pipelines (P)
-- the contextual `.require()` (P), `ctx` error contexts (P)
+- the contextual `.require()` (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `$NAME` and `$PATH` reads (E), `$?` (E)
@@ -625,6 +625,19 @@ the schema error of the conversion's failure. The witnesses give
 `7.require(Int)` as `Ok(7)` and `"x".require(Int)` as a schema error, and
 reject a `.require` that passes its value through. The contextual
 `.require()` needs the checker's expected type and is not modelled.
+
+The `error_contexts` fragment root, in
+[`Proofs/Core/Contexts.lean`](Xsh/Proofs/Core/Contexts.lean), adds
+`ctx description { body }` (SPEC 8.8). The description is evaluated once and
+the body runs as a value block. A raised or runtime failure that leaves the
+body gains one context frame with the description, after the body's cleanup,
+and keeps its family, variant, message, payload and earlier contexts; a value
+the block gives, an `Err` included, is data and is not annotated. The
+verification binary agrees: a schema error that `?` propagates out of a `ctx`
+body reports `(ctx: outer step)`, and so does an index out of range, while a
+`fail`, which returns its `Err`, is not annotated. The witnesses check a
+propagated error and an `Err` value, and reject a `ctx` that annotates data.
+The frame's span is not modelled.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

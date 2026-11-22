@@ -15175,6 +15175,15 @@
       "boundary": "The contextual .require() needs the checker's expected type and is not modelled; T comes from the machine's typeOf oracle. Witnesses check Int; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Contexts.error_contexts",
+      "module": "Xsh.Proofs.Core.Contexts",
+      "declaration": "Xsh.Proofs.Core.Contexts.error_contexts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.8 ctx description { body }: the description is evaluated once and the body runs as a value block; a raised or runtime failure leaving the body gains exactly one context frame with the description after the body's cleanup, its family, variant, message, payload and earlier contexts unchanged; any other outcome, a value returned as data included, is unchanged.",
+      "boundary": "The context frame's region span is not modelled; a type failure is not annotated; rendering in tracebacks is not modelled. Witnesses follow the verification binary's (ctx: ...) annotation of a propagated schema error; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

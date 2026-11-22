@@ -718,6 +718,21 @@ def requireValue {world : World Declaration Identity Source} (machine : Machine 
   Xsh.Validation.Core.Require.requireValue ⟨world.membership, machine.decisions.contracts, machine.enums⟩
     machine.schemaFamily .keep type candidate
 
+/-- An error value with one more context frame describing the region it left;
+its identity, payload and earlier contexts are unchanged (SPEC 8.8). -/
+def withContext (text : String) : Value Declaration Identity Source → Value Declaration Identity Source
+  | .error data => .error { data with contexts := data.contexts ++ [⟨"ctx", some text, none⟩] }
+  | .processError data => .processError { data with contexts := data.contexts ++ [⟨"ctx", some text, none⟩] }
+  | .nominal declaration inner => .nominal declaration (withContext text inner)
+  | other => other
+
+/-- A raised or runtime failure leaving a `ctx` body gains its context; every
+other outcome, a returned `Err` included, leaves unchanged. -/
+def annotate {world : World Declaration Identity Source} (text : String) : Valued world → Valued world
+  | .exec (.failed (.raised error) last) => .exec (.failed (.raised (withContext text error)) last)
+  | .exec (.failed (.runtime error) last) => .exec (.failed (.runtime (withContext text error)) last)
+  | other => other
+
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
 of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
@@ -1361,7 +1376,7 @@ mutual
                     | some bound => (evalExpr machine fuel middle bound).bind fun high last => Outcome.value (some high) last).bind
                     fun high last => fromEval last (sliceOf present low high)
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ | .errorContext _ _ =>
         runValue machine fuel frame expression
       | .ident name =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name,
@@ -1495,6 +1510,11 @@ mutual
           | .err _, fallback | .scalar .null, fallback => runValue machine fuel next fallback
           | _, _ => .value value next
       | .loopExpr body => loopValue machine fuel frame body
+      | .errorContext message body =>
+        (evalExpr machine fuel frame message).bind fun described next =>
+          match described.eraseNominal with
+          | .scalar (.string text) => annotate text (valueScope machine fuel next body)
+          | _ => .exec .unsupported
       | .matchExpr subject arms =>
         (evalExpr machine fuel frame subject).bind fun value next => matchValue machine fuel next value arms
       | .listComp value qualifiers => comprehend machine fuel frame qualifiers value
