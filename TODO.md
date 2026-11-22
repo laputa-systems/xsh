@@ -22,15 +22,6 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-### XSH-144 · P1 · user and group mutations leave /etc/shadow readable under the umask
-
-- **Area:** Security
-- **Where:** `src/modules/user.rs:345` (`write_atomic`), `src/modules/user.rs:106-128,154-158` (`user.add`, `user.remove`), `src/modules/group.rs:214`; shared mode-preserving helper `src/modules/fs.rs:2852-2874`
-- **Problem:** `user.add` and `user.remove` rewrite `/etc/passwd` and `/etc/shadow`, and `group.add` and `group.remove` rewrite the group file, through private `write_atomic` copies that create the replacement with `fs::write` and rename it. `fs::write` creates the file with mode 0666 minus the umask, so a rewritten shadow file can become readable by every local user. Reproduced at 956a67a with the pinned-nightly verification-profile binary on native Linux GNU: a real `user.add` against scratch account fixtures changed shadow mode 0640 to 0644 under umask 022. The shared `fs::write_atomic` already preserves the destination mode; that does not establish preservation of its ownership. The private temp name `<path>.<pid>.tmp` is also predictable.
-- **Recommendation:** Delete the private `write_atomic` copies in user.rs and group.rs and call `fs::write_atomic` (or the rooted variant), which preserves the destination mode. Add a native test that `user.add` on a 0640 shadow fixture leaves it 0640 under umask 022.
-- **Fix with:** deduplicate, os-boundaries
-- **Effort:** S
-
 ### XSH-180 · P2 · min and max have no specified order for NaN, ties and non-numeric items
 
 - **Area:** Runtime ordering

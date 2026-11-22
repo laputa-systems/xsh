@@ -99,6 +99,26 @@ test test_user_account_records_remain_intact { |ctx|
   assert shadow.read_text()? == "root:$hash:0:0:99999:7:::\n"
 }
 
+test test_user_add_preserves_shadow_mode { |ctx|
+  let passwd = test.temp_path(ctx, name: "mode-passwd")
+  let shadow = test.temp_path(ctx, name: "mode-shadow")
+  passwd.write("root:x:0:0:root:/root:/bin/sh\n")
+  shadow.write("root:*:0:0:99999:7:::\n", mode: 0o640)
+  assert shadow.metadata()?.mode % 4096 == 0o640
+  let script = test.temp_file(ctx, name: "mode-user.xsh", contents: b"let _ = user.add(\"demo\", uid: 2001, gid: 2001)?\n")?
+  run XSH_PASSWD_FILE=$passwd XSH_SHADOW_FILE=$shadow sh -c "umask 022; exec xsh \"$1\"" sh $script
+  assert shadow.metadata()?.mode % 4096 == 0o640
+}
+
+test test_account_write_errors_keep_operation_kind { |ctx|
+  let missing = test.temp_path(ctx, name: "missing-account-directory")
+  let passwd = fp"{missing}/passwd"
+  let shadow = fp"{missing}/shadow"
+  let group_file = fp"{missing}/group"
+  let script = test.temp_file(ctx, name: "account-write-errors.xsh", contents: b"test.error_kind(user.add(\"demo\"), \"user-add\")\ntest.error_kind(group.add(\"demo\"), \"group-add\")\n")?
+  run XSH_PASSWD_FILE=$passwd XSH_SHADOW_FILE=$shadow XSH_GROUP_FILE=$group_file "xsh" $script
+}
+
 test test_user_account_invalid_records_are_rejected { |ctx|
   let passwd = test.temp_path(ctx, name: "invalid-passwd")
   let shadow = test.temp_path(ctx, name: "invalid-shadow")

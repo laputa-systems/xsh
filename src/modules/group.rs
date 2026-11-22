@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::value::{RuntimeError, Value};
-use super::user::{AccountField, account_id};
+use super::user::{AccountField, account_id, account_write_error};
 use crate::source::Span;
 use std::ffi::{CStr, CString};
 use std::fs;
@@ -60,7 +60,7 @@ pub(crate) fn add(name: &str, gid: Option<i64>, span: Span) -> Result<Value, Run
     account_id(gid, "group-add", span)?;
     if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
     text.push_str(&format!("{}:x:{}:\n", name_field.0, gid));
-    write_atomic(&path, &text, span, "group-add")?;
+    super::fs::write_atomic(path, text.as_bytes(), span).map_err(|error| account_write_error(error, "group-add"))?;
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("name"), Value::Str(name.into())),
         (Arc::from("gid"), Value::Int(gid)),
@@ -77,7 +77,7 @@ pub(crate) fn remove(name: &str, span: Span) -> Result<Value, RuntimeError> {
         return Err(RuntimeError::new("group-remove", "group was not found").with_span(span));
     }
     let filtered = text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
-    write_atomic(&path, &filtered, span, "group-remove")?;
+    super::fs::write_atomic(path, filtered.as_bytes(), span).map_err(|error| account_write_error(error, "group-remove"))?;
     Ok(Value::Unit)
 }
 
@@ -196,10 +196,4 @@ fn read_optional(path: &Path, span: Span, kind: &str) -> Result<String, RuntimeE
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(RuntimeError::host(kind, &error).with_span(span)),
     }
-}
-
-fn write_atomic(path: &Path, text: &str, span: Span, kind: &str) -> Result<(), RuntimeError> {
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    fs::write(&tmp, text).map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
-    fs::rename(&tmp, path).map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }

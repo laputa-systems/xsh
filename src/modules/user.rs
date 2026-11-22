@@ -134,8 +134,8 @@ pub(crate) fn add(
         if !shadow.ends_with('\n') { shadow.push('\n'); }
         shadow.push_str(&format!("{}:!:0:0:99999:7:::\n", name.0));
     }
-    write_atomic(&passwd_path, &text, span, "user-add")?;
-    if shadow != shadow_text { write_atomic(&shadow_path, &shadow, span, "user-add")?; }
+    super::fs::write_atomic(passwd_path, text.as_bytes(), span).map_err(|error| account_write_error(error, "user-add"))?;
+    if shadow != shadow_text { super::fs::write_atomic(shadow_path, shadow.as_bytes(), span).map_err(|error| account_write_error(error, "user-add"))?; }
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("name"), Value::Str(name.0.into())),
         (Arc::from("uid"), Value::Int(uid)),
@@ -160,8 +160,8 @@ pub(crate) fn remove(name: &str, remove_home: bool, span: Span) -> Result<Value,
     let shadow_text = read_optional(&shadow_path, span, "user-remove")?;
     let filtered = users_text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
     let shadow = shadow_text.split_inclusive('\n').filter(|line| line.split(':').next() != Some(name)).collect::<String>();
-    write_atomic(&passwd_path, &filtered, span, "user-remove")?;
-    if !shadow_text.is_empty() { write_atomic(&shadow_path, &shadow, span, "user-remove")?; }
+    super::fs::write_atomic(passwd_path, filtered.as_bytes(), span).map_err(|error| account_write_error(error, "user-remove"))?;
+    if !shadow_text.is_empty() { super::fs::write_atomic(shadow_path, shadow.as_bytes(), span).map_err(|error| account_write_error(error, "user-remove"))?; }
     if remove_home {
         let _ = fs::remove_dir_all(&entry.home);
     }
@@ -330,8 +330,10 @@ fn read_optional(path: &Path, span: Span, kind: &str) -> Result<String, RuntimeE
     }
 }
 
-fn write_atomic(path: &Path, text: &str, span: Span, kind: &str) -> Result<(), RuntimeError> {
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    fs::write(&tmp, text).map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
-    fs::rename(&tmp, path).map_err(|error| RuntimeError::host(kind, &error).with_span(span))
+pub(crate) fn account_write_error(error: RuntimeError, kind: &str) -> RuntimeError {
+    let mut result = RuntimeError::new(kind, error.message);
+    result.payload = error.payload;
+    result.facets = error.facets;
+    result.span = error.span;
+    result
 }
