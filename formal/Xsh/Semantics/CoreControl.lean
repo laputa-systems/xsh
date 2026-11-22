@@ -116,6 +116,22 @@ structure Scope (Declaration Identity Source : Type) where
   closures : List (CellId × Closure)
   item : Option (Value Declaration Identity Source)
 
+/-- A `for` loop consuming a stream producer: its frame without the store
+and environment variables, which the producer threads, and its target and
+body. -/
+structure Consumer (world : World Declaration Identity Source) where
+  environment : Environment
+  locals : Locals Declaration Identity Source
+  callerStore : Option (Store world)
+  activation : Nat
+  deferred : List (Deferred Declaration Identity Source)
+  closures : List (CellId × Closure)
+  item : Option (Value Declaration Identity Source)
+  collected : Option (List (Value Declaration Identity Source))
+  writable : List CellId
+  target : Xsh.Syntax.BindingTarget
+  body : List Xsh.Syntax.Statement
+
 /-- A statement runs in an environment, a store, an environment-variable
 overlay and the locals of the function it is in. Inside a function body
 `callerStore` is the store at the call: its cells are read but not written.
@@ -145,6 +161,9 @@ structure Frame (world : World Declaration Identity Source) where
   /-- The caller's cells this frame may still write: a closure's captured
   mutable cells. -/
   writable : List CellId
+  /-- The `for` loops consuming the stream producers this frame runs in,
+  innermost first: each `yield` runs the innermost loop's body (SPEC 9.5). -/
+  consumers : List (Consumer world)
 
 def Frame.scope {world : World Declaration Identity Source} (frame : Frame world) : Scope Declaration Identity Source :=
   ⟨frame.activation, frame.closures, frame.item⟩
@@ -155,7 +174,14 @@ def Frame.ofScope {world : World Declaration Identity Source} (environment : Env
     (scope : Scope Declaration Identity Source) : Frame world :=
   { environment, store, overlay := [], locals, callerStore, activation := scope.activation, deferred := [],
     reported := [], waited := [], breakValue := none, closures := scope.closures, item := scope.item,
-    collected := none, writable := [] }
+    collected := none, writable := [], consumers := [] }
+
+/-- How a `for` loop's body left while it consumed a stream producer: the
+producer's scopes unwind and the loop then leaves this way (SPEC 9.5). -/
+inductive ConsumerExit (Declaration Identity Source : Type) where
+  | broke
+  | returned (value : Value Declaration Identity Source)
+  | failed (failure : Failure Declaration Identity Source)
 
 /-- The outcome of running statements. -/
 inductive Exec (world : World Declaration Identity Source) where
@@ -168,6 +194,9 @@ inductive Exec (world : World Declaration Identity Source) where
   /-- `exit status` (SPEC 8.9): the script ends with `status`, unwinding every
   scope; `try` does not capture it. -/
   | exited (status : Nat) (frame : Frame world)
+  /-- The consuming loop's body left at a `yield`: the producer unwinds,
+  running its `defer`s, and the loop leaves as `exit` says. -/
+  | consumed (exit : ConsumerExit Declaration Identity Source) (frame : Frame world)
   | stuck
   | unsupported
   | outOfFuel
@@ -219,6 +248,7 @@ def withinScope {world : World Declaration Identity Source} (outer : Frame world
   | .failed failure inner => .failed failure (outer.restore inner)
   | .internal fault inner => .internal fault (outer.restore inner)
   | .exited status inner => .exited status (outer.restore inner)
+  | .consumed exit inner => .consumed exit (outer.restore inner)
   | other => other
 
 def Frame.enter {world : World Declaration Identity Source} (frame : Frame world) : Frame world :=
@@ -226,7 +256,7 @@ def Frame.enter {world : World Declaration Identity Source} (frame : Frame world
 
 def frameOf {world : World Declaration Identity Source} : Exec world → Option (Frame world)
   | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .internal _ frame
-  | .exited _ frame =>
+  | .exited _ frame | .consumed _ frame =>
     some frame
   | _ => none
 
@@ -234,7 +264,8 @@ def frameOf {world : World Declaration Identity Source} : Exec world → Option 
 internal fault. -/
 def pendingOf {world : World Declaration Identity Source} :
     Exec world → List (Deferred Declaration Identity Source)
-  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .exited _ frame =>
+  | .normal frame | .broke frame | .continued frame | .returned _ frame | .failed _ frame | .exited _ frame
+  | .consumed _ frame =>
     frame.deferred
   | _ => []
 
@@ -260,6 +291,7 @@ def Exec.withStore {world : World Declaration Identity Source} (store : Store wo
   | .failed failure frame => .failed failure { frame with store := store }
   | .internal fault frame => .internal fault { frame with store := store }
   | .exited status frame => .exited status { frame with store := store }
+  | .consumed exit frame => .consumed exit { frame with store := store }
   | other => other
 
 /-- A deferred action failed: an earlier failure or an `exit` stays primary
@@ -269,7 +301,7 @@ def cleanupFailed {world : World Declaration Identity Source} (failure : Failure
     (store : Store world) : Exec world → Exec world
   | .failed primary frame => .failed primary { frame with store := store, reported := frame.reported ++ [failure] }
   | .exited status frame => .exited status { frame with store := store, reported := frame.reported ++ [failure] }
-  | .normal frame | .broke frame | .continued frame | .returned _ frame | .internal _ frame =>
+  | .normal frame | .broke frame | .continued frame | .returned _ frame | .internal _ frame | .consumed _ frame =>
     .failed failure { frame with store := store }
   | other => other
 
@@ -796,6 +828,7 @@ def withOverlay {world : World Declaration Identity Source} (overlay : Overlay) 
   | .exec (.failed failure frame) => .exec (.failed failure { frame with overlay })
   | .exec (.internal fault frame) => .exec (.internal fault { frame with overlay })
   | .exec (.exited status frame) => .exec (.exited status { frame with overlay })
+  | .exec (.consumed exit frame) => .exec (.consumed exit { frame with overlay })
   | other => other
 
 /-- The first `count` delays of `backoff first..cap` (SPEC 8.8): `first`,
@@ -824,6 +857,53 @@ def backoffDelays {world : World Declaration Identity Source} (machine : Machine
       some ((takenDelays machine.retryClock limit.val 0 (backoffSchedule first.val cap.val (limit.val / first.val + 1))).filterMap
         fun delay => (validateDuration? delay).map fun valid => .scalar (.duration valid))
   | _ => none
+
+/-- The consumer a `for` loop over a producer pushes: its frame's scope, target
+and body. -/
+def consumerOf {world : World Declaration Identity Source} (frame : Frame world) (target : Xsh.Syntax.BindingTarget)
+    (body : List Xsh.Syntax.Statement) : Consumer world :=
+  { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
+    activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
+    collected := frame.collected, writable := frame.writable, target, body }
+
+/-- The frame a `yield` runs the consuming loop's body in: the loop's scope
+with the producer's store and environment variables. -/
+def consumerFrame {world : World Declaration Identity Source} (producer : Frame world) (loop : Consumer world)
+    (outer : List (Consumer world)) : Frame world :=
+  { environment := loop.environment, store := producer.store, overlay := producer.overlay, locals := loop.locals,
+    callerStore := loop.callerStore, activation := loop.activation, deferred := loop.deferred,
+    reported := producer.reported, waited := producer.waited, breakValue := none, closures := loop.closures,
+    item := loop.item, collected := loop.collected, writable := loop.writable, consumers := outer }
+
+/-- After the loop body a `yield` ran: a body that completed or continued
+resumes the producer with the store and environment it left; one that broke,
+returned or failed stops the producer, which unwinds as `consumed`. -/
+def resumeProducer {world : World Declaration Identity Source} (producer : Frame world) : Exec world → Exec world
+  | .normal after | .continued after => .normal { producer with store := after.store, overlay := after.overlay }
+  | .broke after => .consumed .broke { producer with store := after.store, overlay := after.overlay }
+  | .returned value after => .consumed (.returned value) { producer with store := after.store, overlay := after.overlay }
+  | .failed failure after => .consumed (.failed failure) { producer with store := after.store, overlay := after.overlay }
+  | .exited status after => .exited status { producer with store := after.store, overlay := after.overlay }
+  | .internal fault after => .internal fault { producer with store := after.store, overlay := after.overlay }
+  | .consumed exit after => .consumed exit { producer with store := after.store, overlay := after.overlay }
+  | other => other
+
+/-- A `for` loop over a producer call, once the producer has run: a producer
+that finished ends the loop, a consumed exit leaves the loop as its body did,
+and anything else leaves with it; the loop's consumers are its own again. -/
+def consumeProducer {world : World Declaration Identity Source} (loop : Frame world) : Valued world → Exec world
+  | .value _ last => .normal { last with consumers := loop.consumers }
+  | .exec (.consumed .broke last) => .normal { last with consumers := loop.consumers }
+  | .exec (.consumed (.returned value) last) => .returned value { last with consumers := loop.consumers }
+  | .exec (.consumed (.failed failure) last) => .failed failure { last with consumers := loop.consumers }
+  | .exec (.normal last) => .normal { last with consumers := loop.consumers }
+  | .exec (.failed failure last) => .failed failure { last with consumers := loop.consumers }
+  | .exec (.exited status last) => .exited status { last with consumers := loop.consumers }
+  | .exec (.internal fault last) => .internal fault { last with consumers := loop.consumers }
+  | .exec (.returned value last) => .returned value { last with consumers := loop.consumers }
+  | .exec (.broke last) => .broke { last with consumers := loop.consumers }
+  | .exec (.continued last) => .continued { last with consumers := loop.consumers }
+  | .exec other => other
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
@@ -1166,6 +1246,8 @@ def returnTo {world : World Declaration Identity Source} (caller : Frame world) 
   | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay })
   | .exited status callee =>
     .exec (.exited status { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+  | .consumed exit callee =>
+    .exec (.consumed exit { caller with store := keep caller.store callee.store, overlay := callee.overlay })
   | .unsupported => .exec .unsupported
   | .outOfFuel => .exec .outOfFuel
   | _ => .exec .stuck
@@ -1202,6 +1284,7 @@ called as values. -/
 def callableKind : Xsh.Syntax.FunctionKind → Option CallableKind
   | .proc => some .procedure
   | .pure => some .pure
+  | .stream => some .producer
   | _ => none
 
 /-- The callable value a local or a binding holds, which a call of that name
@@ -1560,7 +1643,9 @@ mutual
                 (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
-        | none, some closure => invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments
+        | none, some closure@(.mk _ callable _ _ _ _ _) =>
+          if callable = .producer then .exec .unsupported
+          else invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments
         | _, _ =>
           match frame.locals.lookup name, machine.context.functions name, machine.context.spelling name, arguments with
           | none, none, "Ok", [] => .value (.ok (.scalar .unit)) frame
@@ -1610,7 +1695,8 @@ mutual
     | fuel + 1, caller, scope, defining, parameters, writable, body, kind =>
       returnTo caller kind
         (runBody machine fuel
-          { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+          { Frame.ofScope defining caller.store parameters (some caller.store) scope with
+              writable, overlay := caller.overlay, consumers := caller.consumers }
           body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
@@ -1886,6 +1972,17 @@ mutual
       | .returnValue none => .returned (.scalar .unit) frame
       | .ifStmt branches otherwise => runIf machine fuel frame branches otherwise
       | .whileStmt condition body => runWhile machine fuel frame condition body
+      | .forStmt target (.call (.ident producer) arguments) body =>
+        match frame.locals.lookup producer, localClosure frame.closures frame.environment producer with
+        | none, some closure@(.mk _ .producer _ _ _ _ _) =>
+          consumeProducer frame
+            (invokeWith machine (evalExpr machine fuel) (callBlock machine fuel)
+              { frame with consumers := consumerOf frame target body :: frame.consumers } closure arguments)
+        | _, _ =>
+          (evalExpr machine fuel frame (.call (.ident producer) arguments)).toExec fun source next =>
+            match iterationItems source with
+            | some items => runFor machine fuel next target items body
+            | none => .unsupported
       | .forStmt target iterable body =>
         (evalExpr machine fuel frame iterable).toExec fun source next =>
           match iterationItems source with
@@ -1903,9 +2000,15 @@ mutual
           | _ => .unsupported
       | .yield value =>
         (runValue machine fuel frame value).toExec fun result next =>
-          match next.collected with
-          | some gathered => .normal { next with collected := some (gathered ++ [result]) }
-          | none => .unsupported
+          match next.collected, next.consumers with
+          | some gathered, _ => .normal { next with collected := some (gathered ++ [result]) }
+          | none, loop :: outer =>
+            let consuming := consumerFrame next loop outer
+            resumeProducer next
+              (leaveBlock machine fuel consuming
+                ((bindTarget machine consuming.enter .immutable loop.target result).andThen fun bound =>
+                  runStatements machine fuel bound loop.body))
+          | none, [] => .unsupported
       | .yieldDelegate value =>
         (runValue machine fuel frame value).toExec fun result next =>
           match next.collected, listValues result with

@@ -294,6 +294,20 @@ theorem withOverlay_refines {world : World Declaration Identity Source} (overlay
   · subst out; exact Or.inl rfl
   · subst same; exact valued_refl _
 
+theorem consumeProducer_refines {world : World Declaration Identity Source} (loop : Frame world)
+    {first second : Valued world} (refined : Valued.Refines first second) :
+    Exec.Refines (consumeProducer loop first) (consumeProducer loop second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact exec_refl _
+
+theorem resumeProducer_refines {world : World Declaration Identity Source} (producer : Frame world)
+    {first second : Exec world} (refined : Exec.Refines first second) :
+    Exec.Refines (resumeProducer producer first) (resumeProducer producer second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact exec_refl _
+
 theorem controlValue_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -547,6 +561,7 @@ set_option hygiene false in
 /-- Close a refinement goal between the same machine step at two fuels, given
 `inner` for the lower fuels. -/
 local macro "close_refines" : tactic => `(tactic| repeat' (first
+  | exact invokeWith_refines machine inner.expr inner.call _ _ _
   | exact exec_refl _
   | exact inner.statement _ _
   | exact inner.statements _ _
@@ -588,6 +603,8 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine guardElse_refines ?_
   | refine annotate_refines _ ?_
   | refine withOverlay_refines _ ?_
+  | refine consumeProducer_refines _ ?_
+  | refine resumeProducer_refines _ ?_
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
   | refine andThen_refines ?_ fun _ => ?_
@@ -613,6 +630,8 @@ theorem leaveBlock_outOfFuel {world : World Declaration Identity Source} (machin
     rw [runDeferred_outOfFuel]
     rfl
 
+-- Every machine function's refinement shares this declaration's budget, which grows with the arms.
+set_option maxHeartbeats 400000 in
 theorem refining {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel extra, Refining machine fuel (fuel + extra)
   | 0, _ => {
@@ -937,6 +956,7 @@ theorem collectWith_persists {world : World Declaration Identity Source} {before
   | failed failure inner => intro last present; cases present; exact head inner rfl
   | internal fault inner => intro last present; cases present; exact head inner rfl
   | exited status inner => intro last present; cases present; exact head inner rfl
+  | consumed _ inner => intro last present; cases present; exact head inner rfl
   | stuck => exact head
   | unsupported => exact head
   | outOfFuel => exact head
@@ -949,6 +969,7 @@ theorem returnTo_persists {world : World Declaration Identity Source} (caller : 
   · split
     · exact persists_keep (head _ rfl)
     · intro last present; cases present; exact persists_keep (head _ rfl)
+  · intro last present; cases present; exact persists_keep (head _ rfl)
   · intro last present; cases present; exact persists_keep (head _ rfl)
   · intro last present; cases present; exact persists_keep (head _ rfl)
   · intro last present; cases present
@@ -1013,9 +1034,32 @@ theorem withOverlay_persists {world : World Declaration Identity Source} (overla
   | exec inner =>
     cases inner with
     | normal frame | broke frame | continued frame | returned _ frame | failed _ frame | internal _ frame
-    | exited _ frame =>
+    | exited _ frame | consumed _ frame =>
       exact fun scope present => by cases present; exact kept frame rfl
     | stuck | unsupported | outOfFuel => exact kept
+
+theorem consumeProducer_persists {world : World Declaration Identity Source} (loop : Frame world)
+    {before : Store world} {outcome : Valued world} (kept : VKeeps before outcome) :
+    Keeps before (consumeProducer loop outcome) := by
+  cases outcome with
+  | value _ last => exact fun scope present => by cases present; exact kept
+  | exec inner =>
+    cases inner with
+    | consumed exit last =>
+      cases exit <;> exact fun scope present => by cases present; exact kept last rfl
+    | normal last | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last =>
+      exact fun scope present => by cases present; exact kept last rfl
+    | stuck | unsupported | outOfFuel => exact kept
+
+theorem resumeProducer_persists {world : World Declaration Identity Source} (producer : Frame world)
+    {before : Store world} {outcome : Exec world} (kept : Keeps before outcome) :
+    Keeps before (resumeProducer producer outcome) := by
+  cases outcome with
+  | normal after | broke after | continued after | returned _ after | failed _ after | exited _ after
+  | internal _ after =>
+    exact fun scope present => by cases present; exact kept after rfl
+  | consumed _ after => exact fun scope present => by cases present; exact kept after rfl
+  | stuck | unsupported | outOfFuel => exact kept
 
 theorem controlValue_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1315,6 +1359,7 @@ set_option hygiene false in
 /-- Close a persistence goal for one machine step, given `inner` for the
 lower fuel. -/
 local macro "close_persists" : tactic => `(tactic| repeat' (first
+  | exact invokeWith_persists machine inner.expr inner.call _ _ _
   | exact inner.statement _ _
   | exact inner.statements _ _
   | exact inner.block _ _
@@ -1359,6 +1404,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine guardElse_persists ?_
   | refine annotate_persists _ ?_
   | refine withOverlay_persists _ ?_
+  | refine consumeProducer_persists _ ?_
+  | refine resumeProducer_persists _ ?_
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
   | refine inner.leaves _ _ ?_
@@ -1523,7 +1570,7 @@ theorem persisting {world : World Declaration Identity Source} (machine : Machin
                 intro last present
                 cases present
                 exact persists_trans reached (ran after (by rw [result]; rfl))
-              | exited _ after =>
+              | exited _ after | consumed _ after =>
                 intro last present
                 cases present
                 exact persists_trans reached (ran after (by rw [result]; rfl))
@@ -1740,6 +1787,7 @@ theorem collectWith_restores {world : World Declaration Identity Source} {frame 
   | failed _ inner => intro last present; cases present; exact head inner rfl
   | internal _ inner => intro last present; cases present; exact head inner rfl
   | exited _ inner => intro last present; cases present; exact head inner rfl
+  | consumed _ inner => intro last present; cases present; exact head inner rfl
   | stuck => exact vrestores_none rfl
   | unsupported => exact vrestores_none rfl
   | outOfFuel => exact vrestores_none rfl
@@ -1758,6 +1806,7 @@ theorem returnTo_restores {world : World Declaration Identity Source} (caller : 
   · split
     · exact ⟨rfl, rfl⟩
     · intro last present; cases present; exact ⟨rfl, rfl⟩
+  · intro last present; cases present; exact ⟨rfl, rfl⟩
   · intro last present; cases present; exact ⟨rfl, rfl⟩
   · intro last present; cases present; exact ⟨rfl, rfl⟩
   · exact vrestores_none rfl
@@ -1814,9 +1863,37 @@ theorem withOverlay_restores {world : World Declaration Identity Source} (overla
   | exec inner =>
     cases inner with
     | normal last => exact restored.elim
+    | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last
+    | consumed _ last =>
+      exact fun scope present => by cases present; exact restored last rfl
+    | stuck | unsupported | outOfFuel => exact restored
+
+theorem consumeProducer_restores {world : World Declaration Identity Source} (loop : Frame world)
+    {outcome : Valued world} (restored : VRestores loop outcome) : Restores loop (consumeProducer loop outcome) := by
+  cases outcome with
+  | value _ last => exact fun scope present => by cases present; exact restored
+  | exec inner =>
+    cases inner with
+    | normal last => exact restored.elim
+    | consumed exit last =>
+      cases exit <;> exact fun scope present => by cases present; exact restored last rfl
     | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last =>
       exact fun scope present => by cases present; exact restored last rfl
     | stuck | unsupported | outOfFuel => exact restored
+
+theorem resumeProducer_normal {world : World Declaration Identity Source} {producer next : Frame world}
+    {outcome : Exec world} (resumed : resumeProducer producer outcome = .normal next) :
+    next.environment = producer.environment ∧ next.locals = producer.locals := by
+  cases outcome <;> simp only [resumeProducer] at resumed <;> first
+    | (cases resumed; exact ⟨rfl, rfl⟩)
+    | cases resumed
+
+theorem resumeProducer_restores {world : World Declaration Identity Source} (frame producer : Frame world)
+    (same : producer.environment = frame.environment ∧ producer.locals = frame.locals) (outcome : Exec world) :
+    Restores frame (resumeProducer producer outcome) := by
+  cases outcome <;> first
+    | exact fun scope present => by cases present; exact same
+    | exact fun scope present => by cases present
 
 theorem controlValue_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -2067,6 +2144,7 @@ structure Restoring {world : World Declaration Identity Source} (machine : Machi
 
 set_option hygiene false in
 local macro "close_restores" : tactic => `(tactic| repeat' (first
+  | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
   | exact ⟨rfl, rfl⟩
   | exact vrestores_none rfl
   | exact fromEval_restores _ _
@@ -2095,6 +2173,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | (apply settled_exec; assumption)
   | refine annotate_restores _ ?_
   | refine withOverlay_restores _ ?_
+  | refine consumeProducer_restores _ ?_
   | refine settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_
   | exact callBlock_restores _ _ _ _ _ _ _ _ _
   | exact threadStep_restores _ inner.expr
@@ -2105,7 +2184,6 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine loopStep_restores (fun _ => inner.loopValues _ _) ?_
   | refine collectWith_restores _ ?_
   | refine vbind_restores (threadAll_restores inner.expr _ _) fun _ _ => ?_
-  | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
   | refine vbind_restores (invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
@@ -2540,7 +2618,7 @@ theorem call_activation {world : World Declaration Identity Source} (machine : M
     (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
           body) ∧
     (machine.namesAt scope.activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found =>
@@ -2716,7 +2794,7 @@ theorem call_returns {world : World Declaration Identity Source} (machine : Mach
     (kind : ReturnKind) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
           body) :=
   rfl
 
@@ -2964,11 +3042,24 @@ theorem control_restores {world : World Declaration Identity Source} (machine : 
     | whileStmt condition body => exact scopes.whiles frame condition body
     | loopStmt body => exact scopes.loops frame body
     | forStmt target iterable body =>
-      simp only [runStatement]
-      refine toExec_restores (scopes.expr frame iterable) fun source middle => ?_
-      split
-      · exact scopes.fors _ target _ body
-      · exact fun _ present => by cases present
+      have plain : ∀ source, Restores frame ((evalExpr machine fuel frame source).toExec fun source next =>
+          match iterationItems source with
+          | some items => runFor machine fuel next target items body
+          | none => .unsupported) := fun source => by
+        refine toExec_restores (scopes.expr _ _) fun value middle => ?_
+        split
+        · exact scopes.fors _ target _ body
+        · exact fun _ present => by cases present
+      cases iterable
+      case call callee arguments =>
+        cases callee
+        case ident producer =>
+          simp only [runStatement]
+          split
+          · exact consumeProducer_restores _ (invokeWith_restores _ _ (callBlock_restores _ _) scopes.expr _ _ _)
+          · exact plain _
+        all_goals exact plain _
+      all_goals exact plain _
     | matchStmt subject arms =>
       simp only [runStatement]
       exact toExec_restores (scopes.expr frame subject) fun value middle => scopes.arms _ value arms
@@ -3116,7 +3207,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind environment declared,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
             body) ∧
       (machine.namesAt scope.activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
@@ -3217,7 +3308,7 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
             body)) ∧
     (∀ (value error : Value Declaration Identity Source) failure (caller callee : Frame world),
       returnTo caller .result (.failed (.raised error) callee) =

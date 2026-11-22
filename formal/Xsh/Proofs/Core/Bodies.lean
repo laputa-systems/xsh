@@ -298,6 +298,7 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
       split at finished
       · cases finished
         exact keep _ locals
+      · exact keep _ ((resumeProducer_normal finished).2.trans locals)
       · cases finished
     | yieldDelegate value =>
       simp only [runStatement] at ran
@@ -456,9 +457,9 @@ theorem body_resolution {world : World Declaration Identity Source} (machine : M
     (∀ fuel (caller : Frame world) scope defining (bound : Locals Declaration Identity Source) writable body kind,
       callBlock machine (fuel + 2) caller scope defining bound writable body kind =
         returnTo caller kind
-          (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay }
+          (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
             (runTail machine fuel
-              ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay } : Frame world).enter
+              ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers } : Frame world).enter
               body))) ∧
     (∀ base types, machine.resolution = canonicalResolution base types →
       ∀ fuel (store : Store world) (defining : Environment) (bound : Locals Declaration Identity Source) scope

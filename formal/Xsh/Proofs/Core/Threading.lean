@@ -506,13 +506,21 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
     | exact absurd rfl notFallback
     | simp only [evalExpr, threadStep]
 
+/-- A closure that is not a stream producer, which a call runs directly. -/
+def ClosureNotProducer : Closure → Prop
+  | .mk _ callable _ _ _ _ _ => callable ≠ .producer
+
 theorem closure_call_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (name : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.CallArgument) (closure : Closure)
     (unshadowed : frame.locals.lookup name = none)
-    (found : localClosure frame.closures frame.environment name = some closure) :
+    (found : localClosure frame.closures frame.environment name = some closure)
+    (plain : ClosureNotProducer closure) :
     evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
       invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments := by
-  simp only [evalExpr, unshadowed, found]
+  cases closure with
+  | mk cell callable environment captured writable parameters body =>
+    simp only [ClosureNotProducer] at plain
+    simp only [evalExpr, unshadowed, found, plain, if_false]
 
 /-- Store threading through the statement machine's expressions (SPEC 9.2: "A
 writable capture must refer to mutable storage with exactly that type";
@@ -563,6 +571,7 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
       runValue machine fuel frame (.valueBlock body)) ∧
     (∀ fuel (frame : Frame world) name arguments closure,
       frame.locals.lookup name = none → localClosure frame.closures frame.environment name = some closure →
+        ClosureNotProducer closure →
         evalExpr machine (fuel + 1) frame (.call (.ident name) arguments) =
           invokeWith machine (evalExpr machine fuel) (callBlock machine fuel) frame closure arguments) ∧
     (∀ (evaluateDefault : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source))
@@ -573,7 +582,7 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers }
             body)) ∧
     (∀ (caller callee : Frame world) kind value,
       ∃ result, returnTo caller kind (.returned value callee) =
@@ -591,8 +600,8 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
     fun _ _ _ => by simp only [evalExpr],
-    fun fuel frame name arguments closure unshadowed found =>
-      closure_call_threads machine fuel frame name arguments closure unshadowed found,
+    fun fuel frame name arguments closure unshadowed found plain =>
+      closure_call_threads machine fuel frame name arguments closure unshadowed found plain,
     fun evaluateDefault => bindSlots_lift machine.context.spelling evaluateDefault,
     fun _ _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> exact ⟨_, rfl⟩,

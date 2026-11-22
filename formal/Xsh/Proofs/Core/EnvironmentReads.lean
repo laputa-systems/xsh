@@ -42,7 +42,7 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind (runBody machine fuel
           { Frame.ofScope defining caller.store parameters (some caller.store) scope with
-            writable, overlay := caller.overlay } body)) ∧
+            writable, overlay := caller.overlay, consumers := caller.consumers } body)) ∧
     (∀ (caller callee : Frame world) kind value,
       frameOverlay (returnTo caller kind (.returned value callee)) = some callee.overlay) := by
   refine ⟨fun _ => rfl, fun name bytes found text decoded => ?_, fun name missing => ?_,

@@ -482,11 +482,11 @@ environment).
 
 Statements:
 
-- `for` over a `Stream` (E)
-- stream producers and their `yield` (E)
+- a `Stream` value a producer call gives outside the iterable of a `for`
+  loop, stored or passed before it is consumed, `yield` delegation to one,
+  and stream pipelines and stages (E)
 - `use` aliases, which need module loading (E)
-- `stream` and `cli main` declarations, which need the stream and host
-  argument models (E)
+- `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
 
 Expressions:
@@ -728,6 +728,23 @@ witness waits `100`, `200`, `250` and `250` milliseconds and ends with the
 fifth attempt's `Err`; an uncapped schedule is rejected. A zero `first` is
 outside the model, and the delays are observed, not slept.
 
+The `stream_producers` fragment root, in
+[`Proofs/Core/Producers.lean`](Xsh/Proofs/Core/Producers.lean), adds stream
+producers consumed by a `for` loop (SPEC 9.5). A `stream` declaration is
+hoisted as a `producer` closure; a `for` loop whose iterable calls one runs
+the producer with the loop pushed on the frame's `consumers`, which calls
+carry; each `yield` runs the loop's body on the item in the loop's own scope,
+sharing the store and environment variables, then resumes the producer. A
+body that completes or continues resumes it; one that breaks, returns or
+fails stops it as the `consumed` outcome, which unwinds the producer's scopes
+running its `defer`s but not its `errdefer`s, passes its `try`s, and then
+leaves the loop as the body did. The verification binary prints `yield 0`,
+`got 0`, `yield 1`, `got 1`, `producer defer`, `1` for a loop that breaks after
+two items and three `yield`s, `producer defer`, `2` for a loop that returns;
+the witnesses check both orders with a trace list and reject running the
+producer to its end before the loop. Calling a producer anywhere but as a
+`for` loop's iterable is unsupported, because stream values are not modelled.
+
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
 see other parameters, and run once per call for each omitted argument, in
@@ -885,8 +902,8 @@ scopes from `runScript` (SPEC 3.1). The pass's scopes where a script's
 statements start (`scriptScopes`) declare its top-level functions and its
 program's payload-free variants in the script's scope, and each statement
 then declares its names in order. Under the canonical resolution, for a
-script whose top-level declarations are `proc`s and `pure`s (`modelled`;
-`stream` and `cli main` stay outside), every closure hoisting binds belongs
+script whose top-level declarations are `proc`s, `pure`s and `stream`s
+(`modelled`; `cli main` stays outside), every closure hoisting binds belongs
 to one of the script's declarations and is over an environment representing
 the pass's scopes after that declaration: the hoisted functions and variants
 and the top-level bindings declared before it, and none declared after it.

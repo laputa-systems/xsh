@@ -280,6 +280,7 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       split at finished
       · cases finished
         exact keep _ environment
+      · exact keep _ ((resumeProducer_normal finished).1.trans environment)
       · cases finished
     | yieldDelegate value =>
       simp only [runStatement] at ran
