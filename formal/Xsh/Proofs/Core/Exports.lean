@@ -72,6 +72,63 @@ theorem unhoisted_export_rejected :
       readInt (output 0) (runCanonical exportingScript) = some 7 := by
   decide +kernel
 
+def applyFn : Xsh.Syntax.RawName := name 230 (by decide)
+def twiceFn : Xsh.Syntax.RawName := name 231 (by decide)
+def fParam : Xsh.Syntax.RawName := name 232 (by decide)
+def xParam : Xsh.Syntax.RawName := name 233 (by decide)
+def nParam : Xsh.Syntax.RawName := name 234 (by decide)
+def pickFn : Xsh.Syntax.RawName := name 235 (by decide)
+def gLocal : Xsh.Syntax.RawName := name 236 (by decide)
+
+/-- `pure apply(f: Op, x: Int) -> Int { f(x) }`, `pure twice(n: Int) -> Int
+{ n * 2 }` and `pure pick() -> Op { twice }`, then `apply(twice, 7)`,
+`let g = pick(); g(7)` and `apply([twice][0], 7)`. -/
+def firstClass : List Xsh.Syntax.Statement :=
+  [.functionDef .pure applyFn [.mk fParam none none false, .mk xParam none none false] none none
+     [.expression (.call (ident fParam) [.positional (ident xParam)])] none false,
+   .functionDef .pure twiceFn [.mk nParam none none false] none none
+     [.expression (.binary .mul (ident nParam) (int "2"))] none false,
+   .functionDef .pure pickFn [] none none [.expression (ident twiceFn)] none false,
+   letOf (output 0) (.call (ident applyFn) [.positional (ident twiceFn), .positional (int "7")]),
+   letOf gLocal (.call (ident pickFn) []),
+   letOf (output 1) (.call (ident gLocal) [.positional (int "7")]),
+   letOf (output 2) (.call (ident applyFn)
+     [.positional (.index (.list [ident twiceFn]) (int "0") false), .positional (int "7")])]
+
+/-- The cell hoisting binds `twice` to, which the witness world's single
+callable identity names. -/
+def twiceCell : Option CellId :=
+  (hoist scriptMachine fullStart firstClass).bind fun hoisted =>
+    match hoisted.environment.cellOf twiceFn with
+    | .ok cell => some cell
+    | .error _ => none
+
+def firstClassMachine : Machine witnessWorld := { scriptMachine with callableCell := fun _ => twiceCell }
+
+/-- Nested declarations are rejected (`check.nested-declaration`), so every
+callable is a hoisted top-level function, and every call's closure table
+holds the caller's, so a function value passed to, returned from or stored
+by another function is found where it is called. As the verification binary
+prints `14`, `8` and `2` for `apply(double, 7)`, `pick(false)(7)` and
+`apply(ops[1], 1)`, the model gives `14` for each shape. -/
+theorem function_values_travel :
+    readInt (output 0) (runScript firstClassMachine 90 fullStart firstClass) = some 14 ∧
+      readInt (output 1) (runScript firstClassMachine 90 fullStart firstClass) = some 14 ∧
+      readInt (output 2) (runScript firstClassMachine 90 fullStart firstClass) = some 14 := by
+  decide +kernel
+
+/-- A callee whose closure table is only what its declaration saw cannot call
+the later `twice` passed to the earlier `apply`. -/
+theorem declaration_only_table_rejected :
+    (match hoist scriptMachine fullStart firstClass with
+      | some hoisted =>
+        match localClosure hoisted.closures hoisted.environment applyFn with
+        | some (.mk _ _ _ captured _ _ _) => twiceCell.bind fun cell => (captured.lookup cell).map fun _ => true
+        | none => none
+      | none => none) = none ∧
+      readInt (output 0) (runScript firstClassMachine 90 fullStart firstClass) = some 14 := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Exports

@@ -490,9 +490,6 @@ Statements:
 
 Expressions:
 
-- calling a callable value outside the scope where its closure is visible,
-  such as a local function passed to, returned from or stored by another
-  function (P)
 - a `Result[Bool]` condition of a value `if` (P)
 - equality and membership of errors and handles, and `in` on a `Path`
   container (P)
@@ -649,6 +646,17 @@ verification binary prints `3` for an exported `pure` called above its
 declaration and `14` for `twice(seven)` over an exported `let`; the witnesses
 check both shapes and reject a script that does not hoist an exported
 function. A module's export interface and loading are not modelled.
+
+Function values travel as the verification binary's do. Nested declarations
+are rejected (`check.nested-declaration`), so every callable is a hoisted
+top-level function, and each call's closure table holds its caller's, so a
+function value passed to, returned from or stored by another function is
+found where it is called: `apply(twice, 7)`, `pick()(7)` and
+`apply([twice][0], 7)` all give `14` (`function_values_travel`), where the
+binary prints `14 8 2` for its three variants of these shapes. A callee table
+holding only what its declaration saw cannot find the later `twice`. The
+machine's `callableCell` oracle must map each callable identity back to its
+declaration's cell; the witness world has one callable identity.
 
 The `numeric_methods` fragment root, in
 [`Proofs/Core/NumericMethods.lean`](Xsh/Proofs/Core/NumericMethods.lean),
