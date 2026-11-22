@@ -318,6 +318,7 @@ theorem threadBranches_refines {world : World Declaration Identity Source}
     · exact each after value
     · exact threadBranches_refines each after rest otherwise
     · exact valued_refl _
+    · exact valued_refl _
 
 theorem threadStep_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     {recurse recurse' : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1034,6 +1035,7 @@ theorem threadBranches_persists {world : World Declaration Identity Source}
     split
     · exact each after value
     · exact threadBranches_persists each after rest otherwise
+    · exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
     · exact vkeeps_exec fun _ present => by cases present
 
 set_option hygiene false in
@@ -1816,6 +1818,7 @@ theorem threadBranches_restores {world : World Declaration Identity Source}
     split
     · exact each after value
     · exact threadBranches_restores each after rest otherwise
+    · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
     · exact vrestores_none rfl
 
 set_option hygiene false in

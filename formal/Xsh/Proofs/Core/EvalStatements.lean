@@ -80,9 +80,14 @@ omit [DecidableEq Declaration] in
 theorem evaluated_failure_propagates (environment : Environment) (store : Store world) (expression : Xsh.Syntax.Expr)
     (failure : Failure Declaration Identity Source) (after : Store world)
     (failed : evaluate context environment store fuel [] expression = .failure failure) :
-    recover (StoreStep.failed failure after) = .propagated failure after := by
-  obtain ⟨error, rfl⟩ := Xsh.Proofs.Core.Eval.evaluate_runtimeOnly context store fuel environment [] expression failure failed
-  rfl
+    recover (StoreStep.failed failure after) = .propagated failure after ∨
+      ∃ error, failure = .raised error ∧ recover (StoreStep.failed failure after) = .caught error after := by
+  obtain ⟨error, runtime | raised⟩ :=
+    Xsh.Proofs.Core.Eval.evaluate_noTypeFailure context store fuel environment [] expression failure failed
+  · subst runtime
+    exact Or.inl rfl
+  · subst raised
+    exact Or.inr ⟨error, rfl, rfl⟩
 
 end Instance
 
@@ -92,7 +97,8 @@ section Root
 and `Operate` answered by the covered-expression evaluator: the statement
 theorem holds for that instance; where the evaluator produces a value or a
 failure the instance returns it with the store unchanged, and every such
-failure is a runtime one that `try` propagates; a declaration whose
+failure is a runtime one that `try` propagates or the raised error of a
+`Result[Bool]` condition that `try` catches; a declaration whose
 initializer the evaluator answers commits that value or fails with that
 failure; a well-typed initializer in a consistent context never reaches the
 malformed-target fault; and compound `+=` on lists is `concatenate`. -/
@@ -108,7 +114,8 @@ theorem evaluated_store_writes (world : World Declaration Identity Source) (deci
       (oracles context fuel fallback).evaluate environment store expression = .error (failure, store)) ∧
     (∀ environment (store : Store world) expression failure (after : Store world),
       evaluate context environment store fuel [] expression = .failure failure →
-        recover (StoreStep.failed failure after) = .propagated failure after) ∧
+        recover (StoreStep.failed failure after) = .propagated failure after ∨
+          ∃ error, failure = .raised error ∧ recover (StoreStep.failed failure after) = .caught error after) ∧
     (∀ state kind target initializer value resolved declared,
       evaluate context state.environment state.store fuel [] initializer = .value value →
       resolveTarget (oracles context fuel fallback) state.environment target = some (resolved, declared) →

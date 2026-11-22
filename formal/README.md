@@ -364,7 +364,8 @@ Every value is a member of the type the typing judgment gives, in a typing
 context whose names hold members and with every function typed at its
 signature in a context its own defining environment satisfies; the judgment is defined from the SPEC 6.2 operator table, not from
 the evaluator. Every failure is a runtime failure, which `try` propagates
-(SPEC 8.8). Operator results are BASE-NUM's `ArithmeticMeaning`,
+(SPEC 8.8), or the raised error of a `Result[Bool]` condition's `Err` in an
+`if` expression, which `try` catches (SPEC 8.3). Operator results are BASE-NUM's `ArithmeticMeaning`,
 `FloatMeaning` under the context's `NaNPolicy`, `ComparisonMeaning`, IEEE
 equality, `IntegerExact` and `NegationMeaning`, the `DurationOps` results, and
 list `concatenate`. `evaluated_store_writes` answers BASE-ENV's
@@ -490,7 +491,8 @@ Statements:
 
 Expressions:
 
-- a `Result[Bool]` condition of a value `if` (P)
+- `and`, `or` and `!` over `Result[Bool]` operands in a value `if`
+  condition (P)
 - equality and membership of errors and handles, and `in` on a `Path` whose
   bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
@@ -611,7 +613,11 @@ then cannot fail. Its witnesses follow the verification binary on
 `ok(false) and bad()`, `ok(true) or bad()`, `! ok(false)`,
 `while ok(i < 2)` and an `Err` reached through `ok(true) and bad()`. The
 mutants it rejects test both operands before combining them, or accept only
-plain `Bool` operands. A value `if` still takes plain `Bool` conditions.
+plain `Bool` operands. A value `if`, in both evaluators, takes the `Bool` of
+a whole condition's `Ok` and raises its `Err`'s error, as the verification
+binary gives `7 8` and then the `Err` for `if ok(true)`, `if ok(false)` and
+`if bad()`; `and`, `or` and `!` over `Result` operands there remain outside
+the model.
 
 The `require_expression` fragment root, in
 [`Proofs/Core/Requires.lean`](Xsh/Proofs/Core/Requires.lean), connects the

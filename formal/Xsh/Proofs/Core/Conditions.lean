@@ -21,8 +21,9 @@ variable {Declaration Identity Source : Type}
 a `Result[Bool]` condition gives the `Bool` of its `Ok` and raises the error of
 its `Err`, as under `?`, and so does each operand of `!`, `and` and `or`
 there; `and` with a false left operand and `or` with a true one give that
-value without running the right operand, which therefore cannot fail; and
-`if` and `while` test their conditions this way. -/
+value without running the right operand, which therefore cannot fail;
+`if` and `while` test their conditions this way; and a value `if` takes the
+`Bool` of a condition's `Ok` and raises its `Err`'s error. -/
 theorem control_conditions [DecidableEq Declaration] {world : World Declaration Identity Source}
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame after : Frame world) :
     (∀ left right, controlValue evaluate frame left = .value (.scalar (.boolean false)) after →
@@ -44,11 +45,22 @@ theorem control_conditions [DecidableEq Declaration] {world : World Declaration 
     (∀ (tested : Value Declaration Identity Source) error, tested.eraseNominal = .err error →
       conditionValue tested = some (.error error)) ∧
     (∀ (tested inner : Value Declaration Identity Source) value, tested.eraseNominal = .ok inner →
-      inner.eraseNominal = .scalar (.boolean value) → conditionValue tested = some (.ok value)) := by
+      inner.eraseNominal = .scalar (.boolean value) → conditionValue tested = some (.ok value)) ∧
+    (∀ condition value rest otherwise (tested : Value Declaration Identity Source),
+      evaluate frame condition = .value tested after →
+        threadBranches evaluate frame ((condition, value) :: rest) otherwise =
+          match conditionValue tested with
+          | some (.ok true) => evaluate after value
+          | some (.ok false) => threadBranches evaluate after rest otherwise
+          | some (.error error) => .exec (.failed (.raised error) after)
+          | none => .exec .stuck) := by
   refine ⟨fun left right ran => ?_, fun left right ran => ?_, fun left right ran => ?_,
     fun operand value ran => ?_, fun condition tested notAnd notOr notNot ran => ?_,
     fun tested error shape => by simp [conditionValue, shape],
-    fun tested inner value shape inside => by simp [conditionValue, shape, inside]⟩
+    fun tested inner value shape inside => by simp [conditionValue, shape, inside],
+    fun condition value rest otherwise tested ran => by
+      simp only [threadBranches, ran, Outcome.bind]
+      split <;> simp_all⟩
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
   · simp [controlValue, ran, Outcome.bind, Value.eraseNominal]
@@ -111,6 +123,17 @@ theorem bool_only_operands_rejected :
       | .scalar (.boolean _) => true
       | _ => false) = false ∧
       readInt totalName (runHolding (ifThen (.binary .or (ident rName) (ident fName)) "7")) = some 7 := by
+  decide +kernel
+
+/-- A value `if` over `Ok(true)` and `Ok(false)` picks as the `Bool` does,
+and over `Err("boom")` raises `boom`. -/
+theorem value_if_results :
+    readInt xName (runHolding [.binding .letBinding (.name xName) none (.ifExpr [(ident fName, int "7")] (int "8"))]) =
+      some 7 ∧
+    readInt xName (runHolding [.binding .letBinding (.name xName) none (.ifExpr [(ident rName, int "1")] (int "8"))]) =
+      some 8 ∧
+    raisedBoom (runHolding [.binding .letBinding (.name xName) none (.ifExpr [(ident gName, int "1")] (int "8"))]) =
+      true := by
   decide +kernel
 
 end Witness

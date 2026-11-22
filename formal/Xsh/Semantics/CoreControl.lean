@@ -517,18 +517,6 @@ def resolveCaptures {world : World Declaration Identity Source} (resolution : Or
 
 variable [DecidableEq Declaration]
 
-/-- A condition's value: a `Bool`, or a `Result[Bool]`, whose `Err` leaves as
-under `?` (SPEC 8.3). -/
-def conditionValue (tested : Value Declaration Identity Source) : Option (Except (Value Declaration Identity Source) Bool) :=
-  match tested.eraseNominal with
-  | .scalar (.boolean value) => some (.ok value)
-  | .ok inner =>
-    match inner.eraseNominal with
-    | .scalar (.boolean value) => some (.ok value)
-    | _ => none
-  | .err error => some (.error error)
-  | _ => none
-
 def keyValue (key : MapKey) : Value Declaration Identity Source := .scalar key.scalar
 
 /-- What `for` iterates (SPEC 8.6): a list's items, a map's `{key, value}`
@@ -805,10 +793,11 @@ def threadBranches {world : World Declaration Identity Source}
   | frame, [], otherwise => evaluate frame otherwise
   | frame, (condition, value) :: rest, otherwise =>
     (evaluate frame condition).bind fun result after =>
-      match result.eraseNominal with
-      | .scalar (.boolean true) => evaluate after value
-      | .scalar (.boolean false) => threadBranches evaluate after rest otherwise
-      | _ => .exec .stuck
+      match conditionValue result with
+      | some (.ok true) => evaluate after value
+      | some (.ok false) => threadBranches evaluate after rest otherwise
+      | some (.error error) => .exec (.failed (.raised error) after)
+      | none => .exec .stuck
 
 /-- `CoreEval.step` with the frame threaded: the same forms and operator
 meanings (`binary`, `unary`, `indexAt`, `fieldOf`), each operand evaluated in

@@ -605,15 +605,28 @@ def positional : List Xsh.Syntax.CallArgument → Option (List Xsh.Syntax.Expr)
   | .positional value :: rest => (positional rest).map (value :: ·)
   | _ :: _ => none
 
+/-- A condition's value: a `Bool`, or a `Result[Bool]`, whose `Err` leaves as
+under `?` (SPEC 8.3). -/
+def conditionValue (tested : Value Declaration Identity Source) : Option (Except (Value Declaration Identity Source) Bool) :=
+  match tested.eraseNominal with
+  | .scalar (.boolean value) => some (.ok value)
+  | .ok inner =>
+    match inner.eraseNominal with
+    | .scalar (.boolean value) => some (.ok value)
+    | _ => none
+  | .err error => some (.error error)
+  | _ => none
+
 def branches (evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)) :
     List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)
   | [], otherwise => evaluate otherwise
   | (condition, value) :: rest, otherwise =>
     (evaluate condition).bind fun result =>
-      match result.eraseNominal with
-      | .scalar (.boolean true) => evaluate value
-      | .scalar (.boolean false) => branches evaluate rest otherwise
-      | _ => .stuck
+      match conditionValue result with
+      | some (.ok true) => evaluate value
+      | some (.ok false) => branches evaluate rest otherwise
+      | some (.error error) => .failure (.raised error)
+      | none => .stuck
 
 /-- One evaluation step over `recurse`, which evaluates a subterm one fuel
 level down in the given environment, and `callBlock`, which runs a block

@@ -150,6 +150,7 @@ theorem branches_refines
     · exact each value
     · exact branches_refines each rest otherwise
     · exact refines_refl _
+    · exact refines_refl _
 
 theorem step_refines (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
@@ -244,17 +245,18 @@ end Fuel
 section Failures
 
 /-- Every failure the result carries is a runtime failure, which `try` does
-not capture. -/
-def RuntimeOnly {α : Type} (result : Result Declaration Identity Source α) : Prop :=
-  ∀ failure, result = .failure failure → ∃ error, failure = .runtime error
+not capture, or the raised error of a `Result[Bool]` condition's `Err`; none is
+a type failure. -/
+def NoTypeFailure {α : Type} (result : Result Declaration Identity Source α) : Prop :=
+  ∀ failure, result = .failure failure → ∃ error, failure = .runtime error ∨ failure = .raised error
 
-theorem runtimeOnly_of_no_failure {α : Type} {result : Result Declaration Identity Source α}
-    (never : ∀ failure, result ≠ .failure failure) : RuntimeOnly result :=
+theorem noTypeFailure_of_no_failure {α : Type} {result : Result Declaration Identity Source α}
+    (never : ∀ failure, result ≠ .failure failure) : NoTypeFailure result :=
   fun failure failed => absurd failed (never failure)
 
-theorem bind_runtimeOnly {α β : Type} {first : Result Declaration Identity Source α}
-    {next : α → Result Declaration Identity Source β} (head : RuntimeOnly first) (tail : ∀ value, RuntimeOnly (next value)) :
-    RuntimeOnly (first.bind next) := by
+theorem bind_noTypeFailure {α β : Type} {first : Result Declaration Identity Source α}
+    {next : α → Result Declaration Identity Source β} (head : NoTypeFailure first) (tail : ∀ value, NoTypeFailure (next value)) :
+    NoTypeFailure (first.bind next) := by
   intro failure failed
   cases first with
   | value value => exact tail value failure failed
@@ -264,200 +266,203 @@ theorem bind_runtimeOnly {α β : Type} {first : Result Declaration Identity Sou
     exact head inner rfl
   | _ => simp [Result.bind] at failed
 
-theorem integerResult_runtimeOnly (errors : Errors Declaration Identity Source) (result : IntegerOps.IntegerResult) :
-    RuntimeOnly (integerResult errors result) := by
+theorem integerResult_noTypeFailure (errors : Errors Declaration Identity Source) (result : IntegerOps.IntegerResult) :
+    NoTypeFailure (integerResult errors result) := by
   intro failure failed
   cases result with
   | value value => simp [integerResult] at failed
   | fault fault =>
     simp only [integerResult, Result.failure.injEq] at failed
-    exact ⟨_, failed.symm⟩
+    exact ⟨_, Or.inl failed.symm⟩
 
-theorem durationResult_runtimeOnly (errors : Errors Declaration Identity Source) (result : DurationOps.DurationResult) :
-    RuntimeOnly (durationResult errors result) := by
+theorem durationResult_noTypeFailure (errors : Errors Declaration Identity Source) (result : DurationOps.DurationResult) :
+    NoTypeFailure (durationResult errors result) := by
   intro failure failed
   cases result with
   | fault fault =>
     simp only [durationResult, Result.failure.injEq] at failed
-    exact ⟨_, failed.symm⟩
+    exact ⟨_, Or.inl failed.symm⟩
   | _ => simp [durationResult] at failed
 
-theorem literal_runtimeOnly (literals : Literals) (value : Xsh.Syntax.Literal) :
-    RuntimeOnly (Declaration := Declaration) (Identity := Identity) (Source := Source) (literal literals value) := by
+theorem literal_noTypeFailure (literals : Literals) (value : Xsh.Syntax.Literal) :
+    NoTypeFailure (Declaration := Declaration) (Identity := Identity) (Source := Source) (literal literals value) := by
   intro failure failed
   unfold literal at failed
   repeat' split at failed
   all_goals simp at failed
 
-theorem decided_runtimeOnly (decision : Option Bool) :
-    RuntimeOnly (Declaration := Declaration) (Identity := Identity) (Source := Source) (decided decision) := by
+theorem decided_noTypeFailure (decision : Option Bool) :
+    NoTypeFailure (Declaration := Declaration) (Identity := Identity) (Source := Source) (decided decision) := by
   intro failure failed
   cases decision <;> simp [decided] at failed
 
-theorem structural_runtimeOnly (same : Declaration → Declaration → Bool) (operator : Xsh.Syntax.BinaryOp)
+theorem structural_noTypeFailure (same : Declaration → Declaration → Bool) (operator : Xsh.Syntax.BinaryOp)
     (left right : Value Declaration Identity Source) :
-    RuntimeOnly (structural same operator left right) := by
+    NoTypeFailure (structural same operator left right) := by
   intro failure failed
   unfold structural at failed
   repeat' split at failed
   all_goals first
-    | exact decided_runtimeOnly _ failure failed
+    | exact decided_noTypeFailure _ failure failed
     | simp at failed
 
-theorem binary_runtimeOnly (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
-    (left right : Value Declaration Identity Source) : RuntimeOnly (binary context operator left right) := by
+theorem binary_noTypeFailure (context : Context Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
+    (left right : Value Declaration Identity Source) : NoTypeFailure (binary context operator left right) := by
   intro failure failed
   unfold binary at failed
   repeat' split at failed
   all_goals first
-    | exact integerResult_runtimeOnly _ _ failure failed
-    | exact durationResult_runtimeOnly _ _ failure failed
-    | exact decided_runtimeOnly _ failure failed
-    | exact structural_runtimeOnly _ _ _ _ failure failed
+    | exact integerResult_noTypeFailure _ _ failure failed
+    | exact durationResult_noTypeFailure _ _ failure failed
+    | exact decided_noTypeFailure _ failure failed
+    | exact structural_noTypeFailure _ _ _ _ failure failed
     | simp at failed
 
-theorem unary_runtimeOnly (context : Context Declaration Identity Source) (operator : Xsh.Syntax.UnaryOp)
-    (operand : Value Declaration Identity Source) : RuntimeOnly (unary context operator operand) := by
+theorem unary_noTypeFailure (context : Context Declaration Identity Source) (operator : Xsh.Syntax.UnaryOp)
+    (operand : Value Declaration Identity Source) : NoTypeFailure (unary context operator operand) := by
   intro failure failed
   unfold unary at failed
   repeat' split at failed
   all_goals first
-    | exact integerResult_runtimeOnly _ _ failure failed
+    | exact integerResult_noTypeFailure _ _ failure failed
     | simp at failed
 
-theorem fieldOf_runtimeOnly (context : Context Declaration Identity Source) (name : Xsh.Syntax.RawName)
-    (base : Value Declaration Identity Source) : RuntimeOnly (fieldOf context name base) := by
+theorem fieldOf_noTypeFailure (context : Context Declaration Identity Source) (name : Xsh.Syntax.RawName)
+    (base : Value Declaration Identity Source) : NoTypeFailure (fieldOf context name base) := by
   intro failure failed
   simp only [fieldOf] at failed
   repeat' split at failed
   all_goals first
-    | (simp only [Result.failure.injEq] at failed; exact ⟨_, failed.symm⟩)
+    | (simp only [Result.failure.injEq] at failed; exact ⟨_, Or.inl failed.symm⟩)
     | simp at failed
 
-theorem indexAt_runtimeOnly (context : Context Declaration Identity Source) (fromEnd : Bool)
-    (base key : Value Declaration Identity Source) : RuntimeOnly (indexAt context fromEnd base key) := by
+theorem indexAt_noTypeFailure (context : Context Declaration Identity Source) (fromEnd : Bool)
+    (base key : Value Declaration Identity Source) : NoTypeFailure (indexAt context fromEnd base key) := by
   intro failure failed
   unfold indexAt at failed
   split at failed
   · dsimp only at failed
     repeat' split at failed
     all_goals first
-      | (simp only [Result.failure.injEq] at failed; exact ⟨_, failed.symm⟩)
+      | (simp only [Result.failure.injEq] at failed; exact ⟨_, Or.inl failed.symm⟩)
       | simp at failed
   · repeat' split at failed
     all_goals first
-      | (simp only [Result.failure.injEq] at failed; exact ⟨_, failed.symm⟩)
+      | (simp only [Result.failure.injEq] at failed; exact ⟨_, Or.inl failed.symm⟩)
       | simp at failed
 
-theorem evaluateAll_runtimeOnly {α : Type} {evaluate : α → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ item, RuntimeOnly (evaluate item)) : ∀ items, RuntimeOnly (evaluateAll evaluate items)
-  | [] => runtimeOnly_of_no_failure (by simp [evaluateAll])
-  | first :: rest => bind_runtimeOnly (each first) fun _ =>
-      bind_runtimeOnly (evaluateAll_runtimeOnly each rest) fun _ => runtimeOnly_of_no_failure (by simp)
+theorem evaluateAll_noTypeFailure {α : Type} {evaluate : α → Result Declaration Identity Source (Value Declaration Identity Source)}
+    (each : ∀ item, NoTypeFailure (evaluate item)) : ∀ items, NoTypeFailure (evaluateAll evaluate items)
+  | [] => noTypeFailure_of_no_failure (by simp [evaluateAll])
+  | first :: rest => bind_noTypeFailure (each first) fun _ =>
+      bind_noTypeFailure (evaluateAll_noTypeFailure each rest) fun _ => noTypeFailure_of_no_failure (by simp)
 
-theorem evaluateFields_runtimeOnly (context : Context Declaration Identity Source)
+theorem evaluateFields_noTypeFailure (context : Context Declaration Identity Source)
     {evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ source, RuntimeOnly (evaluate source)) : ∀ fields, RuntimeOnly (evaluateFields context evaluate fields)
-  | [] => runtimeOnly_of_no_failure (by simp [evaluateFields])
-  | .named _ operand :: rest => bind_runtimeOnly (each operand) fun _ =>
-      bind_runtimeOnly (evaluateFields_runtimeOnly context each rest) fun _ => runtimeOnly_of_no_failure (by simp)
+    (each : ∀ source, NoTypeFailure (evaluate source)) : ∀ fields, NoTypeFailure (evaluateFields context evaluate fields)
+  | [] => noTypeFailure_of_no_failure (by simp [evaluateFields])
+  | .named _ operand :: rest => bind_noTypeFailure (each operand) fun _ =>
+      bind_noTypeFailure (evaluateFields_noTypeFailure context each rest) fun _ => noTypeFailure_of_no_failure (by simp)
   | .computed _ _ :: _ | .path _ _ :: _ | .shorthand _ :: _ | .spread _ :: _ =>
-      runtimeOnly_of_no_failure (by simp [evaluateFields])
+      noTypeFailure_of_no_failure (by simp [evaluateFields])
 
-theorem branches_runtimeOnly
+theorem branches_noTypeFailure
     {evaluate : Xsh.Syntax.Expr → Result Declaration Identity Source (Value Declaration Identity Source)}
-    (each : ∀ source, RuntimeOnly (evaluate source)) :
-    ∀ conditions otherwise, RuntimeOnly (branches evaluate conditions otherwise)
+    (each : ∀ source, NoTypeFailure (evaluate source)) :
+    ∀ conditions otherwise, NoTypeFailure (branches evaluate conditions otherwise)
   | [], otherwise => each otherwise
-  | (condition, value) :: rest, otherwise => bind_runtimeOnly (each condition) fun tested => by
+  | (condition, value) :: rest, otherwise => bind_noTypeFailure (each condition) fun tested => by
       split
       · exact each value
-      · exact branches_runtimeOnly each rest otherwise
-      · exact runtimeOnly_of_no_failure (by simp)
+      · exact branches_noTypeFailure each rest otherwise
+      · exact fun failure failed => by
+          simp only [Result.failure.injEq] at failed
+          exact ⟨_, Or.inr failed.symm⟩
+      · exact noTypeFailure_of_no_failure (by simp)
 
-theorem step_runtimeOnly (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+theorem step_noTypeFailure (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (environment : Environment) (store : Store world)
     {recurse : Environment → Locals Declaration Identity Source → Xsh.Syntax.Expr →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (inner : ∀ environment locals expression, RuntimeOnly (recurse environment locals expression))
+    (inner : ∀ environment locals expression, NoTypeFailure (recurse environment locals expression))
     {callBlock : Environment → Locals Declaration Identity Source → List Xsh.Syntax.Statement → ReturnKind →
       Result Declaration Identity Source (Value Declaration Identity Source)}
-    (blocks : ∀ environment locals statements kind, RuntimeOnly (callBlock environment locals statements kind))
+    (blocks : ∀ environment locals statements kind, NoTypeFailure (callBlock environment locals statements kind))
     (locals : Locals Declaration Identity Source) (expression : Xsh.Syntax.Expr) :
-    RuntimeOnly (step context environment store recurse callBlock locals expression) := by
+    NoTypeFailure (step context environment store recurse callBlock locals expression) := by
   cases expression with
-  | literal value => exact literal_runtimeOnly context.literals value
+  | literal value => exact literal_noTypeFailure context.literals value
   | ident name =>
     simp only [step]
     split
-    · exact runtimeOnly_of_no_failure (by simp)
+    · exact noTypeFailure_of_no_failure (by simp)
     · split
       · split
-        · exact runtimeOnly_of_no_failure (by simp)
-        · exact runtimeOnly_of_no_failure (by simp)
-      · exact runtimeOnly_of_no_failure (by simp)
+        · exact noTypeFailure_of_no_failure (by simp)
+        · exact noTypeFailure_of_no_failure (by simp)
+      · exact noTypeFailure_of_no_failure (by simp)
   | list elements =>
-    exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) elements) fun _ => runtimeOnly_of_no_failure (by simp)
+    exact bind_noTypeFailure (evaluateAll_noTypeFailure (inner environment locals) elements) fun _ => noTypeFailure_of_no_failure (by simp)
   | record fields =>
-    exact bind_runtimeOnly (evaluateFields_runtimeOnly context (inner environment locals) fields) fun _ =>
-      runtimeOnly_of_no_failure (by simp)
-  | field base name => exact bind_runtimeOnly (inner environment locals base) (fieldOf_runtimeOnly context name)
+    exact bind_noTypeFailure (evaluateFields_noTypeFailure context (inner environment locals) fields) fun _ =>
+      noTypeFailure_of_no_failure (by simp)
+  | field base name => exact bind_noTypeFailure (inner environment locals base) (fieldOf_noTypeFailure context name)
   | index base key guarded =>
     cases guarded with
-    | true => exact runtimeOnly_of_no_failure (by simp [step])
+    | true => exact noTypeFailure_of_no_failure (by simp [step])
     | false =>
       simp only [step]
-      exact bind_runtimeOnly (inner environment locals base) fun _ =>
-        bind_runtimeOnly (inner environment locals key) fun _ => indexAt_runtimeOnly _ _ _ _
-  | unary operator operand => exact bind_runtimeOnly (inner environment locals operand) (unary_runtimeOnly context operator)
+      exact bind_noTypeFailure (inner environment locals base) fun _ =>
+        bind_noTypeFailure (inner environment locals key) fun _ => indexAt_noTypeFailure _ _ _ _
+  | unary operator operand => exact bind_noTypeFailure (inner environment locals operand) (unary_noTypeFailure context operator)
   | binary operator left right =>
     cases operator
     case and =>
       simp only [step]
-      refine bind_runtimeOnly (inner environment locals left) fun value => ?_
+      refine bind_noTypeFailure (inner environment locals left) fun value => ?_
       split
-      · exact runtimeOnly_of_no_failure (by simp)
-      · refine bind_runtimeOnly (inner environment locals right) fun _ => ?_
+      · exact noTypeFailure_of_no_failure (by simp)
+      · refine bind_noTypeFailure (inner environment locals right) fun _ => ?_
         split
-        · exact runtimeOnly_of_no_failure (by simp)
-        · exact runtimeOnly_of_no_failure (by simp)
-      · exact runtimeOnly_of_no_failure (by simp)
+        · exact noTypeFailure_of_no_failure (by simp)
+        · exact noTypeFailure_of_no_failure (by simp)
+      · exact noTypeFailure_of_no_failure (by simp)
     case or =>
       simp only [step]
-      refine bind_runtimeOnly (inner environment locals left) fun value => ?_
+      refine bind_noTypeFailure (inner environment locals left) fun value => ?_
       split
-      · exact runtimeOnly_of_no_failure (by simp)
-      · refine bind_runtimeOnly (inner environment locals right) fun _ => ?_
+      · exact noTypeFailure_of_no_failure (by simp)
+      · refine bind_noTypeFailure (inner environment locals right) fun _ => ?_
         split
-        · exact runtimeOnly_of_no_failure (by simp)
-        · exact runtimeOnly_of_no_failure (by simp)
-      · exact runtimeOnly_of_no_failure (by simp)
-    all_goals exact bind_runtimeOnly (inner environment locals left) fun _ =>
-      bind_runtimeOnly (inner environment locals right) fun _ => binary_runtimeOnly _ _ _ _
-  | ifExpr conditions otherwise => exact branches_runtimeOnly (inner environment locals) conditions otherwise
+        · exact noTypeFailure_of_no_failure (by simp)
+        · exact noTypeFailure_of_no_failure (by simp)
+      · exact noTypeFailure_of_no_failure (by simp)
+    all_goals exact bind_noTypeFailure (inner environment locals left) fun _ =>
+      bind_noTypeFailure (inner environment locals right) fun _ => binary_noTypeFailure _ _ _ _
+  | ifExpr conditions otherwise => exact branches_noTypeFailure (inner environment locals) conditions otherwise
   | call callee arguments =>
     cases callee
     case ident name =>
       simp only [step]
       split
-      · exact bind_runtimeOnly (evaluateAll_runtimeOnly (inner environment locals) _) fun _ => by
+      · exact bind_noTypeFailure (evaluateAll_noTypeFailure (inner environment locals) _) fun _ => by
           split
           · split <;> first | exact inner _ _ _ | exact blocks _ _ _ _
-          · exact runtimeOnly_of_no_failure (by simp)
-      · exact runtimeOnly_of_no_failure (by simp)
-    all_goals exact runtimeOnly_of_no_failure (by simp [step])
-  | _ => exact runtimeOnly_of_no_failure (by simp [step])
+          · exact noTypeFailure_of_no_failure (by simp)
+      · exact noTypeFailure_of_no_failure (by simp)
+    all_goals exact noTypeFailure_of_no_failure (by simp [step])
+  | _ => exact noTypeFailure_of_no_failure (by simp [step])
 
 /-- The covered expressions fail only with runtime failures: SPEC 8.8 puts
 index-out-of-range, division-by-zero, integer overflow and a missing key or
 field outside what `try` captures. -/
-theorem evaluate_runtimeOnly (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
+theorem evaluate_noTypeFailure (context : Context Declaration Identity Source) {world : World Declaration Identity Source}
     (store : Store world) :
-    ∀ fuel environment locals expression, RuntimeOnly (evaluate context environment store fuel locals expression)
-  | 0, _, _, _ => runtimeOnly_of_no_failure (by simp [evaluate])
+    ∀ fuel environment locals expression, NoTypeFailure (evaluate context environment store fuel locals expression)
+  | 0, _, _, _ => noTypeFailure_of_no_failure (by simp [evaluate])
   | fuel + 1, environment, locals, expression =>
-    step_runtimeOnly context environment store (evaluate_runtimeOnly context store fuel)
-      (fun _ _ _ _ => runtimeOnly_of_no_failure (by simp)) locals expression
+    step_noTypeFailure context environment store (evaluate_noTypeFailure context store fuel)
+      (fun _ _ _ _ => noTypeFailure_of_no_failure (by simp)) locals expression
 
 end Failures
 
@@ -508,7 +513,8 @@ section Root
 
 /-- BASE-STEP's evaluation of the covered expressions, over every evaluation
 context, Core world, environment and store: a finished evaluation is the same
-at every fuel; every failure is a runtime failure; a binary operator other than
+at every fuel; every failure is a runtime failure or the raised error of a `Result[Bool]`
+condition; a binary operator other than
 `and`/`or` evaluates left, then right, then applies its meaning; and those
 meanings are BASE-NUM's integer, float, comparison, IEEE-equality and negation
 meanings, the `DurationOps` results in both `Duration * Int` orders with
@@ -521,7 +527,7 @@ theorem covered_expression_evaluation (context : Context Declaration Identity So
         evaluate context environment store first locals expression =
           evaluate context environment store second locals expression) ∧
     (∀ fuel locals expression failure, evaluate context environment store fuel locals expression = .failure failure →
-      ∃ error, failure = .runtime error) ∧
+      ∃ error, failure = .runtime error ∨ failure = .raised error) ∧
     (∀ fuel locals operator left right, operator ≠ .and → operator ≠ .or →
       evaluate context environment store (fuel + 1) locals (.binary operator left right) =
         (evaluate context environment store fuel locals left).bind fun first =>
@@ -562,7 +568,7 @@ theorem covered_expression_evaluation (context : Context Declaration Identity So
       binary context .add left right = .value result) :=
   ⟨fun locals expression first second =>
       evaluate_deterministic context environment store locals expression first second,
-    fun fuel => evaluate_runtimeOnly context store fuel environment,
+    fun fuel => evaluate_noTypeFailure context store fuel environment,
     binary_evaluation context environment store,
     integer_operator_meaning context,
     float_operator_meaning context,
