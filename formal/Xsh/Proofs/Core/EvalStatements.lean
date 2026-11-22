@@ -188,6 +188,7 @@ def context : Context Unit Unit Unit where
     missingField := message "missing-field"
     mapMissing := message "missing-key"
     matchNoArm := message "match-no-arm"
+    streamEmpty := message "stream was empty"
     bitset := message "integer-bitset"
     floatConversion := message "float-conversion"
     parseFloat := message "parse-float"

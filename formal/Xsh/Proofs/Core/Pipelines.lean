@@ -40,22 +40,23 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
         match pipelineSource result with
         | .error error => .exec (.failed (.raised error) next)
         | .ok source =>
-          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
+          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun explicit after =>
+            let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => finishPipeline (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline (stageItems machine fuel) after source stages limit) ∧
+                  closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
+            | none, _ => runPipeline machine.context (stageItems machine fuel) after source stages limit) ∧
     (∀ source stages limit items, listValues source = some items →
-      runPipeline (stageItems machine fuel) frame source stages limit =
+      runPipeline machine.context (stageItems machine fuel) frame source stages limit =
         (stageItems machine fuel frame (pipelineSplit stages).1 limit items).bind fun out last =>
-          finishPipeline (pipelineSplit stages).2.2 out last) ∧
+          finishPipeline machine.context (pipelineSplit stages).2.2 out last) ∧
     (∀ stages items, stageItems machine (fuel + 1) frame stages (some 0) items = .value (.list []) frame) ∧
     (∀ stages item rest limit, limit ≠ some 0 → stageItems machine (fuel + 1) frame stages limit (item :: rest) =
       (stageItem machine fuel frame stages item).bind fun first after =>
@@ -105,9 +106,9 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     | error error => simp only [sourced]
     | ok source =>
       simp only [sourced]
-      refine congrArg _ (funext fun limit => funext fun after => ?_)
+      refine congrArg _ (funext fun explicit => funext fun after => ?_)
       rcases pendingStream machine after source with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;>
-        rcases limit with _ | _ | bound <;> rfl
+        rcases bothLimits explicit (endingLimit (pipelineSplit stages).2.2) with _ | _ | bound <;> rfl
   · rcases limit with _ | _ | bound
     · rfl
     · exact absurd rfl nonzero
@@ -261,6 +262,61 @@ theorem result_source_witness :
 /-- Treating a `Result` source as a one-item collection would count `1`. -/
 theorem result_as_item_rejected :
     readInt countVar (runStatements machine 40 resultHolding (countOf okList)) ≠ some 1 := by
+  decide +kernel
+
+def closingVar : Xsh.Syntax.RawName := name 299 (by decide)
+
+def closing (source : Xsh.Syntax.Expr) (stages : List Xsh.Syntax.PipeStage) : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount, letOf closingVar (.structuredPipeline source stages)]
+
+def readValue (outcome : Exec witnessWorld) : Option (Value Unit Unit Unit) :=
+  match outcome with
+  | .normal frame =>
+    match frame.environment.cellOf closingVar with
+    | .ok cell => (frame.store cell).map fun found => found.contents.value
+    | .error _ => none
+  | _ => none
+
+def intValue : Option (Value Unit Unit Unit) → Option Int
+  | some (.scalar (.integer value)) => some value.val
+  | some (.ok (.scalar (.integer value))) => some value.val
+  | _ => none
+
+def errText : Option (Value Unit Unit Unit) → Option String
+  | some (.err (.scalar (.string text))) => some text
+  | _ => none
+
+def boolValue : Option (Value Unit Unit Unit) → Option Bool
+  | some (.scalar (.boolean value)) => some value
+  | _ => none
+
+def noted (test : Xsh.Syntax.Expr) : Option (Option Xsh.Syntax.RawName × List Xsh.Syntax.Statement) :=
+  some (some xItem, [recordItem xItem, .expression test])
+
+/-- As the verification binary gives `11` for `[1, 2, 8] |> sum()`, `Ok(7)`
+for `[7, 8] |> first()`, the `Err` "stream was empty" for an empty list's
+`first()`, and `true` for `any`: `sum()` adds the items with checked `+`,
+`first()` takes one item, and `any` over `count(8)` stops the producer once
+an item passes, so the producer notes two yields and runs its `defer`; `all`
+over `[1, 2, 7]` stops at the first item that fails, never testing `7`. -/
+theorem closing_stage_witness :
+    intValue (readValue (runCanonical (closing (items ["1", "2", "8"]) [.stream .sum [] none]))) = some 11 ∧
+    intValue (readValue (runCanonical (closing (items ["7", "8"]) [.stream .first [] none]))) = some 7 ∧
+    errText (readValue (runCanonical (closing (.list []) [.stream .first [] none]))) = some "stream was empty" ∧
+    boolValue (readValue (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .any [] (noted (.binary .gt (ident xItem) (int "0")))]))) = some true ∧
+    readList traceVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .any [] (noted (.binary .gt (ident xItem) (int "0")))])) = some [1, 0, 1, 1, 7] ∧
+    boolValue (readValue (runCanonical (closing (items ["1", "2", "7"])
+      [.stream .all [] (noted (.binary .lt (ident xItem) (int "2")))]))) = some false ∧
+    readList traceVar (runCanonical (closing (items ["1", "2", "7"])
+      [.stream .all [] (noted (.binary .lt (ident xItem) (int "2")))])) = some [1, 2] := by
+  decide +kernel
+
+/-- An `any` that tested every item would note all eight yields. -/
+theorem exhaustive_any_rejected :
+    readList traceVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .any [] (noted (.binary .gt (ident xItem) (int "0")))])) ≠ some [1, 0, 1, 1, 1, 2] := by
   decide +kernel
 
 end Witness

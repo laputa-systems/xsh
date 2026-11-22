@@ -504,8 +504,8 @@ Statements:
 
 - value-call stages, and every stage
   but argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
-  a closing `count()` or `collect()`, and a `Stream[T]` from anything but a
-  producer (E)
+  a closing `count()`, `collect()`, `sum()`, `first()`, `any` or `all`, and a
+  `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -823,7 +823,13 @@ is cut. A source inside one outer `Result` is its `Ok` collection, and an
 `Err` raises its error at the pipeline, as the binary counts `2` items
 through `good() |> count()` and fails with the error for `bad() |>`; a
 `Result` taken as a one-item collection is rejected. Other stages and value
-calls are outside the model.
+calls are outside the model. A closing `sum()` adds the items with checked
+`+`, `first()` gives `Ok` of the first item or `Err` of the machine's
+stream-empty error, and `any` and `all` give whether some or every item
+passes the block; `first()`, `any` and `all` stop pulling once the answer is
+known. As the binary gives `11`, `Ok(7)`, `Err("stream was empty")`, `true`
+with the producer stopped after its second yield, and `false` without testing
+`7`, so do the witnesses, which reject an `any` that tests every item.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

@@ -301,12 +301,12 @@ theorem consumeProducer_refines {world : World Declaration Identity Source} (loo
   · subst out; exact Or.inl rfl
   · subst same; exact exec_refl _
 
-theorem runPipeline_refines {world : World Declaration Identity Source}
+theorem runPipeline_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     {run run' : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, Valued.Refines (run frame stages limit items) (run' frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
     (limit : Option Nat) :
-    Valued.Refines (runPipeline run next source stages limit) (runPipeline run' next source stages limit) := by
+    Valued.Refines (runPipeline context run next source stages limit) (runPipeline context run' next source stages limit) := by
   unfold runPipeline
   split
   · exact valued_bind_refines (each _ _ _ _) fun _ _ => valued_refl _
@@ -743,7 +743,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
           | exact numericCall_refines _ inner.expr _ _ _ _
-          | exact runPipeline_refines inner.stageItems _ _ _ _
+          | exact runPipeline_refines _ inner.stageItems _ _ _ _
           | refine valued_bind_refines (pipelineLimit_refines inner.expr _ _) fun _ _ => ?_
           | refine gathered_refines _ _ ?_
           | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
@@ -1120,26 +1120,27 @@ theorem consumeProducer_persists {world : World Declaration Identity Source} (lo
       exact fun scope present => by cases present; exact kept last rfl
     | stuck | unsupported | outOfFuel => exact kept
 
-theorem finishPipeline_persists {world : World Declaration Identity Source}
+theorem finishPipeline_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
-    VKeeps last.store (finishPipeline ending out last) := by
+    VKeeps last.store (finishPipeline context ending out last) := by
   cases ending with
   | collected => exact persists_refl last.store
-  | counted =>
+  | _ =>
     simp only [finishPipeline]
-    split
-    · exact persists_refl last.store
-    · exact vkeeps_exec fun _ present => by cases present
+    split <;> first
+      | exact persists_refl last.store
+      | exact vkeeps_exec fun _ present => by cases present; exact persists_refl last.store
+      | exact vkeeps_exec fun _ present => by cases present
 
-theorem runPipeline_persists {world : World Declaration Identity Source}
+theorem runPipeline_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, VKeeps frame.store (run frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
     (limit : Option Nat) :
-    VKeeps next.store (runPipeline run next source stages limit) := by
+    VKeeps next.store (runPipeline context run next source stages limit) := by
   unfold runPipeline
   split
-  · exact vbind_persists (each _ _ _ _) fun _ last => finishPipeline_persists _ _ last
+  · exact vbind_persists (each _ _ _ _) fun _ last => finishPipeline_persists _ _ _ last
   · exact fun _ present => by cases present
 
 theorem pipelineLimit_persists {world : World Declaration Identity Source}
@@ -1623,9 +1624,9 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
     | exact numericCall_persists _ inner.expr _ _ _ _
-    | exact runPipeline_persists inner.stageItems _ _ _ _
+    | exact runPipeline_persists _ inner.stageItems _ _ _ _
     | refine vbind_persists (pipelineLimit_persists inner.expr _ _) fun _ _ => ?_
-    | exact finishPipeline_persists _ _ _
+    | exact finishPipeline_persists _ _ _ _
     | refine gathered_persists _ _ ?_
     | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
     | refine vbind_persists (threadEntries_persists _ inner.expr _ _) fun _ _ => ?_
@@ -2076,26 +2077,27 @@ theorem consumeProducer_restores {world : World Declaration Identity Source} (lo
       exact fun scope present => by cases present; exact restored last rfl
     | stuck | unsupported | outOfFuel => exact restored
 
-theorem finishPipeline_restores {world : World Declaration Identity Source}
+theorem finishPipeline_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
-    VRestores last (finishPipeline ending out last) := by
+    VRestores last (finishPipeline context ending out last) := by
   cases ending with
   | collected => exact ⟨rfl, rfl⟩
-  | counted =>
+  | _ =>
     simp only [finishPipeline]
-    split
-    · exact ⟨rfl, rfl⟩
-    · exact vrestores_none rfl
+    split <;> first
+      | exact ⟨rfl, rfl⟩
+      | exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
+      | exact vrestores_none rfl
 
-theorem runPipeline_restores {world : World Declaration Identity Source}
+theorem runPipeline_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, VRestores frame (run frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
     (limit : Option Nat) :
-    VRestores next (runPipeline run next source stages limit) := by
+    VRestores next (runPipeline context run next source stages limit) := by
   unfold runPipeline
   split
-  · exact vbind_restores (each _ _ _ _) fun _ last => finishPipeline_restores _ _ last
+  · exact vbind_restores (each _ _ _ _) fun _ last => finishPipeline_restores _ _ _ last
   · exact vrestores_none rfl
 
 theorem pipelineLimit_restores {world : World Declaration Identity Source}
@@ -2525,9 +2527,9 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine vbind_restores (fromEval_restores _ _) fun _ _ => ?_
   | exact numericCall_restores _ inner.expr _ _ _ _
-  | exact runPipeline_restores inner.stageItems _ _ _ _
+  | exact runPipeline_restores _ inner.stageItems _ _ _ _
   | refine vbind_restores (pipelineLimit_restores inner.expr _ _) fun _ _ => ?_
-  | exact finishPipeline_restores _ _ _
+  | exact finishPipeline_restores _ _ _ _
   | refine vbind_restores (threadEntries_restores _ inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (inner.stageItem _ _ _) fun _ _ => ?_

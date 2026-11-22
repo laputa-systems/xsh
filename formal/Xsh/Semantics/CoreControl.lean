@@ -1080,20 +1080,40 @@ def gathered {world : World Declaration Identity Source} (loop : Frame world) (i
   | .exec (.normal _) => .exec .stuck
   | .exec outcome => .exec ((consumeProducer loop (.exec outcome)).withCollected loop.collected)
 
-/-- What a serial stage does with its block's value: `where` keeps the item
-when it is `true`, `map` replaces it, and `flat-map` expands it into the
-value's items. -/
+/-- What a serial stage does with its block's value: `where` and a closing
+`any` keep the item when it is `true`, a closing `all` keeps it when it is
+`false`, `map` replaces it, and `flat-map` expands it into the value's
+items. -/
 inductive StageAction where
   | keep
+  | reject
   | replace
   | expand
 
 /-- A serial stage's action, block parameter and block body. -/
 def stageAction : Xsh.Syntax.PipeStage → Option (StageAction × Option Xsh.Syntax.RawName × List Xsh.Syntax.Statement)
-  | .stream .whereStage [] (some (parameter, body)) => some (.keep, parameter, body)
+  | .stream .whereStage [] (some (parameter, body)) | .stream .any [] (some (parameter, body)) =>
+    some (.keep, parameter, body)
+  | .stream .all [] (some (parameter, body)) => some (.reject, parameter, body)
   | .stream .map [] (some (parameter, body)) => some (.replace, parameter, body)
   | .stream .flatMap [] (some (parameter, body)) => some (.expand, parameter, body)
   | _ => none
+
+/-- `sum()` over the items that reached it: checked `Int` addition from `0`,
+failing as `+` does (SPEC 13.3). -/
+def pipelineSum (context : Context Declaration Identity Source) :
+    List (Value Declaration Identity Source) →
+      Option (Except (Failure Declaration Identity Source) (Value Declaration Identity Source))
+  | items =>
+    items.foldl (fun total item =>
+      total.bind fun
+        | .ok sum =>
+          match binary context .add sum item with
+          | .value next => some (.ok next)
+          | .failure failure => some (.error failure)
+          | _ => none
+        | failed => some failed)
+      ((validateInt? 0).map fun zero => .ok (.scalar (.integer zero)))
 
 /-- A count as an `Int`, when it is in range. -/
 def countValue (count : Nat) : Option (Value Declaration Identity Source) :=
@@ -1102,6 +1122,10 @@ def countValue (count : Nat) : Option (Value Declaration Identity Source) :=
 inductive PipelineEnd where
   | collected
   | counted
+  | summed
+  | firstItem
+  | anyMatch
+  | allMatch
 
 /-- A structured pipeline's stages split before a closing `count()` or
 `collect()`, which ends the pipeline with its own value (SPEC 13.1), and
@@ -1113,10 +1137,26 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
     match stages.getLast? with
     | some (.stream .count [] none) => (stages.dropLast, .counted)
     | some (.stream .collect [] none) => (stages.dropLast, .collected)
+    | some (.stream .sum [] none) => (stages.dropLast, .summed)
+    | some (.stream .first [] none) => (stages.dropLast, .firstItem)
+    | some (.stream .any [] (some _)) => (stages, .anyMatch)
+    | some (.stream .all [] (some _)) => (stages, .allMatch)
     | _ => (stages, .collected)
   match body.getLast? with
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
   | _ => (body, none, ending)
+
+/-- The items a closing stage needs before its answer is known: one for
+`first()`, `any` and `all` (SPEC 13.2). -/
+def endingLimit : PipelineEnd → Option Nat
+  | .firstItem | .anyMatch | .allMatch => some 1
+  | _ => none
+
+/-- Two `take` limits together. -/
+def bothLimits : Option Nat → Option Nat → Option Nat
+  | some first, some second => some (min first second)
+  | some first, none | none, some first => some first
+  | none, none => none
 
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
@@ -1153,24 +1193,42 @@ def limitTake {α : Type} (limit : Option Nat) (items : List α) : List α :=
 
 /-- A pipeline's value once its items have passed the stages: the
 collected list, or the count a closing `count()` gives. -/
-def finishPipeline {world : World Declaration Identity Source} (ending : PipelineEnd)
-    (out : Value Declaration Identity Source) (last : Frame world) : Valued world :=
+def finishPipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) : Valued world :=
   match ending with
   | .collected => .value out last
   | .counted =>
     match listValues out >>= fun results => countValue results.length with
     | some count => .value count last
     | none => .exec .stuck
+  | .summed =>
+    match listValues out >>= fun results => pipelineSum context results with
+    | some (.ok total) => .value total last
+    | some (.error failure) => .exec (.failed failure last)
+    | none => .exec .stuck
+  | .firstItem =>
+    match listValues out with
+    | some (item :: _) => .value (.ok item) last
+    | some [] => .value (.err context.errors.streamEmpty) last
+    | none => .exec .stuck
+  | .anyMatch =>
+    match listValues out with
+    | some results => .value (.scalar (.boolean !results.isEmpty)) last
+    | none => .exec .stuck
+  | .allMatch =>
+    match listValues out with
+    | some results => .value (.scalar (.boolean results.isEmpty)) last
+    | none => .exec .stuck
 
 /-- A structured pipeline over a list source (SPEC 13.1): its items pass the
 stages through `run`, then the closing stage gives the value. -/
-def runPipeline {world : World Declaration Identity Source}
+def runPipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world)
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
     (limit : Option Nat) : Valued world :=
   match listValues source with
   | some items =>
-    (run next (pipelineSplit stages).1 limit items).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
+    (run next (pipelineSplit stages).1 limit items).bind fun out last => finishPipeline context (pipelineSplit stages).2.2 out last
   | none => .exec .unsupported
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
@@ -1879,18 +1937,19 @@ mutual
           match pipelineSource result with
           | .error error => .exec (.failed (.raised error) next)
           | .ok source =>
-          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun limit after =>
+          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun explicit after =>
+            let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => finishPipeline (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => finishPipeline (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => finishPipeline (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline (stageItems machine fuel) after source stages limit
+                  closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
+            | none, _ => runPipeline machine.context (stageItems machine fuel) after source stages limit
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
@@ -2159,6 +2218,11 @@ mutual
               match result.eraseNominal with
               | .scalar (.boolean true) => stageItem machine fuel after rest item
               | .scalar (.boolean false) => .value (.list []) after
+              | _ => .exec .stuck
+            | .reject =>
+              match result.eraseNominal with
+              | .scalar (.boolean false) => stageItem machine fuel after rest item
+              | .scalar (.boolean true) => .value (.list []) after
               | _ => .exec .stuck
             | .replace => stageItem machine fuel after rest result
             | .expand =>

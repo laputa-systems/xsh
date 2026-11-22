@@ -38,6 +38,8 @@ structure Errors (Declaration Identity Source : Type) where
   parseFloat : Value Declaration Identity Source
   /-- A `match` whose arms all fail to select the subject (SPEC 6.8). -/
   matchNoArm : Value Declaration Identity Source
+  /-- The error `first()`, `min()` and `max()` give an empty pipeline (SPEC 13.3). -/
+  streamEmpty : Value Declaration Identity Source
 
 /-- Whether a function returns a `Result`, which decides where its failures
 go (SPEC 8.3, 8.7). -/
