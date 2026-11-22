@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 176
+Next: 177
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -172,6 +172,15 @@ out of scope.
 - **Where:** src/modules (net.download, net.request, net.download_many HTTP client)
 - **Problem:** XSH's HTTP client sends no User-Agent unless the caller adds one. git.kernel.org answers such requests with 403 (curl with an empty agent gets 403, with any agent 200), so Laputa's `make fetch` could not fetch linux-firmware files on a fresh host until PM added its own header (laputa 601e4597).
 - **Recommendation:** Send a default `User-Agent: xsh/<version>` that a caller's header replaces, and document it in the net reference. Acceptance: a native test against a local server sees the default agent, and a caller-supplied User-Agent replaces it rather than duplicating it.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-176 · P3 · prefer-item-shorthand suggests a rewrite that breaks inferred variants
+
+- **Area:** Lints
+- **Where:** crates/xsht lint.prefer-item-shorthand; Laputa xinfra/lib/infra/mutate.xsh:164, 169 and transport.xsh:227, 230, 233, 336
+- **Problem:** In a `?? { |error| ... }` handler whose body builds inferred variants such as `.Stage(...)` or `.Refused(error.message)`, the lint reports that `error` is only read through its fields and suggests leaving the parameter implicit. Doing so makes the checker read `.Stage`, `.NotSubmitted(...)` and `.Refused(...)` as members of the item, failing with check.unknown-field and check.unknown-method. Laputa excludes the rule for those two files.
+- **Recommendation:** Do not report a handler whose body uses a leading-dot inferred variant, or make the implicit-item form keep leading-dot variants as variants. Acceptance: a native lint test with such a handler reports nothing, and its suggested rewrite of an ordinary handler still checks.
 - **Fix with:** none
 - **Effort:** S
 
