@@ -282,6 +282,23 @@ theorem threadEntries_refines {world : World Declaration Identity Source} (conte
     valued_bind_refines (each frame key) fun _ after => valued_bind_refines (each after operand) fun _ middle =>
       valued_bind_refines (threadEntries_refines context each middle rest) fun _ _ => valued_refl _
 
+theorem controlValue_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
+    ∀ frame condition, Valued.Refines (controlValue evaluate frame condition) (controlValue evaluate' frame condition) := by
+  intro frame condition
+  fun_induction controlValue evaluate frame condition with
+  | case1 frame left right ihLeft ihRight | case2 frame left right ihLeft ihRight =>
+    simp only [controlValue]
+    refine valued_bind_refines ihLeft fun first after => ?_
+    split <;> first | exact valued_refl _ | exact ihRight after
+  | case3 frame operand ih =>
+    simp only [controlValue]
+    exact valued_bind_refines ih fun _ _ => valued_refl _
+  | case4 frame condition notAnd notOr notNot =>
+    rw [controlValue.eq_4 evaluate' frame condition notAnd notOr notNot]
+    exact valued_bind_refines (each _ _) fun _ _ => valued_refl _
+
 theorem threadBranches_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -526,6 +543,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | exact inner.retries _ _ _ _
   | exact valued_refl _
   | refine toExec_refines (inner.expr _ _) fun _ _ => ?_
+  | refine toExec_refines (controlValue_refines inner.expr _ _) fun _ _ => ?_
   | refine toExec_refines (outcomeLeave_refines _ (inner.expr _ _)) fun _ _ => ?_
   | refine valued_bind_refines (outcomeLeave_refines _ (inner.expr _ _)) fun _ _ => ?_
   | refine toExec_refines ?_ fun _ _ => ?_
@@ -953,6 +971,33 @@ theorem threadEntries_persists {world : World Declaration Identity Source} (cont
     vbind_persists (each frame key) fun _ after => vbind_persists (each after operand) fun _ middle =>
       vbind_persists (threadEntries_persists context each middle rest) fun _ last => persists_refl last.store
 
+theorem controlValue_persists {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
+    ∀ frame condition, VKeeps frame.store (controlValue evaluate frame condition) := by
+  intro frame condition
+  fun_induction controlValue evaluate frame condition with
+  | case1 frame left right ihLeft ihRight | case2 frame left right ihLeft ihRight =>
+    refine vbind_persists ihLeft fun first after => ?_
+    split
+    all_goals first
+      | exact vkeeps_value _ (persists_refl _)
+      | exact ihRight after
+      | exact vkeeps_exec fun _ present => by cases present
+  | case3 frame operand ih =>
+    refine vbind_persists ih fun first after => ?_
+    split
+    all_goals first
+      | exact vkeeps_value _ (persists_refl _)
+      | exact vkeeps_exec fun _ present => by cases present
+  | case4 frame condition _ _ _ =>
+    refine vbind_persists (each _ _) fun first after => ?_
+    split
+    all_goals first
+      | exact vkeeps_value _ (persists_refl _)
+      | exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
+      | exact vkeeps_exec fun _ present => by cases present
+
 theorem threadBranches_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1235,6 +1280,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | exact inner.retries _ _ _ _
   | exact fromEval_persists _ _
   | exact inner.expr _ _
+  | refine toExec_persists (controlValue_persists inner.expr _ _) fun _ _ => ?_
   | refine toExec_persists (inner.expr _ _) fun _ _ => ?_
   | refine toExec_persists (selectorsOf_persists inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_persists (threadAll_persists inner.expr _ _) fun _ _ => ?_
@@ -1686,6 +1732,33 @@ theorem threadEntries_restores {world : World Declaration Identity Source} (cont
     vbind_restores (each frame key) fun _ after => vbind_restores (each after operand) fun _ middle =>
       vbind_restores (threadEntries_restores context each middle rest) fun _ _ => ⟨rfl, rfl⟩
 
+theorem controlValue_restores {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source)) :
+    ∀ frame condition, VRestores frame (controlValue evaluate frame condition) := by
+  intro frame condition
+  fun_induction controlValue evaluate frame condition with
+  | case1 frame left right ihLeft ihRight | case2 frame left right ihLeft ihRight =>
+    refine vbind_restores ihLeft fun first after => ?_
+    split
+    all_goals first
+      | exact ⟨rfl, rfl⟩
+      | exact ihRight after
+      | exact vrestores_none rfl
+  | case3 frame operand ih =>
+    refine vbind_restores ih fun first after => ?_
+    split
+    all_goals first
+      | exact ⟨rfl, rfl⟩
+      | exact vrestores_none rfl
+  | case4 frame condition _ _ _ =>
+    refine vbind_restores (each _ _) fun first after => ?_
+    split
+    all_goals first
+      | exact ⟨rfl, rfl⟩
+      | exact fun _ present => by cases present <;> exact ⟨rfl, rfl⟩
+      | exact vrestores_none rfl
+
 theorem threadBranches_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -1946,6 +2019,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (fillFields_restores _ inner.expr _ _ _) fun _ _ => ?_
   | refine vbind_restores (threadArguments_restores _ inner.expr _ _) fun _ _ => ?_
   | refine toExec_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
+  | refine toExec_restores (controlValue_restores inner.expr _ _) fun _ _ => ?_
   | refine toExec_restores (inner.expr _ _) fun _ _ => ?_
   | refine iterate_restores (withinScope_restores _ _) fun _ => ?_
   | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
@@ -2080,8 +2154,8 @@ variable [DecidableEq Declaration]
 theorem while_false {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (body : List Xsh.Syntax.Statement) :
     runWhile machine (fuel + 2) frame (.literal (.bool false)) body = .normal frame := by
-  simp [runWhile, evalExpr, threadStep, literal, fromEval, resultThen, Outcome.toExec, boolean, Value.eraseNominal,
-    conditionValue]
+  simp [runWhile, controlValue, evalExpr, threadStep, literal, fromEval, resultThen, Outcome.toExec, Outcome.bind, boolean,
+    Value.eraseNominal, conditionValue]
 
 theorem loop_ends_on_break {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame next : Frame world) (body : List Xsh.Syntax.Statement)
@@ -2101,7 +2175,7 @@ theorem while_ends_on_break {world : World Declaration Identity Source} (machine
     (frame next : Frame world) (condition : Xsh.Syntax.Expr) (body : List Xsh.Syntax.Statement)
     (plain : ∀ subject pattern, condition ≠ .patternCondition subject pattern)
     (tested : Value Declaration Identity Source) (after : Frame world)
-    (evaluated : evalExpr machine fuel frame condition = .value tested after)
+    (evaluated : controlValue (evalExpr machine fuel) frame condition = .value tested after)
     (isTrue : conditionValue tested = some (.ok true))
     (broke : runBlock machine fuel after body = .broke next) :
     runWhile machine (fuel + 1) frame condition body = .normal next := by

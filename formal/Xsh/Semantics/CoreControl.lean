@@ -704,6 +704,36 @@ def threadFields {world : World Declaration Identity Source} (context : Context 
       (threadFields context evaluate after rest).bind fun fields last => .value ((context.spelling name, value) :: fields) last
   | _, _ :: _ => .exec .unsupported
 
+/-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
+`Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
+of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
+need, which then does not run or fail. -/
+def controlValue {world : World Declaration Identity Source}
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) : Frame world → Xsh.Syntax.Expr → Valued world
+  | frame, .binary .and left right =>
+    (controlValue evaluate frame left).bind fun first after =>
+      match first.eraseNominal with
+      | .scalar (.boolean false) => .value (.scalar (.boolean false)) after
+      | .scalar (.boolean true) => controlValue evaluate after right
+      | _ => .exec .unsupported
+  | frame, .binary .or left right =>
+    (controlValue evaluate frame left).bind fun first after =>
+      match first.eraseNominal with
+      | .scalar (.boolean true) => .value (.scalar (.boolean true)) after
+      | .scalar (.boolean false) => controlValue evaluate after right
+      | _ => .exec .unsupported
+  | frame, .unary .not operand =>
+    (controlValue evaluate frame operand).bind fun tested after =>
+      match tested.eraseNominal with
+      | .scalar (.boolean value) => .value (.scalar (.boolean !value)) after
+      | _ => .exec .unsupported
+  | frame, condition =>
+    (evaluate frame condition).bind fun tested after =>
+      match conditionValue tested with
+      | some (.ok value) => .value (.scalar (.boolean value)) after
+      | some (.error error) => .exec (.failed (.raised error) after)
+      | none => .exec .unsupported
+
 /-- A brace literal's entries evaluated once each in source order, a
 computed key before its value (SPEC 6.4); a shorthand field reads its name. -/
 def threadEntries {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
@@ -1754,7 +1784,7 @@ mutual
           | .failed => runIf machine fuel next rest otherwise
           | .unsupported => .unsupported
       | (condition, body) :: rest, otherwise =>
-        (evalExpr machine fuel frame condition).toExec fun tested next =>
+        (controlValue (evalExpr machine fuel) frame condition).toExec fun tested next =>
           match conditionValue tested with
           | some (.ok true) => runBlock machine fuel next body
           | some (.ok false) => runIf machine fuel next rest otherwise
@@ -1777,7 +1807,7 @@ mutual
           | .failed => .normal tested
           | .unsupported => .unsupported
       | condition =>
-        (evalExpr machine fuel frame condition).toExec fun tested after =>
+        (controlValue (evalExpr machine fuel) frame condition).toExec fun tested after =>
           match conditionValue tested with
           | some (.ok true) =>
             (runBlock machine fuel after body).iterate fun next => runWhile machine fuel next condition body

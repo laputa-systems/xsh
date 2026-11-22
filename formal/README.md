@@ -491,7 +491,7 @@ Statements:
 Expressions:
 
 - first-class local functions (P)
-- `and`/`or` operands of a `Result[Bool]` condition (P)
+- a `Result[Bool]` condition of a value `if` (P)
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
 - named, spread and splice arguments, methods and value pipelines (P)
@@ -601,6 +601,18 @@ witnesses follow the verification binary's output for `{...defaults,
 `build.flags.debug`, and `{[ext]: 1, other: 2}` and `{[ext]: 1, [ext]: 5}`. The
 mutants it rejects evaluate a computed key's value first or let earlier
 fields win. The checker's spread and update rules are not modelled.
+
+The `control_conditions` fragment root, in
+[`Proofs/Core/Conditions.lean`](Xsh/Proofs/Core/Conditions.lean), adds the
+control positions of a condition (SPEC 8.3). An `if` or `while` condition,
+and each operand of `!`, `and` and `or` within one, gives the `Bool` of a
+`Result[Bool]`'s `Ok` and raises its `Err`'s error as `?` would; `and` with a
+false left operand and `or` with a true one skip the right operand, which
+then cannot fail. Its witnesses follow the verification binary on
+`ok(false) and bad()`, `ok(true) or bad()`, `! ok(false)`,
+`while ok(i < 2)` and an `Err` reached through `ok(true) and bad()`. The
+mutants it rejects test both operands before combining them, or accept only
+plain `Bool` operands. A value `if` still takes plain `Bool` conditions.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

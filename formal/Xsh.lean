@@ -91,6 +91,7 @@ import Xsh.Proofs.Core.Control
 import Xsh.Proofs.Core.MatchValues
 import Xsh.Proofs.Core.Slices
 import Xsh.Proofs.Core.Records
+import Xsh.Proofs.Core.Conditions
 import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables

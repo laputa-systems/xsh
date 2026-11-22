@@ -15157,6 +15157,15 @@
       "boundary": "The static rules (check.spread-hides-field, check.record-update-overlap, the leading-spread requirement and same-type paths) are the checker's and are not modelled; nested path entries are checked by witnesses only; record field order is the model's list order, which only lookup observes. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Conditions.control_conditions",
+      "module": "Xsh.Proofs.Core.Conditions",
+      "declaration": "Xsh.Proofs.Core.Conditions.control_conditions",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.3 control positions: an if or while condition, and each operand of !, and and or in one, gives the Bool of a Result[Bool]'s Ok and raises its Err's error as under ?; and with a false left operand and or with a true one give that value without running the right operand; the statement machine tests if and while conditions this way.",
+      "boundary": "The condition of a value if keeps plain Bool conditions; the checker's check.if-condition, check.try-context and effect requirements are not modelled. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",
