@@ -18,7 +18,8 @@ formatter-only flags (`propagation_written`, `return_ty_defaulted` beyond an
 omitted return type) and source spans are not syntax and stay outside. A
 `Sugar` statement keeps only its expansion, which is all that checking,
 lowering and execution read. It does not claim to enumerate all of
-`ArenaExprKind` or structured stream stages. A represented term is not
+`ArenaExprKind`; a structured pipeline's stage is a value call or one of
+`StreamStageKind`'s stages with its arguments and block. A represented term is not
 evidence that the Rust parser produced it or that the checker accepts it.
 Record binding targets retain nested field selections; free-name traversal is
 fuel-bounded by recursive depth and may omit names from a subtree while
@@ -254,6 +255,15 @@ inductive RunOption where
   | accept
   deriving DecidableEq, Repr
 
+/-- The stream stages of a structured pipeline (SPEC 13.3), as
+`StreamStageKind` in `src/syntax/node.rs` names them. -/
+inductive StreamStageKind where
+  | whereStage | map | parMap | each | batch | sort | sortBy | take | drop | first | last | uniqueBy
+  | enumerate | zip | range | repeatStage | tee | sum | min | max | groupBy | fold | reduce | flatMap
+  | any | all | shuffle | tablePrint | textStreamLines | bytesChunks | jsonLines | jsonStream | count
+  | collect | reduceBy
+  deriving DecidableEq, Repr
+
 inductive RedirectionKind where
   | stdoutWrite
   | stdoutAppend
@@ -300,7 +310,7 @@ mutual
     | envString (key : RawName)
     | envPathList
     | pipeline (input : Expr) (stages : List Expr)
-    | structuredPipeline (input : Expr) (stages : List Expr)
+    | structuredPipeline (input : Expr) (stages : List PipeStage)
     | spawn (command : Expr)
     | wait (target : Expr)
     | builderCall (call : Expr) (body : List Statement)
@@ -448,6 +458,14 @@ mutual
   inductive Qualifier where
     | each (target : BindingTarget) (iterable : Expr)
     | when (condition : Expr)
+
+  /-- A structured pipeline stage: a value call on the previous value, or a
+  stream stage with its arguments and its block, which binds the item to
+  its parameter or, without one, to `.`. -/
+  inductive PipeStage where
+    | value (call : Expr)
+    | stream (kind : StreamStageKind) (arguments : List CallArgument)
+        (block : Option (Option RawName × List Statement))
 end
 
 def withoutBoundNames (bound : List RawName) (names : List RawName) : List RawName :=
@@ -499,7 +517,7 @@ mutual
       | .pipeline input stages =>
           freeExprFuel fuel bound input ++ freeExprsFuel fuel bound stages
       | .structuredPipeline input stages =>
-          freeExprFuel fuel bound input ++ freeExprsFuel fuel bound stages
+          freeExprFuel fuel bound input ++ freePipeStagesFuel fuel bound stages
       | .spawn command => freeExprFuel fuel bound command
       | .wait target => freeExprFuel fuel bound target
       | .builderCall call body =>
@@ -678,6 +696,15 @@ mutual
       | .shorthand name =>
           withoutBoundNames bound [name] ++ freeRecordFieldsFuel fuel bound rest
       | .spread value => freeExprFuel fuel bound value ++ freeRecordFieldsFuel fuel bound rest
+
+  def freePipeStagesFuel : Nat → List RawName → List PipeStage → List RawName
+    | 0, _, _ => []
+    | _fuel + 1, _, [] => []
+    | fuel + 1, bound, .value call :: rest => freeExprFuel fuel bound call ++ freePipeStagesFuel fuel bound rest
+    | fuel + 1, bound, .stream _ arguments block :: rest =>
+        freeCallArgumentsFuel fuel bound arguments ++
+          block.toList.flatMap (fun (parameter, body) => freeStatementsFuel fuel (parameter.toList ++ bound) body) ++
+          freePipeStagesFuel fuel bound rest
 
   def freeCallArgumentsFuel : Nat → List RawName → List CallArgument → List RawName
     | 0, _, _ => []

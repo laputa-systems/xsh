@@ -502,7 +502,9 @@ environment).
 
 Statements:
 
-- stream pipelines and stages, and a `Stream[T]` from anything but a
+- stream pipelines over a `Stream` or `Result` source, value-call stages,
+  and every stage but argument-free `where`, `map` and `flat-map` with a
+  closing `count()` or `collect()`, and a `Stream[T]` from anything but a
   producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
@@ -791,6 +793,22 @@ it the same way, the loop's body yielding the rest of the comprehension for
 each item: as the binary prints `[7]` for `[x * 7 for x in count(2) if x > 0]`,
 so does the witness, and a second comprehension over the consumed stream
 gives `[]`.
+
+The `structured_pipelines` fragment root, in
+[`Proofs/Core/Pipelines.lean`](Xsh/Proofs/Core/Pipelines.lean), adds
+structured pipelines over a list source (SPEC 13.1-13.3). The syntax model
+now has `PipeStage`: a value call, or one of `StreamStageKind`'s stages with
+its arguments and its block. Each item passes every stage before the next
+item starts; a stage block binds the item to its parameter or, without one,
+to `.`, in its own scope, and its tail is its value. `where` keeps the item
+when that value is `true`, `map` replaces it and `flat-map` passes each item
+of the value's list on in turn; the pipeline gives the list of items that
+reach its end, or their count under a closing `count()`. As the verification
+binary records `a1 b10 a2 b20` and gives `[11,21]` for two `map` stages over
+`[1, 2]`, and `2` for `where { |x| x > 1 } |> count` over `[1, 2, 3]`, so do
+the witnesses, and a stage-by-stage order is rejected. Other stages, value
+calls, `Stream` and `Result` sources and early-stopping stages are outside
+the model.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

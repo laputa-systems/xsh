@@ -1059,6 +1059,59 @@ def gathered {world : World Declaration Identity Source} (loop : Frame world) (i
   | .exec (.normal _) | .exec (.consumed .broke _) => .exec .stuck
   | .exec outcome => .exec ((consumeProducer loop (.exec outcome)).withCollected loop.collected)
 
+/-- What a serial stage does with its block's value: `where` keeps the item
+when it is `true`, `map` replaces it, and `flat-map` expands it into the
+value's items. -/
+inductive StageAction where
+  | keep
+  | replace
+  | expand
+
+/-- A serial stage's action, block parameter and block body. -/
+def stageAction : Xsh.Syntax.PipeStage → Option (StageAction × Option Xsh.Syntax.RawName × List Xsh.Syntax.Statement)
+  | .stream .whereStage [] (some (parameter, body)) => some (.keep, parameter, body)
+  | .stream .map [] (some (parameter, body)) => some (.replace, parameter, body)
+  | .stream .flatMap [] (some (parameter, body)) => some (.expand, parameter, body)
+  | _ => none
+
+/-- A count as an `Int`, when it is in range. -/
+def countValue (count : Nat) : Option (Value Declaration Identity Source) :=
+  (validateInt? count).map fun value => .scalar (.integer value)
+
+inductive PipelineEnd where
+  | collected
+  | counted
+
+/-- A structured pipeline's stages split before a closing `count()` or
+`collect()`, which ends the pipeline with its own value (SPEC 13.1). -/
+def pipelineSplit : List Xsh.Syntax.PipeStage → List Xsh.Syntax.PipeStage × PipelineEnd
+  | stages =>
+    match stages.getLast? with
+    | some (.stream .count [] none) => (stages.dropLast, .counted)
+    | some (.stream .collect [] none) => (stages.dropLast, .collected)
+    | _ => (stages, .collected)
+
+/-- A pipeline's value once its items have passed the stages: the
+collected list, or the count a closing `count()` gives. -/
+def finishPipeline {world : World Declaration Identity Source} (ending : PipelineEnd)
+    (out : Value Declaration Identity Source) (last : Frame world) : Valued world :=
+  match ending with
+  | .collected => .value out last
+  | .counted =>
+    match listValues out >>= fun results => countValue results.length with
+    | some count => .value count last
+    | none => .exec .stuck
+
+/-- A structured pipeline over a list source (SPEC 13.1): its items pass the
+stages through `run`, then the closing stage gives the value. -/
+def runPipeline {world : World Declaration Identity Source}
+    (run : Frame world → List Xsh.Syntax.PipeStage → List (Value Declaration Identity Source) → Valued world)
+    (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage) :
+    Valued world :=
+  match listValues source with
+  | some items => (run next (pipelineSplit stages).1 items).bind fun out last => finishPipeline (pipelineSplit stages).2 out last
+  | none => .exec .unsupported
+
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
 of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
@@ -1760,6 +1813,9 @@ mutual
         | _, _, _ =>
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
             expression
+      | .structuredPipeline input stages =>
+        (evalExpr machine fuel frame input).bind fun source next =>
+          runPipeline (stageItems machine fuel) next source stages
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
@@ -2003,6 +2059,51 @@ mutual
           ((bindTarget machine frame.enter .immutable target item).thenValued fun bound =>
             comprehend machine fuel bound rest value)).bind fun first next =>
           (comprehendItems machine fuel next target others rest value).bind fun later last =>
+            match first, later with
+            | .list head, .list tail => .value (.list (head ++ tail)) last
+            | _, _ => .exec .stuck
+
+  /-- One item through a structured pipeline's stages (SPEC 13.1, 13.3): a
+  stage block binds the item to its parameter or, without one, to `.`, in its
+  own scope, and its tail is its value; `where` keeps the item when the tail
+  is `true`, `map` passes the tail on, and `flat-map` passes each item of the
+  tail's list on in turn. The value is the list of items the item becomes. -/
+  def stageItem {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.PipeStage → Value Declaration Identity Source → Valued world
+    | 0, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, stages, item =>
+      match stages with
+      | [] => .value (.list [item]) frame
+      | stage :: rest =>
+        match stageAction stage with
+        | some (action, parameter, body) =>
+          (handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
+              (parameter.toList.map fun name => (name, item)) body).bind fun result after =>
+            match action with
+            | .keep =>
+              match result.eraseNominal with
+              | .scalar (.boolean true) => stageItem machine fuel after rest item
+              | .scalar (.boolean false) => .value (.list []) after
+              | _ => .exec .stuck
+            | .replace => stageItem machine fuel after rest result
+            | .expand =>
+              match listValues result with
+              | some items => stageItems machine fuel after rest items
+              | none => .exec .stuck
+        | none => .exec .unsupported
+
+  /-- Items through the stages one at a time, each reaching the end of the
+  stages before the next starts, as live and list sources alike are pulled
+  (SPEC 13.2). -/
+  def stageItems {world : World Declaration Identity Source} (machine : Machine world) :
+      Nat → Frame world → List Xsh.Syntax.PipeStage → List (Value Declaration Identity Source) → Valued world
+    | 0, _, _, _ => .exec .outOfFuel
+    | fuel + 1, frame, stages, items =>
+      match items with
+      | [] => .value (.list []) frame
+      | item :: rest =>
+        (stageItem machine fuel frame stages item).bind fun first after =>
+          (stageItems machine fuel after stages rest).bind fun later last =>
             match first, later with
             | .list head, .list tail => .value (.list (head ++ tail)) last
             | _, _ => .exec .stuck
