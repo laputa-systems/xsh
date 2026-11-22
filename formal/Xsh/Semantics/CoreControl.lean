@@ -1115,6 +1115,20 @@ def pipelineSum (context : Context Declaration Identity Source) :
         | failed => some failed)
       ((validateInt? 0).map fun zero => .ok (.scalar (.integer zero)))
 
+/-- `min()` or `max()` over the items that reached it, ordered by `<`: `min`
+keeps the earlier of equal items and `max` the later, as the runtime's
+`min_by` and `max_by` do. Items `<` does not order are outside the model
+(SPEC 13.3 and the XSH-180 ordering draft). -/
+def extremum (context : Context Declaration Identity Source) (largest : Bool) :
+    Value Declaration Identity Source → List (Value Declaration Identity Source) →
+      Option (Value Declaration Identity Source)
+  | chosen, [] => some chosen
+  | chosen, item :: rest =>
+    match binary context .lt item chosen with
+    | .value (.scalar (.boolean before)) =>
+      extremum context largest (if before != largest then item else chosen) rest
+    | _ => none
+
 /-- A count as an `Int`, when it is in range. -/
 def countValue (count : Nat) : Option (Value Declaration Identity Source) :=
   (validateInt? count).map fun value => .scalar (.integer value)
@@ -1126,6 +1140,9 @@ inductive PipelineEnd where
   | firstItem
   | anyMatch
   | allMatch
+  | lastItem
+  | minimum
+  | maximum
 
 /-- A structured pipeline's stages split before a closing `count()` or
 `collect()`, which ends the pipeline with its own value (SPEC 13.1), and
@@ -1139,6 +1156,9 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
     | some (.stream .collect [] none) => (stages.dropLast, .collected)
     | some (.stream .sum [] none) => (stages.dropLast, .summed)
     | some (.stream .first [] none) => (stages.dropLast, .firstItem)
+    | some (.stream .last [] none) => (stages.dropLast, .lastItem)
+    | some (.stream .min [] none) => (stages.dropLast, .minimum)
+    | some (.stream .max [] none) => (stages.dropLast, .maximum)
     | some (.stream .any [] (some _)) => (stages, .anyMatch)
     | some (.stream .all [] (some _)) => (stages, .allMatch)
     | _ => (stages, .collected)
@@ -1218,6 +1238,21 @@ def finishPipeline {world : World Declaration Identity Source} (context : Contex
   | .allMatch =>
     match listValues out with
     | some results => .value (.scalar (.boolean results.isEmpty)) last
+    | none => .exec .stuck
+  | .lastItem =>
+    match listValues out with
+    | some results =>
+      match results.getLast? with
+      | some item => .value (.ok item) last
+      | none => .value (.err context.errors.streamEmpty) last
+    | none => .exec .stuck
+  | .minimum | .maximum =>
+    match listValues out with
+    | some (item :: rest) =>
+      match extremum context (ending matches .maximum) item rest with
+      | some chosen => .value (.ok chosen) last
+      | none => .exec .stuck
+    | some [] => .value (.err context.errors.streamEmpty) last
     | none => .exec .stuck
 
 /-- A structured pipeline over a list source (SPEC 13.1): its items pass the

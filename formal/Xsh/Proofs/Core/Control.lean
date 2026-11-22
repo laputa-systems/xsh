@@ -1127,10 +1127,11 @@ theorem finishPipeline_persists {world : World Declaration Identity Source} (con
   | collected => exact persists_refl last.store
   | _ =>
     simp only [finishPipeline]
-    split <;> first
+    repeat' (first
       | exact persists_refl last.store
       | exact vkeeps_exec fun _ present => by cases present; exact persists_refl last.store
       | exact vkeeps_exec fun _ present => by cases present
+      | split)
 
 theorem runPipeline_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
@@ -2084,10 +2085,11 @@ theorem finishPipeline_restores {world : World Declaration Identity Source} (con
   | collected => exact ⟨rfl, rfl⟩
   | _ =>
     simp only [finishPipeline]
-    split <;> first
+    repeat' (first
       | exact ⟨rfl, rfl⟩
       | exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
       | exact vrestores_none rfl
+      | split)
 
 theorem runPipeline_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}

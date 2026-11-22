@@ -319,6 +319,21 @@ theorem exhaustive_any_rejected :
       [.stream .any [] (noted (.binary .gt (ident xItem) (int "0")))])) ≠ some [1, 0, 1, 1, 1, 2] := by
   decide +kernel
 
+/-- As the verification binary gives `1 7 1` for `min()`, `max()` and `last()`
+over `[2, 7, 1]` and the `Err` "stream was empty" for an empty `max()`. -/
+theorem extremum_witness :
+    intValue (readValue (runCanonical (closing (items ["2", "7", "1"]) [.stream .min [] none]))) = some 1 ∧
+    intValue (readValue (runCanonical (closing (items ["2", "7", "1"]) [.stream .max [] none]))) = some 7 ∧
+    intValue (readValue (runCanonical (closing (items ["2", "7", "1"]) [.stream .last [] none]))) = some 1 ∧
+    errText (readValue (runCanonical (closing (.list []) [.stream .max [] none]))) = some "stream was empty" := by
+  decide +kernel
+
+/-- A `max()` that kept its first item, as an ordering that compared nothing
+would, gives `2`; the model gives `7`. -/
+theorem unordered_extremum_rejected :
+    intValue (readValue (runCanonical (closing (items ["2", "7", "1"]) [.stream .max [] none]))) ≠ some 2 := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Pipelines

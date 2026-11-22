@@ -504,8 +504,8 @@ Statements:
 
 - value-call stages, and every stage
   but argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
-  a closing `count()`, `collect()`, `sum()`, `first()`, `any` or `all`, and a
-  `Stream[T]` from anything but a producer (E)
+  a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
+  `max()`, `any` or `all`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -830,6 +830,12 @@ passes the block; `first()`, `any` and `all` stop pulling once the answer is
 known. As the binary gives `11`, `Ok(7)`, `Err("stream was empty")`, `true`
 with the producer stopped after its second yield, and `false` without testing
 `7`, so do the witnesses, which reject an `any` that tests every item.
+`last()` gives `Ok` of the last item, and `min()` and `max()` the least or
+greatest item by `<`, `min` keeping the earlier of equal items and `max` the
+later, as the runtime's `min_by` and `max_by` do; each gives the stream-empty
+`Err` with no items. The binary gives `1 7 1` over `[2, 7, 1]`; items `<` does
+not order, such as NaN, are the XSH-180 draft's open question and stay
+outside the model.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
