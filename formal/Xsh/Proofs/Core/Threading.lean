@@ -25,6 +25,7 @@ inductive Evaluable : Xsh.Syntax.Expr → Prop
   | ident (name : Xsh.Syntax.RawName) : Evaluable (.ident name)
   | list (elements : List Xsh.Syntax.Expr) : (∀ element ∈ elements, Evaluable element) → Evaluable (.list elements)
   | record (fields : List Xsh.Syntax.RecordField) :
+      Xsh.Semantics.CoreControl.namedOnly fields = true →
       (∀ name operand, Xsh.Syntax.RecordField.named name operand ∈ fields → Evaluable operand) →
         Evaluable (.record fields)
   | field (base : Xsh.Syntax.Expr) (name : Xsh.Syntax.RawName) : Evaluable base → Evaluable (.field base name)
@@ -242,7 +243,7 @@ theorem threadStep_agrees (context : Context Declaration Identity Source) {world
   | list elements all =>
     simp only [threadStep, step] at supported ⊢
     exact lift_bind (threadAll_agrees inner elements all) (fun _ _ _ => rfl) supported
-  | record fields all =>
+  | record fields _ all =>
     simp only [threadStep, step] at supported ⊢
     exact lift_bind (threadFields_agrees context inner fields all) (fun _ _ _ => rfl) supported
   | field base name based =>
@@ -440,6 +441,7 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
           cases held : frame.store cell with
           | none => exact absurd held (initialized name cell resolved)
           | some _ => rfl
+    | record fields named _ => simp only [evalExpr, named, if_true]
     | _ => simp only [evalExpr]
 
 end Bridge

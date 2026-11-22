@@ -267,6 +267,21 @@ theorem threadFields_refines {world : World Declaration Identity Source} (contex
       valued_bind_refines (threadFields_refines context each after rest) fun _ _ => valued_refl _
   | _, .computed _ _ :: _ | _, .path _ _ :: _ | _, .shorthand _ :: _ | _, .spread _ :: _ => valued_refl _
 
+theorem threadEntries_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
+    ∀ frame fields, Valued.Refines (threadEntries context evaluate frame fields) (threadEntries context evaluate' frame fields)
+  | _, [] => valued_refl _
+  | frame, .named _ operand :: rest | frame, .spread operand :: rest | frame, .path _ operand :: rest =>
+    valued_bind_refines (each frame operand) fun _ after =>
+      valued_bind_refines (threadEntries_refines context each after rest) fun _ _ => valued_refl _
+  | frame, .shorthand name :: rest =>
+    valued_bind_refines (each frame (.ident name)) fun _ after =>
+      valued_bind_refines (threadEntries_refines context each after rest) fun _ _ => valued_refl _
+  | frame, .computed key operand :: rest =>
+    valued_bind_refines (each frame key) fun _ after => valued_bind_refines (each after operand) fun _ middle =>
+      valued_bind_refines (threadEntries_refines context each middle rest) fun _ _ => valued_refl _
+
 theorem threadBranches_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -603,6 +618,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
           | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
+          | refine valued_bind_refines (threadEntries_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (threadArguments_refines _ inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines ?_ fun _ _ => ?_
           | split)
@@ -921,6 +937,21 @@ theorem threadFields_persists {world : World Declaration Identity Source} (conte
       vbind_persists (threadFields_persists context each after rest) fun _ last => persists_refl last.store
   | _, .computed _ _ :: _ | _, .path _ _ :: _ | _, .shorthand _ :: _ | _, .spread _ :: _ =>
     vkeeps_exec fun _ present => by cases present
+
+theorem threadEntries_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
+    ∀ frame fields, VKeeps frame.store (threadEntries context evaluate frame fields)
+  | frame, [] => persists_refl frame.store
+  | frame, .named _ operand :: rest | frame, .spread operand :: rest | frame, .path _ operand :: rest =>
+    vbind_persists (each frame operand) fun _ after =>
+      vbind_persists (threadEntries_persists context each after rest) fun _ last => persists_refl last.store
+  | frame, .shorthand name :: rest =>
+    vbind_persists (each frame (.ident name)) fun _ after =>
+      vbind_persists (threadEntries_persists context each after rest) fun _ last => persists_refl last.store
+  | frame, .computed key operand :: rest =>
+    vbind_persists (each frame key) fun _ after => vbind_persists (each after operand) fun _ middle =>
+      vbind_persists (threadEntries_persists context each middle rest) fun _ last => persists_refl last.store
 
 theorem threadBranches_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1252,6 +1283,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (inner.call _ _ _ _ _ _ _) fun _ _ => ?_
     | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
+    | refine vbind_persists (threadEntries_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (threadArguments_persists _ inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists ?_ fun _ _ => ?_
     | split)
@@ -1639,6 +1671,21 @@ theorem threadFields_restores {world : World Declaration Identity Source} (conte
       vbind_restores (threadFields_restores context each after rest) fun _ _ => ⟨rfl, rfl⟩
   | _, .computed _ _ :: _ | _, .path _ _ :: _ | _, .shorthand _ :: _ | _, .spread _ :: _ => vrestores_none rfl
 
+theorem threadEntries_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source)) :
+    ∀ frame fields, VRestores frame (threadEntries context evaluate frame fields)
+  | _, [] => ⟨rfl, rfl⟩
+  | frame, .named _ operand :: rest | frame, .spread operand :: rest | frame, .path _ operand :: rest =>
+    vbind_restores (each frame operand) fun _ after =>
+      vbind_restores (threadEntries_restores context each after rest) fun _ _ => ⟨rfl, rfl⟩
+  | frame, .shorthand name :: rest =>
+    vbind_restores (each frame (.ident name)) fun _ after =>
+      vbind_restores (threadEntries_restores context each after rest) fun _ _ => ⟨rfl, rfl⟩
+  | frame, .computed key operand :: rest =>
+    vbind_restores (each frame key) fun _ after => vbind_restores (each after operand) fun _ middle =>
+      vbind_restores (threadEntries_restores context each middle rest) fun _ _ => ⟨rfl, rfl⟩
+
 theorem threadBranches_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -1890,6 +1937,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (inner.comprehends _ _ _) fun _ _ => ?_
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine vbind_restores (fromEval_restores _ _) fun _ _ => ?_
+  | refine vbind_restores (threadEntries_restores _ inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
   | refine vbind_restores (settle_restores (leave_restores _ _ _) (leaveBlock_normal _ _ _) ?_) fun _ _ => ?_
   | refine vbind_restores (inner.expr _ _) fun _ _ => ?_

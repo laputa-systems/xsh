@@ -704,6 +704,38 @@ def threadFields {world : World Declaration Identity Source} (context : Context 
       (threadFields context evaluate after rest).bind fun fields last => .value ((context.spelling name, value) :: fields) last
   | _, _ :: _ => .exec .unsupported
 
+/-- A brace literal's entries evaluated once each in source order, a
+computed key before its value (SPEC 6.4); a shorthand field reads its name. -/
+def threadEntries {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) :
+    Frame world → List Xsh.Syntax.RecordField → Outcome world (List (BraceEntry Declaration Identity Source))
+  | frame, [] => .value [] frame
+  | frame, .named name operand :: rest =>
+    (evaluate frame operand).bind fun value after =>
+      (threadEntries context evaluate after rest).bind fun entries last =>
+        .value (.field (context.spelling name) value :: entries) last
+  | frame, .shorthand name :: rest =>
+    (evaluate frame (.ident name)).bind fun value after =>
+      (threadEntries context evaluate after rest).bind fun entries last =>
+        .value (.field (context.spelling name) value :: entries) last
+  | frame, .computed key operand :: rest =>
+    (evaluate frame key).bind fun computed after =>
+      (evaluate after operand).bind fun value middle =>
+        (threadEntries context evaluate middle rest).bind fun entries last =>
+          .value (.key computed value :: entries) last
+  | frame, .spread operand :: rest =>
+    (evaluate frame operand).bind fun value after =>
+      (threadEntries context evaluate after rest).bind fun entries last => .value (.spread value :: entries) last
+  | frame, .path names operand :: rest =>
+    (evaluate frame operand).bind fun value after =>
+      (threadEntries context evaluate after rest).bind fun entries last =>
+        .value (.path (names.map context.spelling) value :: entries) last
+
+def namedOnly : List Xsh.Syntax.RecordField → Bool
+  | [] => true
+  | .named _ _ :: rest => namedOnly rest
+  | _ :: _ => false
+
 def threadBranches {world : World Declaration Identity Source}
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) :
     Frame world → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → Xsh.Syntax.Expr → Valued world
@@ -1242,6 +1274,15 @@ mutual
         match frame.item with
         | some value => .value value frame
         | none => .exec .unsupported
+      | .record fields =>
+        if namedOnly fields then
+          threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel))
+            frame expression
+        else
+          (threadEntries machine.context (evalExpr machine fuel) frame fields).bind fun entries after =>
+            match braceValue entries with
+            | some value => .value value after
+            | none => .exec .unsupported
       | .nullSafeField base name =>
         (evalExpr machine fuel frame base).bind fun receiver next =>
           (fromEval next (hopOf true receiver)).bind fun hop after =>

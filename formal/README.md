@@ -494,7 +494,6 @@ Expressions:
 - `and`/`or` operands of a `Result[Bool]` condition (P)
 - equality and membership of variants, errors and handles, and `in` on a
   `Path` container (P)
-- record spread, shorthand, computed and path fields (P)
 - named, spread and splice arguments, methods and value pipelines (P)
 - `.require` (P), `ctx` error contexts (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
@@ -590,6 +589,19 @@ is a division by zero. The mutants it rejects evaluate the index before
 testing the receiver, or read a negative start as zero. A guarded method call
 is outside the model, as methods are.
 
+The `brace_literals` fragment root, in
+[`Proofs/Core/Records.lean`](Xsh/Proofs/Core/Records.lean), adds record
+spread, shorthand, computed and path fields (SPEC 6.4). A brace literal with
+a computed key is a map, its constant labels `Str` keys; otherwise it is a
+record. Entries evaluate once in source order, a computed key before its
+value; a later field or spread replaces an earlier field of that label; and a
+path entry replaces the existing nested field it names and adds none. Its
+witnesses follow the verification binary's output for `{...defaults,
+...overrides}`, `{...defaults, jobs: 9}`, a functional update of
+`build.flags.debug`, and `{[ext]: 1, other: 2}` and `{[ext]: 1, [ext]: 5}`. The
+mutants it rejects evaluate a computed key's value first or let earlier
+fields win. The checker's spread and update rules are not modelled.
+
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
 see other parameters, and run once per call for each omitted argument, in
@@ -613,7 +625,8 @@ written by a call nested anywhere in an expression reaches the caller (SPEC
 9.2: "A writable capture must refer to mutable storage with exactly that
 type"), and a call in statement position is the same evaluation. On a frame
 without local functions, wherever `CoreEval.evaluate` gives an `Evaluable`
-expression (its forms, without `??`) a meaning and every expression-bodied
+expression (its forms, without `??`, and record literals of named fields
+only) a meaning and every expression-bodied
 plain function's body is evaluable, the machine gives the evaluator's result
 with the frame unchanged, so `covered_expression_evaluation`, `preservation`
 and `evaluated_store_writes` describe the machine's results there; with

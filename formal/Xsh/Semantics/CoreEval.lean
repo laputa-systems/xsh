@@ -417,6 +417,69 @@ def indexAt (context : Context Declaration Identity Source) (fromEnd : Bool)
       | none => .failure (.runtime context.errors.missingField)
     | _, _ => .unsupported
 
+/-- An evaluated brace-literal entry (SPEC 6.4). -/
+inductive BraceEntry (Declaration Identity Source : Type) where
+  | field (label : String) (value : Value Declaration Identity Source)
+  | key (key value : Value Declaration Identity Source)
+  | spread (value : Value Declaration Identity Source)
+  | path (labels : List String) (value : Value Declaration Identity Source)
+
+/-- `label` given `value`: an existing field is replaced in place, a new one
+added at the end. -/
+def setField (label : String) (value : Value Declaration Identity Source) :
+    List (String × Value Declaration Identity Source) → List (String × Value Declaration Identity Source)
+  | [] => [(label, value)]
+  | (other, held) :: rest => if other = label then (other, value) :: rest else (other, held) :: setField label value rest
+
+/-- The nested field `labels` replaced by `value`; every label must name an
+existing field, and every one but the last a record. -/
+def updatePath (value : Value Declaration Identity Source) :
+    List String → List (String × Value Declaration Identity Source) → Option (List (String × Value Declaration Identity Source))
+  | [], _ => none
+  | [label], fields => (fields.lookup label).map fun _ => setField label value fields
+  | label :: rest, fields =>
+    match fields.lookup label with
+    | some inner =>
+      match inner.eraseNominal with
+      | .record nested => (updatePath value rest nested).map fun updated => setField label (.record updated) fields
+      | _ => none
+    | none => none
+
+def isKey : BraceEntry Declaration Identity Source → Bool
+  | .key _ _ => true
+  | _ => false
+
+/-- A record literal's fields, later entries and spreads replacing earlier
+fields and path entries replacing nested ones. -/
+def recordOf : List (String × Value Declaration Identity Source) → List (BraceEntry Declaration Identity Source) →
+    Option (List (String × Value Declaration Identity Source))
+  | fields, [] => some fields
+  | fields, .field label value :: rest => recordOf (setField label value fields) rest
+  | fields, .spread value :: rest =>
+    match value.eraseNominal with
+    | .record spread => recordOf (spread.foldl (fun built (label, item) => setField label item built) fields) rest
+    | _ => none
+  | fields, .path labels value :: rest => (updatePath value labels fields).bind fun updated => recordOf updated rest
+  | _, .key _ _ :: _ => none
+
+/-- A map literal's entries: constant labels are `Str` keys, and a later
+entry or spread replaces an earlier one. -/
+def mapOf : List (MapKey × Value Declaration Identity Source) → List (BraceEntry Declaration Identity Source) →
+    Option (List (MapKey × Value Declaration Identity Source))
+  | entries, [] => some entries
+  | entries, .field label value :: rest => mapOf (upsert (.string label) value entries) rest
+  | entries, .key key value :: rest => (mapKeyOf key).bind fun mapKey => mapOf (upsert mapKey value entries) rest
+  | entries, .spread value :: rest =>
+    match value.eraseNominal with
+    | .map spread => mapOf (spread.foldl (fun built (key, item) => upsert key item built) entries) rest
+    | _ => none
+  | _, .path _ _ :: _ => none
+
+/-- A brace literal (SPEC 6.4): a computed key makes it a map, otherwise it
+is a record. -/
+def braceValue (entries : List (BraceEntry Declaration Identity Source)) : Option (Value Declaration Identity Source) :=
+  if entries.any isKey then (mapOf [] entries).map .map else (recordOf [] entries).map .record
+
 /-- A slice bound counted from the end when negative, clamped into
 `[0, length]` (SPEC 6.6). -/
 def clampBound (length : Nat) (bound : Int) : Nat :=

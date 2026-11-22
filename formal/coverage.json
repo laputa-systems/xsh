@@ -15148,6 +15148,15 @@
       "boundary": "Guarded method calls are outside the model, as are methods; that a slice's result has its receiver's type is not stated; the receiver's static type, which decides a Result[T?] hop, is approximated by its value. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Records.brace_literals",
+      "module": "Xsh.Proofs.Core.Records",
+      "declaration": "Xsh.Proofs.Core.Records.brace_literals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 6.4 record and map literals: a brace literal with a computed key is a map and otherwise a record; entries evaluate once in source order, a computed key before its value, and a shorthand field reads its name; a later field or spread replaces an earlier field of that label and leaves the others; and a single-label path entry replaces the existing field it names and nothing else.",
+      "boundary": "The static rules (check.spread-hides-field, check.record-update-overlap, the leading-spread requirement and same-type paths) are the checker's and are not modelled; nested path entries are checked by witnesses only; record field order is the model's list order, which only lookup observes. Witnesses agree with the verification binary's output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",
