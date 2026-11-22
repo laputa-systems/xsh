@@ -45,6 +45,44 @@ class ParanoidCheckTests(unittest.TestCase):
         self.assertIn("checker progress", output.getvalue())
         self.assertIn("exceeded 1s", errors.getvalue())
 
+    def test_deadline_covers_output_held_by_descendant_after_leader_exits(self):
+        output = io.StringIO()
+        errors = io.StringIO()
+        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as directory:
+            ready = Path(directory) / "ready"
+            stopped = Path(directory) / "stopped"
+            descendant = (
+                "import pathlib, signal, time\n"
+                f"ready = pathlib.Path({str(ready)!r})\n"
+                f"stopped = pathlib.Path({str(stopped)!r})\n"
+                "def stop(*args):\n"
+                "    stopped.touch()\n"
+                "    raise SystemExit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "ready.touch()\n"
+                "print('descendant ready', flush=True)\n"
+                "time.sleep(3)\n"
+            )
+            leader = (
+                "import pathlib, subprocess, sys, time\n"
+                f"subprocess.Popen([sys.executable, '-c', {descendant!r}])\n"
+                f"ready = pathlib.Path({str(ready)!r})\n"
+                "while not ready.exists(): time.sleep(0.01)\n"
+            )
+            started = time.monotonic()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                status = CHECK.run_guarded(
+                    [sys.executable, "-c", leader], ROOT, os.environ.copy(), "checker",
+                    wall_limit_seconds=0.5,
+                )
+            elapsed = time.monotonic() - started
+            self.assertEqual(status, 124)
+            self.assertLess(elapsed, 2)
+            self.assertTrue(stopped.exists())
+        self.assertIn("descendant ready", output.getvalue())
+        self.assertNotIn("checker passed", output.getvalue())
+        self.assertIn("exceeded 0.5s", errors.getvalue())
+
     def test_checker_output_is_written_while_the_checker_runs(self):
         output = io.StringIO()
         with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as directory:

@@ -1517,8 +1517,9 @@ def lean_import_graph(module_sources: dict[str, Path]) -> dict[str, set[str]]:
     imports_by_module: dict[str, set[str]] = {}
     for module, path in module_sources.items():
         imports: set[str] = set()
-        for line in path.read_text(encoding="utf-8").splitlines():
-            declaration = line.split("--", 1)[0].strip()
+        source = strip_lean_comments(path.read_text(encoding="utf-8"))
+        for line in source.splitlines():
+            declaration = line.strip()
             if declaration.startswith("import "):
                 imports.update(declaration.removeprefix("import ").split())
         imports_by_module[module] = imports

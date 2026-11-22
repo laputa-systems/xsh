@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -31,25 +32,29 @@ def set_address_space_limit() -> None:
 
 
 def terminate_process_group(
-    process: subprocess.Popen[str], initial_signal: int = signal.SIGTERM
+    process: subprocess.Popen[str], relay: threading.Thread | None,
+    initial_signal: int = signal.SIGTERM,
 ) -> None:
     try:
         os.killpg(process.pid, initial_signal)
     except ProcessLookupError:
         pass
+    deadline = time.monotonic() + TERM_GRACE_SECONDS
+    if relay is not None:
+        relay.join(timeout=max(0, deadline - time.monotonic()))
     try:
-        process.wait(timeout=TERM_GRACE_SECONDS)
+        process.wait(timeout=max(0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
         pass
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    try:
-        process.wait(timeout=TERM_GRACE_SECONDS)
-    finally:
-        if process.stdout is not None:
-            process.stdout.close()
+    process.wait(timeout=TERM_GRACE_SECONDS)
+    if relay is not None:
+        relay.join(timeout=TERM_GRACE_SECONDS)
+    if process.stdout is not None and (relay is None or not relay.is_alive()):
+        process.stdout.close()
 
 
 class FreshCheckCancelled(Exception):
@@ -166,7 +171,9 @@ def run_guarded(
     cleaning_up = False
     signal_delivery_error: OSError | None = None
     process: subprocess.Popen[str] | None = None
+    relay: threading.Thread | None = None
     completed = False
+    deadline = time.monotonic() + wall_limit_seconds
 
     def handle_signal(signum: int, _frame: object) -> None:
         nonlocal interrupted_by, signal_delivery_error
@@ -214,8 +221,10 @@ def run_guarded(
                         raise FreshCheckCancelled(interrupted_by)
                     relay = threading.Thread(target=relay_lines, args=(process.stdout,), daemon=True)
                     relay.start()
-                    process.wait(timeout=wall_limit_seconds)
-                    relay.join()
+                    process.wait(timeout=max(0, deadline - time.monotonic()))
+                    relay.join(timeout=max(0, deadline - time.monotonic()))
+                    if relay.is_alive() or time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(command, wall_limit_seconds)
                     if process.returncode == 0:
                         print(f"{label} passed")
                     result = process.returncode
@@ -238,7 +247,7 @@ def run_guarded(
         if process is not None and (not completed or interrupted_by is not None):
             try:
                 terminate_process_group(
-                    process,
+                    process, relay,
                     interrupted_by if interrupted_by is not None else signal.SIGTERM,
                 )
             except (OSError, subprocess.SubprocessError) as error:

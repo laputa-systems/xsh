@@ -149,15 +149,6 @@ out of scope.
 - **Fix with:** lifecycle-concurrency, os-boundaries
 - **Effort:** M
 
-### XSH-182 · P2 · The fresh-proof runner stops enforcing its deadline while draining child output
-
-- **Area:** Formal verification lifecycle
-- **Where:** `formal/scripts/check-fresh.py:215-223,236-245` (`run_guarded`); `formal/tests/test_check_fresh.py`
-- **Problem:** run_guarded applies wall_limit_seconds to process.wait, then calls relay.join without a deadline. A subprocess leader can exit successfully while a descendant retains its stdout pipe, leaving the runner blocked indefinitely after the timed wait has finished. Executing the production helper with a leader that starts a sleeping pipe-inheriting child and exits 0 kept a one-second run blocked beyond three seconds; killing the owned descendant then let it report passed/result 0 despite the expired limit. This proves the runner defect, not that a Lean campaign has already encountered it. It is distinct from XSH-149's insufficient paranoid-check budget.
-- **Recommendation:** Track one monotonic deadline through leader reaping, output drain and owned-descendant cleanup. On expiry, terminate/reap the owned process group with bounded escalation and return 124, preserving incremental output and signal forwarding. Add a subprocess regression whose leader exits while a descendant retains the output pipe; require bounded failure, cleaned descendants and no late success report. Keep ordinary success and cancellation controls.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** S
-
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
@@ -255,15 +246,6 @@ out of scope.
 - **Problem:** In a `?? { |error| ... }` handler whose body builds inferred variants such as `.Stage(...)` or `.Refused(error.message)`, the lint reports that `error` is only read through its fields and suggests leaving the parameter implicit. Doing so makes the checker read `.Stage`, `.NotSubmitted(...)` and `.Refused(...)` as members of the item, failing with check.unknown-field and check.unknown-method. Laputa excludes the rule for those two files.
 - **Recommendation:** Do not report a handler whose body uses a leading-dot inferred variant, or make the implicit-item form keep leading-dot variants as variants. Acceptance: a native lint test with such a handler reports nothing, and its suggested rewrite of an ordinary handler still checks.
 - **Fix with:** none
-- **Effort:** S
-
-### XSH-183 · P3 · The formal inventory counts block-commented Lean imports as reachable
-
-- **Area:** Formal coverage inventory
-- **Where:** `formal/scripts/check-inventory.py:1516-1540` (`lean_import_graph`, `reachable_lean_modules`); existing `strip_lean_comments` and `formal/tests/inventory`
-- **Problem:** The import scanner removes -- comments but reads import lines inside Lean /- ... -/ block comments. At reviewed revision 956a67a, a scratch source substitution wrapped Xsh.lean's sole import of Xsh.Validation.Core.Erase in a block comment; the real graph still reported it reachable, and fragment/obligation validation accepted all 1307 fragment roots and 77 obligations, including closed VAL-ERASE. Comment stripping showed the import was absent. This is a false source-reachability assurance, not a proof of theorem unsoundness: audit-axioms.sh independently builds/imports every project module. No mutated full Lean build was run, and current live imports are intact.
-- **Recommendation:** Build reachability and implementation-import closure from one comment-aware parser, reusing the existing Lean comment handling rather than another line heuristic. Add source-level negative cases for a sole import inside ordinary/nested block comments and an active-import control. Assert the unreachable closed obligation is rejected; mutating only the computed reachable set does not exercise this bug. Retain the independent kernel/axiom audit.
-- **Fix with:** test-audit, single-source-of-truth
 - **Effort:** S
 
 ### XSH-166 · P4 · A user type named like a built-in record cascades into a misleading mismatch

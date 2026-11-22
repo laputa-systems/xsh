@@ -1454,6 +1454,26 @@ class InventoryCheckerTests(unittest.TestCase):
             77, len(self.validate_closed(plan, obligations, module_sources, reachable))
         )
 
+    def test_block_commented_import_does_not_make_closed_root_reachable(self) -> None:
+        plan, obligations, module_sources, _ = self.closed_obligation_context()
+        with tempfile.TemporaryDirectory(dir=ROOT / ".work/tmp") as directory:
+            root = Path(directory) / "Xsh.lean"
+            module_sources["Xsh"] = root
+            for source in (
+                "/-\nimport Xsh.Fixture\n-/\n",
+                "/- outer\n/- inner -/\nimport Xsh.Fixture\n-/\n",
+            ):
+                with self.subTest(source=source):
+                    root.write_text(source)
+                    reachable = CHECKER.reachable_lean_modules(module_sources)
+                    self.assertEqual({"Xsh"}, reachable)
+                    with self.assertRaisesRegex(CHECKER.InventoryError, "unreachable from Xsh"):
+                        self.validate_closed(plan, obligations, module_sources, reachable)
+            root.write_text("/- ignored -/\nimport Xsh.Fixture -- active\n")
+            reachable = CHECKER.reachable_lean_modules(module_sources)
+            self.assertEqual({"Xsh", "Xsh.Fixture"}, reachable)
+            self.assertEqual(77, len(self.validate_closed(plan, obligations, module_sources, reachable)))
+
     def test_closed_obligation_with_missing_root_fails(self) -> None:
         plan, obligations, module_sources, reachable = self.closed_obligation_context()
         obligations[0]["declaration"] = "Xsh.Fixture.not_a_theorem"
