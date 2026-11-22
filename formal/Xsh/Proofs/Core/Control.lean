@@ -3498,6 +3498,7 @@ def machine : Machine witnessWorld where
   enums := ⟨fun _ => none⟩
   schemaFamily := ()
   exitStatus := .scalar (.string "exit-status")
+  retryClock := fun _ => 0
   hostEnvironment := fun _ => none
   envMissing := fun name => .scalar (.string ("env-missing " ++ name))
   invalidUtf8 := fun name => .scalar (.string ("invalid-utf8 " ++ name))

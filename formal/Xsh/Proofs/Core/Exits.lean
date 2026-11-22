@@ -42,6 +42,38 @@ theorem script_exit [DecidableEq Declaration] {world : World Declaration Identit
         .exec (.exited code { caller with store := keep caller.store callee.store, overlay := callee.overlay })) := by
   exact ⟨fun _ => rfl, fun _ _ => rfl, fun _ _ _ _ => rfl, fun _ _ => rfl, fun _ _ _ _ => rfl⟩
 
+/-- The `retry_backoff` fragment root (SPEC 8.8): `retry backoff first..cap
+within limit` evaluates its three durations once, in order, and runs as a
+written list of the delays it takes; the schedule is `first`, then twice the
+delay before, never longer than `cap`; and a delay is taken only if it would
+end within `limit` of the first attempt's start by the machine's clock, the
+first one that would not ending the retries. -/
+theorem retry_backoff [DecidableEq Declaration] {world : World Declaration Identity Source} (machine : Machine world)
+    (fuel : Nat) (frame : Frame world) :
+    (∀ durations pattern body, runValue machine (fuel + 1) frame (.retry .backoff durations pattern body) =
+      (threadAll (evalExpr machine fuel) frame durations).bind fun written next =>
+        match backoffDelays machine written with
+        | some scheduled => retryLoop machine fuel next pattern body scheduled
+        | none => .exec .unsupported) ∧
+    (∀ first cap count, backoffSchedule first cap (count + 1) =
+      min first cap :: backoffSchedule (min (2 * first) cap) cap count) ∧
+    (∀ first cap count, ∀ delay ∈ backoffSchedule first cap count, delay ≤ cap) ∧
+    (∀ clock limit index delay rest, clock index + delay ≤ limit →
+      takenDelays clock limit index (delay :: rest) = delay :: takenDelays clock limit (index + 1) rest) ∧
+    (∀ clock limit index delay rest, limit < clock index + delay →
+      takenDelays clock limit index (delay :: rest) = []) := by
+  refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, ?_, fun clock limit index delay rest fits => by simp [takenDelays, fits],
+    fun clock limit index delay rest late => by simp [takenDelays, Nat.not_le.mpr late]⟩
+  intro first cap count
+  induction count generalizing first with
+  | zero => simp [backoffSchedule]
+  | succ count ih =>
+    intro delay inside
+    simp only [backoffSchedule, List.mem_cons] at inside
+    rcases inside with rfl | later
+    · exact Nat.min_le_right _ _
+    · exact ih _ delay later
+
 end Root
 
 namespace Witness
@@ -117,6 +149,50 @@ theorem captured_exit_rejected :
     (match exitRun (code "7") with
       | .normal _ => true
       | _ => false) = false := by
+  decide +kernel
+
+def firstName : Xsh.Syntax.RawName := name 263 (by decide)
+def capName : Xsh.Syntax.RawName := name 264 (by decide)
+def limitName : Xsh.Syntax.RawName := name 265 (by decide)
+def failingName : Xsh.Syntax.RawName := name 266 (by decide)
+
+def millis (value : Nat) (bounded : value < signed64Width) : Value Unit Unit Unit := .scalar (.duration ⟨value, bounded⟩)
+
+/-- Attempts that take no time: each one ends when the delays before it do. -/
+def noTimeClock (index : Nat) : Nat := (backoffSchedule 100 250 index).sum
+
+def backoffMachine : Machine witnessWorld := { machine with retryClock := noTimeClock }
+
+/-- `first = 100ms`, `cap = 250ms`, `limit = 1s` and an attempt that always
+raises. -/
+def backoffFrame : Frame witnessWorld :=
+  { start with locals := [(firstName, millis 100 (by decide)), (capName, millis 250 (by decide)),
+      (limitName, millis 1000 (by decide)), (failingName, .err (.scalar (.string "boom")))] }
+
+def backoffRun : Exec witnessWorld :=
+  runStatements backoffMachine 60 backoffFrame
+    [.binding .letBinding (.name xName) none
+      (.retry .backoff [ident firstName, ident capName, ident limitName] none
+        [.expression (.tryExpr (ident failingName))])]
+
+def waitedMillis : Exec witnessWorld → Option (List Nat)
+  | .normal frame => some (frame.waited.filterMap fun
+      | .scalar (.duration value) => some value.val
+      | _ => none)
+  | _ => none
+
+/-- With attempts that take no time the form waits `100ms`, `200ms`, then
+`250ms` twice, as the schedule doubles to the cap; the next `250ms` would end
+at `1050ms`, past the limit, so the fifth attempt is the last and its `Err`
+is the result. -/
+theorem backoff_witness : waitedMillis backoffRun = some [100, 200, 250, 250] := by
+  decide +kernel
+
+/-- A schedule without the cap waits `400ms` after the third attempt; the
+model waits `250ms`. -/
+theorem uncapped_backoff_rejected :
+    (List.range 3).map (fun index => 100 * 2 ^ index) = [100, 200, 400] ∧
+      waitedMillis backoffRun = some [100, 200, 250, 250] := by
   decide +kernel
 
 end Witness

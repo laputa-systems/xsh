@@ -15238,6 +15238,15 @@
       "boundary": "The process exit itself, the exit effect requirement and the script-level defers outside any block are not modelled; witnesses use a block around the script body. Witnesses follow the verification binary's output and statuses on named scripts; it does not close BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Exits.retry_backoff",
+      "module": "Xsh.Proofs.Core.Exits",
+      "declaration": "Xsh.Proofs.Core.Exits.retry_backoff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 8.8 retry backoff first..cap within limit: the three durations evaluate once in order and the form runs as a written list of the delays it takes; the schedule is first, then twice the previous delay, never longer than cap; a delay is taken only if it would end within limit of the first attempt's start by the machine's clock, the first that would not ending the retries.",
+      "boundary": "The clock is the machine input retryClock, one host observation of each attempt's end, shared by every backoff form; a zero first, the retry.attempt trace events and their max_attempts are not modelled; delays are observed, not slept. The witness follows the SPEC, not a binary run; it does not close BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -64,6 +64,9 @@ structure Machine (world : World Declaration Identity Source) where
   uninitialized : Xsh.Syntax.RawName → Value Declaration Identity Source
   /-- The wire strings of Str-backed enums, which `.require` converts. -/
   enums : WireEnums Declaration
+  /-- The clock a `retry backoff` form reads: the milliseconds since its first
+  attempt started, at the end of each attempt, a host observation (SPEC 8.8). -/
+  retryClock : Nat → Nat
   /-- The runtime error an `exit` status outside 0 to 255 raises (SPEC 8.9). -/
   exitStatus : Value Declaration Identity Source
   /-- The checker's declaration of the error family a failed `.require` raises
@@ -794,6 +797,33 @@ def withOverlay {world : World Declaration Identity Source} (overlay : Overlay) 
   | .exec (.internal fault frame) => .exec (.internal fault { frame with overlay })
   | .exec (.exited status frame) => .exec (.exited status { frame with overlay })
   | other => other
+
+/-- The first `count` delays of `backoff first..cap` (SPEC 8.8): `first`,
+then each twice the one before, never longer than `cap`. -/
+def backoffSchedule (first cap : Nat) : Nat → List Nat
+  | 0 => []
+  | count + 1 => min first cap :: backoffSchedule (min (2 * first) cap) cap count
+
+/-- The delays a backoff form takes: the delay after attempt `index` only if
+it would end within `limit` of the first attempt's start, as `clock` gives
+the end of each attempt; the first delay not taken makes that attempt the
+last. -/
+def takenDelays (clock : Nat → Nat) (limit : Nat) : Nat → List Nat → List Nat
+  | _, [] => []
+  | index, delay :: rest => if clock index + delay ≤ limit then delay :: takenDelays clock limit (index + 1) rest else []
+
+/-- The delays of `retry backoff first..cap within limit`: no more than
+`limit / first + 1` can fit, as each attempt starts after the delays before
+it. A zero `first` is outside the model. -/
+def backoffDelays {world : World Declaration Identity Source} (machine : Machine world)
+    (durations : List (Value Declaration Identity Source)) : Option (List (Value Declaration Identity Source)) :=
+  match durations.map Value.eraseNominal with
+  | [.scalar (.duration first), .scalar (.duration cap), .scalar (.duration limit)] =>
+    if first.val = 0 then none
+    else
+      some ((takenDelays machine.retryClock limit.val 0 (backoffSchedule first.val cap.val (limit.val / first.val + 1))).filterMap
+        fun delay => (validateDuration? delay).map fun valid => .scalar (.duration valid))
+  | _ => none
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
@@ -1603,7 +1633,11 @@ mutual
           match machine.conversion value target with
           | some converted => fromEval next (propagate converted)
           | none => .exec .unsupported
-      | .retry .backoff _ _ _ => .exec .unsupported
+      | .retry .backoff durations pattern body =>
+        (threadAll (evalExpr machine fuel) frame durations).bind fun written next =>
+          match backoffDelays machine written with
+          | some scheduled => retryLoop machine fuel next pattern body scheduled
+          | none => .exec .unsupported
       | .binary .resultFallback left right =>
         (runValue machine fuel frame left).bind fun value next =>
           match value.eraseNominal, right with

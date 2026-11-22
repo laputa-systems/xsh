@@ -497,7 +497,7 @@ Expressions:
   bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
 - the contextual `.require()` (P)
-- `retry backoff` (E), `cd` and `within` scopes (E), `tempdir` (E),
+- `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
 
@@ -715,6 +715,18 @@ and exits 3 for an `exit 3` inside `try`, runs only `defer f` for `exit 0`,
 runs an `errdefer` after a failing `defer` and still exits 0, and fails an
 out-of-range status with `exit-status`; the witnesses check each, with a
 counter the actions add to, and reject a `try` that captures the exit.
+
+The `retry_backoff` root, in the same module, adds `retry backoff first..cap
+within limit` (SPEC 8.8). Its three durations evaluate once, in order, and the
+form runs as a written list of the delays it takes: the schedule is `first`,
+then twice the delay before, never longer than `cap`, and a delay is taken
+only if it would end within `limit` of the first attempt's start. The clock
+is the machine input `retryClock`, the milliseconds since the first attempt
+began at the end of each attempt, a host observation the machine does not
+produce. With attempts that take no time and `100ms..250ms within 1s` the
+witness waits `100`, `200`, `250` and `250` milliseconds and ends with the
+fifth attempt's `Err`; an uncapped schedule is rejected. A zero `first` is
+outside the model, and the delays are observed, not slept.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot
