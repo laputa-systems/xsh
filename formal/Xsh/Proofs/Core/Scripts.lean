@@ -448,9 +448,9 @@ def CallsResolve {world : World Declaration Identity Source} (machine : Machine 
   (∀ fuel (caller : Frame world) scope (bound : Locals Declaration Identity Source),
     callBlock machine (fuel + 2) caller scope defining bound writable body kind =
       returnTo caller kind
-        (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable }
+        (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay }
           (runTail machine fuel
-            ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable } : Frame world).enter
+            ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay } : Frame world).enter
             body))) ∧
   ∀ fuel (store : Store world) (bound : Locals Declaration Identity Source) scope pre rest middle,
     body = pre ++ rest → rest ≠ [] →

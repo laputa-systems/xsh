@@ -67,6 +67,13 @@ structure Machine (world : World Declaration Identity Source) where
   /-- The checker's declaration of the error family a failed `.require` raises
   its schema error in (SPEC 5.3). -/
   schemaFamily : Declaration
+  /-- The environment the process started with, by variable name: a host
+  input the machine reads through and never writes (SPEC 10.5). -/
+  hostEnvironment : List UInt8 → Option (List UInt8)
+  /-- The `env-missing` error a read of an unset variable gives. -/
+  envMissing : String → Value Declaration Identity Source
+  /-- The `invalid-utf8` error a `Str` read of a value that is not UTF-8 gives. -/
+  invalidUtf8 : String → Value Declaration Identity Source
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -725,6 +732,19 @@ def annotate {world : World Declaration Identity Source} (text : String) : Value
   | .exec (.failed (.runtime error) last) => .exec (.failed (.runtime (withContext text error)) last)
   | other => other
 
+/-- `e"NAME"` (SPEC 10.5): `Ok` of the variable's value as the script's
+assignments leave it, else as the process started with it, `Err` of
+`env-missing` when it is unset, and `Err` of `invalid-utf8` when its bytes
+are not UTF-8; bytes are never decoded lossily. -/
+def environmentString {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
+    (name : String) : Value Declaration Identity Source :=
+  match (readEnvironment overlay name.toUTF8.toList).or (machine.hostEnvironment name.toUTF8.toList) with
+  | none => .err (machine.envMissing name)
+  | some bytes =>
+    match String.fromUTF8? ⟨bytes.toArray⟩ with
+    | some text => .ok (.scalar (.string text))
+    | none => .err (machine.invalidUtf8 name)
+
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
 `Bool` of its `Ok` and raises the error of its `Err`, and so does each operand
 of `!`, `and` and `or` there; `and` and `or` skip the operand they do not
@@ -1058,12 +1078,12 @@ def returnTo {world : World Declaration Identity Source} (caller : Frame world) 
     Exec world → Valued world
   | .returned value callee =>
     .value (match kind with | .result => wrapOk value | .plain => value)
-      { caller with store := keep caller.store callee.store }
+      { caller with store := keep caller.store callee.store, overlay := callee.overlay }
   | .failed (.raised error) callee =>
     match kind with
-    | .result => .value (.err error) { caller with store := keep caller.store callee.store }
-    | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store })
-  | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store })
+    | .result => .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay }
+    | .plain => .exec (.failed (.raised error) { caller with store := keep caller.store callee.store, overlay := callee.overlay })
+  | .failed failure callee => .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay })
   | .unsupported => .exec .unsupported
   | .outOfFuel => .exec .outOfFuel
   | _ => .exec .stuck
@@ -1369,6 +1389,9 @@ mutual
           match machine.typeOf schema with
           | some type => .value (requireValue machine type candidate) next
           | none => .exec .unsupported
+      | .envString key =>
+        let name := machine.context.spelling key
+        .value (environmentString machine frame.overlay name) frame
       | .nullSafeField base name =>
         (evalExpr machine fuel frame base).bind fun receiver next =>
           (fromEval next (hopOf true receiver)).bind fun hop after =>
@@ -1504,7 +1527,8 @@ mutual
     | 0, _, _, _, _, _, _, _ => .exec .outOfFuel
     | fuel + 1, caller, scope, defining, parameters, writable, body, kind =>
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+        (runBody machine fuel
+          { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
           body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
@@ -1728,16 +1752,13 @@ mutual
         (runValue machine fuel frame initializer).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
-        match frame.callerStore with
-        | some _ => .unsupported
-        | none =>
-          (runValue machine fuel frame value).toExec fun result next =>
-            match machine.resolution.argv result with
-            | none => .internal .unconvertibleEnvironment next
-            | some bytes =>
-              match setEnvironment machine.raises next.overlay (machine.context.spelling key).toUTF8.toList bytes with
-              | .ok overlay => .normal { next with overlay := overlay }
-              | .error failure => .failed failure next
+        (runValue machine fuel frame value).toExec fun result next =>
+          match machine.resolution.argv result with
+          | none => .internal .unconvertibleEnvironment next
+          | some bytes =>
+            match setEnvironment machine.raises next.overlay (machine.context.spelling key).toUTF8.toList bytes with
+            | .ok overlay => .normal { next with overlay := overlay }
+            | .error failure => .failed failure next
       | .assign target op value =>
         match flatten machine.context.spelling target with
         | none => .unsupported

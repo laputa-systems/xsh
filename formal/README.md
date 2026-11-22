@@ -499,7 +499,7 @@ Expressions:
 - the contextual `.require()` (P)
 - `retry backoff` (E), `cd`/`env`/`within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
-  (E), `$NAME` and `$PATH` reads (E), `$?` (E)
+  (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
 
 
 Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
@@ -678,6 +678,21 @@ and `.round()` are `Ok` of the `ToIntMeaning` result under their bounds or
 verification binary's `true 3 -3 2 3`, `true` and bitset results, with Float
 literals read by `decimalFloat`, and reject magnitude bitsets and ties-to-even
 rounding.
+
+The `environment_reads` fragment root, in
+[`Proofs/Core/EnvironmentReads.lean`](Xsh/Proofs/Core/EnvironmentReads.lean),
+adds `e"NAME"` (SPEC 10.5). A read takes the variable as the script's
+assignments leave it, else as the process started with it, which the machine
+takes as the input `hostEnvironment` and never writes; it is `Ok` of the text
+when the bytes are UTF-8, `Err` of `invalid-utf8` when they are not, and `Err`
+of `env-missing` when the variable is unset. The environment is evaluator
+state, not a binding: a call now starts with its caller's assignments and its
+caller continues with the call's, and `e"NAME" = value` runs inside a call,
+where it was unsupported before. The witnesses follow the verification
+binary on a script that reads an unset variable, assigns it in a called
+`proc` and reads it back, assigns it at the top, and reads a preset and a
+non-UTF-8 variable (`true`, `set-in-proc`, `top preset`, `true`); a call with
+its own empty environment is rejected.
 
 The `parameters_and_maps` fragment root adds default and rest parameters
 (SPEC 9.2: defaults "are evaluated in the callee's declaration scope, cannot

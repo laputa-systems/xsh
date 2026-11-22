@@ -239,6 +239,14 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
           exact keep _ environment
     | assign target op value =>
       cases target <;> cases op <;> simp only [runStatement] at ran <;> first
+        | (obtain ⟨result, middle, _, environment, _, finished⟩ := toExec_normal (scopes.value frame value) ran
+           split at finished
+           · cases finished
+           · split at finished
+             · cases finished
+               exact keep _ environment
+             · cases finished
+           done)
         | (split at ran
            · cases ran
            · obtain ⟨result, middle, _, environment, _, finished⟩ := toExec_normal (scopes.value frame value) ran

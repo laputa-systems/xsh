@@ -2492,7 +2492,7 @@ theorem call_activation {world : World Declaration Identity Source} (machine : M
     (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
           body) ∧
     (machine.namesAt scope.activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found =>
@@ -2568,14 +2568,14 @@ function fails the call. -/
 theorem return_cases {world : World Declaration Identity Source} (value error : Value Declaration Identity Source)
     (failure : Failure Declaration Identity Source) (caller callee : Frame world) :
     returnTo caller .result (.failed (.raised error) callee) =
-      .value (.err error) { caller with store := keep caller.store callee.store } ∧
+      .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
     returnTo caller .plain (.failed failure callee) =
-      .exec (.failed failure { caller with store := keep caller.store callee.store }) ∧
+      .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay }) ∧
     returnTo caller .result (.returned value callee) =
-      .value (wrapOk value) { caller with store := keep caller.store callee.store } ∧
-    returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store } ∧
+      .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+    returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
     (∀ inner, returnTo caller .result (.failed (.runtime inner) callee) =
-      .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store })) :=
+      .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay })) :=
   ⟨rfl, by cases failure <;> rfl, rfl, rfl, fun _ => rfl⟩
 
 /-- One `retry` attempt: success is `Ok`; a raised failure the filter selects
@@ -2668,7 +2668,7 @@ theorem call_returns {world : World Declaration Identity Source} (machine : Mach
     (kind : ReturnKind) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
           body) :=
   rfl
 
@@ -3068,7 +3068,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind environment declared,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
             body) ∧
       (machine.namesAt scope.activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
@@ -3169,18 +3169,18 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay }
             body)) ∧
     (∀ (value error : Value Declaration Identity Source) failure (caller callee : Frame world),
       returnTo caller .result (.failed (.raised error) callee) =
-        .value (.err error) { caller with store := keep caller.store callee.store } ∧
+        .value (.err error) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
       returnTo caller .plain (.failed failure callee) =
-        .exec (.failed failure { caller with store := keep caller.store callee.store }) ∧
+        .exec (.failed failure { caller with store := keep caller.store callee.store, overlay := callee.overlay }) ∧
       returnTo caller .result (.returned value callee) =
-        .value (wrapOk value) { caller with store := keep caller.store callee.store } ∧
-      returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store } ∧
+        .value (wrapOk value) { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
+      returnTo caller .plain (.returned value callee) = .value value { caller with store := keep caller.store callee.store, overlay := callee.overlay } ∧
       ∀ inner, returnTo caller .result (.failed (.runtime inner) callee) =
-        .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store })) :=
+        .exec (.failed (.runtime inner) { caller with store := keep caller.store callee.store, overlay := callee.overlay })) :=
   ⟨propagate_cases,
     fun _ _ _ => rfl,
     fun fuel frame inner target body pattern delays => error_forms machine fuel frame inner target body pattern delays,
@@ -3313,7 +3313,7 @@ theorem resolution_and_captures {world : World Declaration Identity Source} (mac
     (∀ (caller callee : Frame world) kind value,
       returnTo caller kind (.returned value callee) =
         .value (match kind with | .result => wrapOk value | .plain => value)
-          { caller with store := keep caller.store callee.store }) :=
+          { caller with store := keep caller.store callee.store, overlay := callee.overlay }) :=
   ⟨fun _ _ carried => represents_enter carried,
     fun _ _ _ carried name => represents_declare carried name,
     fun _ _ carried name => represents_lookup carried name,
@@ -3449,6 +3449,9 @@ def machine : Machine witnessWorld where
   uninitialized := fun _ => .scalar (.string "unknown captured name")
   enums := ⟨fun _ => none⟩
   schemaFamily := ()
+  hostEnvironment := fun _ => none
+  envMissing := fun name => .scalar (.string ("env-missing " ++ name))
+  invalidUtf8 := fun name => .scalar (.string ("invalid-utf8 " ++ name))
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 

@@ -15211,6 +15211,15 @@
       "boundary": "Other methods, including the Float math methods, are not modelled; the sign of a NaN parse_float reads follows its text, which equality cannot observe; the conversion error's identity is the context's value. Witnesses follow the verification binary's output on named programs; it does not close BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.EnvironmentReads.environment_reads",
+      "module": "Xsh.Proofs.Core.EnvironmentReads",
+      "declaration": "Xsh.Proofs.Core.EnvironmentReads.environment_reads",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 10.5 e\"NAME\": a read takes the variable as the script's assignments leave it, else as the process started with it, giving Ok of its UTF-8 text, Err of invalid-utf8 for other bytes and Err of env-missing when unset; the environment is evaluator state, so a call starts with its caller's assignments and its caller continues with the call's.",
+      "boundary": "The starting environment is the machine's hostEnvironment input, an assumption about the process; env scopes, env.PATH, the computed-name readers and child-process inheritance are not modelled, and the env-missing and invalid-utf8 error values are machine parameters. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",
