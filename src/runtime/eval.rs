@@ -133,6 +133,7 @@ pub struct EvalOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub trace_events: Vec<TraceEvent>,
+    pub trace_dropped_events: u64,
     pub diagnostics: Vec<Diagnostic>,
     pub traceback: Option<Traceback>,
     pub sources: Arc<SourceMap>,
@@ -3275,6 +3276,8 @@ pub struct Evaluator {
     pending_stream_item_error_unwind: bool,
     cleanup_error_contexts: Vec<ErrorContext>,
     trace_events: Vec<TraceEvent>,
+    trace_limit: Option<usize>,
+    trace_dropped_events: u64,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
     // The traceback of the failure that is still unwinding: recorded where a
@@ -3652,6 +3655,8 @@ impl Evaluator {
             pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
+            trace_limit: None,
+            trace_dropped_events: 0,
             event_stack: Vec::new(),
             call_stack: Vec::new(),
             pending_traceback: None,
@@ -3768,6 +3773,19 @@ impl Evaluator {
     pub fn with_tracing(mut self) -> Self {
         self.trace_enabled = true;
         self
+    }
+
+    pub fn with_trace_limit(mut self, limit: usize) -> Self {
+        self.trace_limit = Some(limit);
+        self
+    }
+
+    fn record_trace_event(&mut self, event: TraceEvent) {
+        if self.trace_limit.is_some_and(|limit| self.trace_events.len() >= limit) {
+            self.trace_dropped_events += 1;
+        } else {
+            self.trace_events.push(event);
+        }
     }
 
     pub fn with_module_roots(mut self, roots: Vec<PathBuf>) -> Self {
@@ -3906,6 +3924,8 @@ impl Evaluator {
             pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
+            trace_limit: None,
+            trace_dropped_events: 0,
             event_stack: Vec::new(),
             call_stack: Vec::new(),
             pending_traceback: None,
@@ -4646,6 +4666,7 @@ impl Evaluator {
                             stdout: std::mem::take(&mut self.stdout),
                             stderr: std::mem::take(&mut self.stderr),
                             trace_events: std::mem::take(&mut self.trace_events),
+                            trace_dropped_events: self.trace_dropped_events,
                             diagnostics: vec![diagnostic],
                             traceback: None,
                             sources: Arc::clone(&self.sources),
@@ -5358,6 +5379,7 @@ impl Evaluator {
                 stdout: std::mem::take(&mut self.stdout),
                 stderr: std::mem::take(&mut self.stderr),
                 trace_events: std::mem::take(&mut self.trace_events),
+                trace_dropped_events: self.trace_dropped_events,
                 diagnostics,
                 traceback,
                 sources: Arc::clone(&self.sources),
@@ -5895,6 +5917,7 @@ impl Evaluator {
             stdout: std::mem::take(&mut self.stdout),
             stderr: std::mem::take(&mut self.stderr),
             trace_events: std::mem::take(&mut self.trace_events),
+            trace_dropped_events: self.trace_dropped_events,
             diagnostics,
             traceback,
             sources: Arc::clone(&self.sources),
@@ -6273,6 +6296,7 @@ impl Evaluator {
                 stdout: std::mem::take(&mut self.stdout),
                 stderr: std::mem::take(&mut self.stderr),
                 trace_events: std::mem::take(&mut self.trace_events),
+                trace_dropped_events: self.trace_dropped_events,
                 diagnostics,
                 traceback,
                 sources: Arc::clone(&self.sources),
@@ -6440,7 +6464,7 @@ impl Evaluator {
             start_time_us,
             started_at,
         });
-        self.trace_events.push(event);
+        self.record_trace_event(event);
     }
 
     fn trace_exit(
@@ -6492,10 +6516,11 @@ impl Evaluator {
                 },
             )
             .with_timing(timing);
-        self.trace_events.push(event);
+        self.record_trace_event(event);
     }
 
-    pub(super) fn adopt_worker_trace(&mut self, events: Vec<TraceEvent>) {
+    pub(super) fn adopt_worker_trace(&mut self, events: Vec<TraceEvent>, dropped: u64) {
+        self.trace_dropped_events += dropped;
         let offset = next_event_id(&self.trace_events) - 1;
         let parent = self.event_stack.last().map(|frame| frame.event_id);
         let depth = self.event_stack.len() as u32;
@@ -6503,7 +6528,7 @@ impl Evaluator {
             event.event_id += offset;
             event.parent_event_id = event.parent_event_id.map(|id| id + offset).or(parent);
             event.depth += depth;
-            self.trace_events.push(event);
+            self.record_trace_event(event);
         }
     }
 
@@ -6531,7 +6556,7 @@ impl Evaluator {
                 },
             )
             .with_timing(TraceTiming::new(Some(trace_epoch_us()), None));
-        self.trace_events.push(event);
+        self.record_trace_event(event);
     }
 
     /// Materializes a driver-recorded leaf event without replacing its actual
@@ -6561,7 +6586,7 @@ impl Evaluator {
                 },
             )
             .with_timing(timing);
-        self.trace_events.push(event);
+        self.record_trace_event(event);
     }
 
     fn make_trace_event(

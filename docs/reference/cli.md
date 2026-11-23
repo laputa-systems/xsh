@@ -145,13 +145,14 @@ xsht trace — Run a script with trace output
 Usage:
   xsht trace [--raw] [--trace-format text|jsonl|flamegraph]
              [--trace-file PATH] [--syscalls] [--trace-top-syscalls N]
-             SCRIPT [ARGS...]
+             [--trace-limit N] SCRIPT [ARGS...]
 
   --raw                   Write per-event trace output
   --trace-format FORMAT   text, jsonl, or flamegraph
   --trace-file PATH       Write trace output to PATH
   --syscalls              Include native syscall totals
   --trace-top-syscalls N  Show N syscall rows; default: 8
+  --trace-limit N         Keep at most N events and report the rest as dropped; default: 1000000
 ```
 
 ### `xsht api`

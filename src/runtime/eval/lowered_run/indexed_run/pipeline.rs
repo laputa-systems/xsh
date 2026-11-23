@@ -103,7 +103,8 @@ impl Evaluator {
         let base_slots = slots.to_vec();
         let call_stack = self.call_stack.clone();
         let tracing = self.trace_enabled;
-        let mut worker_traces: Vec<Vec<TraceEvent>> = (0..worker_count).map(|_| Vec::new()).collect();
+        let trace_limit = self.trace_limit;
+        let mut worker_traces: Vec<(Vec<TraceEvent>, u64)> = (0..worker_count).map(|_| (Vec::new(), 0)).collect();
         // Set once any item fails or leaves a control flow, so no worker
         // starts another item.
         let stopped = std::sync::atomic::AtomicBool::new(false);
@@ -138,6 +139,7 @@ impl Evaluator {
                             // functions that are running the stage.
                             worker.call_stack = call_stack;
                             worker.trace_enabled = tracing;
+                            worker.trace_limit = trace_limit;
                             (worker, base_slots)
                         };
                         let mut results = {
@@ -209,7 +211,7 @@ impl Evaluator {
                             chunk_index,
                             results,
                             std::mem::take(&mut worker.stderr),
-                            std::mem::take(&mut worker.trace_events),
+                            (std::mem::take(&mut worker.trace_events), worker.trace_dropped_events),
                         ));
                     })
                     .expect("failed to spawn lowered par-map worker");
@@ -316,8 +318,8 @@ impl Evaluator {
             }
             Ok((results, stderr))
         });
-        for events in worker_traces {
-            self.adopt_worker_trace(events);
+        for (events, dropped) in worker_traces {
+            self.adopt_worker_trace(events, dropped);
         }
         let (chunks, stderr) = outcome?;
         self.stderr.extend(stderr);

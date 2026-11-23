@@ -594,6 +594,13 @@ fn parse_trace(args: &[String]) -> Result<Command, String> {
                 _ => return Err("`--trace-top-syscalls` must be a positive integer".to_string()),
             },
         };
+        let limit = match parsed.value("--trace-limit") {
+            None => 1_000_000,
+            Some(value) => match value.parse::<usize>() {
+                Ok(n) if n > 0 => n,
+                _ => return Err("`--trace-limit` must be a positive integer".to_string()),
+            },
+        };
         let Some((script, script_args)) = parsed.positionals.split_first() else {
             return Err("`xsht trace` requires SCRIPT".to_string());
         };
@@ -610,6 +617,7 @@ fn parse_trace(args: &[String]) -> Result<Command, String> {
                 file: parsed.value("--trace-file").map(str::to_string),
                 syscalls: parsed.flag("--syscalls"),
                 top_syscalls,
+                limit,
             },
         })
     })

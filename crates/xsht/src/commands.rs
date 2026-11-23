@@ -390,6 +390,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
             UsagePart::Opt("--syscalls"),
             UsagePart::Opt("--trace-top-syscalls"),
             UsagePart::Break,
+            UsagePart::Opt("--trace-limit"),
             UsagePart::Args,
         ]],
         options: &[
@@ -422,6 +423,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 arg: OptionArg::value("N"),
                 repeatable: false,
                 description: "Show N syscall rows; default: 8",
+            },
+            OptionSpec {
+                names: &["--trace-limit"],
+                arg: OptionArg::value("N"),
+                repeatable: false,
+                description: "Keep at most N events and report the rest as dropped; default: 1000000",
             },
         ],
         removed: &[],
@@ -855,7 +862,7 @@ mod tests {
             [
                 "xsht trace [--raw] [--trace-format text|jsonl|flamegraph]",
                 "           [--trace-file PATH] [--syscalls] [--trace-top-syscalls N]",
-                "           SCRIPT [ARGS...]",
+                "           [--trace-limit N] SCRIPT [ARGS...]",
             ]
         );
         assert_eq!(

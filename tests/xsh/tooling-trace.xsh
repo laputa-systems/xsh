@@ -92,6 +92,29 @@ test test_trace_keeps_par_map_items_running_in_parallel { |ctx|
   assert "\"parallel.job.start\"" in trace, trace
 }
 
+test test_trace_limit_keeps_the_first_events_and_reports_the_rest_as_dropped { |ctx|
+  let fixture = "tests/fixtures/runtime/trace-many-calls.xsh"
+  let root = test.temp_dir(ctx, name: "trace-limit")?
+  let file = fp"{root}/trace.jsonl"
+  let traced = run.capture --text "xsht" trace --trace-limit 50 --raw --trace-format jsonl --trace-file $file $fixture
+  assert traced.status.exited_with(0), traced.stderr
+  assert traced.stdout == "2001000\n", traced.stdout
+  assert "trace incomplete: kept the first 50 events and dropped" in traced.stderr, traced.stderr
+  let lines = file.read_text()?.lines()
+  assert lines.len() == 51, f"{lines.len()}"
+  assert "\"type\":\"trace.incomplete\",\"limit\":50,\"stored_event_count\":50" in lines[50], lines[50]
+
+  let complete = run.capture --text "xsht" trace --trace-format jsonl $fixture
+  assert complete.status.exited_with(0), complete.stderr
+  assert "trace.incomplete" not in complete.stderr, complete.stderr
+}
+
+test test_trace_rejects_a_zero_trace_limit {
+  let output = run.capture --text "xsht" trace --trace-limit 0 tests/fixtures/runtime/cli-simple.xsh
+  assert output.status.exited_with(2), output.stderr
+  assert "`--trace-limit` must be a positive integer" in output.stderr, output.stderr
+}
+
 type ProfileRow = {kind: Str, name: Str, count: Int, total_us: Int, self_us: Int, outer_total_us: Int}
 type ProfileSummary = {function_calls: List[ProfileRow]}
 

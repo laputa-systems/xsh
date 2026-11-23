@@ -39,6 +39,7 @@ pub struct TraceOptions {
     pub file: Option<String>,
     pub syscalls: bool,
     pub top_syscalls: usize,
+    pub limit: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -64,9 +64,11 @@ pub(crate) fn trace_script_without_syscalls(options: TraceOptions) -> CliOutput 
 
     let output = Evaluator::new_with_sources(options.args, sources)
         .with_tracing()
+        .with_trace_limit(options.limit)
         .eval(&parsed.arena, entry_source_id);
     let sources = output.sources.clone();
     let mut stderr = output.stderr;
+    let dropped = output.trace_dropped_events;
 
     let rendered = match options.format {
         TraceFormat::Text if options.raw => {
@@ -85,6 +87,27 @@ pub(crate) fn trace_script_without_syscalls(options: TraceOptions) -> CliOutput 
             TraceFlamegraphRenderer::new().render_events(&output.trace_events)
         }
     };
+    let rendered = match (dropped, options.format) {
+        (0, _) | (_, TraceFormat::Flamegraph) => rendered,
+        (_, TraceFormat::Jsonl) => format!(
+            "{rendered}{{\"type\":\"trace.incomplete\",\"limit\":{},\"stored_event_count\":{},\"dropped_event_count\":{dropped}}}\n",
+            options.limit,
+            output.trace_events.len(),
+        ),
+        (_, TraceFormat::Text) => format!(
+            "{rendered}trace incomplete: kept the first {} events and dropped {dropped}; raise --trace-limit\n",
+            output.trace_events.len(),
+        ),
+    };
+    if dropped > 0 && (options.file.is_some() || options.format == TraceFormat::Flamegraph) {
+        push_text(
+            &mut stderr,
+            &format!(
+                "xsht trace: trace incomplete: kept the first {} events and dropped {dropped}; raise --trace-limit\n",
+                output.trace_events.len(),
+            ),
+        );
+    }
     let trace_text = if let Some(path) = options.file {
         if let Err(err) = fs::write(&path, rendered) {
             return CliOutput {
