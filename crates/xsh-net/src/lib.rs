@@ -23,7 +23,8 @@ use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -1705,6 +1706,15 @@ fn require_regular_file(file: &File, kind: &'static str) -> NetResult<()> {
     Ok(())
 }
 
+fn clear_nonblocking(file: &File) -> NetResult<()> {
+    let fd = file.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0 {
+        return Err(NetError::from_io("net-write", io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
 fn read_source_file(path: &Path, kind: &'static str, canceled: impl Fn() -> bool) -> NetResult<Vec<u8>> {
     let mut file = open_regular_source(path, kind)?;
     let mut bytes = Vec::new();
@@ -1725,6 +1735,7 @@ struct DownloadOutput {
     path: PathBuf,
     file: Mutex<Option<File>>,
     atomic: bool,
+    removable: AtomicBool,
     published: AtomicBool,
 }
 
@@ -1734,9 +1745,16 @@ impl DownloadOutput {
             let file = OpenOptions::new().write(true).create(true).create_new(!overwrite)
                 .custom_flags(libc::O_NONBLOCK).open(&self.path)
                 .map_err(|error| NetError::from_io("net-write", error))?;
-            require_regular_file(&file, "net-write")?;
-            if overwrite {
-                file.set_len(0).map_err(|error| NetError::from_io("net-write", error))?;
+            let file_type = file.metadata().map_err(|error| NetError::from_io("net-write", error))?.file_type();
+            if file_type.is_char_device() {
+                clear_nonblocking(&file)?;
+            } else if !file_type.is_file() {
+                return Err(NetError::new("net-write", "download destination must be a regular file or character device"));
+            } else {
+                if overwrite {
+                    file.set_len(0).map_err(|error| NetError::from_io("net-write", error))?;
+                }
+                self.removable.store(true, Ordering::Release);
             }
             *self.file.lock().map_err(|_| NetError::new("net-write", "download file lock poisoned"))? = Some(file);
         }
@@ -1762,8 +1780,7 @@ impl DownloadOutput {
 
 impl Drop for DownloadOutput {
     fn drop(&mut self) {
-        let acquired = self.file.get_mut().map(|file| file.is_some()).unwrap_or(false);
-        if acquired && !self.published.load(Ordering::Acquire) {
+        if self.removable.load(Ordering::Acquire) && !self.published.load(Ordering::Acquire) {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -1790,7 +1807,10 @@ fn prepare_download_destination(download: &NetDownload) -> NetResult<Arc<Downloa
     } else {
         (download.dest.clone(), None)
     };
-    Ok(Arc::new(DownloadOutput { path, file: Mutex::new(file), atomic: download.atomic, published: AtomicBool::new(false) }))
+    Ok(Arc::new(DownloadOutput {
+        path, file: Mutex::new(file), atomic: download.atomic,
+        removable: AtomicBool::new(download.atomic), published: AtomicBool::new(false),
+    }))
 }
 
 fn finalize_atomic_download(output: &Path, destination: &Path, overwrite: bool) -> NetResult<()> {

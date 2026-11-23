@@ -1405,6 +1405,37 @@ mod tests {
     }
 
     #[test]
+    fn in_place_downloads_admit_character_devices_and_refuse_fifos() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+        let output = |path: &std::path::Path| crate::DownloadOutput {
+            path: path.to_path_buf(), file: std::sync::Mutex::new(None), atomic: false,
+            removable: std::sync::atomic::AtomicBool::new(false),
+            published: std::sync::atomic::AtomicBool::new(false),
+        };
+        let null = output(std::path::Path::new("/dev/null"));
+        null.acquire(true).unwrap();
+        null.append(b"discarded").unwrap();
+        assert!(!null.removable.load(std::sync::atomic::Ordering::Acquire));
+        drop(null);
+        assert!(std::path::Path::new("/dev/null").exists());
+
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let path = scratch.join(format!("xsh-net-destination-fifo-{}", std::process::id()));
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let reader = std::fs::OpenOptions::new().read(true)
+            .custom_flags(libc::O_NONBLOCK).open(&path).unwrap();
+        let fifo = output(&path);
+        let error = fifo.acquire(true).unwrap_err();
+        drop(fifo);
+        drop(reader);
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(error.kind, "net-write");
+    }
+
+    #[test]
     fn timed_out_regular_file_request_shutdown_completes() {
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
