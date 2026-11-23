@@ -234,3 +234,15 @@ The JSON contains `tool_version`, repository roots, HEADs and parsers, file
 paths, roles and matching rules, parse statuses, SHA-256 digests, static imports
 and their resolved census paths, textual dynamic loads, duplicate digest groups,
 and summary counts. Unresolved static imports have a null resolved path.
+
+## M1 profile fidelity
+
+Run `python3 -B -m dev.performance.m1 --laputa-root ../laputa` to profile
+Laputa's source fetch (`pm.xsh -- sources fetch --all`) over a warm source
+cache with the verification `xsh` and `xsht`. Plain and profiled runs are
+interleaved (`--repeats`, default 3). The command prints both medians, the top
+sites by exclusive time and the opaque regions, and exits 1 when the profiled
+run's summary or progress lines differ from the plain run's, when the profile
+is incomplete or claims completeness after dropping data, or when no
+parallel-worker region shows that the `par-map(jobs: 4)` stage ran in
+parallel. A cold cache downloads missing sources first, so run it twice.
