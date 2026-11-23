@@ -19,7 +19,7 @@ For Ubuntu bootstrap and default verification, see [Development](docs/DEVELOPMEN
 - Run one full native suite at a time; bound ad-hoc probes and clean up owned processes.
 - Linux verification uses the pinned container and target flags.
 - Edit generated-doc sources before `make docs`; update the SPEC when language behavior changes.
-- Do not run formatters or autofixers.
+- Do not run formatters. `xsht lint --fix` may apply lint migrations; review each rule's fixes and commit them on their own.
 
 ## Topic owners
 
