@@ -1428,10 +1428,129 @@ def statefulStep : Xsh.Syntax.PipeStage → Option (StatefulStep Declaration Ide
   | .stream .enumerate counted none => (countValue counted.length).map (.enumerateAt counted)
   | _ => none
 
-/-- Whether a stage keeps state from item to item. -/
+/-- A stage that needs every item before it gives any (SPEC 13.2): `sort`,
+`sort-by` and `batch`. -/
+def isMaterializing : Xsh.Syntax.PipeStage → Bool
+  | .stream .sort _ _ | .stream .sortBy _ _ | .stream .batch _ _ => true
+  | _ => false
+
+/-- Whether a stage keeps state from item to item, or needs every item. -/
 def isStateful : Xsh.Syntax.PipeStage → Bool
   | .stream .drop _ _ | .stream .enumerate _ _ => true
-  | _ => false
+  | stage => isMaterializing stage
+
+/-- The stages before the first materializing one, it, and the stages after. -/
+def splitMaterializing : List Xsh.Syntax.PipeStage →
+    Option (List Xsh.Syntax.PipeStage × Xsh.Syntax.PipeStage × List Xsh.Syntax.PipeStage)
+  | [] => none
+  | stage :: rest =>
+    if isMaterializing stage then some ([], stage, rest)
+    else (splitMaterializing rest).map fun (before, found, after) => (stage :: before, found, after)
+
+/-- `entry` placed after every entry whose key is not greater than its own,
+by `<`; keys `<` does not order are outside the model. -/
+def insertByKey (context : Context Declaration Identity Source) :
+    Value Declaration Identity Source × Value Declaration Identity Source →
+      List (Value Declaration Identity Source × Value Declaration Identity Source) →
+        Option (List (Value Declaration Identity Source × Value Declaration Identity Source))
+  | entry, [] => some [entry]
+  | entry, first :: rest =>
+    match binary context .lt entry.1 first.1 with
+    | .value (.scalar (.boolean true)) => some (entry :: first :: rest)
+    | .value (.scalar (.boolean false)) => (insertByKey context entry rest).map (first :: ·)
+    | _ => none
+
+/-- A stable sort of keyed items by key (SPEC 13.3). -/
+def sortByKeys (context : Context Declaration Identity Source)
+    (entries : List (Value Declaration Identity Source × Value Declaration Identity Source)) :
+    Option (List (Value Declaration Identity Source × Value Declaration Identity Source)) :=
+  entries.foldl (fun sorted entry => sorted.bind (insertByKey context entry)) (some [])
+
+/-- Items cut into lists of `size`, the last one shorter. -/
+def chunkValues {α : Type} (size : Nat) : Nat → List α → List (List α)
+  | 0, _ => []
+  | _ + 1, [] => []
+  | fuel + 1, items => items.take size :: chunkValues size fuel (items.drop size)
+
+/-- Each item with its key, the block run with the item bound, in order. -/
+def keyItems {world : World Declaration Identity Source}
+    (scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (parameter : Option Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
+    Frame world → List (Value Declaration Identity Source) →
+      Outcome world (List (Value Declaration Identity Source × Value Declaration Identity Source))
+  | frame, [] => .value [] frame
+  | frame, item :: rest =>
+    (scope frame (parameter.elim (some item) fun _ => none) (parameter.toList.map fun name => (name, item)) body).bind
+      fun key after => (keyItems scope parameter body after rest).bind fun keyed last => .value ((key, item) :: keyed) last
+
+/-- Keyed items in key order, reversed when `descending`. -/
+def orderedBy {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (descending : Bool) (keyed : List (Value Declaration Identity Source × Value Declaration Identity Source))
+    (last : Frame world) : Valued world :=
+  match sortByKeys context keyed with
+  | some sorted => .value (.list ((if descending then sorted.reverse else sorted).map Prod.snd)) last
+  | none => .exec .stuck
+
+/-- What a materializing stage makes of every item that reached it (SPEC
+13.3, 13.5): its options evaluated once as it starts, `sort` ordering items
+by `<` and `sort-by` by the key its block gives, both stably, `desc: true`
+reversing the order, and `batch(count: n)` cutting them into lists of `n`. -/
+def materialize {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    (scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (stage : Xsh.Syntax.PipeStage) (frame : Frame world) (items : List (Value Declaration Identity Source)) :
+    Valued world :=
+  let ordered := orderedBy context
+  match stage with
+  | .stream .sort [] none => ordered false (items.map fun item => (item, item)) frame
+  | .stream .sortBy [] (some (parameters, body)) =>
+    match singleParameter parameters with
+    | some parameter => (keyItems scope parameter body frame items).bind fun keyed last => ordered false keyed last
+    | none => .exec .unsupported
+  | .stream .sortBy [.named label flag] (some (parameters, body)) =>
+    match singleParameter parameters, context.spelling label == "desc" with
+    | some parameter, true =>
+      (evaluate frame flag).bind fun chosen after =>
+        match chosen.eraseNominal with
+        | .scalar (.boolean descending) =>
+          (keyItems scope parameter body after items).bind fun keyed last => ordered descending keyed last
+        | _ => .exec .stuck
+    | _, _ => .exec .unsupported
+  | .stream .batch [.named label count] none =>
+    if context.spelling label != "count" then .exec .unsupported else
+    (evaluate frame count).bind fun bound after =>
+      match bound.eraseNominal with
+      | .scalar (.integer size) =>
+        if 0 < size.val then .value (.list ((chunkValues size.val.toNat (items.length + 1) items).map .list)) after
+        else .exec .unsupported
+      | _ => .exec .stuck
+  | _ => .exec .unsupported
+
+/-- Items through stages that may include materializing ones: the stages
+before the first run on every item through `run`, the materializing stage
+takes what they gave, and the stages after it continue from its list; a
+`take` limit applies once no materializing stage is left. -/
+def runSegments {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    (scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world) :
+    Nat → Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world
+  | 0, frame, stages, limit, items => run frame stages limit items
+  | fuel + 1, frame, stages, limit, items =>
+    match splitMaterializing stages with
+    | none => run frame stages limit items
+    | some (before, stage, after) =>
+      (run frame before none items).bind fun gathered last =>
+        match listValues gathered with
+        | some reached =>
+          (materialize context evaluate scope stage last reached).bind fun arranged next =>
+            match listValues arranged with
+            | some rearranged => runSegments context evaluate scope run fuel next after limit rearranged
+            | none => .exec .stuck
+        | none => .exec .stuck
 
 /-- An item's outcome with the stage it passed put back in front of the
 stages after it. -/
@@ -3150,7 +3269,10 @@ mutual
             | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
                 (pipelineSplit stages).2.2 (.list []) after
             | none, _ =>
-              (runPipeline machine.context (stageItems machine fuel) after source prepared .collected limit).bind
+              (runPipeline machine.context
+                  (fun current body bound items => runSegments machine.context (evalExpr machine fuel) (handlerScope machine fuel)
+                    (stageItems machine fuel) (body.length + 1) current body bound items)
+                  after source prepared .collected limit).bind
                 fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
                   (pipelineSplit stages).2.2 out last
       | .call (.field receiver method) arguments =>

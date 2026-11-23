@@ -503,7 +503,8 @@ environment).
 Statements:
 
 - every stage but value calls, argument-free `where`, `map` and `flat-map`,
-  `drop(n)` and `enumerate` over a list source, a `take(n)` after them, and
+  `drop(n)`, `enumerate`, `sort`, `sort-by` and `batch(count:)` over a list
+  source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
   `max()`, `any`, `all`, `fold` or `reduce`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
@@ -985,7 +986,13 @@ a drop applied after the stages materialized. A closing `fold(init)` or
 evaluates its initial value once every item has reached it, as the binary
 logs `mmmifff` for a logging `map` and initial value, then runs the callback
 over the items in order with the accumulator; stage blocks now carry a list
-of parameters, a serial stage taking at most one. A `take(n)` that ends the transformations is evaluated
+of parameters, a serial stage taking at most one. Every item reaches a
+`sort`, `sort-by` or `batch` before any leaves it (`runSegments`): the stages
+before it run over every item, it takes what they gave and evaluates its
+options, `sort` and `sort-by` ordering stably by `<` on the items or their
+keys, `desc: true` reversing that order, and `batch(count: n)` cutting lists
+of `n`, and the stages after it continue from its list. The binary logs
+`mmmmnnnn` for `map |> sort |> map`, and so do the witnesses. A `take(n)` that ends the transformations is evaluated
 once before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items never run, and a producer stops as on its
 consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for
