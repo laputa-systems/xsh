@@ -85,7 +85,7 @@ proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str], 
   let r = uu.invoke(s, "fold", args + [name], vars: {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, timeout: 600s)?
   uu.succeeds(r)
   uu.no_stderr(r)
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   let line_count = output.split("\n").len() - 1
   assert line_count == expected_lines
   assert bytes.from_text(output.replace("\n", with: "")) == data

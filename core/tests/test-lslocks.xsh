@@ -219,12 +219,12 @@ proc byte_size_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[
   let human_document = json.decode(human_size.stdout.utf8() ?? "")?
   assert json.get(human_document, ["locks", 0, "size"])?.require(Str)? == "1.5K"
   let human_table = compared(s, ["--raw", "--noheadings", "--pid", f"{ready.pid}", "--output", "SIZE"])?
-  assert human_table.stdout.utf8()? == "1.5K\n"
+  assert human_table.stdout as Str == "1.5K\n"
   let byte_size = compared(s, ["--json", "--bytes", "--pid", f"{ready.pid}", "--output", "SIZE"])?
   let byte_document = json.decode(byte_size.stdout.utf8() ?? "")?
   assert json.get(byte_document, ["locks", 0, "size"])?.require(Int)? == 1536
   let byte_table = compared(s, ["--bytes", "--raw", "--noheadings", "--pid", f"{ready.pid}", "--output", "SIZE"])?
-  assert byte_table.stdout.utf8()? == "1536\n"
+  assert byte_table.stdout as Str == "1536\n"
   let short_bytes = compared(s, ["-J", "-b", "-p", f"{ready.pid}", "-o", "SIZE"])?
   let short_document = json.decode(short_bytes.stdout.utf8() ?? "")?
   assert json.get(short_document, ["locks", 0, "size"])?.require(Int)? == 1536
@@ -595,7 +595,7 @@ test test_lslocks_list_columns_modes { |ctx|
     parity(s, args)
   }
   let listing = compared(s, ["--list-columns", "--raw"])?
-  let text = listing.stdout.utf8()?
+  let text = listing.stdout as Str
   for column in ["COMMAND", "PID", "TYPE", "SIZE", "INODE", "MAJ:MIN", "MODE", "M", "START", "END", "PATH", "BLOCKER", "HOLDERS"] {
     assert column in text, column
   }
@@ -1050,10 +1050,10 @@ test test_lslocks_pid_leading_whitespace { |ctx|
 
 test test_lslocks_raw_option_diagnostics { |ctx|
   let s = uu.scene(ctx)?
-  let bad = Path.parse_bytes(b"\xff")?
-  let long = Path.parse_bytes(b"--\xff")?
-  let short = Path.parse_bytes(b"-\xff")?
-  let attached = Path.parse_bytes(b"--output=PID,\xff")?
+  let bad = b"\xff" as Path
+  let long = b"--\xff" as Path
+  let short = b"-\xff" as Path
+  let attached = b"--output=PID,\xff" as Path
   for args in [[long], [short], [p"-p", bad], [p"-o", bad], [attached]] {
     let reference = ul.reference_paths(s, "lslocks", args)?
     let candidate = uu.invoke_paths(s, "lslocks", args)?
@@ -1349,7 +1349,7 @@ test test_lslocks_ofd_path_matches_device_when_inodes_collide { |ctx|
   let pid = keeper.ready.trim()
   let result = uu.invoke(s, "lslocks", ["--noheadings", "--raw", "-p", pid, "-o", "TYPE,SIZE,PATH"], timeout: 5s)?
   assert result.status == 0 and result.stderr == b""
-  assert result.stdout.utf8()? == f"OFDLCK 5B {locked.display()}\n"
+  assert result.stdout as Str == f"OFDLCK 5B {locked.display()}\n"
 }
 
 test test_lslocks_json_unresolved_path_is_null { |ctx|

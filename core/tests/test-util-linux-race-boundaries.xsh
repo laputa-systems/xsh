@@ -51,9 +51,9 @@ test test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots { |ctx|
   ul.finish_keeper(observer)
   let reference = observation(options, completed.reference)?
   let candidate = observation(options, completed.candidate)?
-  assert reference.termination == ul.Exited(0), reference.stderr.utf8()?
+  assert reference.termination == ul.Exited(0), reference.stderr as Str
   assert reference.stderr == b""
-  let rows = json.get(json.decode(reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+  let rows = json.get(json.decode(reference.stdout as Str)?, ["locks"])?.require(List[Any])?
   assert rows.len() == 1
   assert json.get(rows[0], ["pid"])?.require(Int)? == held.pid
   assert json.get(rows[0], ["inode"])?.require(Int)? == held.inode

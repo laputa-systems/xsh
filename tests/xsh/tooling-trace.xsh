@@ -150,7 +150,7 @@ test test_trace_flamegraph_includes_function_self_frames {
   for line in traced.stderr.lines() {
     let parts = line.split(" ")
     assert parts.len() == 2, line
-    let value = parts[1].parse_int()?
+    let value = parts[1] as Int
     let stack = parts[0]
     assert stack == "script" or stack.starts_with("script;proc:root"), line
     total += value

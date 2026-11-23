@@ -75,7 +75,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
   } else {
     uu.argv(s, util, args, vars:)?
   }
-  let wrapper_words = [s.ctx.xsh_bin, wrapper, ready, release, Path.parse_bytes(bytes.from_text(pipe_action))?].extend(command_words)
+  let wrapper_words = [s.ctx.xsh_bin, wrapper, ready, release, pipe_action as Path].extend(command_words)
   let plan = process.command_argv(
     s.ctx.xsh_bin,
     wrapper_words,
@@ -114,16 +114,16 @@ proc output_failure_mismatches(s: uu.Scene, util: Str, args: List[Path], output_
     mismatches += [f"{util} {output_stream}: reference exited successfully"]
   }
   if output_stream == "stderr" and ! reference.stdout.is_empty() {
-    mismatches += [f"{util} stderr: reference unexpectedly wrote stdout {reference.stdout.utf8()?}"]
+    mismatches += [f"{util} stderr: reference unexpectedly wrote stdout {reference.stdout as Str}"]
   }
   if candidate.termination != reference.termination {
     mismatches += [f"{util} {output_stream}: reference {termination_label(reference.termination)}; candidate {termination_label(candidate.termination)}"]
   }
   if candidate.stdout != reference.stdout {
-    mismatches += [f"{util} {output_stream}: stdout differs; reference={reference.stdout.utf8()?}; candidate={candidate.stdout.utf8()?}"]
+    mismatches += [f"{util} {output_stream}: stdout differs; reference={reference.stdout as Str}; candidate={candidate.stdout as Str}"]
   }
   if candidate.stderr != reference.stderr {
-    mismatches += [f"{util} {output_stream}: stderr differs; reference={reference.stderr.utf8()?}; candidate={candidate.stderr.utf8()?}"]
+    mismatches += [f"{util} {output_stream}: stderr differs; reference={reference.stderr as Str}; candidate={candidate.stderr as Str}"]
   }
   Ok(mismatches)
 }
@@ -188,10 +188,10 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
       let candidate = closed_reader(s, command.util, command.args, false, pipe_action)?
       assert reference.termination != ul.Exited(0), f"{command.util} {pipe_action}"
       if reference.termination != candidate.termination {
-        mismatches += [f"{command.util} {pipe_action}: reference {termination_label(reference.termination)} stderr={reference.stderr.utf8()?}; candidate {termination_label(candidate.termination)} stderr={candidate.stderr.utf8()?}"]
+        mismatches += [f"{command.util} {pipe_action}: reference {termination_label(reference.termination)} stderr={reference.stderr as Str}; candidate {termination_label(candidate.termination)} stderr={candidate.stderr as Str}"]
       }
       if reference.stderr != candidate.stderr {
-        mismatches += [f"{command.util} {pipe_action}: stderr differs: reference {reference.stderr.utf8()?}; candidate {candidate.stderr.utf8()?}"]
+        mismatches += [f"{command.util} {pipe_action}: stderr differs: reference {reference.stderr as Str}; candidate {candidate.stderr as Str}"]
       }
     }
   }
@@ -218,7 +218,7 @@ test test_util_linux_lsmem_preserves_raw_sysroot_argv { |ctx|
 test test_util_linux_lsipc_preserves_raw_option_error_bytes { |ctx|
   guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  let option = Path.parse_bytes(b"--time-format=\xff")?
+  let option = b"--time-format=\xff" as Path
   let reference = ul.reference_paths(s, "lsipc", [option], timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
   let candidate = uu.invoke_paths(s, "lsipc", [option], timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
   ul.compare(reference, candidate)

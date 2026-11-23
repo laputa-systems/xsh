@@ -81,7 +81,7 @@ test ssh_command_strings_round_trip_hostile_arguments_through_a_posix_shell {
   with session = ssh.connect(options)? {
     let result = ssh.exec(session, command, {})?
     assert result.exit_code == 0
-    assert result.stdout.utf8()? == expected(values)
+    assert result.stdout as Str == expected(values)
   }
 }
 

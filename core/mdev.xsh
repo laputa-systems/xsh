@@ -70,9 +70,9 @@ proc load_paths() [env, error] -> Result[Paths] {
   let conf = configured_path(entries, "CONF", b"/etc/mdev.conf")?
   let firmware_root = configured_path(entries, "FIRMWARE_ROOT", b"/lib/firmware")?
   let seq_file = if let value = environment_value(entries, "XSH_MDEV_SEQ") {
-    Path.parse_bytes(value)?
+    value as Path
   } else if let value = environment_value(entries, "SEED_MDEV_SEQ") {
-    Path.parse_bytes(value)?
+    value as Path
   } else {
     path_join(dev_root, b"mdev.seq")?
   }
@@ -362,7 +362,7 @@ proc event_from_environment(paths: Paths, values: Map[Str, Bytes]) [fs, error] -
   let has_block_component = sysfs_path.components() |> any { |component| component.name() == "block" }
   let kind: NodeKind = if has_block_component or subsystem == "block" { .BlockDevice } else { .CharacterDevice }
   let device_kind: NodeKind? = if numbers.major == null or numbers.minor == null { null } else { kind }
-  Ok({action: action, device_name: Path.parse_bytes(device_name)?, sysfs_path: sysfs_path, kind: device_kind, major: numbers.major, minor: numbers.minor, env: event_env})
+  Ok({action: action, device_name: device_name as Path, sysfs_path: sysfs_path, kind: device_kind, major: numbers.major, minor: numbers.minor, env: event_env})
 }
 
 proc read_dev_numbers(sysfs_path: Path) [fs, error] -> DeviceNumbers {
@@ -471,7 +471,7 @@ proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -
   let sequence_result = event_env.get("SEQNUM")
   return Ok(null) when sequence_result is Err(_)
   let sequence_bytes = sequence_result?
-  let sequence_text = sequence_bytes.utf8()?
+  let sequence_text = sequence_bytes as Str
   return Ok(null) when fs.stat(paths.seq_file) is Err(_)
   if ! decimal_digits(sequence_text) { return Err(failure(f"invalid SEQNUM '{sequence_text}'")) }
   let expected_result = sequence_text.parse_uint()
@@ -556,7 +556,7 @@ proc create_device_link(paths: Paths, device_name: Bytes, node_name: Bytes) [fs,
   let link_path = path_join(paths.dev_root, device_name)?
   ensure_parent(link_path)
   remove_existing(link_path)
-  link_path.symlink(to: Path.parse_bytes(node_name)?)
+  link_path.symlink(to: node_name as Path)
 }
 
 proc remove_node(paths: Paths, name: Bytes) [fs, error] -> Result[Unit] {
@@ -605,7 +605,7 @@ proc remove_existing(target: Path) [fs, error] -> Result[Unit] {
 
 proc run_rule_command(command: CommandRule, event_env: Map[Str, Bytes], node_name: Bytes) [fs, process, env, error] -> Result[Unit] {
   let environment = event_env.set("MDEV", node_name)
-  let words = [p"/bin/sh", p"-c", p"umask 000; exec /bin/sh -c \"$1\" sh", p"mdev", Path.parse_bytes(bytes.from_text(command.command))?]
+  let words = [p"/bin/sh", p"-c", p"umask 000; exec /bin/sh -c \"$1\" sh", p"mdev", command.command as Path]
   let status = process.run(process.command_argv(p"/bin/sh", words, env: environment))?
   return Err(failure(f"command failed: {command.command}")) unless status.exited_with(0)
   Ok()
@@ -738,7 +738,7 @@ proc mdev_daemon_worker(detached: Bool) [fs, process, env, error, io, time, net]
   var ready_open = true
   if detached {
     let notification_text = env.get("NOTIFY_FD")?
-    let notification_number = notification_text.parse_uint()?
+    let notification_number = notification_text as UInt
     let descriptor = unix.duplicate_fd(notification_number)?
     ready_fd = descriptor
     defer { if ready_open { let _ = unix.close_fd(descriptor) } }
@@ -868,7 +868,7 @@ pure find_byte(input: Bytes, needle: Int) -> Int? {
 proc inherited_environment() [env, error] -> Result[Map[Str, Bytes]] {
   var values: Map[Str, Bytes] = {}
   for entry in env.entries()? {
-    let name = entry.name.utf8()?
+    let name = entry.name as Str
     values = values.set(name, entry.value)
   }
   Ok(values)

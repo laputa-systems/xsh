@@ -178,7 +178,7 @@ test ssh_session_serves_successive_commands {
     for round in [0, 1, 2, 3] {
       let result = ssh.exec(session, f"printf round-{round}; exit {round}", {})?
       assert result.exit_code == round
-      assert result.stdout.utf8()? == f"round-{round}"
+      assert result.stdout as Str == f"round-{round}"
     }
   }
 }
@@ -385,7 +385,7 @@ test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   }
   with session = ssh.connect(options)? {
     let result = ssh.exec(session, "cat", {stdin: bytes.from_text("head-inline|"), stdin_path: body})?
-    assert result.stdout.utf8()? == "head-inline|tail-from-file"
+    assert result.stdout as Str == "head-inline|tail-from-file"
   }
 }
 
@@ -407,7 +407,7 @@ test ssh_exec_environment_is_sent_when_the_server_accepts_it { |_|
   }
   with session = ssh.connect(options)? {
     let accepted = ssh.exec(session, "printenv LC_XSH", {env: {LC_XSH: "set by the client"}})?
-    assert accepted.stdout.utf8()? == "set by the client\n"
+    assert accepted.stdout as Str == "set by the client\n"
     assert ssh.exec(session, "printenv", {env: {["1BAD"]: "x"}}) is Err(.Options {..})
     assert ssh.exec(session, "true", {})?.exit_code == 0
     match ssh.exec(session, "touch /tmp/ran-despite-refused-env", {env: {NOT_ACCEPTED: "x"}}) {

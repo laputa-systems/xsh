@@ -118,13 +118,13 @@ test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
   parity(s, ["-v", "-o", "--", owned.display()])
   parity(s, ["-l", "--", owned.display()])
   let modes = ul.reference(s, "namei", ["-m", "--", setuid.display()], timeout: 5s)?
-  let mode_text = modes.stdout.utf8()?
+  let mode_text = modes.stdout as Str
   assert "-rwsr-xr-x" in mode_text, mode_text
   let long_modes = ul.reference(s, "namei", ["-m", "--", sticky.display()], timeout: 5s)?
-  let long_mode_text = long_modes.stdout.utf8()?
+  let long_mode_text = long_modes.stdout as Str
   assert "drwxrwsrwt" in long_mode_text, long_mode_text
   let owners = ul.reference(s, "namei", ["-o", "--", owned.display()], timeout: 5s)?
-  let owner_text = owners.stdout.utf8()?
+  let owner_text = owners.stdout as Str
   assert "root   root" in owner_text
   assert "100000 100001" in owner_text
 }
@@ -151,7 +151,7 @@ test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
   parity(s, ["--mountpoints", "--", mount.mounted_on.display()])
   parity(s, ["-x", "--", p"/proc/1".display()])
   let reference = ul.reference(s, "namei", ["-x", "--", p"/proc/1".display()], timeout: 5s)?
-  let output = reference.stdout.utf8()?
+  let output = reference.stdout as Str
   assert "D proc\n" in output, output
 }
 
@@ -179,7 +179,7 @@ test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
   let args = ["-x", "--", target.display()]
   let reference = ul.reference(s, "namei", args, timeout: 5s)?
   let candidate = uu.invoke(s, "namei", args, timeout: 5s)?
-  let output = reference.stdout.utf8()?
+  let output = reference.stdout as Str
   assert output.ends_with("d target\n"), output
   ul.compare(reference, candidate)
   parity(s, ["-l", "--", fp"{target}/entry".display()])
@@ -220,7 +220,7 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
   let s = uu.scene(ctx)?
   let directory = uu.at_bytes(s, b"directory-\xfe")?
   directory.mkdir()
-  let name = Path.parse_bytes(bytes.concat([directory.bytes(), b"/leaf-\xff"]))?
+  let name = bytes.concat([directory.bytes(), b"/leaf-\xff"]) as Path
   name.write("owned raw path\n")
   parity_paths(s, [p"--", name])
   parity_paths(s, [p"-m", p"--", name])

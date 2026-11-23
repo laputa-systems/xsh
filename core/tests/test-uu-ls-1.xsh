@@ -1392,7 +1392,7 @@ test test_uu_ls_ls_allocation_size { |ctx|
   assert rx"[^ ] 2 [^ ]".matches(scaled.stdout as Str)
   let allocation = uu.invoke(s, "stat", ["-c", "%b", "some-dir1/zero-file"])?
   uu.succeeds(allocation)
-  let size8k = (allocation.stdout as Str).trim().parse_int()?
+  let size8k = (allocation.stdout as Str).trim() as Int
   assert size8k == 8192 or size8k == 8200, f"unexpected allocation of {size8k} 512-byte blocks"
   let indirect = size8k == 8200
   let size4k = size8k / 2

@@ -63,7 +63,7 @@ proc assert_host_account_groups(s: uu.Scene, names: List[Str]) {
     }
   }
   assert index == lines.len()
-  assert actual.stderr.utf8()? == errors
+  assert actual.stderr as Str == errors
   assert actual.status == (if errors == "" { 0 } else { 1 })
 }
 

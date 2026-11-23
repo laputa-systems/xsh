@@ -132,7 +132,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let name = gnu.argument_bytes(opts.operands[0], prepared.raw)
-  let path_value = Path.parse_bytes(name)?
+  let path_value = name as Path
   let metadata = match fs.stat(path_value, follow_symlinks: ! opts.nofollow) {
     Ok(value) => value
     Err(failure) => {
@@ -198,7 +198,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
     Err(_) => {
       if metadata.kind == "dir" {
-        let parent = Path.parse_bytes(bytes.concat([name, b"/.."]))?
+        let parent = bytes.concat([name, b"/.."]) as Path
         if let Ok(parent_stat) = fs.stat(parent) {
           is_mountpoint = metadata.dev != parent_stat.dev
         }

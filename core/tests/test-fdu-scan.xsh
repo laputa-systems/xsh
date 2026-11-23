@@ -27,7 +27,7 @@ test test_fdu_scan_preserves_root_path_bytes_and_explicit_name { |ctx|
     return
   }
   let temp = test.temp_dir(ctx, name: "fdu-root-bytes")?
-  let root = Path.parse_bytes(bytes.concat([temp.bytes(), b"/root-\xff"]))?
+  let root = bytes.concat([temp.bytes(), b"/root-\xff"]) as Path
   root.mkdir()
   let tree = scan.tree(root)?
   assert tree.nodes[tree.root].name == root.bytes()

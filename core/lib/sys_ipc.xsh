@@ -118,7 +118,7 @@ proc read_posix_object(kind: PosixKind, entry_path: Path, name: Str, native_name
     guard !status.is_empty() and status[0].starts_with("QSIZE:") else { return Err(InvalidObservation.QueueStatus("invalid POSIX message queue status"))? }
     let inline = status[0].byte_slice("QSIZE:".byte_len())
     let text = if inline.is_empty() and status.len() > 1 { status[1] } else { inline }
-    let used_bytes = text.parse_int()?
+    let used_bytes = text as Int
     let messages = linux.posix_message_queue_messages(native_name)?
     PosixQueue({used_bytes: used_bytes, messages: messages})
   } else if kind == PosixMemory {
@@ -171,9 +171,9 @@ export proc read_limit_text(limit: Limit, root: Path = p"/") [fs, error] -> Str 
 ## Reads semaphore limits without folding them into command summary rows.
 export proc read_semaphore_limits(root: Path = p"/") [fs, error] -> SemaphoreLimits {
   let fields = words(source_path(root, p"proc/sys/kernel/sem").read_text()?)
-  let elements_per_set = fields[0].parse_int()?
-  let total_elements = fields[1].parse_int()?
-  let operations_per_call = fields[2].parse_int()?
-  let sets = fields[3].parse_int()?
+  let elements_per_set = fields[0] as Int
+  let total_elements = fields[1] as Int
+  let operations_per_call = fields[2] as Int
+  let sets = fields[3] as Int
   {elements_per_set: elements_per_set, total_elements: total_elements, operations_per_call: operations_per_call, sets: sets}
 }

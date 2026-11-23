@@ -191,7 +191,7 @@ export proc require_private_namespace() [fs, env, error] {
     let outer = env.get(f"XSH_UTIL_LINUX_PARENT_{name}")?
     let prefix = name + ":["
     assert outer.starts_with(prefix) and outer.ends_with("]"), "invalid parent namespace identity"
-    let identity = outer.replace(prefix, with: "").replace("]", with: "").parse_int()?
+    let identity = outer.replace(prefix, with: "").replace("]", with: "") as Int
     assert identity > 0 and outer == f"{name}:[{identity}]", "invalid parent namespace identity"
     assert fp"/proc/self/ns/{name}".readlink()?.display() != outer
   }

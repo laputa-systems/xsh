@@ -370,7 +370,7 @@ test test_mdev_preserves_non_utf8_device_names { |ctx|
 """
   let ran = test.run_xsh(ctx, source, script_args: [ctx.xsh_bin.display(), f"{ctx.core_dir}/mdev.xsh", dev_root.display(), sysfs_root.display(), conf.display()])?
   assert ran.success, ran.stderr
-  let node = Path.parse_bytes(bytes.concat([dev_root.bytes(), b"/mdev-\xff"]))?
+  let node = bytes.concat([dev_root.bytes(), b"/mdev-\xff"]) as Path
   assert node.read_text()? == "c 1:3\n"
 }
 

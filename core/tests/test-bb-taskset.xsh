@@ -33,7 +33,7 @@ proc lowest_allowed_cpu_mask() [fs, error] -> Str {
       allowed = line.split(":")[1].trim()
     }
   }
-  let first = allowed.split(",")[0].split("-")[0].parse_int()?
+  let first = allowed.split(",")[0].split("-")[0] as Int
   var mask = ["1", "2", "4", "8"][first % 4]
   var zeros = first / 4
   while zeros > 0 {

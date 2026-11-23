@@ -152,7 +152,7 @@ pure last_slash(pathname: Bytes) -> Int? {
 }
 
 proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts: Bool) [fs, error] -> Result[Entry, Error] {
-  let path_value = Path.parse_bytes(path_bytes)?
+  let path_value = path_bytes as Path
   var metadata: FsStat? = null
   var stat_error: Error? = null
   var link: Bytes? = null
@@ -179,7 +179,7 @@ proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts:
           if parent_metadata.kind == "dir" {
             compare = parent_metadata
           } else if parent_metadata.kind == "symlink" {
-            let parent_path = Path.parse_bytes(bytes.concat([path_bytes, b"/.."]))?
+            let parent_path = bytes.concat([path_bytes, b"/.."]) as Path
             match fs.stat(parent_path) {
               Ok(parent_stat) => compare = parent_stat
               Err(failure) => mount_error = failure
@@ -187,7 +187,7 @@ proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts:
           }
         }
       } else {
-        let parent_path = Path.parse_bytes(bytes.concat([path_bytes, b"/.."]))?
+        let parent_path = bytes.concat([path_bytes, b"/.."]) as Path
         match fs.stat(parent_path) {
           Ok(parent_stat) => compare = parent_stat
           Err(failure) => mount_error = failure
@@ -502,7 +502,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let terminal = unix.isatty(1)
   for token in normalized_options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
-    let operand_path = Path.parse_bytes(operand)?
+    let operand_path = operand as Path
     if fs.stat(operand_path, follow_symlinks: true) is Err(_) { failed = true }
     let entries_from_root = path_entries(operand, 0, b"", 0, null, options.mounts)?
     let result = expand(entries_from_root, options.nosymlinks, options.mounts)?

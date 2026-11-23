@@ -4,7 +4,7 @@ test test_awk_systime_uses_kernel_epoch_seconds { |ctx|
   let after = time.now() / 1000
   let lower = if before < after { before } else { after }
   let upper = if before > after { before } else { after }
-  let actual = output.trim().parse_int()?
+  let actual = output.trim() as Int
   assert actual >= lower and actual <= upper, f"systime {actual} is outside kernel epoch seconds {lower}..{upper}"
 }
 

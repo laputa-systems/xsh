@@ -62,7 +62,7 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.swapoff(seed)
   assert linux.blkid(seed)?.type == "ext4"
   assert linux.modinfo("demo")?.params[0].name == "debug"
-  let fake_module_path = Path.parse_bytes(b"/fake\xff.ko")?
+  let fake_module_path = b"/fake\xff.ko" as Path
   assert linux.modinfo(fake_module_path)?.filename == fake_module_path
   assert linux.modinfo(p"/fake/module.ko")?.filename == p"/fake/module.ko"
   linux.modprobe("demo", params: "debug=1")
@@ -401,7 +401,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
     linux_module_fixture(b"description=dep module\0license=GPL\0version=1\0")?,
   )
   let outside = test.temp_dir(ctx, name: "linux-module-path")?
-  let raw_path = Path.parse_bytes(bytes.concat([outside.bytes(), b"/raw", b"\xff-name.ko"]))?
+  let raw_path = bytes.concat([outside.bytes(), b"/raw", b"\xff-name.ko"]) as Path
   raw_path.write(
     linux_module_fixture(b"description=raw module\0license=MIT\0version=4\0")?,
   )

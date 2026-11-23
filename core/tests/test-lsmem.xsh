@@ -240,8 +240,8 @@ test test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference { |ctx|
   raw_root.mkdir()
   let source = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/memory/sparse"
   let _ = fs.copy_tree(source, raw_root, overwrite: true, follow_symlinks: false)?
-  let long_attached = Path.parse_bytes(bytes.concat([b"--sysroot=", raw_root.bytes()]))?
-  let short_attached = Path.parse_bytes(bytes.concat([b"-s", raw_root.bytes()]))?
+  let long_attached = bytes.concat([b"--sysroot=", raw_root.bytes()]) as Path
+  let short_attached = bytes.concat([b"-s", raw_root.bytes()]) as Path
   let cases: List[List[Path]] = [
     [long_attached, p"--summary=only"],
     [short_attached, p"--summary=only"],
@@ -639,10 +639,10 @@ test test_lsmem_empty_sysroot_matches_reference { |ctx|
 
 test test_lsmem_non_utf8_option_values_match_reference { |ctx|
   let s = uu.scene(ctx)?
-  let invalid = Path.parse_bytes(b"\xff")?
-  let invalid_list = Path.parse_bytes(b"SIZE,\xff")?
-  let invalid_option = Path.parse_bytes(b"--\xff")?
-  let invalid_summary = Path.parse_bytes(b"--summary=\xff")?
+  let invalid = b"\xff" as Path
+  let invalid_list = b"SIZE,\xff" as Path
+  let invalid_option = b"--\xff" as Path
+  let invalid_summary = b"--summary=\xff" as Path
   for args in [[p"-o", invalid], [p"-S", invalid], [p"-o", invalid_list], [invalid_option], [p"--bogus", invalid_option], [invalid_summary]] {
     let reference = ul.reference_paths(s, "lsmem", args, timeout: 5s)?
     let candidate = uu.invoke_paths(s, "lsmem", args, timeout: 5s)?
@@ -721,7 +721,7 @@ test test_lsmem_unset_locale_is_utf8 { |ctx|
 test test_lsmem_option_order_and_musl_diagnostics { |ctx|
   let s = uu.scene(ctx)?
   for args in [["--=x"], ["--a=1"], ["--help=1"], ["--summary=bad", "--bogus"], ["--bogus", "--summary=bad"]] { compare_lsmem(s, args) }
-  let attached = Path.parse_bytes(b"--output=SIZE,\xff")?
+  let attached = b"--output=SIZE,\xff" as Path
   let reference = ul.reference_paths(s, "lsmem", [attached])?
   let candidate = uu.invoke_paths(s, "lsmem", [attached])?
   ul.compare(reference, candidate)

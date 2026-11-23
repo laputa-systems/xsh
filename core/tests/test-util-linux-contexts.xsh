@@ -21,15 +21,15 @@ test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing
     } else {
       ul.observe_candidate(s, "lslocks", [p"--json", p"--output", p"PID,INODE,PATH"])?
     }
-    assert observation.termination == ul.Exited(0), observation.stderr.utf8()?
-    let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+    assert observation.termination == ul.Exited(0), observation.stderr as Str
+    let rows = json.get(json.decode(observation.stdout as Str)?, ["locks"])?.require(List[Any])?
     let visible = [row for row in rows if json.get(row, ["inode"])?.require(Int)? == inside_inode]
     assert visible.len() == 1, "private holder is absent from its own namespace"
     assert json.get(visible[0], ["pid"])?.require(Int)? == inside_pid
     for row in rows {
-      assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
+      assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout as Str
     }
-    assert ! (holder.path.display() in observation.stdout.utf8()?)
+    assert ! (holder.path.display() in observation.stdout as Str)
   }
   contexts.release_keeper(inside)
 }
@@ -48,11 +48,11 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let options = ["--json", "--pid", f"{owner.pid}", "--output", "PID,INODE,PATH"]
   let before = ul.reference(s, "lslocks", options)?
   uu.succeeds(before)
-  assert json.get(json.decode(before.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.len() == 1
+  assert json.get(json.decode(before.stdout as Str)?, ["locks"])?.require(List[Any])?.len() == 1
   let observer_reference = ul.reference_as_user(s, "lslocks", options, uid: 10001)?
   let observer_candidate = ul.candidate_as_user(s, "lslocks", options, uid: 10001)?
   ul.compare(observer_reference, observer_candidate)
-  let visible = json.get(json.decode(observer_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+  let visible = json.get(json.decode(observer_reference.stdout as Str)?, ["locks"])?.require(List[Any])?
   assert visible.len() == 1, "inaccessible holder did not exercise the default fallback row"
   for selector in ["--noinaccessible", "-i"] {
     let inaccessible_options = options.extend([selector])
@@ -68,7 +68,7 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let after_candidate = uu.invoke(s, "lslocks", after_options)?
   uu.succeeds(after_reference)
   ul.compare(after_reference, after_candidate)
-  assert after_reference.stdout == b"" or json.get(json.decode(after_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+  assert after_reference.stdout == b"" or json.get(json.decode(after_reference.stdout as Str)?, ["locks"])?.require(List[Any])?.is_empty()
   assert after_reference.stderr == b""
 }
 
@@ -127,7 +127,7 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns:)?
-    assert reference.termination == ul.Exited(0), reference.stderr.utf8()?
+    assert reference.termination == ul.Exited(0), reference.stderr as Str
     assert ! reference.stdout.is_empty()
     assert reference == candidate, f"lsipc terminal columns={columns}"
   }
@@ -139,7 +139,7 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   let released_reference = ul.reference(s, "lsipc", options)?
   let released_candidate = uu.invoke(s, "lsipc", options)?
   uu.succeeds(released_reference)
-  let removed = json.decode(released_reference.stdout.utf8()?)?
+  let removed = json.decode(released_reference.stdout as Str)?
   assert json.get(removed, [""])?.require(List[Any])?.is_empty()
   assert released_reference.stderr == bytes.from_text(f"lsipc: id {owner.id} not found\n")
   ul.compare(released_reference, released_candidate)

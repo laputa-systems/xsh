@@ -187,8 +187,8 @@ test test_tokei_fails_when_selected_file_cannot_be_read { |ctx|
   let table_args = [@prefix, "xsh", "showcase/tokei.xsh", "--", root.display()]
   let readable_json = run.capture --bytes @json_args
   let readable_table = run.capture --bytes @table_args
-  assert readable_json.status.ok, readable_json.stderr.utf8()?
-  assert readable_table.status.ok, readable_table.stderr.utf8()?
+  assert readable_json.status.ok, readable_json.stderr as Str
+  assert readable_table.status.ok, readable_table.stderr as Str
   unreadable.chmod(0o000)
   defer unreadable.chmod(0o600)
   let json_run = run.capture --bytes @json_args

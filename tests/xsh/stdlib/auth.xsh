@@ -40,7 +40,7 @@ test test_applet_auth_helpers_and_sessions { |ctx|
   let raw_shell = if system.uname()?.sysname == "Darwin" {
     null
   } else {
-    Path.parse_bytes(bytes.concat([root.bytes(), b"/session\xff-shell"]))?
+    bytes.concat([root.bytes(), b"/session\xff-shell"]) as Path
   }
 
   shell.write(

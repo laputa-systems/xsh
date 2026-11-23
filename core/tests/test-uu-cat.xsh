@@ -427,7 +427,7 @@ test test_uu_cat_write_fast_read_error { |ctx|
   uu.set_mode(s, "foo", 0o000)
   let result = run.capture --bytes env LC_ALL=C @command
   assert ! result.status.ok
-  assert "Permission denied" in result.stderr.utf8()?
+  assert "Permission denied" in result.stderr as Str
 }
 
 # origin: uutils test_cat::test_version_help_dev_full

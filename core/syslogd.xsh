@@ -182,7 +182,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
 
   let notify = e"NOTIFY_FD" ?? ""
   if ! notify.is_empty() {
-    let channel = notify.parse_int()?
+    let channel = notify as Int
     assert unix.write_fd(channel, b"r")? == 1
     unix.close_fd(channel)
   }

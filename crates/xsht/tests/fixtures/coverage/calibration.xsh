@@ -10,7 +10,7 @@ pure early(n: Int) -> Int {
   return 2
 }
 proc fallible() -> Result[Int] {
-  let n = "bad".parse_int()?
+  let n = "bad" as Int
   return n + 1
 }
 stream values() [] -> Stream[Int] {

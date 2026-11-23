@@ -300,7 +300,7 @@ test test_concurrent_senders_are_all_recorded_in_order_with_their_own_kernel_pid
     let fields = rx" pid=([0-9]+) .* tag=\x22numbered\x22 tag_pid=([0-9]+) .* msg=\x22n([0-9]+)\x22$".captures(lines[index])
     assert ! fields.is_empty(), lines[index]
     assert fields[1] == fields[2], "kernel pid and self-reported pid differ for an honest sender"
-    let number = fields[3].parse_int()?
+    let number = fields[3] as Int
     assert number == (last_by_pid.get(fields[1]) ?? -1) + 1, lines[index]
     last_by_pid[fields[1]] = number
   }
@@ -335,7 +335,7 @@ test test_a_flood_is_bounded_counted_and_leaves_the_service_responsive { |ctx|
   assert svc.send(lay.socket, b"<13>after the flood")? > 0
   let _ = svc.await_containing(lay, "msg=\"after the flood\"", 1)?
   let status = fp"/proc/{pid}/status".read_text()?
-  let peak = rx"VmHWM:\s+([0-9]+) kB".captures(status)[1].parse_int()?
+  let peak = rx"VmHWM:\s+([0-9]+) kB".captures(status)[1] as Int
   assert peak < 400000, f"peak resident set {peak} kB"
   assert svc.open_descriptors(pid)? < 20
   svc.signal(lay, "TERM")
@@ -388,7 +388,7 @@ test test_a_full_pipe_never_stalls_the_receive_loop_and_is_counted { |ctx|
   svc.await_ready(launch)
   assert "readable" in unix.poll_fd(drain, ["readable"], timeout_ms: 30000)?
   let started = unix.read_fd(drain, 4096)?.utf8()?
-  let pid = rx"pid=([0-9]+)".captures(started)[1].parse_int()?
+  let pid = rx"pid=([0-9]+)".captures(started)[1] as Int
   for _ in range(3) {
     let result = svc.send_with(ctx, lay, "flood", ["150", "1500"])?
     assert result.sent == 150
@@ -413,9 +413,9 @@ test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow
   svc.attach(launch)
   svc.await_ready(launch)
   let announced = svc.await_containing_in(errors, "event=start", 1)?[0]
-  let pid = rx"pid=([0-9]+)".captures(announced)[1].parse_int()?
+  let pid = rx"pid=([0-9]+)".captures(announced)[1] as Int
   let resident = rx"VmRSS:\s+([0-9]+) kB"
-  let before = resident.captures(fp"/proc/{pid}/status".read_text()?)[1].parse_int()?
+  let before = resident.captures(fp"/proc/{pid}/status".read_text()?)[1] as Int
   let started = time.monotonic()?
   for _ in range(8) {
     let result = svc.send_with(ctx, lay, "flood", ["150", "800"])?
@@ -426,7 +426,7 @@ test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow
   let seconds = (time.monotonic()? - started) / 1000000000
   let found = [line for line in errors.read_text()?.lines() if line.starts_with("syslogd: output failed")]
   assert found.len() >= 1 and found.len() <= seconds + 2, f"{found.len()} reports in {seconds} s"
-  let after = resident.captures(fp"/proc/{pid}/status".read_text()?)[1].parse_int()?
+  let after = resident.captures(fp"/proc/{pid}/status".read_text()?)[1] as Int
   assert after < before + 30000, f"resident set grew from {before} kB to {after} kB"
   handle.cancel("TERM", kill_after: 10s)
   let finale = [line for line in errors.read_text()?.lines() if line.starts_with("event=stop")]

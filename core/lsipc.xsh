@@ -143,7 +143,7 @@ pure divide_decimal_1024(value: Str) -> DecimalDivision {
 proc human_limit(value: Str) [error] -> Str {
   if let Ok(whole) = value.parse_int() { return human_size(whole) }
   let divided = divide_decimal_1024(value)
-  let quotient = divided.quotient.parse_int()?
+  let quotient = divided.quotient as Int
   const DIVISOR = 1125899906842624
   human_units(quotient / DIVISOR, quotient % DIVISOR * 1024 + divided.remainder, DIVISOR * 1024, "E")
 }
@@ -426,7 +426,7 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   values = values.set("LIMIT", if byte_unit and !selection.bytes { human_limit(limit) } else { limit })
   if usage {
     values = values.set("USED", if byte_unit and !selection.bytes { human_limit(used) } else { used })
-    let percentage = used.parse_float()? / limit.parse_float()? * 100.0
+    let percentage = used as Float / limit as Float * 100.0
     let formatted = if limit == "0" { if used == "0" { "-nan" } else { "inf" } } else { percentage.format(precision: 2) }
     values = values.set("USE%", f"{formatted}%")
   } else {
@@ -522,7 +522,7 @@ pure prepare_arguments(argv: List[Bytes], byte_locale: Bool) -> Result[gnu.Prepa
         }
       }
       if short_non_ascii >= 0 {
-        let prefix = argument[0..short_non_ascii].utf8()?
+        let prefix = argument[0..short_non_ascii] as Str
         text += [prefix + "\0"]
         raw += [{marker: "\0", value: argument[short_non_ascii..short_non_ascii + 1]}]
       } else {
@@ -547,14 +547,14 @@ pure prepare_arguments(argv: List[Bytes], byte_locale: Bool) -> Result[gnu.Prepa
       for at in range(1, argument.len()) {
         let byte = argument.byte_at(at) ?? 0
         if byte >= 128 {
-          prefix = argument[0..at].utf8()?
+          prefix = argument[0..at] as Str
           offset = at
           length = at + 1
           marker = "\0"
           break
         }
         if byte in [105, 78, 111] {
-          prefix = argument[0..at + 1].utf8()?
+          prefix = argument[0..at + 1] as Str
           offset = at + 1
           break
         }

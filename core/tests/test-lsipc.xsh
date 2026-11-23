@@ -790,7 +790,7 @@ test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
 }
 
 proc parse_reference_json(output: Bytes) [error] -> Result[Unit] {
-  match try { json.decode(output.utf8()?)? } {
+  match try { json.decode(output as Str)? } {
     Ok(_) => Ok()
     Err(CodecError.DuplicateKey) => Ok()
     Err(failure) => Err(failure)
@@ -916,7 +916,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
   }
 
   let duplicate_name = known_reference_sigsegv_candidate_success(s, ["--posix-shmems", "--output", "NAME,NAME"])?
-  let duplicate_output = duplicate_name.stdout.utf8()?
+  let duplicate_output = duplicate_name.stdout as Str
   let duplicate_lines = duplicate_output.lines()
   assert ! duplicate_lines.is_empty()
   let headings = [field for field in duplicate_lines[0].split(" ") if field != ""]
@@ -1522,7 +1522,7 @@ test test_lsipc_global_shell_percent_heading { |ctx|
 test test_lsipc_non_utf8_posix_name { |ctx|
   return when ul.rerun_ipc_isolated(ctx)
   let s = uu.scene(ctx)?
-  let name = Path.parse_bytes(b"/a\xff")?
+  let name = b"/a\xff" as Path
   for selector in [p"-M", p"-Q", p"-S"] {
     let args = [selector, p"-N", name]
     let reference = ul.reference_paths(s, "lsipc", args)?
@@ -1531,7 +1531,7 @@ test test_lsipc_non_utf8_posix_name { |ctx|
     assert reference.stdout == b""
     ul.compare(reference, candidate)
   }
-  let args = [p"-Q", p"-N", Path.parse_bytes(b"a\xff")?]
+  let args = [p"-Q", p"-N", b"a\xff" as Path]
   let reference = ul.reference_paths(s, "lsipc", args)?
   assert reference.status == 0 and reference.stdout == b""
   assert reference.stderr == b"lsipc: message queue name must start with '/': a\xff\n"
@@ -1584,7 +1584,7 @@ test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
   return when ul.rerun_ipc_isolated(ctx)
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
-  let object_path = Path.parse_bytes(b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
+  let object_path = b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test" as Path
   object_path.write(b"")
   defer object_path.remove()
   for locale in ["C", "C.UTF-8"] {
@@ -1595,7 +1595,7 @@ test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
       ul.compare(pair.reference, pair.candidate)
     }
   }
-  let name = Path.parse_bytes(b"xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
+  let name = b"xsh-lsipc-\xc3\xa9\xff\\\"$`-test" as Path
   let args = [p"-M", p"-N", name, p"-o", p"NAME"]
   let reference = ul.reference_paths(s, "lsipc", args)?
   let candidate = uu.invoke_paths(s, "lsipc", args, timeout: 5s)?

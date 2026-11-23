@@ -121,7 +121,7 @@ export proc reported_pid(lay: Layout) [fs, time, error] -> Result[Int, Error] {
   let starts = await_lines(lay, "event=start", 1)?
   let start = starts[starts.len() - 1]
   let field = rx"pid=([0-9]+)".captures(start)
-  Ok(field[1].parse_int()?)
+  Ok(field[1] as Int)
 }
 
 ## Sends one datagram to the socket from a fresh sender socket. The socket is
@@ -168,5 +168,5 @@ export proc open_descriptors(pid: Int) [fs, error] -> Result[Int, Error] {
 export proc counter(line: Str, name: Str) [error] -> Result[Int, Error] {
   let found = regex.compile(f"(?:^| ){name}=([0-9]+)")?.captures(line)
   return Err(error.failure(f"{name} is missing from {line}")) when found.is_empty()
-  Ok(found[1].parse_int()?)
+  Ok(found[1] as Int)
 }

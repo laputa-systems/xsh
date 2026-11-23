@@ -58,7 +58,7 @@ test test_util_linux_observation_distinguishes_signal_from_shell_exit { |ctx|
   let staged: uu.Scene = {ctx: {...ctx, core_dir: s.root}, root: s.root}
   let observed_signal = ul.observe_candidate(staged, "status", [p"kill -TERM $$"])?
   let observed_exit = ul.observe_candidate(staged, "status", [p"exit 143"])?
-  assert observed_signal.termination == ul.Signaled(15), observed_signal.stderr.utf8()?
+  assert observed_signal.termination == ul.Signaled(15), observed_signal.stderr as Str
   assert observed_exit.termination == ul.Exited(143)
   assert ! ul.observed_equal(observed_signal, {...observed_signal, termination: observed_exit.termination})
 }
@@ -133,14 +133,14 @@ test test_util_linux_blocked_ofd_reference_preserves_kernel_and_holder_ids { |ct
   assert owner_ready.inode == waiter_ready.inode and owner_ready.pid != waiter_ready.pid
   let reference = ul.reference(s, "lslocks", ["--json", "--output", "PID,TYPE,MODE,BLOCKER,INODE,MAJ:MIN"])?
   uu.succeeds(reference)
-  let rows = json.get(json.decode(reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+  let rows = json.get(json.decode(reference.stdout as Str)?, ["locks"])?.require(List[Any])?
   let blocked = [row for row in rows if json.get(row, ["mode"])?.require(Str)? == "WRITE*"]
-  assert blocked.len() == 1, reference.stdout.utf8()?
-  assert json.get(blocked[0], ["pid"])?.require(Int)? == -1, reference.stdout.utf8()?
-  assert json.get(blocked[0], ["blocker"])?.require(Int)? == owner_ready.pid, reference.stdout.utf8()?
+  assert blocked.len() == 1, reference.stdout as Str
+  assert json.get(blocked[0], ["pid"])?.require(Int)? == -1, reference.stdout as Str
+  assert json.get(blocked[0], ["blocker"])?.require(Int)? == owner_ready.pid, reference.stdout as Str
   let selected = ul.reference(s, "lslocks", ["--json", "--pid", f"{waiter_ready.pid}", "--output", "PID,TYPE,MODE,BLOCKER,INODE,MAJ:MIN"])?
   uu.succeeds(selected)
-  assert json.get(json.decode(selected.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty(), selected.stdout.utf8()?
+  assert json.get(json.decode(selected.stdout as Str)?, ["locks"])?.require(List[Any])?.is_empty(), selected.stdout as Str
   ul.keeper_send(owner, "DONE")
   ul.finish_keeper(owner)
   ul.finish_keeper(waiter)
