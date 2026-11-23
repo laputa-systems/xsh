@@ -50,7 +50,7 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
               | _, _ => .exec .unsupported
             | .scalar (.path path), _, _ =>
               match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
-              | some method, some values => fromEval last (pathMethod method path (values.map Value.eraseNominal))
+              | some method, some values => fromEval last (pathMethod machine.context.errors method path (values.map Value.eraseNominal))
               | _, _ => .exec .unsupported
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
@@ -138,7 +138,10 @@ the canonical hex dump; and `Bytes.trim` of data that is not all ASCII
 removes whole UTF-8 encoded Unicode `White_Space` characters;
 the `Path` methods read its native bytes: `bytes`, the POSIX `dirname` and
 `basename`, `ext_or`'s fallback when the final name has no extension, and
-the lexical `normalize`;
+the lexical `normalize`; and the `std::path` methods read its components:
+`starts_with` component by component, `strip_prefix` refusing an empty
+prefix, and `relative_to` giving the path itself when it does not start with
+the base;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -181,20 +184,28 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .trim bytes [] =
         .value (.scalar (.bytes (dropWhitespaceEncodings whitespaceEncodingsReversed (bytes.length + 1)
           (dropWhitespaceEncodings whitespaceEncodings (bytes.length + 1) bytes).reverse).reverse))) ∧
-    (∀ path, pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .bytes path [] =
+    (∀ path, pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .bytes path [] =
       .value (.scalar (.bytes path.bytes))) ∧
     (∀ path made, Xsh.Values.NativePath.fromBytes? (Xsh.Paths.Fields.posixDirname 47 path.bytes) = some made →
-      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .dirname path [] =
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .dirname path [] =
         .value (.scalar (.path made))) ∧
     (∀ path made, Xsh.Values.NativePath.fromBytes? (Xsh.Paths.Normalize.normalizePath path.bytes) = some made →
-      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .normalize path [] =
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .normalize path [] =
         .value (.scalar (.path made))) ∧
     (∀ path text, String.fromUTF8? ⟨(Xsh.Paths.Fields.posixBasename 47 path.bytes).toArray⟩ = some text →
-      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .basename path [] =
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .basename path [] =
         .value (.scalar (.string text))) ∧
     (∀ path fallback, Xsh.Paths.Fields.extension? 47 path.bytes = none →
-      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .extOr path
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .extOr path
           [.scalar (.string fallback)] = .value (.scalar (.string fallback))) ∧
+    (∀ path other, pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .startsWith path
+        [.scalar (.path other)] = .value (.scalar (.boolean (Xsh.Paths.StdComponents.startsWith path.bytes other.bytes)))) ∧
+    (∀ path other, other.bytes = [] →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .stripPrefix path
+          [.scalar (.path other)] = .value (.err (errors.described "path-prefix" "prefix is empty"))) ∧
+    (∀ path other, Xsh.Paths.StdComponents.stripPrefix? path.bytes other.bytes = none →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .relativeTo path
+          [.scalar (.path other)] = .value (.scalar (.path path))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -214,6 +225,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     fun _ unicode => by simp [bytesMethod, unicode],
     fun _ => rfl, fun _ _ made => by simp [pathMethod, made], fun _ _ made => by simp [pathMethod, made],
     fun _ _ decoded => by simp [pathMethod, decoded], fun _ _ absent => by simp [pathMethod, absent],
+    fun _ _ => rfl, fun _ _ empty => by simp [pathMethod, empty], fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -757,7 +769,7 @@ theorem unicode_bytes_trim_witness :
 def pathRun (method : PathMethod) (text : String) (arguments : List (Value Unit Unit Unit)) :
     Result Unit Unit Unit (Value Unit Unit Unit) :=
   match Xsh.Values.NativePath.fromBytes? text.toUTF8.toList with
-  | some path => pathMethod method path arguments
+  | some path => pathMethod collectionMachine.context.errors method path arguments
   | none => .unsupported
 
 def pathResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
@@ -801,6 +813,93 @@ root and lets `..` empty a relative path, would give `a/b` for `/a/b//` and
 theorem validation_normalize_rejected :
     pathResult (pathRun .normalize "/a/b//" []) ≠ some "a/b" ∧
     pathResult (pathRun .normalize "../../a/.." []) ≠ some "." := by
+  decide +kernel
+
+def pathOf (text : String) : Value Unit Unit Unit :=
+  match Xsh.Values.NativePath.fromBytes? text.toUTF8.toList with
+  | some path => .scalar (.path path)
+  | none => .scalar .null
+
+def pathsResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List String)
+  | .value (.list items) => items.mapM fun
+    | .scalar (.path path) => String.fromUTF8? ⟨path.bytes.toArray⟩
+    | _ => none
+  | _ => none
+
+/-- A path's `components()`, `name()`, `ext()`, `parent()` and
+`with_ext("md")`. -/
+def componentFields (text : String) : Option (List String × String × String × String × String) := do
+  let parts ← pathsResult (pathRun .components text [])
+  let name ← textResult (pathRun .name text [])
+  let extension ← textResult (pathRun .ext text [])
+  let parent ← pathResult (pathRun .parent text [])
+  let renamed ← pathResult (pathRun .withExt text [strOf "md"])
+  pure (parts, name, extension, parent, renamed)
+
+/-- As the verification binary prints, for each path below, its components'
+displays joined by `,`, `name()`, `ext()`, `parent().display()` and
+`with_ext("md").display()`. -/
+theorem path_components_witness :
+    ["", "/", "a", "a/", "/a/b//", "a//c/b", "./a", "a/./b", "a/.", ".", "..", "a/..", "/a", ".bashrc", "a.tar.gz", "d/f.", "x/...", "//a", "/.", "a/b/", "./", ".//a", "a/./", "//", "/a/./"].mapM componentFields = some [
+      ([], "", "", ".", ""),
+      (["/"], "", "", "/", "/"),
+      (["a"], "a", "", ".", "a.md"),
+      (["a"], "a", "", ".", "a.md"),
+      (["/", "a", "b"], "b", "", "/a", "/a/b.md"),
+      (["a", "c", "b"], "b", "", "a//c", "a//c/b.md"),
+      ([".", "a"], "a", "", ".", "./a.md"),
+      (["a", "b"], "b", "", "a", "a/./b.md"),
+      (["a"], "a", "", ".", "a.md"),
+      (["."], "", "", ".", "."),
+      ([".."], "", "", ".", ".."),
+      (["a", ".."], "", "", "a", "a/.."),
+      (["/", "a"], "a", "", "/", "/a.md"),
+      ([".bashrc"], ".bashrc", "", ".", ".bashrc.md"),
+      (["a.tar.gz"], "a.tar.gz", "gz", ".", "a.tar.md"),
+      (["d", "f."], "f.", "", "d", "d/f.md"),
+      (["x", "..."], "...", "", "x", "x/...md"),
+      (["/", "a"], "a", "", "/", "//a.md"),
+      (["/"], "", "", "/", "/."),
+      (["a", "b"], "b", "", "a", "a/b.md"),
+      (["."], "", "", ".", "./"),
+      ([".", "a"], "a", "", ".", ".//a.md"),
+      (["a"], "a", "", ".", "a.md"),
+      (["/"], "", "", "/", "//"),
+      (["/", "a"], "a", "", "/", "/a.md")] := by
+  decide +kernel
+
+def okPath : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
+  | .value (.ok (.scalar (.path path))) => String.fromUTF8? ⟨path.bytes.toArray⟩
+  | _ => none
+
+/-- As the verification binary prints `ok b/./c`, `ok b`, `ok a/b`, `ok .`,
+`err path does not start with prefix`, `err prefix is empty` and
+`err remainder climbs above the prefix` for `p"a//b/./c/".strip_prefix(p"a")`,
+`p"/a/b"` without `p"/a"` and `p"/"`, `p"/a"` without `p"/a"`, `p"a/b"`
+without `p"c"` and `p""`, and `p"a/../b"` without `p"a"`; `b/c`, `a/b/c` and
+`.` for `relative_to`; and `true false true false` for `p"a/b/c"` starting with
+`p"a/b"` and `p"a/bc"`, ending with `p"b/c"`, and `p"./a"` starting with
+`p"a"`. -/
+theorem path_prefix_witness :
+    okPath (pathRun .stripPrefix "a//b/./c/" [pathOf "a"]) = some "b/./c" ∧
+    okPath (pathRun .stripPrefix "/a/b" [pathOf "/a"]) = some "b" ∧
+    okPath (pathRun .stripPrefix "/a/b" [pathOf "/"]) = some "a/b" ∧
+    okPath (pathRun .stripPrefix "/a" [pathOf "/a"]) = some "." ∧
+    errText (pathRun .stripPrefix "a/b" [pathOf "c"]) = some "path does not start with prefix" ∧
+    errText (pathRun .stripPrefix "a/b" [pathOf ""]) = some "prefix is empty" ∧
+    errText (pathRun .stripPrefix "a/../b" [pathOf "a"]) = some "remainder climbs above the prefix" ∧
+    pathResult (pathRun .relativeTo "a/b/c" [pathOf "a"]) = some "b/c" ∧
+    pathResult (pathRun .relativeTo "a/b/c" [pathOf "x"]) = some "a/b/c" ∧
+    pathResult (pathRun .relativeTo "a/b" [pathOf "a/b"]) = some "." ∧
+    boolResult (pathRun .startsWith "a/b/c" [pathOf "a/b"]) = some true ∧
+    boolResult (pathRun .startsWith "a/b/c" [pathOf "a/bc"]) = some false ∧
+    boolResult (pathRun .endsWith "a/b/c" [pathOf "b/c"]) = some true ∧
+    boolResult (pathRun .startsWith "./a" [pathOf "a"]) = some false := by
+  decide +kernel
+
+/-- A `parent` that rebuilt the path from its components would give `a/c`
+for `a//c/b`, where the binary keeps the original `a//c`. -/
+theorem rebuilt_parent_rejected : pathResult (pathRun .parent "a//c/b" []) ≠ some "a/c" := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

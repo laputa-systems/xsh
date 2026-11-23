@@ -3,6 +3,7 @@ import Xsh.Validation.Core.Require
 import Xsh.Values.BaseCodec
 import Xsh.Paths.Fields
 import Xsh.Paths.Normalize
+import Xsh.Paths.StdComponents
 
 namespace Xsh.Semantics.CoreControl
 
@@ -2342,6 +2343,7 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
 
 inductive PathMethod where
   | bytes | basename | dirname | extOr | normalize | display
+  | components | name | ext | withExt | parent | startsWith | endsWith | stripPrefix | relativeTo
 
 def PathMethod.ofName : String → Option PathMethod
   | "bytes" => some .bytes
@@ -2350,6 +2352,15 @@ def PathMethod.ofName : String → Option PathMethod
   | "ext_or" => some .extOr
   | "normalize" => some .normalize
   | "display" => some .display
+  | "components" => some .components
+  | "name" => some .name
+  | "ext" => some .ext
+  | "with_ext" => some .withExt
+  | "parent" => some .parent
+  | "starts_with" => some .startsWith
+  | "ends_with" => some .endsWith
+  | "strip_prefix" => some .stripPrefix
+  | "relative_to" => some .relativeTo
   | _ => none
 
 /-- The lexical `Path` methods (SPEC 4.4) on its native bytes: `bytes`; the
@@ -2357,9 +2368,14 @@ POSIX `basename` and `dirname`; `ext_or(fallback)`, the bytes after the last
 dot that does not begin the final name, or the fallback; `normalize`, which
 drops `.` and empty components and lets `..` cancel a name, keeping it at
 the front of a relative path and dropping it above the root; and `display`.
-A text result is modelled only for valid UTF-8, which the binary would
-otherwise decode lossily. -/
-def pathMethod (method : PathMethod) (path : Xsh.Values.NativePath)
+The rest follow Rust's `std::path` components, which `StdComponents` models:
+`components`; `name` and `ext`, empty when absent; `with_ext`; `parent`, `/`
+or `.` when there is none; component-wise `starts_with` and `ends_with`;
+`strip_prefix`, `Ok` of the remaining bytes or the `path-prefix` `Err` for an
+empty prefix, a mismatch or a remainder that is not a `RelPath`; and
+`relative_to`, the path itself on a mismatch. A text result is modelled only
+for valid UTF-8, which the binary would otherwise decode lossily. -/
+def pathMethod (errors : Errors Declaration Identity Source) (method : PathMethod) (path : Xsh.Values.NativePath)
     (arguments : List (Value Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
   let pathValue := fun (bytes : List UInt8) =>
@@ -2380,6 +2396,41 @@ def pathMethod (method : PathMethod) (path : Xsh.Values.NativePath)
     | none => .value (.scalar (.string fallback))
   | .normalize, [] => pathValue (Xsh.Paths.Normalize.normalizePath path.bytes)
   | .display, [] => textOf path.bytes
+  | .components, [] =>
+    match (Xsh.Paths.StdComponents.parts path.bytes).mapM fun spanned =>
+        (Xsh.Values.NativePath.fromBytes? spanned.part.bytes).map fun made => (Value.scalar (.path made) : Value Declaration Identity Source) with
+    | some items => .value (.list items)
+    | none => .unsupported
+  | .name, [] =>
+    textOf (((Xsh.Paths.StdComponents.fileName? path.bytes).map fun spanned => spanned.part.bytes).getD [])
+  | .ext, [] => textOf ((Xsh.Paths.StdComponents.extension? path.bytes).getD [])
+  | .withExt, [.scalar (.string extension)] =>
+    pathValue (Xsh.Paths.StdComponents.withExtension path.bytes extension.toUTF8.toList)
+  | .parent, [] =>
+    match Xsh.Paths.StdComponents.parent? path.bytes with
+    | some [] => pathValue [46]
+    | some bytes => pathValue bytes
+    | none => pathValue (if path.bytes.head? = some 47 then [47] else [46])
+  | .startsWith, [.scalar (.path other)] =>
+    .value (.scalar (.boolean (Xsh.Paths.StdComponents.startsWith path.bytes other.bytes)))
+  | .endsWith, [.scalar (.path other)] =>
+    .value (.scalar (.boolean (Xsh.Paths.StdComponents.endsWith path.bytes other.bytes)))
+  | .stripPrefix, [.scalar (.path other)] =>
+    let refused := fun (message : String) => Result.value (Value.err (errors.described "path-prefix" message))
+    if other.bytes.isEmpty then refused "prefix is empty"
+    else
+      match Xsh.Paths.StdComponents.stripPrefix? path.bytes other.bytes with
+      | none => refused "path does not start with prefix"
+      | some rest =>
+        if (Xsh.Validation.RelPath.scanPath rest).isSome then
+          match Xsh.Values.NativePath.fromBytes? rest with
+          | some made => .value (.ok (.scalar (.path made)))
+          | none => .unsupported
+        else refused "remainder climbs above the prefix"
+  | .relativeTo, [.scalar (.path other)] =>
+    match Xsh.Paths.StdComponents.stripPrefix? path.bytes other.bytes with
+    | some rest => pathValue rest
+    | none => .value (.scalar (.path path))
   | _, _ => .unsupported
 
 /-- A list, map, set or text method call: the receiver evaluates first, then
@@ -2399,7 +2450,7 @@ receiver and a collection method to a list, map or set. -/
         | _, _ => .exec .unsupported
       | .scalar (.path path), _, _ =>
         match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
-        | some method, some values => fromEval last (pathMethod method path (values.map Value.eraseNominal))
+        | some method, some values => fromEval last (pathMethod context.errors method path (values.map Value.eraseNominal))
         | _, _ => .exec .unsupported
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with

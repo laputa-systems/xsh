@@ -49,6 +49,7 @@ import Xsh.Maps.Literal
 import Xsh.Paths.Components
 import Xsh.Paths.Fields
 import Xsh.Paths.Normalize
+import Xsh.Paths.StdComponents
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Values.BaseCodec
