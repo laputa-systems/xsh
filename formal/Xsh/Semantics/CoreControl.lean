@@ -1187,6 +1187,14 @@ def expectRequire : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Synta
   | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
   | _, initializer => initializer
 
+/-- A function body whose tail and top-level `return` operands take the
+declared result type as their expected type (SPEC 5.3). -/
+def expectBody (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+  | [] => []
+  | [.expression tail] => [.expression (expectRequire result tail)]
+  | .returnValue (some value) :: rest => .returnValue (some (expectRequire result value)) :: expectBody result rest
+  | statement :: rest => statement :: expectBody result rest
+
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
 def pipelineSource (source : Value Declaration Identity Source) :
@@ -2534,7 +2542,7 @@ mutual
               locals := hide [name] frame.locals
               closures := (cell, .mk cell callable environment frame.closures
                 (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-                (.block body (returnKindOf machine result))) :: frame.closures }
+                (.block (expectBody result body) (returnKindOf machine result))) :: frame.closures }
         | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
@@ -2745,7 +2753,7 @@ def hoistStatement {world : World Declaration Identity Source} (machine : Machin
             match (extend environment [(name, binder, cell)]).cellOf captured with
             | .ok found => if mutable.contains found then some found else none
             | .error _ => none)
-          parameters (.block body (returnKindOf machine result))) :: closures)
+          parameters (.block (expectBody result body) (returnKindOf machine result))) :: closures)
     | some _, none => none
     | none, _ => some (environment, mutable, closures)
   | environment, mutable, closures, .sugar _ expansion =>

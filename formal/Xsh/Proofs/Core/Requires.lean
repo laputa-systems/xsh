@@ -1,4 +1,5 @@
 import Xsh.Proofs.Core.Conditions
+import Xsh.Proofs.Core.Scripts
 
 namespace Xsh.Proofs.Core.Requires
 
@@ -24,7 +25,9 @@ the conversions of the value to `T`, each a member of `T` in the machine's
 membership world, and its `Err` the schema error of the conversion's failure.
 A contextual `.require()` in an annotated binding takes its target from the
 annotation: the annotation's `Result` value type, or under `.require()?` the
-annotation itself, as each `?` peels one `Result` layer. -/
+annotation itself, as each `?` peels one `Result` layer; a function's declared
+result is likewise the target of its body's tail and of each top-level
+`return`. -/
 theorem require_expression [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
     (∀ value schema type, machine.typeOf schema = some type →
@@ -44,10 +47,13 @@ theorem require_expression [DecidableEq Declaration] {world : World Declaration 
         bindTarget machine next (bindingMutability kind) target value) ∧
     (∀ value schema, expectRequire (some (.result schema)) (.require value none) = .require value (some schema)) ∧
     (∀ value schema, expectRequire (some schema) (.tryExpr (.require value none)) =
-      .tryExpr (.require value (some schema))) := by
+      .tryExpr (.require value (some schema))) ∧
+    (∀ result tail, expectBody result [.expression tail] = [.expression (expectRequire result tail)]) ∧
+    (∀ result value rest, expectBody result (.returnValue (some value) :: rest) =
+      .returnValue (some (expectRequire result value)) :: expectBody result rest) := by
   refine ⟨fun value schema type typed => ?_, fun type candidate result wires wellFormed passed => ?_,
     fun type candidate error wires wellFormed => ?_, fun _ _ _ _ => rfl, fun _ _ => rfl,
-    fun _ schema => by cases schema <;> rfl⟩
+    fun _ schema => by cases schema <;> rfl, fun _ _ => rfl, fun _ _ _ => rfl⟩
   · simp only [evalExpr, typed]
   · have laws := Xsh.Validation.Core.Require.recursive_require
       ⟨world.membership, machine.decisions.contracts, machine.enums⟩ wires machine.schemaFamily .keep type wellFormed
@@ -64,6 +70,8 @@ namespace Witness
 open Xsh.Proofs.Core.Env.Witness
 open Xsh.Proofs.Core.Control.Witness
 open Xsh.Proofs.Core.Slices.Witness
+open Xsh.Proofs.Core.Callables.Witness
+open Xsh.Proofs.Core.Scripts.Witness
 
 /-- The witness machine with every written type read as `Int`. -/
 def intMachine : Machine witnessWorld := { machine with typeOf := fun _ => some (.primitive .integer) }
@@ -116,6 +124,62 @@ same binding unannotated does not bind. -/
 theorem untargeted_require_rejected :
     readValue (runStatements intMachine 40 start [.binding .letBinding (.name xName) none (.require (int "7") none)]) = none ∧
       (annotatedRequire (.result (.named nName)) (.require (int "7") none)).bind okInt = some 7 := by
+  decide +kernel
+
+def requiring : Xsh.Syntax.RawName := name 300 (by decide)
+def requiredOut : Xsh.Syntax.RawName := name 301 (by decide)
+
+/-- A written `Result[...]` reads as `Result[Int, Error]` and any other type
+as `Int`. -/
+def resultOrInt : Xsh.Syntax.TypeExpr → Option (ValueType Unit)
+  | .result _ => some (.result (.primitive .integer) (.primitive .error))
+  | _ => some (.primitive .integer)
+
+def returnMachine : Machine witnessWorld := { scriptMachine with typeOf := resultOrInt }
+
+/-- `proc f() -> declared { body }` and `let out = try { f() }`. -/
+def declaredCall (declared : Xsh.Syntax.TypeExpr) (body : List Xsh.Syntax.Statement) : Option (Value Unit Unit Unit) :=
+  match runScript returnMachine 90 fullStart
+      [.functionDef .proc requiring [] none (some declared) body none false,
+       letOf requiredOut (.capture [.expression (.call (ident requiring) [])])] with
+  | .normal frame =>
+    match frame.environment.cellOf requiredOut with
+    | .ok cell => (frame.store cell).map fun found => found.contents.value
+    | .error _ => none
+  | _ => none
+
+def nestedSchema : Value Unit Unit Unit → Option String
+  | .ok inner => schemaVariant inner
+  | other => schemaVariant other
+
+def nestedInt : Value Unit Unit Unit → Option Int
+  | .ok inner => (okInt inner).orElse fun _ => plainInt inner
+  | _ => none
+
+/-- `proc a() -> Result[Int] { "x".require() }`, `proc b() -> Result[Int] {
+return 7.require() }`, `proc c() -> Int { 7.require()? }` and `proc d() -> Int
+{ return "x".require()? }`, as the verification binary prints `err`, `ok 7`,
+`7` and `err`: the declared result is the target of the tail and of each
+`return`. -/
+theorem returned_require_witness :
+    (declaredCall (.result (.named nName)) [.expression (.require (.literal (.string "x")) none)]).bind nestedSchema =
+      some "schema" ∧
+    (declaredCall (.result (.named nName)) [.returnValue (some (.require (int "7") none))]).bind nestedInt = some 7 ∧
+    (declaredCall (.named nName) [.expression (.tryExpr (.require (int "7") none))]).bind nestedInt = some 7 ∧
+    (declaredCall (.named nName) [.returnValue (some (.tryExpr (.require (.literal (.string "x")) none)))]).bind
+      nestedSchema = some "schema" := by
+  decide +kernel
+
+/-- A function that ignored its declared result would leave the tail's
+`.require()` without a target, and the call would not complete; undeclared,
+it does not. -/
+theorem undeclared_return_rejected :
+    (match runScript returnMachine 90 fullStart
+        [.functionDef .proc requiring [] none none [.expression (.require (int "7") none)] none false,
+         letOf requiredOut (.capture [.expression (.call (ident requiring) [])])] with
+      | .normal _ => true
+      | _ => false) = false ∧
+    (declaredCall (.result (.named nName)) [.returnValue (some (.require (int "7") none))]).bind nestedInt = some 7 := by
   decide +kernel
 
 end Witness

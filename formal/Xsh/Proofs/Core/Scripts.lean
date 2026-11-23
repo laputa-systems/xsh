@@ -62,7 +62,7 @@ abbrev DeclaredAt {world : World Declaration Identity Source} (machine : Machine
       unsugared statement = .functionDef kind name parameters effects result body metadata test ∧
       callableKind kind = some callable ∧
       entry = (cell, .mk cell callable defining captured writable parameters
-        (.block body (returnKindOf machine result))) ∧
+        (.block (expectBody result body) (returnKindOf machine result))) ∧
       Represents defining.names (staticDeclareAll scopes (before ++ [statement]))
 
 omit [DecidableEq Declaration] in
@@ -192,7 +192,7 @@ theorem hoistStatement_resolves {world : World Declaration Identity Source} (mac
                 unsugared statement = .functionDef kind name parameters effects returned body metadata test ∧
                   callableKind kind = some callable ∧
                   result.2.2 = (cell, .mk cell callable result.1 captured writable parameters
-                    (.block body (returnKindOf machine returned))) :: closures)
+                    (.block (expectBody returned body) (returnKindOf machine returned))) :: closures)
   | .binding kind target annotation initializer, environment, mutable, closures, result, top, outer, _, carried,
       hoisted => by
     simp only [hoistStatement] at hoisted
@@ -323,7 +323,7 @@ theorem hoistClosures_resolves {world : World Declaration Identity Source} (mach
           captured, writable, core, kinded, added⟩
       · exact ⟨declared, by rw [assembled, same], lifted⟩
       · refine ⟨declared ++ [(cell, .mk cell callable environment' captured writable parameters
-            (.block body (returnKindOf machine returned)))], by rw [assembled, added]; simp, fun entry inside => ?_⟩
+            (.block (expectBody returned body) (returnKindOf machine returned)))], by rw [assembled, added]; simp, fun entry inside => ?_⟩
         rcases List.mem_append.mp inside with early | late
         · exact lifted entry early
         · simp only [List.mem_singleton] at late
@@ -396,7 +396,7 @@ theorem functionDef_binds_core {world : World Declaration Identity Source} (mach
           .normal next →
         ∃ callable cell captured writable, callableKind kind = some callable ∧
           next.closures = (cell, .mk cell callable next.environment captured writable parameters
-            (.block body (returnKindOf machine result))) :: frame.closures
+            (.block (expectBody result body) (returnKindOf machine result))) :: frame.closures
   | 0, _, _, _, _, _, _, _, _, _, _, ran => by simp [runStatement] at ran
   | fuel + 1, frame, next, kind, name, parameters, effects, result, body, metadata, test, ran => by
     simp only [runStatement] at ran
@@ -418,7 +418,7 @@ theorem functionDef_binds {world : World Declaration Identity Source} (machine :
         runStatement machine fuel frame statement = .normal next →
           ∃ callable cell captured writable, callableKind kind = some callable ∧
             next.closures = (cell, .mk cell callable next.environment captured writable parameters
-              (.block body (returnKindOf machine result))) :: frame.closures
+              (.block (expectBody result body) (returnKindOf machine result))) :: frame.closures
   | 0, _, _, _, _, _, _, _, _, _, _, _, _, ran => by simp [runStatement] at ran
   | fuel + 1, frame, next, statement, kind, name, parameters, effects, result, body, metadata, test, core, ran => by
     cases statement
@@ -490,7 +490,7 @@ theorem declared_resolves {world : World Declaration Identity Source} (machine :
           runStatement machine fuel' reached statement = .normal next →
             ∃ callable cell captured writable, callableKind kind = some callable ∧
               next.closures = (cell, .mk cell callable next.environment captured writable parameters
-                (.block body (returnKindOf machine result))) :: reached.closures ∧
+                (.block (expectBody result body) (returnKindOf machine result))) :: reached.closures ∧
               Represents next.environment.names (staticDeclareAll scopes (before ++ [statement])) := by
   intro fuel fuel' before statement reached next kind name parameters effects result body metadata test core
     ranBefore ranStatement
@@ -541,7 +541,7 @@ theorem hoisted_scopes {world : World Declaration Identity Source} (machine : Ma
                 unsugared statement = .functionDef kind name parameters effects result body metadata test ∧
                 callableKind kind = some callable ∧
                 entry = (cell, .mk cell callable defining captured writable parameters
-                  (.block body (returnKindOf machine result))) ∧
+                  (.block (expectBody result body) (returnKindOf machine result))) ∧
                 Represents defining.names
                   (staticDeclareAll (scriptScopes machine.declarations script (top :: outer)) (before ++ [statement]))) ∧
           ∀ fuel fuel' before statement after (reached next : Frame world) kind name parameters effects result body
@@ -552,7 +552,7 @@ theorem hoisted_scopes {world : World Declaration Identity Source} (machine : Ma
                   runStatement machine fuel' reached statement = .normal next →
                     ∃ callable cell captured writable, callableKind kind = some callable ∧
                       next.closures = (cell, .mk cell callable next.environment captured writable parameters
-                        (.block body (returnKindOf machine result))) :: reached.closures ∧
+                        (.block (expectBody result body) (returnKindOf machine result))) :: reached.closures ∧
                       Represents next.environment.names
                         (staticDeclareAll (scriptScopes machine.declarations script (top :: outer))
                           (before ++ [statement])) := by
@@ -592,7 +592,7 @@ theorem script_body_resolution {world : World Declaration Identity Source} (mach
                 unsugared statement = .functionDef kind name parameters effects result body metadata test ∧
                 callableKind kind = some callable ∧
                 entry = (cell, .mk cell callable defining captured writable parameters
-                  (.block body (returnKindOf machine result))) ∧
+                  (.block (expectBody result body) (returnKindOf machine result))) ∧
                 CallsResolve machine defining writable body (returnKindOf machine result)
                   (staticDeclareAll (scriptScopes machine.declarations script [[]]) (before ++ [statement]))) ∧
           ∀ fuel fuel' before statement after (reached next : Frame world) kind name parameters effects result body
@@ -603,7 +603,7 @@ theorem script_body_resolution {world : World Declaration Identity Source} (mach
                   runStatement machine fuel' reached statement = .normal next →
                     ∃ callable cell captured writable, callableKind kind = some callable ∧
                       next.closures = (cell, .mk cell callable next.environment captured writable parameters
-                        (.block body (returnKindOf machine result))) :: reached.closures ∧
+                        (.block (expectBody result body) (returnKindOf machine result))) :: reached.closures ∧
                       CallsResolve machine next.environment writable body (returnKindOf machine result)
                         (staticDeclareAll (scriptScopes machine.declarations script [[]]) (before ++ [statement])) := by
   intro base types resolved frame hoisted script empty fits hoisting
