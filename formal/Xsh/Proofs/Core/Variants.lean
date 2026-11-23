@@ -26,8 +26,9 @@ that type, and so does a parameter's annotation to its default and to the
 argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
 parameter it names; an expected type reaches each branch of a value `if` or
-`match`, a value block's tail, each element of an expected `List[T]` and the
-payload of `Ok(...)` under an expected `Result[T]`; and
+`match`, a value block's tail, each element of an expected `List[T]`, each value
+of a brace literal under an expected `Map[K, V]` and the payload of `Ok(...)`
+under an expected `Result[T]`; and
 the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
@@ -84,6 +85,12 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     (∀ target constructor payload, machine.context.spelling constructor = "Ok" →
       expectTarget machine.context.spelling (some (.result target)) (.call (.ident constructor) [.positional payload]) =
         .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some target) payload)]) ∧
+    (∀ key value fields, expectTarget machine.context.spelling (some (.map key value)) (.record fields) =
+      .record (expectFields machine.context.spelling (some value) fields)) ∧
+    (∀ expected name value rest, expectFields machine.context.spelling expected (.named name value :: rest) =
+      .named name (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
+    (∀ expected key value rest, expectFields machine.context.spelling expected (.computed key value :: rest) =
+      .computed key (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
     (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
       expectBody machine.context.spelling result (statement :: rest) =
         expectReturn machine.context.spelling result statement :: expectBody machine.context.spelling result rest) ∧
@@ -138,7 +145,8 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     fun _ _ _ _ _ => rfl, fun target _ _ => by cases target <;> simp [expectTarget],
     fun target _ _ => by cases target <;> simp [expectTarget], fun target _ => by cases target <;> simp [expectTarget],
     fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail],
-    fun _ _ _ named => by simp [expectTarget, named], fun result statement rest notTail => by
+    fun _ _ _ named => by simp [expectTarget, named], fun _ _ _ => by simp [expectTarget],
+    fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields], fun result statement rest notTail => by
       cases rest with
       | cons _ _ => cases statement <;> rfl
       | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _), fun _ _ => rfl,
@@ -385,6 +393,44 @@ theorem untargeted_default_rejected :
           [.expression (ident flagName)] none false,
         letOf (slot 0) (.call (ident fallName) [])]) = none ∧
     variantShape (valueOf (slot 3) nestedRun) = some ("Info", []) := by
+  decide +kernel
+
+def keyName : Xsh.Syntax.RawName := name 367 (by decide)
+def entryName : Xsh.Syntax.RawName := name 368 (by decide)
+
+/-- The variant names a map or record value holds, in order. -/
+def entryVariants : Option (Value Unit Unit Unit) → Option (List String)
+  | some (.map entries) => entries.mapM fun
+    | (_, .tagged _ variant _) => some variant
+    | _ => none
+  | some (.record fields) => fields.mapM fun
+    | (_, .tagged _ variant _) => some variant
+    | _ => none
+  | _ => none
+
+/-- `let k = 2`, `let m: Map[Int, Level] = { [1]: .Warn, [k]: .Info }` and
+`let n: Map[Str, Level] = { a: .Info }`. -/
+def mapRun : Exec witnessWorld := runScript shapeMachine 90 fullStart
+  [declareLevel, letOf keyName (int "2"),
+   annotated (slot 0) (.map anyType (.named levelName))
+     (.record [.computed (int "1") (dot warnName), .computed (ident keyName) (dot infoName)]),
+   annotated (slot 1) (.map anyType (.named levelName)) (.record [.named entryName (dot infoName)])]
+
+/-- As the verification binary prints `true` for `m[1] == Green` and
+`m[2] == Red` with `let m: Map[Int, Color] = { [1]: .Green, [k]: .Red }`, and
+for `m["a"] == Green` with `let m: Map[Str, Color] = { a: .Green }`: a
+brace literal's named and computed values take the map's value type. -/
+theorem map_value_witness :
+    entryVariants (valueOf (slot 0) mapRun) = some ["Warn", "Info"] ∧
+    entryVariants (valueOf (slot 1) mapRun) = some ["Info"] := by
+  decide +kernel
+
+/-- Without the map annotation the values are untargeted and the binding does
+not complete. -/
+theorem untargeted_map_value_rejected :
+    valueOf (slot 0) (runScript shapeMachine 90 fullStart
+      [declareLevel, letOf (slot 0) (.record [.named entryName (dot warnName)])]) = none ∧
+    entryVariants (valueOf (slot 1) mapRun) = some ["Info"] := by
   decide +kernel
 
 end Witness

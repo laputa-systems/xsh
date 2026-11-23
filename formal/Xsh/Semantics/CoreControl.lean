@@ -1214,7 +1214,8 @@ mutual
   under `.require()?` it is the expected type itself. A leading-dot variant
   (SPEC 5.5) selects from the enum the expected type names, `T?` selecting
   from `T`. The expected type reaches each branch of a value `if` or `match`,
-  a value block's tail, each element of an expected `List[T]`, and the
+  a value block's tail, each element of an expected `List[T]`, each value of
+  a brace literal under an expected `Map[K, V]`, and the
   payload of `Ok(...)` under an expected `Result[T]`. -/
   def expectTarget (spelling : Xsh.Syntax.RawName → String) : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
     | some (.result target), .require value none => .require value (some target)
@@ -1226,6 +1227,7 @@ mutual
     | some target, .matchExpr subject arms => .matchExpr subject (expectArms spelling (some target) arms)
     | some target, .valueBlock body => .valueBlock (expectTail spelling (some target) body)
     | some (.list element), .list elements => .list (expectElements spelling (some element) elements)
+    | some (.map _ value), .record fields => .record (expectFields spelling (some value) fields)
     | some (.result target), .call (.ident constructor) [.positional payload] =>
       if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
       else .call (.ident constructor) [.positional payload]
@@ -1245,6 +1247,16 @@ mutual
   def expectElements (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
     | [] => []
     | value :: rest => expectTarget spelling expected value :: expectElements spelling expected rest
+
+  /-- A brace literal's field values under an expected `Map[K, V]`: a named or
+  computed entry's value takes `V`. -/
+  def expectFields (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
+      List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
+    | [] => []
+    | .named name value :: rest => .named name (expectTarget spelling expected value) :: expectFields spelling expected rest
+    | .computed key value :: rest =>
+      .computed key (expectTarget spelling expected value) :: expectFields spelling expected rest
+    | field :: rest => field :: expectFields spelling expected rest
 
   /-- A value block's tail, its last statement when that is an expression. -/
   def expectTail (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement

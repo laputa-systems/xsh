@@ -532,7 +532,7 @@ Writes and values: stream declarations, which need the stream model (E);
 leading-dot variants whose expected type comes from anything but an annotated
 binding, a declared result's tail or a `return` in the body's statements, a
 parameter's annotation, or a value `if` or `match` branch, value block tail, `List[T]`
-element or `Ok(...)` payload under one of those, and leading-dot error variants (P).
+element, `Map[K, V]` brace value or `Ok(...)` payload under one of those, and leading-dot error variants (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -752,10 +752,12 @@ the binary prints `blue mix err ok 7` for `show(.Blue, 1)`,
 `show(k: 2, c: .Mix(3))`, `take("x".require())` and `take(r: 7.require())`,
 and so do the witnesses. An expected type also reaches each branch of a value
 `if` or `match`, a value block's tail, each element of an expected `List[T]`,
-and the payload of `Ok(...)` under an expected `Result[T]`, as the binary's
-`true` for those forms shows. `Err(...)` payloads, record and constructor
-fields, map values and the other operand of `==` are not yet expected
-positions. The selected variant is the declared one, under the enum's
+each named or computed value of a brace literal under an expected
+`Map[K, V]`, and the payload of `Ok(...)` under an expected `Result[T]`, as
+the binary's `true` for those forms shows. `Err(...)` payloads, which need the
+error type `Result[T, E]` names and the syntax does not carry, record and
+constructor fields, which need the declared schema, and the other operand of
+`==`, which needs the checker's types, are not yet expected positions. The selected variant is the declared one, under the enum's
 declaration identity, with its payload arguments evaluated once in order. A
 leading-dot name with no expected type stays unsupported, as the binary
 rejects it with `check.inferred-variant`, and one whose expected enum lacks
