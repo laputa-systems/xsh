@@ -466,7 +466,7 @@ mutual
   inductive PipeStage where
     | value (call : Expr)
     | stream (kind : StreamStageKind) (arguments : List CallArgument)
-        (block : Option (Option RawName × List Statement))
+        (block : Option (List RawName × List Statement))
 end
 
 def withoutBoundNames (bound : List RawName) (names : List RawName) : List RawName :=
@@ -705,7 +705,7 @@ mutual
     | fuel + 1, bound, .value call :: rest => freeExprFuel fuel bound call ++ freePipeStagesFuel fuel bound rest
     | fuel + 1, bound, .stream _ arguments block :: rest =>
         freeCallArgumentsFuel fuel bound arguments ++
-          block.toList.flatMap (fun (parameter, body) => freeStatementsFuel fuel (parameter.toList ++ bound) body) ++
+          block.toList.flatMap (fun (parameters, body) => freeStatementsFuel fuel (parameters ++ bound) body) ++
           freePipeStagesFuel fuel bound rest
 
   def freeCallArgumentsFuel : Nat → List RawName → List CallArgument → List RawName

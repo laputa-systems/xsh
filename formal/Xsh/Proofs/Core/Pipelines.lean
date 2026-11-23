@@ -59,7 +59,8 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
           (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
@@ -67,10 +68,14 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline machine.context (stageItems machine fuel) after source prepared
-                (pipelineSplit stages).2.2 limit) ∧
+                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 (.list []) after
+            | none, _ =>
+              (runPipeline machine.context (stageItems machine fuel) after source prepared .collected limit).bind
+                fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                  (pipelineSplit stages).2.2 out last) ∧
     (∀ source body ending limit items, listValues source = some items →
       runPipeline machine.context (stageItems machine fuel) frame source body ending limit =
         (stageItems machine fuel frame body limit items).bind fun out last =>
@@ -100,11 +105,12 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
       gathered loop index (.exec (.consumed .broke last)) =
         .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }) ∧
     (∀ item, stageItem machine (fuel + 1) frame [] item = .value (.list [item]) { frame with restaged := some [] }) ∧
-    (∀ parameter body rest item, stageAction (.stream .map [] (some (parameter, body))) = some (.replace, parameter, body) ∧
-      stageAction (.stream .whereStage [] (some (parameter, body))) = some (.keep, parameter, body) ∧
-      stageAction (.stream .flatMap [] (some (parameter, body))) = some (.expand, parameter, body) ∧
-      stageItem machine (fuel + 1) frame (.stream .map [] (some (parameter, body)) :: rest) item =
-        restageWith (.stream .map [] (some (parameter, body))) rest
+    (∀ (parameter : Option Xsh.Syntax.RawName) body rest item,
+      stageAction (.stream .map [] (some (parameter.toList, body))) = some (.replace, parameter, body) ∧
+      stageAction (.stream .whereStage [] (some (parameter.toList, body))) = some (.keep, parameter, body) ∧
+      stageAction (.stream .flatMap [] (some (parameter.toList, body))) = some (.expand, parameter, body) ∧
+      stageItem machine (fuel + 1) frame (.stream .map [] (some (parameter.toList, body)) :: rest) item =
+        restageWith (.stream .map [] (some (parameter.toList, body))) rest
           ((handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
               (parameter.toList.map fun name => (name, item)) body).bind fun result after =>
             stageItem machine fuel after rest result)) ∧
@@ -120,6 +126,18 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
           | _ => .exec .stuck) ∧
     (∀ rest item, stageItem machine (fuel + 1) frame (.stream .drop [] none :: rest) item =
       .value (.list []) { frame with restaged := some rest }) ∧
+    (∀ init accumulator item body before, pipelineSplit (before ++ [.stream .fold [.positional init]
+        (some ([accumulator, item], body))]) = (before, none, .folded init accumulator item body) ∨
+      (∃ count, before.getLast? = some (.stream .take [.positional count] none))) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) scope initial accumulator item body out last items,
+      listValues out = some items →
+        closePipeline machine.context evaluate scope (.folded initial accumulator item body) out last =
+          (evaluate last initial).bind fun start after => foldValues scope accumulator item body start after items) ∧
+    (∀ (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement →
+        Valued world) accumulator item body current next rest,
+      foldValues scope accumulator item body current frame (next :: rest) =
+        (scope frame [(accumulator, current), (item, next)] body).bind fun updated after =>
+          foldValues scope accumulator item body updated after rest) ∧
     (∀ counted, statefulStep (Declaration := Declaration) (Identity := Identity) (Source := Source)
       (.stream .enumerate counted none) = (countValue counted.length).map (.enumerateAt counted)) ∧
     (∀ (outcome : Valued world) stage rest value last, outcome = .value value last →
@@ -137,9 +155,14 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     fun gathering index bound out items gathered listed held reached => by
       simp only [Frame.gatherAll, listed, held, reached, if_true],
     fun loop last index items held => by simp only [gathered, held],
-    fun _ => by simp [stageItem], fun _ _ _ _ => ⟨rfl, rfl, rfl, by simp [stageItem, stageAction]⟩,
+    fun _ => by simp [stageItem], fun parameter _ _ _ => by
+      cases parameter <;> exact ⟨rfl, rfl, rfl, by simp [stageItem, stageAction, singleParameter]⟩,
     fun _ _ _ => rfl, fun _ _ => rfl,
-    fun _ _ => by simp [stageItem, stageAction, statefulStep], fun _ => rfl,
+    fun _ _ => by simp [stageItem, stageAction, statefulStep],
+    fun init accumulator item body before => ?_,
+    fun _ _ _ _ _ _ _ _ _ listed => by simp only [closePipeline, listed],
+    fun _ _ _ _ _ _ _ => rfl,
+    fun _ => rfl,
     fun _ _ _ _ _ given => by subst given; rfl,
     fun input stages => (restoring machine fuel).expr frame _, fun input stages => (persisting machine fuel).expr frame _⟩
   · simp only [evalExpr, streamOnly]
@@ -156,6 +179,11 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     · rfl
     · exact absurd rfl nonzero
     · rfl
+  · unfold pipelineSplit
+    simp only [List.getLast?_append, List.getLast?_singleton, Option.some_or, List.dropLast_concat]
+    split
+    · next taken => exact Or.inr ⟨_, taken⟩
+    · exact Or.inl rfl
 
 end Root
 
@@ -174,7 +202,7 @@ def yParam : Xsh.Syntax.RawName := name 291 (by decide)
 def countVar : Xsh.Syntax.RawName := name 292 (by decide)
 
 def mapStage (parameter : Option Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) : Xsh.Syntax.PipeStage :=
-  .stream .map [] (some (parameter, body))
+  .stream .map [] (some (parameter.toList, body))
 
 /-- `var trace = []; let out = [1, 2] |> map { trace += [.]; . * 7 } |> map { |y| trace += [y]; y + 1 }`,
 as the verification binary records `a1 b10 a2 b20` and gives `[11, 21]` for
@@ -188,7 +216,7 @@ def mapScript : List Xsh.Syntax.Statement :=
 /-- `[1, 2, 7] |> where { |x| x > 1 } |> count()`, as the binary gives `2`. -/
 def countScript : List Xsh.Syntax.Statement :=
   [letOf countVar (.structuredPipeline (items ["1", "2", "7"])
-     [.stream .whereStage [] (some (some xItem, [.expression (.binary .gt (ident xItem) (int "1"))])),
+     [.stream .whereStage [] (some ([xItem], [.expression (.binary .gt (ident xItem) (int "1"))])),
       .stream .count [] none])]
 
 theorem pipeline_witness :
@@ -225,7 +253,7 @@ def storedPipelineScript : List Xsh.Syntax.Statement :=
   [.binding .var (.name traceVar) none (.list []), declareCount,
    letOf streamLocal (.call (ident countFn) [.positional (int "2")]),
    letOf storedCount (.structuredPipeline (ident streamLocal)
-     [.stream .whereStage [] (some (some xItem, [.expression (.binary .gt (ident xItem) (int "0"))])),
+     [.stream .whereStage [] (some ([xItem], [.expression (.binary .gt (ident xItem) (int "0"))])),
       .stream .count [] none]),
    letOf storedAgain (.structuredPipeline (ident streamLocal) [mapStage (some xItem) [.expression (ident xItem)],
      .stream .collect [] none])]
@@ -333,8 +361,8 @@ def boolValue : Option (Value Unit Unit Unit) → Option Bool
   | some (.scalar (.boolean value)) => some value
   | _ => none
 
-def noted (test : Xsh.Syntax.Expr) : Option (Option Xsh.Syntax.RawName × List Xsh.Syntax.Statement) :=
-  some (some xItem, [recordItem xItem, .expression test])
+def noted (test : Xsh.Syntax.Expr) : Option (List Xsh.Syntax.RawName × List Xsh.Syntax.Statement) :=
+  some ([xItem], [recordItem xItem, .expression test])
 
 /-- As the verification binary gives `11` for `[1, 2, 8] |> sum()`, `Ok(7)`
 for `[7, 8] |> first()`, the `Err` "stream was empty" for an empty list's
@@ -421,6 +449,43 @@ materialized before it would, logs every first-stage item before any second
 one: `0 1 2 7 8 4 14 16`. -/
 theorem materialized_drop_rejected :
     readList traceVar (runCanonical dropTraced) ≠ some [0, 1, 2, 7, 8, 4, 14, 16] := by
+  decide +kernel
+
+def foldVar : Xsh.Syntax.RawName := name 369 (by decide)
+def accName : Xsh.Syntax.RawName := name 370 (by decide)
+
+def foldStage (kind : Xsh.Syntax.StreamStageKind) (initial : Xsh.Syntax.Expr) (body : List Xsh.Syntax.Statement) :
+    Xsh.Syntax.PipeStage :=
+  .stream kind [.positional initial] (some ([accName, xItem], body))
+
+/-- `[1, 2, 7] |> map { trace += [.]; . } |> fold({ trace += [0]; 8 }) { |acc, x| trace += [x]; acc + x }`. -/
+def foldTraced : List Xsh.Syntax.Statement :=
+  closing (items ["1", "2", "7"])
+    [mapStage none [.assign (.name traceVar) .add (.list [.item]), .expression .item],
+     foldStage .fold (.valueBlock [.assign (.name traceVar) .add (.list [int "0"]), .expression (int "8")])
+       [recordItem xItem, .expression (.binary .add (ident accName) (ident xItem))]]
+
+/-- As the verification binary gives `20` and logs `mmmifff` for the same
+shape with an initial value of `10` that logs `i`: every item reaches the
+`fold` before its initial value is evaluated, then the callback folds them in
+order. It gives `14` for `[1, 2, 7] |> reduce(1) { |acc, x| acc * x }`, `9`
+for `[8] |> reduce(1) { |acc, x| acc + x }` and `5` for an empty
+`fold(5)`. -/
+theorem fold_witness :
+    intValue (readValue (runCanonical foldTraced)) = some 18 ∧
+    readList traceVar (runCanonical foldTraced) = some [1, 2, 7, 0, 1, 2, 7] ∧
+    intValue (readValue (runCanonical (closing (items ["1", "2", "7"])
+      [foldStage .reduce (int "1") [.expression (.binary .mul (ident accName) (ident xItem))]]))) = some 14 ∧
+    intValue (readValue (runCanonical (closing (items ["8"])
+      [foldStage .reduce (int "1") [.expression (.binary .add (ident accName) (ident xItem))]]))) = some 9 ∧
+    intValue (readValue (runCanonical (closing (.list [])
+      [foldStage .fold (int "7") [.expression (.binary .add (ident accName) (ident xItem))]]))) = some 7 := by
+  decide +kernel
+
+/-- A `fold` that evaluated its initial value before pulling, as a lazy one
+might, logs `0` first. -/
+theorem eager_fold_initial_rejected :
+    readList traceVar (runCanonical foldTraced) ≠ some [0, 1, 1, 2, 2, 7, 7] := by
   decide +kernel
 
 end Witness

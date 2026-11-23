@@ -1049,7 +1049,7 @@ def pipe (input : Xsh.Syntax.Expr) (stages : List Xsh.Syntax.PipeStage) : Xsh.Sy
   .structuredPipeline input stages
 
 def keepAbove (bound : String) : Xsh.Syntax.PipeStage :=
-  .stream .whereStage [] (some (none, [.expression (.binary .gt .item (int bound))]))
+  .stream .whereStage [] (some ([], [.expression (.binary .gt .item (int bound))]))
 
 /-- `"a,b" |> split(",")`, `[7, 1, 2] |> where . > 1 |> len()`,
 `"7" |> parse_int()?` and `[7, 1] |> [2].extend(_)`. -/

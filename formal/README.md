@@ -505,7 +505,7 @@ Statements:
 - every stage but value calls, argument-free `where`, `map` and `flat-map`,
   `drop(n)` and `enumerate` over a list source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
-  `max()`, `any` or `all`, and a `Stream[T]` from anything but a producer (E)
+  `max()`, `any`, `all`, `fold` or `reduce`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -980,7 +980,12 @@ item and leave (`prepareStages`), and an `enumerate` passes `{index, value}`
 on and counts one more; each item hands the stages it left on to the next
 through the frame's `restaged`. As the binary gives `[21,31,41]` and logs
 `dmmnmnmn` for `map |> drop(note) |> map`, so do the witnesses, which reject
-a drop applied after the stages materialized. A `take(n)` that ends the transformations is evaluated
+a drop applied after the stages materialized. A closing `fold(init)` or
+`reduce(init)` with an `|acc, item|` block (`closePipeline`, `foldValues`)
+evaluates its initial value once every item has reached it, as the binary
+logs `mmmifff` for a logging `map` and initial value, then runs the callback
+over the items in order with the accumulator; stage blocks now carry a list
+of parameters, a serial stage taking at most one. A `take(n)` that ends the transformations is evaluated
 once before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items never run, and a producer stops as on its
 consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for

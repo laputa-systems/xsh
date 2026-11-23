@@ -1103,13 +1103,23 @@ inductive StageAction where
   | replace
   | expand
 
+/-- A serial stage block's one parameter, or `none` for the implicit `.`;
+a block with more parameters has no single-item action. -/
+def singleParameter : List Xsh.Syntax.RawName → Option (Option Xsh.Syntax.RawName)
+  | [] => some none
+  | [parameter] => some (some parameter)
+  | _ => none
+
 /-- A serial stage's action, block parameter and block body. -/
 def stageAction : Xsh.Syntax.PipeStage → Option (StageAction × Option Xsh.Syntax.RawName × List Xsh.Syntax.Statement)
-  | .stream .whereStage [] (some (parameter, body)) | .stream .any [] (some (parameter, body)) =>
-    some (.keep, parameter, body)
-  | .stream .all [] (some (parameter, body)) => some (.reject, parameter, body)
-  | .stream .map [] (some (parameter, body)) => some (.replace, parameter, body)
-  | .stream .flatMap [] (some (parameter, body)) => some (.expand, parameter, body)
+  | .stream kind [] (some (parameters, body)) =>
+    (singleParameter parameters).bind fun parameter =>
+      match kind with
+      | .whereStage | .any => some (.keep, parameter, body)
+      | .all => some (.reject, parameter, body)
+      | .map => some (.replace, parameter, body)
+      | .flatMap => some (.expand, parameter, body)
+      | _ => none
   | _ => none
 
 /-- `sum()` over the items that reached it: checked `Int` addition from `0`,
@@ -1156,6 +1166,8 @@ inductive PipelineEnd where
   | lastItem
   | minimum
   | maximum
+  /-- `fold(initial) { |accumulator, item| ... }`, which `reduce` spells too. -/
+  | folded (initial : Xsh.Syntax.Expr) (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement)
 
 /-- A structured pipeline's stages split before a closing `count()` or
 `collect()`, which ends the pipeline with its own value (SPEC 13.1), and
@@ -1174,6 +1186,9 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
     | some (.stream .max [] none) => (stages.dropLast, .maximum)
     | some (.stream .any [] (some _)) => (stages, .anyMatch)
     | some (.stream .all [] (some _)) => (stages, .allMatch)
+    | some (.stream .fold [.positional initial] (some ([accumulator, item], body)))
+    | some (.stream .reduce [.positional initial] (some ([accumulator, item], body))) =>
+      (stages.dropLast, .folded initial accumulator item body)
     | _ => (stages, .collected)
   match body.getLast? with
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
@@ -1468,6 +1483,35 @@ def finishPipeline {world : World Declaration Identity Source} (context : Contex
       | none => .exec .stuck
     | some [] => .value (.err context.errors.streamEmpty) last
     | none => .exec .stuck
+  | .folded _ _ _ _ => .exec .unsupported
+
+/-- A fold's accumulator over the items that reached it: each runs the
+callback with the accumulator and the item bound, in its own scope, and the
+callback's value is the next accumulator (SPEC 13.3). -/
+def foldValues {world : World Declaration Identity Source}
+    (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
+    Value Declaration Identity Source → Frame world → List (Value Declaration Identity Source) → Valued world
+  | current, frame, [] => .value current frame
+  | current, frame, next :: rest =>
+    (scope frame [(accumulator, current), (item, next)] body).bind fun updated after =>
+      foldValues scope accumulator item body updated after rest
+
+/-- A pipeline's value once its items have passed the stages: a closing
+`fold` or `reduce` evaluates its initial value once every item has reached
+it, as the binary does, then folds them in order; any other ending is
+`finishPipeline`. -/
+def closePipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+    (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) : Valued world :=
+  match ending with
+  | .folded initial accumulator item body =>
+    match listValues out with
+    | some items =>
+      (evaluate last initial).bind fun start after => foldValues scope accumulator item body start after items
+    | none => .exec .stuck
+  | other => finishPipeline context other out last
 
 /-- A structured pipeline over a list source (SPEC 13.1): its items pass the
 stages through `run`, then the closing stage gives the value. -/
@@ -3092,7 +3136,8 @@ mutual
           (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
+            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
@@ -3100,9 +3145,14 @@ mutual
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline machine.context (stageItems machine fuel) after source prepared (pipelineSplit stages).2.2 limit
+                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 out last
+            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                (pipelineSplit stages).2.2 (.list []) after
+            | none, _ =>
+              (runPipeline machine.context (stageItems machine fuel) after source prepared .collected limit).bind
+                fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                  (pipelineSplit stages).2.2 out last
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
