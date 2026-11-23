@@ -1,6 +1,6 @@
 # XSH semantic soundness campaign
 
-**Status:** active since the owner restarted the Lean lane on 2026-11-03. The
+**Status:** winding down 2026-11-23 (active since 2026-11-03). The
 connected milestone is the current target; G0–G10 stay planned around it.
 `formal/coverage.json` is the only inventory: 1,312 `SPEC_PROVED` fragment
 roots, fifteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
