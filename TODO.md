@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 184
+Next: 185
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,15 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+### XSH-184 · P2 · A producer's environment is swapped wholesale around a suspension inside a scope
+
+- **Area:** Runtime streams
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/producer.rs:301-325` (`pull_script_producer`); SPEC 10.4 ("A producer that yields from inside a `cd` or `env` scope keeps its own directory and environment between pulls")
+- **Problem:** When a producer suspends inside a `cd` or `env` scope, `pull_script_producer` saves the producer's whole context and restores the consumer's context from the start of the pull. Plain `e"NAME" = ...` writes the producer made earlier in that pull, before entering the scope, are therefore lost to the consumer. When the producer later yields outside any scope, its saved context is dropped and the next pull runs it on the consumer's environment, so it loses its own earlier writes too. Reproducer (verification binary): a producer that sets `e"XSH_PA" = "before-scope"`, yields once inside `env ({XSH_PB: "scoped"}) { ... }`, then yields twice after it, over a loop that sets `e"XSH_PC" = "loop"`. It prints `before-scope/scoped`, then `before-scope/unset/unset`, then `unset/unset/loop`, and the loop sees `XSH_PA` unset throughout. Without a scope, the same writes are shared both ways. The SPEC sentence does not say which of these is intended. unproven: whether this is a defect or intended isolation is an owner decision.
+- **Recommendation:** Decide the rule and state it in SPEC 10.4. Either isolate only the scope's own overrides, sharing plain writes as in the unscoped case, or isolate the whole environment for the producer's lifetime. Make `pull_script_producer` follow it, and add the reproducer as a native test. The Lean model (`formal/README.md`, stream producers) shares the environment and records this as an open gap until the rule is decided.
+- **Fix with:** lifecycle-concurrency, test-audit
+- **Effort:** S
+
 ### XSH-180 · P2 · min and max have no specified order for NaN, ties and non-numeric items
 
 - **Area:** Runtime ordering
