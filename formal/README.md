@@ -502,7 +502,8 @@ environment).
 
 Statements:
 
-- every stage but value calls, argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
+- every stage but value calls, argument-free `where`, `map` and `flat-map`,
+  `drop(n)` and `enumerate` over a list source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
   `max()`, `any` or `all`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
@@ -972,7 +973,14 @@ yield passes the item through them in the pipeline's scope and gathers what
 it becomes into the stream's entry. As the binary records `1, 20, 1, 21, 7`
 and gives `[0,7]` for `count(2) |> map { |x| trace += [x + 20]; x * 7 }`, so
 do the witnesses, which reject collecting the source first, and a piped
-stream is consumed. A `take(n)` that ends the transformations is evaluated
+stream is consumed. Over a list source, `drop(n)` and `enumerate` keep state
+from item to item: each `drop(n)` argument is evaluated once, in stage
+order, before any item is pulled, and becomes `n` stages that each drop one
+item and leave (`prepareStages`), and an `enumerate` passes `{index, value}`
+on and counts one more; each item hands the stages it left on to the next
+through the frame's `restaged`. As the binary gives `[21,31,41]` and logs
+`dmmnmnmn` for `map |> drop(note) |> map`, so do the witnesses, which reject
+a drop applied after the stages materialized. A `take(n)` that ends the transformations is evaluated
 once before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items never run, and a producer stops as on its
 consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for

@@ -193,6 +193,9 @@ structure Frame (world : World Declaration Identity Source) where
   collected : Option (List (Value Declaration Identity Source))
   /-- The value a pipeline's value-call stage receives, which `_` reads. -/
   piped : Option (Value Declaration Identity Source) := none
+  /-- A pipeline's stages as one item left them: a `drop` that consumed the
+  item is gone and an `enumerate` counts one more, which the next item sees. -/
+  restaged : Option (List Xsh.Syntax.PipeStage) := none
   /-- The caller's cells this frame may still write: a closure's captured
   mutable cells. -/
   writable : List CellId
@@ -1376,6 +1379,52 @@ def limitTake {α : Type} (limit : Option Nat) (items : List α) : List α :=
   | none => items
   | some bound => items.take bound
 
+/-- A pipeline's stages ready to receive items (SPEC 13.3): each `drop(n)`
+argument evaluated once, in stage order, before any item is pulled, and the
+stage written as `n` stages that each drop one item, none for a negative
+`n`. -/
+def prepareStage {world : World Declaration Identity Source}
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) :
+    Xsh.Syntax.PipeStage → Outcome world (List Xsh.Syntax.PipeStage)
+  | .stream .drop [.positional count] none =>
+    (evaluate frame count).bind fun value after =>
+      match value.eraseNominal with
+      | .scalar (.integer bound) => .value (List.replicate bound.val.toNat (.stream .drop [] none)) after
+      | _ => .exec .stuck
+  | stage => .value [stage] frame
+
+def prepareStages {world : World Declaration Identity Source}
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) :
+    List Xsh.Syntax.PipeStage → Outcome world (List Xsh.Syntax.PipeStage)
+  | [] => .value [] frame
+  | stage :: rest =>
+    (prepareStage evaluate frame stage).bind fun first after =>
+      (prepareStages evaluate after rest).bind fun later last => .value (first ++ later) last
+
+/-- A stage that keeps state from item to item, as `prepareStages` and earlier
+items left it: one of the stages a `drop(n)` became, or an `enumerate` that
+has numbered as many items as it has arguments. -/
+inductive StatefulStep (Declaration Identity Source : Type) where
+  | dropOne
+  | enumerateAt (counted : List Xsh.Syntax.CallArgument) (index : Value Declaration Identity Source)
+
+def statefulStep : Xsh.Syntax.PipeStage → Option (StatefulStep Declaration Identity Source)
+  | .stream .drop [] none => some .dropOne
+  | .stream .enumerate counted none => (countValue counted.length).map (.enumerateAt counted)
+  | _ => none
+
+/-- Whether a stage keeps state from item to item. -/
+def isStateful : Xsh.Syntax.PipeStage → Bool
+  | .stream .drop _ _ | .stream .enumerate _ _ => true
+  | _ => false
+
+/-- An item's outcome with the stage it passed put back in front of the
+stages after it. -/
+def restageWith {world : World Declaration Identity Source} (stage : Xsh.Syntax.PipeStage)
+    (rest : List Xsh.Syntax.PipeStage) : Valued world → Valued world
+  | .value value frame => .value value { frame with restaged := some (stage :: frame.restaged.getD rest) }
+  | other => other
+
 /-- A pipeline's value once its items have passed the stages: the
 collected list, or the count a closing `count()` gives. -/
 def finishPipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
@@ -1424,11 +1473,10 @@ def finishPipeline {world : World Declaration Identity Source} (context : Contex
 stages through `run`, then the closing stage gives the value. -/
 def runPipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world)
-    (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
-    (limit : Option Nat) : Valued world :=
+    (next : Frame world) (source : Value Declaration Identity Source) (body : List Xsh.Syntax.PipeStage)
+    (ending : PipelineEnd) (limit : Option Nat) : Valued world :=
   match listValues source with
-  | some items =>
-    (run next (pipelineSplit stages).1 limit items).bind fun out last => finishPipeline context (pipelineSplit stages).2.2 out last
+  | some items => (run next body limit items).bind fun out last => finishPipeline context ending out last
   | none => .exec .unsupported
 
 /-- A condition in a control position (SPEC 8.3): a `Result[Bool]` gives the
@@ -3040,11 +3088,13 @@ mutual
           match pipelineSource result with
           | .error error => .exec (.failed (.raised error) next)
           | .ok source =>
-          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun explicit after =>
+          (prepareStages (evalExpr machine fuel) next (pipelineSplit stages).1).bind fun prepared ready =>
+          (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
             | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
+              if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
@@ -3052,7 +3102,7 @@ mutual
                       after.consumers }
                   closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
             | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline machine.context (stageItems machine fuel) after source stages limit
+            | none, _ => runPipeline machine.context (stageItems machine fuel) after source prepared (pipelineSplit stages).2.2 limit
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
         | some (family, .mk variant [] facets), [] =>
@@ -3313,29 +3363,35 @@ mutual
     | 0, _, _, _ => .exec .outOfFuel
     | fuel + 1, frame, stages, item =>
       match stages with
-      | [] => .value (.list [item]) frame
+      | [] => .value (.list [item]) { frame with restaged := some [] }
       | stage :: rest =>
         match stageAction stage with
         | some (action, parameter, body) =>
-          (handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
+          restageWith stage rest ((handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
               (parameter.toList.map fun name => (name, item)) body).bind fun result after =>
             match action with
             | .keep =>
               match result.eraseNominal with
               | .scalar (.boolean true) => stageItem machine fuel after rest item
-              | .scalar (.boolean false) => .value (.list []) after
+              | .scalar (.boolean false) => .value (.list []) { after with restaged := some rest }
               | _ => .exec .stuck
             | .reject =>
               match result.eraseNominal with
               | .scalar (.boolean false) => stageItem machine fuel after rest item
-              | .scalar (.boolean true) => .value (.list []) after
+              | .scalar (.boolean true) => .value (.list []) { after with restaged := some rest }
               | _ => .exec .stuck
             | .replace => stageItem machine fuel after rest result
             | .expand =>
               match listValues result with
               | some items => stageItems machine fuel after rest none items
-              | none => .exec .stuck
-        | none => .exec .unsupported
+              | none => .exec .stuck)
+        | none =>
+          match statefulStep stage with
+          | some .dropOne => .value (.list []) { frame with restaged := some rest }
+          | some (.enumerateAt counted index) =>
+            restageWith (.stream .enumerate (.positional .item :: counted) none) rest
+              (stageItem machine fuel frame rest (.record [("index", index), ("value", item)]))
+          | none => .exec .unsupported
 
   /-- Items through the stages one at a time, each reaching the end of the
   stages before the next starts, as live and list sources alike are pulled
@@ -3346,7 +3402,7 @@ mutual
     | 0, _, _, _, _ => .exec .outOfFuel
     | fuel + 1, frame, stages, limit, items =>
       match items, limit with
-      | _, some 0 | [], _ => .value (.list []) frame
+      | _, some 0 | [], _ => .value (.list []) { frame with restaged := some stages }
       | item :: rest, _ =>
         (stageItem machine fuel frame stages item).bind fun first after =>
           match first with
@@ -3354,7 +3410,7 @@ mutual
             match afterItems limit head.length with
             | none => .value (.list (limitTake limit head)) after
             | some remaining =>
-              (stageItems machine fuel after stages remaining rest).bind fun later last =>
+              (stageItems machine fuel after (after.restaged.getD stages) remaining rest).bind fun later last =>
                 match later with
                 | .list tail => .value (.list (head ++ tail)) last
                 | _ => .exec .stuck

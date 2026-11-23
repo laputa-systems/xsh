@@ -26,8 +26,12 @@ end; a source inside one outer `Result` is its `Ok` collection, and an
 `Err` raises its error. A stage block binds the item to its parameter or, without one, to `.`,
 in its own scope, and its tail is its value; `where` keeps the item when that
 value is `true`, `map` replaces it and `flat-map` passes each item of the
-value's list on in turn. A `take(n)` ending the transformations is evaluated
-once before the source is pulled and stops pulling once `n` items have
+value's list on in turn. Each `drop(n)` argument is evaluated once, in stage
+order, before any item is pulled, and the stage becomes `n` stages that each
+drop one item and leave; an `enumerate` passes `{index, value}` on and counts
+one more; each item leaves the stages as the next item finds them, so these
+counts hold across items. A `take(n)` ending the transformations is evaluated
+once after them, before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items are not run, and a producer is stopped as
 by its consumer's `break`, so its `defer`s run. The pipeline gives the list
 of items that reach its end, or their count under a closing `count()`.
@@ -51,11 +55,13 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
         match pipelineSource result with
         | .error error => .exec (.failed (.raised error) next)
         | .ok source =>
-          (pipelineLimit (evalExpr machine fuel) next (pipelineSplit stages).2.1).bind fun explicit after =>
+          (prepareStages (evalExpr machine fuel) next (pipelineSplit stages).1).bind fun prepared ready =>
+          (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
             | some (index, some _), some 0 => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
+              if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
@@ -63,12 +69,14 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
                       after.consumers }
                   closure supplied)).bind fun out last => finishPipeline machine.context (pipelineSplit stages).2.2 out last
             | some (_, none), _ => finishPipeline machine.context (pipelineSplit stages).2.2 (.list []) after
-            | none, _ => runPipeline machine.context (stageItems machine fuel) after source stages limit) ∧
-    (∀ source stages limit items, listValues source = some items →
-      runPipeline machine.context (stageItems machine fuel) frame source stages limit =
-        (stageItems machine fuel frame (pipelineSplit stages).1 limit items).bind fun out last =>
-          finishPipeline machine.context (pipelineSplit stages).2.2 out last) ∧
-    (∀ stages items, stageItems machine (fuel + 1) frame stages (some 0) items = .value (.list []) frame) ∧
+            | none, _ => runPipeline machine.context (stageItems machine fuel) after source prepared
+                (pipelineSplit stages).2.2 limit) ∧
+    (∀ source body ending limit items, listValues source = some items →
+      runPipeline machine.context (stageItems machine fuel) frame source body ending limit =
+        (stageItems machine fuel frame body limit items).bind fun out last =>
+          finishPipeline machine.context ending out last) ∧
+    (∀ stages items, stageItems machine (fuel + 1) frame stages (some 0) items =
+      .value (.list []) { frame with restaged := some stages }) ∧
     (∀ stages item rest limit, limit ≠ some 0 → stageItems machine (fuel + 1) frame stages limit (item :: rest) =
       (stageItem machine fuel frame stages item).bind fun first after =>
         match first with
@@ -76,7 +84,7 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
           match afterItems limit head.length with
           | none => .value (.list (limitTake limit head)) after
           | some remaining =>
-            (stageItems machine fuel after stages remaining rest).bind fun later last =>
+            (stageItems machine fuel after (after.restaged.getD stages) remaining rest).bind fun later last =>
               match later with
               | .list tail => .value (.list (head ++ tail)) last
               | _ => .exec .stuck
@@ -91,28 +99,48 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     (∀ (loop last : Frame world) index items, last.streams[index]? = some (.gathering items) →
       gathered loop index (.exec (.consumed .broke last)) =
         .value (.list items) { last.consume index with consumers := loop.consumers, collected := loop.collected }) ∧
-    (∀ item, stageItem machine (fuel + 1) frame [] item = .value (.list [item]) frame) ∧
+    (∀ item, stageItem machine (fuel + 1) frame [] item = .value (.list [item]) { frame with restaged := some [] }) ∧
     (∀ parameter body rest item, stageAction (.stream .map [] (some (parameter, body))) = some (.replace, parameter, body) ∧
       stageAction (.stream .whereStage [] (some (parameter, body))) = some (.keep, parameter, body) ∧
       stageAction (.stream .flatMap [] (some (parameter, body))) = some (.expand, parameter, body) ∧
       stageItem machine (fuel + 1) frame (.stream .map [] (some (parameter, body)) :: rest) item =
-        (handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
-            (parameter.toList.map fun name => (name, item)) body).bind fun result after =>
-          stageItem machine fuel after rest result) ∧
+        restageWith (.stream .map [] (some (parameter, body))) rest
+          ((handlerScope machine fuel frame (parameter.elim (some item) fun _ => none)
+              (parameter.toList.map fun name => (name, item)) body).bind fun result after =>
+            stageItem machine fuel after rest result)) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) stage rest,
+      prepareStages evaluate frame (stage :: rest) =
+        (prepareStage evaluate frame stage).bind fun first after =>
+          (prepareStages evaluate after rest).bind fun later last => .value (first ++ later) last) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) count,
+      prepareStage evaluate frame (.stream .drop [.positional count] none) =
+        (evaluate frame count).bind fun value after =>
+          match value.eraseNominal with
+          | .scalar (.integer bound) => .value (List.replicate bound.val.toNat (.stream .drop [] none)) after
+          | _ => .exec .stuck) ∧
+    (∀ rest item, stageItem machine (fuel + 1) frame (.stream .drop [] none :: rest) item =
+      .value (.list []) { frame with restaged := some rest }) ∧
+    (∀ counted, statefulStep (Declaration := Declaration) (Identity := Identity) (Source := Source)
+      (.stream .enumerate counted none) = (countValue counted.length).map (.enumerateAt counted)) ∧
+    (∀ (outcome : Valued world) stage rest value last, outcome = .value value last →
+      restageWith stage rest outcome = .value value { last with restaged := some (stage :: last.restaged.getD rest) }) ∧
     (∀ input stages, VRestores frame (evalExpr machine fuel frame (.structuredPipeline input stages))) ∧
     (∀ input stages, VKeeps frame.store (evalExpr machine fuel frame (.structuredPipeline input stages))) := by
   refine ⟨fun input stages before call after staged => by simp only [evalExpr, staged],
     fun method arguments unheld => by simp [valueStageCall, unheld],
     fun callee arguments held => by simp [valueStageCall, held],
-    fun input stages streamOnly => ?_, fun source stages limit items listed => by simp only [runPipeline, listed],
-    fun stages items => by cases items <;> rfl,
+    fun input stages streamOnly => ?_, fun source body ending limit items listed => by simp only [runPipeline, listed],
+    fun stages items => by cases items <;> simp [stageItems],
     fun stages item rest limit nonzero => ?_,
     fun _ _ => ⟨rfl, rfl⟩,
     fun bound count reached => by simp [afterItems, reached],
     fun gathering index bound out items gathered listed held reached => by
       simp only [Frame.gatherAll, listed, held, reached, if_true],
     fun loop last index items held => by simp only [gathered, held],
-    fun _ => rfl, fun _ _ _ _ => ⟨rfl, rfl, rfl, rfl⟩,
+    fun _ => by simp [stageItem], fun _ _ _ _ => ⟨rfl, rfl, rfl, by simp [stageItem, stageAction]⟩,
+    fun _ _ _ => rfl, fun _ _ => rfl,
+    fun _ _ => by simp [stageItem, stageAction, statefulStep], fun _ => rfl,
+    fun _ _ _ _ _ given => by subst given; rfl,
     fun input stages => (restoring machine fuel).expr frame _, fun input stages => (persisting machine fuel).expr frame _⟩
   · simp only [evalExpr, streamOnly]
     refine congrArg _ (funext fun result => funext fun next => ?_)
@@ -120,6 +148,7 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     | error error => simp only [sourced]
     | ok source =>
       simp only [sourced]
+      refine congrArg _ (funext fun prepared => funext fun ready => ?_)
       refine congrArg _ (funext fun explicit => funext fun after => ?_)
       rcases pendingStream machine after source with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;>
         rcases bothLimits explicit (endingLimit (pipelineSplit stages).2.2) with _ | _ | bound <;> rfl
@@ -346,6 +375,52 @@ theorem extremum_witness :
 would, gives `2`; the model gives `7`. -/
 theorem unordered_extremum_rejected :
     intValue (readValue (runCanonical (closing (items ["2", "7", "1"]) [.stream .max [] none]))) ≠ some 2 := by
+  decide +kernel
+
+def drop (count : Xsh.Syntax.Expr) : Xsh.Syntax.PipeStage := .stream .drop [.positional count] none
+
+def enumerated : Xsh.Syntax.PipeStage := .stream .enumerate [] none
+
+/-- The `{index, value}` records a pipeline gave, as index and value pairs. -/
+def indexed : Option (Value Unit Unit Unit) → Option (List (Int × Int))
+  | some (.list items) => items.mapM fun
+    | .record [("index", .scalar (.integer index)), ("value", .scalar (.integer value))] => some (index.val, value.val)
+    | _ => none
+  | _ => none
+
+/-- `[1, 2, 7, 8] |> map { trace += [.]; . * 2 } |> drop({ trace += [0]; 1 })
+|> map { |x| trace += [x]; x + 1 }`. -/
+def dropTraced : List Xsh.Syntax.Statement :=
+  closing (items ["1", "2", "7", "8"])
+    [mapStage none [.assign (.name traceVar) .add (.list [.item]), .expression (.binary .mul .item (int "2"))],
+     drop (.valueBlock [.assign (.name traceVar) .add (.list [int "0"]), .expression (int "1")]),
+     mapStage (some xItem) [recordItem xItem, .expression (.binary .add (ident xItem) (int "1"))]]
+
+/-- As the verification binary gives `[21,31,41]` and logs `dmmnmnmn` for the
+same shape over `[1, 2, 3, 4]`, its `drop` argument logging `d`: the
+argument is evaluated before any item, and each kept item passes every
+stage before the next is pulled. It gives
+`[{"index":0,"value":"x"},{"index":1,"value":"y"}]` for
+`["x", "y"] |> enumerate`, indices `1` and `2` for `enumerate |> drop(1)`
+over three items, no items for `drop(5)` over three, all three for
+`drop(-1)`, and `[1,2]` for `drop(0) |> take(2)`. -/
+theorem drop_enumerate_witness :
+    readList closingVar (runCanonical dropTraced) = some [5, 15, 17] ∧
+    readList traceVar (runCanonical dropTraced) = some [0, 1, 2, 4, 7, 14, 8, 16] ∧
+    indexed (readValue (runCanonical (closing (items ["7", "8"]) [enumerated]))) = some [(0, 7), (1, 8)] ∧
+    indexed (readValue (runCanonical (closing (items ["1", "2", "7"]) [enumerated, drop (int "1")]))) =
+      some [(1, 2), (2, 7)] ∧
+    readList closingVar (runCanonical (closing (items ["1", "2", "8"]) [drop (int "7")])) = some [] ∧
+    readList closingVar (runCanonical (closing (items ["1", "2", "8"]) [drop (.unary .neg (int "1"))])) =
+      some [1, 2, 8] ∧
+    readList closingVar (runCanonical (closing (items ["1", "2", "8"]) [drop (int "0"), take "2"])) = some [1, 2] := by
+  decide +kernel
+
+/-- A `drop` applied after the stages ran on every item, as a pipeline that
+materialized before it would, logs every first-stage item before any second
+one: `0 1 2 7 8 4 14 16`. -/
+theorem materialized_drop_rejected :
+    readList traceVar (runCanonical dropTraced) ≠ some [0, 1, 2, 7, 8, 4, 14, 16] := by
   decide +kernel
 
 end Witness

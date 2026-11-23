@@ -305,8 +305,9 @@ theorem runPipeline_refines {world : World Declaration Identity Source} (context
     {run run' : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, Valued.Refines (run frame stages limit items) (run' frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
-    (limit : Option Nat) :
-    Valued.Refines (runPipeline context run next source stages limit) (runPipeline context run' next source stages limit) := by
+    (ending : PipelineEnd) (limit : Option Nat) :
+    Valued.Refines (runPipeline context run next source stages ending limit)
+      (runPipeline context run' next source stages ending limit) := by
   unfold runPipeline
   split
   · exact valued_bind_refines (each _ _ _ _) fun _ _ => valued_refl _
@@ -320,6 +321,34 @@ theorem pipelineLimit_refines {world : World Declaration Identity Source}
   cases count with
   | none => exact valued_refl _
   | some count => exact valued_bind_refines (each _ _) fun _ _ => valued_refl _
+
+theorem prepareStage_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
+    (frame : Frame world) (stage : Xsh.Syntax.PipeStage) :
+    Valued.Refines (prepareStage evaluate frame stage) (prepareStage evaluate' frame stage) := by
+  unfold prepareStage
+  split
+  · exact valued_bind_refines (each _ _) fun _ _ => valued_refl _
+  · exact valued_refl _
+
+theorem prepareStages_refines {world : World Declaration Identity Source}
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
+    (frame : Frame world) (stages : List Xsh.Syntax.PipeStage) :
+    Valued.Refines (prepareStages evaluate frame stages) (prepareStages evaluate' frame stages) := by
+  induction stages generalizing frame with
+  | nil => exact valued_refl _
+  | cons stage rest ih =>
+    exact valued_bind_refines (prepareStage_refines each _ _) fun _ _ =>
+      valued_bind_refines (ih _) fun _ _ => valued_refl _
+
+theorem restageWith_refines {world : World Declaration Identity Source} (stage : Xsh.Syntax.PipeStage)
+    (rest : List Xsh.Syntax.PipeStage) {first second : Valued world} (refined : Valued.Refines first second) :
+    Valued.Refines (restageWith stage rest first) (restageWith stage rest second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact valued_refl _
 
 theorem gathered_refines {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
     {first second : Valued world} (refined : Valued.Refines first second) :
@@ -626,6 +655,7 @@ set_option hygiene false in
 /-- Close a refinement goal between the same machine step at two fuels, given
 `inner` for the lower fuels. -/
 local macro "close_refines" : tactic => `(tactic| repeat' (first
+  | refine restageWith_refines _ _ ?_
   | exact invokeWith_refines machine inner.expr inner.call _ _ _
   | exact exec_refl _
   | exact inner.statement _ _
@@ -702,7 +732,7 @@ theorem leaveBlock_outOfFuel {world : World Declaration Identity Source} (machin
     rfl
 
 -- Every machine function's refinement shares this declaration's budget, which grows with the arms.
-set_option maxHeartbeats 400000 in
+set_option maxHeartbeats 800000 in
 theorem refining {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel extra, Refining machine fuel (fuel + extra)
   | 0, _ => {
@@ -754,8 +784,10 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | refine valued_bind_refines (valued_refl _) fun _ _ => ?_
           | refine valued_bind_refines (fillFields_refines _ inner.expr _ _ _) fun _ _ => ?_
           | exact numericCall_refines _ inner.expr _ _ _ _
-          | exact runPipeline_refines _ inner.stageItems _ _ _ _
+          | exact runPipeline_refines _ inner.stageItems _ _ _ _ _
           | refine valued_bind_refines (pipelineLimit_refines inner.expr _ _) fun _ _ => ?_
+          | refine valued_bind_refines (prepareStages_refines inner.expr _ _) fun _ _ => ?_
+          | refine restageWith_refines _ _ ?_
           | refine gathered_refines _ _ ?_
           | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
           | refine valued_bind_refines (threadEntries_refines _ inner.expr _ _) fun _ _ => ?_
@@ -1148,8 +1180,8 @@ theorem runPipeline_persists {world : World Declaration Identity Source} (contex
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, VKeeps frame.store (run frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
-    (limit : Option Nat) :
-    VKeeps next.store (runPipeline context run next source stages limit) := by
+    (ending : PipelineEnd) (limit : Option Nat) :
+    VKeeps next.store (runPipeline context run next source stages ending limit) := by
   unfold runPipeline
   split
   · exact vbind_persists (each _ _ _ _) fun _ last => finishPipeline_persists _ _ _ last
@@ -1169,6 +1201,37 @@ theorem pipelineLimit_persists {world : World Declaration Identity Source}
       · exact persists_refl _
       · exact fun _ present => by cases present
     · exact fun _ present => by cases present
+
+theorem prepareStage_persists {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source))
+    (frame : Frame world) (stage : Xsh.Syntax.PipeStage) :
+    VKeeps frame.store (prepareStage evaluate frame stage) := by
+  unfold prepareStage
+  split
+  · refine vbind_persists (each _ _) fun value after => ?_
+    split
+    · exact persists_refl _
+    · exact fun _ present => by cases present
+  · exact persists_refl _
+
+theorem prepareStages_persists {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source))
+    (frame : Frame world) (stages : List Xsh.Syntax.PipeStage) :
+    VKeeps frame.store (prepareStages evaluate frame stages) := by
+  induction stages generalizing frame with
+  | nil => exact persists_refl _
+  | cons stage rest ih =>
+    exact vbind_persists (prepareStage_persists each _ _) fun _ _ =>
+      vbind_persists (ih _) fun _ _ => persists_refl _
+
+theorem restageWith_persists {world : World Declaration Identity Source} (stage : Xsh.Syntax.PipeStage)
+    (rest : List Xsh.Syntax.PipeStage) {before : Store world} {outcome : Valued world} (kept : VKeeps before outcome) :
+    VKeeps before (restageWith stage rest outcome) := by
+  cases outcome with
+  | value _ _ => exact kept
+  | exec _ => exact kept
 
 theorem withCollected_persists {world : World Declaration Identity Source}
     (collected : Option (List (Value Declaration Identity Source))) {before : Store world} {outcome : Exec world}
@@ -1563,6 +1626,7 @@ set_option hygiene false in
 /-- Close a persistence goal for one machine step, given `inner` for the
 lower fuel. -/
 local macro "close_persists" : tactic => `(tactic| repeat' (first
+  | refine restageWith_persists _ _ ?_
   | exact invokeWith_persists machine inner.expr inner.call _ _ _
   | exact inner.statement _ _
   | exact inner.statements _ _
@@ -1652,8 +1716,10 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | refine vbind_persists (fromEval_persists _ _) fun _ _ => ?_
     | refine vbind_persists (fillFields_persists _ inner.expr _ _ _) fun _ _ => ?_
     | exact numericCall_persists _ inner.expr _ _ _ _
-    | exact runPipeline_persists _ inner.stageItems _ _ _ _
+    | exact runPipeline_persists _ inner.stageItems _ _ _ _ _
     | refine vbind_persists (pipelineLimit_persists inner.expr _ _) fun _ _ => ?_
+    | refine vbind_persists (prepareStages_persists inner.expr _ _) fun _ _ => ?_
+    | refine restageWith_persists _ _ ?_
     | exact finishPipeline_persists _ _ _ _
     | refine gathered_persists _ _ ?_
     | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
@@ -2122,8 +2188,8 @@ theorem runPipeline_restores {world : World Declaration Identity Source} (contex
     {run : Frame world → List Xsh.Syntax.PipeStage → Option Nat → List (Value Declaration Identity Source) → Valued world}
     (each : ∀ frame stages limit items, VRestores frame (run frame stages limit items))
     (next : Frame world) (source : Value Declaration Identity Source) (stages : List Xsh.Syntax.PipeStage)
-    (limit : Option Nat) :
-    VRestores next (runPipeline context run next source stages limit) := by
+    (ending : PipelineEnd) (limit : Option Nat) :
+    VRestores next (runPipeline context run next source stages ending limit) := by
   unfold runPipeline
   split
   · exact vbind_restores (each _ _ _ _) fun _ last => finishPipeline_restores _ _ _ last
@@ -2143,6 +2209,37 @@ theorem pipelineLimit_restores {world : World Declaration Identity Source}
       · exact ⟨rfl, rfl⟩
       · exact vrestores_none rfl
     · exact vrestores_none rfl
+
+theorem prepareStage_restores {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source))
+    (frame : Frame world) (stage : Xsh.Syntax.PipeStage) :
+    VRestores frame (prepareStage evaluate frame stage) := by
+  unfold prepareStage
+  split
+  · refine vbind_restores (each _ _) fun value after => ?_
+    split
+    · exact ⟨rfl, rfl⟩
+    · exact vrestores_none rfl
+  · exact ⟨rfl, rfl⟩
+
+theorem prepareStages_restores {world : World Declaration Identity Source}
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source))
+    (frame : Frame world) (stages : List Xsh.Syntax.PipeStage) :
+    VRestores frame (prepareStages evaluate frame stages) := by
+  induction stages generalizing frame with
+  | nil => exact ⟨rfl, rfl⟩
+  | cons stage rest ih =>
+    exact vbind_restores (prepareStage_restores each _ _) fun _ _ =>
+      vbind_restores (ih _) fun _ _ => ⟨rfl, rfl⟩
+
+theorem restageWith_restores {world : World Declaration Identity Source} (stage : Xsh.Syntax.PipeStage)
+    (rest : List Xsh.Syntax.PipeStage) {frame : Frame world} {outcome : Valued world} (held : VRestores frame outcome) :
+    VRestores frame (restageWith stage rest outcome) := by
+  cases outcome with
+  | value _ _ => exact held
+  | exec _ => exact held
 
 theorem withCollected_restores {world : World Declaration Identity Source}
     (collected : Option (List (Value Declaration Identity Source))) {frame : Frame world} {outcome : Exec world}
@@ -2518,6 +2615,7 @@ structure Restoring {world : World Declaration Identity Source} (machine : Machi
 
 set_option hygiene false in
 local macro "close_restores" : tactic => `(tactic| repeat' (first
+  | refine restageWith_restores _ _ ?_
   | exact valueMethodCall_restores _ inner.expr _ _ _ _
   | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
   | exact ⟨rfl, rfl⟩
@@ -2570,8 +2668,10 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine vbind_restores (outcomeLeave_restores _ (settled_of_vrestores (inner.expr _ _))) fun _ _ => ?_
   | refine vbind_restores (fromEval_restores _ _) fun _ _ => ?_
   | exact numericCall_restores _ inner.expr _ _ _ _
-  | exact runPipeline_restores _ inner.stageItems _ _ _ _
+  | exact runPipeline_restores _ inner.stageItems _ _ _ _ _
   | refine vbind_restores (pipelineLimit_restores inner.expr _ _) fun _ _ => ?_
+  | refine vbind_restores (prepareStages_restores inner.expr _ _) fun _ _ => ?_
+  | refine restageWith_restores _ _ ?_
   | exact finishPipeline_restores _ _ _ _
   | refine vbind_restores (threadEntries_restores _ inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (inner.comprehendItems _ _ _ _ _) fun _ _ => ?_
