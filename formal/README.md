@@ -503,8 +503,8 @@ environment).
 Statements:
 
 - every stage but value calls, argument-free `where`, `map`, `flat-map` and `tee`,
-  `drop(n)`, `enumerate`, `sort`, `sort-by`, `batch(count:)`, `unique-by`,
-  `group-by`, `repeat(n)` and `zip(other)` over a list source, a `take(n)` after them, and
+  `drop(n)` and `enumerate`, and `sort`, `sort-by`, `batch(count:)`,
+  `unique-by`, `group-by`, `repeat(n)` and `zip(other)` over a list source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
   `max()`, `any`, `all`, `fold`, `reduce`, `each`, `count { key }` or
   `reduce-by`, and a `Stream[T]` from anything but a producer (E)
@@ -982,14 +982,18 @@ yield passes the item through them in the pipeline's scope and gathers what
 it becomes into the stream's entry. As the binary records `1, 20, 1, 21, 7`
 and gives `[0,7]` for `count(2) |> map { |x| trace += [x + 20]; x * 7 }`, so
 do the witnesses, which reject collecting the source first, and a piped
-stream is consumed. Over a list source, `drop(n)` and `enumerate` keep state
+stream is consumed. Over a list source or a producer, `drop(n)` and `enumerate` keep state
 from item to item: each `drop(n)` argument is evaluated once, in stage
 order, before any item is pulled, and becomes `n` stages that each drop one
 item and leave (`prepareStages`), and an `enumerate` passes `{index, value}`
 on and counts one more; each item hands the stages it left on to the next
 through the frame's `restaged`. As the binary gives `[21,31,41]` and logs
 `dmmnmnmn` for `map |> drop(note) |> map`, so do the witnesses, which reject
-a drop applied after the stages materialized. A closing `fold(init)` or
+a drop applied after the stages materialized. A producer's sink consumer
+carries the stages each yield left (`resumeStaged`), so `count(8) |> drop(2)
+|> take(2)` gives `[2,3]` after four yields, as in the binary; a consumer
+without stages under a `take` limit now stops at the limit too, where it
+had gathered every yield. A closing `fold(init)` or
 `reduce(init)` with an `|acc, item|` block (`closePipeline`, `foldValues`)
 evaluates its initial value once every item has reached it, as the binary
 logs `mmmifff` for a logging `map` and initial value, then runs the callback

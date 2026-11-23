@@ -280,8 +280,9 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
       split at finished
       · cases finished
         exact keep _ environment
-      · split at finished <;> first
+      · split at finished <;> (try split at finished) <;> first
           | exact keep _ ((gather_normal finished).1.trans environment)
+          | exact keep _ ((resumeStaged_normal finished).1.trans environment)
           | exact keep _ ((resumeProducer_normal finished).1.trans environment)
       · cases finished
     | yieldDelegate value =>
@@ -297,8 +298,9 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
           exact keep _ environment
         · cases finished
       · exact keep _ ((delegateItems_normal (fun _ _ _ resumed => by
-          split at resumed <;> first
+          split at resumed <;> (try split at resumed) <;> first
             | exact gather_normal resumed
+            | exact resumeStaged_normal resumed
             | exact resumeProducer_normal resumed) _ _ _
           finished).1.trans environment)
       · cases finished

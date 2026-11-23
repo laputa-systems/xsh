@@ -974,6 +974,15 @@ def resumeProducer {world : World Declaration Identity Source} (producer : Frame
   | .consumed exit after => .consumed exit (producer.resumedBy after)
   | other => other
 
+/-- `resumeProducer` for a sink consumer whose stages keep state: the
+producer resumes with its consumer carrying the stages the item left them
+as, which the next yield sees. -/
+def resumeStaged {world : World Declaration Identity Source} (producer : Frame world) (loop : Consumer world)
+    (outer : List (Consumer world)) (stages : List Xsh.Syntax.PipeStage) (outcome : Exec world) : Exec world :=
+  resumeProducer
+    { producer with consumers := { loop with stages := ((frameOf outcome).bind Frame.restaged).getD stages } :: outer }
+    outcome
+
 /-- The not yet consumed stream a value names, with its creation index. -/
 def pendingStream {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
     (value : Value Declaration Identity Source) : Option (Nat × Option (Closure × List (Supplied Declaration Identity Source))) :=
@@ -3426,11 +3435,11 @@ mutual
             | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
-              if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
+              if prepared.any isMaterializing then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
-                    consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
+                    consumers := { sinkConsumer after index with stages := prepared, limit } ::
                       after.consumers }
                   closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 out last
@@ -3944,9 +3953,13 @@ mutual
           | some gathered, _ => .normal { next with collected := some (gathered ++ [result]) }
           | none, loop :: outer =>
             match loop.sink, loop.stages with
-            | some index, [] => next.gather index result
+            | some index, [] =>
+              if loop.limit.isNone then next.gather index result
+              else
+                resumeStaged next loop outer []
+                  ((consumerFrame next loop outer).gatherAll index loop.limit (.list [result]))
             | some index, stages =>
-              resumeProducer next
+              resumeStaged next loop outer stages
                 ((stageItem machine fuel (consumerFrame next loop outer) stages result).toExec fun out after =>
                   after.gatherAll index loop.limit out)
             | none, _ =>
@@ -3970,9 +3983,13 @@ mutual
           | none, some items, loop :: outer =>
             delegateItems (fun current item =>
               match loop.sink, loop.stages with
-              | some index, [] => current.gather index item
+              | some index, [] =>
+                if loop.limit.isNone then current.gather index item
+                else
+                  resumeStaged current loop outer []
+                    ((consumerFrame current loop outer).gatherAll index loop.limit (.list [item]))
               | some index, stages =>
-                resumeProducer current
+                resumeStaged current loop outer stages
                   ((stageItem machine fuel (consumerFrame current loop outer) stages item).toExec fun out after =>
                     after.gatherAll index loop.limit out)
               | none, _ =>

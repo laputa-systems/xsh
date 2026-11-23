@@ -65,11 +65,11 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
             | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
-              if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
+              if prepared.any isMaterializing then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
-                    consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
+                    consumers := { sinkConsumer after index with stages := prepared, limit } ::
                       after.consumers }
                   closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 out last
@@ -698,6 +698,30 @@ and `1 1`. -/
 theorem first_value_reduce_rejected :
     readCounts (runOptions (closing (items ["1", "2", "7"]) [reduceBy maxName (keyed (.binary .rem .item (int "2")) .item)])) ≠
       some [("0", 2), ("1", 1)] := by
+  decide +kernel
+
+/-- As the verification binary gives `[2,3]` and yields four times for
+`count(8) |> drop(2) |> take(2)`, and numbers `count(2)`'s items under
+`enumerate`: a producer's consumer keeps the stages each yield left, so the
+drop and the count hold across yields, and the producer stops, running its
+exit `defer`, once two items reach the end; a bare `take(2)` over `count(8)`
+gives `[0,1]` too. -/
+theorem live_drop_enumerate_witness :
+    readList closingVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [drop (int "2"), take "2"])) = some [2, 3] ∧
+    readList traceVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [drop (int "2"), take "2"])) = some [1, 1, 1, 1, 7] ∧
+    indexed (readValue (runCanonical (closing (.call (ident countFn) [.positional (int "2")]) [enumerated]))) =
+      some [(0, 0), (1, 1)] ∧
+    readList closingVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")]) [take "2"])) =
+      some [0, 1] := by
+  decide +kernel
+
+/-- A consumer that forgot the stages each yield left would drop every item
+of `count(8) |> drop(2)`. -/
+theorem forgetful_consumer_rejected :
+    readList closingVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
+      [drop (int "2"), take "2"])) ≠ some [] := by
   decide +kernel
 
 end Witness

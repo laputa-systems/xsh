@@ -430,6 +430,14 @@ theorem closePipeline_refines {world : World Declaration Identity Source} (conte
     | refine valued_bind_refines (keyItems_refines scopes _ _ _ _) fun _ _ => ?_
     | split)
 
+theorem resumeStaged_refines {world : World Declaration Identity Source} (producer : Frame world)
+    (loop : Consumer world) (outer : List (Consumer world)) (stages : List Xsh.Syntax.PipeStage)
+    {first second : Exec world} (refined : Exec.Refines first second) :
+    Exec.Refines (resumeStaged producer loop outer stages first) (resumeStaged producer loop outer stages second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact exec_refl _
+
 theorem gathered_refines {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
     {first second : Valued world} (refined : Valued.Refines first second) :
     Valued.Refines (gathered loop index first) (gathered loop index second) := by
@@ -785,6 +793,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine delegatedStream_refines ?_
   | exact invokeSupplied_refines machine inner.expr inner.call _ _ _
   | refine resumeProducer_refines _ ?_
+  | refine resumeStaged_refines _ _ _ _ ?_
   | refine delegateItems_refines (fun _ _ => ?_) _ _
   | refine settle_refines (inner.leaves _) (leaveBlock_outOfFuel _ _ _) ?_
   | refine inner.leaves _ _ _ ?_
@@ -1452,6 +1461,12 @@ theorem resumeProducer_persists {world : World Declaration Identity Source} (pro
   | consumed _ after => exact fun scope present => by cases present; exact kept after rfl
   | stuck | unsupported | outOfFuel => exact kept
 
+theorem resumeStaged_persists {world : World Declaration Identity Source} (producer : Frame world)
+    (loop : Consumer world) (outer : List (Consumer world)) (stages : List Xsh.Syntax.PipeStage)
+    {before : Store world} {outcome : Exec world} (kept : Keeps before outcome) :
+    Keeps before (resumeStaged producer loop outer stages outcome) := by
+  unfold resumeStaged; exact resumeProducer_persists _ kept
+
 theorem delegatedStream_persists {world : World Declaration Identity Source} {before : Store world}
     {outcome : Valued world} (kept : VKeeps before outcome) : Keeps before (delegatedStream outcome) := by
   cases outcome with
@@ -1842,6 +1857,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine delegatedStream_persists ?_
   | exact invokeSupplied_persists machine inner.expr inner.call _ _ _
   | refine resumeProducer_persists _ ?_
+  | refine resumeStaged_persists _ _ _ _ ?_
   | refine delegateItems_persists (fun _ _ => ?_) _ _
   | refine settle_persists (inner.leaves _) ?_
   | exact vkeeps_exec fun _ present => by cases present
@@ -1899,6 +1915,8 @@ theorem persisting_value {world : World Declaration Identity Source} (machine : 
   simp only [runValue]
   close_persists
 
+-- The macro closes every `runStatement` arm in one search, and its cost grows with the arms.
+set_option maxHeartbeats 400000 in
 theorem persisting_statement {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (inner : Persisting machine fuel) :
     ∀ frame statement, Keeps frame.store (runStatement machine (fuel + 1) frame statement) := by
@@ -2583,6 +2601,22 @@ theorem resumeProducer_restores {world : World Declaration Identity Source} (fra
   cases outcome <;> first
     | exact fun scope present => by cases present; exact same
     | exact fun scope present => by cases present
+
+theorem resumeStaged_restores {world : World Declaration Identity Source} (frame producer : Frame world)
+    (loop : Consumer world) (outer : List (Consumer world)) (stages : List Xsh.Syntax.PipeStage)
+    (same : producer.environment = frame.environment ∧ producer.locals = frame.locals) (outcome : Exec world) :
+    Restores frame (resumeStaged producer loop outer stages outcome) := by
+  unfold resumeStaged
+  refine resumeProducer_restores frame _ ?_ outcome
+  exact same
+
+theorem resumeStaged_normal {world : World Declaration Identity Source} {producer next : Frame world}
+    {loop : Consumer world} {outer : List (Consumer world)} {stages : List Xsh.Syntax.PipeStage}
+    {outcome : Exec world} (resumed : resumeStaged producer loop outer stages outcome = .normal next) :
+    next.environment = producer.environment ∧ next.locals = producer.locals := by
+  unfold resumeStaged at resumed
+  have held := resumeProducer_normal resumed
+  exact held
 
 theorem controlValue_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
