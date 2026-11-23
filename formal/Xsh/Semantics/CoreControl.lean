@@ -3511,6 +3511,16 @@ mutual
         expectSchemaElements spelling declarations element rest
 end
 
+/-- A record schema's fields as the parameters its constructor fills, each
+annotated with the field's type (SPEC 4.7). -/
+def fieldParameters (fields : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.Parameter :=
+  fields.map fun | .mk name type default => .mk name (some type) default false
+
+/-- An error variant's payload fields as parameters annotated with their
+types (SPEC 4.10). -/
+def payloadParameters (fields : List (Xsh.Syntax.RawName × Xsh.Syntax.TypeExpr)) : List Xsh.Syntax.Parameter :=
+  fields.map fun (name, type) => .mk name (some type) none false
+
 /-- A function body whose tail and top-level `return` operands are brace
 literals under the declared result, expanded by its record schema. -/
 def expectSchemaBody (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
@@ -3748,7 +3758,9 @@ mutual
               .value (declaredError machine family variant facets text [("message", .scalar (.string text))]) after
             | _ => .exec .stuck
         | some (family, .mk variant fields facets), _ =>
-          (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+          (threadArguments machine.context.spelling (evalExpr machine fuel) frame
+              (expectArguments machine.context.spelling (payloadParameters fields) (payloadParameters fields) arguments)).bind
+            fun supplied after =>
             match placeArguments machine.context.spelling (fields.map Prod.fst) supplied with
             | none => .exec .stuck
             | some placed =>
@@ -3833,7 +3845,9 @@ mutual
             match frame.locals.lookup name, machine.context.functions name, schemaOf machine.declarations name,
                 variantOf machine.context.spelling machine.declarations name with
             | none, none, some (fields, nominal), _ =>
-              (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+              (threadArguments machine.context.spelling (evalExpr machine fuel) frame
+                  (expectArguments machine.context.spelling (fieldParameters fields) (fieldParameters fields) arguments)).bind
+                fun supplied after =>
                 match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1) supplied with
                 | none => .exec .stuck
                 | some placed =>

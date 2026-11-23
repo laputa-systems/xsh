@@ -526,8 +526,8 @@ Expressions:
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice`, the integer parse methods,
   `parse_float`, `lower` and `upper` (P)
-- the contextual `.require()` under a constructor field, a schema under a
-  `return` nested in a statement, or any other expected position (P)
+- the contextual `.require()` under a schema below a `return` nested in a
+  statement, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
@@ -828,9 +828,12 @@ annotated `List[T]`, as the binary resolves `{ inner: { c: .Red } }` and
 `[{ c: .Green }]`. A declared result's tail and top-level `return`s
 (`expectSchemaBody`) and the arguments of annotated parameters
 (`schemaArguments`) expand the same way, as the binary resolves
-`proc f() -> P { { c: .Red } }` and `h({ c: .Green })`; constructor fields
-and a schema under a `return` nested in a statement are not yet expected
-positions. The other operand of `==` or `!=` targets a leading-dot name on
+`proc f() -> P { { c: .Red } }` and `h({ c: .Green })`. A record or error
+variant constructor's field types are the expected types of the arguments
+that fill them (`fieldParameters`, `payloadParameters` through
+`expectArguments`), as the binary resolves `P(c: .Red, n: 1)`, `P(.Green, 2)`
+and `Bad.Paint(c: .Green)`; a schema under a `return` nested in a statement is
+not yet an expected position. The other operand of `==` or `!=` targets a leading-dot name on
 either side when it evaluates to an enum's variant, and `null` there compares
 unequal, as the binary prints `true true true false` for `a == .Red`,
 `a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the

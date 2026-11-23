@@ -679,6 +679,44 @@ theorem schema_call_witness :
     fieldVariant (valueOf (slot 2) schemaCallRun) = some "Warn" := by
   decide +kernel
 
+def badFamily : Xsh.Syntax.RawName := name 401 (by decide)
+def paintVariant : Xsh.Syntax.RawName := name 402 (by decide)
+
+/-- `error Bad = Paint(c: Level)`. -/
+def declareBad : Xsh.Syntax.Statement := .errorDef badFamily [.mk paintVariant [(cField, .named levelName)] []]
+
+def constructorFieldMachine : Machine witnessWorld :=
+  { holderMachine with
+    context := { holderMachine.context with
+      spelling := fun named =>
+        if named = badFamily then "Bad" else if named = paintVariant then "Paint"
+        else holderMachine.context.spelling named }
+    declarations := holderMachine.declarations ++ [declareBad] }
+
+def constructorFieldRun : Exec witnessWorld := runScript constructorFieldMachine 90 fullStart
+  [declareLevel, declareHolder, declareBad,
+   letOf (slot 0) (.call (ident holderName) [.named cField (dot warnName), .named nField (int "1")]),
+   letOf (slot 1) (.call (ident holderName) [.positional (dot infoName), .positional (int "2")]),
+   letOf (slot 2) (.call (.field (ident badFamily) paintVariant) [.named cField (dot warnName)])]
+
+/-- The variant an error's `c` payload field holds. -/
+def payloadVariant : Option (Value Unit Unit Unit) → Option String
+  | some (.error data) =>
+    match data.payload.lookup "c" with
+    | some (.tagged _ variant _) => some variant
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints `true true Bad.Paint` for
+`P(c: .Red, n: 1)`, `P(.Green, 2)` and `Bad.Paint(c: .Green)`: a constructor's
+field types are the expected types of the arguments that fill them, named or
+positional. -/
+theorem constructor_field_witness :
+    fieldVariant (valueOf (slot 0) constructorFieldRun) = some "Warn" ∧
+    fieldVariant (valueOf (slot 1) constructorFieldRun) = some "Info" ∧
+    payloadVariant (valueOf (slot 2) constructorFieldRun) = some "Warn" := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Variants

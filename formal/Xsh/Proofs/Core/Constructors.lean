@@ -32,7 +32,8 @@ when the schema is. An error constructor `Family.Variant(...)` builds an
 `Error` with the family's declaration identity, the variant, its facets and
 payload: a variant without a payload carries only its message, which is its
 one optional positional argument or `Family.Variant`; a variant with a payload
-places its arguments like a record constructor, and its `.message` "is its
+places its arguments like a record constructor, each field's type the expected
+type of the argument that fills it, and its `.message` "is its
 `message: Str` field when it declares one and its family and variant name
 otherwise". The checker's declaration identity is an oracle. -/
 theorem declared_constructors {world : World Declaration Identity Source} (machine : Machine world) :
@@ -63,7 +64,9 @@ theorem declared_constructors {world : World Declaration Identity Source} (machi
     (∀ fuel (frame : Frame world) receiver method arguments family variant first rest facets,
       errorConstructor machine frame receiver method = some (family, .mk variant (first :: rest) facets) →
           evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
-            (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+            (threadArguments machine.context.spelling (evalExpr machine fuel) frame
+                (expectArguments machine.context.spelling (payloadParameters (first :: rest))
+                  (payloadParameters (first :: rest)) arguments)).bind fun supplied after =>
               match placeArguments machine.context.spelling ((first :: rest).map Prod.fst) supplied with
               | none => .exec .stuck
               | some placed =>
