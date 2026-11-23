@@ -169,6 +169,15 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     pub(super) fn lower_bool_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildBoolId> {
+        let result = self.lower_bool_expr_candidate_inner(expr);
+        if let Some(lowered) = result {
+            let mut scratch = self.scratch.borrow_mut();
+            scratch.bool_spans[lowered.index()] = scratch.expression_spans[expr.index()];
+        }
+        result
+    }
+
+    fn lower_bool_expr_candidate_inner(&self, expr: &BuildExprId) -> Option<BuildBoolId> {
         let row = {
             let scratch = self.scratch.borrow();
             scratch.expressions[expr.index()].clone()
@@ -788,6 +797,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             if slot_types.get(config.block_depth_slot) != Some(&Some(super::Type::Int)) || !self.scan_guard(body, while_index, index_slot, line_len_slot, ch_slot, next_slot, &config) { return None; }
             config.nested = self.scan_exact_body(loop_body[2], &config, index_slot, line_len_slot, ch_slot, next_slot)?;
             let scan = push_build_row!(self, stmt, BuildStmtRow::ScanBytes { config });
+            let mut scratch = self.scratch.borrow_mut();
+            scratch.statement_spans[scan.index()] = scratch.statement_spans[while_id.index()];
+            drop(scratch);
             let mut lowered = body.to_vec();
             lowered[while_index] = scan;
             return Some(lowered);
@@ -836,6 +848,10 @@ impl CompactLowerConstructProbe<'_, '_> {
         if slot_types.get(config.block_depth_slot) != Some(&Some(super::Type::Int)) || !self.scan_guard(body, while_index, index_slot, line_len_slot, ch_slot, next_slot, &config) { return None; }
         config.nested = self.scan_exact_body(loop_body[2], &config, index_slot, line_len_slot, ch_slot, next_slot)?;
         let scan = push_build_row!(self, stmt, BuildStmtRow::ScanBytes { config });
+
+        let mut scratch = self.scratch.borrow_mut();
+        scratch.statement_spans[scan.index()] = scratch.statement_spans[while_id.index()];
+        drop(scratch);
         let mut lowered = body.to_vec();
         lowered[while_index] = scan;
         Some(lowered)

@@ -1,2 +1,5 @@
 #!/usr/bin/env -S xsh --
 print "suffixless"
+if false {
+  print "unreachable"
+}

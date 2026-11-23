@@ -94,6 +94,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             )?);
             return Some(lowered);
         }
+        let tail_span = self.program.arena.stmt(tail).span;
         let tail = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::Expr(expr) => {
                 push_build_row!(
@@ -215,6 +216,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,
         };
+        self.scratch.borrow_mut().statement_spans[tail.index()] = Some(tail_span);
         if transfers_resource {
             self.scratch.borrow_mut().mark_resource_transfer(tail);
         }

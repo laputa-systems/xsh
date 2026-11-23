@@ -6,9 +6,10 @@ use xsh::api::{MethodReceiver, api_spec};
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId,
-    StmtId,
+    ArenaExprKind, ArenaPatternKind, ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId,
+    PatternId, StmtId,
 };
+use xsh::frontend::syntax::node::BinaryOp;
 
 
 #[derive(Clone, Debug, Default)]
@@ -35,6 +36,7 @@ struct SourceCoverage {
     line_tests: BTreeMap<usize, BTreeSet<String>>,
     proc_hits: BTreeMap<usize, u64>,
     proc_name_hits: BTreeMap<String, u64>,
+    branches: BTreeMap<(usize, usize, usize, String), BTreeMap<String, u64>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -42,6 +44,9 @@ struct SourceMetadata {
     executable_lines: BTreeSet<usize>,
     proc_decls: BTreeMap<String, usize>,
     lines_basis: bool,
+    branches: BTreeMap<(usize, usize, usize, String), BTreeMap<String, u64>>,
+    match_aliases: BTreeMap<(usize, usize), BTreeMap<String, String>>,
+    if_condition_lines: BTreeMap<(usize, usize), Vec<usize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +60,7 @@ struct SourceFileCoverage {
     category: String,
     executable_set: BTreeSet<usize>,
     line_tests: BTreeMap<usize, BTreeSet<String>>,
+    branches: BTreeMap<(usize, usize, usize, String), BTreeMap<String, u64>>,
 }
 
 impl CoverageCollector {
@@ -94,6 +100,9 @@ impl CoverageCollector {
                 executable_lines: executable_line_numbers(&file_text),
                 proc_decls: proc_decl_lines(&file_text),
                 lines_basis: true,
+                branches: BTreeMap::new(),
+                match_aliases: BTreeMap::new(),
+                if_condition_lines: BTreeMap::new(),
             };
             // Each file loads with its own project module roots, as it
             // does when it runs. Metadata is best effort: a file that does
@@ -142,6 +151,11 @@ impl CoverageCollector {
     }
 
     fn ingest_test_jsonl(&mut self, id: &str, jsonl: &str) -> Result<(), String> {
+        let has_statements = jsonl.lines().any(|line| {
+            xsh::host::json::parse(line).ok().is_some_and(|value| {
+                value.get("kind").and_then(|value| value.as_str()) == Some("coverage.statement")
+            })
+        });
         for (index, line) in jsonl.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
@@ -153,6 +167,13 @@ impl CoverageCollector {
                 .unwrap_or("");
             if kind == "source.file" {
                 self.ingest_source_file(&value);
+                continue;
+            }
+            if kind == "coverage.branch" {
+                self.ingest_branch(id, &value);
+                continue;
+            }
+            if kind == "coverage.statement" && value.get("count").and_then(|value| value.as_u64()) == Some(0) {
                 continue;
             }
             if self.include_api
@@ -167,13 +188,17 @@ impl CoverageCollector {
                 hits.events += 1;
             }
             if let Some(span) = value.get("source_span") {
-                self.ingest_source_span(
-                    id,
-                    kind,
-                    value.get("name").and_then(|value| value.as_str()),
-                    span,
-                    value.get("definition_span").is_none(),
-                );
+                if !has_statements || kind == "coverage.statement" {
+                    self.ingest_source_span(
+                        id,
+                        kind,
+                        value.get("name").and_then(|value| value.as_str()),
+                        span,
+                        value.get("definition_span").is_none(),
+                    );
+                } else if (kind == "proc.enter" || kind == "pure.enter") && value.get("definition_span").is_none() {
+                    self.ingest_proc_definition(value.get("name").and_then(|value| value.as_str()), span);
+                }
             }
             if (kind == "proc.enter" || kind == "pure.enter")
                 && let Some(span) = value.get("definition_span")
@@ -236,7 +261,13 @@ impl CoverageCollector {
             ("test_collection".to_string(), self.test_status.iter().map(|(id, status)| (id.clone(), JsonValue::from(status.as_str()))).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()),
             ("source_totals_by_basis".to_string(), ["ast", "lines"].into_iter().map(|basis| {
                 let files: Vec<_> = source_files.iter().filter(|file| file.basis == basis).collect();
-                let counts = [("covered_lines".to_string(), JsonValue::from(files.iter().map(|file| file.covered_lines).sum::<usize>())), ("executable_lines".to_string(), JsonValue::from(files.iter().map(|file| file.executable_lines).sum::<usize>())), ("covered_procs".to_string(), JsonValue::from(files.iter().map(|file| file.covered_procs).sum::<usize>())), ("total_procs".to_string(), JsonValue::from(files.iter().map(|file| file.total_procs).sum::<usize>()))];
+                let counts = [
+                    ("covered_lines".to_string(), JsonValue::from(files.iter().map(|file| file.covered_lines).sum::<usize>())),
+                    ("executable_lines".to_string(), JsonValue::from(files.iter().map(|file| file.executable_lines).sum::<usize>())),
+                    ("covered_procs".to_string(), JsonValue::from(files.iter().map(|file| file.covered_procs).sum::<usize>())),
+                    ("total_procs".to_string(), JsonValue::from(files.iter().map(|file| file.total_procs).sum::<usize>())),
+                    ("fused_branch_points".to_string(), JsonValue::from(files.iter().flat_map(|file| file.branches.values()).filter(|arms| arms.get("fused").is_some_and(|count| *count > 0)).count())),
+                ];
                 (basis.to_string(), counts.into_iter().collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>())
             }).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()),
             ("unavailable_sources".to_string(), self.source_hits.iter().filter(|(file, _)| self.read_source_text(file).is_none()).map(|(file, hits)| {
@@ -299,6 +330,49 @@ impl CoverageCollector {
         }
     }
 
+    fn ingest_branch(&mut self, id: &str, value: &JsonValue) {
+        let Some(span) = value.get("source_span") else { return; };
+        let Some(file) = span.get("file").and_then(|value| value.as_str()) else { return; };
+        if !self.include_source_file(file) { return; }
+        let Some(start) = span.get("start_offset").and_then(|value| value.as_u64()).and_then(|value| usize::try_from(value).ok()) else { return; };
+        let Some(end) = span.get("end_offset").and_then(|value| value.as_u64()).and_then(|value| usize::try_from(value).ok()) else { return; };
+        let Some(line) = span.get("start_line").and_then(|value| value.as_u64()).and_then(|value| usize::try_from(value).ok()) else { return; };
+        let Some((kind, arm)) = value.get("outcome").and_then(|value| value.as_str()).and_then(|value| value.split_once(':')) else { return; };
+        let Some(count) = value.get("count").and_then(|value| value.as_u64()) else { return; };
+        let display = self.display_source_file(file);
+        if kind == "fused" && arm == "span" && count > 0 {
+            if let Some(metadata) = self.source_metadata.get(&display) {
+                let end_line = span.get("end_line").and_then(|value| value.as_u64()).and_then(|value| usize::try_from(value).ok()).unwrap_or(line);
+                let hits = self.source_hits.entry(display).or_default();
+                for covered in metadata.executable_lines.range(line..=end_line) {
+                    hits.covered_lines.insert(*covered);
+                    hits.line_tests.entry(*covered).or_default().insert(id.to_string());
+                }
+                for (point, _) in metadata.branches.range((start, 0, 0, String::new())..) {
+                    if point.0 > end { break; }
+                    if point.1 <= end {
+                        *hits.branches.entry(point.clone()).or_default().entry("fused".to_string()).or_default() += count;
+                    }
+                }
+            }
+            return;
+        }
+        if kind == "if" && count > 0
+            && let Some(lines) = self.source_metadata.get(&display).and_then(|metadata| metadata.if_condition_lines.get(&(start, end)))
+        {
+            let evaluated = if arm == "else" { lines.len() } else {
+                arm.strip_prefix("arm:").and_then(|value| value.parse::<usize>().ok()).map_or(0, |index| index.saturating_add(1))
+            };
+            let entry = self.source_hits.entry(display.clone()).or_default();
+            for line in lines.iter().take(evaluated) {
+                entry.covered_lines.insert(*line);
+                entry.line_tests.entry(*line).or_default().insert(id.to_string());
+            }
+        }
+        *self.source_hits.entry(display).or_default().branches
+            .entry((start, end, line, kind.to_string())).or_default().entry(arm.to_string()).or_default() += count;
+    }
+
     fn ingest_source_span(
         &mut self,
         id: &str,
@@ -323,6 +397,7 @@ impl CoverageCollector {
             .and_then(|value| value.as_u64())
             .and_then(|line| usize::try_from(line).ok())
             .unwrap_or(start_line);
+        let end_line = if kind == "coverage.statement" { start_line } else { end_line };
         let entry = self
             .source_hits
             .entry(self.display_source_file(file))
@@ -418,6 +493,9 @@ impl CoverageCollector {
                 executable_lines: executable_line_numbers(&text),
                 proc_decls: proc_decl_lines(&text),
                 lines_basis: true,
+                branches: BTreeMap::new(),
+                match_aliases: BTreeMap::new(),
+                if_condition_lines: BTreeMap::new(),
             };
             let metadata = self.source_metadata.get(&file).unwrap_or(&fallback);
             let covered_lines = hits
@@ -432,6 +510,15 @@ impl CoverageCollector {
                     hits.proc_hits.contains_key(line) || hits.proc_name_hits.contains_key(*name)
                 })
                 .count();
+            let mut branches = metadata.branches.clone();
+            for (point, arms) in hits.branches {
+                let aliases = metadata.match_aliases.get(&(point.0, point.1));
+                let target = branches.entry(point).or_default();
+                for (arm, count) in arms {
+                    let arm = aliases.and_then(|aliases| aliases.get(&arm)).cloned().unwrap_or(arm);
+                    *target.entry(arm).or_default() += count;
+                }
+            }
             files.push(SourceFileCoverage {
                 file: file.clone(),
                 executable_lines: metadata.executable_lines.len(),
@@ -442,6 +529,7 @@ impl CoverageCollector {
                 category: if Path::new(&file).is_absolute() { "outside_root" } else { "root" }.to_string(),
                 executable_set: metadata.executable_lines.clone(),
                 line_tests: hits.line_tests,
+                branches,
             });
         }
         files.sort_by(|a, b| a.file.cmp(&b.file));
@@ -621,12 +709,24 @@ impl CoverageCollector {
 }
 
 fn source_file_json(file: SourceFileCoverage) -> JsonValue {
+    let branch_total = file.branches.values().map(|arms| arms.keys().filter(|arm| arm.as_str() != "fused").count()).sum::<usize>();
+    let branch_covered = file.branches.values().flat_map(|arms| arms.iter()).filter(|(arm, count)| arm.as_str() != "fused" && **count > 0).count();
+    let fused_branch_points = file.branches.values().filter(|arms| arms.get("fused").is_some_and(|count| *count > 0)).count();
     ([
         ("file".to_string(), JsonValue::from(file.file)),
         ("denominator_basis".to_string(), JsonValue::from(file.basis)),
         ("category".to_string(), JsonValue::from(file.category)),
         ("executable_line_numbers".to_string(), file.executable_set.iter().copied().map(JsonValue::from).collect::<JsonValue>()),
         ("line_tests".to_string(), line_tests_json(&file.line_tests)),
+        ("branches".to_string(), file.branches.into_iter().map(|((start, end, line, kind), arms)| {
+            [("start_offset".to_string(), JsonValue::from(start)), ("end_offset".to_string(), JsonValue::from(end)),
+             ("line".to_string(), JsonValue::from(line)), ("kind".to_string(), JsonValue::from(kind)),
+             ("arms".to_string(), arms.into_iter().map(|(arm, count)| (arm, JsonValue::from(count))).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>())]
+                .into_iter().collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+        }).collect::<JsonValue>()),
+        ("fused_branch_points".to_string(), JsonValue::from(fused_branch_points)),
+        ("total_branch_arms".to_string(), JsonValue::from(branch_total)),
+        ("covered_branch_arms".to_string(), JsonValue::from(branch_covered)),
         (
             "executable_lines".to_string(),
             JsonValue::from(file.executable_lines),
@@ -663,6 +763,68 @@ fn parse_source_metadata(
         by_source.insert(file.id(), SourceMetadata::default());
     }
 
+    let rows = parsed.arena.arena.source_rows();
+    for file in sources.files() {
+        for statement in rows.stmt_ids(file.id()).filter(|id| !parsed.arena.arena.stmt_is_synthetic(*id)) {
+            let node = parsed.arena.arena.stmt(statement);
+            match node.kind {
+                ArenaStmtKind::If { branches, .. } => {
+                    let mut arms = (0..parsed.arena.arena.if_branches(branches).len()).map(|index| format!("arm:{index}")).collect::<Vec<_>>();
+                    arms.push("else".to_string());
+                    register_branch(&sources, &mut by_source, node.span, "if", arms);
+                    let lines = parsed.arena.arena.if_branches(branches).iter().filter_map(|branch| {
+                        let span = parsed.arena.arena.expr(branch.condition).span;
+                        sources.location(span.source_id, span.start()).map(|location| location.line)
+                    }).collect();
+                    if let Some(source) = by_source.get_mut(&node.span.source_id) {
+                        source.if_condition_lines.insert((node.span.start(), node.span.end()), lines);
+                    }
+                }
+                ArenaStmtKind::Match { arms, .. } => {
+                    register_branch(&sources, &mut by_source, node.span, "match", (0..parsed.arena.arena.match_arms(arms).len()).map(|index| format!("arm:{index}")));
+                    register_match_aliases(&parsed.arena, &mut by_source, node.span, parsed.arena.arena.match_arms(arms).iter().map(|arm| arm.pattern));
+                }
+                ArenaStmtKind::While { condition, .. } => {
+                    register_branch(&sources, &mut by_source, parsed.arena.arena.expr(condition).span, "loop", ["false".to_string(), "true".to_string()]);
+                }
+                ArenaStmtKind::For { .. } => {
+                    register_branch(&sources, &mut by_source, node.span, "loop", ["false".to_string(), "true".to_string()]);
+                }
+                _ => {}
+            }
+        }
+        for expression in rows.expr_ids(file.id()).filter(|id| !parsed.arena.arena.expr_is_synthetic(*id)) {
+            let node = parsed.arena.arena.expr(expression);
+            match node.kind {
+                ArenaExprKind::Binary { op: BinaryOp::And | BinaryOp::Or, left, right } => {
+                    for operand in [left, right] {
+                        register_branch(&sources, &mut by_source, parsed.arena.arena.expr(operand).span, "bool", ["false".to_string(), "true".to_string()]);
+                    }
+                }
+                ArenaExprKind::If { branches, .. } => {
+                    let mut arms = (0..parsed.arena.arena.if_expr_branches(branches).len()).map(|index| format!("arm:{index}")).collect::<Vec<_>>();
+                    arms.push("else".to_string());
+                    register_branch(&sources, &mut by_source, node.span, "if", arms);
+                    let lines = parsed.arena.arena.if_expr_branches(branches).iter().filter_map(|branch| {
+                        let span = parsed.arena.arena.expr(branch.condition).span;
+                        sources.location(span.source_id, span.start()).map(|location| location.line)
+                    }).collect();
+                    if let Some(source) = by_source.get_mut(&node.span.source_id) {
+                        source.if_condition_lines.insert((node.span.start(), node.span.end()), lines);
+                    }
+                }
+                ArenaExprKind::Match { arms, .. } => {
+                    register_branch(&sources, &mut by_source, node.span, "match", (0..parsed.arena.arena.match_expr_arms(arms).len()).map(|index| format!("arm:{index}")));
+                    register_match_aliases(&parsed.arena, &mut by_source, node.span, parsed.arena.arena.match_expr_arms(arms).iter().map(|arm| arm.pattern));
+                }
+                ArenaExprKind::Try(_) => {
+                    register_branch(&sources, &mut by_source, node.span, "try", ["continue".to_string(), "exit".to_string()]);
+                }
+                _ => {}
+            }
+        }
+    }
+
     collect_statements(
         &parsed.arena,
         &sources,
@@ -689,6 +851,42 @@ fn parse_source_metadata(
             })
             .collect(),
     )
+}
+
+fn register_match_aliases(program: &ArenaProgram, by_source: &mut BTreeMap<SourceId, SourceMetadata>, span: Span, patterns: impl IntoIterator<Item = PatternId>) {
+    let Some(source) = by_source.get_mut(&span.source_id) else { return; };
+    let aliases = source.match_aliases.entry((span.start(), span.end())).or_default();
+    for (index, pattern) in patterns.into_iter().enumerate() {
+        for key in match_pattern_aliases(program, pattern) {
+            aliases.entry(key).or_insert_with(|| format!("arm:{index}"));
+        }
+    }
+}
+
+fn match_pattern_aliases(program: &ArenaProgram, pattern: PatternId) -> Vec<String> {
+    match program.arena.pattern(pattern).kind {
+        ArenaPatternKind::Wildcard => vec!["fallback".to_string()],
+        ArenaPatternKind::Literal(expr) => match program.arena.expr(expr).kind {
+            ArenaExprKind::Str(value) => vec![format!("key:{}", program.arena.string_literal(value))],
+            _ => Vec::new(),
+        },
+        ArenaPatternKind::Constructor { name, arg: None } => vec![format!("key:{}", name.as_str().trim_start_matches('.'))],
+        ArenaPatternKind::Alternation(items) => program.arena.pattern_ids(items).flat_map(|pattern| match_pattern_aliases(program, pattern)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn register_branch(
+    sources: &SourceMap,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+    span: Span,
+    kind: &str,
+    arms: impl IntoIterator<Item = String>,
+) {
+    let Some(line) = sources.location(span.source_id, span.start()).map(|location| location.line) else { return; };
+    let Some(source) = by_source.get_mut(&span.source_id) else { return; };
+    let entry = source.branches.entry((span.start(), span.end(), line, kind.to_string())).or_default();
+    for arm in arms { entry.entry(arm).or_default(); }
 }
 
 fn collect_statements(

@@ -1868,7 +1868,7 @@ fn xsht_check_compare_rejects_changed_required_effects_with_same_interface() {
 }
 
 #[test]
-fn coverage_calibration_trace_and_killed_child_missing_status_gaps() {
+fn coverage_reports_executed_lines_short_circuit_and_killed_child_gap() {
     let root = cli_tempdir();
     fs::create_dir(root.path().join("tests")).unwrap();
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage");
@@ -1887,18 +1887,34 @@ fn coverage_calibration_trace_and_killed_child_missing_status_gaps() {
     let hits = native_event_field(file, "line_tests");
     let covered = executable.iter().copied().filter(|line| hits.get(&line.to_string()).is_some()).collect::<Vec<_>>();
     let uncovered = executable.iter().copied().filter(|line| hits.get(&line.to_string()).is_none()).collect::<Vec<_>>();
-    assert_eq!(covered, [2, 13, 22, 23, 24, 25, 28]);
-    assert_eq!(uncovered, [5, 6, 7, 9, 10, 11, 14, 15, 17, 18, 19, 20, 26, 27, 29]);
+    assert_eq!(covered, [2, 5, 6, 9, 13, 17, 22, 23, 24, 25, 26, 27, 28, 29]);
+    assert_eq!(uncovered, [7, 10, 11, 14, 15, 18, 19, 20]);
     for (start, end, expected_covered, expected_uncovered) in [
         (1, 3, &[2][..], &[][..]),
-        (4, 7, &[][..], &[5, 6, 7][..]),
-        (8, 11, &[][..], &[9, 10, 11][..]),
+        (4, 7, &[5, 6][..], &[7][..]),
+        (8, 11, &[9][..], &[10, 11][..]),
         (12, 15, &[13][..], &[14, 15][..]),
-        (16, 20, &[][..], &[17, 18, 19, 20][..]),
+        (16, 20, &[17][..], &[18, 19, 20][..]),
     ] {
         assert_eq!(covered.iter().copied().filter(|line| (start..=end).contains(line)).collect::<Vec<_>>(), expected_covered);
         assert_eq!(uncovered.iter().copied().filter(|line| (start..=end).contains(line)).collect::<Vec<_>>(), expected_uncovered);
     }
+    let source = fs::read_to_string(fixtures.join("calibration.xsh")).unwrap();
+    let branches = native_event_field(file, "branches").as_seq().unwrap();
+    let branch = |kind: &str, start: usize| branches.iter().find(|entry| {
+        native_event_text(native_event_field(entry, "kind")) == kind
+            && native_event_number(native_event_field(entry, "start_offset")) == start as u64
+    }).unwrap();
+    let if_start = source.find("if a and").unwrap();
+    let condition = native_event_field(branch("bool", if_start + 3), "arms");
+    assert_eq!(native_event_number(native_event_field(condition, "false")), 1);
+    assert_eq!(native_event_number(native_event_field(condition, "true")), 0);
+    let skipped = native_event_field(branch("bool", source.find("b or c").unwrap()), "arms");
+    assert_eq!(native_event_number(native_event_field(skipped, "false")), 0);
+    assert_eq!(native_event_number(native_event_field(skipped, "true")), 0);
+    let chosen = native_event_field(branch("if", if_start), "arms");
+    assert_eq!(native_event_number(native_event_field(chosen, "arm:0")), 0);
+    assert_eq!(native_event_number(native_event_field(chosen, "else")), 1);
     let plain = Command::new(coverage_xsht_binary()).arg("test").current_dir(root.path()).output().unwrap();
     assert!(plain.status.success(), "{}", String::from_utf8_lossy(&plain.stderr));
     let status = native_event_field(&parsed, "test_collection");
@@ -1908,9 +1924,9 @@ fn coverage_calibration_trace_and_killed_child_missing_status_gaps() {
     let dynamic = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/dynamic.xsh").unwrap();
     assert_eq!(coverage_line_sets(dynamic), (vec![3, 4], vec![]));
     let plugin = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "plugin.xsh").unwrap();
-    assert_eq!(coverage_line_sets(plugin), (vec![], vec![4, 5]));
+    assert_eq!(coverage_line_sets(plugin), (vec![4], vec![5]));
     let suffixless = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "suffixless").unwrap();
-    assert_eq!(coverage_line_sets(suffixless), (vec![2, 3], vec![]));
+    assert_eq!(coverage_line_sets(suffixless), (vec![2, 3], vec![4, 5]));
 }
 
 fn coverage_xsht_binary() -> PathBuf {
@@ -1921,6 +1937,96 @@ fn coverage_xsht_binary() -> PathBuf {
     } else {
         profile.parent().unwrap().join("verification").join("xsht")
     }
+}
+
+#[test]
+fn coverage_reports_match_loop_and_assertion_decisions() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage/branches.xsh");
+    let source = fs::read_to_string(&fixture).unwrap();
+    fs::copy(fixture, root.path().join("tests/branches.xsh")).unwrap();
+    let report = root.path().join("report.json");
+    let output = Command::new(coverage_xsht_binary()).args(["test", "--cov-json"]).arg(&report).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let parsed = xsh::host::json::parse(&fs::read_to_string(report).unwrap()).unwrap();
+    let files = native_event_field(&parsed, "source_coverage").as_seq().unwrap();
+    let file = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/branches.xsh").unwrap();
+    let branches = native_event_field(file, "branches").as_seq().unwrap();
+    let branch = |kind: &str, offset: usize| branches.iter().find(|entry| {
+        native_event_text(native_event_field(entry, "kind")) == kind
+            && native_event_number(native_event_field(entry, "start_offset")) == offset as u64
+    }).unwrap();
+    let matched = native_event_field(branch("match", source.find("match s").unwrap()), "arms");
+    assert_eq!(native_event_number(native_event_field(matched, "arm:0")), 0);
+    assert_eq!(native_event_number(native_event_field(matched, "arm:1")), 1);
+    assert_eq!(native_event_number(native_event_field(matched, "arm:2")), 0);
+    let condition = native_event_field(branch("loop", source.find("n < 2").unwrap()), "arms");
+    assert_eq!(native_event_number(native_event_field(condition, "true")), 2);
+    assert_eq!(native_event_number(native_event_field(condition, "false")), 1);
+    let left = native_event_field(branch("bool", source.find("false or").unwrap()), "arms");
+    assert_eq!(native_event_number(native_event_field(left, "false")), 1);
+    let right = native_event_field(branch("bool", source.find("or true").unwrap() + 3), "arms");
+    assert_eq!(native_event_number(native_event_field(right, "true")), 1);
+}
+
+#[test]
+fn coverage_reports_fused_line_scan_decisions() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage/scan-lines.xsh");
+    fs::copy(fixture, root.path().join("tests/scan-lines.xsh")).unwrap();
+    let report = root.path().join("report.json");
+    let output = Command::new(coverage_xsht_binary()).args(["test", "--cov-json"]).arg(&report).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let parsed = xsh::host::json::parse(&fs::read_to_string(report).unwrap()).unwrap();
+    let files = native_event_field(&parsed, "source_coverage").as_seq().unwrap();
+    let file = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/scan-lines.xsh").unwrap();
+    let branches = native_event_field(file, "branches").as_seq().unwrap();
+    let branch = |kind: &str| branches.iter().find(|entry| native_event_text(native_event_field(entry, "kind")) == kind).unwrap();
+    for kind in ["if", "loop"] {
+        let arms = native_event_field(branch(kind), "arms");
+        assert_eq!(native_event_number(native_event_field(arms, "fused")), 1);
+        for arm in if kind == "if" { &["arm:0", "arm:1", "else"][..] } else { &["true", "false"][..] } {
+            assert_eq!(native_event_number(native_event_field(arms, arm)), 0);
+        }
+    }
+    assert_eq!(native_event_number(native_event_field(file, "fused_branch_points")), 2);
+    let totals = native_event_field(native_event_field(&parsed, "source_totals_by_basis"), "ast");
+    assert_eq!(native_event_number(native_event_field(totals, "fused_branch_points")), 2);
+    let (covered, uncovered) = coverage_line_sets(file);
+    for line in 4..=9 { assert!(covered.contains(&line), "line {line}: {covered:?} {uncovered:?}"); }
+}
+
+#[test]
+fn coverage_reports_fused_byte_scanner_without_selecting_branch_arms() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage/scan-bytes.xsh");
+    let source = fs::read_to_string(&fixture).unwrap();
+    fs::copy(fixture, root.path().join("tests/scan-bytes.xsh")).unwrap();
+    let report = root.path().join("report.json");
+    let output = Command::new(coverage_xsht_binary()).args(["test", "--cov-json"]).arg(&report).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let parsed = xsh::host::json::parse(&fs::read_to_string(report).unwrap()).unwrap();
+    let files = native_event_field(&parsed, "source_coverage").as_seq().unwrap();
+    let file = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/scan-bytes.xsh").unwrap();
+    let start = source.find("while index < line_len").unwrap() as u64;
+    let end = source.find("\n    any_code =").unwrap() as u64;
+    let branches = native_event_field(file, "branches").as_seq().unwrap();
+    let fused = branches.iter().filter(|entry| {
+        let offset = native_event_number(native_event_field(entry, "start_offset"));
+        offset >= start && offset < end
+    }).collect::<Vec<_>>();
+    assert!(!fused.is_empty());
+    for entry in &fused {
+        let arms = native_event_field(entry, "arms");
+        assert_eq!(native_event_number(native_event_field(arms, "fused")), 1);
+    }
+    assert!(native_event_number(native_event_field(file, "fused_branch_points")) >= fused.len() as u64);
+    let (covered, uncovered) = coverage_line_sets(file);
+    assert!(covered.contains(&13));
+    assert!(uncovered.iter().all(|line| !(13..=55).contains(line)), "{uncovered:?}");
 }
 
 fn coverage_line_sets(file: &xsh::host::json::Value) -> (Vec<u64>, Vec<u64>) {

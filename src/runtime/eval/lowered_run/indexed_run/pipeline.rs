@@ -36,6 +36,7 @@ pub(super) enum IndexedItemPredicate {
     },
     And(Box<Self>, Box<Self>),
     Or(Box<Self>, Box<Self>),
+    Coverage { source: Arc<crate::source::SourceMap>, span: Span, predicate: Box<Self> },
 }
 
 impl Evaluator {
@@ -802,6 +803,7 @@ impl Evaluator {
         instruction: u32,
         item_slot: usize,
         span: Span,
+        coverage: bool,
     ) -> Result<Option<IndexedItemPredicate>, RuntimeError> {
         let Some((op, left, right)) = Self::indexed_binary_parts(execution, instruction, span)?
         else {
@@ -809,14 +811,18 @@ impl Evaluator {
         };
         match op {
             BinaryOp::And | BinaryOp::Or => {
-                let Some(left) = Self::indexed_item_predicate(execution, left, item_slot, span)?
+                let left_span = if coverage { execution.statement_span(left) } else { None };
+                let right_span = if coverage { execution.statement_span(right) } else { None };
+                let Some(left) = Self::indexed_item_predicate(execution, left, item_slot, span, coverage)?
                 else {
                     return Ok(None);
                 };
-                let Some(right) = Self::indexed_item_predicate(execution, right, item_slot, span)?
+                let Some(right) = Self::indexed_item_predicate(execution, right, item_slot, span, coverage)?
                 else {
                     return Ok(None);
                 };
+                let left = if let Some(span) = left_span { IndexedItemPredicate::Coverage { source: execution.shared_sources(), span, predicate: Box::new(left) } } else { left };
+                let right = if let Some(span) = right_span { IndexedItemPredicate::Coverage { source: execution.shared_sources(), span, predicate: Box::new(right) } } else { right };
                 Ok(Some(if op == BinaryOp::And {
                     IndexedItemPredicate::And(Box::new(left), Box::new(right))
                 } else {
@@ -866,6 +872,11 @@ impl Evaluator {
             IndexedItemPredicate::Or(left, right) => Ok(self
                 .eval_indexed_item_predicate(left, item)?
                 || self.eval_indexed_item_predicate(right, item)?),
+            IndexedItemPredicate::Coverage { source, span, predicate } => {
+                let result = self.eval_indexed_item_predicate(predicate, item)?;
+                self.coverage_decision(source, *span, "bool", result);
+                Ok(result)
+            }
         }
     }
 

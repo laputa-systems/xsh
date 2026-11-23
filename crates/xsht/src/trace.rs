@@ -480,6 +480,9 @@ impl TraceTextRenderer {
 fn render_payload_text(payload: &TracePayload, output: &mut String) {
     match payload {
         TracePayload::None => {}
+        TracePayload::Coverage { count, outcome } => {
+            let _ = write!(output, " count={count} outcome={outcome:?}");
+        }
         TracePayload::Core { argv } => {
             output.push_str(" argv=");
             render_args_text(argv, output);
@@ -974,6 +977,12 @@ impl CoverageTraceRenderer {
         }
         for event in events {
             let mut fields = vec![("kind".to_string(), JsonValue::from(event.kind.as_str()))];
+            if let TracePayload::Coverage { count, outcome } = &event.payload {
+                fields.push(("count".to_string(), JsonValue::from(*count)));
+                if let Some(outcome) = outcome {
+                    fields.push(("outcome".to_string(), JsonValue::from(outcome.clone())));
+                }
+            }
             if let Some(api_id) = &event.api_id {
                 fields.push(("api_id".to_string(), JsonValue::from(api_id)));
             }
@@ -1134,6 +1143,7 @@ impl TraceSpanJson {
 
 enum TracePayloadJson {
     None,
+    Coverage { count: u64, outcome: Option<String> },
     Core {
         argv: Vec<TraceArgJson>,
     },
@@ -1263,6 +1273,7 @@ impl TracePayloadJson {
     fn from_payload(payload: &TracePayload, sources: &SourceMap) -> Self {
         match payload {
             TracePayload::None => Self::None,
+            TracePayload::Coverage { count, outcome } => Self::Coverage { count: *count, outcome: outcome.clone() },
             TracePayload::Core { argv } => Self::Core {
                 argv: args_json(argv),
             },
@@ -1801,6 +1812,10 @@ fn trace_span_json_value(data: TraceSpanJson) -> JsonValue {
 fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
     match data {
         TracePayloadJson::None => typed_payload_json_value("none", vec![]),
+        TracePayloadJson::Coverage { count, outcome } => typed_payload_json_value("coverage", vec![
+            ("count".to_string(), JsonValue::from(count)),
+            ("outcome".to_string(), option_json_value(outcome.map(JsonValue::from))),
+        ]),
         TracePayloadJson::Core { argv } => typed_payload_json_value(
             "core",
             vec![("argv".to_string(), trace_args_json_value(argv))],

@@ -811,6 +811,7 @@ struct BuildScratch {
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
     prepared_constants: FxHashMap<crate::syntax::arena::ExprId, PreparedConstantValue>,
     expressions: Vec<BuildExprRow>,
+    expression_spans: Vec<Option<Span>>,
     checked_expr_types: Vec<Option<CheckedExprType>>,
     /// Lowered identities of checker-selected declarations, aligned with
     /// expressions until instruction encoding.
@@ -835,11 +836,13 @@ struct BuildScratch {
     int_record_slot_field_reads: FxHashSet<usize>,
     int_list_slot_index_reads: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
+    statement_spans: Vec<Option<Span>>,
     resource_transfers: Vec<bool>,
     patterns: Vec<BuildPatternRow>,
     checked_pattern_variants: BTreeMap<CheckedPatternVariantKey, Vec<CheckedPatternField>>,
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
+    bool_spans: Vec<Option<Span>>,
     top_statements: Vec<BuildTopStmtRow>,
 }
 
@@ -1050,6 +1053,7 @@ impl BuildScratch {
     fn expr(&mut self, row: BuildExprRow) -> BuildExprId {
         let id = BuildExprId::new(self.expressions.len());
         self.expressions.push(row);
+        self.expression_spans.push(None);
         self.checked_expr_types.push(None);
         self.checked_call_targets.push(None);
         self.call_instantiations.push(None);
@@ -1181,6 +1185,7 @@ impl BuildScratch {
     fn stmt(&mut self, row: BuildStmtRow) -> BuildStmtId {
         let id = BuildStmtId::new(self.statements.len());
         self.statements.push(row);
+        self.statement_spans.push(None);
         self.resource_transfers.push(false);
         id
     }
@@ -1204,6 +1209,7 @@ impl BuildScratch {
     fn bool(&mut self, row: BuildBoolRow) -> BuildBoolId {
         let id = BuildBoolId::new(self.bools.len());
         self.bools.push(row);
+        self.bool_spans.push(None);
         id
     }
 
@@ -3270,6 +3276,7 @@ pub struct Evaluator {
     interactive_command_dispatcher: Option<InteractiveCommandDispatcher>,
     last_status: Option<ProcessStatus>,
     trace_enabled: bool,
+    coverage: Option<CoverageCounts>,
     pending_value_block_flow: Option<StmtFlow>,
     // An eager stage error was wrapped before it entered explicit unwinding.
     // Consume this once so an outer pending map callback does not wrap it too.
@@ -3370,12 +3377,104 @@ impl Drop for Evaluator {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+enum CoverageOutcome<'a> {
+    IfArm(usize), IfElse, MatchArm(usize), MatchKey(std::borrow::Cow<'a, str>), MatchFallback,
+    Bool(bool), Loop(bool), TryContinue, TryExit, FusedSpan,
+}
+
+impl CoverageOutcome<'_> {
+    fn owned(&self) -> CoverageOutcome<'static> {
+        match self {
+            Self::IfArm(n) => CoverageOutcome::IfArm(*n),
+            Self::IfElse => CoverageOutcome::IfElse,
+            Self::MatchArm(n) => CoverageOutcome::MatchArm(*n),
+            Self::MatchKey(key) => CoverageOutcome::MatchKey(std::borrow::Cow::Owned(key.to_string())),
+            Self::MatchFallback => CoverageOutcome::MatchFallback,
+            Self::Bool(v) => CoverageOutcome::Bool(*v),
+            Self::Loop(v) => CoverageOutcome::Loop(*v),
+            Self::TryContinue => CoverageOutcome::TryContinue,
+            Self::TryExit => CoverageOutcome::TryExit,
+            Self::FusedSpan => CoverageOutcome::FusedSpan,
+        }
+    }
+
+    fn render(&self) -> String {
+        match self {
+            Self::IfArm(n) => format!("if:arm:{n}"), Self::IfElse => "if:else".into(),
+            Self::MatchArm(n) => format!("match:arm:{n}"), Self::MatchKey(key) => format!("match:key:{key}"),
+            Self::MatchFallback => "match:fallback".into(), Self::Bool(v) => format!("bool:{v}"),
+            Self::Loop(v) => format!("loop:{v}"), Self::TryContinue => "try:continue".into(),
+            Self::TryExit => "try:exit".into(), Self::FusedSpan => "fused:span".into(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct CoverageSpan {
+    statement: Option<u64>,
+    outcomes: BTreeMap<CoverageOutcome<'static>, u64>,
+    match_keys: BTreeMap<String, u64>,
+}
+
+struct CoverageData {
+    sources: SourceMap,
+    source_ids: FxHashMap<usize, SourceId>,
+    source_snapshots: Vec<SourceMap>,
+    hits: BTreeMap<Span, CoverageSpan>,
+}
+
+type CoverageCounts = Arc<Mutex<CoverageData>>;
+
+thread_local! {
+    static COVERAGE_REGISTERED: RefCell<(std::sync::Weak<Mutex<CoverageData>>, FxHashSet<(usize, Span, CoverageOutcome<'static>)>)> = RefCell::new((std::sync::Weak::new(), FxHashSet::default()));
+}
+
+fn coverage_count(coverage: &CoverageCounts, sources: &SourceMap, span: Span, outcome: Option<CoverageOutcome<'_>>, count: u64) {
+    let file = sources.get(span.source_id).expect("coverage span source is missing");
+    let identity = file as *const _ as usize;
+    if count == 0 && let Some(outcome) = &outcome {
+        let registered = COVERAGE_REGISTERED.with_borrow_mut(|cache| {
+            if !std::sync::Weak::ptr_eq(&cache.0, &Arc::downgrade(coverage)) {
+                cache.0 = Arc::downgrade(coverage);
+                cache.1.clear();
+            }
+            if cache.1.contains(&(identity, span, outcome.clone())) { true } else {
+                cache.1.insert((identity, span, outcome.owned()));
+                false
+            }
+        });
+        if registered { return; }
+    }
+    let mut coverage = coverage.lock().expect("coverage collector poisoned");
+    let id = if let Some(&id) = coverage.source_ids.get(&identity) { id } else {
+        let id = match coverage.sources.files().iter().find(|candidate| candidate.name() == file.name() && candidate.text() == file.text()) {
+            Some(candidate) => candidate.id(),
+            None => coverage.sources.add_file(file.name(), file.text()),
+        };
+        coverage.source_snapshots.push(sources.clone());
+        coverage.source_ids.insert(identity, id);
+        id
+    };
+    let span = Span::new(id, span.start(), span.end());
+    let hits = coverage.hits.entry(span).or_default();
+    match outcome {
+        None => *hits.statement.get_or_insert(0) += count,
+        Some(CoverageOutcome::MatchKey(key)) => {
+            if let Some(value) = hits.match_keys.get_mut(key.as_ref()) { *value += count; }
+            else { hits.match_keys.insert(key.into_owned(), count); }
+        }
+        Some(outcome) => *hits.outcomes.entry(outcome.owned()).or_default() += count,
+    }
+}
+
 struct LoweredSharedState {
     /// The `within` scopes open where the workers were started. A worker
     /// obeys them too, and its timeout error unwinds in the evaluator that
     /// owns the scope.
     within_deadlines: Vec<WithinDeadline>,
     sources: Arc<SourceMap>,
+    coverage: Option<CoverageCounts>,
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
@@ -3478,10 +3577,15 @@ impl PreparedTestProgram {
                 evaluator.force_frames |= force_frames;
                 evaluator.capture_process_output = true;
                 evaluator.test_cancellation = Some(cancellation);
+                let coverage_enabled = env_overlay.iter().any(|(name, _)|
+                    name == crate::execution::script::XSH_COVERAGE_TRACE_DIR.as_bytes());
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
                 evaluator = evaluator.without_harness_control_env();
+                if coverage_enabled {
+                    evaluator = evaluator.with_coverage();
+                }
                 if trace_enabled {
                     evaluator = evaluator.with_tracing();
                     evaluator.eval_installed_indexed_test_inner(
@@ -3651,6 +3755,7 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            coverage: None,
             pending_value_block_flow: None,
             pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
@@ -3775,6 +3880,60 @@ impl Evaluator {
         self
     }
 
+    pub fn with_coverage(mut self) -> Self {
+        self.coverage = Some(Arc::new(Mutex::new(CoverageData { sources: (*self.sources).clone(), source_ids: FxHashMap::default(), source_snapshots: Vec::new(), hits: BTreeMap::new() })));
+        self
+    }
+
+    fn coverage_hit(&mut self, sources: &SourceMap, span: Span, outcome: Option<CoverageOutcome<'_>>) {
+        if let Some(coverage) = &self.coverage {
+            coverage_count(coverage, sources, span, outcome, 1);
+        }
+    }
+
+    fn coverage_decision(&self, sources: &SourceMap, span: Span, kind: &str, taken: bool) {
+        if let Some(coverage) = &self.coverage {
+            for value in [false, true] {
+                coverage_count(coverage, sources, span, Some(match kind { "bool" => CoverageOutcome::Bool(value), "loop" => CoverageOutcome::Loop(value), _ => unreachable!() }), u64::from(taken == value));
+            }
+        }
+    }
+
+    fn coverage_try(&self, sources: &SourceMap, span: Span, value: &LoweredValue) {
+        if let Some(coverage) = &self.coverage
+            && sources.span_text(span).is_some_and(|text| text.trim_end().ends_with('?'))
+        {
+            for (outcome, taken) in [
+                (CoverageOutcome::TryContinue, matches!(value, LoweredValue::ResultOk(_))),
+                (CoverageOutcome::TryExit, matches!(value, LoweredValue::ResultErr(_))),
+            ] {
+                coverage_count(coverage, sources, span, Some(outcome), u64::from(taken));
+            }
+        }
+    }
+
+    fn take_trace_events(&mut self) -> Vec<TraceEvent> {
+        if let Some(coverage) = self.coverage.take() {
+            let mut coverage = coverage.lock().expect("coverage collector poisoned");
+            self.sources = Arc::new(coverage.sources.clone());
+            let mut hits = Vec::new();
+            for (span, counts) in std::mem::take(&mut coverage.hits) {
+                if let Some(count) = counts.statement { hits.push(((span, None), count)); }
+                hits.extend(counts.outcomes.into_iter().map(|(outcome, count)| ((span, Some(outcome.render())), count)));
+                hits.extend(counts.match_keys.into_iter().map(|(key, count)| ((span, Some(format!("match:key:{key}"))), count)));
+            }
+            hits.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            for ((span, outcome), count) in hits {
+                let kind = if outcome.is_some() { TraceKind::CoverageBranch } else { TraceKind::CoverageStatement };
+                let event = TraceEvent::new(next_event_id(&self.trace_events), kind)
+                    .with_span(span)
+                    .with_payload(TracePayload::Coverage { count, outcome });
+                self.trace_events.push(event);
+            }
+        }
+        std::mem::take(&mut self.trace_events)
+    }
+
     pub fn with_trace_limit(mut self, limit: usize) -> Self {
         self.trace_limit = Some(limit);
         self
@@ -3854,6 +4013,7 @@ impl Evaluator {
         Arc::new(LoweredSharedState {
             within_deadlines: self.within_deadlines.clone(),
             sources: self.sources.clone(),
+            coverage: self.coverage.clone(),
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
@@ -3920,6 +4080,7 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            coverage: shared.coverage.clone(),
             pending_value_block_flow: None,
             pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
@@ -4665,7 +4826,7 @@ impl Evaluator {
                         return EvalOutput {
                             stdout: std::mem::take(&mut self.stdout),
                             stderr: std::mem::take(&mut self.stderr),
-                            trace_events: std::mem::take(&mut self.trace_events),
+                            trace_events: self.take_trace_events(),
                             trace_dropped_events: self.trace_dropped_events,
                             diagnostics: vec![diagnostic],
                             traceback: None,
@@ -5378,7 +5539,7 @@ impl Evaluator {
             return Ok(EvalOutput {
                 stdout: std::mem::take(&mut self.stdout),
                 stderr: std::mem::take(&mut self.stderr),
-                trace_events: std::mem::take(&mut self.trace_events),
+                trace_events: self.take_trace_events(),
                 trace_dropped_events: self.trace_dropped_events,
                 diagnostics,
                 traceback,
@@ -5916,7 +6077,7 @@ impl Evaluator {
         Ok(EvalOutput {
             stdout: std::mem::take(&mut self.stdout),
             stderr: std::mem::take(&mut self.stderr),
-            trace_events: std::mem::take(&mut self.trace_events),
+            trace_events: self.take_trace_events(),
             trace_dropped_events: self.trace_dropped_events,
             diagnostics,
             traceback,
@@ -6295,7 +6456,7 @@ impl Evaluator {
             output: EvalOutput {
                 stdout: std::mem::take(&mut self.stdout),
                 stderr: std::mem::take(&mut self.stderr),
-                trace_events: std::mem::take(&mut self.trace_events),
+                trace_events: self.take_trace_events(),
                 trace_dropped_events: self.trace_dropped_events,
                 diagnostics,
                 traceback,

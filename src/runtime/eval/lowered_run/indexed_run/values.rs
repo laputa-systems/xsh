@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 use super::{
     Arc, AssertionFailure, BinaryOp, ControlFlow, Evaluator,
     FullExecution, FullTag, LoweredValue, Name, RuntimeError, Span, StmtFlow,
@@ -507,7 +508,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, i64>, RuntimeError> {
-        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, true)? {
+        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, true, self.coverage.as_ref())? {
             TypedScalarValue::Int(value) => Ok(ControlFlow::Continue(value)),
             TypedScalarValue::Bool(_) => Err(RuntimeError::new(
                 "indexed-ir",
@@ -524,7 +525,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
-        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, false)? {
+        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, false, self.coverage.as_ref())? {
             TypedScalarValue::Bool(value) => Ok(ControlFlow::Continue(value)),
             TypedScalarValue::Int(_) => Err(RuntimeError::new(
                 "indexed-ir",
@@ -578,6 +579,7 @@ enum TypedScalarWork {
     Bool(u32),
     ApplyIntBinary { op: BinaryOp, span: Span },
     ApplyBoolNot,
+    CoverageBoolOperand(Span),
     ApplyBoolBranch { op: FullTag, right: u32 },
     ApplyBoolIntCompare { op: BinaryOp },
     ApplyIntByteAt {
@@ -597,6 +599,7 @@ fn eval_indexed_typed_scalar(
     slots: &mut [LoweredValue],
     call_span: Span,
     integer: bool,
+    coverage: Option<&crate::runtime::eval::CoverageCounts>,
 ) -> Result<TypedScalarValue, RuntimeError> {
     let mut work = vec![if integer {
         TypedScalarWork::Int(instruction)
@@ -697,17 +700,41 @@ fn eval_indexed_typed_scalar(
                         work.push(TypedScalarWork::Bool(value.raw()));
                     }
                     BoolView::And(left, right) => {
+                        if let Some(coverage) = coverage {
+                            for operand in [left.raw(), right.raw()] {
+                                if let Some(span) = execution.statement_span(operand) {
+                                    for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome), 0);
+                                    }
+                                }
+                            }
+                        }
                         work.push(TypedScalarWork::ApplyBoolBranch {
                             op: FullTag::BoolAnd,
                             right: right.raw(),
                         });
+                        if coverage.is_some() && let Some(span) = execution.statement_span(left.raw()) {
+                            work.push(TypedScalarWork::CoverageBoolOperand(span));
+                        }
                         work.push(TypedScalarWork::Bool(left.raw()));
                     }
                     BoolView::Or(left, right) => {
+                        if let Some(coverage) = coverage {
+                            for operand in [left.raw(), right.raw()] {
+                                if let Some(span) = execution.statement_span(operand) {
+                                    for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome), 0);
+                                    }
+                                }
+                            }
+                        }
                         work.push(TypedScalarWork::ApplyBoolBranch {
                             op: FullTag::BoolOr,
                             right: right.raw(),
                         });
+                        if coverage.is_some() && let Some(span) = execution.statement_span(left.raw()) {
+                            work.push(TypedScalarWork::CoverageBoolOperand(span));
+                        }
                         work.push(TypedScalarWork::Bool(left.raw()));
                     }
                     BoolView::IntCompare { op, left, right } => {
@@ -787,6 +814,14 @@ fn eval_indexed_typed_scalar(
                 };
                 values.push(TypedScalarValue::Bool(!value));
             }
+            TypedScalarWork::CoverageBoolOperand(span) => {
+                let Some(TypedScalarValue::Bool(value)) = values.last() else {
+                    return Err(typed_scalar_stack_error("boolean coverage operand", call_span));
+                };
+                if let Some(coverage) = coverage {
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(CoverageOutcome::Bool(*value)), 1);
+                }
+            }
             TypedScalarWork::ApplyBoolBranch { op, right } => {
                 let Some(TypedScalarValue::Bool(left)) = values.pop() else {
                     return Err(typed_scalar_stack_error("boolean left operand", call_span));
@@ -794,6 +829,9 @@ fn eval_indexed_typed_scalar(
                 if (op == FullTag::BoolAnd && !left) || (op == FullTag::BoolOr && left) {
                     values.push(TypedScalarValue::Bool(left));
                 } else {
+                    if coverage.is_some() && let Some(span) = execution.statement_span(right) {
+                        work.push(TypedScalarWork::CoverageBoolOperand(span));
+                    }
                     work.push(TypedScalarWork::Bool(right));
                 }
             }

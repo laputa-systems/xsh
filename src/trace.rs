@@ -144,6 +144,8 @@ pub enum TraceKind {
     SignalEscalate,
     ResultPropagate,
     RuntimeError,
+    CoverageStatement,
+    CoverageBranch,
 }
 
 impl TraceKind {
@@ -200,6 +202,8 @@ impl TraceKind {
             Self::SignalEscalate => "signal.escalate",
             Self::ResultPropagate => "result.propagate",
             Self::RuntimeError => "runtime.error",
+            Self::CoverageStatement => "coverage.statement",
+            Self::CoverageBranch => "coverage.branch",
         }
     }
 }
@@ -222,6 +226,7 @@ impl TraceTiming {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TracePayload {
     None,
+    Coverage { count: u64, outcome: Option<String> },
     Core {
         argv: Vec<TraceArg>,
     },

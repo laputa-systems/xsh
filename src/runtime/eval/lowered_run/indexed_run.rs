@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, ControlFlow, Duration,
@@ -160,6 +161,7 @@ enum AssertionFailure {
 
 enum AssertionWork {
     Expr(u32),
+    CoverageOperand(Span),
     Left {
         op: BinaryOp,
         right: u32,
@@ -1376,6 +1378,37 @@ pub(super) fn indexed_frame_apply_value(
 
 impl Evaluator {
 
+    fn cover_expression_selection(&self, execution: &FullExecution<'_>, instruction: u32, selected: u32, span: Span) -> Result<(), RuntimeError> {
+        let Some(coverage) = &self.coverage else { return Ok(()); };
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        match ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))? {
+            ExprView::IfExpr { branches, else_value, span: source_span } => {
+                for (ordinal, branch) in branches.enumerate() {
+                    let (_, value) = branch.map_err(|error| indexed_error(error, span))?;
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(value.raw() == selected));
+                }
+                crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(else_value.raw() == selected));
+            }
+            ExprView::MatchExpr { arms, span: source_span, .. } => {
+                for (ordinal, arm) in arms.enumerate() {
+                    let (_, _, value) = arm.map_err(|error| indexed_error(error, span))?;
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchArm(ordinal)), u64::from(value.raw() == selected));
+                }
+            }
+            ExprView::StrMatchExpr { arms, fallback, span: source_span, .. } | ExprView::TagMatchExpr { arms, fallback, span: source_span, .. } => {
+                for arm in arms {
+                    let (key, value) = arm.map_err(|error| indexed_error(error, span))?;
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchKey(std::borrow::Cow::Borrowed(key))), u64::from(value.raw() == selected));
+                }
+                if let Some(value) = fallback {
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchFallback), u64::from(value.raw() == selected));
+                }
+            }
+            _ => unreachable!("selection coverage requires a selection expression"),
+        }
+        Ok(())
+    }
+
     pub(super) fn eval_indexed_expr(
         &mut self,
         execution: &FullExecution<'_>,
@@ -1492,6 +1525,7 @@ impl Evaluator {
                             branch.map_err(|error| indexed_error(error, span))?;
                         match self.eval_indexed_bool(execution, condition.raw(), slots, span)? {
                             ControlFlow::Continue(true) => {
+                                if self.coverage.is_some() { self.cover_expression_selection(execution, instruction, value.raw(), span)?; }
                                 return self.eval_indexed_expr(
                                     execution,
                                     value.raw(),
@@ -1505,6 +1539,7 @@ impl Evaluator {
                             }
                         }
                     }
+                    if self.coverage.is_some() { self.cover_expression_selection(execution, instruction, else_value.raw(), span)?; }
                     self.eval_indexed_expr(execution, else_value.raw(), slots, span)
                 }
                 ExprView::MatchExpr { value, arms, span } => {
@@ -1541,6 +1576,7 @@ impl Evaluator {
                                 }
                             }
                         }
+                        if self.coverage.is_some() { self.cover_expression_selection(execution, instruction, body.raw(), span)?; }
                         return self.eval_indexed_expr(execution, body.raw(), slots, span);
                     }
                     Err(lowered_match_no_arm(span))
@@ -1898,8 +1934,10 @@ impl Evaluator {
                 self.pending_traceback = None;
                 return match self.eval_indexed_expr(execution, value.raw(), slots, call_span)? {
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
-                    ControlFlow::Continue(value) => match self
-                        .indexed_question_value(value, span)?
+                    ControlFlow::Continue(value) => match {
+                        if self.coverage.is_some() { self.coverage_try(execution.sources(), span, &value); }
+                        self.indexed_question_value(value, span)?
+                    }
                     {
                         Ok(value) => Ok(ControlFlow::Continue(value)),
                         // Statement consumers must distinguish propagation from lexical return.

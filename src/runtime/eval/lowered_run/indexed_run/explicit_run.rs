@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 #[cfg(test)]
 use super::DeferKind;
 use super::cleanup_policy::{CleanupFailures, Disposition, cleanup_disposition, failure_is_recorded, forced, next_due_defer};
@@ -58,7 +59,7 @@ use crate::runtime::eval::{
     LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart,
     LoweredRecordEntry, LoweredRunEnv, LoweredRunOption,
     LoweredRunPipelineSegment, LoweredRunTailOperand, ScanCheck,
-    visit_retained_lowered_value, visit_retained_lowered_values,
+    coverage_count, visit_retained_lowered_value, visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
@@ -1340,6 +1341,19 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
         span: Span,
     },
+    CoverageBoolLeft {
+        op: BinaryOp,
+        left_span: Option<Span>,
+        right: u32,
+        right_span: Option<Span>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    CoverageBoolRight {
+        operand_span: Option<Span>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     ApplyOperands {
         instruction: u32,
         tag: FullTag,
@@ -1708,6 +1722,8 @@ impl FrameContinuation {
             | C::IndexLiteral { next, .. }
             | C::BinaryLeft { next, .. }
             | C::BoolBinaryRight { next, .. }
+            | C::CoverageBoolLeft { next, .. }
+            | C::CoverageBoolRight { next, .. }
             | C::IfExpr { next, .. }
             | C::MatchExprValue { next, .. }
             | C::StrTagMatch { next, .. }
@@ -4564,7 +4580,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 if self.evaluator.shutting_down() {
                     return Ok(());
                 }
-                if let Some(item) = cursor.next() {
+                let item = cursor.next();
+                if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", item.is_some()); }
+                if let Some(item) = item {
                     bind_lowered_comp_target(&target, item, &mut self.calls[index].slots, span)?;
                     self.calls[index].work.push(FrameWork::ForMap {
                         target,
@@ -4586,7 +4604,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 if self.evaluator.shutting_down() {
                     return Ok(());
                 }
-                if let Some(item) = cursor.next() {
+                let item = cursor.next();
+                if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", item.is_some()); }
+                if let Some(item) = item {
                     bind_lowered_comp_target(&target, item, &mut self.calls[index].slots, span)?;
                     self.calls[index].work.push(FrameWork::ForScalars {
                         target,
@@ -4936,6 +4956,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
+        if self.evaluator.coverage.is_some()
+            && let Some(span) = self.calls[index].execution.statement_span(instruction)
+        {
+            self.evaluator.coverage_hit(self.calls[index].execution.sources(), span, None);
+        }
         self.evaluator.pending_traceback = None;
         let execution = self.calls[index].execution.thread_local();
         let transfers_resource = execution.transfers_resource(instruction);
@@ -5356,13 +5381,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 Ok(())
             }
-            StmtView::ScanLines {
-                text_slot,
-                line_slot,
-                checks,
-                span: scan_span,
-            } => self.step_scan_lines(index, text_slot, line_slot, checks, scan_span),
-            StmtView::ScanBytes { config } => self.step_scan_bytes(index, config),
+            StmtView::ScanLines { text_slot, line_slot, checks, span: scan_span } => {
+                if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(instruction) {
+                    self.evaluator.coverage_hit(execution.sources(), span, Some(CoverageOutcome::FusedSpan));
+                }
+                self.step_scan_lines(index, text_slot, line_slot, checks, scan_span)
+            }
+            StmtView::ScanBytes { config } => {
+                if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(instruction) {
+                    self.evaluator.coverage_hit(execution.sources(), span, Some(CoverageOutcome::FusedSpan));
+                }
+                self.step_scan_bytes(index, config)
+            }
             StmtView::For {
                 slot,
                 iter,
@@ -5568,8 +5598,83 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                 },
             );
-        } else if let Some(body) = else_body {
-            self.push_statement_block(index, body, span)?;
+        } else {
+            if self.evaluator.coverage.is_some() { self.cover_statement_if(index, instruction, else_body, span)?; }
+            if let Some(body) = else_body {
+                self.push_statement_block(index, body, span)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn cover_statement_if(&mut self, index: usize, instruction: u32, selected: Option<u32>, span: Span) -> Result<(), RuntimeError> {
+        let Some(coverage) = self.evaluator.coverage.as_ref() else { return Ok(()); };
+        let execution = &self.calls[index].execution;
+        let Some(source_span) = execution.statement_span(instruction) else { return Ok(()); };
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        match StmtView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))? {
+            StmtView::If { branches, else_body } => {
+                for (ordinal, branch) in branches.enumerate() {
+                    let (_, body) = branch.map_err(|error| indexed_error(error, span))?;
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
+                }
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
+            }
+            StmtView::IfBool { branches, else_body } => {
+                for (ordinal, branch) in branches.enumerate() {
+                    let (_, body) = branch.map_err(|error| indexed_error(error, span))?;
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
+                }
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
+            }
+            StmtView::PatternIf { branches, else_body, .. } => {
+                for (ordinal, branch) in branches.enumerate() {
+                    let (_, body, _) = branch.map_err(|error| indexed_error(error, span))?;
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
+                }
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
+            }
+            _ => unreachable!("if branch coverage requires an if statement"),
+        }
+        Ok(())
+    }
+
+    fn coverage_bool_left(&self, index: usize, op: BinaryOp, left: u32, right: u32, span: Span, next: FrameContinuation) -> FrameContinuation {
+        let execution = &self.calls[index].execution;
+        let left_span = execution.statement_span(left);
+        let right_span = execution.statement_span(right);
+        if let Some(coverage) = &self.evaluator.coverage {
+            for source_span in [left_span, right_span].into_iter().flatten() {
+                for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                    coverage_count(coverage, execution.sources(), source_span, Some(outcome), 0);
+                }
+            }
+        }
+        FrameContinuation::CoverageBoolLeft { op, left_span, right, right_span, span, next: Box::new(next) }
+    }
+
+    fn cover_statement_match(&self, index: usize, instruction: u32, selected: u32, span: Span) -> Result<(), RuntimeError> {
+        let Some(coverage) = &self.evaluator.coverage else { return Ok(()); };
+        let execution = &self.calls[index].execution;
+        let source_span = execution.statement_span(instruction).unwrap_or(span);
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        match StmtView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))? {
+            StmtView::Match { arms, .. } => {
+                for (ordinal, arm) in arms.enumerate() {
+                    let (_, _, body) = arm.map_err(|error| indexed_error(error, span))?;
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchArm(ordinal)), u64::from(body.block_id() == selected));
+                }
+            }
+            StmtView::StrMatch { arms, fallback, .. } | StmtView::TagMatch { arms, fallback, .. } => {
+                for arm in arms {
+                    let (key, body) = arm.map_err(|error| indexed_error(error, span))?;
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchKey(std::borrow::Cow::Borrowed(key))), u64::from(body.block_id() == selected));
+                }
+                if let Some(body) = fallback {
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchFallback), u64::from(body.block_id() == selected));
+                }
+            }
+            _ => unreachable!("match branch coverage requires a match statement"),
         }
         Ok(())
     }
@@ -5614,7 +5719,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.declare_target(index, &target);
         if let LoweredCompTarget::Slot(slot) = target
             && let Some((input, pipeline_span, stages)) =
-                indexed_for_pipeline_input(execution, iter, span)?
+                indexed_for_pipeline_input(execution, iter, span, self.evaluator.coverage.is_some())?
         {
             self.push_expr(
                 index,
@@ -5824,6 +5929,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     execution,
                     instruction,
                     span,
+                    self.evaluator.coverage.is_some(),
                 )?;
                 self.push_expr(
                     index,
@@ -5974,16 +6080,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("binary tag has a binary view")
                 };
+                let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
+                    self.coverage_bool_left(index, op, left.raw(), right.raw(), value_span, next)
+                } else {
+                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: Box::new(next) }
+                };
                 self.push_expr(
                     index,
                     left.raw(),
                     value_span,
-                    FrameContinuation::BinaryLeft {
-                        op,
-                        right: right.raw(),
-                        span: value_span,
-                        next: Box::new(next),
-                    },
+                    continuation,
                 );
             }
             ExprViewKind::IfExpr => {
@@ -6710,6 +6816,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = self.calls[index].execution.thread_local();
         while let Some(item) = state.work.pop() {
             match item {
+                super::AssertionWork::CoverageOperand(span) => {
+                    self.evaluator.coverage_decision(execution.sources(), span, "bool", state.passed);
+                }
                 super::AssertionWork::Left { op, right } => {
                     if (op == BinaryOp::And && !state.passed)
                         || (op == BinaryOp::Or && state.passed)
@@ -6728,6 +6837,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             op,
                             left_failure: state.reached.take(),
                         });
+                        if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(right) {
+                            state.work.push(super::AssertionWork::CoverageOperand(span));
+                        }
                         state.work.push(super::AssertionWork::Expr(right));
                     }
                 }
@@ -6771,6 +6883,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 op,
                                 right: right.raw(),
                             });
+                            if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(left.raw()) {
+                                state.work.push(super::AssertionWork::CoverageOperand(span));
+                            }
                             state
                                 .work
                                 .push(super::AssertionWork::Expr(left.raw()));
@@ -6915,16 +7030,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
         match operation {
             Some(FrameOperation::Binary(op, left, right, op_span)) => {
+                let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
+                    self.coverage_bool_left(index, op, left, right, op_span, next)
+                } else {
+                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: Box::new(next) }
+                };
                 self.push_expr(
                     index,
                     left,
                     span,
-                    FrameContinuation::BinaryLeft {
-                        op,
-                        right,
-                        span: op_span,
-                        next: Box::new(next),
-                    },
+                    continuation,
                 );
             }
             Some(FrameOperation::IntByteAt(slot, index_expr, default, value_span)) => {
@@ -7490,6 +7605,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
+            FrameContinuation::CoverageBoolLeft { op, left_span, right, right_span, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let value = lowered_condition_bool(value, span)?;
+                    if let Some(source_span) = left_span { self.evaluator.coverage_decision(self.calls[index].execution.sources(), source_span, "bool", value); }
+                    if (op == BinaryOp::And && !value) || (op == BinaryOp::Or && value) {
+                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(value)), *next);
+                    } else {
+                        self.push_expr(index, right, span, FrameContinuation::CoverageBoolRight { operand_span: right_span, span, next });
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::CoverageBoolRight { operand_span, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let value = lowered_condition_bool(value, span)?;
+                    if let Some(source_span) = operand_span { self.evaluator.coverage_decision(self.calls[index].execution.sources(), source_span, "bool", value); }
+                    self.push_value(index, FrameValue::Value(LoweredValue::Bool(value)), *next);
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
             FrameContinuation::ApplyOperands {
                 instruction,
                 tag,
@@ -7855,6 +7990,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
+                        if self.evaluator.coverage.is_some() {
+                            self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, current_body, span)?;
+                        }
                         self.push_expr(index, current_body, span, *next);
                     } else {
                         self.if_expr_condition_step(
@@ -7880,6 +8018,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
+                        if self.evaluator.coverage.is_some() { self.cover_statement_if(index, instruction, Some(body), span)?; }
                         self.push_statement_block(index, body, span)?;
                     } else {
                         let (branch, position) = statement_if_branch(
@@ -7901,8 +8040,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                     span,
                                 },
                             );
-                        } else if let Some(body) = else_body {
-                            self.push_statement_block(index, body, span)?;
+                        } else {
+                            if self.evaluator.coverage.is_some() { self.cover_statement_if(index, instruction, else_body, span)?; }
+                            if let Some(body) = else_body {
+                                self.push_statement_block(index, body, span)?;
+                            }
                         }
                     }
                 }
@@ -7922,6 +8064,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
+                        if self.evaluator.coverage.is_some() { self.cover_statement_if(index, instruction, Some(body), span)?; }
                         self.push_statement_block(index, body, span)?;
                     } else {
                         self.close_pattern_scope(index)?;
@@ -7994,7 +8137,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::PatternWhile { body, span } => match value {
                 FrameValue::Value(value) => {
-                    if lowered_condition_bool(value, span)? {
+                    let passed = lowered_condition_bool(value, span)?;
+                    if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", passed); }
+                    if passed {
                         self.push_statement_block(index, body, span)?;
                     } else {
                         self.close_pattern_scope(index)?;
@@ -8156,7 +8301,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
             } => match value {
                 FrameValue::Value(value) => {
-                    if lowered_condition_bool(value, span)? {
+                    let passed = lowered_condition_bool(value, span)?;
+                    if self.evaluator.coverage.is_some()
+                        && let Some(source_span) = self.calls[index].execution.statement_span(condition)
+                    {
+                        self.evaluator.coverage_decision(self.calls[index].execution.sources(), source_span, "loop", passed);
+                    }
+                    if passed {
                         self.calls[index].work.push(FrameWork::While {
                             condition,
                             body,
@@ -8195,6 +8346,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         lowered_tag_key(&value)
                     };
                     let body = indexed_str_tag_statement_match_arm(view, key, span)?;
+                    if self.evaluator.coverage.is_some() { self.cover_statement_match(index, instruction, body, span)?; }
                     self.push_statement_block(index, body, span)?;
                 }
                 FrameValue::Break(value) => {
@@ -8210,6 +8362,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
+                        if self.evaluator.coverage.is_some() { self.cover_statement_match(index, instruction, body, span)?; }
                         self.push_statement_block(index, body, span)?;
                     } else {
                         self.select_match_arm(
@@ -8262,6 +8415,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         lowered_tag_key(&value)
                     };
                     let arm = indexed_str_tag_match_arm(view, key, span)?;
+                    if self.evaluator.coverage.is_some() {
+                        self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, arm, span)?;
+                    }
                     self.push_expr(index, arm, span, *next);
                 }
                 FrameValue::Break(value) => {
@@ -8278,6 +8434,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if matches!(value, LoweredValue::Bool(true)) {
+                        if self.evaluator.coverage.is_some() {
+                            self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, body, span)?;
+                        }
                         self.push_expr(index, body, span, *next);
                     } else {
                         self.select_expr_match_arm(
@@ -8460,6 +8619,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::Try { span, next } => match value {
                 FrameValue::Value(value) => {
+                    if self.evaluator.coverage.is_some() { self.evaluator.coverage_try(self.calls[index].execution.sources(), span, &value); }
                     match self.evaluator.indexed_question_value(value, span)? {
                         Ok(value) => self.push_value(index, FrameValue::Value(value), *next),
                         Err(value) => {
@@ -10566,6 +10726,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             } else {
+                if self.evaluator.coverage.is_some() { self.cover_statement_match(index, instruction, body, span)?; }
                 self.push_statement_block(index, body, span)?;
             }
             return Ok(());
@@ -10583,9 +10744,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.evaluator.service_pending_signal(span)?;
-        if self.evaluator.shutting_down() || item_index == items.len() {
+        if self.evaluator.shutting_down() {
             return Ok(());
         }
+        if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", item_index != items.len()); }
+        if item_index == items.len() { return Ok(()); }
         bind_lowered_comp_target(
             &target,
             items[item_index].clone(),
@@ -10613,6 +10776,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some((bytes, _, end)) = lowered_bytes_parts(&text) {
+            if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", cursor < end); }
             if cursor >= end {
                 return Ok(());
             }
@@ -10647,6 +10811,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span),
             );
         };
+        if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", cursor < end); }
         if cursor >= end {
             return Ok(());
         }
@@ -11029,7 +11194,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.publish_caller_bindings(index, span)?;
         let next = self.evaluator.stream_next(&mut stream, span);
         self.refresh_caller_bindings(index, span)?;
-        let Some(value) = next? else {
+        let next = next?;
+        if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", next.is_some()); }
+        let Some(value) = next else {
             return Ok(());
         };
         let Some(item) = lowered_value_from_runtime_any(&value) else {
@@ -11090,6 +11257,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.refresh_caller_bindings(index, span)?;
         match pulled {
             Ok(IndexedSerialStep::Item(Some(item))) => {
+                if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", true); }
                 self.calls[index].slots[slot] = item;
                 self.calls[index].work.push(FrameWork::ForPipeline {
                     slot,
@@ -11100,6 +11268,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, body, span)
             }
             Ok(IndexedSerialStep::Item(None)) => {
+                if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", false); }
                 self.with_caller_bindings(index, span, |evaluator| {
                     pipeline.finish(evaluator, None)
                 })
@@ -11294,6 +11463,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             } else {
+                if self.evaluator.coverage.is_some() {
+                    self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, body, span)?;
+                }
                 self.push_expr(index, body, span, next);
             }
             return Ok(());
@@ -11571,6 +11743,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
+            if self.evaluator.coverage.is_some() {
+                self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, else_value, span)?;
+            }
             self.push_expr(index, else_value, span, *next);
         }
         Ok(())
@@ -11612,6 +11787,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
+            if self.evaluator.coverage.is_some() {
+                self.evaluator.cover_expression_selection(&self.calls[index].execution, instruction, else_value, span)?;
+            }
             self.push_expr(index, else_value, span, *next);
         }
         Ok(())
@@ -11660,6 +11838,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             span,
         )?;
         let Some((condition, body, captures)) = branch else {
+            if self.evaluator.coverage.is_some() { self.cover_statement_if(index, instruction, else_body, span)?; }
             return match else_body {
                 Some(body) => self.push_statement_block(index, body, span),
                 None => Ok(()),
@@ -12736,7 +12915,7 @@ proc parent() {
             let execution = function.execution().unwrap();
             let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
             let span = Span::new(source_id, 0, 0);
-            let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
+            let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span, false)
                 .unwrap();
 
             assert_eq!(stages.len(), 4);
@@ -12888,6 +13067,7 @@ proc parent() {
                 &execution,
                 pipeline_instruction,
                 span,
+                false,
             )
             .unwrap();
             assert_eq!(stages.len(), 1);
