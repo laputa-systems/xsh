@@ -239,6 +239,24 @@ def handleEqual (same : Sameness Declaration Identity Source) (left right : Valu
     if family = other then some (same.identity identity otherIdentity) else none
   | _, _ => if isNull right then some false else none
 
+/-- Two segment statuses are equal when every field is, the process each ran
+as compared by runtime identity, as the binary compares its pid. -/
+def segmentEqual (same : Sameness Declaration Identity Source) (left right : SegmentStatus Identity) : Bool :=
+  left.index == right.index && left.target == right.target && left.success == right.success &&
+    decide (left.kind = right.kind) && left.code == right.code && left.errorKind == right.errorKind &&
+    left.errorMessage == right.errorMessage &&
+    match left.process, right.process with
+    | some process, some other => same.identity process.identity other.identity
+    | none, none => true
+    | _, _ => false
+
+/-- Two process statuses are equal when every field is (SPEC 6.2), their
+segments pairwise by `segmentEqual`. -/
+def statusEqual (same : Sameness Declaration Identity Source) (left right : ProcessStatus Identity) : Bool :=
+  left.success == right.success && decide (left.kind = right.kind) && left.code == right.code &&
+    left.segments.length == right.segments.length &&
+    (left.segments.zip right.segments).all fun (one, other) => segmentEqual same one other
+
 mutual
   /-- Structural language equality (SPEC 6.2, owner decision 1): Float
   elements compare by IEEE value, list items pairwise, map entries and record
@@ -306,6 +324,11 @@ mutual
     | .callable reference kind, right =>
       match right.eraseNominal with
       | .callable other otherKind => some (kind == otherKind && same.identity reference.identity other.identity)
+      | .scalar .null => some false
+      | _ => none
+    | .status status, right =>
+      match right.eraseNominal with
+      | .status other => some (statusEqual same status other)
       | .scalar .null => some false
       | _ => none
     | .processHandle reference, right => handleEqual same (.processHandle reference) right

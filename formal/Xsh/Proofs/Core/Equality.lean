@@ -246,7 +246,9 @@ value; two sets with the same elements are equal however they were built; varian
 name and payload are; two errors are equal when every field of their data is,
 their payloads and causes structurally, so a Float in a payload compares by IEEE
 value; callables are equal when they have one kind and one runtime identity,
-and handles of one family when they have one runtime identity; and `|`, `&`,
+and handles of one family when they have one runtime identity; process
+statuses are equal when every field is, each segment's process by runtime
+identity; and `|`, `&`,
 `-` give distinct elements of the union, intersection and difference. -/
 theorem structural_equality_and_membership [DecidableEq Declaration] (context : Context Declaration Identity Source) :
     (∀ left right : Value Declaration Identity Source,
@@ -296,7 +298,10 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
         some (kind == kind' && context.sameIdentity reference.identity other.identity)) ∧
     (∀ (handle other : Value Declaration Identity Source) family identity identity',
       handleOf handle = some (family, identity) → handleOf other = some (family, identity') →
-        valueEqual context.sameness handle other = some (context.sameIdentity identity identity')) :=
+        valueEqual context.sameness handle other = some (context.sameIdentity identity identity')) ∧
+    (∀ status other : ProcessStatus Identity,
+      valueEqual context.sameness (Declaration := Declaration) (Source := Source) (.status status) (.status other) =
+        some (statusEqual context.sameness status other)) :=
   ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameness,
     valueEqual_null context.sameness,
     fun decides declaration other variant otherVariant fields others => by
@@ -312,7 +317,8 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
       simp only [Context.sameness] at span contexts
       simp [errorEqual, Context.sameness, sized, family, span, contexts],
     fun _ _ _ _ => by simp [valueEqual, Value.eraseNominal, Context.sameness], fun handle other family identity identity' held found =>
-      handle_equality context.sameness handle other family identity identity' held found⟩
+      handle_equality context.sameness handle other family identity identity' held found,
+    fun _ _ => by simp [valueEqual, Value.eraseNominal]⟩
 
 end Laws
 
@@ -547,6 +553,28 @@ theorem kind_only_callable_rejected :
     valueEqual ⟨fun first second => decide (first = second), fun _ _ => true, fun _ _ => true⟩
         (callableOf 1 .procedure) (callableOf 2 .procedure) = some true ∧
       valueEqual sameIds (callableOf 1 .procedure) (callableOf 2 .procedure) = some false := by
+  decide +kernel
+
+/-- The status of `run.status` on `target` as process `pid`, exiting with
+`code`. -/
+def statusOf (pid : Nat) (target : String) (code : Int) : Value Nat Nat Unit :=
+  .status ⟨code == 0, .exit, validateInt? code,
+    [⟨0, target.toUTF8.toList, some ⟨pid⟩, code == 0, .exit, validateInt? code, none, none⟩]⟩
+
+/-- As the verification binary prints `false false true` for
+`let a = run.status true; let b = run.status true; let c = run.status false`
+and `a == b`, `a == c`, `a == a`: statuses compare field by field, the
+process each segment ran by identity, so two runs differ. -/
+theorem status_witness :
+    valueEqual sameIds (statusOf 3 "true" 0) (statusOf 4 "true" 0) = some false ∧
+    valueEqual sameIds (statusOf 3 "true" 0) (statusOf 5 "false" 1) = some false ∧
+    valueEqual sameIds (statusOf 3 "true" 0) (statusOf 3 "true" 0) = some true ∧
+    valueEqual sameIds (statusOf 3 "true" 0) (.scalar .null) = some false := by
+  decide +kernel
+
+/-- Comparing statuses by exit code alone calls two runs of `true` equal. -/
+theorem code_only_status_rejected :
+    valueEqual sameIds (statusOf 3 "true" 0) (statusOf 4 "true" 0) ≠ some true := by
   decide +kernel
 
 end Witness

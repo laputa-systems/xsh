@@ -514,8 +514,8 @@ Statements:
 
 Expressions:
 
-- equality of streams, modules, filesystem entries, commands, process
-  statuses and process errors (P)
+- equality of streams, modules, filesystem entries, commands and process
+  errors (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
@@ -593,8 +593,10 @@ rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
 concatenates its operands, variant equality by name alone, error payloads
 compared by raw bits, and callable equality by kind alone. Streams, modules,
-filesystem entries, commands, process statuses and process errors are not
-compared, a `Path`'s display text for membership is its bytes decoded lossily
+filesystem entries, commands and process errors are not compared, process
+statuses compare field by field with each segment's process by runtime
+identity (`statusEqual`), as the binary's `false false true` for two runs of
+`true`, a run of `false` and a status with itself shows, a `Path`'s display text for membership is its bytes decoded lossily
 (`LossyUtf8`, one U+FFFD per maximal ill-formed subsequence, as Rust's
 `from_utf8_lossy`), and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
