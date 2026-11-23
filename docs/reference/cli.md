@@ -39,7 +39,7 @@ Start here:
   Highlight source   xsht highlight SCRIPT
   Expand sugar       xsht desugar SCRIPT
   Read the grammar   xsht grammar 
-  Profile a script   xsht profile SCRIPT [-- ARGS...]
+  Profile a script   xsht profile SCRIPT [-- ARGS...] | --compare BASE.json NEW.json [--threshold PCT]
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
   Inspect lowered IR xsht ir-tags 
@@ -144,13 +144,16 @@ Usage:
 xsht profile — Profile a script's calls and waits
 
 Usage:
-  xsht profile [--json PATH] [--folded PATH] SCRIPT [-- ARGS...]
+  xsht profile [--json PATH] [--folded PATH] [--compare] [--threshold PCT] SCRIPT [-- ARGS...] | --compare BASE.json NEW.json [--threshold PCT]
 
-  --json PATH    Write a versioned JSON report to PATH
-  --folded PATH  Write folded stacks to PATH
+  --json PATH      Write a versioned JSON report to PATH
+  --folded PATH    Write folded stacks to PATH
+  --compare        Compare two JSON profiles
+  --threshold PCT  Regression threshold in percent (default 10)
 
   Examples:
     xsht profile --json profile.json script.xsh
+    xsht profile --compare base.json new.json --threshold 10
 ```
 
 ### `xsht trace`

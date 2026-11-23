@@ -40,7 +40,7 @@ pub struct OpaqueRegion {
 }
 
 #[derive(Clone, Debug)]
-pub struct StackPath { pub parent: Option<u32>, pub site: u32, pub exclusive_ns: u64 }
+pub struct StackPath { pub parent: Option<u32>, pub site: u32, pub calls: u64, pub exclusive_ns: u64 }
 
 #[derive(Clone, Debug)]
 struct Frame {
@@ -70,6 +70,63 @@ impl ProfileState {
         self.dropped = self.dropped.saturating_add(self.stack.len() as u64);
     }
 
+    pub fn merge_worker(&mut self, mut worker: ProfileState, span: Span, wall_ns: u64) {
+        worker.finish();
+        self.dropped = self.dropped.saturating_add(worker.dropped);
+        let mut ids = Vec::with_capacity(worker.sites.len());
+        for site in &worker.sites {
+            let id = if let Some(&id) = self.site_index.get(&site.key) { id } else {
+                let id = self.sites.len() as u32;
+                self.sites.push(SiteStats { key: site.key, calls: 0, inclusive_ns: 0, exclusive_ns: 0, blocked_ns: 0, alloc_count: 0, alloc_bytes: 0, children: FxHashMap::default() });
+                self.site_index.insert(site.key, id);
+                id
+            };
+            ids.push(id);
+            let target = &mut self.sites[id as usize];
+            target.calls = target.calls.saturating_add(site.calls);
+            target.inclusive_ns = target.inclusive_ns.saturating_add(site.inclusive_ns);
+            target.exclusive_ns = target.exclusive_ns.saturating_add(site.exclusive_ns);
+            target.blocked_ns = target.blocked_ns.saturating_add(site.blocked_ns);
+            target.alloc_count = target.alloc_count.saturating_add(site.alloc_count);
+            target.alloc_bytes = target.alloc_bytes.saturating_add(site.alloc_bytes);
+        }
+        for (index, site) in worker.sites.iter().enumerate() {
+            for (&child, &calls) in &site.children {
+                let value = self.sites[ids[index] as usize].children.entry(ids[child as usize]).or_default();
+                *value = value.saturating_add(calls);
+            }
+        }
+        let root = self.stack.last().map(|frame| (frame.path, frame.site));
+        let mut paths = Vec::with_capacity(worker.paths.len());
+        for path in &worker.paths {
+            let site = ids[path.site as usize];
+            let parent = path.parent.map(|id| paths[id as usize]).or(root.map(|v| v.0));
+            let id = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
+                let id = self.paths.len() as u32;
+                self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0 });
+                self.path_index.insert((parent, site), id);
+                id
+            };
+            self.paths[id as usize].calls = self.paths[id as usize].calls.saturating_add(path.calls);
+            self.paths[id as usize].exclusive_ns = self.paths[id as usize].exclusive_ns.saturating_add(path.exclusive_ns);
+            paths.push(id);
+        }
+        if let Some((_, parent)) = root {
+            for path in worker.paths.iter().filter(|path| path.parent.is_none()) {
+                let calls = path.calls;
+                let entry = self.sites[parent as usize].children.entry(ids[path.site as usize]).or_default();
+                *entry = entry.saturating_add(calls);
+            }
+        }
+        for region in worker.opaque {
+            if let Some(existing) = self.opaque.iter_mut().find(|r| r.kind == region.kind && r.span == region.span && r.overlapping == region.overlapping) {
+                existing.wall_ns = existing.wall_ns.saturating_add(region.wall_ns);
+                existing.count = existing.count.saturating_add(region.count);
+            } else { self.opaque.push(region); }
+        }
+        self.opaque("parallel-workers", Some(span), wall_ns, true);
+    }
+
     pub fn enter(&mut self, key: SiteKey) {
         let site = if let Some(&id) = self.site_index.get(&key) { id } else {
             let id = self.sites.len() as u32;
@@ -80,7 +137,7 @@ impl ProfileState {
         let parent = self.stack.last().map(|frame| frame.path);
         let path = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
             let id = self.paths.len() as u32;
-            self.paths.push(StackPath { parent, site, exclusive_ns: 0 });
+            self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0 });
             self.path_index.insert((parent, site), id);
             id
         };
@@ -88,6 +145,7 @@ impl ProfileState {
             *self.sites[frame.site as usize].children.entry(site).or_default() += 1;
         }
         self.sites[site as usize].calls += 1;
+        self.paths[path as usize].calls += 1;
         let alloc = crate::mem_track::snapshot();
         self.stack.push(Frame { site, path, start: Instant::now(), child_ns: 0, blocked_ns: 0, child_blocked_ns: 0, alloc_count: alloc.alloc_count, alloc_bytes: alloc.alloc_bytes });
     }
