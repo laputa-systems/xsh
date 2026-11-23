@@ -23,7 +23,9 @@ optional `T?` selecting from `T`; an annotated binding and a function's
 declared result, through its tail and each top-level `return`, give that type,
 and so does a parameter's annotation to the argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
-parameter it names; the same expected type targets a contextual `.require()`.
+parameter it names; an expected type reaches each branch of a value `if` or
+`match`, a value block's tail and each element of an expected `List[T]`; and
+the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
 spelling gives; a leading-dot name with no expected type is outside the model
@@ -67,11 +69,21 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
         .named label (expectTarget ((parameters.find? fun
             | .mk name _ _ _ => machine.context.spelling name = machine.context.spelling label).bind
           fun | .mk _ annotation _ _ => annotation) value) ::
-          expectArguments machine.context.spelling parameters positions rest) := by
+          expectArguments machine.context.spelling parameters positions rest) ∧
+    (∀ target branches otherwise, expectTarget (some target) (.ifExpr branches otherwise) =
+      .ifExpr (expectBranches (some target) branches) (expectTarget (some target) otherwise)) ∧
+    (∀ target subject arms, expectTarget (some target) (.matchExpr subject arms) =
+      .matchExpr subject (expectArms (some target) arms)) ∧
+    (∀ target body, expectTarget (some target) (.valueBlock body) = .valueBlock (expectTail (some target) body)) ∧
+    (∀ element elements, expectTarget (some (.list element)) (.list elements) =
+      .list (expectElements (some element) elements)) ∧
+    (∀ expected tail, expectTail expected [.expression tail] = [.expression (expectTarget expected tail)]) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
     fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
-    fun _ _ _ _ _ => rfl⟩
+    fun _ _ _ _ _ => rfl, fun target _ _ => by cases target <;> simp [expectTarget],
+    fun target _ _ => by cases target <;> simp [expectTarget], fun target _ => by cases target <;> simp [expectTarget],
+    fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail]⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -204,6 +216,46 @@ theorem untargeted_argument_rejected :
           [.expression (ident echoParam)] none false,
         letOf (slot 0) (.call (ident echoName) [.positional (dot warnName)])]) = none ∧
     variantShape (valueOf (slot 0) argumentRun) = some ("Warn", []) := by
+  decide +kernel
+
+def yes : Xsh.Syntax.Expr := .literal (.bool true)
+
+def block (value : Xsh.Syntax.Expr) : Xsh.Syntax.Expr := .valueBlock [.expression value]
+
+/-- `let a: Level = if true { .Warn } else { .Info }`,
+`let b: Shape = match 7 { 7 => .Ring(1), else => .Dot }` and
+`let l: List[Level] = [.Info, .Warn]`. -/
+def branchScript : List Xsh.Syntax.Statement :=
+  [declareLevel, declareShape,
+   annotated (slot 0) (.named levelName) (.ifExpr [(yes, block (dot warnName))] (block (dot infoName))),
+   annotated (slot 1) (.named shapeName)
+     (.matchExpr (int "7") [(.literal (.integer "7"), none, dotCall ringName [int "1"]), (.wildcard, none, dot dotName)]),
+   annotated (slot 2) (.list (.named levelName)) (.list [dot infoName, dot warnName])]
+
+def branchRun : Exec witnessWorld := runScript shapeMachine 90 fullStart branchScript
+
+def variantNames : Option (Value Unit Unit Unit) → Option (List String)
+  | some (.list items) => items.mapM fun
+    | .tagged _ variant _ => some variant
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints `true` for a value `if` and a `match`
+selecting leading-dot variants under an annotation, and for
+`let l: List[Color] = [.Red, .Blue]`: the expected type reaches each branch
+and element. -/
+theorem branch_witness :
+    variantShape (valueOf (slot 0) branchRun) = some ("Warn", []) ∧
+    variantShape (valueOf (slot 1) branchRun) = some ("Ring", [1]) ∧
+    variantNames (valueOf (slot 2) branchRun) = some ["Info", "Warn"] := by
+  decide +kernel
+
+/-- An expected type that stopped at the `if` would leave its branches'
+variants untargeted, and the binding would not complete. -/
+theorem branch_stopping_rejected :
+    valueOf (slot 0) (runScript shapeMachine 90 fullStart
+      [declareLevel, letOf (slot 0) (.ifExpr [(yes, block (dot warnName))] (block (dot infoName)))]) = none ∧
+    variantShape (valueOf (slot 0) branchRun) = some ("Warn", []) := by
   decide +kernel
 
 end Witness

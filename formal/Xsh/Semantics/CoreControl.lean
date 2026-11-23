@@ -1181,18 +1181,47 @@ def bothLimits : Option Nat → Option Nat → Option Nat
   | some first, none | none, some first => some first
   | none, none => none
 
-/-- An expression in a position with a known expected type, its contextual
-forms given that type. The target of a contextual `.require()` (SPEC 5.3) is
-the expected `Result` value type, and each `?` peels one `Result` layer, so
-under `.require()?` it is the expected type itself. A leading-dot variant
-(SPEC 5.5) selects from the enum the expected type names, `T?` selecting
-from `T`. -/
-def expectTarget : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
-  | some (.result target), .require value none => .require value (some target)
-  | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
-  | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
-  | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
-  | _, initializer => initializer
+mutual
+  /-- An expression in a position with a known expected type, its contextual
+  forms given that type. The target of a contextual `.require()` (SPEC 5.3) is
+  the expected `Result` value type, and each `?` peels one `Result` layer, so
+  under `.require()?` it is the expected type itself. A leading-dot variant
+  (SPEC 5.5) selects from the enum the expected type names, `T?` selecting
+  from `T`. The expected type reaches each branch of a value `if` or `match`,
+  a value block's tail, and each element of an expected `List[T]`. -/
+  def expectTarget : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+    | some (.result target), .require value none => .require value (some target)
+    | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
+    | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
+    | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
+    | some target, .ifExpr branches otherwise =>
+      .ifExpr (expectBranches (some target) branches) (expectTarget (some target) otherwise)
+    | some target, .matchExpr subject arms => .matchExpr subject (expectArms (some target) arms)
+    | some target, .valueBlock body => .valueBlock (expectTail (some target) body)
+    | some (.list element), .list elements => .list (expectElements (some element) elements)
+    | _, initializer => initializer
+
+  def expectBranches (expected : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr)
+    | [] => []
+    | (condition, value) :: rest => (condition, expectTarget expected value) :: expectBranches expected rest
+
+  def expectArms (expected : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) →
+        List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr)
+    | [] => []
+    | (pattern, guard, value) :: rest => (pattern, guard, expectTarget expected value) :: expectArms expected rest
+
+  def expectElements (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
+    | [] => []
+    | value :: rest => expectTarget expected value :: expectElements expected rest
+
+  /-- A value block's tail, its last statement when that is an expression. -/
+  def expectTail (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+    | [] => []
+    | [.expression tail] => [.expression (expectTarget expected tail)]
+    | statement :: rest => statement :: expectTail expected rest
+end
 
 /-- A call's arguments with each parameter's annotation as the expected type
 of the argument that fills it (SPEC 5.5): positional arguments take the
