@@ -3305,21 +3305,35 @@ def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawNa
       if declared = name then some (fields, nominal) else none
     | _ => none
 
-/-- A brace literal under an annotation that names a record schema (SPEC
-5.5): each named field's value takes the declared type of the schema field
-it names. Field types that name other schemas are not expanded. -/
-def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
-    Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
-  | some (.named name), .record fields =>
-    match schemaOf declarations name with
-    | some (schema, _) =>
-      .record (fields.map fun
-        | .named label value =>
-          .named label (expectTarget spelling
-            ((schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type) value)
-        | other => other)
-    | none => .record fields
-  | _, initializer => initializer
+mutual
+  /-- A brace literal under an annotation that names a record schema (SPEC
+  5.5): each named field's value takes the declared type of the schema field
+  it names, itself expanded when that type names a schema; each element of a
+  list under `List[T]` is expanded by `T`. -/
+  def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
+      Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+    | some (.named name), .record fields =>
+      match schemaOf declarations name with
+      | some (schema, _) => .record (expectSchemaFields spelling declarations schema fields)
+      | none => .record fields
+    | some (.list element), .list elements => .list (expectSchemaElements spelling declarations element elements)
+    | _, initializer => initializer
+
+  def expectSchemaFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+      (schema : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
+    | [] => []
+    | .named label value :: rest =>
+      let type := (schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type
+      .named label (expectTarget spelling type (expectSchema spelling declarations type value)) ::
+        expectSchemaFields spelling declarations schema rest
+    | field :: rest => field :: expectSchemaFields spelling declarations schema rest
+
+  def expectSchemaElements (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+      (element : Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
+    | [] => []
+    | value :: rest => expectSchema spelling declarations (some element) value ::
+        expectSchemaElements spelling declarations element rest
+end
 
 /-- The top-level error family a name declares (SPEC 4.10): its variants. -/
 def familyOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :

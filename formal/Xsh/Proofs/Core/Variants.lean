@@ -102,12 +102,13 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
         .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some error) payload)]) ∧
     (∀ holder schema nominal (fields : List Xsh.Syntax.RecordField), schemaOf machine.declarations holder = some (schema, nominal) →
       expectSchema machine.context.spelling machine.declarations (some (.named holder)) (.record fields) =
-        .record (fields.map fun
-          | .named label value =>
-            .named label (expectTarget machine.context.spelling
-              ((schema.find? fun | .mk field _ _ => machine.context.spelling field = machine.context.spelling label).map
-                fun | .mk _ type _ => type) value)
-          | other => other)) ∧
+        .record (expectSchemaFields machine.context.spelling machine.declarations schema fields)) ∧
+    (∀ schema label value rest,
+      expectSchemaFields machine.context.spelling machine.declarations schema (.named label value :: rest) =
+        let type := (schema.find? fun | .mk field _ _ => machine.context.spelling field = machine.context.spelling label).map
+          fun | .mk _ type _ => type
+        .named label (expectTarget machine.context.spelling type (expectSchema machine.context.spelling machine.declarations type value)) ::
+          expectSchemaFields machine.context.spelling machine.declarations schema rest) ∧
     (∀ family name arguments, variantOf machine.context.spelling machine.declarations name = none →
       evalExpr machine (fuel + 1) frame (.dotVariant (some family) name arguments) =
         evalExpr machine fuel frame (.call (.field (.ident family) name) (arguments.getD []))) ∧
@@ -168,7 +169,7 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     fun _ _ _ named => by simp [expectTarget, named], fun _ _ _ => by simp [expectTarget],
     fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields],
     fun _ _ _ _ isErr notOk => by simp [expectTarget, isErr, notOk],
-    fun _ _ _ _ found => by simp only [expectSchema, found]; rfl,
+    fun _ _ _ _ found => by simp only [expectSchema, found], fun _ _ _ _ => by simp only [expectSchemaFields]; rfl,
     fun _ _ arguments absent => by cases arguments <;> simp [evalExpr, absent],
     fun result statement rest notTail => by
       cases rest with
@@ -586,6 +587,41 @@ type and the comparison does not evaluate. -/
 theorem untargeted_equality_rejected :
     valueOf (slot 0) (runScript shapeMachine 90 fullStart
       [declareLevel, letOf (slot 0) (.binary .eq (int "7") (dot warnName))]) = none := by
+  decide +kernel
+
+def outerName : Xsh.Syntax.RawName := name 395 (by decide)
+def innerField : Xsh.Syntax.RawName := name 396 (by decide)
+
+/-- `type Outer = { inner: Holder, n: Int }`. -/
+def declareOuter : Xsh.Syntax.Statement :=
+  .typeDef outerName [] (.recordSchema [.mk innerField (.named holderName) none, .mk nField anyType none]) false none
+
+def outerMachine : Machine witnessWorld :=
+  { holderMachine with
+    context := { holderMachine.context with
+      spelling := fun named =>
+        if named = outerName then "Outer" else if named = innerField then "inner"
+        else holderMachine.context.spelling named }
+    declarations := holderMachine.declarations ++ [declareOuter] }
+
+/-- As the verification binary prints `true true` for
+`let o: Outer = { inner: { c: .Red }, n: 1 }` and
+`let l: List[Inner] = [{ c: .Green }, { c: .Red }]`: schema field types reach
+nested records and the elements of a list. -/
+theorem nested_schema_witness :
+    (match valueOf (slot 0) (runScript outerMachine 90 fullStart
+        [declareLevel, declareHolder, declareOuter,
+         annotated (slot 0) (.named outerName)
+           (.record [.named innerField (.record [.named cField (dot warnName)]), .named nField (int "1")])]) with
+      | some (.record fields) => fieldVariant (fields.lookup "inner")
+      | _ => none) = some "Warn" ∧
+    (match valueOf (slot 0) (runScript outerMachine 90 fullStart
+        [declareLevel, declareHolder,
+         annotated (slot 0) (.list (.named holderName))
+           (.list [.record [.named cField (dot infoName)], .record [.named cField (dot warnName)]])]) with
+      | some (.list [first, second]) => (fieldVariant (some first)).bind fun one =>
+          (fieldVariant (some second)).map fun two => (one, two)
+      | _ => none) = some ("Info", "Warn") := by
   decide +kernel
 
 end Witness

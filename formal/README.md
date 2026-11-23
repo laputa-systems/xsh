@@ -811,9 +811,11 @@ each named or computed value of a brace literal under an expected
 the binary's `true` for those forms shows. A brace literal under an annotation that names
 a record schema gives each named field's value the schema field's type
 (`expectSchema`), as the binary's `true true` for
-`let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows; field types
-that name other schemas and constructor fields are not yet expected
-positions. The other operand of `==` or `!=` targets a leading-dot name on
+`let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows, and field
+types that name other schemas expand in turn, as do the elements of an
+annotated `List[T]`, as the binary resolves `{ inner: { c: .Red } }` and
+`[{ c: .Green }]`; constructor fields and schemas under a declared result or
+a parameter's annotation are not yet expected positions. The other operand of `==` or `!=` targets a leading-dot name on
 either side when it evaluates to an enum's variant, and `null` there compares
 unequal, as the binary prints `true true true false` for `a == .Red`,
 `a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the
