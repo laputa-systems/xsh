@@ -514,7 +514,7 @@ Expressions:
 - equality of streams, modules, filesystem entries, commands, process
   statuses and process errors (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
-  methods (the `Bytes` digests aside), the `Path` methods, and the text
+  methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
@@ -737,7 +737,10 @@ component, `/` or `.` when there is none), component-wise `starts_with` and
 `ends_with`, `strip_prefix` (`Ok` of the remaining bytes, or the `path-prefix`
 `Err` for an empty prefix, a mismatch or a remainder that is not a `RelPath`)
 and `relative_to` (the path itself on a mismatch); a text result decodes the
-bytes lossily as the binary does,
+bytes lossily as the binary does; the `Bytes` digests `md5`, `sha1`, `sha256`
+and `sha512` (`Values.Digests`, the RFC 1321 and FIPS 180-4 algorithms over
+`Nat` words, checked against the standard vectors and the binary) and the
+`Digest` methods `hex` and `base64`,
 `wrap(width)` (each line's words packed greedily with single spaces into lines
 of at most `width` characters, a longer word cut, an empty last line after a
 final newline, and a width below one the runtime `text-wrap` failure, which

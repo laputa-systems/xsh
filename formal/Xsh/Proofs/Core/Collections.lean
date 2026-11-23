@@ -52,6 +52,10 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
               match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
               | some method, some values => fromEval last (pathMethod machine.context.errors method path (values.map Value.eraseNominal))
               | _, _ => .exec .unsupported
+            | .scalar (.digest digest), _, _ =>
+              match supplied.mapM Supplied.positionalValue with
+              | some values => fromEval last (digestMethod name digest (values.map Value.eraseNominal))
+              | none => .exec .unsupported
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (collectionMethod machine.context.errors method target values)
@@ -141,7 +145,8 @@ the `Path` methods read its native bytes: `bytes`, the POSIX `dirname` and
 the lexical `normalize`; and the `std::path` methods read its components:
 `starts_with` component by component, `strip_prefix` refusing an empty
 prefix, and `relative_to` giving the path itself when it does not start with
-the base;
+the base; and `Bytes.sha256`, like `md5`, `sha1` and `sha512`, gives the
+standard digest tagged with its algorithm;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -205,6 +210,8 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     (∀ path other, Xsh.Paths.StdComponents.stripPrefix? path.bytes other.bytes = none →
       pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .relativeTo path
           [.scalar (.path other)] = .value (.scalar (.path path))) ∧
+    (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .sha256 bytes [] =
+      .value (.scalar (.digest ⟨"sha256", Xsh.Values.Digests.sha256 bytes⟩))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -225,6 +232,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     fun _ => rfl, fun _ _ made => by simp [pathMethod, made], fun _ _ made => by simp [pathMethod, made],
     fun _ => rfl, fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ => rfl, fun _ _ empty => by simp [pathMethod, empty], fun _ _ absent => by simp [pathMethod, absent],
+    fun _ => rfl,
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -923,6 +931,37 @@ theorem lossy_display_witness :
 U+FFFD for the truncated `e2 82`. -/
 theorem per_byte_replacement_rejected :
     Xsh.Values.LossyUtf8.bytes [0xE2, 0x82] ≠ [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD] := by
+  decide +kernel
+
+/-- The `Digest` a `Bytes` method gives, through `hex()` or `base64()`. -/
+def digestText (method : BytesMethod) (data : List UInt8) (render : String) : Option String :=
+  match bytesRun method data [] with
+  | .value (.scalar (.digest digest)) => textResult (digestMethod render digest [])
+  | _ => none
+
+/-- As the verification binary prints `2816…5a0e` for the SHA-256 of a
+hundred `a` bytes, two blocks, `900150983cd24fb0d6963f7d28e17f72` for
+`b"abc".md5().hex()`, `qZk+NkcGgWq6PiVxeFDCbJzQ2J0=` for
+`b"abc".sha1().base64()` and `cf83…da3e` for `b"".sha512().hex()`, and as
+FIPS 180-4 gives for SHA-256 and SHA-512 of `abc`. -/
+theorem digest_witness :
+    digestText .sha256 (List.replicate 100 97) "hex" =
+      some "2816597888e4a0d3a36b82b83316ab32680eb8f00f8cd3b904d681246d285a0e" ∧
+    digestText .md5 [97, 98, 99] "hex" = some "900150983cd24fb0d6963f7d28e17f72" ∧
+    digestText .sha1 [97, 98, 99] "base64" = some "qZk+NkcGgWq6PiVxeFDCbJzQ2J0=" ∧
+    digestText .sha512 [] "hex" = some
+      "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e" ∧
+    digestText .sha256 [97, 98, 99] "hex" =
+      some "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" ∧
+    digestText .sha512 [97, 98, 99] "hex" = some
+      "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f" := by
+  decide +kernel
+
+/-- MD5 with big-endian words, as SHA uses, would not give the RFC 1321
+digest of `abc`. -/
+theorem md5_word_order_rejected :
+    Xsh.Values.Digests.toBigEndian 16 (Xsh.Values.Digests.littleEndian (Xsh.Values.Digests.md5 [97, 98, 99])) ≠
+      Xsh.Values.Digests.md5 [97, 98, 99] := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

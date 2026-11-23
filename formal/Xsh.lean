@@ -54,6 +54,7 @@ import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Values.BaseCodec
 import Xsh.Values.LossyUtf8
+import Xsh.Values.Digests
 import Xsh.Calls.ArgumentOrder
 import Xsh.Collect.Block
 import Xsh.Semantics.Argv

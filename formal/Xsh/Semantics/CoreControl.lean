@@ -1,6 +1,7 @@
 import Xsh.Semantics.CoreEval
 import Xsh.Validation.Core.Require
 import Xsh.Values.BaseCodec
+import Xsh.Values.Digests
 import Xsh.Paths.Fields
 import Xsh.Paths.Normalize
 import Xsh.Paths.StdComponents
@@ -2143,7 +2144,7 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
 /-- A `Bytes` method (SPEC 4.4). -/
 inductive BytesMethod where
   | len | isEmpty | byteAt | startsWith | endsWith | slice | chunks | lines | countLines | lower | trim | utf8
-  | base64 | base32 | strings | compare | dump
+  | base64 | base32 | strings | compare | dump | md5 | sha1 | sha256 | sha512
 
 def BytesMethod.ofName : String → Option BytesMethod
   | "len" => some .len
@@ -2163,6 +2164,10 @@ def BytesMethod.ofName : String → Option BytesMethod
   | "strings" => some .strings
   | "compare" => some .compare
   | "dump" => some .dump
+  | "md5" => some .md5
+  | "sha1" => some .sha1
+  | "sha256" => some .sha256
+  | "sha512" => some .sha512
   | _ => none
 
 
@@ -2321,6 +2326,10 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
     | some text => .value (.ok (.scalar (.string text)))
     | none => .value (.err (errors.described "invalid-utf8"
         s!"byte data is not valid UTF-8 at byte {validPrefix bytes}"))
+  | .md5, [] => .value (.scalar (.digest ⟨"md5", Xsh.Values.Digests.md5 bytes⟩))
+  | .sha1, [] => .value (.scalar (.digest ⟨"sha1", Xsh.Values.Digests.sha1 bytes⟩))
+  | .sha256, [] => .value (.scalar (.digest ⟨"sha256", Xsh.Values.Digests.sha256 bytes⟩))
+  | .sha512, [] => .value (.scalar (.digest ⟨"sha512", Xsh.Values.Digests.sha512 bytes⟩))
   | .strings, [] => .value (.list ((printableRuns 4 bytes).map bytesText))
   | .strings, [.scalar (.integer least)] =>
     if least.val ≤ 0 then failed "bytes-strings" "min_len must be positive"
@@ -2431,6 +2440,16 @@ def pathMethod (errors : Errors Declaration Identity Source) (method : PathMetho
     | none => .value (.scalar (.path path))
   | _, _ => .unsupported
 
+/-- A `Digest`'s methods (SPEC 4.4): `hex`, two lowercase hex digits a byte,
+and `base64`, padded. -/
+def digestMethod (name : String) (digest : Digest) (arguments : List (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match name, arguments with
+  | "hex", [] => .value (.scalar (.string (String.ofList (digest.bytes.flatMap fun byte => paddedDigits 16 2 byte.toNat))))
+  | "base64", [] => .value (.scalar (.string (String.ofList
+      ((Xsh.Values.BaseCodec.encode .base64 digest.bytes).map fun byte => Char.ofNat byte.toNat))))
+  | _, _ => .unsupported
+
 /-- A list, map, set or text method call: the receiver evaluates first, then
 each argument once in written order; a text method applies to a `Str`
 receiver and a collection method to a list, map or set. -/
@@ -2450,6 +2469,10 @@ receiver and a collection method to a list, map or set. -/
         match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
         | some method, some values => fromEval last (pathMethod context.errors method path (values.map Value.eraseNominal))
         | _, _ => .exec .unsupported
+      | .scalar (.digest digest), _, _ =>
+        match supplied.mapM Supplied.positionalValue with
+        | some values => fromEval last (digestMethod name digest (values.map Value.eraseNominal))
+        | none => .exec .unsupported
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with
         | some values => fromEval last (collectionMethod context.errors method target values)
