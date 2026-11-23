@@ -54,7 +54,8 @@ theorem declaration_hoisting {world : World Declaration Identity Source} (machin
                   match (extend environment [(name, binder, cell)]).cellOf captured with
                   | .ok found => if mutable.contains found then some found else none
                   | .error _ => none)
-                parameters (.block (expectBody machine.context.spelling result body) (returnKindOf machine result))) :: closures) rest) ∧
+                parameters (.block (expectBody machine.context.spelling result
+                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) :: closures) rest) ∧
     (∀ fuel (frame : Frame world) name cell,
       frame.locals.lookup name = none → localClosure frame.closures frame.environment name = none →
         frame.environment.cellOf name = .ok cell → frame.store cell = none →

@@ -3328,45 +3328,6 @@ def bareVariants {world : World Declaration Identity Source} (machine : Machine 
         | .mk _ (_ :: _) _ => none
     | _ => []
 
-/-- The top-level record schema a name declares (SPEC 4.7): its fields and
-whether it is nominal. -/
-def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
-    Option (List Xsh.Syntax.SchemaField × Bool) :=
-  declarations.findSome? fun
-    | .typeDef declared _ (.recordSchema fields) nominal _ | .export (.typeDef declared _ (.recordSchema fields) nominal _) =>
-      if declared = name then some (fields, nominal) else none
-    | _ => none
-
-mutual
-  /-- A brace literal under an annotation that names a record schema (SPEC
-  5.5): each named field's value takes the declared type of the schema field
-  it names, itself expanded when that type names a schema; each element of a
-  list under `List[T]` is expanded by `T`. -/
-  def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
-      Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
-    | some (.named name), .record fields =>
-      match schemaOf declarations name with
-      | some (schema, _) => .record (expectSchemaFields spelling declarations schema fields)
-      | none => .record fields
-    | some (.list element), .list elements => .list (expectSchemaElements spelling declarations element elements)
-    | _, initializer => initializer
-
-  def expectSchemaFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-      (schema : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
-    | [] => []
-    | .named label value :: rest =>
-      let type := (schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type
-      .named label (expectTarget spelling type (expectSchema spelling declarations type value)) ::
-        expectSchemaFields spelling declarations schema rest
-    | field :: rest => field :: expectSchemaFields spelling declarations schema rest
-
-  def expectSchemaElements (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-      (element : Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
-    | [] => []
-    | value :: rest => expectSchema spelling declarations (some element) value ::
-        expectSchemaElements spelling declarations element rest
-end
-
 /-- The top-level error family a name declares (SPEC 4.10): its variants. -/
 def familyOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
     Option (List Xsh.Syntax.ErrorVariant) :=
@@ -3511,6 +3472,70 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
   | .broke frame => .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none }
   | other => .exec other
 
+/-- The top-level record schema a name declares (SPEC 4.7): its fields and
+whether it is nominal. -/
+def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    Option (List Xsh.Syntax.SchemaField × Bool) :=
+  declarations.findSome? fun
+    | .typeDef declared _ (.recordSchema fields) nominal _ | .export (.typeDef declared _ (.recordSchema fields) nominal _) =>
+      if declared = name then some (fields, nominal) else none
+    | _ => none
+
+mutual
+  /-- A brace literal under an annotation that names a record schema (SPEC
+  5.5): each named field's value takes the declared type of the schema field
+  it names, itself expanded when that type names a schema; each element of a
+  list under `List[T]` is expanded by `T`. -/
+  def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
+      Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+    | some (.named name), .record fields =>
+      match schemaOf declarations name with
+      | some (schema, _) => .record (expectSchemaFields spelling declarations schema fields)
+      | none => .record fields
+    | some (.list element), .list elements => .list (expectSchemaElements spelling declarations element elements)
+    | _, initializer => initializer
+
+  def expectSchemaFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+      (schema : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
+    | [] => []
+    | .named label value :: rest =>
+      let type := (schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type
+      .named label (expectTarget spelling type (expectSchema spelling declarations type value)) ::
+        expectSchemaFields spelling declarations schema rest
+    | field :: rest => field :: expectSchemaFields spelling declarations schema rest
+
+  def expectSchemaElements (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+      (element : Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
+    | [] => []
+    | value :: rest => expectSchema spelling declarations (some element) value ::
+        expectSchemaElements spelling declarations element rest
+end
+
+/-- A function body whose tail and top-level `return` operands are brace
+literals under the declared result, expanded by its record schema. -/
+def expectSchemaBody (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+    (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+  | [] => []
+  | [.expression tail] => [.expression (expectSchema spelling declarations result tail)]
+  | .returnValue (some value) :: rest =>
+    .returnValue (some (expectSchema spelling declarations result value)) :: expectSchemaBody spelling declarations result rest
+  | statement :: rest => statement :: expectSchemaBody spelling declarations result rest
+
+/-- A call's arguments expanded by the record schema their parameter's
+annotation names, matched to parameters as `expectArguments` matches them. -/
+def schemaArguments (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+    (parameters : List Xsh.Syntax.Parameter) :
+    List Xsh.Syntax.Parameter → List Xsh.Syntax.CallArgument → List Xsh.Syntax.CallArgument
+  | _, [] => []
+  | .mk _ annotation _ false :: positions, .positional value :: rest =>
+    .positional (expectSchema spelling declarations annotation value) :: schemaArguments spelling declarations parameters positions rest
+  | _, .positional value :: rest => .positional value :: schemaArguments spelling declarations parameters [] rest
+  | positions, .named label value :: rest =>
+    .named label (expectSchema spelling declarations ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
+        fun | .mk _ annotation _ _ => annotation) value) :: schemaArguments spelling declarations parameters positions rest
+  | _, .splice value :: rest => .splice value :: schemaArguments spelling declarations parameters [] rest
+  | positions, .namedSpread value :: rest => .namedSpread value :: schemaArguments spelling declarations parameters positions rest
+
 /-- A call of `closure` with its arguments already evaluated (SPEC 6.3, 9.2):
 they fill the parameters by position and label, omitted defaults evaluate in
 the declaration scope, and the body runs through `callBlock`. -/
@@ -3552,8 +3577,9 @@ def invokeWith {world : World Declaration Identity Source} (machine : Machine wo
       List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
   (threadArguments machine.context.spelling evaluate frame
-      (expectArguments machine.context.spelling closure.parameters closure.parameters arguments)).bind fun supplied after =>
-    invokeSupplied machine evaluate callBlock after closure supplied
+      (expectArguments machine.context.spelling closure.parameters closure.parameters
+        (schemaArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments))).bind
+    fun supplied after => invokeSupplied machine evaluate callBlock after closure supplied
 
 mutual
   /-- Expressions, with the frame threaded through them: operands, arguments,
@@ -4315,7 +4341,8 @@ mutual
               locals := hide [name] frame.locals
               closures := (cell, .mk cell callable environment frame.closures
                 (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-                (.block (expectBody machine.context.spelling result body) (returnKindOf machine result))) :: frame.closures }
+                (.block (expectBody machine.context.spelling result
+                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) :: frame.closures }
         | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
@@ -4526,7 +4553,8 @@ def hoistStatement {world : World Declaration Identity Source} (machine : Machin
             match (extend environment [(name, binder, cell)]).cellOf captured with
             | .ok found => if mutable.contains found then some found else none
             | .error _ => none)
-          parameters (.block (expectBody machine.context.spelling result body) (returnKindOf machine result))) :: closures)
+          parameters (.block (expectBody machine.context.spelling result
+                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) :: closures)
     | some _, none => none
     | none, _ => some (environment, mutable, closures)
   | environment, mutable, closures, .sugar _ expansion =>

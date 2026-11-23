@@ -527,7 +527,7 @@ Expressions:
   `translate`, `byte_at`, `byte_slice`, the integer parse methods,
   `parse_float`, `lower` and `upper` (P)
 - the contextual `.require()` under a constructor field, a schema under a
-  declared result or parameter, or any other expected position (P)
+  `return` nested in a statement, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
@@ -825,8 +825,12 @@ a record schema gives each named field's value the schema field's type
 `let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows, and field
 types that name other schemas expand in turn, as do the elements of an
 annotated `List[T]`, as the binary resolves `{ inner: { c: .Red } }` and
-`[{ c: .Green }]`; constructor fields and schemas under a declared result or
-a parameter's annotation are not yet expected positions. The other operand of `==` or `!=` targets a leading-dot name on
+`[{ c: .Green }]`. A declared result's tail and top-level `return`s
+(`expectSchemaBody`) and the arguments of annotated parameters
+(`schemaArguments`) expand the same way, as the binary resolves
+`proc f() -> P { { c: .Red } }` and `h({ c: .Green })`; constructor fields
+and a schema under a `return` nested in a statement are not yet expected
+positions. The other operand of `==` or `!=` targets a leading-dot name on
 either side when it evaluates to an enum's variant, and `null` there compares
 unequal, as the binary prints `true true true false` for `a == .Red`,
 `a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the

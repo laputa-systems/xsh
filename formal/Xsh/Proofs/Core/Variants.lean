@@ -67,7 +67,8 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       evalExpr machine (fuel + 1) frame (.dotVariant (some enum) name arguments) = .exec .stuck) ∧
     (∀ evaluate callBlock closure arguments, invokeWith machine evaluate callBlock frame closure arguments =
       (threadArguments machine.context.spelling evaluate frame
-          (expectArguments machine.context.spelling closure.parameters closure.parameters arguments)).bind
+          (expectArguments machine.context.spelling closure.parameters closure.parameters
+            (schemaArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments))).bind
         fun supplied after => invokeSupplied machine evaluate callBlock after closure supplied) ∧
     (∀ parameters name annotation default positions value rest,
       expectArguments machine.context.spelling parameters (.mk name annotation default false :: positions)
@@ -646,6 +647,36 @@ theorem return_in_expression_witness :
     variantShape (valueOf (slot 0) returnInRun) = some ("Warn", []) ∧
     variantShape (valueOf (slot 1) returnInRun) = some ("Info", []) ∧
     variantShape (valueOf (slot 2) returnInRun) = some ("Info", []) := by
+  decide +kernel
+
+def holderFn : Xsh.Syntax.RawName := name 397 (by decide)
+def holderReturn : Xsh.Syntax.RawName := name 398 (by decide)
+def holderParam : Xsh.Syntax.RawName := name 399 (by decide)
+def holderTake : Xsh.Syntax.RawName := name 400 (by decide)
+
+/-- `proc make() -> Holder { { c: .Warn } }`,
+`proc back() -> Holder { return { c: .Info } }` and
+`proc take(p: Holder) -> Holder { p }` called as `take({ c: .Warn })`. -/
+def schemaCallRun : Exec witnessWorld := runScript holderMachine 90 fullStart
+  [declareLevel, declareHolder,
+   .functionDef .proc holderFn [] none (some (.named holderName))
+     [.expression (.record [.named cField (dot warnName)])] none false,
+   .functionDef .proc holderReturn [] none (some (.named holderName))
+     [.returnValue (some (.record [.named cField (dot infoName)]))] none false,
+   .functionDef .proc holderTake [.mk holderParam (some (.named holderName)) none false] none (some (.named holderName))
+     [.expression (ident holderParam)] none false,
+   letOf (slot 0) (.call (ident holderFn) []),
+   letOf (slot 1) (.call (ident holderReturn) []),
+   letOf (slot 2) (.call (ident holderTake) [.positional (.record [.named cField (dot warnName)])])]
+
+/-- As the verification binary prints `true true true` for a record tail and a
+returned record under `-> P`, and a record argument for a `P` parameter:
+schema field types reach a declared result's tail and top-level `return`,
+and the arguments of annotated parameters. -/
+theorem schema_call_witness :
+    fieldVariant (valueOf (slot 0) schemaCallRun) = some "Warn" ∧
+    fieldVariant (valueOf (slot 1) schemaCallRun) = some "Info" ∧
+    fieldVariant (valueOf (slot 2) schemaCallRun) = some "Warn" := by
   decide +kernel
 
 end Witness
