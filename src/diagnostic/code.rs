@@ -379,6 +379,7 @@ diagnostic_codes! {
         CheckOperatorType = "check.operator-type", error, "Reject an operator or compound assignment applied to operand types it does not support";
         CheckOptionalMethod = "check.optional-method", error, "Reject a method call on a nullable receiver or result without a `?.` hop";
         CheckOrphanDocComment = "check.orphan-doc-comment", error, "Reject a doc comment that does not precede an export or serve as the module `##!` doc";
+        CheckParMapCapturedWrite = "check.par-map-captured-write", error, "Reject an assignment in a `par-map` callback to a binding declared outside the callback";
         CheckPatternAlternativeBinding = "check.pattern-alternative-binding", error, "Reject pattern alternatives that bind different names or types";
         CheckPatternArity = "check.pattern-arity", error, "Reject a constructor or tag pattern with the wrong number of payload arguments";
         CheckPatternBinding = "check.pattern-binding", error, "Reject a duplicate name bound within a single pattern";

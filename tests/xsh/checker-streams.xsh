@@ -368,3 +368,38 @@ test test_checker_list_splice_errors_cover_the_original_splice_span { |ctx|
   assert ":1:15\n" in checked.stderr, checked.stderr
   assert "\n                ^^^^^^^^ " in checked.stderr, checked.stderr
 }
+
+test test_checker_rejects_par_map_writes_to_captured_bindings { |ctx|
+  expect_rejected(
+    ctx,
+    "var b = 0\nlet y = [1, 2, 7] |> par-map { b += 1; . } |> collect()\n",
+    ["check.par-map-captured-write"],
+  )
+  expect_rejected(
+    ctx,
+    "var rec = {n: 0}\nlet y = [1, 2] |> par-map { rec.n += 1; . } |> collect()\n",
+    ["check.par-map-captured-write"],
+  )
+  expect_rejected(
+    ctx,
+    "var lst = [0]\nlet y = [1, 2] |> par-map(jobs: 1) { lst[0] += 1; . } |> collect()\n",
+    ["check.par-map-captured-write"],
+  )
+  expect_rejected(
+    ctx,
+    "proc count(xs) {\n  var n = 0\n  let ys = xs |> par-map { n += 1; . } |> collect()\n  n\n}\nlet c = count([1, 2])\n",
+    ["check.par-map-captured-write"],
+  )
+  expect_rejected(
+    ctx,
+    "let y = [1, 2] |> par-map { |x|\n  var inner = 0\n  let zs = [x] |> par-map { inner += 1; . } |> collect()\n  inner\n} |> collect()\n",
+    ["check.par-map-captured-write"],
+  )
+}
+
+test test_checker_accepts_par_map_writes_to_callback_locals { |ctx|
+  expect_clean(
+    ctx,
+    "var a = 0\nlet x = [1, 2] |> map { a += 1; . } |> collect()\nlet y = [1, 2] |> par-map { |item|\n  var mine = item\n  mine += 1\n  let zs = [item] |> map { mine += 1; . } |> collect()\n  mine\n} |> collect()\n",
+  )
+}

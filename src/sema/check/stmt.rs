@@ -5740,6 +5740,15 @@ impl Checker {
                 DiagnosticCode::CheckPureAssignment,
             );
         }
+        if self.boundary.parallel_callback_depth > binding.parallel_callback_depth {
+            self.error(
+                span,
+                &format!(
+                    "a `par-map` callback cannot assign to `{name}`, which is declared outside it: each worker runs on its own copy, so the write would be lost"
+                ),
+                DiagnosticCode::CheckParMapCapturedWrite,
+            );
+        }
         if !binding.mutable {
             self.error(
                 span,

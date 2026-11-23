@@ -309,7 +309,9 @@ impl Checker {
             }
             StreamStageKind::ParMap => {
                 self.check_stage_no_args_arena(arena, stage);
+                self.boundary.parallel_callback_depth += 1;
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                self.boundary.parallel_callback_depth -= 1;
                 let output_ty = actual;
                 if output_ty == Type::Unit {
                     self.error(

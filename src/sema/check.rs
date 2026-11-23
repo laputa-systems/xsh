@@ -975,6 +975,7 @@ pub(super) struct Binding {
     stream_origins: stream_origins::StreamOrigins,
     mutable: bool,
     pure_local_mutation: bool,
+    parallel_callback_depth: usize,
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
@@ -994,6 +995,7 @@ impl Binding {
             latent_stream_error: false,
             mutable,
             pure_local_mutation: false,
+            parallel_callback_depth: 0,
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
@@ -1770,6 +1772,7 @@ struct BoundaryContext {
     retry_block_depth: usize,
     /// A producer cannot suspend while its deadline remains open.
     within_block_depth: usize,
+    parallel_callback_depth: usize,
     loop_depth: usize,
     value_loops: Vec<ValueLoopResult>,
     stream_loops: Vec<stream_origins::StreamLoopFrame>,
@@ -2875,6 +2878,7 @@ impl Checker {
 
     fn define(&mut self, name: Name, mut binding: Binding, span: Span) {
         binding.id = self.resolved_bindings.declaration_sites.get(&(span, name)).copied();
+        binding.parallel_callback_depth = self.boundary.parallel_callback_depth;
         self.check_standard_module_shadow(&name.as_str(), span);
         self.current_scope_mut().insert(name, binding);
     }

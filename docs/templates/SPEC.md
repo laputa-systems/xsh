@@ -5218,6 +5218,13 @@ it never finds a worker running, and none of them can leave while the stage
 runs. Only what happens inside an item, or outside the script, ends the stage
 early.
 
+Each worker runs its items on its own copy of the bindings the callback
+captures, so a callback cannot assign to a binding declared outside it,
+including a field or element of one (`check.par-map-captured-write`). Such a
+write would be lost on the parallel route and kept on the sequential one. The
+callback may read captured bindings and assign its own locals. To combine
+items, return the value and fold it after the stage, or use `reduce-by`.
+
 An item fails when a failure leaves its callback: a `?` on an `Err`, a failed
 statement-position `Result[Unit]`, a failed command or assertion, a runtime
 failure, or `fail` (a `return` of an `Err`). When an item fails, the stage

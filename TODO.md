@@ -22,14 +22,14 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-### XSH-185 · P1 · par-map keeps or drops a callback's writes to captured bindings depending on its route
+### XSH-185 · P2 · par-map still loses writes made through calls and environment assignment
 
 - **Area:** Runtime parallelism
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1306-1307` (route selection: `!evaluator.trace_enabled && jobs > 1 && item_count > 1`), `src/runtime/eval/lowered_run/indexed_run/pipeline.rs:102` (workers start from cloned `base_slots`); SPEC 13.5 states no rule for a callback that assigns a captured `var`
-- **Problem:** A `par-map` callback that writes a captured mutable binding keeps the write on the sequential route and silently drops it on the parallel route. The checker accepts the program. With `var b = 0` and `[1, 2, 7] |> par-map { b += 1; . }`, the verification binary leaves `b` at `0`. The same stage gives `3` with `par-map(jobs: 1)`, `1` over a one-item list, `3` with `map`, and `3` under `xsht trace`, which forces the sequential route. A program's result therefore depends on item count, `jobs:`, available CPUs and whether it is traced.
-- **Recommendation:** Reject writes to captured bindings in `par-map` callbacks at check time, with a new `check.` diagnostic naming the binding and a SPEC 13.5 rule (owner decision, 2026-11-23). Keep the reproducer, run on every route including tracing, as a native test. The profiling campaign's fidelity suite uses it to show that observation does not change results.
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1306-1307` (route selection: `!evaluator.trace_enabled && jobs > 1 && item_count > 1`), `src/runtime/eval/lowered_run/indexed_run/pipeline.rs:102` (workers start from cloned `base_slots`); `src/sema/check/stmt.rs` (`check.par-map-captured-write`)
+- **Problem:** On the parallel route each worker runs on a copy of the evaluator's state, so writes a callback makes outside its own locals are lost, while the sequential route (one item, `jobs: 1`, or `xsht trace`) keeps them. A program's result therefore depended on item count, `jobs:`, available CPUs and whether it was traced. The checker now rejects direct writes in the callback to captured bindings, their fields and their elements (`check.par-map-captured-write`, SPEC 13.5). Three write paths still pass the checker and are lost on the parallel route: a called `proc` that assigns a top-level `var` (`via-proc=0` for three items in the verification binary); an `e"NAME" = ...` assignment in the callback, which leaves the variable unset after the stage; and a local `proc` declared inside the callback that assigns an outer binding.
+- **Recommendation:** Reject the remaining paths at check time: a callback's call to a callable whose inferred writes reach state outside the callback, and environment assignment in a callback. Alternatively, specify one route-independent rule for them in SPEC 13.5. Keep a native test for each path.
 - **Fix with:** lifecycle-concurrency, error-model
-- **Effort:** S
+- **Effort:** M
 
 ### XSH-184 · P2 · A producer's environment is swapped wholesale around a suspension inside a scope
 
