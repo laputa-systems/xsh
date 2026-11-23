@@ -123,7 +123,8 @@ theorem findBytes_found (needle : List UInt8) :
 
 /-- The `text_methods` fragment root (SPEC 4.4): on a `Str` receiver,
 `byte_len` and `count_chars` count UTF-8 bytes and Unicode scalar values;
-`split` at a non-empty separator gives the pieces between its occurrences;
+`split` at a non-empty separator gives the pieces between its occurrences,
+and with `maxsplit` stops after that many, a negative limit having none;
 `replace(from, with: to)` replaces every non-overlapping occurrence left to
 right; and an offset `find` reports starts an occurrence of the needle at or
 after the byte `start`. -/
@@ -136,13 +137,18 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .split text
           [.positional (.scalar (.string separator))] =
         .value (.list ((splitRun separator.toList (text.length + 1) [] text.toList).map textValue))) ∧
+    (∀ text separator count,
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .split text
+          [.positional (.scalar (.string separator)), .named "maxsplit" (.scalar (.integer count))] =
+        .value (.list ((splitLimited separator.toList text.toList count.val).map textValue))) ∧
     (∀ text pattern replacement,
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .replace text
           [.positional (.scalar (.string pattern)), .named "with" (.scalar (.string replacement))] =
         .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
     (∀ needle index bytes offset, findBytes needle index bytes = some offset →
       index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
-  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => ?_, findBytes_found⟩
+  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ _ _ => ?_,
+    findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
   · simp [textMethod, Value.eraseNominal]
 
@@ -341,6 +347,28 @@ theorem text_witness :
     textsResult (textMethod collectionMachine.context.errors .split "" [textOf ","]) = some [""] ∧
     textsResult (textMethod collectionMachine.context.errors .split ",a," [textOf ","]) = some ["", "a", ""] ∧
     countResult (textMethod collectionMachine.context.errors .find "héllo" [textOf "l", .named "start" (intOf 2)]) = some (some 3) := by
+  decide +kernel
+
+/-- As the verification binary prints `a|b,c`, `a,b,c`, `a|b|c`, `a|b|c`,
+`a|b|c`, `abc`, `a|b`, `|a,` and `a|b` for `"a,b,c".split(",", n)` with `n`
+`1`, `0`, `-1` and `7`, `"abc".split("", 2)` and `("", 0)`, `"ab".split("", 7)`,
+`",a,".split(",", 1)` and `"a,b".split(",", maxsplit: 1)`. -/
+theorem split_limit_witness :
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,c" [textOf ",", .positional (intOf 1)]) = some ["a", "b,c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,c" [textOf ",", .positional (intOf 0)]) = some ["a,b,c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,c" [textOf ",", .positional (intOf (-1))]) = some ["a", "b", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,c" [textOf ",", .positional (intOf 7)]) = some ["a", "b", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "abc" [textOf "", .positional (intOf 2)]) = some ["a", "b", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "abc" [textOf "", .positional (intOf 0)]) = some ["abc"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "ab" [textOf "", .positional (intOf 7)]) = some ["a", "b"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split ",a," [textOf ",", .positional (intOf 1)]) = some ["", "a,"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "a,b" [textOf ",", .named "maxsplit" (intOf 1)]) = some ["a", "b"] := by
+  decide +kernel
+
+/-- A limit that ignored the rest of the text after the last split would lose
+`c` from `"a,b,c".split(",", 1)`. -/
+theorem split_limit_rest_kept :
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,c" [textOf ",", .positional (intOf 1)]) ≠ some ["a", "b"] := by
   decide +kernel
 
 def withName : Xsh.Syntax.RawName := name 358 (by decide)

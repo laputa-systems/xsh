@@ -1808,6 +1808,28 @@ def splitRun (separator : List Char) : Nat → List Char → List Char → List 
       current :: splitRun separator fuel [] ((first :: rest).drop separator.length)
     else splitRun separator fuel (current ++ [first]) rest
 
+/-- `splitRun` stopping after `splits` occurrences, the rest of the text its
+last piece. -/
+def splitAtMost (separator : List Char) : Nat → Nat → List Char → List Char → List (List Char)
+  | 0, _, current, text => [current ++ text]
+  | _ + 1, 0, current, text => [current ++ text]
+  | _ + 1, _ + 1, current, [] => [current]
+  | fuel + 1, splits + 1, current, first :: rest =>
+    if separator.isPrefixOf (first :: rest) then
+      current :: splitAtMost separator fuel splits [] ((first :: rest).drop separator.length)
+    else splitAtMost separator fuel (splits + 1) (current ++ [first]) rest
+
+/-- `text.split(separator, maxsplit)`: a negative limit splits at every
+occurrence; otherwise at most `limit` times, an empty separator giving the
+first `limit` characters singly and the rest as one piece. -/
+def splitLimited (separator text : List Char) (limit : Int) : List (List Char) :=
+  if limit < 0 then
+    if separator.isEmpty then text.map fun char => [char] else splitRun separator (text.length + 1) [] text
+  else if separator.isEmpty then
+    if limit = 0 then [text]
+    else (text.take limit.toNat).map (fun char => [char]) ++ (if limit.toNat < text.length then [text.drop limit.toNat] else [])
+  else splitAtMost separator (text.length + 1) limit.toNat [] text
+
 /-- The byte offset of the first occurrence of `needle` at or after `index`. -/
 def findBytes (needle : List UInt8) : Nat → List UInt8 → Option Nat
   | index, [] => if needle.isEmpty then some index else none
@@ -1948,6 +1970,16 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
       else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
     | none => .unsupported
+  | .split, [.positional separator, limit] =>
+    let bound := match limit with
+      | .positional value | .named "maxsplit" value =>
+        match value.eraseNominal with
+        | .scalar (.integer count) => some count.val
+        | _ => none
+      | _ => none
+    match stringOf separator, bound with
+    | some found, some count => .value (.list ((splitLimited found.toList text.toList count).map textValue))
+    | _, _ => .unsupported
   | .find, .positional needle :: start =>
     let begin := match start with
       | [] => some 0
