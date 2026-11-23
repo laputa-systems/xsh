@@ -4,10 +4,11 @@
 Status in xsh-lean.md"; first command `cd formal && lake build`. Last accepted
 revision `2c7959ff9` on `master`, green (build, axiom audit, inventory tests,
 `check-inventory.py`, `leanchecker --fresh` 0); commits after `34a7deaf8`
-are unpushed. Inventory: 1,312 roots, 77 obligations, 8 closed
-(BASE-NUM, EFF-LATTICE, VAL-ERASE, VAL-PRESERVE, VAL-REQUIRE, VAL-STORE,
-VAL-UNION, VAL-WIDEN); `formal/README.md` lists each fragment and gap. No
-campaign branch is parked; other `.work/wt` lanes belong to other campaigns.
+are unpushed. Inventory: 1,312 roots; 8 of 77 obligations closed;
+`formal/README.md` lists each fragment and gap. Kept:
+`lane/lean-effects` (`.work/wt/lean-effects`), whose commits are on `master` by
+patch; delete it once its worktree is removed. Other `.work/wt` lanes belong to
+other campaigns.
 Next slices, each verified against `target/verification/xsh`: (1) `env.list()`
 and `env.entries()` from a `hostNames` oracle, names in byte order, list failing
 `invalid-utf8` (`src/runtime/eval/lowered_run/module_env.rs:147`); (2)
