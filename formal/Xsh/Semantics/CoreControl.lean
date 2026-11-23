@@ -1178,6 +1178,9 @@ inductive PipelineEnd where
   | finished
   /-- `count { key }`: the items counted by their key's text. -/
   | countedBy (parameter : Option Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement)
+  /-- `reduce-by(mode: true) { {key, value} }`: values combined per key text. -/
+  | reducedBy (mode : Xsh.Syntax.RawName) (flag : Xsh.Syntax.Expr) (parameter : Option Xsh.Syntax.RawName)
+      (body : List Xsh.Syntax.Statement)
 
 /-- A structured pipeline's stages split before a closing `count()` or
 `collect()`, which ends the pipeline with its own value (SPEC 13.1), and
@@ -1200,6 +1203,10 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
     | some (.stream .reduce [.positional initial] (some ([accumulator, item], body))) =>
       (stages.dropLast, .folded initial accumulator item body)
     | some (.stream .each [] (some _)) => (stages, .finished)
+    | some (.stream .reduceBy [.named mode flag] (some (parameters, body))) =>
+      match singleParameter parameters with
+      | some parameter => (stages.dropLast, .reducedBy mode flag parameter body)
+      | none => (stages, .collected)
     | some (.stream .count [] (some (parameters, body))) =>
       match singleParameter parameters with
       | some parameter => (stages.dropLast, .countedBy parameter body)
@@ -1680,7 +1687,7 @@ def finishPipeline {world : World Declaration Identity Source} (context : Contex
       | none => .exec .stuck
     | some [] => .value (.err context.errors.streamEmpty) last
     | none => .exec .stuck
-  | .folded _ _ _ _ | .countedBy _ _ => .exec .unsupported
+  | .folded _ _ _ _ | .countedBy _ _ | .reducedBy _ _ _ _ => .exec .unsupported
   | .finished => .value (.scalar .unit) last
 
 /-- An integer's decimal text. -/
@@ -1707,6 +1714,41 @@ def countByText (counts : List (MapKey × Value Declaration Identity Source)) :
         | _ => 0
       (validateInt? (held + 1)).bind fun next =>
         countByText (Xsh.Semantics.CoreWrites.upsert (.string text) (.scalar (.integer next)) counts) rest
+
+/-- How `reduce-by` combines a key's values: `sum` adds them as `+` does,
+`min` keeps the earlier of two unless the later is `<` it, and `max` the
+earlier unless it is `<` the later. -/
+def combineReduced (context : Context Declaration Identity Source) (mode : String)
+    (held next : Value Declaration Identity Source) : Option (Value Declaration Identity Source) :=
+  if mode = "sum" then
+    match binary context .add held next with
+    | .value combined => some combined
+    | _ => none
+  else if mode ≠ "min" ∧ mode ≠ "max" then none
+  else
+    let (first, second) := if mode = "min" then (next, held) else (held, next)
+    match binary context .lt first second with
+    | .value (.scalar (.boolean true)) => some next
+    | .value (.scalar (.boolean false)) => some held
+    | _ => none
+
+/-- `reduce-by`'s map: each `{key, value}` record's value combined into the
+entry for its key's text, entries in key order. -/
+def reduceByText (context : Context Declaration Identity Source) (mode : String)
+    (reduced : List (MapKey × Value Declaration Identity Source)) :
+    List (Value Declaration Identity Source) → Option (List (MapKey × Value Declaration Identity Source))
+  | [] => some reduced
+  | pair :: rest =>
+    match pair.eraseNominal with
+    | .record fields =>
+      ((fields.lookup "key").bind keyText).bind fun text =>
+        (fields.lookup "value").bind fun value =>
+          let combined := match reduced.lookup (.string text) with
+            | some held => combineReduced context mode held value
+            | none => some value
+          combined.bind fun next =>
+            reduceByText context mode (Xsh.Semantics.CoreWrites.upsert (.string text) next reduced) rest
+    | _ => none
 
 /-- A fold's accumulator over the items that reached it: each runs the
 callback with the accumulator and the item bound, in its own scope, and the
@@ -1735,6 +1777,18 @@ def closePipeline {world : World Declaration Identity Source} (context : Context
     match listValues out with
     | some items =>
       (evaluate last initial).bind fun start after => foldValues scope accumulator item body start after items
+    | none => .exec .stuck
+  | .reducedBy mode flag parameter body =>
+    match listValues out with
+    | some items =>
+      (evaluate last flag).bind fun chosen after =>
+        match chosen.eraseNominal with
+        | .scalar (.boolean true) =>
+          (keyItems scope parameter body after items).bind fun keyed done =>
+            match reduceByText context (context.spelling mode) [] (keyed.map Prod.fst) with
+            | some reduced => .value (.map reduced) done
+            | none => .exec .stuck
+        | _ => .exec .unsupported
     | none => .exec .stuck
   | .countedBy parameter body =>
     match listValues out with

@@ -518,6 +518,11 @@ theorem eager_fold_initial_rejected :
 
 def descName : Xsh.Syntax.RawName := name 371 (by decide)
 def batchCountName : Xsh.Syntax.RawName := name 372 (by decide)
+def sumName : Xsh.Syntax.RawName := name 373 (by decide)
+def minName : Xsh.Syntax.RawName := name 374 (by decide)
+def maxName : Xsh.Syntax.RawName := name 375 (by decide)
+def keyField : Xsh.Syntax.RawName := name 376 (by decide)
+def valueField : Xsh.Syntax.RawName := name 377 (by decide)
 
 /-- The canonical script machine, with `desc` and `count` spelled for stage
 options. -/
@@ -526,6 +531,8 @@ def optionMachine : Machine witnessWorld :=
     context := { scriptMachine.context with
       spelling := fun named =>
         if named = descName then "desc" else if named = batchCountName then "count"
+        else if named = sumName then "sum" else if named = minName then "min" else if named = maxName then "max"
+        else if named = keyField then "key" else if named = valueField then "value"
         else scriptMachine.context.spelling named } }
 
 def runOptions (script : List Xsh.Syntax.Statement) : Exec witnessWorld := runScript optionMachine 90 fullStart script
@@ -665,6 +672,32 @@ theorem tee_each_count_witness :
 /-- An `each` run after every item passed the earlier stages, as a
 materializing stage would, logs `1 2 1 2`. -/
 theorem materialized_each_rejected : readList traceVar (runCanonical eachTraced) ≠ some [1, 2, 1, 2] := by
+  decide +kernel
+
+def keyed (key value : Xsh.Syntax.Expr) : Xsh.Syntax.Expr := .record [.named keyField key, .named valueField value]
+
+def reduceBy (mode : Xsh.Syntax.RawName) (pair : Xsh.Syntax.Expr) : Xsh.Syntax.PipeStage :=
+  .stream .reduceBy [.named mode (.literal (.bool true))] (keyBlock pair)
+
+/-- As the verification binary gives `{"0":2,"1":7}` for
+`[1, 2, 7] |> reduce-by(max: true) { {key: . % 2, value: .} }`, `{"a":3,"b":7}`
+for `sum` over `a 2`, `b 7` and `a 1`, `{"a":1}` for `min` over `a 2` and
+`a 1`, and `{}` for an empty source. -/
+theorem reduce_by_witness :
+    readCounts (runOptions (closing (items ["1", "2", "7"]) [reduceBy maxName (keyed (.binary .rem .item (int "2")) .item)])) =
+      some [("0", 2), ("1", 7)] ∧
+    readCounts (runOptions (closing (.list [keyed (.literal (.string "a")) (int "2"), keyed (.literal (.string "b")) (int "7"),
+        keyed (.literal (.string "a")) (int "1")]) [reduceBy sumName .item])) = some [("a", 1 + 2), ("b", 7)] ∧
+    readCounts (runOptions (closing (.list [keyed (.literal (.string "a")) (int "2"), keyed (.literal (.string "a")) (int "1")])
+      [reduceBy minName .item])) = some [("a", 1)] ∧
+    readCounts (runOptions (closing (.list []) [reduceBy sumName (keyed (.literal (.string "a")) .item)])) = some [] := by
+  decide +kernel
+
+/-- A `reduce-by(max:)` that kept the first value per key would give `0 2`
+and `1 1`. -/
+theorem first_value_reduce_rejected :
+    readCounts (runOptions (closing (items ["1", "2", "7"]) [reduceBy maxName (keyed (.binary .rem .item (int "2")) .item)])) ≠
+      some [("0", 2), ("1", 1)] := by
   decide +kernel
 
 end Witness

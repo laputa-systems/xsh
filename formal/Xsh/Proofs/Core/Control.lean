@@ -426,6 +426,7 @@ theorem closePipeline_refines {world : World Declaration Identity Source} (conte
     | exact valued_refl _
     | exact valued_refl _
     | refine valued_bind_refines (expressions _ _) fun _ _ => foldValues_refines scopes _ _ _ _ _ _
+    | refine valued_bind_refines (expressions _ _) fun _ _ => ?_
     | refine valued_bind_refines (keyItems_refines scopes _ _ _ _) fun _ _ => ?_
     | split)
 
@@ -1343,6 +1344,7 @@ theorem closePipeline_persists {world : World Declaration Identity Source} (cont
     | exact fun _ present => by cases present
     | exact finishPipeline_persists _ _ _ _
     | refine vbind_persists (expressions _ _) fun _ _ => foldValues_persists scopes _ _ _ _ _ _
+    | refine vbind_persists (expressions _ _) fun _ _ => ?_
     | refine vbind_persists (keyItems_persists scopes _ _ _ _) fun _ _ => ?_
     | split)
 
@@ -2430,6 +2432,7 @@ theorem closePipeline_restores {world : World Declaration Identity Source} (cont
     | exact vrestores_none rfl
     | exact finishPipeline_restores _ _ _ _
     | refine vbind_restores (expressions _ _) fun _ _ => foldValues_restores scopes _ _ _ _ _ _
+    | refine vbind_restores (expressions _ _) fun _ _ => ?_
     | refine vbind_restores (keyItems_restores scopes _ _ _ _) fun _ _ => ?_
     | split)
 

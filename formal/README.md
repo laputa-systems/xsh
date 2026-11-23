@@ -506,7 +506,8 @@ Statements:
   `drop(n)`, `enumerate`, `sort`, `sort-by`, `batch(count:)`, `unique-by`,
   `group-by`, `repeat(n)` and `zip(other)` over a list source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
-  `max()`, `any`, `all`, `fold`, `reduce`, `each` or `count { key }`, and a `Stream[T]` from anything but a producer (E)
+  `max()`, `any`, `all`, `fold`, `reduce`, `each`, `count { key }` or
+  `reduce-by`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -1001,7 +1002,11 @@ with `other` as `{left, right}` records up to the shorter. `tee` runs its
 block and passes the item on, and a closing `each` runs its block and gives
 `Unit`, each item passing both before the next, as the binary logs `tntn`
 and `meme`; a closing `count { key }` counts the items by their key's text
-(`Str`, `Int` in decimal, `Bool`) into a map in key order. A `take(n)` that ends the transformations is evaluated
+(`Str`, `Int` in decimal, `Bool`) into a map in key order, and a closing
+`reduce-by(sum:|min:|max: true) { {key, value} }` combines each record's
+value into the entry for its key's text, `sum` adding as `+` does and `min`
+and `max` keeping the earlier value unless `<` prefers the later; both
+materialize their input first, as the binary logs `mmmkkk`. A `take(n)` that ends the transformations is evaluated
 once before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items never run, and a producer stops as on its
 consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for
