@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 188
+Next: 189
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,15 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+### XSH-188 · P2 · Each dynamic module load re-prepares its whole static import closure
+
+- **Area:** Runtime modules, performance
+- **Where:** `src/runtime/eval/lowered_run.rs:7612` (`load_dynamic_module_inner`: `prepare_dynamic_module` prepares the loaded file with its imports; only the loaded module's own prepared form is cached, by key and bytes)
+- **Problem:** `module.load` of a distinct module prepares (parses, checks, lowers) every module it imports again, even when an earlier load in the same run already prepared them. Measured 2026-11-23 with the verification binary, 5-run medians: ten distinct one-line modules that `use pm.make` take 0.481 s against 0.089 s for one (about 43 ms per load), while ten that import nothing take 0.055 s, the same as one. Loading the same module twenty times costs the same as once. Laputa's `make fetch` loads 92 recipes this way: `xsht profile` attributes 2.65 s of exclusive time and 2.5 GB of allocation to those loads, out of a 3.7 s run, and the parallel fetch itself takes about 0.1 s of worker time. `xsht frontend-stats packages/zlib/PKGBUILD.xsh`, a 157-line recipe, allocates 43 MB in check. Every package-manager command that loads recipes pays the same cost.
+- **Recommendation:** Share prepared imported modules across dynamic loads in one run, keyed by canonical path and content as the loaded module already is, so a load prepares only modules not yet prepared. Keep reload-on-change and cycle detection, and add a native test that a changed import still reloads. Land it as a campaign O4 slice with interleaved before/after timings of `make fetch` and the probe above.
+- **Fix with:** make-it-fast, durable-state
+- **Effort:** M
+
 ### XSH-187 · P2 · A change to the HTTP client never runs the curl and wget command tests
 
 - **Area:** Verification gates
