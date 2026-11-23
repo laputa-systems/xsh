@@ -514,19 +514,27 @@ Statements:
 
 Expressions:
 
-- regex patterns outside the `Values.Regex` subset (flags, Unicode classes)
-  and invalid ones, whose `regex.compile` `Err` the model does not tell apart
-  (P); `regex.compile` of a pattern in the subset is `Ok` of it, and a regex
-  literal in the subset (literals, `.`, bracket
-  and ASCII Perl classes, `^`, `$`, `\b`, groups, named groups, alternation,
-  greedy and lazy repetition) evaluates, and its `matches`, `find`,
+- regex patterns outside the `Values.Regex` subset (the `x` flag, `\b{...}`
+  boundaries, POSIX and negated Perl classes inside brackets) and invalid
+  ones, whose `regex.compile` `Err` the model does not tell apart (P);
+  `regex.compile` of a pattern in the subset is `Ok` of it, and a regex
+  literal in the subset (literals and escapes, hex code points included,
+  `.`, bracket and ASCII Perl classes, ranges with escaped ends, `^`, `$`,
+  `\A`, `\z`, `\b`, `\<`, `\>`, groups, named groups, alternation, greedy
+  and lazy repetition, and the `i`, `m`, `s`, `U`, `R` and `u` flags, a flag
+  group's flags holding to the end of its group and `i` folding each class
+  span's ASCII letters once, as regex-lite does) evaluates, and its `matches`, `find`,
   `captures` and `replace(with:)` follow a leftmost-first backtracking
   matcher, byte offsets and Rust's empty-match iteration and `$` expansion,
-  as the binary gives for a battery of fifteen patterns; a path literal is the path of its text with its
+  as the binary gives for a battery of fifteen patterns and the flag,
+  escape and class cases of `regex_flag_witness`; a path literal is the path of its text with its
   escapes decoded as a string's are (`decodeEscapes`), as the binary reads
   `p"a\tb"` and `p"\u{e9}/\\"`, text that is not valid UTF-8 being a lexical
   error
-- equality of streams, filesystem entries and commands (P)
+- equality of filesystem entries, commands and the owner-less streams
+  `fs.ls` builds, which compare by their buffered items (P)
+- the environment a producer that yields from inside an `env` scope keeps to
+  itself between pulls (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
@@ -534,8 +542,10 @@ Expressions:
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice`, the integer parse methods,
   `parse_float`, `lower` and `upper` (P)
-- the contextual `.require()` under a schema below a `return` nested in a
-  statement, or any other expected position (P)
+- record schemas, and the contextual `.require()` under them, in expected
+  positions other than annotations, a declared result's tail and returns,
+  parameters, schema fields and list elements: a value `if` or `match`
+  branch, an `Ok` payload, a map value (P)
 - `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
@@ -607,8 +617,10 @@ and `t = set.from([2, 4])` are `[1,2,3,4]`, `[2]` and `[1,3]`. The mutants it
 rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
 concatenates its operands, variant equality by name alone, error payloads
-compared by raw bits, and callable equality by kind alone. Streams,
-filesystem entries and commands are not compared; process errors compare
+compared by raw bits, and callable equality by kind alone. Streams compare
+by runtime identity, as handles do, as the binary's `true false` for a
+producer's stream with itself and with a second call's shows; filesystem
+entries and commands are not compared; process errors compare
 every field, their status field by field (`processErrorEqual`), as the
 binary's `true false` for an error with itself and two runs' errors shows;
 modules
@@ -836,15 +848,16 @@ a record schema gives each named field's value the schema field's type
 `let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows, and field
 types that name other schemas expand in turn, as do the elements of an
 annotated `List[T]`, as the binary resolves `{ inner: { c: .Red } }` and
-`[{ c: .Green }]`. A declared result's tail and top-level `return`s
-(`expectSchemaBody`) and the arguments of annotated parameters
+`[{ c: .Green }]`. A declared result's tail and `return`s, nested ones
+included (`expectSchemaBody` through `expectReturn`), and the arguments of annotated parameters
 (`schemaArguments`) expand the same way, as the binary resolves
-`proc f() -> P { { c: .Red } }` and `h({ c: .Green })`. A record or error
+`proc f() -> P { { c: .Red } }`, a `return` in an `if` statement or a
+binding's value block, and `h({ c: .Green })`. A record or error
 variant constructor's field types are the expected types of the arguments
 that fill them (`fieldParameters`, `payloadParameters` through
 `expectArguments`), as the binary resolves `P(c: .Red, n: 1)`, `P(.Green, 2)`
-and `Bad.Paint(c: .Green)`; a schema under a `return` nested in a statement is
-not yet an expected position. The other operand of `==` or `!=` targets a leading-dot name on
+and `Bad.Paint(c: .Green)`; the binary also expands a schema in a value
+`if` branch, an `Ok` payload and a map value, which the model does not. The other operand of `==` or `!=` targets a leading-dot name on
 either side when it evaluates to an enum's variant, and `null` there compares
 unequal, as the binary prints `true true true false` for `a == .Red`,
 `a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the
@@ -1002,7 +1015,13 @@ producers consumed by a `for` loop (SPEC 9.5). A `stream` declaration is
 hoisted as a `producer` closure; a `for` loop whose iterable calls one runs
 the producer with the loop pushed on the frame's `consumers`, which calls
 carry; each `yield` runs the loop's body on the item in the loop's own scope,
-sharing the store and environment variables, then resumes the producer. A
+sharing the store and environment variables, then resumes the producer. The
+body runs in the loop's working directory and the producer resumes in its
+own, as the binary prints the loop's directory in the body of a loop over a
+producer that yields from inside `cd (p"sub")`, and `PROBE/sub` for each item
+it yields. A producer that yields from inside an `env` scope keeps that
+scope's overrides to itself in the binary, which the model, sharing the
+environment variables, does not. A
 body that completes or continues resumes it; one that breaks, returns or
 fails stops it as the `consumed` outcome, which unwinds the producer's scopes
 running its `defer`s but not its `errdefer`s, passes its `try`s, and then

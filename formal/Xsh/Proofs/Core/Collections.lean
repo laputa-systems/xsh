@@ -1059,6 +1059,51 @@ theorem regex_witness :
     foundSpans (regexRun "a*?b" "find" [textOf "aaab"]) = some [(0, 4, "aaab")] := by
   decide +kernel
 
+/-- As the verification binary prints `(1,4) (4,7)` for `(?i)abc` over
+`xABcabC`, `(0,2) (6,8)` for `(?i:a)b` over `Ab AB ab`, `(0,2) (3,4) (5,6)`
+for `a(?i)b|c` over `aB C c`, `(0,1) (5,6)` and `(0,1) (2,3) (5,6)` for
+`(?m)^x$` and `(?mR)^x$` over `x\nx\r\nx`, `(0,3)` for `(?s)a.b` over
+`a\nb`, nothing for `(?R)a.b` over `a\rb`, three single `a`s and `(0,3)` for
+`(?U)a+` and `(?U)a+?` over `aaa`, `(1,2) (2,3) (3,4)` for `(?i)[Z-a]` over
+`zZaA`, `(0,3)` for `\x41\u0042\U00000043` and `[\x41-\x43]+` over `ABC`
+and `ABCD`, `(1,5)` for `\x{1F600}` after an `a`, `(0,1) (5,6)` for `\<a` over
+`a ba a`, and `(0,1) (1,2)` for `[--a]` over `-a b`: a flag group's flags
+hold to the end of its group, a class is case-folded span by span, regex-lite
+folding only one case of a span, and ranges may end in escapes. -/
+theorem regex_flag_witness :
+    foundSpans (regexRun "(?i)abc" "find" [textOf "xABcabC"]) = some [(1, 4, "ABc"), (4, 7, "abC")] ∧
+    foundSpans (regexRun "(?i:a)b" "find" [textOf "Ab AB ab"]) = some [(0, 2, "Ab"), (6, 8, "ab")] ∧
+    foundSpans (regexRun "a(?i)b|c" "find" [textOf "aB C c"]) = some [(0, 2, "aB"), (3, 4, "C"), (5, 6, "c")] ∧
+    foundSpans (regexRun "(?m)^x$" "find" [textOf "x\nx\r\nx"]) = some [(0, 1, "x"), (5, 6, "x")] ∧
+    foundSpans (regexRun "(?mR)^x$" "find" [textOf "x\nx\r\nx"]) = some [(0, 1, "x"), (2, 3, "x"), (5, 6, "x")] ∧
+    foundSpans (regexRun "(?s)a.b" "find" [textOf "a\nb"]) = some [(0, 3, "a\nb")] := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- The `R`, `U` and folding cases `regex_flag_witness` describes. -/
+theorem regex_mode_witness :
+    foundSpans (regexRun "(?R)a.b" "find" [textOf "a\rb"]) = some [] ∧
+    foundSpans (regexRun "(?U)a+" "find" [textOf "aaa"]) = some [(0, 1, "a"), (1, 2, "a"), (2, 3, "a")] ∧
+    foundSpans (regexRun "(?U)a+?" "find" [textOf "aaa"]) = some [(0, 3, "aaa")] ∧
+    foundSpans (regexRun "(?i)[Z-a]" "find" [textOf "zZaA"]) = some [(1, 2, "Z"), (2, 3, "a"), (3, 4, "A")] := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- The escape and class cases `regex_flag_witness` describes. -/
+theorem regex_escape_witness :
+    foundSpans (regexRun "\\x41\\u0042\\U00000043" "find" [textOf "ABC"]) = some [(0, 3, "ABC")] ∧
+    foundSpans (regexRun "[\\x41-\\x43]+" "find" [textOf "ABCD"]) = some [(0, 3, "ABC")] ∧
+    foundSpans (regexRun "\\x{1F600}" "find" [textOf "a😀"]) = some [(1, 5, "😀")] ∧
+    foundSpans (regexRun "\\<a" "find" [textOf "a ba a"]) = some [(0, 1, "a"), (5, 6, "a")] ∧
+    foundSpans (regexRun "[--a]" "find" [textOf "-a b"]) = some [(0, 1, "-"), (1, 2, "a")] := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- Folding both cases of a span, as a full case fold would, lets
+`(?i)[Z-a]` match the `z` the binary skips; reading `[--a]` as the range `-`
+to `a`, as the model did before, matches the `/` the binary skips. -/
+theorem regex_fold_rejected :
+    foundSpans (regexRun "(?i)[Z-a]" "find" [textOf "z"]) = some [] ∧
+    foundSpans (regexRun "[--a]" "find" [textOf "/"]) = some [] := by
+  decide +kernel
+
 /-- A longest-match alternation, as POSIX regexes take, would give `ab` twice
 for `rx"a|ab"` over `abab`; the binary's leftmost-first choice gives `a`
 twice. -/

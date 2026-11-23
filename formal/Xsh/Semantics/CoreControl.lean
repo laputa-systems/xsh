@@ -170,6 +170,9 @@ structure Consumer (world : World Declaration Identity Source) where
   stages : List Xsh.Syntax.PipeStage
   limit : Option Nat
   gathers : Option Nat
+  /-- The working directory the loop's body runs in: a producer that yields
+  from inside a `cd` scope keeps its directory to itself (SPEC 10.4). -/
+  directory : Option NativePath := none
 
 /-- A statement runs in an environment, a store, an environment-variable
 overlay and the locals of the function it is in. Inside a function body
@@ -967,7 +970,8 @@ def consumerOf {world : World Declaration Identity Source} (frame : Frame world)
     (body : List Xsh.Syntax.Statement) : Consumer world :=
   { environment := frame.environment, locals := frame.locals, callerStore := frame.callerStore,
     activation := frame.activation, deferred := frame.deferred, closures := frame.closures, item := frame.item,
-    collected := frame.collected, writable := frame.writable, target, body, sink := none, stages := [], limit := none, gathers := none }
+    collected := frame.collected, writable := frame.writable, target, body, sink := none, stages := [], limit := none, gathers := none,
+    directory := frame.directory }
 
 /-- The items a stream table entry gathers. -/
 def gatheringAt {Declaration Identity Source : Type} (streams : List (StreamState Declaration Identity Source)) (slot : Nat) :
@@ -997,7 +1001,7 @@ with the producer's store and environment variables. -/
 def consumerFrame {world : World Declaration Identity Source} (producer : Frame world) (loop : Consumer world)
     (outer : List (Consumer world)) : Frame world :=
   { environment := loop.environment, store := producer.store, overlay := producer.overlay,
-    directory := producer.directory, locals := loop.locals,
+    directory := loop.directory, locals := loop.locals,
     callerStore := loop.callerStore, activation := loop.activation, deferred := loop.deferred,
     reported := producer.reported, waited := producer.waited, breakValue := none, closures := loop.closures,
     item := loop.item,
@@ -1419,69 +1423,71 @@ def expectArguments (spelling : Xsh.Syntax.RawName → String) (parameters : Lis
 
 mutual
   /-- A statement whose `return` operands, also those nested in its `if`,
-  `while`, `for`, `loop`, `match`, `guard` and `with` bodies, take the declared
-  result type as their expected type (SPEC 5.3). Declarations are allowed only
-  at the top level, so no nested body has a result of its own. -/
-  def expectReturn (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  `while`, `for`, `loop`, `match`, `guard` and `with` bodies and its
+  expressions' value blocks and branches, are rewritten by `rewrite`: given
+  the declared result type as their expected type (SPEC 5.3), or expanded by
+  its record schema. Declarations are allowed only at the top level, so no
+  nested body has a result of its own. -/
+  def expectReturn (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       Xsh.Syntax.Statement → Xsh.Syntax.Statement
-    | .returnValue (some value) => .returnValue (some (expectTarget spelling result value))
-    | .ifStmt branches none => .ifStmt (expectReturnBranches spelling result branches) none
+    | .returnValue (some value) => .returnValue (some (rewrite value))
+    | .ifStmt branches none => .ifStmt (expectReturnBranches rewrite branches) none
     | .ifStmt branches (some fallback) =>
-      .ifStmt (expectReturnBranches spelling result branches) (some (expectReturns spelling result fallback))
-    | .whileStmt condition body => .whileStmt condition (expectReturns spelling result body)
-    | .forStmt target iterable body => .forStmt target iterable (expectReturns spelling result body)
-    | .loopStmt body => .loopStmt (expectReturns spelling result body)
-    | .matchStmt subject arms => .matchStmt subject (expectReturnArms spelling result arms)
+      .ifStmt (expectReturnBranches rewrite branches) (some (expectReturns rewrite fallback))
+    | .whileStmt condition body => .whileStmt condition (expectReturns rewrite body)
+    | .forStmt target iterable body => .forStmt target iterable (expectReturns rewrite body)
+    | .loopStmt body => .loopStmt (expectReturns rewrite body)
+    | .matchStmt subject arms => .matchStmt subject (expectReturnArms rewrite arms)
     | .guardStmt target annotation initializer otherwise =>
-      .guardStmt target annotation initializer (expectReturns spelling result otherwise)
+      .guardStmt target annotation initializer (expectReturns rewrite otherwise)
     | .guardHandled target annotation initializer failure otherwise =>
-      .guardHandled target annotation initializer failure (expectReturns spelling result otherwise)
+      .guardHandled target annotation initializer failure (expectReturns rewrite otherwise)
     | .withScope bindings body otherwise =>
-      .withScope bindings (expectReturns spelling result body) (expectReturns spelling result otherwise)
-    | .sugar form expansion => .sugar form (expectReturn spelling result expansion)
+      .withScope bindings (expectReturns rewrite body) (expectReturns rewrite otherwise)
+    | .sugar form expansion => .sugar form (expectReturn rewrite expansion)
     | .binding kind target annotation initializer =>
-      .binding kind target annotation (expectReturnsIn spelling result initializer)
-    | .expression value => .expression (expectReturnsIn spelling result value)
+      .binding kind target annotation (expectReturnsIn rewrite initializer)
+    | .expression value => .expression (expectReturnsIn rewrite value)
     | statement => statement
 
   /-- An expression's value blocks and the branches of its `if` and `match`
   expressions, whose `return`s leave the function. -/
-  def expectReturnsIn (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturnsIn (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       Xsh.Syntax.Expr → Xsh.Syntax.Expr
-    | .valueBlock body => .valueBlock (expectReturns spelling result body)
+    | .valueBlock body => .valueBlock (expectReturns rewrite body)
     | .ifExpr branches otherwise =>
-      .ifExpr (expectReturnValueBranches spelling result branches) (expectReturnsIn spelling result otherwise)
-    | .matchExpr subject arms => .matchExpr subject (expectReturnValueArms spelling result arms)
+      .ifExpr (expectReturnValueBranches rewrite branches) (expectReturnsIn rewrite otherwise)
+    | .matchExpr subject arms => .matchExpr subject (expectReturnValueArms rewrite arms)
     | value => value
 
-  def expectReturnValueBranches (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturnValueBranches (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
     | (condition, value) :: rest =>
-      (condition, expectReturnsIn spelling result value) :: expectReturnValueBranches spelling result rest
+      (condition, expectReturnsIn rewrite value) :: expectReturnValueBranches rewrite rest
 
-  def expectReturnValueArms (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturnValueArms (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) →
         List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
     | (pattern, guard, value) :: rest =>
-      (pattern, guard, expectReturnsIn spelling result value) :: expectReturnValueArms spelling result rest
+      (pattern, guard, expectReturnsIn rewrite value) :: expectReturnValueArms rewrite rest
 
-  def expectReturns (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturns (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
     | [] => []
-    | statement :: rest => expectReturn spelling result statement :: expectReturns spelling result rest
+    | statement :: rest => expectReturn rewrite statement :: expectReturns rewrite rest
 
-  def expectReturnBranches (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturnBranches (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       List (Xsh.Syntax.Expr × List Xsh.Syntax.Statement) → List (Xsh.Syntax.Expr × List Xsh.Syntax.Statement)
     | [] => []
-    | (condition, body) :: rest => (condition, expectReturns spelling result body) :: expectReturnBranches spelling result rest
+    | (condition, body) :: rest => (condition, expectReturns rewrite body) :: expectReturnBranches rewrite rest
 
-  def expectReturnArms (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+  def expectReturnArms (rewrite : Xsh.Syntax.Expr → Xsh.Syntax.Expr) :
       List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × List Xsh.Syntax.Statement) →
         List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × List Xsh.Syntax.Statement)
     | [] => []
-    | (pattern, guard, body) :: rest => (pattern, guard, expectReturns spelling result body) :: expectReturnArms spelling result rest
+    | (pattern, guard, body) :: rest => (pattern, guard, expectReturns rewrite body) :: expectReturnArms rewrite rest
 end
 
 /-- A function body whose tail and `return` operands take the declared result
@@ -1490,7 +1496,7 @@ def expectBody (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.S
     List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
   | [.expression tail] => [.expression (expectTarget spelling result tail)]
-  | statement :: rest => expectReturn spelling result statement :: expectBody spelling result rest
+  | statement :: rest => expectReturn (expectTarget spelling result) statement :: expectBody spelling result rest
 
 /-- Parameters whose defaults take the parameter's annotation as their
 expected type (SPEC 5.5). -/
@@ -3631,15 +3637,14 @@ types (SPEC 4.10). -/
 def payloadParameters (fields : List (Xsh.Syntax.RawName × Xsh.Syntax.TypeExpr)) : List Xsh.Syntax.Parameter :=
   fields.map fun (name, type) => .mk name (some type) none false
 
-/-- A function body whose tail and top-level `return` operands are brace
-literals under the declared result, expanded by its record schema. -/
+/-- A function body whose tail and `return` operands, nested ones included,
+are expanded by the declared result's record schema. -/
 def expectSchemaBody (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
     (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
   | [.expression tail] => [.expression (expectSchema spelling declarations result tail)]
-  | .returnValue (some value) :: rest =>
-    .returnValue (some (expectSchema spelling declarations result value)) :: expectSchemaBody spelling declarations result rest
-  | statement :: rest => statement :: expectSchemaBody spelling declarations result rest
+  | statement :: rest =>
+    expectReturn (expectSchema spelling declarations result) statement :: expectSchemaBody spelling declarations result rest
 
 /-- A call's arguments expanded by the record schema their parameter's
 annotation names, matched to parameters as `expectArguments` matches them. -/

@@ -29,7 +29,10 @@ appends each yielded item to the stream's entry, then gives the gathered list
 and closes the stream; on a consumed stream it gives the empty list. Inside a
 `collect` block the loop's consumer gathers into a stream table entry: each
 run of the body starts from the list there and leaves its list there, and the
-loop's frame takes the list back when the producer has run. -/
+loop's frame takes the list back when the producer has run. The body runs
+in the loop's working directory and the producer resumes in its own, so a
+producer that yields from inside a `cd` scope keeps its directory between
+pulls (SPEC 10.4). -/
 theorem stream_producers [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) :
     (∀ (producer after : Frame world),
@@ -73,7 +76,9 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
       loop.gathers = some slot → after.collected = some items →
       (producer.resumedBy after).streams = after.streams.set slot (.gathering items)) ∧
     (∀ (loop last : Frame world) consumer rest slot, last.consumers = consumer :: rest → consumer.gathers = some slot →
-      (loop.closedLoop last).collected = gatheringAt last.streams slot) := by
+      (loop.closedLoop last).collected = gatheringAt last.streams slot) ∧
+    (∀ (producer : Frame world) loop outer, (consumerFrame producer loop outer).directory = loop.directory) ∧
+    (∀ (producer after : Frame world), (producer.resumedBy after).directory = producer.directory) := by
   refine ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
     fun _ _ _ => rfl, fun _ _ _ => rfl, fun fuel frame receiver method plain notPath spelled => ?_,
     fun frame index items item held => by simp only [Frame.gather, held],
@@ -81,7 +86,8 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     fun producer loop outer slot _ gathers => by simp only [consumerFrame, gathers],
     fun producer after loop outer slot items pushed gathers collected => by
       simp only [Frame.resumedBy, gatheredBack, pushed, gathers, collected],
-    fun loop last consumer rest slot pushed gathers => by simp only [Frame.closedLoop, pushed, gathers]⟩
+    fun loop last consumer rest slot pushed gathers => by simp only [Frame.closedLoop, pushed, gathers],
+    fun _ _ _ => rfl, fun _ _ => rfl⟩
   have notEnv : envFunction machine frame receiver method = none := by
     unfold envFunction
     split <;> simp_all

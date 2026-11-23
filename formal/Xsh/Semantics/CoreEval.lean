@@ -292,6 +292,7 @@ def handleOf : Value Declaration Identity Source → Option (Nat × Identity)
   | .filesystemRoot reference => some (2, reference.identity)
   | .filesystemLock reference => some (3, reference.identity)
   | .sshSession reference => some (4, reference.identity)
+  | .stream reference => some (5, reference.identity)
   | _ => none
 
 /-- Two handles of one family are equal when they are the same runtime
@@ -409,6 +410,7 @@ mutual
     | .filesystemRoot reference, right => handleEqual same (.filesystemRoot reference) right
     | .filesystemLock reference, right => handleEqual same (.filesystemLock reference) right
     | .sshSession reference, right => handleEqual same (.sshSession reference) right
+    | .stream reference, right => handleEqual same (.stream reference) right
     | left, right => if isNull right && !isNull left then some false else none
 
   /-- Two errors are equal when every field of their data is: payloads and

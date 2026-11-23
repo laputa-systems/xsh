@@ -32,7 +32,9 @@ of a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
 under an expected `Result[T]` or `Result[T, E]` and of `Err(...)` under an
 expected `Result[T, E]`, a leading-dot name no enum declares then being the
 error family's constructor; a brace literal under an annotation naming a
-record schema gives each named field's value its schema field's type; the
+record schema gives each named field's value its schema field's type, as
+does a declared result's record schema to its tail and every `return`
+operand, nested ones included; the
 other operand of `==` or `!=`, when it is an enum's variant, targets a
 leading-dot name on either side, and `null` there compares unequal; and
 the same expected type targets a contextual `.require()`.
@@ -116,29 +118,29 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
         evalExpr machine fuel frame (.call (.field (.ident family) name) (arguments.getD []))) ∧
     (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
       expectBody machine.context.spelling result (statement :: rest) =
-        expectReturn machine.context.spelling result statement :: expectBody machine.context.spelling result rest) ∧
-    (∀ result value, expectReturn machine.context.spelling result (.returnValue (some value)) =
+        expectReturn (expectTarget machine.context.spelling result) statement :: expectBody machine.context.spelling result rest) ∧
+    (∀ result value, expectReturn (expectTarget machine.context.spelling result) (.returnValue (some value)) =
       .returnValue (some (expectTarget machine.context.spelling result value))) ∧
-    (∀ result branches otherwise, expectReturn machine.context.spelling result (.ifStmt branches otherwise) =
-      .ifStmt (expectReturnBranches machine.context.spelling result branches)
-        (otherwise.map (expectReturns machine.context.spelling result))) ∧
-    (∀ result condition body rest, expectReturnBranches machine.context.spelling result ((condition, body) :: rest) =
-      (condition, expectReturns machine.context.spelling result body) :: expectReturnBranches machine.context.spelling result rest) ∧
-    (∀ result condition body, expectReturn machine.context.spelling result (.whileStmt condition body) =
-      .whileStmt condition (expectReturns machine.context.spelling result body)) ∧
-    (∀ result target iterable body, expectReturn machine.context.spelling result (.forStmt target iterable body) =
-      .forStmt target iterable (expectReturns machine.context.spelling result body)) ∧
-    (∀ result body, expectReturn machine.context.spelling result (.loopStmt body) =
-      .loopStmt (expectReturns machine.context.spelling result body)) ∧
-    (∀ result subject arms, expectReturn machine.context.spelling result (.matchStmt subject arms) =
-      .matchStmt subject (expectReturnArms machine.context.spelling result arms)) ∧
-    (∀ result pattern guard body rest, expectReturnArms machine.context.spelling result ((pattern, guard, body) :: rest) =
-      (pattern, guard, expectReturns machine.context.spelling result body) :: expectReturnArms machine.context.spelling result rest) ∧
+    (∀ result branches otherwise, expectReturn (expectTarget machine.context.spelling result) (.ifStmt branches otherwise) =
+      .ifStmt (expectReturnBranches (expectTarget machine.context.spelling result) branches)
+        (otherwise.map (expectReturns (expectTarget machine.context.spelling result)))) ∧
+    (∀ result condition body rest, expectReturnBranches (expectTarget machine.context.spelling result) ((condition, body) :: rest) =
+      (condition, expectReturns (expectTarget machine.context.spelling result) body) :: expectReturnBranches (expectTarget machine.context.spelling result) rest) ∧
+    (∀ result condition body, expectReturn (expectTarget machine.context.spelling result) (.whileStmt condition body) =
+      .whileStmt condition (expectReturns (expectTarget machine.context.spelling result) body)) ∧
+    (∀ result target iterable body, expectReturn (expectTarget machine.context.spelling result) (.forStmt target iterable body) =
+      .forStmt target iterable (expectReturns (expectTarget machine.context.spelling result) body)) ∧
+    (∀ result body, expectReturn (expectTarget machine.context.spelling result) (.loopStmt body) =
+      .loopStmt (expectReturns (expectTarget machine.context.spelling result) body)) ∧
+    (∀ result subject arms, expectReturn (expectTarget machine.context.spelling result) (.matchStmt subject arms) =
+      .matchStmt subject (expectReturnArms (expectTarget machine.context.spelling result) arms)) ∧
+    (∀ result pattern guard body rest, expectReturnArms (expectTarget machine.context.spelling result) ((pattern, guard, body) :: rest) =
+      (pattern, guard, expectReturns (expectTarget machine.context.spelling result) body) :: expectReturnArms (expectTarget machine.context.spelling result) rest) ∧
     (∀ result target annotation initializer otherwise,
-      expectReturn machine.context.spelling result (.guardStmt target annotation initializer otherwise) =
-        .guardStmt target annotation initializer (expectReturns machine.context.spelling result otherwise)) ∧
-    (∀ result statement rest, expectReturns machine.context.spelling result (statement :: rest) =
-      expectReturn machine.context.spelling result statement :: expectReturns machine.context.spelling result rest) ∧
+      expectReturn (expectTarget machine.context.spelling result) (.guardStmt target annotation initializer otherwise) =
+        .guardStmt target annotation initializer (expectReturns (expectTarget machine.context.spelling result) otherwise)) ∧
+    (∀ result statement rest, expectReturns (expectTarget machine.context.spelling result) (statement :: rest) =
+      expectReturn (expectTarget machine.context.spelling result) statement :: expectReturns (expectTarget machine.context.spelling result) rest) ∧
     (∀ name annotation default rest more,
       expectDefaults machine.context.spelling (.mk name annotation (some default) rest :: more) =
         .mk name annotation (some (expectTarget machine.context.spelling annotation default)) rest ::
@@ -161,7 +163,11 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
             callBlock last ⟨last.activation + machine.activationStep,
               (cell, .mk cell callable defining captured writable parameters body) :: captured ++ last.closures, none⟩
               defining bound
-              writable (bodyStatements body) (bodyKind body)) := by
+              writable (bodyStatements body) (bodyKind body)) ∧
+    (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
+      expectSchemaBody machine.context.spelling machine.declarations result (statement :: rest) =
+        expectReturn (expectSchema machine.context.spelling machine.declarations result) statement ::
+          expectSchemaBody machine.context.spelling machine.declarations result rest) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
     fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
@@ -179,7 +185,11 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _), fun _ _ => rfl,
     fun _ _ otherwise => by cases otherwise <;> rfl, fun _ _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ => rfl,
     fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ => rfl,
-    fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ _ _ _ _ _ _ placed => by simp only [invokeSupplied, placed]⟩
+    fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ _ _ _ _ _ _ placed => by simp only [invokeSupplied, placed],
+    fun result statement rest notTail => by
+      cases rest with
+      | cons _ _ => cases statement <;> rfl
+      | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _)⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -677,6 +687,31 @@ theorem schema_call_witness :
     fieldVariant (valueOf (slot 0) schemaCallRun) = some "Warn" ∧
     fieldVariant (valueOf (slot 1) schemaCallRun) = some "Info" ∧
     fieldVariant (valueOf (slot 2) schemaCallRun) = some "Warn" := by
+  decide +kernel
+
+def nestedHolder : Xsh.Syntax.RawName := name 411 (by decide)
+def blockHolder : Xsh.Syntax.RawName := name 412 (by decide)
+
+/-- `proc f(b: Bool) -> Holder { if b { return { c: .Warn } }; return { c:
+.Info } }` called as `f(true)`, and `proc g() -> Holder { let y = { return {
+c: .Warn } }; { c: .Info } }` called. -/
+def nestedSchemaRun : Exec witnessWorld := runScript holderMachine 120 fullStart
+  [declareLevel, declareHolder,
+   .functionDef .proc nestedHolder [.mk flagName none none false] none (some (.named holderName))
+     [.ifStmt [(ident flagName, [.returnValue (some (.record [.named cField (dot warnName)]))])] none,
+      .returnValue (some (.record [.named cField (dot infoName)]))] none false,
+   .functionDef .proc blockHolder [] none (some (.named holderName))
+     [letOf stepName (.valueBlock [.returnValue (some (.record [.named cField (dot warnName)]))]),
+      .expression (.record [.named cField (dot infoName)])] none false,
+   letOf (slot 0) (.call (ident nestedHolder) [.positional yes]),
+   letOf (slot 1) (.call (ident blockHolder) [])]
+
+/-- As the verification binary prints `true true` for the same shapes over
+its own schema: a `return` inside an `if` statement or a binding's value
+block gives its record the declared result's schema. -/
+theorem nested_schema_return_witness :
+    fieldVariant (valueOf (slot 0) nestedSchemaRun) = some "Warn" ∧
+    fieldVariant (valueOf (slot 1) nestedSchemaRun) = some "Warn" := by
   decide +kernel
 
 def badFamily : Xsh.Syntax.RawName := name 401 (by decide)

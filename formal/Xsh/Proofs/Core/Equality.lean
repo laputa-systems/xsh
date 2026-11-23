@@ -549,13 +549,17 @@ def callableOf (identity : Nat) (kind : CallableKind) : Value Nat Nat Unit := .c
 
 /-- As the verification binary prints `true false` for `let a = f; let b =
 f; a == b` and `a == g`: a callable is equal to one of the same declaration
-and kind, and handles compare by identity. -/
+and kind, and handles compare by identity, as streams do: it prints `true
+false` for a producer's stream with itself and with a second call's, and
+`true` for a copy of a partly consumed one. -/
 theorem handle_witness :
     valueEqual sameIds (callableOf 1 .procedure) (callableOf 1 .procedure) = some true ∧
     valueEqual sameIds (callableOf 1 .procedure) (callableOf 2 .procedure) = some false ∧
     valueEqual sameIds (callableOf 1 .procedure) (callableOf 1 .pure) = some false ∧
     valueEqual sameIds (.processHandle ⟨3⟩) (.processHandle ⟨3⟩) = some true ∧
-    valueEqual sameIds (.processHandle ⟨3⟩) (.processHandle ⟨4⟩) = some false := by
+    valueEqual sameIds (.processHandle ⟨3⟩) (.processHandle ⟨4⟩) = some false ∧
+    valueEqual sameIds (.stream ⟨5⟩) (.stream ⟨5⟩) = some true ∧
+    valueEqual sameIds (.stream ⟨5⟩) (.stream ⟨6⟩) = some false := by
   decide +kernel
 
 /-- Comparing callables by kind alone calls `f` and `g` equal; the model
