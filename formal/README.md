@@ -502,11 +502,11 @@ environment).
 
 Statements:
 
-- every stage but value calls, argument-free `where`, `map` and `flat-map`,
-  `drop(n)`, `enumerate`, `sort`, `sort-by` and `batch(count:)` over a list
-  source, a `take(n)` after them, and
+- every stage but value calls, argument-free `where`, `map`, `flat-map` and `tee`,
+  `drop(n)`, `enumerate`, `sort`, `sort-by`, `batch(count:)`, `unique-by`,
+  `group-by`, `repeat(n)` and `zip(other)` over a list source, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
-  `max()`, `any`, `all`, `fold` or `reduce`, and a `Stream[T]` from anything but a producer (E)
+  `max()`, `any`, `all`, `fold`, `reduce`, `each` or `count { key }`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
 - `cli main` declarations, which need the host argument model (E)
 - `with` resource scopes, signal hooks and command statements (E)
@@ -992,7 +992,16 @@ before it run over every item, it takes what they gave and evaluates its
 options, `sort` and `sort-by` ordering stably by `<` on the items or their
 keys, `desc: true` reversing that order, and `batch(count: n)` cutting lists
 of `n`, and the stages after it continue from its list. The binary logs
-`mmmmnnnn` for `map |> sort |> map`, and so do the witnesses. A `take(n)` that ends the transformations is evaluated
+`mmmmnnnn` for `map |> sort |> map`, and so do the witnesses. `unique-by`,
+`group-by`, `repeat(n)` and `zip(other)` are materializing too, as the binary
+logs `mmmmkkkknnn` for `unique-by`: `unique-by` keeps the first item per key
+and `group-by` gives `{items, key}` records in first-seen key order, keys
+compared as `==` does; `repeat(n)` repeats the list and `zip(other)` pairs it
+with `other` as `{left, right}` records up to the shorter. `tee` runs its
+block and passes the item on, and a closing `each` runs its block and gives
+`Unit`, each item passing both before the next, as the binary logs `tntn`
+and `meme`; a closing `count { key }` counts the items by their key's text
+(`Str`, `Int` in decimal, `Bool`) into a map in key order. A `take(n)` that ends the transformations is evaluated
 once before the source is pulled and stops pulling once `n` items have
 reached it: a list's later items never run, and a producer stops as on its
 consumer's `break`, so its `defer`s run. As the binary records `[1,2]` for

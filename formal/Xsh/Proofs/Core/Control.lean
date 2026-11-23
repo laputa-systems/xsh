@@ -351,30 +351,15 @@ theorem restageWith_refines {world : World Declaration Identity Source} (stage :
   · subst same; exact valued_refl _
 
 theorem foldValues_refines {world : World Declaration Identity Source}
-    {scope scope' : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement →
-      Valued world}
-    (each : ∀ frame captures body, Valued.Refines (scope frame captures body) (scope' frame captures body))
+    {scope scope' : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (each : ∀ frame item captures body, Valued.Refines (scope frame item captures body) (scope' frame item captures body))
     (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
     ∀ current (frame : Frame world) items,
       Valued.Refines (foldValues scope accumulator item body current frame items)
         (foldValues scope' accumulator item body current frame items)
   | _, _, [] => valued_refl _
-  | _, _, _ :: rest => valued_bind_refines (each _ _ _) fun _ _ => foldValues_refines each accumulator item body _ _ rest
-
-theorem closePipeline_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
-    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
-    {scope scope' : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement →
-      Valued world}
-    (expressions : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
-    (scopes : ∀ frame captures body, Valued.Refines (scope frame captures body) (scope' frame captures body))
-    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
-    Valued.Refines (closePipeline context evaluate scope ending out last) (closePipeline context evaluate' scope' ending out last) := by
-  unfold closePipeline
-  split
-  · split
-    · exact valued_bind_refines (expressions _ _) fun _ _ => foldValues_refines scopes _ _ _ _ _ _
-    · exact valued_refl _
-  · exact valued_refl _
+  | _, _, _ :: rest => valued_bind_refines (each _ _ _ _) fun _ _ => foldValues_refines each accumulator item body _ _ rest
 
 theorem keyItems_refines {world : World Declaration Identity Source}
     {scope scope' : (Frame world → Option (Value Declaration Identity Source) →
@@ -427,6 +412,22 @@ theorem runSegments_refines {world : World Declaration Identity Source} (context
         · exact runSegments_refines context expressions scopes runs fuel _ _ _ _
         · exact valued_refl _
       · exact valued_refl _
+
+theorem closePipeline_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    {scope scope' : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (expressions : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
+    (scopes : ∀ frame item captures body, Valued.Refines (scope frame item captures body) (scope' frame item captures body))
+    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
+    Valued.Refines (closePipeline context evaluate scope ending out last) (closePipeline context evaluate' scope' ending out last) := by
+  unfold closePipeline
+  repeat' (first
+    | exact valued_refl _
+    | exact valued_refl _
+    | refine valued_bind_refines (expressions _ _) fun _ _ => foldValues_refines scopes _ _ _ _ _ _
+    | refine valued_bind_refines (keyItems_refines scopes _ _ _ _) fun _ _ => ?_
+    | split)
 
 theorem gathered_refines {world : World Declaration Identity Source} (loop : Frame world) (index : Nat)
     {first second : Valued world} (refined : Valued.Refines first second) :
@@ -865,7 +866,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | exact runPipeline_refines _ inner.stageItems _ _ _ _ _
           | refine valued_bind_refines (pipelineLimit_refines inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (prepareStages_refines inner.expr _ _) fun _ _ => ?_
-          | exact closePipeline_refines _ inner.expr (fun _ _ _ => inner.handlers _ _ _ _) _ _ _
+          | exact closePipeline_refines _ inner.expr inner.handlers _ _ _
           | refine valued_bind_refines (runPipeline_refines _ (fun _ _ _ _ => runSegments_refines _ inner.expr
               inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_
           | refine gathered_refines _ _ ?_
@@ -1270,26 +1271,13 @@ theorem runPipeline_persists {world : World Declaration Identity Source} (contex
   · exact fun _ present => by cases present
 
 theorem foldValues_persists {world : World Declaration Identity Source}
-    {scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
-    (each : ∀ frame captures body, VKeeps frame.store (scope frame captures body))
+    {scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (each : ∀ frame item captures body, VKeeps frame.store (scope frame item captures body))
     (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
     ∀ current (frame : Frame world) items, VKeeps frame.store (foldValues scope accumulator item body current frame items)
   | _, _, [] => persists_refl _
-  | _, _, _ :: rest => vbind_persists (each _ _ _) fun _ _ => foldValues_persists each accumulator item body _ _ rest
-
-theorem closePipeline_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
-    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
-    {scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
-    (expressions : ∀ frame source, VKeeps frame.store (evaluate frame source))
-    (scopes : ∀ frame captures body, VKeeps frame.store (scope frame captures body))
-    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
-    VKeeps last.store (closePipeline context evaluate scope ending out last) := by
-  unfold closePipeline
-  split
-  · split
-    · exact vbind_persists (expressions _ _) fun _ _ => foldValues_persists scopes _ _ _ _ _ _
-    · exact fun _ present => by cases present
-  · exact finishPipeline_persists _ _ _ _
+  | _, _, _ :: rest => vbind_persists (each _ _ _ _) fun _ _ => foldValues_persists each accumulator item body _ _ rest
 
 theorem keyItems_persists {world : World Declaration Identity Source}
     {scope : (Frame world → Option (Value Declaration Identity Source) →
@@ -1340,6 +1328,23 @@ theorem runSegments_persists {world : World Declaration Identity Source} (contex
         · exact runSegments_persists context expressions scopes runs fuel _ _ _ _
         · exact fun _ present => by cases present
       · exact fun _ present => by cases present
+
+theorem closePipeline_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    {scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (expressions : ∀ frame source, VKeeps frame.store (evaluate frame source))
+    (scopes : ∀ frame item captures body, VKeeps frame.store (scope frame item captures body))
+    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
+    VKeeps last.store (closePipeline context evaluate scope ending out last) := by
+  unfold closePipeline
+  repeat' (first
+    | exact persists_refl _
+    | exact fun _ present => by cases present
+    | exact finishPipeline_persists _ _ _ _
+    | refine vbind_persists (expressions _ _) fun _ _ => foldValues_persists scopes _ _ _ _ _ _
+    | refine vbind_persists (keyItems_persists scopes _ _ _ _) fun _ _ => ?_
+    | split)
 
 theorem pipelineLimit_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -1873,7 +1878,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | exact runPipeline_persists _ inner.stageItems _ _ _ _ _
     | refine vbind_persists (pipelineLimit_persists inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (prepareStages_persists inner.expr _ _) fun _ _ => ?_
-    | exact closePipeline_persists _ inner.expr (fun _ _ _ => inner.handlers _ _ _ _) _ _ _
+    | exact closePipeline_persists _ inner.expr inner.handlers _ _ _
     | refine vbind_persists (runPipeline_persists _ (fun _ _ _ _ => runSegments_persists _ inner.expr
         inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_
     | refine restageWith_persists _ _ ?_
@@ -2353,26 +2358,13 @@ theorem runPipeline_restores {world : World Declaration Identity Source} (contex
   · exact vrestores_none rfl
 
 theorem foldValues_restores {world : World Declaration Identity Source}
-    {scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
-    (each : ∀ frame captures body, VRestores frame (scope frame captures body))
+    {scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (each : ∀ frame item captures body, VRestores frame (scope frame item captures body))
     (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
     ∀ current (frame : Frame world) items, VRestores frame (foldValues scope accumulator item body current frame items)
   | _, _, [] => ⟨rfl, rfl⟩
-  | _, _, _ :: rest => vbind_restores (each _ _ _) fun _ _ => foldValues_restores each accumulator item body _ _ rest
-
-theorem closePipeline_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
-    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
-    {scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
-    (expressions : ∀ frame source, VRestores frame (evaluate frame source))
-    (scopes : ∀ frame captures body, VRestores frame (scope frame captures body))
-    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
-    VRestores last (closePipeline context evaluate scope ending out last) := by
-  unfold closePipeline
-  split
-  · split
-    · exact vbind_restores (expressions _ _) fun _ _ => foldValues_restores scopes _ _ _ _ _ _
-    · exact vrestores_none rfl
-  · exact finishPipeline_restores _ _ _ _
+  | _, _, _ :: rest => vbind_restores (each _ _ _ _) fun _ _ => foldValues_restores each accumulator item body _ _ rest
 
 theorem keyItems_restores {world : World Declaration Identity Source}
     {scope : (Frame world → Option (Value Declaration Identity Source) →
@@ -2423,6 +2415,23 @@ theorem runSegments_restores {world : World Declaration Identity Source} (contex
         · exact runSegments_restores context expressions scopes runs fuel _ _ _ _
         · exact vrestores_none rfl
       · exact vrestores_none rfl
+
+theorem closePipeline_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    {scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world}
+    (expressions : ∀ frame source, VRestores frame (evaluate frame source))
+    (scopes : ∀ frame item captures body, VRestores frame (scope frame item captures body))
+    (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) :
+    VRestores last (closePipeline context evaluate scope ending out last) := by
+  unfold closePipeline
+  repeat' (first
+    | exact ⟨rfl, rfl⟩
+    | exact vrestores_none rfl
+    | exact finishPipeline_restores _ _ _ _
+    | refine vbind_restores (expressions _ _) fun _ _ => foldValues_restores scopes _ _ _ _ _ _
+    | refine vbind_restores (keyItems_restores scopes _ _ _ _) fun _ _ => ?_
+    | split)
 
 theorem pipelineLimit_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
@@ -2900,7 +2909,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact runPipeline_restores _ inner.stageItems _ _ _ _ _
   | refine vbind_restores (pipelineLimit_restores inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (prepareStages_restores inner.expr _ _) fun _ _ => ?_
-  | exact closePipeline_restores _ inner.expr (fun _ _ _ => inner.handlers _ _ _ _) _ _ _
+  | exact closePipeline_restores _ inner.expr inner.handlers _ _ _
   | refine vbind_restores (runPipeline_restores _ (fun _ _ _ _ => runSegments_restores _ inner.expr
       inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_
   | refine restageWith_restores _ _ ?_

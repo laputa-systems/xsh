@@ -62,7 +62,7 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
           (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
@@ -71,16 +71,16 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) after
             | none, _ =>
               (runPipeline machine.context
                   (fun current body bound items => runSegments machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                     (stageItems machine fuel) (body.length + 1) current body bound items)
                   after source prepared .collected limit).bind
-                fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                   (pipelineSplit stages).2.2 out last) ∧
     (∀ source body ending limit items, listValues source = some items →
       runPipeline machine.context (stageItems machine fuel) frame source body ending limit =
@@ -139,10 +139,11 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
       listValues out = some items →
         closePipeline machine.context evaluate scope (.folded initial accumulator item body) out last =
           (evaluate last initial).bind fun start after => foldValues scope accumulator item body start after items) ∧
-    (∀ (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement →
-        Valued world) accumulator item body current next rest,
+    (∀ (scope : Frame world → Option (Value Declaration Identity Source) →
+          List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+        accumulator item body current next rest,
       foldValues scope accumulator item body current frame (next :: rest) =
-        (scope frame [(accumulator, current), (item, next)] body).bind fun updated after =>
+        (scope frame none [(accumulator, current), (item, next)] body).bind fun updated after =>
           foldValues scope accumulator item body updated after rest) ∧
     (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
         (scope : Frame world → Option (Value Declaration Identity Source) →
@@ -574,6 +575,96 @@ theorem materializing_witness :
 would, logs `7 7 1 1 8 8 2 2`. -/
 theorem serial_sort_rejected :
     readList traceVar (runCanonical sortTraced) ≠ some [7, 7, 1, 1, 8, 8, 2, 2] := by
+  decide +kernel
+
+/-- The `{items, key}` records a `group-by` gave, as key and item lists. -/
+def readGroups (outcome : Exec witnessWorld) : Option (List (Int × List Int)) :=
+  match readValue outcome with
+  | some (.list groups) => groups.mapM fun
+    | .record [("items", .list members), ("key", .scalar (.integer key))] =>
+      (members.mapM fun (member : Value Unit Unit Unit) =>
+        match member with
+        | .scalar (.integer value) => some value.val
+        | _ => none).map (key.val, ·)
+    | _ => none
+  | _ => none
+
+/-- The `{left, right}` records a `zip` gave. -/
+def readPairs (outcome : Exec witnessWorld) : Option (List (Int × Int)) :=
+  match readValue outcome with
+  | some (.list pairs) => pairs.mapM fun
+    | .record [("left", .scalar (.integer left)), ("right", .scalar (.integer right))] => some (left.val, right.val)
+    | _ => none
+  | _ => none
+
+/-- `[1, 2, 1, 7] |> map { trace += [.]; . } |> unique-by { . } |> map { |x| trace += [x]; x }`. -/
+def uniqueTraced : List Xsh.Syntax.Statement :=
+  closing (items ["1", "2", "1", "7"])
+    [mapStage none [.assign (.name traceVar) .add (.list [.item]), .expression .item],
+     .stream .uniqueBy [] (keyBlock .item),
+     mapStage (some xItem) [recordItem xItem, .expression (ident xItem)]]
+
+/-- As the verification binary gives `[1,2,7]` and logs `mmmmkkkknnn` for
+`unique-by` over `[1, 2, 1, 7]`, every item reaching it first;
+`[{"items":[1,7],"key":1},{"items":[2,8],"key":0}]` for
+`[1, 2, 7, 8] |> group-by { . % 2 }`; `[1,2,1,2]` for `[1, 2] |> repeat(2)`;
+and `{left, right}` pairs up to the shorter list for `zip`. -/
+theorem keyed_stage_witness :
+    readList closingVar (runCanonical uniqueTraced) = some [1, 2, 7] ∧
+    readList traceVar (runCanonical uniqueTraced) = some [1, 2, 1, 7, 1, 2, 7] ∧
+    readGroups (runCanonical (closing (items ["1", "2", "7", "8"])
+      [.stream .groupBy [] (keyBlock (.binary .rem .item (int "2")))])) = some [(1, [1, 7]), (0, [2, 8])] ∧
+    readList closingVar (runCanonical (closing (items ["1", "2"]) [.stream .repeatStage [.positional (int "2")] none])) =
+      some [1, 2, 1, 2] ∧
+    readPairs (runCanonical (closing (items ["1", "2", "7"]) [.stream .zip [.positional (items ["8", "0"])] none])) =
+      some [(1, 8), (2, 0)] := by
+  decide +kernel
+
+/-- A `unique-by` that kept the last item per key would give `2 1 7`. -/
+theorem last_per_key_rejected : readList closingVar (runCanonical uniqueTraced) ≠ some [2, 1, 7] := by
+  decide +kernel
+
+/-- A map of text keys to integer counts. -/
+def readCounts (outcome : Exec witnessWorld) : Option (List (String × Int)) :=
+  match readValue outcome with
+  | some (.map entries) => entries.mapM fun
+    | (.string key, .scalar (.integer count)) => some (key, count.val)
+    | _ => none
+  | _ => none
+
+/-- `[1, 2] |> tee { trace += [.] } |> map { |x| trace += [x]; x }`. -/
+def teeTraced : List Xsh.Syntax.Statement :=
+  closing (items ["1", "2"])
+    [.stream .tee [] (some ([], [.assign (.name traceVar) .add (.list [.item])])),
+     mapStage (some xItem) [recordItem xItem, .expression (ident xItem)]]
+
+/-- `[1, 2] |> map { trace += [.]; . } |> each { |x| trace += [x] }`. -/
+def eachTraced : List Xsh.Syntax.Statement :=
+  closing (items ["1", "2"])
+    [mapStage none [.assign (.name traceVar) .add (.list [.item]), .expression .item],
+     .stream .each [] (some ([xItem], [recordItem xItem]))]
+
+/-- As the verification binary logs `tntn` for `tee |> map` and `meme` for
+`map |> each`, each item passing both before the next, gives `[1,2]` through
+the `tee`, and gives `{"2":1,"7":2}`, `{"false":1,"true":2}` and
+`{"a":1,"b":2}` for `count { . }` over `[7, 2, 7]`, `[true, false, true]` and
+`["b", "a", "b"]`: keys by their text, in key order. -/
+theorem tee_each_count_witness :
+    readList closingVar (runCanonical teeTraced) = some [1, 2] ∧
+    readList traceVar (runCanonical teeTraced) = some [1, 1, 2, 2] ∧
+    readList traceVar (runCanonical eachTraced) = some [1, 1, 2, 2] ∧
+    (match readValue (runCanonical eachTraced) with | some (.scalar .unit) => true | _ => false) = true ∧
+    readCounts (runCanonical (closing (items ["7", "2", "7"]) [.stream .count [] (keyBlock .item)])) =
+      some [("2", 1), ("7", 2)] ∧
+    readCounts (runCanonical (closing (.list [.literal (.bool true), .literal (.bool false), .literal (.bool true)])
+      [.stream .count [] (keyBlock .item)])) = some [("false", 1), ("true", 2)] ∧
+    readCounts (runCanonical (closing (.list [.literal (.string "b"), .literal (.string "a"), .literal (.string "b")])
+      [.stream .count [] (keyBlock .item)])) = some [("a", 1), ("b", 2)] := by
+  decide +kernel
+
+/-- An `each` run after every item passed the earlier stages, as a
+materializing stage would, logs `1 2 1 2`. -/
+theorem materialized_each_rejected : readList traceVar (runCanonical eachTraced) ≠ some [1, 2, 1, 2] := by
   decide +kernel
 
 end Witness

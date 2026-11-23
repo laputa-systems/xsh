@@ -1102,6 +1102,10 @@ inductive StageAction where
   | reject
   | replace
   | expand
+  /-- `tee`: run the block and pass the item on unchanged. -/
+  | observe
+  /-- `each`: run the block, and the item goes no further. -/
+  | consume
 
 /-- A serial stage block's one parameter, or `none` for the implicit `.`;
 a block with more parameters has no single-item action. -/
@@ -1119,6 +1123,8 @@ def stageAction : Xsh.Syntax.PipeStage → Option (StageAction × Option Xsh.Syn
       | .all => some (.reject, parameter, body)
       | .map => some (.replace, parameter, body)
       | .flatMap => some (.expand, parameter, body)
+      | .tee => some (.observe, parameter, body)
+      | .each => some (.consume, parameter, body)
       | _ => none
   | _ => none
 
@@ -1168,6 +1174,10 @@ inductive PipelineEnd where
   | maximum
   /-- `fold(initial) { |accumulator, item| ... }`, which `reduce` spells too. -/
   | folded (initial : Xsh.Syntax.Expr) (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement)
+  /-- A closing `each`, whose value is `Unit`. -/
+  | finished
+  /-- `count { key }`: the items counted by their key's text. -/
+  | countedBy (parameter : Option Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement)
 
 /-- A structured pipeline's stages split before a closing `count()` or
 `collect()`, which ends the pipeline with its own value (SPEC 13.1), and
@@ -1189,6 +1199,11 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
     | some (.stream .fold [.positional initial] (some ([accumulator, item], body)))
     | some (.stream .reduce [.positional initial] (some ([accumulator, item], body))) =>
       (stages.dropLast, .folded initial accumulator item body)
+    | some (.stream .each [] (some _)) => (stages, .finished)
+    | some (.stream .count [] (some (parameters, body))) =>
+      match singleParameter parameters with
+      | some parameter => (stages.dropLast, .countedBy parameter body)
+      | none => (stages, .collected)
     | _ => (stages, .collected)
   match body.getLast? with
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
@@ -1431,7 +1446,8 @@ def statefulStep : Xsh.Syntax.PipeStage → Option (StatefulStep Declaration Ide
 /-- A stage that needs every item before it gives any (SPEC 13.2): `sort`,
 `sort-by` and `batch`. -/
 def isMaterializing : Xsh.Syntax.PipeStage → Bool
-  | .stream .sort _ _ | .stream .sortBy _ _ | .stream .batch _ _ => true
+  | .stream .sort _ _ | .stream .sortBy _ _ | .stream .batch _ _ | .stream .uniqueBy _ _
+  | .stream .groupBy _ _ | .stream .repeatStage _ _ | .stream .zip _ _ => true
   | _ => false
 
 /-- Whether a stage keeps state from item to item, or needs every item. -/
@@ -1466,6 +1482,34 @@ def sortByKeys (context : Context Declaration Identity Source)
     Option (List (Value Declaration Identity Source × Value Declaration Identity Source)) :=
   entries.foldl (fun sorted entry => sorted.bind (insertByKey context entry)) (some [])
 
+/-- The first item for each key, in order, keys compared as `==` compares
+whole values. -/
+def firstPerKey (same : Sameness Declaration Identity Source) :
+    List (Value Declaration Identity Source) → List (Value Declaration Identity Source × Value Declaration Identity Source) →
+      Option (List (Value Declaration Identity Source))
+  | _, [] => some []
+  | seen, (key, item) :: rest =>
+    (anyEqual same key seen).bind fun repeated =>
+      if repeated then firstPerKey same seen rest
+      else (firstPerKey same (seen ++ [key]) rest).map (item :: ·)
+
+/-- `item` added to the group of the first equal key, or to a new group
+after the others. -/
+def addToGroup (same : Sameness Declaration Identity Source) (key item : Value Declaration Identity Source) :
+    List (Value Declaration Identity Source × List (Value Declaration Identity Source)) →
+      Option (List (Value Declaration Identity Source × List (Value Declaration Identity Source)))
+  | [] => some [(key, [item])]
+  | (held, members) :: rest =>
+    (valueEqual same held key).bind fun equal =>
+      if equal then some ((held, members ++ [item]) :: rest)
+      else (addToGroup same key item rest).map ((held, members) :: ·)
+
+/-- Keyed items grouped by key in first-seen order. -/
+def groupsByKey (same : Sameness Declaration Identity Source)
+    (keyed : List (Value Declaration Identity Source × Value Declaration Identity Source)) :
+    Option (List (Value Declaration Identity Source × List (Value Declaration Identity Source))) :=
+  keyed.foldl (fun groups (key, item) => groups.bind (addToGroup same key item)) (some [])
+
 /-- Items cut into lists of `size`, the last one shorter. -/
 def chunkValues {α : Type} (size : Nat) : Nat → List α → List (List α)
   | 0, _ => []
@@ -1495,7 +1539,11 @@ def orderedBy {world : World Declaration Identity Source} (context : Context Dec
 /-- What a materializing stage makes of every item that reached it (SPEC
 13.3, 13.5): its options evaluated once as it starts, `sort` ordering items
 by `<` and `sort-by` by the key its block gives, both stably, `desc: true`
-reversing the order, and `batch(count: n)` cutting them into lists of `n`. -/
+reversing the order, `batch(count: n)` cutting them into lists of `n`,
+`unique-by` keeping the first item for each key and `group-by` giving
+`{items, key}` records in first-seen key order, keys compared as `==` does,
+`repeat(n)` repeating the list `n` times, and `zip(other)` pairing items with
+`other`'s as `{left, right}` records up to the shorter. -/
 def materialize {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
     (scope : Frame world → Option (Value Declaration Identity Source) →
@@ -1518,6 +1566,36 @@ def materialize {world : World Declaration Identity Source} (context : Context D
           (keyItems scope parameter body after items).bind fun keyed last => ordered descending keyed last
         | _ => .exec .stuck
     | _, _ => .exec .unsupported
+  | .stream .uniqueBy [] (some (parameters, body)) =>
+    match singleParameter parameters with
+    | some parameter =>
+      (keyItems scope parameter body frame items).bind fun keyed last =>
+        match firstPerKey context.sameness [] keyed with
+        | some kept => .value (.list kept) last
+        | none => .exec .stuck
+    | none => .exec .unsupported
+  | .stream .groupBy [] (some (parameters, body)) =>
+    match singleParameter parameters with
+    | some parameter =>
+      (keyItems scope parameter body frame items).bind fun keyed last =>
+        match groupsByKey context.sameness keyed with
+        | some groups =>
+          .value (.list (groups.map fun (key, members) => .record [("items", .list members), ("key", key)])) last
+        | none => .exec .stuck
+    | none => .exec .unsupported
+  | .stream .repeatStage [.positional count] none =>
+    (evaluate frame count).bind fun times after =>
+      match times.eraseNominal with
+      | .scalar (.integer bound) =>
+        if 0 ≤ bound.val then .value (.list (List.replicate bound.val.toNat items).flatten) after
+        else .exec .unsupported
+      | _ => .exec .stuck
+  | .stream .zip [.positional other] none =>
+    (evaluate frame other).bind fun partner after =>
+      match listValues partner with
+      | some others =>
+        .value (.list ((items.zip others).map fun (left, right) => .record [("left", left), ("right", right)])) after
+      | none => .exec .unsupported
   | .stream .batch [.named label count] none =>
     if context.spelling label != "count" then .exec .unsupported else
     (evaluate frame count).bind fun bound after =>
@@ -1602,18 +1680,45 @@ def finishPipeline {world : World Declaration Identity Source} (context : Contex
       | none => .exec .stuck
     | some [] => .value (.err context.errors.streamEmpty) last
     | none => .exec .stuck
-  | .folded _ _ _ _ => .exec .unsupported
+  | .folded _ _ _ _ | .countedBy _ _ => .exec .unsupported
+  | .finished => .value (.scalar .unit) last
+
+/-- An integer's decimal text. -/
+def intText (value : Int) : String :=
+  if value < 0 then "-" ++ toString value.natAbs else toString value.natAbs
+
+/-- A `count { key }` key's text: a `Str` as it is, an `Int` in decimal and a
+`Bool` as `true` or `false`; other keys fail at runtime, outside the model. -/
+def keyText : Value Declaration Identity Source → Option String
+  | .scalar (.string text) => some text
+  | .scalar (.integer value) => some (intText value.val)
+  | .scalar (.boolean value) => some (if value then "true" else "false")
+  | .nominal _ inner => keyText inner
+  | _ => none
+
+/-- Counts by key text, in key order. -/
+def countByText (counts : List (MapKey × Value Declaration Identity Source)) :
+    List (Value Declaration Identity Source) → Option (List (MapKey × Value Declaration Identity Source))
+  | [] => some counts
+  | key :: rest =>
+    (keyText key).bind fun text =>
+      let held := match counts.lookup (.string text) with
+        | some (.scalar (.integer count)) => count.val
+        | _ => 0
+      (validateInt? (held + 1)).bind fun next =>
+        countByText (Xsh.Semantics.CoreWrites.upsert (.string text) (.scalar (.integer next)) counts) rest
 
 /-- A fold's accumulator over the items that reached it: each runs the
 callback with the accumulator and the item bound, in its own scope, and the
 callback's value is the next accumulator (SPEC 13.3). -/
 def foldValues {world : World Declaration Identity Source}
-    (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
     (accumulator item : Xsh.Syntax.RawName) (body : List Xsh.Syntax.Statement) :
     Value Declaration Identity Source → Frame world → List (Value Declaration Identity Source) → Valued world
   | current, frame, [] => .value current frame
   | current, frame, next :: rest =>
-    (scope frame [(accumulator, current), (item, next)] body).bind fun updated after =>
+    (scope frame none [(accumulator, current), (item, next)] body).bind fun updated after =>
       foldValues scope accumulator item body updated after rest
 
 /-- A pipeline's value once its items have passed the stages: a closing
@@ -1622,13 +1727,22 @@ it, as the binary does, then folds them in order; any other ending is
 `finishPipeline`. -/
 def closePipeline {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
-    (scope : Frame world → List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
+    (scope : Frame world → Option (Value Declaration Identity Source) →
+      List (Xsh.Syntax.RawName × Value Declaration Identity Source) → List Xsh.Syntax.Statement → Valued world)
     (ending : PipelineEnd) (out : Value Declaration Identity Source) (last : Frame world) : Valued world :=
   match ending with
   | .folded initial accumulator item body =>
     match listValues out with
     | some items =>
       (evaluate last initial).bind fun start after => foldValues scope accumulator item body start after items
+    | none => .exec .stuck
+  | .countedBy parameter body =>
+    match listValues out with
+    | some items =>
+      (keyItems scope parameter body last items).bind fun keyed after =>
+        match countByText [] (keyed.map Prod.fst) with
+        | some counts => .value (.map counts) after
+        | none => .exec .stuck
     | none => .exec .stuck
   | other => finishPipeline context other out last
 
@@ -3255,7 +3369,7 @@ mutual
           (pipelineLimit (evalExpr machine fuel) ready (pipelineSplit stages).2.1).bind fun explicit after =>
             let limit := bothLimits explicit (endingLimit (pipelineSplit stages).2.2)
             match pendingStream machine after source, limit with
-            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+            | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
               if (pipelineSplit stages).1.any isStateful then .exec .unsupported else
@@ -3264,16 +3378,16 @@ mutual
                     streams := after.streams.set index (.gathering [])
                     consumers := { sinkConsumer after index with stages := (pipelineSplit stages).1, limit } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 out last
-            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+            | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) after
             | none, _ =>
               (runPipeline machine.context
                   (fun current body bound items => runSegments machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                     (stageItems machine fuel) (body.length + 1) current body bound items)
                   after source prepared .collected limit).bind
-                fun out last => closePipeline machine.context (evalExpr machine fuel) (fun scope captures body => handlerScope machine fuel scope none captures body)
+                fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                   (pipelineSplit stages).2.2 out last
       | .call (.field receiver method) arguments =>
         match errorConstructor machine frame receiver method, arguments with
@@ -3553,6 +3667,8 @@ mutual
               | .scalar (.boolean true) => .value (.list []) { after with restaged := some rest }
               | _ => .exec .stuck
             | .replace => stageItem machine fuel after rest result
+            | .observe => stageItem machine fuel after rest item
+            | .consume => .value (.list []) { after with restaged := some rest }
             | .expand =>
               match listValues result with
               | some items => stageItems machine fuel after rest none items
