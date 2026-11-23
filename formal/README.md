@@ -515,7 +515,8 @@ Expressions:
 - equality of streams, modules, filesystem entries, commands, process
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
-- methods and value pipelines (P)
+- methods other than the numeric, list, map and set methods, `Map.push`,
+  and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -673,6 +674,21 @@ so do the witnesses. A function's declared result is likewise the target of
 its body's tail and of each top-level `return` (`expectBody`), as the binary's
 `err`, `ok 7`, `7` and `err` for the four declared-result forms show. Other
 expected positions need the checker's expected type and are not modelled.
+
+The `collection_methods` fragment root, in
+[`Proofs/Core/Collections.lean`](Xsh/Proofs/Core/Collections.lean), adds the
+list, map and set methods (SPEC 4.5): `len` and `is_empty` on all three; a
+list's `push`, `extend`, `get`, `to_set` and a `Str` list's `join`; a map's
+`keys` and `values` in key order, `set` as the ordered upsert, `remove` and
+`get`; and a set's `add`, `remove` and `to_list`. The receiver evaluates
+first, then each argument once in written order. `get` gives `Ok` of the
+element or value, or the `Err` of the index or key it misses, whose message
+the machine's error oracle supplies (`list index N is out of bounds`, kind
+`index-out-of-bounds`, and `map-missing` in the binary). The witnesses follow
+the binary's printed results for those methods on a three-element list, a
+two-key map, a two-element set and `["a", "b"].join`, with literal values
+the witness table can spell; the mutant appends a new map key instead of
+placing it in key order, which the binary's `{"0":7,"a":1,"b":2}` rules out.
 
 The `leading_dot_variants` fragment root, in
 [`Proofs/Core/Variants.lean`](Xsh/Proofs/Core/Variants.lean), adds the

@@ -102,6 +102,7 @@ import Xsh.Proofs.Core.Exits
 import Xsh.Proofs.Core.Producers
 import Xsh.Proofs.Core.Pipelines
 import Xsh.Proofs.Core.Variants
+import Xsh.Proofs.Core.Collections
 import Xsh.Proofs.Core.Threading
 import Xsh.Proofs.Core.Resolution
 import Xsh.Proofs.Core.Callables

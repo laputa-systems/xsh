@@ -15274,6 +15274,15 @@
       "boundary": "Expected types from parameter defaults, arguments after a splice, Err payloads, record and constructor fields, map values, the other operand of == and !=, nested returns, generic callables, and error families are not modelled; enum visibility and check.inferred-variant belong to the checker. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Collections.collection_methods",
+      "module": "Xsh.Proofs.Core.Collections",
+      "declaration": "Xsh.Proofs.Core.Collections.collection_methods",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 4.5 list, map and set methods: a method no error family declares, other than call, collect and the numeric methods, that names one of len, is_empty, push, extend, get, to_set, join, keys, values, set, remove, add or to_list evaluates its receiver, then each argument once in written order, and gives collectionMethod's value; a list's push appends and get gives Ok of an element in range and the Err of its index otherwise; a map's set is the ordered upsert and get gives Ok of a present key's value and the Err of the missing key otherwise; a set's add inserts in map key order without repeating an element.",
+      "boundary": "Map push, Str, Bytes, Path, Record and handle methods, value pipelines, and named method arguments are not modelled; the get errors' messages come from the machine's error oracle. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

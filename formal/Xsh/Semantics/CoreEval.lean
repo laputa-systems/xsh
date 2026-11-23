@@ -40,6 +40,10 @@ structure Errors (Declaration Identity Source : Type) where
   matchNoArm : Value Declaration Identity Source
   /-- The error `first()`, `min()` and `max()` give an empty pipeline (SPEC 13.3). -/
   streamEmpty : Value Declaration Identity Source
+  /-- The error `List.get` holds for an index outside the list. -/
+  listGet : Int → Value Declaration Identity Source
+  /-- The error `Map.get` holds for a key the map lacks. -/
+  mapGet : MapKey → Value Declaration Identity Source
 
 /-- Whether a function returns a `Result`, which decides where its failures
 go (SPEC 8.3, 8.7). -/

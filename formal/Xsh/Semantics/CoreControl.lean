@@ -1517,6 +1517,121 @@ def numericCall {world : World Declaration Identity Source} (context : Context D
       | some values => fromEval last (numericMethod context.errors name target values)
       | none => .exec .unsupported
 
+/-- A list, map or set method (SPEC 4.5). -/
+inductive CollectionMethod where
+  | len | isEmpty | push | extend | get | toSet | join | keys | values | set | remove | add | toList
+
+def CollectionMethod.ofName : String → Option CollectionMethod
+  | "len" => some .len
+  | "is_empty" => some .isEmpty
+  | "push" => some .push
+  | "extend" => some .extend
+  | "get" => some .get
+  | "to_set" => some .toSet
+  | "join" => some .join
+  | "keys" => some .keys
+  | "values" => some .values
+  | "set" => some .set
+  | "remove" => some .remove
+  | "add" => some .add
+  | "to_list" => some .toList
+  | _ => none
+
+/-- The methods of lists, maps and sets (SPEC 4.5): `len`, `is_empty`; a
+list's `push`, `extend`, `get`, `to_set` and a `Str` list's `join`; a map's
+`keys` and `values` in key order, `set` replacing or inserting a key in key
+order, `remove` and `get`; and a set's `add`, `remove` and `to_list`. A
+`get` gives `Ok` of the element or entry, or `Err` of its miss. -/
+def countedValue (count : Nat) : Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match countValue count with
+  | some value => .value value
+  | none => .unsupported
+
+def listMethod (errors : Errors Declaration Identity Source) :
+    CollectionMethod → List (Value Declaration Identity Source) → List (Value Declaration Identity Source) →
+      Result Declaration Identity Source (Value Declaration Identity Source)
+  | .len, items, [] => countedValue items.length
+  | .isEmpty, items, [] => .value (.scalar (.boolean items.isEmpty))
+  | .push, items, [item] => .value (.list (items ++ [item]))
+  | .extend, items, [.list more] => .value (.list (items ++ more))
+  | .get, items, [.scalar (.integer index)] =>
+    if 0 ≤ index.val then
+      match items[index.val.toNat]? with
+      | some item => .value (.ok item)
+      | none => .value (.err (errors.listGet index.val))
+    else .value (.err (errors.listGet index.val))
+  | .toSet, items, [] =>
+    match items.mapM mapKeyOf with
+    | some keys => .value (.set (setOf keys))
+    | none => .unsupported
+  | .join, items, separator =>
+    match items.mapM (fun item => match item.eraseNominal with
+        | .scalar (.string text) => some text
+        | _ => none), separator with
+    | some texts, [] => .value (.scalar (.string (String.join texts)))
+    | some texts, [.scalar (.string between)] => .value (.scalar (.string (between.intercalate texts)))
+    | _, _ => .unsupported
+  | _, _, _ => .unsupported
+
+def mapMethod (errors : Errors Declaration Identity Source) :
+    CollectionMethod → List (MapKey × Value Declaration Identity Source) → List (Value Declaration Identity Source) →
+      Result Declaration Identity Source (Value Declaration Identity Source)
+  | .len, entries, [] => countedValue entries.length
+  | .isEmpty, entries, [] => .value (.scalar (.boolean entries.isEmpty))
+  | .keys, entries, [] => .value (.list (entries.map fun entry => keyValue entry.1))
+  | .values, entries, [] => .value (.list (entries.map Prod.snd))
+  | .set, entries, [key, value] =>
+    match mapKeyOf key with
+    | some found => .value (.map (upsert found value entries))
+    | none => .unsupported
+  | .remove, entries, [key] =>
+    match mapKeyOf key with
+    | some found => .value (.map (entries.filter fun entry => entry.1 != found))
+    | none => .unsupported
+  | .get, entries, [key] =>
+    match mapKeyOf key with
+    | some found =>
+      match entries.lookup found with
+      | some value => .value (.ok value)
+      | none => .value (.err (errors.mapGet found))
+    | none => .unsupported
+  | _, _, _ => .unsupported
+
+def setMethod : CollectionMethod → List MapKey → List (Value Declaration Identity Source) →
+    Result Declaration Identity Source (Value Declaration Identity Source)
+  | .len, keys, [] => countedValue keys.length
+  | .isEmpty, keys, [] => .value (.scalar (.boolean keys.isEmpty))
+  | .add, keys, [item] =>
+    match mapKeyOf item with
+    | some found => .value (.set (insertKey found keys))
+    | none => .unsupported
+  | .remove, keys, [item] =>
+    match mapKeyOf item with
+    | some found => .value (.set (keys.filter fun key => key != found))
+    | none => .unsupported
+  | .toList, keys, [] => .value (.list (keys.map keyValue))
+  | _, _, _ => .unsupported
+
+def collectionMethod (errors : Errors Declaration Identity Source) (method : CollectionMethod)
+    (receiver : Value Declaration Identity Source) (arguments : List (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match receiver.eraseNominal with
+  | .list items => listMethod errors method items (arguments.map Value.eraseNominal)
+  | .map entries => mapMethod errors method entries (arguments.map Value.eraseNominal)
+  | .set keys => setMethod method keys (arguments.map Value.eraseNominal)
+  | _ => .unsupported
+
+/-- A collection method call: the receiver evaluates first, then each
+argument once in written order. -/
+def collectionCall {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) (receiver : Xsh.Syntax.Expr)
+    (method : CollectionMethod) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+  (evaluate frame receiver).bind fun target after =>
+    (threadArguments context.spelling evaluate after arguments).bind fun supplied last =>
+      match supplied.mapM Supplied.positionalValue with
+      | some values => fromEval last (collectionMethod context.errors method target values)
+      | none => .exec .unsupported
+
 def Supplied.namedValue : Supplied Declaration Identity Source → Option (String × Value Declaration Identity Source)
   | .positional _ => none
   | .named label value => some (label, value)
@@ -2128,8 +2243,11 @@ mutual
           | name =>
             if isNumericMethod name then numericCall machine.context (evalExpr machine fuel) frame receiver name arguments
             else
-              threadStep machine.context (evalExpr machine fuel)
-                (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+              match CollectionMethod.ofName name with
+              | some method => collectionCall machine.context (evalExpr machine fuel) frame receiver method arguments
+              | none =>
+                threadStep machine.context (evalExpr machine fuel)
+                  (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
         | none, some closure@(.mk _ callable _ _ _ _ _) =>
