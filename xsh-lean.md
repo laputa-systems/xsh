@@ -1,17 +1,23 @@
 # XSH semantic soundness campaign
 
-**Status:** winding down 2026-11-23 (active since 2026-11-03). The
-connected milestone is the current target; G0–G10 stay planned around it.
-`formal/coverage.json` is the only inventory: 1,312 `SPEC_PROVED` fragment
-roots, fifteen `ARTIFACT_CERTIFIED` records, 18 finite `RUST_CONFORMANCE` cases
-at source freeze `1d27050bf739d72f9abefeba161b8768dad71c5c`, and 77 universal
-obligations, of which eight are closed: BASE-NUM, EFF-LATTICE, VAL-ERASE,
-VAL-PRESERVE, VAL-REQUIRE, VAL-STORE, VAL-UNION and VAL-WIDEN, plus two
-`EXTRACTED_REFINEMENT` implementation proofs (schema 4, see
-`formal/IMPL.md`). `formal/README.md` describes each accepted
-fragment and its exclusions; `python3 formal/scripts/check-inventory.py`
-validates the inventory against this plan. Completed slices are recorded in
-Git history, not here.
+**Status:** paused 2026-11-23. Resume: "Resume the Lean campaign from the
+Status in xsh-lean.md"; first command `cd formal && lake build`. Last accepted
+revision `2c7959ff9` on `master`, green (build, axiom audit, inventory tests,
+`check-inventory.py`, `leanchecker --fresh` 0); commits after `34a7deaf8`
+are unpushed. Inventory: 1,312 roots, 77 obligations, 8 closed
+(BASE-NUM, EFF-LATTICE, VAL-ERASE, VAL-PRESERVE, VAL-REQUIRE, VAL-STORE,
+VAL-UNION, VAL-WIDEN); `formal/README.md` lists each fragment and gap. No
+campaign branch is parked; other `.work/wt` lanes belong to other campaigns.
+Next slices, each verified against `target/verification/xsh`: (1) `env.list()`
+and `env.entries()` from a `hostNames` oracle, names in byte order, list failing
+`invalid-utf8` (`src/runtime/eval/lowered_run/module_env.rs:147`); (2)
+`shuffle(seed)` as a materializing stage, the LCG in
+`src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1653`, seed 0 when
+omitted (binary: `bcdae`, `acedb`, `bfdeacg` for letters `a`–`e`
+`shuffle(7)`, `shuffle()`, and `a`–`g` `shuffle(9223372036854775807)`); (3)
+`par-map` as an eager stage that keeps input order and drops workers' outer
+writes. `within` waits for a cancellation model; the producer `env` scope rule
+waits on XSH-184.
 
 Fragment proofs hold for their models only. The certified source/IR vertical
 covers the Lean lowerer on admitted integer, Bool-comparison, `Result`, `?`,
