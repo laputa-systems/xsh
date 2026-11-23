@@ -43,7 +43,8 @@ theorem require_expression [DecidableEq Declaration] {world : World Declaration 
             .keep [] type candidate = .error failure ∧
           error = .error (Xsh.Validation.Core.Require.schemaError machine.schemaFamily failure))) ∧
     (∀ kind target annotation initializer, runStatement machine (fuel + 1) frame (.binding kind target annotation initializer) =
-      (runValue machine fuel frame (expectTarget machine.context.spelling annotation initializer)).toExec fun value next =>
+      (runValue machine fuel frame (expectTarget machine.context.spelling annotation
+          (expectSchema machine.context.spelling machine.declarations annotation initializer))).toExec fun value next =>
         bindTarget machine next (bindingMutability kind) target value) ∧
     (∀ value schema, expectTarget machine.context.spelling (some (.result schema)) (.require value none) = .require value (some schema)) ∧
     (∀ value schema, expectTarget machine.context.spelling (some schema) (.tryExpr (.require value none)) =

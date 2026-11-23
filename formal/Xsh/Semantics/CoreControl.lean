@@ -3145,6 +3145,22 @@ def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawNa
       if declared = name then some (fields, nominal) else none
     | _ => none
 
+/-- A brace literal under an annotation that names a record schema (SPEC
+5.5): each named field's value takes the declared type of the schema field
+it names. Field types that name other schemas are not expanded. -/
+def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
+    Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+  | some (.named name), .record fields =>
+    match schemaOf declarations name with
+    | some (schema, _) =>
+      .record (fields.map fun
+        | .named label value =>
+          .named label (expectTarget spelling
+            ((schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type) value)
+        | other => other)
+    | none => .record fields
+  | _, initializer => initializer
+
 /-- The top-level error family a name declares (SPEC 4.10): its variants. -/
 def familyOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
     Option (List Xsh.Syntax.ErrorVariant) :=
@@ -3906,7 +3922,8 @@ mutual
     | fuel + 1, frame, statement =>
       match statement with
       | .binding kind target annotation initializer =>
-        (runValue machine fuel frame (expectTarget machine.context.spelling annotation initializer)).toExec fun value next =>
+        (runValue machine fuel frame (expectTarget machine.context.spelling annotation
+            (expectSchema machine.context.spelling machine.declarations annotation initializer))).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         (runValue machine fuel frame value).toExec fun result next =>

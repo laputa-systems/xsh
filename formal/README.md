@@ -533,7 +533,8 @@ Writes and values: stream declarations, which need the stream model (E);
 leading-dot variants whose expected type comes from anything but an annotated
 binding, a declared result's tail or a `return` in the body's statements, a
 parameter's annotation, or a value `if` or `match` branch, value block tail, `List[T]`
-element, `Map[K, V]` brace value, or `Ok(...)` or `Result[T, E]` `Err(...)` payload under one of those (P).
+element, `Map[K, V]` brace value, annotated record-schema field, or `Ok(...)`
+or `Result[T, E]` `Err(...)` payload under one of those (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -803,9 +804,12 @@ and so do the witnesses. An expected type also reaches each branch of a value
 `if` or `match`, a value block's tail, each element of an expected `List[T]`,
 each named or computed value of a brace literal under an expected
 `Map[K, V]`, and the payload of `Ok(...)` under an expected `Result[T]`, as
-the binary's `true` for those forms shows. Record and constructor fields, which need the
-declared schema, and the other operand of `==`, which needs the checker's
-types, are not yet expected positions. The syntax now writes `Result[T, E]` as `TypeExpr.resultWith`,
+the binary's `true` for those forms shows. A brace literal under an annotation that names
+a record schema gives each named field's value the schema field's type
+(`expectSchema`), as the binary's `true true` for
+`let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows; field types
+that name other schemas, constructor fields, and the other operand of `==`,
+which needs the checker's types, are not yet expected positions. The syntax now writes `Result[T, E]` as `TypeExpr.resultWith`,
 whose error type is the expected type of an `Err(...)` payload; a leading-dot
 name no enum declares is then the family's constructor `E.Name(...)`, as the
 binary prints `Fetch.Offline` for an annotated `Err(.Offline())` and for

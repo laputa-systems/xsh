@@ -30,7 +30,8 @@ parameter it names; an expected type reaches each branch of a value `if` or
 of a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
 under an expected `Result[T]` or `Result[T, E]` and of `Err(...)` under an
 expected `Result[T, E]`, a leading-dot name no enum declares then being the
-error family's constructor; and
+error family's constructor; a brace literal under an annotation naming a
+record schema gives each named field's value its schema field's type; and
 the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
@@ -97,6 +98,14 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       machine.context.spelling constructor ≠ "Ok" →
       expectTarget machine.context.spelling (some (.resultWith target error)) (.call (.ident constructor) [.positional payload]) =
         .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some error) payload)]) ∧
+    (∀ holder schema nominal (fields : List Xsh.Syntax.RecordField), schemaOf machine.declarations holder = some (schema, nominal) →
+      expectSchema machine.context.spelling machine.declarations (some (.named holder)) (.record fields) =
+        .record (fields.map fun
+          | .named label value =>
+            .named label (expectTarget machine.context.spelling
+              ((schema.find? fun | .mk field _ _ => machine.context.spelling field = machine.context.spelling label).map
+                fun | .mk _ type _ => type) value)
+          | other => other)) ∧
     (∀ family name arguments, variantOf machine.context.spelling machine.declarations name = none →
       evalExpr machine (fuel + 1) frame (.dotVariant (some family) name arguments) =
         evalExpr machine fuel frame (.call (.field (.ident family) name) (arguments.getD []))) ∧
@@ -157,6 +166,7 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     fun _ _ _ named => by simp [expectTarget, named], fun _ _ _ => by simp [expectTarget],
     fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields],
     fun _ _ _ _ isErr notOk => by simp [expectTarget, isErr, notOk],
+    fun _ _ _ _ found => by simp only [expectSchema, found]; rfl,
     fun _ _ arguments absent => by cases arguments <;> simp [evalExpr, absent],
     fun result statement rest notTail => by
       cases rest with
@@ -491,6 +501,52 @@ theorem broad_error_variant_rejected :
       [Xsh.Proofs.Core.Constructors.Witness.declareFetch,
        annotated (slot 0) (.result anyType)
          (.call (ident errCtor) [.positional (dotCall Xsh.Proofs.Core.Constructors.Witness.usageName [])])]) = none := by
+  decide +kernel
+
+def holderName : Xsh.Syntax.RawName := name 380 (by decide)
+def cField : Xsh.Syntax.RawName := name 381 (by decide)
+def nField : Xsh.Syntax.RawName := name 382 (by decide)
+
+/-- `type Holder = { c: Level, n: Int }`. -/
+def declareHolder : Xsh.Syntax.Statement :=
+  .typeDef holderName [] (.recordSchema [.mk cField (.named levelName) none, .mk nField anyType none]) false none
+
+def holderMachine : Machine witnessWorld :=
+  { shapeMachine with
+    context := { shapeProgram with
+      spelling := fun named =>
+        if named = holderName then "Holder" else if named = cField then "c" else if named = nField then "n"
+        else shapeProgram.spelling named }
+    declarations := shapeMachine.declarations ++ [declareHolder] }
+
+/-- The variant a record's `c` field holds. -/
+def fieldVariant : Option (Value Unit Unit Unit) → Option String
+  | some (.record fields) =>
+    match fields.lookup "c" with
+    | some (.tagged _ variant _) => some variant
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints `true true` for
+`let p: P = { c: .Red, n: 1 }` and `let q: P = { n: 2, c: .Green }` with
+`type P = { c: Color, n: Int }`: a named field's value takes its schema
+field's type, whatever order the fields are written in. -/
+theorem schema_field_witness :
+    fieldVariant (valueOf (slot 0) (runScript holderMachine 90 fullStart
+      [declareLevel, declareHolder,
+       annotated (slot 0) (.named holderName) (.record [.named cField (dot warnName), .named nField (int "1")])])) =
+      some "Warn" ∧
+    fieldVariant (valueOf (slot 0) (runScript holderMachine 90 fullStart
+      [declareLevel, declareHolder,
+       annotated (slot 0) (.named holderName) (.record [.named nField (int "2"), .named cField (dot infoName)])])) =
+      some "Info" := by
+  decide +kernel
+
+/-- Without the schema the field's variant is untargeted and the binding does
+not complete. -/
+theorem untargeted_field_rejected :
+    valueOf (slot 0) (runScript holderMachine 90 fullStart
+      [declareLevel, letOf (slot 0) (.record [.named cField (dot warnName), .named nField (int "1")])]) = none := by
   decide +kernel
 
 end Witness
