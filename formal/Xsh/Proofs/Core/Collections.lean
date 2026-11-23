@@ -125,6 +125,9 @@ theorem findBytes_found (needle : List UInt8) :
 `byte_len` and `count_chars` count UTF-8 bytes and Unicode scalar values;
 `split` at a non-empty separator gives the pieces between its occurrences,
 and with `maxsplit` stops after that many, a negative limit having none;
+`wrap(width)` packs each line's words greedily into lines of at most `width`
+characters, cutting longer words, and a width below one is the runtime
+`text-wrap` failure;
 `replace(from, with: to)` replaces every non-overlapping occurrence left to
 right; and an offset `find` reports starts an occurrence of the needle at or
 after the byte `start`. -/
@@ -141,14 +144,23 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .split text
           [.positional (.scalar (.string separator)), .named "maxsplit" (.scalar (.integer count))] =
         .value (.list ((splitLimited separator.toList text.toList count.val).map textValue))) ∧
+    (∀ text count, 0 < count.val →
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
+          [.positional (.scalar (.integer count))] =
+        .value (.list ((wrapText count.val.toNat text.toList).map textValue))) ∧
+    (∀ text count, ¬ 0 < count.val →
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
+          [.positional (.scalar (.integer count))] =
+        .failure (.runtime (errors.described "text-wrap" "width must be positive"))) ∧
     (∀ text pattern replacement,
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .replace text
           [.positional (.scalar (.string pattern)), .named "with" (.scalar (.string replacement))] =
         .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
     (∀ needle index bytes offset, findBytes needle index bytes = some offset →
       index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
-  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ _ _ => ?_,
-    findBytes_found⟩
+  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl,
+    fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
+    fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
   · simp [textMethod, Value.eraseNominal]
 
@@ -439,6 +451,23 @@ theorem ascii_trim_rejected :
 def failureText : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
   | .failure (.runtime (.scalar (.string text))) => some text
   | _ => none
+
+/-- As the verification binary prints `the quick|brown fox`, `abcd|efgh|ij`,
+`a b|c|`, `0` and `ab cd` for `"the quick brown fox".wrap(10)`,
+`"abcdefghij".wrap(4)`, `"a b\nc\n".wrap(3)`, `"".wrap(3).len()` and
+`"  ab   cd ".wrap(5)`, and fails `"x".wrap(0)` with
+`text-wrap: width must be positive`, which `try` does not catch. -/
+theorem wrap_witness :
+    textsResult (textMethod collectionMachine.context.errors .wrap "the quick brown fox" [.positional (intOf 10)]) =
+      some ["the quick", "brown fox"] ∧
+    textsResult (textMethod collectionMachine.context.errors .wrap "abcdefghij" [.positional (intOf 4)]) =
+      some ["abcd", "efgh", "ij"] ∧
+    textsResult (textMethod collectionMachine.context.errors .wrap "a b\nc\n" [.positional (intOf 3)]) = some ["a b", "c", ""] ∧
+    textsResult (textMethod collectionMachine.context.errors .wrap "" [.positional (intOf 3)]) = some [] ∧
+    textsResult (textMethod collectionMachine.context.errors .wrap "  ab   cd " [.positional (intOf 5)]) = some ["ab cd"] ∧
+    failureText (textMethod collectionMachine.context.errors .wrap "x" [.positional (intOf 0)]) =
+      some "width must be positive" := by
+  decide +kernel
 
 def doubled : String := "héllo  wörld"
 

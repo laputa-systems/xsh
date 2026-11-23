@@ -518,7 +518,7 @@ Expressions:
   methods (the `Bytes` base encodings, digests, `dump`, `strings`, `compare`
   and non-ASCII `trim` aside) and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
-  `reverse`, `split`, `find`, `replace`, `lines`, `trim`,
+  `reverse`, `split`, `wrap`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice` and the integer parse methods (P)
 - the contextual `.require()` under a `return` inside an expression, such as
@@ -710,7 +710,11 @@ whose meaning does not depend on Unicode case or whitespace tables:
 `byte_len` and `count_chars` (UTF-8 bytes and scalar values), `is_empty`,
 `starts_with`, `ends_with`, `reverse`, `split` at a separator (an empty one
 giving each character; a `maxsplit` limit splits at most that many times and
-keeps the rest as the last piece, a negative one splitting everywhere), `find` (the byte offset of a needle at or after a
+keeps the rest as the last piece, a negative one splitting everywhere),
+`wrap(width)` (each line's words packed greedily with single spaces into lines
+of at most `width` characters, a longer word cut, an empty last line after a
+final newline, and a width below one the runtime `text-wrap` failure, which
+`try` does not catch, as in the binary), `find` (the byte offset of a needle at or after a
 byte `start`, or `null`), `replace(from, with: to)` (every non-overlapping
 occurrence, an empty pattern before each character and at the end) and
 `lines` (`\r\n` and a final newline handled as the binary does). `trim`,

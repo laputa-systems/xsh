@@ -1743,7 +1743,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
   | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
-  | parseInt | parseIntDecimal | parseUint | parseUintPositive
+  | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -1753,6 +1753,7 @@ def TextMethod.ofName : String → Option TextMethod
   | "ends_with" => some .endsWith
   | "reverse" => some .reverse
   | "split" => some .split
+  | "wrap" => some .wrap
   | "find" => some .find
   | "replace" => some .replace
   | "lines" => some .lines
@@ -1829,6 +1830,28 @@ def splitLimited (separator text : List Char) (limit : Int) : List (List Char) :
     if limit = 0 then [text]
     else (text.take limit.toNat).map (fun char => [char]) ++ (if limit.toNat < text.length then [text.drop limit.toNat] else [])
   else splitAtMost separator (text.length + 1) limit.toNat [] text
+
+/-- A word cut into pieces of `width` characters, the last one shorter. -/
+def chunksOf (width : Nat) : Nat → List Char → List (List Char)
+  | 0, _ => []
+  | _ + 1, [] => []
+  | fuel + 1, word => word.take width :: chunksOf width fuel (word.drop width)
+
+/-- One piece added to the lines wrapped so far: onto the current line after
+a space when it fits in `width`, else starting the next line. -/
+def appendChunk (width : Nat) (state : List (List Char) × List Char) (chunk : List Char) :
+    List (List Char) × List Char :=
+  match state with
+  | (output, []) => (output, chunk)
+  | (output, current) =>
+    if current.length + 1 + chunk.length ≤ width then (output, current ++ ' ' :: chunk)
+    else (output ++ [current], chunk)
+
+/-- One line wrapped: its whitespace-separated words, each cut into pieces of
+at most `width` characters, packed greedily with single spaces. -/
+def wrapLine (width : Nat) (line : List Char) : List (List Char) :=
+  let (output, current) := ((wordRuns line).flatMap (chunksOf width (line.length + 1))).foldl (appendChunk width) ([], [])
+  output ++ [current]
 
 /-- The byte offset of the first occurrence of `needle` at or after `index`. -/
 def findBytes (needle : List UInt8) : Nat → List UInt8 → Option Nat
@@ -1913,6 +1936,11 @@ def textLines (text : List Char) : List (List Char) :=
   let complete := if pieces.getLast? = some [] then pieces.dropLast else pieces
   complete.map fun line => if line.getLast? = some '\r' then line.dropLast else line
 
+/-- `text.wrap(width)`: each line wrapped, and an empty last line when the
+text ends with a newline. -/
+def wrapText (width : Nat) (text : List Char) : List (List Char) :=
+  (textLines text).flatMap (wrapLine width) ++ (if text.getLast? = some '\n' then [[]] else [])
+
 def textValue (chars : List Char) : Value Declaration Identity Source := .scalar (.string (String.ofList chars))
 
 /-- `Str.byte_slice(offset, length:)` (SPEC 4.4): the bytes from `offset`,
@@ -1970,6 +1998,12 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
       else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
     | none => .unsupported
+  | .wrap, [.positional width] =>
+    match width.eraseNominal with
+    | .scalar (.integer count) =>
+      if 0 < count.val then .value (.list ((wrapText count.val.toNat text.toList).map textValue))
+      else .failure (.runtime (errors.described "text-wrap" "width must be positive"))
+    | _ => .unsupported
   | .split, [.positional separator, limit] =>
     let bound := match limit with
       | .positional value | .named "maxsplit" value =>
