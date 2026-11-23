@@ -876,6 +876,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
           | exact runPipeline_refines _ inner.stageItems _ _ _ _ _
           | refine valued_bind_refines (pipelineLimit_refines inner.expr _ _) fun _ _ => ?_
           | refine valued_bind_refines (prepareStages_refines inner.expr _ _) fun _ _ => ?_
+          | exact runSegments_refines _ inner.expr inner.handlers inner.stageItems _ _ _ _ _
           | exact closePipeline_refines _ inner.expr inner.handlers _ _ _
           | refine valued_bind_refines (runPipeline_refines _ (fun _ _ _ _ => runSegments_refines _ inner.expr
               inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_
@@ -1896,6 +1897,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | exact runPipeline_persists _ inner.stageItems _ _ _ _ _
     | refine vbind_persists (pipelineLimit_persists inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (prepareStages_persists inner.expr _ _) fun _ _ => ?_
+    | exact runSegments_persists _ inner.expr inner.handlers inner.stageItems _ _ _ _ _
     | exact closePipeline_persists _ inner.expr inner.handlers _ _ _
     | refine vbind_persists (runPipeline_persists _ (fun _ _ _ _ => runSegments_persists _ inner.expr
         inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_
@@ -2946,6 +2948,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact runPipeline_restores _ inner.stageItems _ _ _ _ _
   | refine vbind_restores (pipelineLimit_restores inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (prepareStages_restores inner.expr _ _) fun _ _ => ?_
+  | exact runSegments_restores _ inner.expr inner.handlers inner.stageItems _ _ _ _ _
   | exact closePipeline_restores _ inner.expr inner.handlers _ _ _
   | refine vbind_restores (runPipeline_restores _ (fun _ _ _ _ => runSegments_restores _ inner.expr
       inner.handlers inner.stageItems _ _ _ _ _) _ _ _ _ _) fun _ _ => ?_

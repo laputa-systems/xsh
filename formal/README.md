@@ -503,8 +503,8 @@ environment).
 Statements:
 
 - every stage but value calls, argument-free `where`, `map`, `flat-map` and `tee`,
-  `drop(n)` and `enumerate`, and `sort`, `sort-by`, `batch(count:)`,
-  `unique-by`, `group-by`, `repeat(n)` and `zip(other)` over a list source, a `take(n)` after them, and
+  `drop(n)`, `enumerate`, `sort`, `sort-by`, `batch(count:)`, `unique-by`,
+  `group-by`, `repeat(n)` and `zip(other)`, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
   `max()`, `any`, `all`, `fold`, `reduce`, `each`, `count { key }` or
   `reduce-by`, and a `Stream[T]` from anything but a producer (E)
@@ -993,7 +993,12 @@ a drop applied after the stages materialized. A producer's sink consumer
 carries the stages each yield left (`resumeStaged`), so `count(8) |> drop(2)
 |> take(2)` gives `[2,3]` after four yields, as in the binary; a consumer
 without stages under a `take` limit now stops at the limit too, where it
-had gathered every yield. A closing `fold(init)` or
+had gathered every yield. Before a materializing stage the consumer carries
+only the earlier stages (`liveSplit`): the producer is exhausted, its exit
+`defer` running, and the materializing stage and those after it then run
+over what it gathered, a `take` limiting only them, as the binary logs
+`yynn` for `count(2) |> map |> sort |> map` and drains all eight yields
+of `count(8) |> batch(count: 2) |> take(2)`. A closing `fold(init)` or
 `reduce(init)` with an `|acc, item|` block (`closePipeline`, `foldValues`)
 evaluates its initial value once every item has reached it, as the binary
 logs `mmmifff` for a logging `map` and initial value, then runs the callback

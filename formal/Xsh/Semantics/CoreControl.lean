@@ -1479,6 +1479,14 @@ def splitMaterializing : List Xsh.Syntax.PipeStage →
     if isMaterializing stage then some ([], stage, rest)
     else (splitMaterializing rest).map fun (before, found, after) => (stage :: before, found, after)
 
+/-- A producer's stages split for its consumer: the stages its yields pass
+through as they come, and from the first materializing stage on the stages
+that run once the producer is exhausted. -/
+def liveSplit (stages : List Xsh.Syntax.PipeStage) : List Xsh.Syntax.PipeStage × List Xsh.Syntax.PipeStage :=
+  match splitMaterializing stages with
+  | some (before, stage, after) => (before, stage :: after)
+  | none => (stages, [])
+
 /-- `entry` placed after every entry whose key is not greater than its own,
 by `<`; keys `<` does not order are outside the model. -/
 def insertByKey (context : Context Declaration Identity Source) :
@@ -3435,14 +3443,21 @@ mutual
             | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
-              if prepared.any isMaterializing then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
-                    consumers := { sinkConsumer after index with stages := prepared, limit } ::
+                    consumers := { sinkConsumer after index with
+                      stages := (liveSplit prepared).1
+                      limit := if (liveSplit prepared).2.isEmpty then limit else none } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
-                (pipelineSplit stages).2.2 out last
+                  closure supplied)).bind fun out last =>
+                (match listValues out with
+                  | some items =>
+                    runSegments machine.context (evalExpr machine fuel) (handlerScope machine fuel) (stageItems machine fuel)
+                      ((liveSplit prepared).2.length + 1) last (liveSplit prepared).2 limit items
+                  | none => .exec .stuck).bind fun rest final =>
+                  closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
+                    (pipelineSplit stages).2.2 rest final
             | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) after
             | none, _ =>

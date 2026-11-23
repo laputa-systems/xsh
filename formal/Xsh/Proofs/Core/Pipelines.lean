@@ -65,14 +65,21 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
             | some (index, some _), some 0 => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) (after.consume index)
             | some (index, some (closure, supplied)), _ =>
-              if prepared.any isMaterializing then .exec .unsupported else
               (gathered after index (invokeSupplied machine (evalExpr machine fuel) (callBlock machine fuel)
                   { after with
                     streams := after.streams.set index (.gathering [])
-                    consumers := { sinkConsumer after index with stages := prepared, limit } ::
+                    consumers := { sinkConsumer after index with
+                      stages := (liveSplit prepared).1
+                      limit := if (liveSplit prepared).2.isEmpty then limit else none } ::
                       after.consumers }
-                  closure supplied)).bind fun out last => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
-                (pipelineSplit stages).2.2 out last
+                  closure supplied)).bind fun out last =>
+                (match listValues out with
+                  | some items =>
+                    runSegments machine.context (evalExpr machine fuel) (handlerScope machine fuel) (stageItems machine fuel)
+                      ((liveSplit prepared).2.length + 1) last (liveSplit prepared).2 limit items
+                  | none => .exec .stuck).bind fun rest final =>
+                  closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
+                    (pipelineSplit stages).2.2 rest final
             | some (_, none), _ => closePipeline machine.context (evalExpr machine fuel) (handlerScope machine fuel)
                 (pipelineSplit stages).2.2 (.list []) after
             | none, _ =>
@@ -722,6 +729,33 @@ of `count(8) |> drop(2)`. -/
 theorem forgetful_consumer_rejected :
     readList closingVar (runCanonical (closing (.call (ident countFn) [.positional (int "8")])
       [drop (int "2"), take "2"])) ≠ some [] := by
+  decide +kernel
+
+/-- `count(2) |> map { 0 - . } |> sort |> map { |x| trace += [x]; x }`. -/
+def liveSortTraced : List Xsh.Syntax.Statement :=
+  closing (.call (ident countFn) [.positional (int "2")])
+    [mapStage none [.expression (.binary .sub (int "0") .item)], .stream .sort [] none,
+     mapStage (some xItem) [recordItem xItem, .expression (ident xItem)]]
+
+/-- As the verification binary gives `[-1,0]` and logs `yynn` for the same
+shape, and `[[0,1],[2,3]]` after all eight yields for
+`count(8) |> batch(count: 2) |> take(2)`: a producer is exhausted before a
+materializing stage takes its items, its exit `defer` running first, and a
+`take` after it limits only what follows. -/
+theorem live_materializing_witness :
+    readList closingVar (runCanonical liveSortTraced) = some [-1, 0] ∧
+    readList traceVar (runCanonical liveSortTraced) = some [1, 1, 7, -1, 0] ∧
+    readLists (runOptions (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .batch [.named batchCountName (int "2")] none, take "2"])) = some [[0, 1], [2, 3]] ∧
+    readList traceVar (runOptions (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .batch [.named batchCountName (int "2")] none, take "2"])) = some [1, 1, 1, 1, 1, 1, 1, 1, 7] := by
+  decide +kernel
+
+/-- A `take` that also limited the producer under a `batch` would stop after
+four yields. -/
+theorem early_batch_limit_rejected :
+    readList traceVar (runOptions (closing (.call (ident countFn) [.positional (int "8")])
+      [.stream .batch [.named batchCountName (int "2")] none, take "2"])) ≠ some [1, 1, 1, 1, 7] := by
   decide +kernel
 
 end Witness
