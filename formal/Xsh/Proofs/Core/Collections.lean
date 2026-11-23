@@ -130,7 +130,8 @@ whitespace, base32 upper-cased, into `Ok` bytes or the `Err` the decoder the
 binary uses reports, and `Bytes.base64` and `Bytes.base32` encode with
 padding; `Bytes.strings` gives the printable ASCII runs at least four bytes
 long, `compare` the first difference's position, line and bytes, and `dump`
-the canonical hex dump;
+the canonical hex dump; and `Bytes.trim` of data that is not all ASCII
+removes whole UTF-8 encoded Unicode `White_Space` characters;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -169,6 +170,10 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
           [.scalar (.bytes right)] = .value (.record fields)) ∧
     (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .dump bytes [] =
       .value (.scalar (.string (String.ofList (canonicalDump bytes))))) ∧
+    (∀ bytes, bytes.all (· < 128) = false →
+      bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .trim bytes [] =
+        .value (.scalar (.bytes (dropWhitespaceEncodings whitespaceEncodingsReversed (bytes.length + 1)
+          (dropWhitespaceEncodings whitespaceEncodings (bytes.length + 1) bytes).reverse).reverse))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -185,6 +190,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
   refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl,
     fun _ _ _ found => by simp [bytesMethod, found], fun _ => rfl,
+    fun _ unicode => by simp [bytesMethod, unicode],
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -707,6 +713,22 @@ theorem bytes_report_witness :
     textResult (bytesRun .dump [] []) = some "00000000" ∧
     failureText (bytesRun .strings [97] [intOf 0]) = some "min_len must be positive" ∧
     failureText (bytesRun .dump [97] [strOf "x"]) = some "dump format must be canonical, hex-u8, or octal-u8" := by
+  decide +kernel
+
+/-- As the verification binary prints `5`, `4`, `2`, `6`, `1` and `1` for the
+trimmed lengths of `b"\x0b a \x0b"`, `b"\x0b a \xc3\xa9"`,
+`b"\xc2\xa0\xe2\x80\x80 \xc3\xa9 \xe3\x80\x80"`, `b"\xff \xc3\xa9 \xff"`,
+`b" \xff\xc2\xa0"` and `b"\xc2\x85\x0bx\xe2\x80\xa8"`: ASCII data keeps a
+vertical tab, other data loses whole Unicode whitespace characters, and an
+invalid byte stops the trim. -/
+theorem unicode_bytes_trim_witness :
+    bytesResult (bytesRun .trim [11, 32, 97, 32, 11] []) = some [11, 32, 97, 32, 11] ∧
+    bytesResult (bytesRun .trim [11, 32, 97, 32, 0xC3, 0xA9] []) = some [97, 32, 0xC3, 0xA9] ∧
+    bytesResult (bytesRun .trim [0xC2, 0xA0, 0xE2, 0x80, 0x80, 32, 0xC3, 0xA9, 32, 0xE3, 0x80, 0x80] []) =
+      some [0xC3, 0xA9] ∧
+    bytesResult (bytesRun .trim [0xFF, 32, 0xC3, 0xA9, 32, 0xFF] []) = some [0xFF, 32, 0xC3, 0xA9, 32, 0xFF] ∧
+    bytesResult (bytesRun .trim [32, 0xFF, 0xC2, 0xA0] []) = some [0xFF] ∧
+    bytesResult (bytesRun .trim [0xC2, 0x85, 11, 120, 0xE2, 0x80, 0xA8] []) = some [120] := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

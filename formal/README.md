@@ -515,7 +515,7 @@ Expressions:
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
-  methods (the `Bytes` digests and non-ASCII `trim` aside) and the text
+  methods (the `Bytes` digests aside) and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
@@ -720,7 +720,10 @@ trailing bits), the `Bytes` encoders `base64` and `base32` (padded),
 default four, bytes long), `Bytes.compare` (the first difference's one-based
 position, line and two bytes, `-1` past an end), `Bytes.dump(format)` (the
 canonical, `hex-u8` and `octal-u8` layouts, byte for byte as the binary
-prints them), and the `bytes-strings` and `bytes-dump` runtime failures,
+prints them), and the `bytes-strings` and `bytes-dump` runtime failures, `Bytes.trim` of
+data that is not all ASCII (whole UTF-8 encoded Unicode `White_Space`
+characters from each end, stopping at any other byte, an invalid one
+included, while all-ASCII data keeps a vertical tab),
 `wrap(width)` (each line's words packed greedily with single spaces into lines
 of at most `width` characters, a longer word cut, an empty last line after a
 final newline, and a width below one the runtime `text-wrap` failure, which

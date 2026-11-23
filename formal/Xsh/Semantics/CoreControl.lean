@@ -2181,6 +2181,22 @@ def byteChunks (size : Nat) : Nat → List UInt8 → List (List UInt8)
   | _ + 1, [] => []
   | fuel + 1, bytes => bytes.take size :: byteChunks size fuel (bytes.drop size)
 
+/-- The UTF-8 encodings of the Unicode `White_Space` characters. -/
+def whitespaceEncodings : List (List UInt8) :=
+  ([9, 10, 11, 12, 13, 32, 0x85, 0xA0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
+    0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000] : List Nat).map fun code =>
+      String.utf8EncodeChar (Char.ofNat code)
+
+def whitespaceEncodingsReversed : List (List UInt8) := whitespaceEncodings.map List.reverse
+
+/-- `bytes` without the leading run of the given encodings. -/
+def dropWhitespaceEncodings (encodings : List (List UInt8)) : Nat → List UInt8 → List UInt8
+  | 0, bytes => bytes
+  | fuel + 1, bytes =>
+    match encodings.find? fun encoding => encoding.isPrefixOf bytes with
+    | some encoding => dropWhitespaceEncodings encodings fuel (bytes.drop encoding.length)
+    | none => bytes
+
 /-- A printable ASCII byte: a graphic character or a space. -/
 def isPrintableByte (byte : UInt8) : Bool := 32 ≤ byte && byte ≤ 126
 
@@ -2246,7 +2262,8 @@ def validPrefix (bytes : List UInt8) : Nat :=
 /-- The `Bytes` methods (SPEC 4.4): `len`, `is_empty`, `byte_at`,
 `starts_with`, `ends_with`; `slice` and `chunks`, whose bad arguments are the
 runtime `bytes-slice` and `bytes-chunks` failures; `lines` and `count_lines`;
-ASCII `lower`; `trim` of ASCII whitespace from ASCII data; and `utf8`, `Ok` of
+ASCII `lower`; `trim` of ASCII whitespace from ASCII data, and otherwise of
+whole UTF-8 encoded Unicode `White_Space` characters; and `utf8`, `Ok` of
 the text or the `invalid-utf8` `Err` at the first invalid byte. -/
 def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMethod) (bytes : List UInt8)
     (arguments : List (Value Declaration Identity Source)) :
@@ -2293,7 +2310,9 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
   | .trim, [] =>
     if bytes.all (· < 128) then
       .value (bytesValue ((bytes.dropWhile isAsciiWhitespaceByte).reverse.dropWhile isAsciiWhitespaceByte).reverse)
-    else .unsupported
+    else
+      .value (bytesValue (dropWhitespaceEncodings whitespaceEncodingsReversed (bytes.length + 1)
+        (dropWhitespaceEncodings whitespaceEncodings (bytes.length + 1) bytes).reverse).reverse)
   | .utf8, [] =>
     match String.fromUTF8? ⟨bytes.toArray⟩ with
     | some text => .value (.ok (.scalar (.string text)))
