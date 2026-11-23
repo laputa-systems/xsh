@@ -20,7 +20,10 @@ variable {Declaration Identity Source : Type}
 /-- The `leading_dot_variants` fragment root (SPEC 5.5): where the expected
 type is known, a leading-dot name selects a variant of the enum it names, an
 optional `T?` selecting from `T`; an annotated binding and a function's
-declared result, through its tail and each top-level `return`, give that type.
+declared result, through its tail and each top-level `return`, give that type,
+and so does a parameter's annotation to the argument that fills it, positional
+arguments filling the non-rest parameters in order and a named one the
+parameter it names; the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
 spelling gives; a leading-dot name with no expected type is outside the model
@@ -49,10 +52,26 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
           | none => .exec .stuck) ∧
     (∀ enum name arguments declared variant, variantOf machine.context.spelling machine.declarations name =
         some (declared, variant) → machine.context.spelling declared ≠ machine.context.spelling enum →
-      evalExpr machine (fuel + 1) frame (.dotVariant (some enum) name arguments) = .exec .stuck) := by
+      evalExpr machine (fuel + 1) frame (.dotVariant (some enum) name arguments) = .exec .stuck) ∧
+    (∀ evaluate callBlock closure arguments, invokeWith machine evaluate callBlock frame closure arguments =
+      (threadArguments machine.context.spelling evaluate frame
+          (expectArguments machine.context.spelling closure.parameters closure.parameters arguments)).bind
+        fun supplied after => invokeSupplied machine evaluate callBlock after closure supplied) ∧
+    (∀ parameters name annotation default positions value rest,
+      expectArguments machine.context.spelling parameters (.mk name annotation default false :: positions)
+          (.positional value :: rest) =
+        .positional (expectTarget annotation value) ::
+          expectArguments machine.context.spelling parameters positions rest) ∧
+    (∀ parameters positions label value rest,
+      expectArguments machine.context.spelling parameters positions (.named label value :: rest) =
+        .named label (expectTarget ((parameters.find? fun
+            | .mk name _ _ _ => machine.context.spelling name = machine.context.spelling label).bind
+          fun | .mk _ annotation _ _ => annotation) value) ::
+          expectArguments machine.context.spelling parameters positions rest) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
-    fun enum name arguments declared variant found other => ?_⟩
+    fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
+    fun _ _ _ _ _ => rfl⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -140,6 +159,51 @@ theorem untargeted_variant_rejected :
     valueOf (slot 0) (runScript shapeMachine 90 fullStart
       [declareLevel, declareShape, annotated (slot 0) (.named shapeName) (dot infoName)]) = none ∧
     variantShape (valueOf (slot 0) variantRun) = some ("Warn", []) := by
+  decide +kernel
+
+def echoName : Xsh.Syntax.RawName := name 313 (by decide)
+def echoParam : Xsh.Syntax.RawName := name 314 (by decide)
+
+/-- `proc echo(c: Level) -> Level { c }`, called as `echo(.Warn)` and
+`echo(c: .Info)`. -/
+def argumentScript : List Xsh.Syntax.Statement :=
+  [declareLevel,
+   .functionDef .proc echoName [.mk echoParam (some (.named levelName)) none false] none (some (.named levelName))
+     [.expression (ident echoParam)] none false,
+   letOf (slot 0) (.call (ident echoName) [.positional (dot warnName)]),
+   letOf (slot 1) (.call (ident echoName) [.named echoParam (dot infoName)])]
+
+def argumentRun : Exec witnessWorld := runScript shapeMachine 90 fullStart argumentScript
+
+/-- `proc take(r: Result[Int]) -> Result[Int] { r }`, called as
+`take("x".require())` and `take(r: 7.require())`. -/
+def requireArgument (argument : Xsh.Syntax.Expr → Xsh.Syntax.CallArgument) (value : Xsh.Syntax.Expr) :
+    Option (Value Unit Unit Unit) :=
+  valueOf (slot 0) (runScript Xsh.Proofs.Core.Requires.Witness.returnMachine 90 fullStart
+    [.functionDef .proc echoName [.mk echoParam (some (.result (.named levelName))) none false] none none
+       [.expression (ident echoParam)] none false,
+     letOf (slot 0) (.call (ident echoName) [argument (.require value none)])])
+
+/-- As the verification binary prints `blue mix err ok 7` for `show(.Blue, 1)`,
+`show(k: 2, c: .Mix(3))`, `take("x".require())` and `take(r: 7.require())`:
+a parameter's annotation is the expected type of the argument that fills it,
+positional or named. -/
+theorem argument_witness :
+    variantShape (valueOf (slot 0) argumentRun) = some ("Warn", []) ∧
+    variantShape (valueOf (slot 1) argumentRun) = some ("Info", []) ∧
+    (requireArgument .positional (.literal (.string "x"))).bind Xsh.Proofs.Core.Requires.Witness.schemaVariant =
+      some "schema" ∧
+    (requireArgument (.named echoParam) (int "7")).bind Xsh.Proofs.Core.Requires.Witness.okInt = some 7 := by
+  decide +kernel
+
+/-- Arguments that ignored the parameters' annotations would leave the
+variant untargeted and the call would not complete. -/
+theorem untargeted_argument_rejected :
+    valueOf (slot 0) (runScript shapeMachine 90 fullStart
+      [declareLevel, .functionDef .proc echoName [.mk echoParam none none false] none none
+          [.expression (ident echoParam)] none false,
+        letOf (slot 0) (.call (ident echoName) [.positional (dot warnName)])]) = none ∧
+    variantShape (valueOf (slot 0) argumentRun) = some ("Warn", []) := by
   decide +kernel
 
 end Witness

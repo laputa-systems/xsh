@@ -112,6 +112,9 @@ inductive Closure where
       (writable : List CellId)
       (parameters : List Xsh.Syntax.Parameter) (body : FunctionBody)
 
+def Closure.parameters : Closure → List Xsh.Syntax.Parameter
+  | .mk _ _ _ _ _ parameters _ => parameters
+
 /-- What an expression sees besides its environment, store and locals: the
 call activation, the local functions in scope, and the implicit `.` of the
 innermost handler block. -/
@@ -1191,6 +1194,22 @@ def expectTarget : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax
   | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
   | _, initializer => initializer
 
+/-- A call's arguments with each parameter's annotation as the expected type
+of the argument that fills it (SPEC 5.5): positional arguments take the
+non-rest parameters in order and a named argument takes the parameter it
+names; after a splice, positions are no longer known. -/
+def expectArguments (spelling : Xsh.Syntax.RawName → String) (parameters : List Xsh.Syntax.Parameter) :
+    List Xsh.Syntax.Parameter → List Xsh.Syntax.CallArgument → List Xsh.Syntax.CallArgument
+  | _, [] => []
+  | .mk _ annotation _ false :: positions, .positional value :: rest =>
+    .positional (expectTarget annotation value) :: expectArguments spelling parameters positions rest
+  | _, .positional value :: rest => .positional value :: expectArguments spelling parameters [] rest
+  | positions, .named label value :: rest =>
+    .named label (expectTarget ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
+        fun | .mk _ annotation _ _ => annotation) value) :: expectArguments spelling parameters positions rest
+  | _, .splice value :: rest => .splice value :: expectArguments spelling parameters [] rest
+  | positions, .namedSpread value :: rest => .namedSpread value :: expectArguments spelling parameters positions rest
+
 /-- A function body whose tail and top-level `return` operands take the
 declared result type as their expected type (SPEC 5.3). -/
 def expectBody (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
@@ -1901,7 +1920,8 @@ def invokeWith {world : World Declaration Identity Source} (machine : Machine wo
     (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
       List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
-  (threadArguments machine.context.spelling evaluate frame arguments).bind fun supplied after =>
+  (threadArguments machine.context.spelling evaluate frame
+      (expectArguments machine.context.spelling closure.parameters closure.parameters arguments)).bind fun supplied after =>
     invokeSupplied machine evaluate callBlock after closure supplied
 
 mutual

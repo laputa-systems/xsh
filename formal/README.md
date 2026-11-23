@@ -516,7 +516,7 @@ Expressions:
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
 - methods and value pipelines (P)
-- the contextual `.require()` under a parameter type, a `return` or tail
+- the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
@@ -525,8 +525,8 @@ Expressions:
 
 Writes and values: stream declarations, which need the stream model (E);
 leading-dot variants whose expected type comes from anything but an annotated
-binding or a declared result's tail or top-level `return`, and leading-dot
-error variants (P).
+binding, a declared result's tail or top-level `return`, or a parameter's
+annotation, and leading-dot error variants (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -678,8 +678,14 @@ The `leading_dot_variants` fragment root, in
 leading-dot variant `.Name` and `.Name(args)` (SPEC 5.5) as the syntax form
 `dotVariant`. The same `expectTarget` rewrite that targets a contextual
 `.require()` gives it the enum its expected type names, `T?` selecting from
-`T`, in an annotated binding and in a declared result's tail and top-level
-`return`. The selected variant is the declared one, under the enum's
+`T`, in an annotated binding, in a declared result's tail and top-level
+`return`, and in the argument that fills an annotated parameter
+(`expectArguments`: positional arguments fill the non-rest parameters in
+order, a named one the parameter it names, and after a splice positions are
+not known). Arguments give a contextual `.require()` its target the same way;
+the binary prints `blue mix err ok 7` for `show(.Blue, 1)`,
+`show(k: 2, c: .Mix(3))`, `take("x".require())` and `take(r: 7.require())`,
+and so do the witnesses. The selected variant is the declared one, under the enum's
 declaration identity, with its payload arguments evaluated once in order. A
 leading-dot name with no expected type stays unsupported, as the binary
 rejects it with `check.inferred-variant`, and one whose expected enum lacks

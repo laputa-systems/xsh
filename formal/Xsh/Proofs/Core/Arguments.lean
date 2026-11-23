@@ -75,7 +75,8 @@ theorem call_arguments {world : World Declaration Identity Source} (machine : Ma
         (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
           List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
         frame cell callable defining captured writable parameters body arguments supplied after fault,
-      threadArguments machine.context.spelling evaluate frame arguments = .value supplied after →
+      threadArguments machine.context.spelling evaluate frame
+          (expectArguments machine.context.spelling parameters parameters arguments) = .value supplied after →
         placeCall machine.context.spelling parameters supplied = .error fault →
           invokeWith machine evaluate callBlock frame (.mk cell callable defining captured writable parameters body)
               arguments =
@@ -96,7 +97,7 @@ theorem call_arguments {world : World Declaration Identity Source} (machine : Ma
     cases default <;> (simp only [placeParameters, present]; rfl)
   · intro evaluate callBlock frame cell callable defining captured writable parameters body arguments supplied after
       fault threaded placed
-    simp only [invokeWith, invokeSupplied, threaded, Outcome.bind, placed]
+    simp only [invokeWith, Closure.parameters, invokeSupplied, threaded, Outcome.bind, placed]
 
 end Root
 
