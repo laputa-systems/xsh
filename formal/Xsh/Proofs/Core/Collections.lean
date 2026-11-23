@@ -57,6 +57,7 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (digestMethod name digest (values.map Value.eraseNominal))
               | none => .exec .unsupported
+            | .scalar (.regex source), _, _ => fromEval last (regexMethod name source supplied)
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (collectionMethod machine.context.errors method target values)
@@ -1024,6 +1025,45 @@ theorem case_witness :
 /-- Lowercasing character by character, without the final-sigma rule, would
 give `ασ`. -/
 theorem contextless_sigma_rejected : cased .lower "ΑΣ" ≠ some "ασ" := by
+  decide +kernel
+
+
+def regexRun (source name : String) (supplied : List (Supplied Unit Unit Unit)) :
+    Result Unit Unit Unit (Value Unit Unit Unit) :=
+  regexMethod name source supplied
+
+/-- Each `find` record's `start`, `end` and `text`. -/
+def foundSpans : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List (Int × Int × String))
+  | .value (.list items) => items.mapM fun
+    | .record [("end", .scalar (.integer stop)), ("start", .scalar (.integer start)), ("text", .scalar (.string text))] =>
+      some (start.val, stop.val, text)
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints `["1-2:1","3-5:22","6-9:333"]` for
+`rx"\d+"` over `a1b22c333`, `["0-0:","1-2:x","3-4:x"]` for `rx"x*"` over `axbx`,
+`["0-2:é","2-6:😀"]` for `rx"."` over `é😀`, `["abcd","a","bcd"]` for the
+captures of `rx"(a|ab)(c|bcd)"` over `abcd`, `<me|me@host|$> <you|you@there|$>`
+for `rx"(\w+)@(\w+)"`'s replace of `me@host you@there` with `<$1|${0}|$$>`, and
+`true` for `rx"\bfoo\b"` matching `foo foobar foo`: offsets are bytes,
+alternation and repetition take the leftmost-first path, and an empty match
+where the last one ended is skipped. -/
+theorem regex_witness :
+    foundSpans (regexRun "\\d+" "find" [textOf "a1b22c333"]) = some [(1, 2, "1"), (3, 5, "22"), (6, 9, "333")] ∧
+    foundSpans (regexRun "x*" "find" [textOf "axbx"]) = some [(0, 0, ""), (1, 2, "x"), (3, 4, "x")] ∧
+    foundSpans (regexRun "." "find" [textOf "é😀"]) = some [(0, 2, "é"), (2, 6, "😀")] ∧
+    textsResult (regexRun "(a|ab)(c|bcd)" "captures" [textOf "abcd"]) = some ["abcd", "a", "bcd"] ∧
+    textResult (regexRun "(\\w+)@(\\w+)" "replace" [textOf "me@host you@there", .named "with" (strOf "<$1|${0}|$$>")]) =
+      some "<me|me@host|$> <you|you@there|$>" ∧
+    boolResult (regexRun "\\bfoo\\b" "matches" [textOf "foo foobar foo"]) = some true ∧
+    foundSpans (regexRun "a*?b" "find" [textOf "aaab"]) = some [(0, 4, "aaab")] := by
+  decide +kernel
+
+/-- A longest-match alternation, as POSIX regexes take, would give `ab` twice
+for `rx"a|ab"` over `abab`; the binary's leftmost-first choice gives `a`
+twice. -/
+theorem longest_alternative_rejected :
+    foundSpans (regexRun "a|ab" "find" [textOf "abab"]) ≠ some [(0, 2, "ab"), (2, 4, "ab")] := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

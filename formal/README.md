@@ -514,7 +514,13 @@ Statements:
 
 Expressions:
 
-- regex literals (P); a path literal is the path of its text with its
+- regex patterns outside the `Values.Regex` subset (flags, Unicode classes,
+  `regex.compile`) (P); a regex literal in the subset (literals, `.`, bracket
+  and ASCII Perl classes, `^`, `$`, `\b`, groups, named groups, alternation,
+  greedy and lazy repetition) evaluates, and its `matches`, `find`,
+  `captures` and `replace(with:)` follow a leftmost-first backtracking
+  matcher, byte offsets and Rust's empty-match iteration and `$` expansion,
+  as the binary gives for a battery of fifteen patterns; a path literal is the path of its text with its
   escapes decoded as a string's are (`decodeEscapes`), as the binary reads
   `p"a\tb"` and `p"\u{e9}/\\"`, text that is not valid UTF-8 being a lexical
   error

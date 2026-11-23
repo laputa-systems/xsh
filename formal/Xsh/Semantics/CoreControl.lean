@@ -3054,6 +3054,48 @@ def digestMethod (name : String) (digest : Digest) (arguments : List (Value Decl
       ((Xsh.Values.BaseCodec.encode .base64 digest.bytes).map fun byte => Char.ofNat byte.toNat))))
   | _, _ => .unsupported
 
+/-- A `Regex`'s methods (SPEC 4.4, the Rust regex surface): `matches`, `find`
+giving each non-overlapping match's byte `start`, `end` and `text`,
+`captures` giving the first match's groups, `""` for one that did not take
+part, and `replace(text, with:)` replacing every match by its `$`
+expansion. -/
+def regexMethod (name : String) (source : String) (supplied : List (Supplied Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let text := fun (value : Value Declaration Identity Source) => match value.eraseNominal with
+    | .scalar (.string written) => some written.toList
+    | _ => none
+  let str := fun (chars : List Char) => (Value.scalar (.string (String.ofList chars)) : Value Declaration Identity Source)
+  match Xsh.Values.Regex.parse source, name, supplied with
+  | some pattern, "matches", [.positional subject] =>
+    match text subject with
+    | some chars => .value (.scalar (.boolean (Xsh.Values.Regex.searchFrom pattern chars 0).isSome))
+    | none => .unsupported
+  | some pattern, "find", [.positional subject] =>
+    match text subject with
+    | some chars =>
+      match (Xsh.Values.Regex.allMatches pattern chars).mapM fun held =>
+          match held.head? with
+          | some (some (first, finish)) =>
+            (validateInt? (Xsh.Values.Regex.byteOffset chars finish)).bind fun stop =>
+              (validateInt? (Xsh.Values.Regex.byteOffset chars first)).map fun start =>
+                (Value.record [("end", .scalar (.integer stop)), ("start", .scalar (.integer start)),
+                  ("text", str (Xsh.Values.Regex.slice chars (some (first, finish))))] : Value Declaration Identity Source)
+          | _ => none with
+      | some found => .value (.list found)
+      | none => .unsupported
+    | none => .unsupported
+  | some pattern, "captures", [.positional subject] =>
+    match text subject with
+    | some chars =>
+      .value (.list (((Xsh.Values.Regex.searchFrom pattern chars 0).getD []).map fun group =>
+        str (Xsh.Values.Regex.slice chars group)))
+    | none => .unsupported
+  | some pattern, "replace", [.positional subject, .named "with" replacement] =>
+    match text subject, text replacement with
+    | some chars, some written => .value (str (Xsh.Values.Regex.replaceAll pattern chars written))
+    | _, _ => .unsupported
+  | _, _, _ => .unsupported
+
 /-- A list, map, set or text method call: the receiver evaluates first, then
 each argument once in written order; a text method applies to a `Str`
 receiver and a collection method to a list, map or set. -/
@@ -3077,6 +3119,7 @@ receiver and a collection method to a list, map or set. -/
         match supplied.mapM Supplied.positionalValue with
         | some values => fromEval last (digestMethod name digest (values.map Value.eraseNominal))
         | none => .exec .unsupported
+      | .scalar (.regex source), _, _ => fromEval last (regexMethod name source supplied)
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with
         | some values => fromEval last (collectionMethod context.errors method target values)

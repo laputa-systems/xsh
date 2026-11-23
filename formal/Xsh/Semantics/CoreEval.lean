@@ -5,6 +5,7 @@ import Xsh.Values.FloatOps
 import Xsh.Values.FloatEquality
 import Xsh.Values.FloatLiterals
 import Xsh.Values.LossyUtf8
+import Xsh.Values.Regex
 
 namespace Xsh.Semantics.CoreEval
 
@@ -152,7 +153,8 @@ def decodeEscapes : Nat → List Char → Option (List UInt8)
 /-- A literal's value. A path literal's lexeme is its text between the quotes,
 its escapes decoded as a string's are (SPEC 2.6 `p"..."`); text that is not
 valid UTF-8 is a lexical error and a NUL no path may hold, both outside the
-model. -/
+model. A regex literal's text is its pattern, passed unchanged; one outside
+the `Values.Regex` subset is outside the model. -/
 def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Identity Source (Value Declaration Identity Source)
   | .null => .value (.scalar .null)
   | .bool value => .value (boolean value)
@@ -170,7 +172,10 @@ def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Id
         | none => .unsupported
       else .unsupported
     | none => .unsupported
-  | _ => .unsupported
+  | .regex lexeme =>
+    match Xsh.Values.Regex.parse lexeme with
+    | some _ => .value (.scalar (.regex lexeme))
+    | none => .unsupported
 
 def integerResult (errors : Errors Declaration Identity Source) :
     IntegerOps.IntegerResult → Result Declaration Identity Source (Value Declaration Identity Source)
