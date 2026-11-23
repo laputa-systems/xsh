@@ -515,8 +515,10 @@ Expressions:
 - equality of streams, modules, filesystem entries, commands, process
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
-- methods other than the numeric, list, map and set methods, `Map.push`,
-  and value pipelines (P)
+- methods other than the numeric, list, map and set methods and the text
+  methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
+  `reverse`, `split` without `maxsplit`, `find`, `replace` and `lines`;
+  `Map.push`; and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -689,6 +691,20 @@ the binary's printed results for those methods on a three-element list, a
 two-key map, a two-element set and `["a", "b"].join`, with literal values
 the witness table can spell; the mutant appends a new map key instead of
 placing it in key order, which the binary's `{"0":7,"a":1,"b":2}` rules out.
+
+The `text_methods` fragment root, in the same file, adds the `Str` methods
+whose meaning does not depend on Unicode case or whitespace tables:
+`byte_len` and `count_chars` (UTF-8 bytes and scalar values), `is_empty`,
+`starts_with`, `ends_with`, `reverse`, `split` at a separator (an empty one
+giving each character), `find` (the byte offset of a needle at or after a
+byte `start`, or `null`), `replace(from, with: to)` (every non-overlapping
+occurrence, an empty pattern before each character and at the end) and
+`lines` (`\r\n` and a final newline handled as the binary does). A text
+method applies to a `Str` receiver and a collection method to a list, map or
+set, through one dispatch, `valueMethodCall`. The root proves that a reported
+`find` offset starts an occurrence of the needle. The witnesses follow the
+binary's output on "héllo wörld" and the edge cases it prints, and the mutant
+counts characters for `byte_len`.
 
 The `leading_dot_variants` fragment root, in
 [`Proofs/Core/Variants.lean`](Xsh/Proofs/Core/Variants.lean), adds the

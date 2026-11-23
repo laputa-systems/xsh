@@ -15280,7 +15280,16 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "SPEC 4.5 list, map and set methods: a method no error family declares, other than call, collect and the numeric methods, that names one of len, is_empty, push, extend, get, to_set, join, keys, values, set, remove, add or to_list evaluates its receiver, then each argument once in written order, and gives collectionMethod's value; a list's push appends and get gives Ok of an element in range and the Err of its index otherwise; a map's set is the ordered upsert and get gives Ok of a present key's value and the Err of the missing key otherwise; a set's add inserts in map key order without repeating an element.",
-      "boundary": "Map push, Str, Bytes, Path, Record and handle methods, value pipelines, and named method arguments are not modelled; the get errors' messages come from the machine's error oracle. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+      "boundary": "Map push, Bytes, Path, Record and handle methods, value pipelines, and named arguments to collection methods are not modelled; the get errors' messages come from the machine's error oracle. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Collections.text_methods",
+      "module": "Xsh.Proofs.Core.Collections",
+      "declaration": "Xsh.Proofs.Core.Collections.text_methods",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 4.4 text methods on a Str receiver: byte_len and count_chars count UTF-8 bytes and Unicode scalar values; split at a non-empty separator gives the pieces between its occurrences, an empty one each character; replace(from, with: to) replaces every non-overlapping occurrence left to right, an empty pattern before each character and at the end; find gives the byte offset of the first occurrence at or after an optional byte start, which starts an occurrence of the needle, or null; and starts_with, ends_with, reverse, is_empty and lines.",
+      "boundary": "Case changes, trim, words, fields, squeeze, delete, translate, wrap, byte_at, byte_slice, count_lines, count_words, the parse methods other than parse_float, the base decoders and split's maxsplit are not modelled. Witnesses agree with the verification binary's printed output on named calls; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -459,6 +459,16 @@ theorem numericCall_refines {world : World Declaration Identity Source} (context
   valued_bind_refines (each frame receiver) fun _ after =>
     valued_bind_refines (threadArguments_refines _ each after arguments) fun _ _ => valued_refl _
 
+theorem valueMethodCall_refines {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    Valued.Refines (valueMethodCall context evaluate frame receiver name arguments)
+      (valueMethodCall context evaluate' frame receiver name arguments) := by
+  unfold valueMethodCall
+  exact valued_bind_refines (each frame receiver) fun _ after =>
+    valued_bind_refines (threadArguments_refines _ each after arguments) fun _ _ => valued_refl _
+
 theorem bindSlots_refines {world : World Declaration Identity Source}
     {evaluate evaluate' : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, Valued.Refines (evaluate frame source) (evaluate' frame source)) :
@@ -729,6 +739,7 @@ theorem refining {world : World Declaration Identity Source} (machine : Machine 
       expr := fun frame expression => by
         simp only [evalExpr]
         repeat' (first
+          | exact valueMethodCall_refines _ inner.expr _ _ _ _
           | exact valued_refl _
           | exact inner.value _ _
           | exact inner.expr _ _
@@ -1322,6 +1333,19 @@ theorem numericCall_persists {world : World Declaration Identity Source} (contex
       · exact fromEval_persists _ _
       · exact vkeeps_exec fun _ present => by cases present
 
+theorem valueMethodCall_persists {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VKeeps frame.store (evaluate frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    VKeeps frame.store (valueMethodCall context evaluate frame receiver name arguments) := by
+  unfold valueMethodCall
+  exact vbind_persists (each frame receiver) fun _ after =>
+    vbind_persists (threadArguments_persists _ each after arguments) fun _ last => by
+      repeat' split
+      all_goals first
+        | exact fromEval_persists _ _
+        | exact vkeeps_exec fun _ present => by cases present
+
 theorem bindSlots_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source)) :
@@ -1608,6 +1632,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
   intro frame expression
   simp only [evalExpr]
   repeat' (first
+    | exact valueMethodCall_persists _ inner.expr _ _ _ _
     | exact vkeeps_value _ (persists_refl _)
     | exact vkeeps_exec fun _ present => by cases present; exact persists_refl _
     | exact vkeeps_exec fun _ present => by cases present
@@ -2310,6 +2335,19 @@ theorem numericCall_restores {world : World Declaration Identity Source} (contex
       · exact fromEval_restores _ _
       · exact vrestores_none rfl
 
+theorem valueMethodCall_restores {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+    {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
+    (each : ∀ frame source, VRestores frame (evaluate frame source))
+    (frame : Frame world) (receiver : Xsh.Syntax.Expr) (name : String) (arguments : List Xsh.Syntax.CallArgument) :
+    VRestores frame (valueMethodCall context evaluate frame receiver name arguments) := by
+  unfold valueMethodCall
+  exact vbind_restores (each frame receiver) fun _ after =>
+    vbind_restores (threadArguments_restores _ each after arguments) fun _ last => by
+      repeat' split
+      all_goals first
+        | exact fromEval_restores _ _
+        | exact vrestores_none rfl
+
 theorem bindSlots_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source)) :
@@ -2478,6 +2516,7 @@ structure Restoring {world : World Declaration Identity Source} (machine : Machi
 
 set_option hygiene false in
 local macro "close_restores" : tactic => `(tactic| repeat' (first
+  | exact valueMethodCall_restores _ inner.expr _ _ _ _
   | exact invokeWith_restores _ _ (callBlock_restores _ _) inner.expr _ _ _
   | exact ⟨rfl, rfl⟩
   | exact vrestores_none rfl

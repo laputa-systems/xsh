@@ -1621,16 +1621,128 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
   | .set keys => setMethod method keys (arguments.map Value.eraseNominal)
   | _ => .unsupported
 
-/-- A collection method call: the receiver evaluates first, then each
-argument once in written order. -/
-def collectionCall {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
+/-- A text method (SPEC 4.4). -/
+inductive TextMethod where
+  | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
+
+def TextMethod.ofName : String → Option TextMethod
+  | "byte_len" => some .byteLen
+  | "count_chars" => some .countChars
+  | "is_empty" => some .isEmpty
+  | "starts_with" => some .startsWith
+  | "ends_with" => some .endsWith
+  | "reverse" => some .reverse
+  | "split" => some .split
+  | "find" => some .find
+  | "replace" => some .replace
+  | "lines" => some .lines
+  | _ => none
+
+/-- Every non-overlapping occurrence of `pattern` replaced left to right; an
+empty pattern matches before each character and at the end. -/
+def replaceRun (pattern replacement : List Char) : Nat → List Char → List Char
+  | 0, text => text
+  | fuel + 1, [] => if pattern.isEmpty then replacement else []
+  | fuel + 1, first :: rest =>
+    if pattern.isEmpty then replacement ++ first :: replaceRun pattern replacement fuel rest
+    else if pattern.isPrefixOf (first :: rest) then
+      replacement ++ replaceRun pattern replacement fuel ((first :: rest).drop pattern.length)
+    else first :: replaceRun pattern replacement fuel rest
+
+/-- The pieces between occurrences of a non-empty `separator`, an empty piece
+where two occurrences meet or one ends the text. -/
+def splitRun (separator : List Char) : Nat → List Char → List Char → List (List Char)
+  | 0, current, text => [current ++ text]
+  | _ + 1, current, [] => [current]
+  | fuel + 1, current, first :: rest =>
+    if separator.isPrefixOf (first :: rest) then
+      current :: splitRun separator fuel [] ((first :: rest).drop separator.length)
+    else splitRun separator fuel (current ++ [first]) rest
+
+/-- The byte offset of the first occurrence of `needle` at or after `index`. -/
+def findBytes (needle : List UInt8) : Nat → List UInt8 → Option Nat
+  | index, [] => if needle.isEmpty then some index else none
+  | index, first :: rest => if needle.isPrefixOf (first :: rest) then some index else findBytes needle (index + 1) rest
+
+/-- `Str.lines()`: the text split at each `\n`, a `\r` before it removed and
+no empty line after a final `\n`. -/
+def textLines (text : List Char) : List (List Char) :=
+  let pieces := splitRun ['\n'] (text.length + 1) [] text
+  let complete := if pieces.getLast? = some [] then pieces.dropLast else pieces
+  complete.map fun line => if line.getLast? = some '\r' then line.dropLast else line
+
+def textValue (chars : List Char) : Value Declaration Identity Source := .scalar (.string (String.mk chars))
+
+/-- The text methods (SPEC 4.4): `byte_len` and `count_chars` count UTF-8
+bytes and Unicode scalar values; `starts_with`, `ends_with`, `reverse` by
+scalar value; `split` at a separator, an empty one giving each character;
+`find` the byte offset of a needle at or after an optional byte `start`, or
+`null`; `replace(from, with)` every non-overlapping occurrence; and `lines`. -/
+def textMethod (method : TextMethod) (text : String) (supplied : List (Supplied Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let stringOf := fun (value : Value Declaration Identity Source) => match value.eraseNominal with
+    | .scalar (.string found) => some found
+    | _ => none
+  match method, supplied with
+  | .byteLen, [] => countedValue text.toUTF8.size
+  | .countChars, [] => countedValue text.length
+  | .isEmpty, [] => .value (.scalar (.boolean text.isEmpty))
+  | .startsWith, [.positional head] =>
+    match stringOf head with
+    | some found => .value (.scalar (.boolean (found.toList.isPrefixOf text.toList)))
+    | none => .unsupported
+  | .endsWith, [.positional suffix] =>
+    match stringOf suffix with
+    | some found => .value (.scalar (.boolean (found.toList.reverse.isPrefixOf text.toList.reverse)))
+    | none => .unsupported
+  | .reverse, [] => .value (textValue text.toList.reverse)
+  | .split, [.positional separator] =>
+    match stringOf separator with
+    | some found =>
+      if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
+      else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
+    | none => .unsupported
+  | .find, .positional needle :: start =>
+    let begin := match start with
+      | [] => some 0
+      | [.positional offset] | [.named "start" offset] =>
+        match offset.eraseNominal with
+        | .scalar (.integer index) => if 0 ≤ index.val then some index.val.toNat else none
+        | _ => none
+      | _ => none
+    match stringOf needle, begin with
+    | some found, some origin =>
+      if origin ≤ text.toUTF8.size then
+        match findBytes found.toUTF8.toList origin (text.toUTF8.toList.drop origin) with
+        | some offset => countedValue offset
+        | none => .value (.scalar .null)
+      else .unsupported
+    | _, _ => .unsupported
+  | .replace, [.positional pattern, replacement] =>
+    let replaced := match replacement with
+      | .positional value | .named "with" value => stringOf value
+      | _ => none
+    match stringOf pattern, replaced with
+    | some source, some target => .value (textValue (replaceRun source.toList target.toList (text.length + 1) text.toList))
+    | _, _ => .unsupported
+  | .lines, [] => .value (.list ((textLines text.toList).map textValue))
+  | _, _ => .unsupported
+
+/-- A list, map, set or text method call: the receiver evaluates first, then
+each argument once in written order; a text method applies to a `Str`
+receiver and a collection method to a list, map or set. -/
+@[irreducible] def valueMethodCall {world : World Declaration Identity Source} (context : Context Declaration Identity Source)
     (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) (frame : Frame world) (receiver : Xsh.Syntax.Expr)
-    (method : CollectionMethod) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
+    (name : String) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
   (evaluate frame receiver).bind fun target after =>
     (threadArguments context.spelling evaluate after arguments).bind fun supplied last =>
-      match supplied.mapM Supplied.positionalValue with
-      | some values => fromEval last (collectionMethod context.errors method target values)
-      | none => .exec .unsupported
+      match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
+      | .scalar (.string text), some method, _ => fromEval last (textMethod method text supplied)
+      | _, _, some method =>
+        match supplied.mapM Supplied.positionalValue with
+        | some values => fromEval last (collectionMethod context.errors method target values)
+        | none => .exec .unsupported
+      | _, _, _ => .exec .unsupported
 
 def Supplied.namedValue : Supplied Declaration Identity Source → Option (String × Value Declaration Identity Source)
   | .positional _ => none
@@ -2243,11 +2355,11 @@ mutual
           | name =>
             if isNumericMethod name then numericCall machine.context (evalExpr machine fuel) frame receiver name arguments
             else
-              match CollectionMethod.ofName name with
-              | some method => collectionCall machine.context (evalExpr machine fuel) frame receiver method arguments
-              | none =>
+              match CollectionMethod.ofName name, TextMethod.ofName name with
+              | none, none =>
                 threadStep machine.context (evalExpr machine fuel)
                   (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+              | _, _ => valueMethodCall machine.context (evalExpr machine fuel) frame receiver name arguments
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
         | none, some closure@(.mk _ callable _ _ _ _ _) =>

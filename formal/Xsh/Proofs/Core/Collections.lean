@@ -19,8 +19,9 @@ variable {Declaration Identity Source : Type}
 
 /-- The `collection_methods` fragment root (SPEC 4.5): a method that no
 error family declares, other than `call`, `collect` and the numeric methods,
-and that names a list, map or set method, evaluates its receiver, then each
-argument once in written order, and gives `collectionMethod`'s value; a
+and that names a list, map, set or text method, evaluates its receiver, then
+each argument once in written order, and on a list, map or set receiver gives
+`collectionMethod`'s value; a
 list's `push` appends, `get` gives `Ok` of an element in range and the `Err`
 of its index otherwise; a map's `set` is the ordered upsert and `get` gives
 `Ok` of a present key's value and the `Err` of the missing key otherwise; and a
@@ -30,9 +31,22 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
     (∀ receiver method arguments, errorConstructor machine frame receiver method = none →
       machine.context.spelling method ≠ "call" → machine.context.spelling method ≠ "collect" →
       isNumericMethod (machine.context.spelling method) = false →
-      ∀ collection, CollectionMethod.ofName (machine.context.spelling method) = some collection →
+      ((CollectionMethod.ofName (machine.context.spelling method)).isSome ∨
+        (TextMethod.ofName (machine.context.spelling method)).isSome) →
       evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
-        collectionCall machine.context (evalExpr machine fuel) frame receiver collection arguments) ∧
+        valueMethodCall machine.context (evalExpr machine fuel) frame receiver (machine.context.spelling method)
+          arguments) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world) receiver name arguments,
+      valueMethodCall machine.context evaluate frame receiver name arguments =
+        (evaluate frame receiver).bind fun target after =>
+          (threadArguments machine.context.spelling evaluate after arguments).bind fun supplied last =>
+            match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
+            | .scalar (.string text), some method, _ => fromEval last (textMethod method text supplied)
+            | _, _, some method =>
+              match supplied.mapM Supplied.positionalValue with
+              | some values => fromEval last (collectionMethod machine.context.errors method target values)
+              | none => .exec .unsupported
+            | _, _, _ => .exec .unsupported) ∧
     (∀ errors (receiver : Value Declaration Identity Source) items item, receiver.eraseNominal = .list items →
       collectionMethod errors .push receiver [item] = .value (.list (items ++ [item.eraseNominal]))) ∧
     (∀ errors (receiver : Value Declaration Identity Source) items (index : IntValue) item,
@@ -51,7 +65,8 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
     (∀ errors (receiver : Value Declaration Identity Source) keys item found,
       receiver.eraseNominal = .set keys → mapKeyOf item = some found →
         collectionMethod errors .add receiver [item] = .value (.set (insertKey found keys))) := by
-  refine ⟨fun receiver method arguments none_declared notCall notCollect notNumeric collection named => ?_,
+  refine ⟨fun receiver method arguments none_declared notCall notCollect notNumeric named => ?_,
+    fun _ _ _ _ => by unfold valueMethodCall; rfl,
     fun errors receiver items item shape => ?_, fun errors receiver items index item shape found nonnegative => ?_,
     fun errors receiver items index shape missing => ?_, fun errors receiver entries key found value shape keyed => ?_,
     fun errors receiver entries key found shape keyed absent => ?_,
@@ -59,7 +74,9 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
   · simp only [evalExpr, none_declared]
     split
     · simp_all
-    · simp only [named]
+    · split
+      · simp_all
+      · rfl
   · simp [collectionMethod, listMethod, shape]
   · simp [collectionMethod, listMethod, shape, found, nonnegative, Value.eraseNominal]
   · by_cases nonnegative : 0 ≤ index.val
@@ -74,6 +91,54 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
   · have erased : mapKeyOf item.eraseNominal = some found := by
       simpa [mapKeyOf, Value.eraseNominal_idempotent] using keyed
     simp [collectionMethod, setMethod, shape, erased]
+
+/-- A byte offset `find` reports starts an occurrence of the needle. -/
+theorem findBytes_found (needle : List UInt8) :
+    ∀ (index : Nat) (bytes : List UInt8) (offset : Nat), findBytes needle index bytes = some offset →
+      index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true
+  | index, [], offset, found => by
+    simp only [findBytes] at found
+    split at found
+    · rename_i empty
+      cases found
+      simp_all
+    · cases found
+  | index, first :: rest, offset, found => by
+    simp only [findBytes] at found
+    split at found
+    · rename_i matched
+      cases found
+      simpa using matched
+    · obtain ⟨later, prefixed⟩ := findBytes_found needle (index + 1) rest offset found
+      refine ⟨by omega, ?_⟩
+      have shift : offset - index = (offset - (index + 1)) + 1 := by omega
+      rw [shift, List.drop_succ_cons]
+      exact prefixed
+
+/-- The `text_methods` fragment root (SPEC 4.4): on a `Str` receiver,
+`byte_len` and `count_chars` count UTF-8 bytes and Unicode scalar values;
+`split` at a non-empty separator gives the pieces between its occurrences;
+`replace(from, with: to)` replaces every non-overlapping occurrence left to
+right; and an offset `find` reports starts an occurrence of the needle at or
+after the byte `start`. -/
+theorem text_methods :
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .byteLen text [] =
+      countedValue text.toUTF8.size) ∧
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .countChars text [] =
+      countedValue text.length) ∧
+    (∀ text separator, separator.isEmpty = false →
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .split text
+          [.positional (.scalar (.string separator))] =
+        .value (.list ((splitRun separator.toList (text.length + 1) [] text.toList).map textValue))) ∧
+    (∀ text pattern replacement,
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .replace text
+          [.positional (.scalar (.string pattern)), .named "with" (.scalar (.string replacement))] =
+        .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
+    (∀ needle index bytes offset, findBytes needle index bytes = some offset →
+      index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
+  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => ?_, findBytes_found⟩
+  · simp [textMethod, Value.eraseNominal, nonempty]
+  · simp [textMethod, Value.eraseNominal]
 
 end Root
 
@@ -220,6 +285,93 @@ theorem appending_map_set_rejected :
             | .string key => key
             | _ => "")
         | _ => none) = some ["0", "a", "b"] := by
+  decide +kernel
+
+def textOf (text : String) : Supplied Unit Unit Unit := .positional (strOf text)
+
+def textResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
+  | .value (.scalar (.string text)) => some text
+  | _ => none
+
+def textsResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List String)
+  | .value (.list items) => items.mapM fun
+    | .scalar (.string text) => some text
+    | _ => none
+  | _ => none
+
+def countResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option (Option Int)
+  | .value (.scalar (.integer value)) => some (some value.val)
+  | .value (.scalar .null) => some none
+  | _ => none
+
+def boolResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option Bool
+  | .value (.scalar (.boolean value)) => some value
+  | _ => none
+
+def sample : String := "héllo wörld"
+
+/-- As the verification binary prints `13 11 true true true`,
+`dlröw olléh`, `["a","b","","c"]`, `["a","b","c"]`, `7 null 4`,
+`["a","b"] ["a","b"] []`, `héLLo wörLd bbb`, `-a-b-c-`, `[""]`,
+`["","a",""]` and `3` for the same calls. -/
+theorem text_witness :
+    countResult (textMethod .byteLen sample []) = some (some 13) ∧
+    countResult (textMethod .countChars sample []) = some (some 11) ∧
+    boolResult (textMethod .isEmpty "" []) = some true ∧
+    boolResult (textMethod .startsWith sample [textOf "hé"]) = some true ∧
+    boolResult (textMethod .endsWith sample [textOf "ld"]) = some true ∧
+    textResult (textMethod .reverse sample []) = some "dlröw olléh" ∧
+    textsResult (textMethod .split "a,b,,c" [textOf ","]) = some ["a", "b", "", "c"] ∧
+    textsResult (textMethod .split "abc" [textOf ""]) = some ["a", "b", "c"] ∧
+    countResult (textMethod .find sample [textOf "w"]) = some (some 7) ∧
+    countResult (textMethod .find sample [textOf "z"]) = some none ∧
+    countResult (textMethod .find sample [textOf "l", .named "start" (intOf 4)]) = some (some 4) ∧
+    textsResult (textMethod .lines "a\nb\n" []) = some ["a", "b"] ∧
+    textsResult (textMethod .lines "a\r\nb" []) = some ["a", "b"] ∧
+    textsResult (textMethod .lines "" []) = some [] ∧
+    textResult (textMethod .replace sample [textOf "l", .named "with" (strOf "L")]) = some "héLLo wörLd" ∧
+    textResult (textMethod .replace "aaa" [textOf "a", .named "with" (strOf "b")]) = some "bbb" ∧
+    textResult (textMethod .replace "abc" [textOf "", .named "with" (strOf "-")]) = some "-a-b-c-" ∧
+    textsResult (textMethod .split "" [textOf ","]) = some [""] ∧
+    textsResult (textMethod .split ",a," [textOf ","]) = some ["", "a", ""] ∧
+    countResult (textMethod .find "héllo" [textOf "l", .named "start" (intOf 2)]) = some (some 3) := by
+  decide +kernel
+
+def withName : Xsh.Syntax.RawName := name 358 (by decide)
+def byteLenName : Xsh.Syntax.RawName := name 359 (by decide)
+def replaceName : Xsh.Syntax.RawName := name 360 (by decide)
+def sampleName : Xsh.Syntax.RawName := name 361 (by decide)
+
+def textMachine : Machine witnessWorld :=
+  { collectionMachine with
+    context := { collectionMachine.context with
+      spelling := fun named =>
+        if named = withName then "with" else if named = byteLenName then "byte_len"
+        else if named = replaceName then "replace" else collectionMachine.context.spelling named } }
+
+/-- `s.byte_len()` and `s.replace("l", with: "L")` for `s = "héllo wörld"`
+through the method dispatch. -/
+def textRun : Exec witnessWorld :=
+  runStatements textMachine 40 { start with locals := [(sampleName, strOf sample)] }
+    [letOf (slot 0) (.call (.field (ident sampleName) byteLenName) []),
+     letOf (slot 1) (.call (.field (ident sampleName) replaceName) [.positional (str "l"), .named withName (str "L")])]
+
+def textSlot (index : Nat) : Option (Value Unit Unit Unit) :=
+  match textRun with
+  | .normal frame =>
+    match frame.environment.cellOf (slot index) with
+    | .ok cell => (frame.store cell).map fun found => found.contents.value
+    | .error _ => none
+  | _ => none
+
+theorem text_dispatch_witness :
+    intValue (textSlot 0) = some 13 ∧ textValue (textSlot 1) = some "héLLo wörLd" := by
+  decide +kernel
+
+/-- A `byte_len` that counted characters gives `11`; the binary and the model
+give `13`. -/
+theorem character_byte_len_rejected :
+    sample.length = 11 ∧ countResult (textMethod .byteLen sample []) = some (some 13) := by
   decide +kernel
 
 end Witness
