@@ -136,7 +136,7 @@ test test_unshare_rejects_invalid_arguments { |ctx|
 }
 
 test test_unshare_fails_when_the_kernel_refuses { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("unshare needs Linux namespaces")
     return
   }

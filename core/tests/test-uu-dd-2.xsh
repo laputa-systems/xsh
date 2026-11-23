@@ -54,7 +54,7 @@ test test_uu_dd_no_dropped_writes { |ctx|
 
 # origin: uutils test_dd::test_noatime_does_not_update_infile_atime
 test test_uu_dd_noatime_does_not_update_infile_atime { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS lacks the Linux O_NOATIME open flag"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS lacks the Linux O_NOATIME open flag"); return }
   let s = uu.scene(ctx)?
   uu.fixture(s, "dd", "this-ifile-exists-noatime.txt", "this-ifile-exists-noatime.txt")
   let before = fs.stat(uu.at(s, "this-ifile-exists-noatime.txt"))?.atime_ns
@@ -66,7 +66,7 @@ test test_uu_dd_noatime_does_not_update_infile_atime { |ctx|
 
 # origin: uutils test_dd::test_noatime_does_not_update_ofile_atime
 test test_uu_dd_noatime_does_not_update_ofile_atime { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS lacks the Linux O_NOATIME open flag"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS lacks the Linux O_NOATIME open flag"); return }
   let s = uu.scene(ctx)?
   uu.fixture(s, "dd", "this-ofile-exists-noatime.txt", "this-ofile-exists-noatime.txt")
   let before = fs.stat(uu.at(s, "this-ofile-exists-noatime.txt"))?.atime_ns
@@ -78,7 +78,7 @@ test test_uu_dd_noatime_does_not_update_ofile_atime { |ctx|
 
 # origin: uutils test_dd::test_nocache_eof
 test test_uu_dd_nocache_eof { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("dd nocache requires Linux cache-discard advice"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("dd nocache requires Linux cache-discard advice"); return }
   let s = uu.scene(ctx)?
   uu.write_bytes(s, "in.f", bytes.zero(1234567)?)
   let r = uu.invoke(s, "dd", ["if=in.f", "of=out.f", "bs=1M", "oflag=nocache,sync", "status=noxfer"])?
@@ -88,7 +88,7 @@ test test_uu_dd_nocache_eof { |ctx|
 
 # origin: uutils test_dd::test_nocache_file
 test test_uu_dd_nocache_file { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("dd nocache requires Linux cache-discard advice"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("dd nocache requires Linux cache-discard advice"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "f", ["a" for _ in range(1048576)].join(""))
   let r = uu.invoke(s, "dd", ["if=f", "of=/dev/null", "iflag=nocache", "status=noxfer"])?
@@ -98,7 +98,7 @@ test test_uu_dd_nocache_file { |ctx|
 
 # origin: uutils test_dd::test_nocache_stdin_error
 test test_uu_dd_nocache_stdin_error { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("dd nocache requires Linux cache-discard advice"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("dd nocache requires Linux cache-discard advice"); return }
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dd", ["iflag=nocache", "count=0", "status=noxfer"])?
   uu.fails_with_code(r, 1)
@@ -148,7 +148,7 @@ test test_uu_dd_null_stats { |ctx|
 
 # origin: uutils test_dd::test_oflag_direct_partial_block
 test test_uu_dd_oflag_direct_partial_block { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS lacks the Linux O_DIRECT open flag"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS lacks the Linux O_DIRECT open flag"); return }
   let s = uu.scene(ctx)?
   let data = bytes.from_ints([66 for _ in range(25087)])?
   uu.write_bytes(s, "test_direct_input.iso", data)

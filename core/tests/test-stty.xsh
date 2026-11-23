@@ -666,7 +666,7 @@ test test_stty_checks_terminal_before_window_sizes_and_numeric_speeds { |ctx|
 }
 
 test test_stty_line_overflow_warns_in_both_setting_passes { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     assert stty_plain(ctx, ["line", "256"])?.status == 1, "Darwin termios has no line discipline field"
     return
   }

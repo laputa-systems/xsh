@@ -1218,7 +1218,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
       var valid = true
       let ordered = collect {
         for record in unique_input {
-          if record.text == null { valid = false; break }
+          guard record.text != null else { valid = false; break }
           let raw = record.text ?? ""
           let key = if field_numeric { raw.split(delimiter).get(field) ?? "" } else { raw }
           if let number = leading_integer(key, opts.decimal_point) {
@@ -1233,7 +1233,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
   if plan.plain_whole_line {
     var all_text = true
     for record in unique_input {
-      if record.text == null { all_text = false; break }
+      guard record.text != null else { all_text = false; break }
     }
     if all_text {
       return unique_input |> sort-by(desc: opts.reverse) { |record| record.text ?? "" }
@@ -1249,7 +1249,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
     if field >= 0 and spec == f"{field + 1},{field + 1}" and delimiter.byte_len() == 1 {
       var all_text = true
       for record in unique_input {
-        if record.text == null { all_text = false; break }
+        guard record.text != null else { all_text = false; break }
       }
       if all_text {
         let ordered = collect {
@@ -1265,7 +1265,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
   if plan.last_resort and ! opts.reverse {
     var all_text = true
     for record in unique_input {
-      if record.text == null { all_text = false; break }
+      guard record.text != null else { all_text = false; break }
     }
     if all_text {
       let primary_plan = {...plan, last_resort: false}

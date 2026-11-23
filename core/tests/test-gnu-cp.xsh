@@ -744,7 +744,7 @@ test test_gnu_cp_sparse_extents_2_log { |ctx|
 
 # origin: gnu cp/sparse-extents.log
 test test_gnu_cp_sparse_extents_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("the extent fixture requires Linux fallocate"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("the extent fixture requires Linux fallocate"); return }
   let s = uu.scene(ctx)?
   for sparse in ["always", "auto", "never"] {
     for allocation in [["-l", "4194304"], ["-l", "1048576", "-o", "4194304"], ["-l", "1"]] {

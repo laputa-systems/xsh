@@ -24,7 +24,7 @@ test test_gnu_nice_nice_fail_log { |ctx|
 
 # origin: gnu nice/nice.log
 test test_gnu_nice_nice_log { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

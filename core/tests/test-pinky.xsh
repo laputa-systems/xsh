@@ -87,7 +87,7 @@ proc sessions(ctx: TestContext) [fs, process, error] -> Result[World] {
 }
 
 test test_pinky_short_format_lists_user_sessions_with_names { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   let result = pinky_run(ctx, [], w)?
   assert result.status == 0
@@ -100,7 +100,7 @@ stranger                 ??? ?{w.stranger_line}  ?????  Nov 14 22:13
 }
 
 test test_pinky_column_options_drop_columns { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   assert pinky_run(ctx, ["-f"], w)?.stdout.starts_with("alice    Alice Liddell")
   let no_name = pinky_run(ctx, ["-w"], w)?.stdout
@@ -113,14 +113,14 @@ test test_pinky_column_options_drop_columns { |ctx|
 }
 
 test test_pinky_names_select_sessions { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   let result = pinky_run(ctx, ["-f", "bob", "nobody"], w)?
   assert result.stdout == f"bob      Bob Builder         ?{w.bob_line}  ?????  Nov 14 22:13 ::1\n", result.stdout
 }
 
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let tag = f"{process.current_pid()?:08}"
   let open_line = fp"/tmp/x{tag}-open"
@@ -160,7 +160,7 @@ test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
 }
 
 test test_pinky_time_follows_the_locale { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   let result = pinky_run(ctx, [], w, locale: "C.UTF-8")?
   assert result.stdout.starts_with("Login    Name                 TTY      Idle   When             Where\n"), result.stdout
@@ -228,7 +228,7 @@ test test_pinky_last_of_long_and_short_decides { |ctx|
 }
 
 test test_pinky_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let numeric = world(ctx, [utmp_record(USER_PROCESS, "pts/1", "alice", "192.0.2.7:0")?])?
   let kept = pinky_run(ctx, ["--lookup", "-f"], numeric)?
   assert kept.status == 0
@@ -244,7 +244,7 @@ test test_pinky_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 }
 
 test test_pinky_missing_utmp_lists_only_the_heading { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let w = sessions(ctx)?
   w.utmp.remove()
   let result = pinky_run(ctx, [], w)?

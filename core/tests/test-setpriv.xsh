@@ -195,7 +195,7 @@ test test_setpriv_values_are_validated_before_anything_changes { |ctx|
 }
 
 test test_setpriv_dump_layout_matches_util_linux { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("setpriv needs Linux capabilities")
     return
   }
@@ -267,7 +267,7 @@ test test_setpriv_pdeathsig_keep_and_clear_act_on_an_inherited_signal { |ctx|
 }
 
 test test_setpriv_inheritable_and_ambient_edits_start_from_the_current_sets { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("setpriv needs Linux capabilities")
     return
   }

@@ -1630,7 +1630,7 @@ export pure structural_values(report: Report) -> Result[List[Ratchet], MetricErr
 
 pure inventory(rows: List[Ratchet], label: Str) -> Result[List[Str], MetricError] {
   for row in rows {
-    if row.value < 0 { fail .Contract(detail: f"{label} has negative metric {row.name}") }
+    guard row.value >= 0 else { fail .Contract(detail: f"{label} has negative metric {row.name}") }
     if (rows |> where .name == row.name |> count()) != 1 { fail .Contract(detail: f"{label} repeats metric {row.name}") }
   }
   rows |> map .name |> sort

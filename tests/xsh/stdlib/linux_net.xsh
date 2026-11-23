@@ -67,7 +67,7 @@ proc ifname(name: Str) [error] -> Result[Bytes] {
 }
 
 test test_net_constants_name_the_kernel_abi {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -82,7 +82,7 @@ test test_net_constants_name_the_kernel_abi {
 }
 
 test test_tcp_echo_over_loopback {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -127,7 +127,7 @@ test test_tcp_echo_over_loopback {
 }
 
 test test_udp_exchange_reports_sender_truncation_and_ttl {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -160,7 +160,7 @@ test test_udp_exchange_reports_sender_truncation_and_ttl {
 }
 
 test test_unix_datagram_size_distinguishes_empty_from_truncated_and_stream_eof {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -210,7 +210,7 @@ test test_unix_datagram_size_distinguishes_empty_from_truncated_and_stream_eof {
 }
 
 test test_recvfrom_rejects_an_unknown_rights_policy {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -222,7 +222,7 @@ test test_recvfrom_rejects_an_unknown_rights_policy {
 }
 
 test test_udp_error_queue_reports_the_icmp_origin {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -258,7 +258,7 @@ test test_udp_error_queue_reports_the_icmp_origin {
 }
 
 test test_icmp_echo_over_a_datagram_socket {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -302,7 +302,7 @@ pure icmp_checksum(message: Bytes) -> Int {
 }
 
 test test_raw_icmp_socket_filters_and_checks_replies {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -338,7 +338,7 @@ test test_raw_icmp_socket_filters_and_checks_replies {
 }
 
 test test_socket_options_move_bytes_and_timeouts {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -365,7 +365,7 @@ test test_socket_options_move_bytes_and_timeouts {
 }
 
 test test_failures_carry_the_kernel_errno {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -399,7 +399,7 @@ test test_failures_carry_the_kernel_errno {
 }
 
 test test_unix_sockets_use_paths_and_abstract_names {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -433,7 +433,7 @@ test test_unix_sockets_use_paths_and_abstract_names {
 }
 
 test test_netlink_link_dump_matches_network_dump {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -457,7 +457,7 @@ test test_netlink_link_dump_matches_network_dump {
 }
 
 test test_netlink_address_and_route_dumps_match_network_dump {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -482,7 +482,7 @@ test test_netlink_address_and_route_dumps_match_network_dump {
 }
 
 test test_netlink_error_replies_become_errno {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -505,7 +505,7 @@ test test_netlink_error_replies_become_errno {
 }
 
 test test_netlink_acknowledgement_ends_a_request {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -525,7 +525,7 @@ test test_netlink_acknowledgement_ends_a_request {
 }
 
 test test_netlink_route_request_returns_the_kernel_refusal_as_data {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -542,7 +542,7 @@ test test_netlink_route_request_returns_the_kernel_refusal_as_data {
 }
 
 test test_netlink_route_request_rejects_a_reply_that_is_not_an_acknowledgement {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -552,7 +552,7 @@ test test_netlink_route_request_rejects_a_reply_that_is_not_an_acknowledgement {
 }
 
 test test_sock_diag_finds_a_tcp_listener {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -590,7 +590,7 @@ test test_sock_diag_finds_a_tcp_listener {
 }
 
 test test_generic_netlink_resolves_family_ids {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -615,7 +615,7 @@ test test_generic_netlink_resolves_family_ids {
 }
 
 test test_ioctl_reads_loopback_interface_state {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -646,7 +646,7 @@ test test_ioctl_reads_loopback_interface_state {
 }
 
 test test_ioctl_ethtool_passes_a_payload_pointer {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -662,7 +662,7 @@ test test_ioctl_ethtool_passes_a_payload_pointer {
 }
 
 test test_ioctl_is_guarded {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -690,7 +690,7 @@ proc descriptor_row(pid: Int, fd: Int) [process, error] -> Result[LinuxOpenFile]
 }
 
 test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -814,7 +814,7 @@ pure mask_prefix(mask: Str) -> Int {
 }
 
 test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -861,7 +861,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
 }
 
 test test_net_state_links_and_addresses_agree_with_the_netlink_snapshot {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }
@@ -884,7 +884,7 @@ test test_net_state_links_and_addresses_agree_with_the_netlink_snapshot {
 }
 
 test test_netlink_dump_status_in_the_done_message_becomes_errno {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.socket and netlink require Linux")
     return
   }

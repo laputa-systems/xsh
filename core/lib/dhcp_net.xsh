@@ -202,7 +202,7 @@ pure dhcp_route(destination: Int, prefix: Int, gateway: Int, metric: Int) -> Rou
 ## its first router, ignoring further routers, and a lease without a router
 ## asks for none.
 export pure desired_routes(lease: machine.Lease, metric: Int) -> List[Route] {
-  if ! lease.classless.is_empty() {
+  guard lease.classless.is_empty() else {
     let on_link = [dhcp_route(item.destination, item.prefix, 0, metric) for item in lease.classless if item.gateway == 0]
     let routed = [dhcp_route(item.destination, item.prefix, item.gateway, metric) for item in lease.classless if item.gateway != 0]
     return on_link.extend(routed)

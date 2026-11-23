@@ -6,7 +6,7 @@ type LockReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], devi
 type WaiterReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int, owner_pid: Int}
 
 test test_util_linux_private_context_rejects_advertised_misconfiguration {
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   for marker in ["", "0", "true"] {
     env ({XSH_UTIL_LINUX_PRIVATE: marker}) {
       test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")

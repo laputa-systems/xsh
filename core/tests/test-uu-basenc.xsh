@@ -38,7 +38,7 @@ test test_uu_basenc_base16_decode_lowercase { |ctx|
 
 # origin: uutils test_basenc::test_base16_write_error_is_reported
 test test_uu_basenc_base16_write_error_is_reported { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

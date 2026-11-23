@@ -316,7 +316,7 @@ test test_uu_cat_piped_to_dev_full { |ctx|
 
 # origin: uutils test_cat::test_domain_socket
 test test_uu_cat_domain_socket { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }

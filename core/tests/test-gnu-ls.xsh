@@ -831,7 +831,7 @@ proc traced_stats(s: uu.Scene, args: List[Str], colors: Str, name: Str) [fs, pro
 
 # origin: gnu ls/stat-free-color.log
 test test_gnu_ls_stat_free_color_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   let colors = "rs=0:di=01;34:ln=01;36:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=00:su=00:sg=00:ca=00:tw=00:ow=00:st=00:ex=00:mh=00:"
   uu.mkdir(s, "d")

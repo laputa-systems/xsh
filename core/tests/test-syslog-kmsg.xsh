@@ -67,7 +67,7 @@ test test_a_message_with_arbitrary_bytes_is_kept_byte_for_byte {
 }
 
 test test_each_read_of_the_device_returns_one_whole_record_and_an_empty_queue_ends_the_drain {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket and kernel log primitives")
     return
   }
@@ -85,7 +85,7 @@ test test_each_read_of_the_device_returns_one_whole_record_and_an_empty_queue_en
 }
 
 test test_the_drain_stops_at_its_limit_and_leaves_the_rest_queued {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket and kernel log primitives")
     return
   }
@@ -98,7 +98,7 @@ test test_the_drain_stops_at_its_limit_and_leaves_the_rest_queued {
 }
 
 test test_epipe_is_an_overrun_eagain_is_empty_and_other_errors_are_reported {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket and kernel log primitives")
     return
   }

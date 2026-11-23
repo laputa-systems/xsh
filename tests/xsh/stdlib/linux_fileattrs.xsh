@@ -1,5 +1,5 @@
 test test_linux_inode_ioctls_do_not_follow_symbolic_links { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.file_attrs requires Linux")
     return
   }
@@ -31,7 +31,7 @@ test test_linux_inode_ioctls_do_not_follow_symbolic_links { |ctx|
 }
 
 test test_linux_inode_open_errors_retain_errno { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.file_attrs requires Linux")
     return
   }
@@ -42,7 +42,7 @@ test test_linux_inode_open_errors_retain_errno { |ctx|
 }
 
 test test_linux_project_ids_preserve_flags_on_temporary_inodes { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.file_attrs requires Linux")
     return
   }
@@ -75,7 +75,7 @@ test test_linux_project_ids_preserve_flags_on_temporary_inodes { |ctx|
 }
 
 test test_linux_project_ids_validate_range_and_never_follow_links { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.file_attrs requires Linux")
     return
   }

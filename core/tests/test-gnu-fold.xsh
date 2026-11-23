@@ -149,7 +149,7 @@ proc full_output(s: uu.Scene, script: Path, character: Str, allowance: Int) [fs,
 }
 
 test test_gnu_fold_zero_width_full_output_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS shell cannot impose this virtual memory limit"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS shell cannot impose this virtual memory limit"); return }
   test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let script = uu.at(s, "fold.xsh")

@@ -69,7 +69,7 @@ test test_user_groups_primary_gid_override_does_not_grant_account_default {
 # is the Groups line of the process status, not the sorted identity set that
 # `groups` presents with the primary gid added.
 test test_unix_id_supplementary_is_the_kernel_group_list {
-  if ! p"/proc/self/status".exists() {
+  guard p"/proc/self/status".exists() else {
     test.skip("the host has no /proc/self/status")
     return
   }

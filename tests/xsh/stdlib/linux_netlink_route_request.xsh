@@ -66,7 +66,7 @@ proc install_reply(ctx: TestContext, name: Str, datagrams: List[Bytes]) [fs, pro
 }
 
 test test_acknowledgement_carries_the_numbers_the_call_assigned { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -89,7 +89,7 @@ test test_acknowledgement_carries_the_numbers_the_call_assigned { |ctx|
 }
 
 test test_kernel_refusal_is_data_not_a_failure { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -100,7 +100,7 @@ test test_kernel_refusal_is_data_not_a_failure { |ctx|
 }
 
 test test_reply_for_another_sequence_or_port_is_rejected { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -119,7 +119,7 @@ test test_reply_for_another_sequence_or_port_is_rejected { |ctx|
 }
 
 test test_multipart_replies_are_rejected { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -134,7 +134,7 @@ test test_multipart_replies_are_rejected { |ctx|
 }
 
 test test_truncated_and_inconsistent_replies_are_malformed { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -166,7 +166,7 @@ test test_truncated_and_inconsistent_replies_are_malformed { |ctx|
 }
 
 test test_reply_larger_than_an_acknowledgement_can_be_is_rejected { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -182,7 +182,7 @@ test test_reply_larger_than_an_acknowledgement_can_be_is_rejected { |ctx|
 }
 
 test test_missing_reply_expires_the_deadline_and_transport_failures_keep_their_errno { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -195,7 +195,7 @@ test test_missing_reply_expires_the_deadline_and_transport_failures_keep_their_e
 }
 
 test test_unrecorded_requests_and_bad_lines_fail_loudly { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -211,7 +211,7 @@ test test_unrecorded_requests_and_bad_lines_fail_loudly { |ctx|
 }
 
 test test_request_arguments_are_bounded_before_anything_is_sent {
-  if system.uname()?.sysname != "Linux" { test.skip("netlink route requests require Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("netlink route requests require Linux"); return }
   test.error_kind(linux.netlink_route_request(3, 0, b"", 1000), "invalid-argument")
   test.error_kind(linux.netlink_route_request(70000, 0, b"", 1000), "invalid-argument")
   test.error_kind(linux.netlink_route_request(RTM_NEWADDR, 768, ADDRESS, 1000), "invalid-argument")

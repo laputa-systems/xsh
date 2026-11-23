@@ -35,7 +35,7 @@ proc utmp_record(
 }
 
 test test_read_utmp_decodes_every_field { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("utmp records are decoded on Linux only")
     return
   }
@@ -83,7 +83,7 @@ test test_read_utmp_decodes_every_field { |ctx|
 }
 
 test test_read_utmp_ignores_a_partial_trailing_record_and_names_failures { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("utmp records are decoded on Linux only")
     return
   }
@@ -116,7 +116,7 @@ test test_read_utmp_ignores_a_partial_trailing_record_and_names_failures { |ctx|
 }
 
 test test_read_utmp_default_file_is_read_or_reported_missing {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("utmp records are decoded on Linux only")
     return
   }

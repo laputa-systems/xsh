@@ -395,7 +395,7 @@ test test_uu_printf_emoji_formatting { |ctx|
 
 # origin: uutils test_printf::test_empty_output_succeeds_on_full_device
 test test_uu_printf_empty_output_succeeds_on_full_device { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

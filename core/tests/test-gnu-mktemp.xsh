@@ -58,7 +58,7 @@ test test_gnu_mktemp_bad_unicode_log { |ctx|
 
 # origin: gnu mktemp/mktemp-misc.log
 test test_gnu_mktemp_mktemp_misc_log { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux setarch and strace")
     return
   }

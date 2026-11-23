@@ -319,7 +319,7 @@ test test_kill_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_kill_realtime_aliases_list_and_probe_the_same_signal { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no real-time signals"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no real-time signals"); return }
   let number = process.signal("RTMIN+1")?.number
   let listed = kill_run(ctx, ["-l", "SIGRTMIN+1", f"{number}"])?
   assert listed.status == 0

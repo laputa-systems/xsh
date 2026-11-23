@@ -29,7 +29,7 @@ test test_uu_uniq_case2 { |ctx|
 
 # origin: uutils test_uniq::test_failed_write_is_reported
 test test_uu_uniq_failed_write_is_reported { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

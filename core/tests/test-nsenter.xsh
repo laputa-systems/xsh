@@ -171,7 +171,7 @@ test test_nsenter_relays_exit_status_and_signal { |ctx|
 }
 
 test test_nsenter_reports_what_it_cannot_do { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("nsenter needs Linux namespaces")
     return
   }

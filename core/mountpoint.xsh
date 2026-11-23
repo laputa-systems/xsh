@@ -142,7 +142,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.devno {
-    if metadata.kind != "block" {
+    guard metadata.kind == "block" else {
       if ! opts.quiet { report_non_block(name) }
       exit 32
     }
@@ -189,7 +189,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           mount_device = mount.device
         }
         Err(failure) => {
-          if failure.message != "mount not found" {
+          guard failure.message == "mount not found" else {
             if ! opts.quiet { report_path_error(name, failure) }
             exit 1
           }

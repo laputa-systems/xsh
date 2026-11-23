@@ -59,7 +59,7 @@ proc assert_hop(line: Str, index: Int, address: Str, probes: Int) [error] {
 }
 
 test test_traceroute_default_udp_reaches_loopback_in_one_hop { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("traceroute needs Linux socket primitives")
     return
   }
@@ -159,7 +159,7 @@ test test_traceroute_ipv6_loopback { |ctx|
 }
 
 test test_traceroute_address_family_flags_follow_the_literal { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("traceroute needs Linux socket primitives")
     return
   }
@@ -177,7 +177,7 @@ test test_traceroute_address_family_flags_follow_the_literal { |ctx|
 }
 
 test test_traceroute_hop_range_and_probe_count { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("traceroute needs Linux socket primitives")
     return
   }
@@ -256,7 +256,7 @@ test test_traceroute_udp_port_advances_per_probe_unless_fixed { |ctx|
 }
 
 test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("traceroute needs Linux socket primitives")
     return
   }
@@ -288,7 +288,7 @@ test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
 }
 
 test test_traceroute_gateway_adds_a_source_route { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("traceroute needs Linux socket primitives")
     return
   }

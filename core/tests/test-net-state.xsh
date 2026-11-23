@@ -380,7 +380,7 @@ proc replayed(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error
 }
 
 test test_a_fixed_replay_drives_observe_change_observe_without_the_host { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("network replay requires Linux netlink support"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("network replay requires Linux netlink support"); return }
   let lines: List[Any] = [before_dump()?, address_change_reply(0)?, after_dump()?]
   let first = replayed(ctx, "replay-ok", lines)?
   assert first.success, first.stderr
@@ -392,7 +392,7 @@ test test_a_fixed_replay_drives_observe_change_observe_without_the_host { |ctx|
 }
 
 test test_an_omitted_reordered_or_stale_observation_fails_explicitly { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("net-state observes Linux netlink"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("net-state observes Linux netlink"); return }
   let omitted = replayed(ctx, "replay-omitted", [before_dump()?, address_change_reply(0)?])?
   assert "`network_dump` after all 2 replayed observations were consumed" in omitted.stdout, omitted.stdout
 
@@ -408,7 +408,7 @@ test test_an_omitted_reordered_or_stale_observation_fails_explicitly { |ctx|
 }
 
 test test_injected_denials_short_reads_and_refusals_never_become_a_state { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("net-state observes Linux netlink"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("net-state observes Linux netlink"); return }
   let denied = replayed(ctx, "replay-denied", [{...before_dump()?, links: 1}, address_change_reply(0)?, after_dump()?])?
   assert denied.stdout.starts_with("denied link\n"), denied.stdout
 

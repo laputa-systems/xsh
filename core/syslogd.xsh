@@ -111,7 +111,7 @@ proc check_sink(previous: kernel.Output?) [fs, process, net, io, error] -> Resul
 type Written = {delivered: Bool, blocked: Bool, reported_at: Int}
 
 proc write_line(line: Str, last_report: Int) [process, net, io, time, error] -> Result[Written, Error] {
-  if ! writable(1) { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
+  guard writable(1) else { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
   announce(line)
   if let Err(failure) = io.flush_stdout() {
     let reported = boot_clock.micros(boot_clock.now()?)

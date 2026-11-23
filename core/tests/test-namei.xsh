@@ -17,7 +17,7 @@ proc parity_paths(s: uu.Scene, args: List[Path], vars: Record = {}) [fs, process
 }
 
 test test_namei_upstream_logic_plain_relative_paths { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "namei1/namei2")
   uu.write(s, "namei1/namei2/a", "a\n")
@@ -29,7 +29,7 @@ test test_namei_upstream_logic_plain_relative_paths { |ctx|
 }
 
 test test_namei_root_and_repeated_path_separators { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree/inner")
   uu.write(s, "tree/inner/file", "file\n")
@@ -41,7 +41,7 @@ test test_namei_root_and_repeated_path_separators { |ctx|
 }
 
 test test_namei_each_output_option_and_long_combination { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree/inner")
   uu.write(s, "tree/inner/file", "file\n")
@@ -63,7 +63,7 @@ test test_namei_each_output_option_and_long_combination { |ctx|
 }
 
 test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree/inner")
   uu.write(s, "tree/inner/file", "file\n")
@@ -85,7 +85,7 @@ test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
 }
 
 test test_namei_component_walk_reports_socket_and_block_device { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let socket = uu.at(s, "socket")
@@ -99,7 +99,7 @@ test test_namei_component_walk_reports_socket_and_block_device { |ctx|
 }
 
 test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let setuid = uu.at(s, "setuid-file")
@@ -130,7 +130,7 @@ test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
 }
 
 test test_namei_committed_path_fixture_links_and_components { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let tree = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/tree"
   for name in ["regular", "inner/entry", "relative", "dangling", "loop-a"] {
@@ -143,7 +143,7 @@ test test_namei_committed_path_fixture_links_and_components { |ctx|
 }
 
 test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(p"/proc/1")?
@@ -156,7 +156,7 @@ test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
 }
 
 test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/bind"
@@ -191,7 +191,7 @@ test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
 }
 
 test test_namei_dangling_missing_and_looping_components { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree")
   uu.symlink(s, "missing", "tree/dangling")
@@ -204,7 +204,7 @@ test test_namei_dangling_missing_and_looping_components { |ctx|
 }
 
 test test_namei_multiple_operands_and_usage_errors { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "first", "first\n")
   uu.mkdir(s, "second")
@@ -216,7 +216,7 @@ test test_namei_multiple_operands_and_usage_errors { |ctx|
 }
 
 test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let directory = uu.at_bytes(s, b"directory-\xfe")?
   directory.mkdir()
@@ -231,7 +231,7 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
 }
 
 test test_namei_permission_denied_from_unprivileged_runner { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   s.root.chmod(0o755)
@@ -253,7 +253,7 @@ test test_namei_permission_denied_from_unprivileged_runner { |ctx|
 }
 
 test test_namei_version_provenance { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let banner = gnu.version_text("namei")
   for args in [["--version"], ["-V"]] {
@@ -269,7 +269,7 @@ test test_namei_version_provenance { |ctx|
 }
 
 test test_namei_mount_parent_stat_failure { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   s.root.chmod(0o755)
@@ -298,7 +298,7 @@ test test_namei_loop_errno_text { |ctx|
 }
 
 test test_namei_owner_width_includes_components_after_link_limit { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   var operand = ""
   for n in range(1, 21) {
@@ -347,7 +347,7 @@ proc merged_pipe(s: uu.Scene, words: List[Path]) [fs, process, error] -> Result[
 }
 
 test test_namei_loop_terminal_interleaving { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "loop2", "loop1")
   uu.symlink(s, "loop1", "loop2")
@@ -369,7 +369,7 @@ test test_namei_error_with_os_error_in_path { |ctx|
 }
 
 test test_namei_fatal_readlink_after_link_limit_and_repeated_slashes { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for n in range(0, 25) { uu.symlink(s, f"p{n + 1}", f"p{n}") }
   uu.symlink(s, "/proc/1", "p25")
@@ -377,13 +377,13 @@ test test_namei_fatal_readlink_after_link_limit_and_repeated_slashes { |ctx|
 }
 
 test test_namei_fatal_readlink_preserves_repeated_slashes { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   parity(s, ["/proc//1/cwd"])
 }
 
 test test_namei_owner_display_cell_width { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   if env.get_or("XSH_NAMEI_OWNER_WIDTH_ISOLATED", "")? != "1" {
     let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
@@ -427,7 +427,7 @@ test test_namei_owner_display_cell_width { |ctx|
 }
 
 test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   if env.get_or("XSH_NAMEI_NONPRINTABLE_OWNER_ISOLATED", "")? != "1" {
     let xsht = fp"{ctx.xsh_bin.parent()}/xsht"

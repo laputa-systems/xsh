@@ -475,7 +475,7 @@ test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
 }
 
 test test_fs_root_atomic_interruption_keeps_old_file_and_contains_partial_write { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("SIGXFSZ resource-limit behavior is required")
     return
   }

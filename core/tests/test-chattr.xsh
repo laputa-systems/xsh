@@ -41,7 +41,7 @@ test test_chattr_rejects_conflicts_and_recursion_skips_symlinks { |ctx|
 }
 
 test test_chattr_real_nodump_is_limited_to_temporary_fixtures { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("chattr needs Linux filesystem flags")
     return
   }

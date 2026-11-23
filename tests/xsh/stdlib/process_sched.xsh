@@ -52,7 +52,7 @@ proc errno_of_cpus(result: Result[List[Int]]) -> Int {
 }
 
 test test_affinity_lists_the_cpus_the_kernel_allows { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -85,7 +85,7 @@ test test_affinity_lists_the_cpus_the_kernel_allows { |_|
 }
 
 test test_set_affinity_restricts_another_process_only { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -112,7 +112,7 @@ test test_set_affinity_restricts_another_process_only { |_|
 }
 
 test test_affinity_failures_carry_the_kernels_answer { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -128,7 +128,7 @@ test test_affinity_failures_carry_the_kernels_answer { |_|
 }
 
 test test_scheduler_policy_is_read_and_changed_for_another_process { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -156,7 +156,7 @@ test test_scheduler_policy_is_read_and_changed_for_another_process { |_|
 }
 
 test test_scheduler_failures_carry_the_kernels_answer { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -179,7 +179,7 @@ test test_scheduler_failures_carry_the_kernels_answer { |_|
 }
 
 test test_scheduler_priorities_report_each_policys_range { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -202,7 +202,7 @@ test test_scheduler_priorities_report_each_policys_range { |_|
 }
 
 test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -224,7 +224,7 @@ test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |_|
 }
 
 test test_io_priority_is_read_and_changed_for_another_process { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -253,7 +253,7 @@ test test_io_priority_is_read_and_changed_for_another_process { |_|
 }
 
 test test_io_priority_failures_carry_the_kernels_answer { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -273,7 +273,7 @@ test test_io_priority_failures_carry_the_kernels_answer { |_|
 }
 
 test test_resource_limits_are_read_and_changed_for_another_process { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }
@@ -308,7 +308,7 @@ test test_resource_limits_are_read_and_changed_for_another_process { |_|
 }
 
 test test_resource_limit_failures_carry_the_kernels_answer { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("process scheduling primitives require Linux")
     return
   }

@@ -200,7 +200,7 @@ test test_nc_refuses_unimplemented_options_by_name { |ctx|
 }
 
 test test_nc_client_sends_stdin_and_prints_the_reply { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -414,7 +414,7 @@ test test_nc_interval_waits_between_ports { |ctx|
 # A listener whose accept queue is full drops further SYNs, which is how a
 # silent peer looks to connect(2) on loopback.
 test test_nc_connect_timeout_is_reported_by_name { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -511,7 +511,7 @@ test test_nc_receive_limit_ends_the_session { |ctx|
 }
 
 test test_nc_crlf_adds_a_carriage_return_before_bare_newlines { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -528,7 +528,7 @@ test test_nc_crlf_adds_a_carriage_return_before_bare_newlines { |ctx|
 }
 
 test test_nc_detached_stdin_is_not_sent { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -583,7 +583,7 @@ test test_nc_idle_timeout_ends_a_quiet_session { |ctx|
 }
 
 test test_nc_answers_telnet_negotiation { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -617,7 +617,7 @@ test test_nc_answers_telnet_negotiation { |ctx|
 }
 
 test test_nc_binds_the_requested_source_port { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the test needs Linux socket primitives")
     return
   }
@@ -712,7 +712,7 @@ proc short_socket_path(name: Str) [env, process, error] -> Result[Str] {
 }
 
 test test_nc_unix_stream_client_and_listener { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("nc Unix sockets use Linux socket primitives"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("nc Unix sockets use Linux socket primitives"); return }
   let socket = short_socket_path("stream")?
   if socket.byte_len() > 100 {
     test.skip("the temporary directory socket is too long for a Unix socket")
@@ -741,7 +741,7 @@ test test_nc_unix_stream_client_and_listener { |ctx|
 }
 
 test test_nc_unix_datagram_listener_answers_a_client { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("nc Unix sockets use Linux socket primitives"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("nc Unix sockets use Linux socket primitives"); return }
   let socket = short_socket_path("dgram")?
   if socket.byte_len() > 100 {
     test.skip("the temporary directory socket is too long for a Unix socket")

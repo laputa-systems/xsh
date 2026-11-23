@@ -77,7 +77,7 @@ test test_uu_date_single_dash_as_date_string { |ctx|
 
 # origin: uutils test_date::test_write_error
 test test_uu_date_write_error { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

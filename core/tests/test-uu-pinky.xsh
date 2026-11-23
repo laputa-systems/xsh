@@ -131,7 +131,7 @@ test test_uu_pinky_long_format_wo_user { |ctx|
 
 # origin: uutils test_pinky::test_lookup
 test test_uu_pinky_lookup { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let s = uu.scene(ctx)?
   let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["--lookup"])?
@@ -141,7 +141,7 @@ test test_uu_pinky_lookup { |ctx|
 
 # origin: uutils test_pinky::test_no_flag
 test test_uu_pinky_no_flag { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let s = uu.scene(ctx)?
   let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", [])?

@@ -24,7 +24,7 @@ test test_sync_errors_continue_and_data_needs_files { |ctx|
 
 
 test test_sync_data_fifo_reports_invalid_argument { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   test.timeout(ctx, 2s)
   let root = test.temp_dir(ctx, name: "sync-fifo")?
   fs.mkfifo(fp"{root}/fifo", 0o600)

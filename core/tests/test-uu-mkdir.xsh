@@ -420,7 +420,7 @@ test test_uu_mkdir_mkdir_parent_inherits_setgid { |ctx|
 
 # origin: uutils test_mkdir::test_mkdir_acl
 test test_uu_mkdir_mkdir_acl { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "a")
   fs.xattr_set(uu.at(s, "a"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 32, 0, 5, 0, 255, 255, 255, 255])?)
@@ -431,7 +431,7 @@ test test_uu_mkdir_mkdir_acl { |ctx|
 
 # origin: uutils test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask
 test test_uu_mkdir_mkdir_acl_inheritance_with_restrictive_mask { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fixture requires Linux POSIX ACL xattr semantics"); return }
   let s = uu.scene(ctx)?
   uu.mkdir(s, "parent")
   fs.xattr_set(uu.at(s, "parent"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255])?)

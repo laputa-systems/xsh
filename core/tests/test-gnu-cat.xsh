@@ -37,7 +37,7 @@ test test_gnu_cat_cat_E_log { |ctx|
 
 # origin: gnu cat/cat-proc.log
 test test_gnu_cat_cat_proc_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc/cpuinfo"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux /proc/cpuinfo"); return }
   guard p"/proc/cpuinfo".is_file() else { test.skip("requires /proc/cpuinfo"); return }
   let s = uu.scene(ctx)?
   let marked = uu.invoke(s, "cat", ["-E", "/proc/cpuinfo"])?

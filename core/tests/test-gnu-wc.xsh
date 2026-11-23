@@ -161,7 +161,7 @@ pure shell_word(value: Str) -> Str {
 
 # origin: gnu wc/wc-proc.log
 test test_gnu_wc_wc_proc_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux /proc or /sys virtual files"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux /proc or /sys virtual files"); return }
   let s = uu.scene(ctx)?
   for input in [p"/proc/version", p"/sys/kernel/profiling"] {
     if fs.access(input, read: true) {

@@ -64,7 +64,7 @@ test nohup_combines_input_and_error_redirection_notice { |ctx|
 }
 
 test nohup_full_advisory_output_prevents_command_execution { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

@@ -98,7 +98,7 @@ test test_open_fd_flags_are_a_closed_set_and_reach_open {
   defer file.remove()
   match unix.open_fd(file, write: true, nonblock: false, flags: ["direct"]) {
     Err(failure) => {
-      if failure.errno == null { test.skip("this platform has no O_DIRECT"); return }
+      guard failure.errno != null else { test.skip("this platform has no O_DIRECT"); return }
       assert failure.errno == 22, "an unsupported filesystem rejects O_DIRECT with EINVAL"
       test.skip("the filesystem does not support O_DIRECT")
     }
@@ -113,7 +113,7 @@ test test_open_fd_flags_are_a_closed_set_and_reach_open {
 }
 
 test test_fadvise_reports_the_error_of_posix_fadvise { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.error_kind(unix.fadvise(0, 0, 0, "dontneed"), "unix-fadvise")
     return
   }

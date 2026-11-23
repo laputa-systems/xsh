@@ -10,7 +10,7 @@ test test_uu_sync_invalid_arg { |ctx|
 
 # origin: uutils test_sync::test_sync_data
 test test_uu_sync_sync_data { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   let s = uu.scene(ctx)?
   let directory = test.temp_dir(ctx, name: "sync-data")?
   uu.succeeds(uu.invoke(s, "sync", ["--data", directory.display()], timeout: 30s)?)
@@ -26,7 +26,7 @@ test test_uu_sync_sync_data_but_not_file { |ctx|
 
 # origin: uutils test_sync::test_sync_data_fifo_fails_immediately
 test test_uu_sync_sync_data_fifo_fails_immediately { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   let s = uu.scene(ctx)?
   uu.mkfifo(s, "test-fifo")
   let r = uu.invoke(s, "sync", ["--data", uu.at(s, "test-fifo").display()], timeout: 2s)?
@@ -38,7 +38,7 @@ test test_uu_sync_sync_data_fifo_fails_immediately { |ctx|
 
 # origin: uutils test_sync::test_sync_data_nonblock_flag_reset
 test test_uu_sync_sync_data_nonblock_flag_reset { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("fs.sync_path data mode requires Linux fdatasync"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "test_file.txt", "test content")
   uu.succeeds(uu.invoke(s, "sync", ["--data", "test_file.txt"], timeout: 30s)?)

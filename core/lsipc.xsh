@@ -320,12 +320,12 @@ proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs,
 proc posix_entries(kind: Str, selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[IpcEntry] {
   let family = posix_kind(kind)
   if kind == "posix_mqueues" {
-    if !ipc.posix_directory_available(family) {
+    guard ipc.posix_directory_available(family) else {
       gnu.error("/dev/mqueue does not seem to be mounted. Use 'mount -t mqueue none /dev/mqueue' to mount it.")
       return []
     }
     if let name = selection.name {
-      if !gnu.argument_bytes(name, raw).starts_with(b"/") {
+      guard gnu.argument_bytes(name, raw).starts_with(b"/") else {
         ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: message queue name must start with '/': "), gnu.argument_bytes(name, raw), b"\n"]))
         return []
       }
@@ -445,7 +445,7 @@ proc semaphore_limits() [fs, io, error] -> ipc.SemaphoreLimits {
 }
 
 proc global_rows(selection: report.Selection, raw: List[gnu.RawArgument]) [fs, process, time, env, io, error] -> List[report.Row] {
-  if ! ipc.system_v_available() {
+  guard ipc.system_v_available() else {
     gnu.error("cannot read IPC limits: System V IPC tables are unavailable")
     exit 1
   }

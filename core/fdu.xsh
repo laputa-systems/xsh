@@ -405,7 +405,7 @@ pure action_for(key: input.Key) -> Action {
 }
 
 proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error] -> Handled {
-  if app.pending != null {
+  guard app.pending == null else {
     return {app: execute_delete(app, columns, rows), quit: false} when action == Enter
     return {app: {...app, pending: null}, quit: false} when action == Cancel
     return {app: app, quit: false}

@@ -128,7 +128,7 @@ test test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_i
 }
 
 test test_linux_nonroot_native_tests_keep_the_callers_environment { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("requires Linux")
     return
   }

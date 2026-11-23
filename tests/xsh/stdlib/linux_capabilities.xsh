@@ -40,7 +40,7 @@ pure bits_of(mask: Int) -> List[Int] {
 }
 
 test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -60,7 +60,7 @@ test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |_|
 }
 
 test test_privileges_match_the_masks_in_proc_status { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -79,7 +79,7 @@ test test_privileges_match_the_masks_in_proc_status { |_|
 }
 
 test test_set_no_new_privs_is_visible_and_inherited { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -93,7 +93,7 @@ unix.exec(process.command_argv(args[0], [args[0], args[1]]))?
 }
 
 test test_parent_death_signal_is_set_cleared_and_validated { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -108,7 +108,7 @@ print f"{errno_of(linux.set_parent_death_signal(1000))}"
 }
 
 test test_parent_death_signal_survives_exec { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -120,7 +120,7 @@ unix.exec(process.command_argv(args[0], [args[0], args[1]]))?
 }
 
 test test_capability_numbers_are_validated_before_the_kernel { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -133,7 +133,7 @@ test test_capability_numbers_are_validated_before_the_kernel { |_|
 }
 
 test test_inheritable_set_can_always_be_emptied { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -146,7 +146,7 @@ print f"{after.inheritable.len()} {after.effective == before.effective} {after.p
 }
 
 test test_set_capabilities_reports_the_kernel_refusal_for_growth { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -167,7 +167,7 @@ if missing < 0 {
 }
 
 test test_bounding_drop_needs_setpcap_and_is_permanent { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -185,7 +185,7 @@ if before.bounding.is_empty() {
 }
 
 test test_unknown_capability_number_is_refused_by_the_kernel { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -195,7 +195,7 @@ test test_unknown_capability_number_is_refused_by_the_kernel { |_|
 }
 
 test test_securebits_round_trip_when_setpcap_is_held { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -207,7 +207,7 @@ print f"{allowed} {errno} {json.encode(linux.privileges()?.securebits)?}"
 }
 
 test test_locked_securebits_cannot_be_cleared_again { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -220,7 +220,7 @@ print f"{allowed} {first} {second} {json.encode(linux.privileges()?.securebits)?
 }
 
 test test_keep_capabilities_flag_is_a_securebit_and_clears_on_request { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -233,7 +233,7 @@ print json.encode(linux.privileges()?.securebits)?
 }
 
 test test_ambient_raise_needs_the_capability_to_be_inheritable { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -252,7 +252,7 @@ if candidate < 0 {
 }
 
 test test_ambient_raise_follows_the_inheritable_set { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -279,7 +279,7 @@ if candidate < 0 {
 }
 
 test test_ptracer_accepts_none_any_and_a_pid_or_reports_einval { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -291,7 +291,7 @@ test test_ptracer_accepts_none_any_and_a_pid_or_reports_einval { |_|
 }
 
 test test_set_resuid_and_resgid_validate_and_accept_current_identity { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }
@@ -304,7 +304,7 @@ test test_set_resuid_and_resgid_validate_and_accept_current_identity { |_|
 }
 
 test test_set_resuid_reports_the_kernel_refusal_without_privilege { |_|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.privileges requires Linux")
     return
   }

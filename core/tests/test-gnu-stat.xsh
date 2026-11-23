@@ -85,7 +85,7 @@ test test_gnu_stat_stat_hyphen_log { |ctx|
 
 # origin: gnu stat/stat-mount.log
 test test_gnu_stat_stat_mount_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux unshare mount namespaces"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux unshare mount namespaces"); return }
   let s = uu.scene(ctx)?
   assert stat_text(s, ["-c%m", "."])?.starts_with("/")
   let version = uu.argv(s, "stat", [p"--version"])?

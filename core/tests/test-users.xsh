@@ -44,7 +44,7 @@ proc session_file(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[
 }
 
 test test_users_lists_user_sessions_sorted_on_one_line { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let file = session_file(
     ctx,
     [
@@ -64,7 +64,7 @@ test test_users_lists_user_sessions_sorted_on_one_line { |ctx|
 }
 
 test test_users_prints_nothing_without_user_sessions { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let file = session_file(ctx, [utmp_record(2, 0, "~", "reboot")?])?
   let result = users_run(ctx, [file.display()])?
   assert result.status == 0
@@ -72,7 +72,7 @@ test test_users_prints_nothing_without_user_sessions { |ctx|
 }
 
 test test_users_missing_or_unreadable_file_lists_nobody_like_glibc { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let root = test.temp_dir(ctx, name: "users-missing")?
   assert users_run(ctx, [fp"{root}/absent".display()])?.stdout == ""
   let directory = users_run(ctx, [root.display()])?

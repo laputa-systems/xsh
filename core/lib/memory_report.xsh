@@ -124,7 +124,7 @@ proc u64_divide(value: U64, divisor: UInt) [error] -> U64Division {
 }
 
 proc u64_from_int(value: Int) [error] -> U64 {
-  if value < 0 {
+  guard value >= 0 else {
     let offset = (value + 9223372036854775807 + 1) as UInt
     return {high: (2147483648 + offset / WORD_BASE) as Word32, low: (offset % WORD_BASE) as Word32}
   }
@@ -518,7 +518,7 @@ export proc require_memory_root(root_path: Path) [fs, process, env, error] {
       if detail == "Permission denied" { gnu.error("This system does not support memory blocks"); exit 1 }
       gnu.error(f"cannot open /{MEMORY_PATH}: {detail}"); exit 1
     }
-    Ok(value) => { if value.kind != "dir" { gnu.error(f"cannot open /{MEMORY_PATH}: Not a directory"); exit 1 } }
+    Ok(value) => { guard value.kind == "dir" else { gnu.error(f"cannot open /{MEMORY_PATH}: Not a directory"); exit 1 } }
   }
 }
 

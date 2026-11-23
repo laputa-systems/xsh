@@ -94,7 +94,7 @@ proc who_file(
 }
 
 test test_who_default_lists_user_sessions { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let result = who_file(ctx, [])?
   assert result.status == 0
   assert result.stdout == "alice    ttyNotThere  Nov 14 22:13 (example.org)\n", result.stdout
@@ -102,7 +102,7 @@ test test_who_default_lists_user_sessions { |ctx|
 }
 
 test test_who_each_selector_prints_its_own_record_kind { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let cases = [
     ["-b", "         system boot  Nov 14 22:13\n"],
     ["-r", "         run-level 5  Nov 14 22:13                   last=S\n"],
@@ -121,7 +121,7 @@ test test_who_each_selector_prints_its_own_record_kind { |ctx|
 }
 
 test test_who_all_combines_every_selector { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let result = who_file(ctx, ["-a"])?
   assert result.stdout == """           system boot  Nov 14 22:13
            run-level 5  Nov 14 22:13                   last=S
@@ -136,14 +136,14 @@ alice    ? ttyNotThere  Nov 14 22:13   ?          3456 (example.org)
 }
 
 test test_who_short_flag_keeps_the_pid_column_out_unless_exit_shows { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   assert who_file(ctx, ["-s", "-u"])?.stdout == "alice    ttyNotThere  Nov 14 22:13 (example.org)\n"
   let all_short = who_file(ctx, ["-a", "-s"])?
   assert "1234 id=si" in all_short.stdout, "-a turns the pid column back on"
 }
 
 test test_who_count_lists_names_and_a_total { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   assert who_file(ctx, ["-q"])?.stdout == "alice\n# users=1\n"
   assert who_file(ctx, ["--count"])?.stdout == "alice\n# users=1\n"
   assert who_file(ctx, ["--cou"])?.stdout == "alice\n# users=1\n"
@@ -155,7 +155,7 @@ test test_who_count_lists_names_and_a_total { |ctx|
 }
 
 test test_who_headings_follow_the_selected_columns { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let cases = [
     {
       args: [
@@ -207,7 +207,7 @@ test test_who_headings_follow_the_selected_columns { |ctx|
 }
 
 test test_who_run_level_reports_the_previous_level { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let root = test.temp_dir(ctx, name: "who-levels")?
   let file = fp"{root}/utmp"
   file.write(run_level(51, 53)?)
@@ -217,7 +217,7 @@ test test_who_run_level_reports_the_previous_level { |ctx|
 }
 
 test test_who_formats_time_from_the_locale_and_tz { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let iso = who_file(ctx, [], {LC_ALL: "C.UTF-8", TZ: "UTC"})?
   assert iso.stdout == "alice    ttyNotThere  2023-11-14 22:13 (example.org)\n", iso.stdout
   let shifted = who_file(ctx, [], {LC_ALL: "C", TZ: "EST5"})?
@@ -227,7 +227,7 @@ test test_who_formats_time_from_the_locale_and_tz { |ctx|
 }
 
 test test_who_host_display_is_kept_after_the_host { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let root = test.temp_dir(ctx, name: "who-display")?
   let file = fp"{root}/utmp"
   file.write(
@@ -242,7 +242,7 @@ test test_who_host_display_is_kept_after_the_host { |ctx|
 }
 
 test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let root = test.temp_dir(ctx, name: "who-lookup")?
   let file = fp"{root}/utmp"
   file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "192.0.2.7:0")?)
@@ -257,7 +257,7 @@ test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 }
 
 test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let root = test.temp_dir(ctx, name: "who-tty")?
   let tag = f"{process.current_pid()?}"
@@ -295,7 +295,7 @@ test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
 }
 
 test test_who_missing_file_lists_nothing_like_glibc { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let root = test.temp_dir(ctx, name: "who-missing")?
   let result = who_run(ctx, [fp"{root}/absent".display()])?
   assert result.status == 0
@@ -305,7 +305,7 @@ test test_who_missing_file_lists_nothing_like_glibc { |ctx|
 }
 
 test test_who_am_i_needs_a_terminal_on_stdin { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("utmp record decoding is only available on Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("utmp record decoding is only available on Linux"); return }
   let silent = who_file(ctx, ["-m"])?
   assert silent.status == 0
   assert silent.stdout == ""

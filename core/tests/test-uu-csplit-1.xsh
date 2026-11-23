@@ -1075,7 +1075,7 @@ test test_uu_csplit_create_error_reports_filename { |ctx|
 
 # origin: uutils test_csplit::test_csplit_dev_full_stdout
 test test_uu_csplit_csplit_dev_full_stdout { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

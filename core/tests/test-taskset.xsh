@@ -148,7 +148,7 @@ test test_taskset_reports_the_affinity_of_a_process_as_mask_and_list { |ctx|
 }
 
 test test_taskset_changes_the_affinity_of_another_process { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("taskset needs Linux CPU affinity")
     return
   }
@@ -200,7 +200,7 @@ test test_taskset_runs_a_command_under_a_mask_or_a_list { |ctx|
 }
 
 test test_taskset_list_output_uses_ranges_and_strides_as_util_linux_does { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("taskset needs Linux CPU affinity")
     return
   }
@@ -222,7 +222,7 @@ test test_taskset_list_output_uses_ranges_and_strides_as_util_linux_does { |ctx|
 }
 
 test test_taskset_mask_parsing_accepts_prefixes_commas_and_case { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("taskset needs Linux CPU affinity")
     return
   }
@@ -263,7 +263,7 @@ test test_taskset_mask_and_list_syntax_errors_name_the_text { |ctx|
 }
 
 test test_taskset_refused_masks_report_the_kernels_error { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("taskset needs Linux CPU affinity"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("taskset needs Linux CPU affinity"); return }
   for mask in ["0", "0x", "00"] {
     let result = taskset_run(ctx, [mask, "true"])?
     assert result.status == 1, mask
@@ -332,7 +332,7 @@ test test_taskset_pid_and_operand_errors { |ctx|
 }
 
 test test_taskset_a_plus_sign_and_leading_zeros_are_pids { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("taskset needs Linux CPU affinity")
     return
   }
@@ -365,7 +365,7 @@ test test_taskset_missing_and_unrunnable_commands { |ctx|
 }
 
 test test_taskset_command_status_is_the_exit_status { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("taskset needs Linux CPU affinity")
     return
   }

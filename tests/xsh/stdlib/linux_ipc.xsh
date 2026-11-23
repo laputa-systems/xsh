@@ -1,5 +1,5 @@
 test test_linux_ipc_name_bytes_reject_embedded_nul_without_truncation {
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux IPC"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux IPC"); return }
   for result in [
     linux.posix_semaphore_value(b"missing\0suffix"),
     linux.posix_message_queue_messages(b"/missing\0suffix"),
@@ -12,7 +12,7 @@ test test_linux_ipc_name_bytes_reject_embedded_nul_without_truncation {
 }
 
 test test_linux_system_v_semaphore_element_rejects_unrepresentable_ids_and_indices {
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux IPC"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux IPC"); return }
   for result in [
     linux.system_v_semaphore_element(-1, 0),
     linux.system_v_semaphore_element(0, -1),

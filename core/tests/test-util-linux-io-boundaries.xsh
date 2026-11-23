@@ -129,7 +129,7 @@ proc output_failure_mismatches(s: uu.Scene, util: Str, args: List[Path], output_
 }
 
 test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
@@ -163,7 +163,7 @@ test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
 }
 
 test test_util_linux_closed_reader_termination_matches_reference { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let memory_root = uu.at(s, "memory")
@@ -199,7 +199,7 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
 }
 
 test test_util_linux_lsmem_preserves_raw_sysroot_argv { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let memory_root = uu.at_bytes(s, b"memory-\xff")?
   memory_root.mkdir()
@@ -216,7 +216,7 @@ test test_util_linux_lsmem_preserves_raw_sysroot_argv { |ctx|
 }
 
 test test_util_linux_lsipc_preserves_raw_option_error_bytes { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let option = Path.parse_bytes(b"--time-format=\xff")?
   let reference = ul.reference_paths(s, "lsipc", [option], timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
@@ -228,7 +228,7 @@ test test_util_linux_lsipc_preserves_raw_option_error_bytes { |ctx|
 }
 
 test test_namei_loop_diagnostic_precedes_stdout_write_error { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "loop1", "loop1")
@@ -240,7 +240,7 @@ test test_namei_loop_diagnostic_precedes_stdout_write_error { |ctx|
 }
 
 test test_namei_loop_closed_stdout_pipe { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "loop1", "loop1")
   for action in ["default", "ignore"] {

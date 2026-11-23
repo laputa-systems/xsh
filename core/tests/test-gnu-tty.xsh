@@ -13,7 +13,7 @@ proc closed_input(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Res
 
 # origin: gnu tty/tty.log
 test test_gnu_tty_tty_log { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

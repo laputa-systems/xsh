@@ -141,7 +141,7 @@ export pure process_percents(
   total: ProcessTotal,
   core_count: Int,
 ) -> ProcessPercents {
-  if previous_ticks == null {
+  guard previous_ticks != null else {
     return {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
   }
   if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < previous_ticks {

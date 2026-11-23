@@ -293,7 +293,7 @@ test test_reg_reload_sends_one_request { |ctx|
 }
 
 test test_dev_lists_interfaces_under_their_phy { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }
@@ -333,7 +333,7 @@ test test_dev_lists_interfaces_under_their_phy { |ctx|
 }
 
 test test_dev_info_resolves_the_name_and_unknown_names_fail_like_iw { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }
@@ -419,7 +419,7 @@ proc phy_messages() [error] -> Result[List[Record], Error] {
 }
 
 test test_list_and_phy_info_merge_a_split_wiphy_dump { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }
@@ -728,7 +728,7 @@ test test_station_dump_and_get_print_every_decoded_field { |ctx|
 }
 
 test test_link_reports_connection_and_not_connected { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }
@@ -896,7 +896,7 @@ test test_phy_selectors_by_index_by_name_and_implicit_form { |ctx|
 }
 
 test test_event_prints_subscribed_events_until_the_stream_ends { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }
@@ -954,7 +954,7 @@ test test_event_prints_subscribed_events_until_the_stream_ends { |ctx|
 }
 
 test test_missing_nl80211_family_and_unrecorded_requests_fail_loudly { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("iw needs Linux nl80211 sockets")
     return
   }

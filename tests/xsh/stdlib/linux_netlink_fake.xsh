@@ -39,7 +39,7 @@ proc install(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error]
 }
 
 test test_fixture_answers_family_lookups_and_requests { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -79,7 +79,7 @@ test test_fixture_answers_family_lookups_and_requests { |ctx|
 }
 
 test test_unrecorded_requests_and_bad_fixture_lines_fail_loudly { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -107,7 +107,7 @@ test test_unrecorded_requests_and_bad_fixture_lines_fail_loudly { |ctx|
 }
 
 test test_events_reach_only_sockets_that_joined_their_group { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -153,7 +153,7 @@ test test_events_reach_only_sockets_that_joined_their_group { |ctx|
 }
 
 test test_descriptors_the_fake_did_not_open_take_the_real_path { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }
@@ -181,7 +181,7 @@ match linux.recvfrom(nl, 16) {
 }
 
 test test_without_a_netlink_fixture_the_fake_leaves_netlink_real { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the linux netlink fake requires Linux")
     return
   }

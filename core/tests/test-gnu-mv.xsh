@@ -25,7 +25,7 @@ proc linked(left: Path, right: Path) [fs, error] -> Bool {
 
 # origin: gnu mv/atomic.log
 test test_gnu_mv_atomic_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "t1", "s1")
   uu.symlink(s, "t2", "s2")
@@ -38,7 +38,7 @@ test test_gnu_mv_atomic_log { |ctx|
 
 # origin: gnu mv/atomic2.log
 test test_gnu_mv_atomic2_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   uu.touch(s, "a")
   uu.touch(s, "b")
@@ -73,7 +73,7 @@ test test_gnu_mv_backup_dir_log { |ctx|
 
 # origin: gnu mv/backup-is-src.log
 test test_gnu_mv_backup_is_src_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -203,7 +203,7 @@ test test_gnu_mv_hard_4_log { |ctx|
 
 # origin: gnu mv/hard-link-1.log
 test test_gnu_mv_hard_link_1_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -285,7 +285,7 @@ test test_gnu_mv_i_link_no_log { |ctx|
 
 # origin: gnu mv/into-self-2.log
 test test_gnu_mv_into_self_2_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -332,7 +332,7 @@ test test_gnu_mv_into_self_log { |ctx|
 
 # origin: gnu mv/leak-fd.log
 test test_gnu_mv_leak_fd_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
@@ -397,7 +397,7 @@ test test_gnu_mv_mv_n_log { |ctx|
 
 # origin: gnu mv/mv-special-1.log
 test test_gnu_mv_mv_special_1_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -440,7 +440,7 @@ test test_gnu_mv_mv_special_1_log { |ctx|
 
 # origin: gnu mv/no-copy.log
 test test_gnu_mv_no_copy_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -465,7 +465,7 @@ test test_gnu_mv_no_target_dir_log { |ctx|
 
 # origin: gnu mv/part-fail.log
 test test_gnu_mv_part_fail_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   if unix.id()?.euid == 0 { test.skip("root bypasses the permission checks in this test") }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
@@ -482,7 +482,7 @@ test test_gnu_mv_part_fail_log { |ctx|
 
 # origin: gnu mv/part-hardlink-symlink.log
 test test_gnu_mv_part_hardlink_symlink_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -519,7 +519,7 @@ test test_gnu_mv_part_hardlink_symlink_log { |ctx|
 
 # origin: gnu mv/part-hardlink.log
 test test_gnu_mv_part_hardlink_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -536,7 +536,7 @@ test test_gnu_mv_part_hardlink_log { |ctx|
 
 # origin: gnu mv/part-rename.log
 test test_gnu_mv_part_rename_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -560,7 +560,7 @@ test test_gnu_mv_part_rename_log { |ctx|
 
 # origin: gnu mv/partition-perm.log
 test test_gnu_mv_partition_perm_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()
@@ -619,7 +619,7 @@ test test_gnu_mv_symlink_onto_hardlink_log { |ctx|
 
 # origin: gnu mv/to-symlink.log
 test test_gnu_mv_to_symlink_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no /dev/shm tmpfs"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no /dev/shm tmpfs"); return }
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()

@@ -33,7 +33,7 @@ test test_uu_uptime_uptime_for_file_without_utmpx_records { |ctx|
 
 # origin: uutils test_uptime::test_uptime_with_dir
 test test_uu_uptime_uptime_with_dir { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("uptime needs Linux utmp support")
     return
   }
@@ -62,7 +62,7 @@ test test_uu_uptime_uptime_with_fifo { |ctx|
 
 # origin: uutils test_uptime::test_uptime_with_non_existent_file
 test test_uu_uptime_uptime_with_non_existent_file { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("uptime needs Linux utmp support")
     return
   }

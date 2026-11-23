@@ -1,7 +1,7 @@
 use support.syslog_service as svc
 
 test test_readiness_never_precedes_the_published_socket { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   for round in range(5) {
     let lay = svc.layout(ctx, f"ready-{round}")?
     let launch = svc.prepare(ctx, lay)?
@@ -17,7 +17,7 @@ test test_readiness_never_precedes_the_published_socket { |ctx|
 }
 
 test test_the_start_record_states_the_limits_and_that_kernel_loss_is_unobservable { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "start-record")?
   let launch = svc.prepare(ctx, lay)?
   let handle_command = launch.command
@@ -33,7 +33,7 @@ test test_the_start_record_states_the_limits_and_that_kernel_loss_is_unobservabl
 }
 
 test test_a_record_separates_the_kernel_sender_from_what_the_sender_claims { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "separation")?
   let launch = svc.prepare(ctx, lay)?
   let handle_command = launch.command
@@ -53,7 +53,7 @@ test test_a_record_separates_the_kernel_sender_from_what_the_sender_claims { |ct
 }
 
 test test_stop_while_idle_exits_zero_prints_final_counters_and_removes_only_its_own_socket { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "idle-stop")?
   let launch = svc.prepare(ctx, lay)?
   let handle_command = launch.command
@@ -69,7 +69,7 @@ test test_stop_while_idle_exits_zero_prints_final_counters_and_removes_only_its_
 }
 
 test test_a_live_competing_receiver_makes_the_second_start_fail_without_touching_the_first { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "competing")?
   let first = svc.prepare(ctx, lay)?
   let handle_command = first.command
@@ -94,7 +94,7 @@ test test_a_live_competing_receiver_makes_the_second_start_fail_without_touching
 }
 
 test test_a_second_service_on_the_same_state_directory_is_refused_by_the_lock { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "lock")?
   let first = svc.prepare(ctx, lay)?
   let handle_command = first.command
@@ -114,7 +114,7 @@ test test_a_second_service_on_the_same_state_directory_is_refused_by_the_lock { 
 }
 
 test test_a_restart_replaces_the_stale_socket_of_a_killed_predecessor { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "stale")?
   let first = svc.prepare(ctx, lay)?
   let handle_command = first.command
@@ -137,7 +137,7 @@ test test_a_restart_replaces_the_stale_socket_of_a_killed_predecessor { |ctx|
 }
 
 test test_a_foreign_entry_at_the_socket_path_stops_the_service_and_is_left_untouched { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "foreign")?
   lay.socket.write(b"precious")
   let launch = svc.prepare(ctx, lay)?
@@ -160,7 +160,7 @@ test test_a_foreign_entry_at_the_socket_path_stops_the_service_and_is_left_untou
 }
 
 test test_an_unsafe_socket_directory_is_refused { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "unsafe")?
   lay.dev.chmod(0o775)
   let launch = svc.prepare(ctx, lay)?
@@ -177,7 +177,7 @@ proc boot(ctx: TestContext, lay: svc.Layout, wrapper: Str = "") [fs, process, ne
 }
 
 test test_unexpected_descriptors_are_closed_counted_and_never_leak { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "rights")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -200,7 +200,7 @@ test test_unexpected_descriptors_are_closed_counted_and_never_leak { |ctx|
 }
 
 test test_descriptor_exhaustion_leaves_the_service_running_without_leaking { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "exhaustion")?
   let launch = boot(ctx, lay, "ulimit -n 48")?
   let command = launch.command
@@ -222,7 +222,7 @@ test test_descriptor_exhaustion_leaves_the_service_running_without_leaking { |ct
 }
 
 test test_empty_oversize_and_exact_limit_datagrams_are_told_apart { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "sizes")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -246,7 +246,7 @@ test test_empty_oversize_and_exact_limit_datagrams_are_told_apart { |ctx|
 }
 
 test test_malformed_binary_multiline_and_cut_payloads_each_render_one_line { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "payloads")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -278,7 +278,7 @@ proc spawn_sender(ctx: TestContext, lay: svc.Layout, tag: Str, scenario: Str, ar
 }
 
 test test_concurrent_senders_are_all_recorded_in_order_with_their_own_kernel_pids { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "concurrent")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -312,7 +312,7 @@ test test_concurrent_senders_are_all_recorded_in_order_with_their_own_kernel_pid
 }
 
 test test_a_flood_is_bounded_counted_and_leaves_the_service_responsive { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "flood")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -351,7 +351,7 @@ test test_a_flood_is_bounded_counted_and_leaves_the_service_responsive { |ctx|
 }
 
 test test_a_termination_signal_during_a_flood_stops_the_service_promptly { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "term-load")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -374,7 +374,7 @@ test test_a_termination_signal_during_a_flood_stops_the_service_promptly { |ctx|
 }
 
 test test_a_full_pipe_never_stalls_the_receive_loop_and_is_counted { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "full-pipe")?
   let fifo = fp"{lay.root}/sink.fifo"
   fs.mkfifo(fifo, 0o600)
@@ -404,7 +404,7 @@ test test_a_full_pipe_never_stalls_the_receive_loop_and_is_counted { |ctx|
 }
 
 test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow_memory { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "dev-full")?
   let errors = fp"{lay.root}/stderr.log"
   let launch = svc.prepare(ctx, lay, "exec 1>/dev/full", stderr_file: errors)?
@@ -435,7 +435,7 @@ test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow
 }
 
 test test_copy_truncate_rotation_of_the_append_only_log_is_tolerated { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "truncate")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -455,7 +455,7 @@ test test_copy_truncate_rotation_of_the_append_only_log_is_tolerated { |ctx|
 }
 
 test test_a_renamed_log_is_followed_and_reported_once { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "renamed")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -478,7 +478,7 @@ test test_a_renamed_log_is_followed_and_reported_once { |ctx|
 }
 
 test test_a_removed_log_stops_the_service_so_a_supervisor_can_reopen_it { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "removed")?
   let errors = fp"{lay.root}/stderr.log"
   let launch = svc.prepare(ctx, lay, stderr_file: errors)?
@@ -498,7 +498,7 @@ test test_a_removed_log_stops_the_service_so_a_supervisor_can_reopen_it { |ctx|
 }
 
 test test_the_interrupt_signal_stops_the_service_like_a_termination_signal { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "interrupt")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -511,7 +511,7 @@ test test_the_interrupt_signal_stops_the_service_like_a_termination_signal { |ct
 }
 
 test test_a_hangup_from_a_supervisor_reload_leaves_the_service_running { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   let lay = svc.layout(ctx, "reload")?
   let launch = boot(ctx, lay)?
   let command = launch.command
@@ -535,7 +535,7 @@ proc as_user(ctx: TestContext, lay: svc.Layout, tag: Str, uid: Int, scenario: St
 }
 
 test test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syslogd needs Linux kernel sender credentials"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syslogd needs Linux kernel sender credentials"); return }
   if unix.id()?.uid != 0 {
     test.skip("running senders as other users needs real root")
     return

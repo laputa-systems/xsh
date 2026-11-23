@@ -307,7 +307,7 @@ test test_gnu_tail_start_middle_log { |ctx|
 }
 # origin: gnu tail/inotify-only-regular.log
 test test_gnu_tail_inotify_only_regular_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace or inotify"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux strace or inotify"); return }
   let s = uu.scene(ctx)?
   let r = traced_timeout(s, ["-f", "/dev/null"])?
   uu.fails_with_code(r, 124)
@@ -315,7 +315,7 @@ test test_gnu_tail_inotify_only_regular_log { |ctx|
 }
 # origin: gnu tail/debug.log
 test test_gnu_tail_debug_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux strace utility"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux strace utility"); return }
   let s = uu.scene(ctx)?
   uu.touch(s, "file.debug")
   let probe = traced_timeout(s, ["-F", "file.debug"])?
@@ -358,7 +358,7 @@ test test_gnu_tail_pid_log { |ctx|
 }
 # origin: gnu tail/tail-n0f.log
 test test_gnu_tail_tail_n0f_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux procfs process status"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux procfs process status"); return }
   let s = uu.scene(ctx)?
   uu.touch(s, "empty")
   uu.write(s, "nonempty", "anything\n")

@@ -325,7 +325,7 @@ pure process_rates(
   previous_process: processes.Process?,
   row: processes.Process,
 ) -> rates.ProcessPercents {
-  if row.cpu_ticks == null {
+  guard row.cpu_ticks != null else {
     return {share: {state: .Unavailable, value: null}, per_core: {state: .Unavailable, value: null}}
   }
 
@@ -338,7 +338,7 @@ pure process_rates(
   }
 
   if let older = previous_process {
-    if older.cpu_ticks == null {
+    guard older.cpu_ticks != null else {
       return {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
     }
     if frame.gap {

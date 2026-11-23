@@ -38,7 +38,7 @@ test test_gnu_tee_append_log { |ctx|
 
 # origin: gnu tee/write-eagain.log
 test test_gnu_tee_write_eagain_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("write fault injection requires Linux strace"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("write fault injection requires Linux strace"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "exp", "a\n")
   let words = uu.argv(s, "tee", [p"file1"])?

@@ -45,7 +45,7 @@ proc boot_stdout() [fs, process, time, error] -> Result[Str, Error] {
 
 # origin: uutils test_who::test_arg1_arg2
 test test_uu_who_arg1_arg2 { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("who needs Linux utmp support")
     return
   }
@@ -57,7 +57,7 @@ test test_uu_who_arg1_arg2 { |ctx|
 
 # origin: uutils test_who::test_boot
 test test_uu_who_boot { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("who needs Linux utmp support")
     return
   }
@@ -72,7 +72,7 @@ test test_uu_who_boot { |ctx|
 
 # origin: uutils test_who::test_dead
 test test_uu_who_dead { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("who needs Linux utmp support")
     return
   }
@@ -93,7 +93,7 @@ test test_uu_who_invalid_arg { |ctx|
 
 # origin: uutils test_who::test_login
 test test_uu_who_login { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("who needs Linux utmp support")
     return
   }
@@ -108,7 +108,7 @@ test test_uu_who_login { |ctx|
 
 # origin: uutils test_who::test_m
 test test_uu_who_m { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("who needs Linux utmp support")
     return
   }

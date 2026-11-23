@@ -55,7 +55,7 @@ test test_yes_help_version_and_invalid_options { |ctx|
 }
 
 test test_yes_write_errors_name_standard_output { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

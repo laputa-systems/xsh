@@ -1,6 +1,6 @@
 #!/usr/bin/env -S xsh --
 cli main(dir: Path, keep: Int = 3, dry_run = false) {
-  if keep < 1 {
+  guard keep >= 1 else {
     eprint f"--keep must be positive, got {keep}"
     exit 2
   }

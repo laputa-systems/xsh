@@ -238,7 +238,7 @@ proc first_snapshot_difference(before: Bytes, after: Bytes) [error] -> Result[St
   let after_lines = json.encode(after_document, pretty: true)?.split("\n")
   var index = 0
   while index < before_lines.len() and index < after_lines.len() {
-    if before_lines[index] != after_lines[index] {
+    guard before_lines[index] == after_lines[index] else {
       return Ok(f"JSON line {index + 1}: before={before_lines[index]} after={after_lines[index]}")
     }
     index += 1

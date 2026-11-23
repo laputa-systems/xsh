@@ -17,7 +17,7 @@ proc parity_paths(s: uu.Scene, args: List[Path], vars: Record = {}) [fs, process
 }
 
 test test_mountpoint_upstream_default_follows_mountpoint_symlink { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "file", "owned file fixture\n")
   uu.mkdir(s, "directory")
@@ -30,7 +30,7 @@ test test_mountpoint_upstream_default_follows_mountpoint_symlink { |ctx|
 }
 
 test test_mountpoint_upstream_nofollow_does_not_follow_mountpoint_symlink { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(s.root)?
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
@@ -39,13 +39,13 @@ test test_mountpoint_upstream_nofollow_does_not_follow_mountpoint_symlink { |ctx
 }
 
 test test_mountpoint_upstream_mutually_exclusive_devno_nofollow { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   parity(s, ["--devno", "--nofollow", "/"])
 }
 
 test test_mountpoint_quiet_for_files_directories_and_dangling_symlinks { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "regular", "regular path\n")
   uu.mkdir(s, "directory")
@@ -64,7 +64,7 @@ test test_mountpoint_quiet_for_files_directories_and_dangling_symlinks { |ctx|
 }
 
 test test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   uu.write(s, "regular", "regular path\n")
   let mount = fs.mount_for(s.root)?
@@ -74,7 +74,7 @@ test test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths { |
 }
 
 test test_mountpoint_device_number_requires_a_block_device { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   parity(s, ["--devno", "/dev/null"])
   parity(s, ["-x", "/"])
@@ -82,7 +82,7 @@ test test_mountpoint_device_number_requires_a_block_device { |ctx|
 }
 
 test test_mountpoint_devno_reports_owned_block_device { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let device = uu.at(s, "block-device")
@@ -93,7 +93,7 @@ test test_mountpoint_devno_reports_owned_block_device { |ctx|
 }
 
 test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(s.root)?
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
@@ -116,7 +116,7 @@ test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
 }
 
 test test_mountpoint_rejects_bad_operand_counts_and_options { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   parity(s, [])
   parity(s, ["/", "/dev"])
@@ -126,7 +126,7 @@ test test_mountpoint_rejects_bad_operand_counts_and_options { |ctx|
 }
 
 test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"entry-\xff")?
   name.write("owned raw path\n")
@@ -143,7 +143,7 @@ test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
 }
 
 test test_mountpoint_option_prefixes_clusters_and_argument_errors { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for arguments in [
     ["--no", "/"], ["--f", "/"], ["--fs", "/"], ["--s", "/"],
@@ -158,7 +158,7 @@ test test_mountpoint_option_prefixes_clusters_and_argument_errors { |ctx|
 }
 
 test test_mountpoint_inaccessible_path_from_unprivileged_runner { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   s.root.chmod(0o755)
@@ -180,7 +180,7 @@ test test_mountpoint_inaccessible_path_from_unprivileged_runner { |ctx|
 }
 
 test test_mountpoint_private_same_device_bind_mount { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/bind"
@@ -211,7 +211,7 @@ test test_mountpoint_private_same_device_bind_mount { |ctx|
 }
 
 test test_mountpoint_version_provenance { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let banner = gnu.version_text("mountpoint")
   for args in [["--version"], ["-V"]] {
@@ -248,7 +248,7 @@ test test_mountpoint_pipe_descriptor_resolution { |ctx|
 }
 
 test test_mountpoint_show_pipe_descriptor { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for args in [["--show", "/dev/stdin"], ["--show", "-q", "/dev/stdin"]] {
     let reference = ul.reference(s, "mountpoint", args)?
@@ -259,7 +259,7 @@ test test_mountpoint_show_pipe_descriptor { |ctx|
 }
 
 test test_mountpoint_show_deleted_working_directory { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for target in [p"/proc/self/cwd", p"/proc/self/cwd/", p"/proc/self/cwd/..", uu.at(s, "cwd-link")] {
     if target == uu.at(s, "cwd-link") { uu.symlink(s, "/proc/self/cwd", "cwd-link") }
@@ -285,7 +285,7 @@ test test_mountpoint_show_deleted_working_directory { |ctx|
 }
 
 test test_mountpoint_show_memfd { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let args = [p"--show", p"/proc/self/fd/3"]
   let reference_words = ul.reference_argv(s, "mountpoint", args)?
@@ -316,7 +316,7 @@ test test_mountpoint_error_with_os_error_in_path { |ctx|
 }
 
 test test_mountpoint_hidden_mount_identity { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let a = uu.at(s, "a")
@@ -342,7 +342,7 @@ test test_mountpoint_hidden_mount_identity { |ctx|
 }
 
 test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let bad = uu.at_bytes(s, b"bad-\xff")?
@@ -357,7 +357,7 @@ test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
 }
 
 proc review6_mountpoint_fixture(ctx: TestContext, mode: Str) [fs, process, env, error] -> Result[Unit, Error] {
-  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = fp"{ctx.core_dir}/tests/data/mountpoint-review6.sh"

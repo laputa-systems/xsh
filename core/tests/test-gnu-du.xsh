@@ -420,7 +420,7 @@ test test_gnu_du_inodes_log { |ctx|
 
 # origin: gnu du/2g.log
 test test_gnu_du_2g_log { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("macOS has no Linux fallocate utility"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("macOS has no Linux fallocate utility"); return }
   let made = run.capture --text mktemp -d /var/tmp/xsh-du-XXXXXXXX
   assert made.status.exited_with(0), made.stderr
   let allocated: uu.Scene = uu.Scene(ctx:, root: fp"{made.stdout.trim()}")

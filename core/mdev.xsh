@@ -544,7 +544,7 @@ proc create_device(paths: Paths, name: Bytes, spec: DeviceSpec) [fs, error] -> R
   } else {
     let kind = if spec.kind == .BlockDevice { "block" } else { "char" }
     if let Err(problem) = fs.mknod(target, kind, spec.mode, major: spec.major, minor: spec.minor) {
-      if problem.errno != 17 { return Err(error.failure(f"creating {target.display()}: {problem.message}")) }
+      guard problem.errno == 17 else { return Err(error.failure(f"creating {target.display()}: {problem.message}")) }
     }
   }
   target.chmod(spec.mode)
@@ -569,7 +569,7 @@ proc ensure_parent(target: Path) [fs, error] -> Result[Unit] {
 
 proc ensure_directory(directory: Path) [fs, error] -> Result[Unit] {
   if let Ok(stat) = fs.stat(directory, follow_symlinks: true) {
-    if stat.kind != "dir" { return Err(failure(f"creating {directory.display()}: path is not a directory")) }
+    guard stat.kind == "dir" else { return Err(failure(f"creating {directory.display()}: path is not a directory")) }
     return Ok()
   }
   let parent = directory.parent()
@@ -691,7 +691,7 @@ proc run_scan(paths: Paths, rules: List[Rule]) [fs, process, env, error, time, i
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io, time, net] -> Int {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     eprint "mdev: mdev is only available on Linux"
     return 1
   }

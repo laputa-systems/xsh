@@ -300,7 +300,7 @@ test fs_root_tempdir_is_private_owned_and_removed_after_the_parent_moves { |ctx|
 }
 
 test fs_root_syncfs_flushes_the_containing_filesystem { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("syncfs is Linux only"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("syncfs is Linux only"); return }
   let root = fs.open_root(test.temp_dir(ctx, name: "root-syncfs")?)?
   root.write(p"file", "data")
   if let Err(failure) = root.syncfs() {

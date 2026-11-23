@@ -109,7 +109,7 @@ test test_gnu_misc_echo_log { |ctx|
 
 # origin: gnu misc/false-status.log
 test test_gnu_misc_false_status_log { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }
@@ -409,7 +409,7 @@ test test_gnu_misc_yes_log { |ctx|
 
 # origin: gnu misc/close-stdout.log
 test test_gnu_misc_close_stdout_log { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("macOS has no /dev/full")
     return
   }

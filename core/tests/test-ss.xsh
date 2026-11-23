@@ -257,7 +257,7 @@ test test_ss_no_queues_and_oneline_layouts { |ctx|
 }
 
 test test_ss_extended_and_timer_text { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ss needs Linux netlink sockets")
     return
   }
@@ -381,7 +381,7 @@ test test_ss_resolves_names_from_the_configured_databases { |ctx|
 }
 
 test test_ss_filter_expressions_combine_ports_and_prefixes { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ss needs Linux netlink sockets")
     return
   }
@@ -520,7 +520,7 @@ test test_net_sockets_counter_text_follows_the_reference_tool {
 }
 
 test test_net_sockets_summary_counts_the_scene {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ss needs Linux netlink sockets")
     return
   }
@@ -544,7 +544,7 @@ test test_net_sockets_resolve_cgroup_ids_through_the_unified_hierarchy {
 }
 
 test test_net_sockets_raw_dump_falls_back_to_procfs_only_without_a_handler { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ss needs Linux netlink sockets")
     return
   }

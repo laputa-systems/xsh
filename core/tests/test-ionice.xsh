@@ -51,7 +51,7 @@ proc reporter(ctx: TestContext) [fs, process, error] -> Result[List[Str]] {
 }
 
 test test_ionice_without_arguments_prints_the_current_priority { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("ionice needs Linux I/O priority"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("ionice needs Linux I/O priority"); return }
   process.set_io_priority(0, "best-effort", 5, "process")
   let result = ionice_run(ctx, [])?
   assert result.status == 0, result.stderr
@@ -60,7 +60,7 @@ test test_ionice_without_arguments_prints_the_current_priority { |ctx|
 }
 
 test test_ionice_runs_a_command_under_a_class_and_level { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("ionice needs Linux I/O priority"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("ionice needs Linux I/O priority"); return }
   let command = reporter(ctx)?
 
   let named = ionice_run(ctx, ["-c", "best-effort", "-n", "3"].extend(command))?
@@ -89,7 +89,7 @@ test test_ionice_runs_a_command_under_a_class_and_level { |ctx|
 }
 
 test test_ionice_ignored_class_data_warns { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ionice needs Linux I/O priority")
     return
   }
@@ -111,7 +111,7 @@ test test_ionice_ignored_class_data_warns { |ctx|
 }
 
 test test_ionice_reads_and_changes_other_processes { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("ionice needs Linux I/O priority"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("ionice needs Linux I/O priority"); return }
   let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"], new_session: true))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
@@ -138,7 +138,7 @@ test test_ionice_reads_and_changes_other_processes { |ctx|
 }
 
 test test_ionice_changes_a_process_group { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ionice needs Linux I/O priority")
     return
   }
@@ -155,7 +155,7 @@ test test_ionice_changes_a_process_group { |ctx|
 }
 
 test test_ionice_reads_a_users_priority { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("ionice needs Linux I/O priority"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("ionice needs Linux I/O priority"); return }
   let uid = unix.id()?.uid
   let result = ionice_run(ctx, ["-u", f"{uid}"])?
   assert result.status == 0, result.stderr
@@ -169,7 +169,7 @@ test test_ionice_reads_a_users_priority { |ctx|
 }
 
 test test_ionice_failures_follow_util_linux_wording { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ionice needs Linux I/O priority")
     return
   }
@@ -245,7 +245,7 @@ test test_ionice_unknown_classes_are_passed_to_the_kernel { |ctx|
 }
 
 test test_ionice_level_wider_than_its_field_changes_the_class { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ionice needs Linux I/O priority")
     return
   }
@@ -261,7 +261,7 @@ test test_ionice_level_wider_than_its_field_changes_the_class { |ctx|
 }
 
 test test_ionice_real_time_class_needs_privilege { |ctx|
-  if system.uname()?.sysname != "Linux" { test.skip("ionice needs Linux I/O priority"); return }
+  guard system.uname()?.sysname == "Linux" else { test.skip("ionice needs Linux I/O priority"); return }
   let result = ionice_run(ctx, ["-c", "1", "true"])?
 
   if result.status == 0 {
@@ -273,7 +273,7 @@ test test_ionice_real_time_class_needs_privilege { |ctx|
 }
 
 test test_ionice_command_errors_and_status { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("ionice needs Linux I/O priority")
     return
   }

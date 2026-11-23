@@ -72,7 +72,7 @@ export proc execute(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, p
 ## group privileges. Returns why it cannot run unless the caller is root and
 ## may build mount and network namespaces; the caller skips with that reason.
 export proc execute_as_real_root(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Run, Error] {
-  if unix.id()?.uid != 0 {
+  guard unix.id()?.uid == 0 else {
     return Ok(.Unavailable("this scenario needs real root, because its server drops group privileges"))
   }
   run_scenario(ctx, name, steps, false)

@@ -136,7 +136,7 @@ test test_efibootmgr_reports_missing_boot_order_and_unparseable_entries { |ctx|
 }
 
 test test_efibootmgr_boot_order_writes_whole_variable_and_validates_entries { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }
@@ -221,7 +221,7 @@ test test_efibootmgr_delete_by_label_removes_every_match { |ctx|
 }
 
 test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }
@@ -307,7 +307,7 @@ proc snapshot(dir: Path) [fs, error] -> Str {
 }
 
 test test_efibootmgr_create_builds_hard_drive_and_file_path_entry { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }
@@ -323,7 +323,7 @@ test test_efibootmgr_create_builds_hard_drive_and_file_path_entry { |ctx|
 }
 
 test test_efibootmgr_create_honors_index_create_only_and_explicit_number { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }
@@ -361,7 +361,7 @@ test test_efibootmgr_create_warns_about_duplicate_labels_and_fills_a_missing_ord
 }
 
 test test_efibootmgr_create_dos_table_uses_signature_node { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }
@@ -373,7 +373,7 @@ test test_efibootmgr_create_dos_table_uses_signature_node { |ctx|
 }
 
 test test_efibootmgr_create_file_dev_path_and_optional_data { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("efibootmgr needs Linux EFI primitives")
     return
   }

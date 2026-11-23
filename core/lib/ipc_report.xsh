@@ -612,7 +612,7 @@ pure output_columns(raw: Str, selection: Selection, resource: Str?) -> Result[Li
       }
     }
     if let selected = column {
-      if !allowed_column(selected, selection, resource) {
+      guard allowed_column(selected, selection, resource) else {
         return Err(OptionError.Invalid(detail: f"column {remaining} does not apply to the specified IPC"))
       }
       columns += [selected]
@@ -784,7 +784,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
         let group_index = conflict_group(code)
         if group_index >= 0 {
           if let previous = first[group_index] {
-            if previous != code {
+            guard previous == code else {
               return Err(OptionError.Invalid(detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"))
             }
           }
@@ -829,7 +829,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           let group_index = conflict_group(mapped)
           if group_index >= 0 {
             if let previous = first[group_index] {
-              if previous != mapped {
+              guard previous == mapped else {
                 return Err(OptionError.Invalid(detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"))
               }
             }
