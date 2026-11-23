@@ -104,6 +104,9 @@ def float (bits : FloatBits) : Value Declaration Identity Source := .scalar (.fl
 def boolean (value : Bool) : Value Declaration Identity Source := .scalar (.boolean value)
 def duration (value : DurationValue) : Value Declaration Identity Source := .scalar (.duration value)
 
+/-- A literal's value. A path literal's lexeme is its text between the quotes:
+without a backslash it is the path of those UTF-8 bytes (SPEC 2.7 `p"..."`),
+and one with an escape is outside the model. -/
 def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Identity Source (Value Declaration Identity Source)
   | .null => .value (.scalar .null)
   | .bool value => .value (boolean value)
@@ -112,6 +115,12 @@ def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Id
   | .duration lexeme => match literals.duration lexeme with | some value => .value (duration value) | none => .stuck
   | .string value => .value (.scalar (.string value))
   | .bytes value => .value (.scalar (.bytes value))
+  | .path lexeme =>
+    if lexeme.toUTF8.toList.contains 92 then .unsupported
+    else
+      match NativePath.fromBytes? lexeme.toUTF8.toList with
+      | some path => .value (.scalar (.path path))
+      | none => .unsupported
   | _ => .unsupported
 
 def integerResult (errors : Errors Declaration Identity Source) :

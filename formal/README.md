@@ -514,6 +514,8 @@ Statements:
 
 Expressions:
 
+- path literals with escapes and regex literals (P); a path literal without a
+  backslash is the path of its text, as the binary reads `p"a/b"`
 - equality of streams, filesystem entries and commands (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text

@@ -985,6 +985,16 @@ theorem parse_float_witness :
     okFloat (decoded .parseFloat "-inf") = some 18442240474082181120 := by
   decide +kernel
 
+
+/-- As the verification binary gives the bytes `a/b` and finds `"b"` in
+`p"a/b"`: a path literal without escapes is the path of its text. -/
+theorem path_literal_witness :
+    (match Xsh.Semantics.CoreEval.literal (Declaration := Unit) (Identity := Unit) (Source := Unit)
+        collectionMachine.context.literals (.path "a/b") with
+      | .value (.scalar (.path path)) => some path.bytes
+      | _ => none) = some "a/b".toUTF8.toList := by
+  decide +kernel
+
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/
 theorem trailing_bits_rejected : okBytes (decoded .base64Decode "aGl=") = none := by
   decide +kernel
