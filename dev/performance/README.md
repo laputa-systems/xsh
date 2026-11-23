@@ -15,6 +15,9 @@ consolidation receipts through the former campaign gate tools. The owner-approve
 them with ordinary readiness-checked interleaved measurements. Their code is in
 Git history at `d03e90f45`.
 
+The [workload and oracle matrix](MATRIX.md) maps production activities to
+workloads, checks, held-out cases, and gaps.
+
 ## Owned containers
 
 `owned_containers.py` labels each container with an owner and stage, writes a
