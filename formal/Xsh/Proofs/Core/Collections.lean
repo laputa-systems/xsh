@@ -125,6 +125,10 @@ theorem findBytes_found (needle : List UInt8) :
 `byte_len` and `count_chars` count UTF-8 bytes and Unicode scalar values;
 `split` at a non-empty separator gives the pieces between its occurrences,
 and with `maxsplit` stops after that many, a negative limit having none;
+`base64_decode` and `base32_decode` decode the text's bytes without ASCII
+whitespace, base32 upper-cased, into `Ok` bytes or the `Err` the decoder the
+binary uses reports, and `Bytes.base64` and `Bytes.base32` encode with
+padding;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -144,6 +148,17 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .split text
           [.positional (.scalar (.string separator)), .named "maxsplit" (.scalar (.integer count))] =
         .value (.list ((splitLimited separator.toList text.toList count.val).map textValue))) ∧
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .base64Decode text [] =
+      baseDecoded errors .base64 (text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte)) ∧
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .base32Decode text [] =
+      baseDecoded errors .base32 ((text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte).map fun byte =>
+        if 97 ≤ byte ∧ byte ≤ 122 then byte - 32 else byte)) ∧
+    (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .base64 bytes [] =
+      .value (.scalar (.string (String.ofList
+        ((Xsh.Values.BaseCodec.encode .base64 bytes).map fun byte => Char.ofNat byte.toNat))))) ∧
+    (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .base32 bytes [] =
+      .value (.scalar (.string (String.ofList
+        ((Xsh.Values.BaseCodec.encode .base32 bytes).map fun byte => Char.ofNat byte.toNat))))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -158,7 +173,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
         .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
     (∀ needle index bytes offset, findBytes needle index bytes = some offset →
       index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
-  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl,
+  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl,
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -595,6 +610,52 @@ def bytesList : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List (L
     | .scalar (.bytes data) => some data
     | _ => none
   | _ => none
+
+def errText : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
+  | .value (.err (.scalar (.string text))) => some text
+  | _ => none
+
+def okBytes : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List UInt8)
+  | .value (.ok (.scalar (.bytes data))) => some data
+  | _ => none
+
+def decoded (method : TextMethod) (text : String) : Result Unit Unit Unit (Value Unit Unit Unit) :=
+  textMethod collectionMachine.context.errors method text []
+
+/-- As the verification binary prints, re-encoding each `Ok` with `base64()`:
+`aGk=` for `"aGk="`, `"aGk"` and `"aG k=\n"`, `aGloaQ==` for `"aGk=aGk="`, and
+the failures `non-zero trailing bits at 2` for `"aGl="`, `invalid length at 0`
+for `"a"`, `invalid symbol at 3` for `"aGk*"`, `invalid padding length at 1`
+for `"a==="` and `invalid symbol at 2` for `"aG=k"`; for base32 `aGVsbG8=`
+from `"nbswy3dp"` and `"NBSWY3DP"`, `YQ==` from `"ME======"`, and
+`invalid length at 2`, `non-zero trailing bits at 6` and `non-zero trailing
+bits at 1` for `"aGk"`, `"NBSWY3D="` and `"MF"`; and `NBUQ====`, the empty text
+and `NBSWY3DP` for `b"hi".base32()`, `b"".base64()` and `b"hello".base32()`. -/
+theorem base_codec_witness :
+    okBytes (decoded .base64Decode "aGk=") = some [104, 105] ∧
+    okBytes (decoded .base64Decode "aGk") = some [104, 105] ∧
+    okBytes (decoded .base64Decode "aG k=\n") = some [104, 105] ∧
+    okBytes (decoded .base64Decode "aGk=aGk=") = some [104, 105, 104, 105] ∧
+    errText (decoded .base64Decode "aGl=") = some "invalid base64: non-zero trailing bits at 2" ∧
+    errText (decoded .base64Decode "a") = some "invalid base64: invalid length at 0" ∧
+    errText (decoded .base64Decode "aGk*") = some "invalid base64: invalid symbol at 3" ∧
+    errText (decoded .base64Decode "a===") = some "invalid base64: invalid padding length at 1" ∧
+    errText (decoded .base64Decode "aG=k") = some "invalid base64: invalid symbol at 2" ∧
+    okBytes (decoded .base32Decode "nbswy3dp") = some [104, 101, 108, 108, 111] ∧
+    okBytes (decoded .base32Decode "NBSWY3DP") = some [104, 101, 108, 108, 111] ∧
+    okBytes (decoded .base32Decode "ME======") = some [97] ∧
+    errText (decoded .base32Decode "aGk") = some "invalid base32: invalid length at 2" ∧
+    errText (decoded .base32Decode "NBSWY3D=") = some "invalid base32: non-zero trailing bits at 6" ∧
+    errText (decoded .base32Decode "MF") = some "invalid base32: non-zero trailing bits at 1" ∧
+    textResult (bytesRun .base32 [104, 105] []) = some "NBUQ====" ∧
+    textResult (bytesRun .base64 [] []) = some "" ∧
+    textResult (bytesRun .base32 [104, 101, 108, 108, 111] []) = some "NBSWY3DP" ∧
+    textResult (bytesRun .base64 [104, 105] []) = some "aGk=" := by
+  decide +kernel
+
+/-- A decoder that ignored trailing bits would accept `"aGl="`. -/
+theorem trailing_bits_rejected : okBytes (decoded .base64Decode "aGl=") = none := by
+  decide +kernel
 
 /-- As the verification binary prints for `b"  AbC\r\nxy\n"`: `10 2 2 false
 true true`, `65 null`, `lower`, `trim`, `slice(2, length: 3)` and `slice(9)`

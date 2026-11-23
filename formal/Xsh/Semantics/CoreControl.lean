@@ -1,5 +1,6 @@
 import Xsh.Semantics.CoreEval
 import Xsh.Validation.Core.Require
+import Xsh.Values.BaseCodec
 
 namespace Xsh.Semantics.CoreControl
 
@@ -1743,7 +1744,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
   | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
-  | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap
+  | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap | base64Decode | base32Decode
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -1754,6 +1755,8 @@ def TextMethod.ofName : String → Option TextMethod
   | "reverse" => some .reverse
   | "split" => some .split
   | "wrap" => some .wrap
+  | "base64_decode" => some .base64Decode
+  | "base32_decode" => some .base32Decode
   | "find" => some .find
   | "replace" => some .replace
   | "lines" => some .lines
@@ -1961,6 +1964,19 @@ def byteSliceOf (errors : Errors Declaration Identity Source) (text : String) (o
     | some piece => .value (.scalar (.string piece))
     | none => .failure (.runtime (errors.textByteSlice "slice must align to UTF-8 boundaries"))
 
+def isAsciiWhitespaceByte (byte : UInt8) : Bool :=
+  byte == 32 || byte == 9 || byte == 10 || byte == 12 || byte == 13
+
+/-- `Str.base64_decode()` and `Str.base32_decode()` on the text's bytes with
+ASCII whitespace removed: `Ok` of the decoded bytes, or the `invalid-base64`
+or `invalid-base32` `Err` naming the failure and its position. -/
+def baseDecoded (errors : Errors Declaration Identity Source) (alphabet : Xsh.Values.BaseCodec.Alphabet)
+    (data : List UInt8) : Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match Xsh.Values.BaseCodec.decode alphabet data with
+  | .ok decoded => .value (.ok (.scalar (.bytes decoded)))
+  | .error (failure, position) =>
+    .value (.err (errors.described s!"invalid-{alphabet.name}" s!"invalid {alphabet.name}: {failure.text} at {position}"))
+
 /-- The text methods (SPEC 4.4): `byte_len` and `count_chars` count UTF-8
 bytes and Unicode scalar values; `starts_with`, `ends_with`, `reverse` by
 scalar value; `split` at a separator, an empty one giving each character;
@@ -1998,6 +2014,10 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
       else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
     | none => .unsupported
+  | .base64Decode, [] => baseDecoded errors .base64 (text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte)
+  | .base32Decode, [] =>
+    baseDecoded errors .base32 ((text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte).map fun byte =>
+      if 97 ≤ byte ∧ byte ≤ 122 then byte - 32 else byte)
   | .wrap, [.positional width] =>
     match width.eraseNominal with
     | .scalar (.integer count) =>
@@ -2120,6 +2140,7 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
 /-- A `Bytes` method (SPEC 4.4). -/
 inductive BytesMethod where
   | len | isEmpty | byteAt | startsWith | endsWith | slice | chunks | lines | countLines | lower | trim | utf8
+  | base64 | base32
 
 def BytesMethod.ofName : String → Option BytesMethod
   | "len" => some .len
@@ -2134,10 +2155,10 @@ def BytesMethod.ofName : String → Option BytesMethod
   | "lower" => some .lower
   | "trim" => some .trim
   | "utf8" => some .utf8
+  | "base64" => some .base64
+  | "base32" => some .base32
   | _ => none
 
-def isAsciiWhitespaceByte (byte : UInt8) : Bool :=
-  byte == 32 || byte == 9 || byte == 10 || byte == 12 || byte == 13
 
 /-- The pieces of `bytes` between each `0x0A`, a `0x0D` before it removed and
 no empty piece after a final newline. -/
@@ -2216,6 +2237,10 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
     | some text => .value (.ok (.scalar (.string text)))
     | none => .value (.err (errors.described "invalid-utf8"
         s!"byte data is not valid UTF-8 at byte {validPrefix bytes}"))
+  | .base64, [] => .value (.scalar (.string (String.ofList
+      ((Xsh.Values.BaseCodec.encode .base64 bytes).map fun byte => Char.ofNat byte.toNat))))
+  | .base32, [] => .value (.scalar (.string (String.ofList
+      ((Xsh.Values.BaseCodec.encode .base32 bytes).map fun byte => Char.ofNat byte.toNat))))
   | _, _ => .unsupported
 
 /-- A list, map, set or text method call: the receiver evaluates first, then

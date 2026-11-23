@@ -515,10 +515,10 @@ Expressions:
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
-  methods (the `Bytes` base encodings, digests, `dump`, `strings`, `compare`
+  methods (the `Bytes` digests, `dump`, `strings`, `compare`
   and non-ASCII `trim` aside) and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
-  `reverse`, `split`, `wrap`, `find`, `replace`, `lines`, `trim`,
+  `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice` and the integer parse methods (P)
 - the contextual `.require()` under a `return` inside an expression, such as
@@ -711,6 +711,12 @@ whose meaning does not depend on Unicode case or whitespace tables:
 `starts_with`, `ends_with`, `reverse`, `split` at a separator (an empty one
 giving each character; a `maxsplit` limit splits at most that many times and
 keeps the rest as the last piece, a negative one splitting everywhere),
+`base64_decode` and `base32_decode` (the text's bytes without ASCII
+whitespace, base32 upper-cased, decoded padded when they hold a `=` and
+unpadded otherwise, an `Ok` of the bytes or the `invalid-base64` or
+`invalid-base32` `Err` with the failure and position the binary's
+`data-encoding` decoder reports: length, symbol, padding length or non-zero
+trailing bits), the `Bytes` encoders `base64` and `base32` (padded),
 `wrap(width)` (each line's words packed greedily with single spaces into lines
 of at most `width` characters, a longer word cut, an empty last line after a
 final newline, and a width below one the runtime `text-wrap` failure, which

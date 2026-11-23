@@ -51,6 +51,7 @@ import Xsh.Paths.Fields
 import Xsh.Paths.Normalize
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
+import Xsh.Values.BaseCodec
 import Xsh.Calls.ArgumentOrder
 import Xsh.Collect.Block
 import Xsh.Semantics.Argv
