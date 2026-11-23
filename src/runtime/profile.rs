@@ -21,7 +21,7 @@ pub struct SiteKey {
     pub definition: Option<Span>,
     pub call_site: Option<Span>,
     pub module: Option<std::sync::Arc<str>>,
-    pub function_name: Option<std::sync::Arc<str>>,
+    pub function_name: Option<crate::symbol::Name>,
 }
 
 #[derive(Clone, Debug)]

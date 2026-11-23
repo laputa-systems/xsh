@@ -4453,7 +4453,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let declared = text.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|word| !word.is_empty()).take_while(|word| matches!(*word, "export" | "pure" | "proc" | "stream" | "optional")).any(|word| matches!(word, "pure" | "proc" | "stream"));
                 let function_name = declared.then(|| {
                     let name = match function { LoweredFunctionKey::Name(name) => name, LoweredFunctionKey::Qualified(name) => name.member };
-                    name.as_str().into_arc()
+                    name
                 });
                 profile.enter(crate::runtime::eval::SiteKey { kind, definition: Some(definition_span), call_site: Some(call_span), module: None, function_name });
             }

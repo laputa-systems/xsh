@@ -72,7 +72,7 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
         let kind = site.key.kind.name();
         let name = match site.key.kind {
             xsh_kind if xsh_kind.phase_name().is_some() => xsh_kind.phase_name().unwrap().to_string(),
-            _ if site.key.function_name.is_some() => site.key.function_name.as_ref().unwrap().to_string(),
+            _ if site.key.function_name.is_some() => site.key.function_name.unwrap().as_str().as_str().to_string(),
             _ => site.key.module.as_ref().map(|module| {
                 let path = std::path::Path::new(module.as_ref());
                 std::env::current_dir().ok().and_then(|cwd| path.strip_prefix(cwd).ok().map(|path| path.to_string_lossy().into_owned())).unwrap_or_else(|| module.to_string())
