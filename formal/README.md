@@ -518,7 +518,8 @@ Expressions:
 - methods other than the numeric, list, map and set methods and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split` without `maxsplit`, `find`, `replace`, `lines`, `trim`,
-  `words`, `fields`, `count_words` and `count_lines`;
+  `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
+  `translate`, `byte_at` and `byte_slice`;
   `Map.push`; and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
@@ -706,7 +707,14 @@ characters, the set Rust's `char::is_whitespace` tests, written out in
 `isUnicodeWhitespace`; `fields` with a delimiter drops empty pieces, and
 `count_lines` counts `lines`. The witnesses include the ideographic space,
 no-break space, `U+0085` and the line separator, and the mutant trims with
-Lean's ASCII `Char.isWhitespace`. A text
+Lean's ASCII `Char.isWhitespace`. `squeeze`, `delete` and `translate` work
+on characters (`translate` deletes a character whose position is past the
+target's end); `byte_at` gives a byte or `null`; and `byte_slice` gives the
+clamped byte range as text, or the runtime `text-byte-slice` failure for a
+negative offset or length, an offset past the end, or ends off a UTF-8
+character boundary, which `try` does not capture. Its witnesses carry each of
+the binary's four failure messages, and the mutant rounds a misaligned end
+down. A text
 method applies to a `Str` receiver and a collection method to a list, map or
 set, through one dispatch, `valueMethodCall`. The root proves that a reported
 `find` offset starts an occurrence of the needle. The witnesses follow the

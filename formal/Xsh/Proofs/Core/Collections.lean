@@ -41,7 +41,7 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
         (evaluate frame receiver).bind fun target after =>
           (threadArguments machine.context.spelling evaluate after arguments).bind fun supplied last =>
             match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
-            | .scalar (.string text), some method, _ => fromEval last (textMethod method text supplied)
+            | .scalar (.string text), some method, _ => fromEval last (textMethod machine.context.errors method text supplied)
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (collectionMethod machine.context.errors method target values)
@@ -121,17 +121,17 @@ theorem findBytes_found (needle : List UInt8) :
 `replace(from, with: to)` replaces every non-overlapping occurrence left to
 right; and an offset `find` reports starts an occurrence of the needle at or
 after the byte `start`. -/
-theorem text_methods :
-    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .byteLen text [] =
+theorem text_methods (errors : Errors Declaration Identity Source) :
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .byteLen text [] =
       countedValue text.toUTF8.size) ∧
-    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .countChars text [] =
+    (∀ text, textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .countChars text [] =
       countedValue text.length) ∧
     (∀ text separator, separator.isEmpty = false →
-      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .split text
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .split text
           [.positional (.scalar (.string separator))] =
         .value (.list ((splitRun separator.toList (text.length + 1) [] text.toList).map textValue))) ∧
     (∀ text pattern replacement,
-      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .replace text
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .replace text
           [.positional (.scalar (.string pattern)), .named "with" (.scalar (.string replacement))] =
         .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
     (∀ needle index bytes offset, findBytes needle index bytes = some offset →
@@ -315,26 +315,26 @@ def sample : String := "héllo wörld"
 `["a","b"] ["a","b"] []`, `héLLo wörLd bbb`, `-a-b-c-`, `[""]`,
 `["","a",""]` and `3` for the same calls. -/
 theorem text_witness :
-    countResult (textMethod .byteLen sample []) = some (some 13) ∧
-    countResult (textMethod .countChars sample []) = some (some 11) ∧
-    boolResult (textMethod .isEmpty "" []) = some true ∧
-    boolResult (textMethod .startsWith sample [textOf "hé"]) = some true ∧
-    boolResult (textMethod .endsWith sample [textOf "ld"]) = some true ∧
-    textResult (textMethod .reverse sample []) = some "dlröw olléh" ∧
-    textsResult (textMethod .split "a,b,,c" [textOf ","]) = some ["a", "b", "", "c"] ∧
-    textsResult (textMethod .split "abc" [textOf ""]) = some ["a", "b", "c"] ∧
-    countResult (textMethod .find sample [textOf "w"]) = some (some 7) ∧
-    countResult (textMethod .find sample [textOf "z"]) = some none ∧
-    countResult (textMethod .find sample [textOf "l", .named "start" (intOf 4)]) = some (some 4) ∧
-    textsResult (textMethod .lines "a\nb\n" []) = some ["a", "b"] ∧
-    textsResult (textMethod .lines "a\r\nb" []) = some ["a", "b"] ∧
-    textsResult (textMethod .lines "" []) = some [] ∧
-    textResult (textMethod .replace sample [textOf "l", .named "with" (strOf "L")]) = some "héLLo wörLd" ∧
-    textResult (textMethod .replace "aaa" [textOf "a", .named "with" (strOf "b")]) = some "bbb" ∧
-    textResult (textMethod .replace "abc" [textOf "", .named "with" (strOf "-")]) = some "-a-b-c-" ∧
-    textsResult (textMethod .split "" [textOf ","]) = some [""] ∧
-    textsResult (textMethod .split ",a," [textOf ","]) = some ["", "a", ""] ∧
-    countResult (textMethod .find "héllo" [textOf "l", .named "start" (intOf 2)]) = some (some 3) := by
+    countResult (textMethod collectionMachine.context.errors .byteLen sample []) = some (some 13) ∧
+    countResult (textMethod collectionMachine.context.errors .countChars sample []) = some (some 11) ∧
+    boolResult (textMethod collectionMachine.context.errors .isEmpty "" []) = some true ∧
+    boolResult (textMethod collectionMachine.context.errors .startsWith sample [textOf "hé"]) = some true ∧
+    boolResult (textMethod collectionMachine.context.errors .endsWith sample [textOf "ld"]) = some true ∧
+    textResult (textMethod collectionMachine.context.errors .reverse sample []) = some "dlröw olléh" ∧
+    textsResult (textMethod collectionMachine.context.errors .split "a,b,,c" [textOf ","]) = some ["a", "b", "", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .split "abc" [textOf ""]) = some ["a", "b", "c"] ∧
+    countResult (textMethod collectionMachine.context.errors .find sample [textOf "w"]) = some (some 7) ∧
+    countResult (textMethod collectionMachine.context.errors .find sample [textOf "z"]) = some none ∧
+    countResult (textMethod collectionMachine.context.errors .find sample [textOf "l", .named "start" (intOf 4)]) = some (some 4) ∧
+    textsResult (textMethod collectionMachine.context.errors .lines "a\nb\n" []) = some ["a", "b"] ∧
+    textsResult (textMethod collectionMachine.context.errors .lines "a\r\nb" []) = some ["a", "b"] ∧
+    textsResult (textMethod collectionMachine.context.errors .lines "" []) = some [] ∧
+    textResult (textMethod collectionMachine.context.errors .replace sample [textOf "l", .named "with" (strOf "L")]) = some "héLLo wörLd" ∧
+    textResult (textMethod collectionMachine.context.errors .replace "aaa" [textOf "a", .named "with" (strOf "b")]) = some "bbb" ∧
+    textResult (textMethod collectionMachine.context.errors .replace "abc" [textOf "", .named "with" (strOf "-")]) = some "-a-b-c-" ∧
+    textsResult (textMethod collectionMachine.context.errors .split "" [textOf ","]) = some [""] ∧
+    textsResult (textMethod collectionMachine.context.errors .split ",a," [textOf ","]) = some ["", "a", ""] ∧
+    countResult (textMethod collectionMachine.context.errors .find "héllo" [textOf "l", .named "start" (intOf 2)]) = some (some 3) := by
   decide +kernel
 
 def withName : Xsh.Syntax.RawName := name 358 (by decide)
@@ -378,34 +378,90 @@ for `count_lines` on `"a\nb\n"`, `"a\nb"`, `""` and `"\n"`; `"x\u{200b}"` for
 trimming `"\u{85}x\u{200b}"`; and `["ab"]`, `["a","b"]` and `[]` for
 `"ab".fields("")`, `"a::b".fields(delimiter: "::")` and `"".fields("")`. -/
 theorem whitespace_witness :
-    textResult (textMethod .trim spaced []) = some "a\u00A0b\tc" ∧
-    textsResult (textMethod .words spaced []) = some ["a", "b", "c"] ∧
-    textsResult (textMethod .fields spaced []) = some ["a", "b", "c"] ∧
-    countResult (textMethod .countWords spaced []) = some (some 3) ∧
-    textsResult (textMethod .fields "a:b::c" [textOf ":"]) = some ["a", "b", "c"] ∧
-    textsResult (textMethod .words "" []) = some [] ∧
-    textsResult (textMethod .fields "  " []) = some [] ∧
-    countResult (textMethod .countLines "a\nb\n" []) = some (some 2) ∧
-    countResult (textMethod .countLines "a\nb" []) = some (some 2) ∧
-    countResult (textMethod .countLines "" []) = some (some 0) ∧
-    countResult (textMethod .countLines "\n" []) = some (some 1) ∧
-    textResult (textMethod .trim "\u0085x\u200B" []) = some "x\u200B" ∧
-    textsResult (textMethod .fields "ab" [textOf ""]) = some ["ab"] ∧
-    textsResult (textMethod .fields "a::b" [.named "delimiter" (strOf "::")]) = some ["a", "b"] ∧
-    textsResult (textMethod .fields "" [textOf ""]) = some [] := by
+    textResult (textMethod collectionMachine.context.errors .trim spaced []) = some "a\u00A0b\tc" ∧
+    textsResult (textMethod collectionMachine.context.errors .words spaced []) = some ["a", "b", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .fields spaced []) = some ["a", "b", "c"] ∧
+    countResult (textMethod collectionMachine.context.errors .countWords spaced []) = some (some 3) ∧
+    textsResult (textMethod collectionMachine.context.errors .fields "a:b::c" [textOf ":"]) = some ["a", "b", "c"] ∧
+    textsResult (textMethod collectionMachine.context.errors .words "" []) = some [] ∧
+    textsResult (textMethod collectionMachine.context.errors .fields "  " []) = some [] ∧
+    countResult (textMethod collectionMachine.context.errors .countLines "a\nb\n" []) = some (some 2) ∧
+    countResult (textMethod collectionMachine.context.errors .countLines "a\nb" []) = some (some 2) ∧
+    countResult (textMethod collectionMachine.context.errors .countLines "" []) = some (some 0) ∧
+    countResult (textMethod collectionMachine.context.errors .countLines "\n" []) = some (some 1) ∧
+    textResult (textMethod collectionMachine.context.errors .trim "\u0085x\u200B" []) = some "x\u200B" ∧
+    textsResult (textMethod collectionMachine.context.errors .fields "ab" [textOf ""]) = some ["ab"] ∧
+    textsResult (textMethod collectionMachine.context.errors .fields "a::b" [.named "delimiter" (strOf "::")]) = some ["a", "b"] ∧
+    textsResult (textMethod collectionMachine.context.errors .fields "" [textOf ""]) = some [] := by
   decide +kernel
 
 /-- A `trim` on Lean's ASCII `Char.isWhitespace` stops at the leading
 ideographic space; the model removes it, as the binary does. -/
 theorem ascii_trim_rejected :
     (spaced.toList.dropWhile Char.isWhitespace).head? = some '\u3000' ∧
-      textResult (textMethod .trim spaced []) = some "a\u00A0b\tc" := by
+      textResult (textMethod collectionMachine.context.errors .trim spaced []) = some "a\u00A0b\tc" := by
+  decide +kernel
+
+def failureText : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
+  | .failure (.runtime (.scalar (.string text))) => some text
+  | _ => none
+
+def doubled : String := "héllo  wörld"
+
+/-- As the verification binary prints `"hélo wörld"`, `"abcc  d"`,
+`"héo  wrd"`, `"héLLO  wörLd"`, `"x"`, `"xyc"` and `"abx"` for `squeeze`,
+`delete` and `translate`; `104 195 null null` for `byte_at(0)`, `(1)`, `(99)`
+and `(-1)`; `"hé"`, `"llo  wörld"` and `" wörld"` for
+`byte_slice(0, length: 3)`, `(3)` and `(7, length: 99)`; and on `"héllo"`, `""`
+for `byte_slice(6)` and the `text-byte-slice` failures `slice must align to
+UTF-8 boundaries` for `(2)` and `(0, length: 2)`, `offset is past end of text`
+for `(9)`, `offset cannot be negative` for `(-1)` and `length cannot be
+negative` for `(1, length: -1)`. -/
+theorem character_witness :
+    textResult (textMethod collectionMachine.context.errors .squeeze doubled []) = some "hélo wörld" ∧
+    textResult (textMethod collectionMachine.context.errors .squeeze "aabbcc  d" [textOf "ab"]) = some "abcc  d" ∧
+    textResult (textMethod collectionMachine.context.errors .delete doubled [textOf "lö"]) = some "héo  wrd" ∧
+    textResult (textMethod collectionMachine.context.errors .translate doubled [textOf "lo", textOf "LO"]) =
+      some "héLLO  wörLd" ∧
+    textResult (textMethod collectionMachine.context.errors .translate "abc" [textOf "abc", textOf "x"]) = some "x" ∧
+    textResult (textMethod collectionMachine.context.errors .translate "abc" [textOf "ab", textOf "xyz"]) = some "xyc" ∧
+    textResult (textMethod collectionMachine.context.errors .squeeze "aabbxx" []) = some "abx" ∧
+    countResult (textMethod collectionMachine.context.errors .byteAt doubled [.positional (intOf 0)]) = some (some 104) ∧
+    countResult (textMethod collectionMachine.context.errors .byteAt doubled [.positional (intOf 1)]) = some (some 195) ∧
+    countResult (textMethod collectionMachine.context.errors .byteAt doubled [.positional (intOf 99)]) = some none ∧
+    countResult (textMethod collectionMachine.context.errors .byteAt doubled [.positional (intOf (-1))]) = some none ∧
+    textResult (textMethod collectionMachine.context.errors .byteSlice doubled
+      [.positional (intOf 0), .named "length" (intOf 3)]) = some "hé" ∧
+    textResult (textMethod collectionMachine.context.errors .byteSlice doubled [.positional (intOf 3)]) =
+      some "llo  wörld" ∧
+    textResult (textMethod collectionMachine.context.errors .byteSlice doubled
+      [.positional (intOf 7), .named "length" (intOf 99)]) = some " wörld" ∧
+    textResult (textMethod collectionMachine.context.errors .byteSlice "héllo" [.positional (intOf 6)]) = some "" ∧
+    failureText (textMethod collectionMachine.context.errors .byteSlice "héllo" [.positional (intOf 2)]) =
+      some "slice must align to UTF-8 boundaries" ∧
+    failureText (textMethod collectionMachine.context.errors .byteSlice "héllo"
+      [.positional (intOf 0), .named "length" (intOf 2)]) = some "slice must align to UTF-8 boundaries" ∧
+    failureText (textMethod collectionMachine.context.errors .byteSlice "héllo" [.positional (intOf 9)]) =
+      some "offset is past end of text" ∧
+    failureText (textMethod collectionMachine.context.errors .byteSlice "héllo" [.positional (intOf (-1))]) =
+      some "offset cannot be negative" ∧
+    failureText (textMethod collectionMachine.context.errors .byteSlice "héllo"
+      [.positional (intOf 1), .named "length" (intOf (-1))]) = some "length cannot be negative" := by
+  decide +kernel
+
+/-- A `byte_slice` that rounded a misaligned end down to a character boundary
+would give `"h"` for `"héllo".byte_slice(0, length: 2)`; the binary and the
+model fail with `text-byte-slice`. -/
+theorem rounding_byte_slice_rejected :
+    String.fromUTF8? ⟨#[104]⟩ = some "h" ∧
+      failureText (textMethod collectionMachine.context.errors .byteSlice "héllo"
+        [.positional (intOf 0), .named "length" (intOf 2)]) = some "slice must align to UTF-8 boundaries" := by
   decide +kernel
 
 /-- A `byte_len` that counted characters gives `11`; the binary and the model
 give `13`. -/
 theorem character_byte_len_rejected :
-    sample.length = 11 ∧ countResult (textMethod .byteLen sample []) = some (some 13) := by
+    sample.length = 11 ∧ countResult (textMethod collectionMachine.context.errors .byteLen sample []) = some (some 13) := by
   decide +kernel
 
 end Witness

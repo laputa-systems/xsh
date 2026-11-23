@@ -1624,7 +1624,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 /-- A text method (SPEC 4.4). -/
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
-  | trim | words | fields | countWords | countLines
+  | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -1642,6 +1642,11 @@ def TextMethod.ofName : String → Option TextMethod
   | "fields" => some .fields
   | "count_words" => some .countWords
   | "count_lines" => some .countLines
+  | "squeeze" => some .squeeze
+  | "delete" => some .delete
+  | "translate" => some .translate
+  | "byte_at" => some .byteAt
+  | "byte_slice" => some .byteSlice
   | _ => none
 
 /-- Unicode `White_Space` (UCD PropList), the set Rust's `char::is_whitespace`
@@ -1685,6 +1690,22 @@ def findBytes (needle : List UInt8) : Nat → List UInt8 → Option Nat
   | index, [] => if needle.isEmpty then some index else none
   | index, first :: rest => if needle.isPrefixOf (first :: rest) then some index else findBytes needle (index + 1) rest
 
+/-- Each run of one repeated character that `squeezed` admits collapsed to one. -/
+def squeezeRuns (squeezed : Char → Bool) : List Char → List Char
+  | [] => []
+  | [char] => [char]
+  | first :: second :: rest =>
+    if first = second ∧ squeezed first then squeezeRuns squeezed (second :: rest)
+    else first :: squeezeRuns squeezed (second :: rest)
+
+/-- Each character of `source` mapped to the character at its first position
+in `source` within `target`, or deleted when `target` is shorter. -/
+def translateChars (source target : List Char) (text : List Char) : List Char :=
+  text.flatMap fun char =>
+    match source.idxOf? char with
+    | some index => target[index]?.toList
+    | none => [char]
+
 /-- `Str.lines()`: the text split at each `\n`, a `\r` before it removed and
 no empty line after a final `\n`. -/
 def textLines (text : List Char) : List (List Char) :=
@@ -1694,12 +1715,31 @@ def textLines (text : List Char) : List (List Char) :=
 
 def textValue (chars : List Char) : Value Declaration Identity Source := .scalar (.string (String.mk chars))
 
+/-- `Str.byte_slice(offset, length:)` (SPEC 4.4): the bytes from `offset`,
+`length` of them or to the end, clamped to the text, as text; a negative
+offset or length, an offset past the end, or a slice whose ends are not UTF-8
+character boundaries is the runtime `text-byte-slice` failure. -/
+def byteSliceOf (errors : Errors Declaration Identity Source) (text : String) (offset : Int) (length : Option Int) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let bytes := text.toUTF8.toList
+  if offset < 0 then .failure (.runtime (errors.textByteSlice "offset cannot be negative"))
+  else if length.any (· < 0) then .failure (.runtime (errors.textByteSlice "length cannot be negative"))
+  else if bytes.length < offset.toNat then .failure (.runtime (errors.textByteSlice "offset is past end of text"))
+  else
+    let taken := match length with
+      | some count => (bytes.drop offset.toNat).take count.toNat
+      | none => bytes.drop offset.toNat
+    match String.fromUTF8? ⟨taken.toArray⟩ with
+    | some piece => .value (.scalar (.string piece))
+    | none => .failure (.runtime (errors.textByteSlice "slice must align to UTF-8 boundaries"))
+
 /-- The text methods (SPEC 4.4): `byte_len` and `count_chars` count UTF-8
 bytes and Unicode scalar values; `starts_with`, `ends_with`, `reverse` by
 scalar value; `split` at a separator, an empty one giving each character;
 `find` the byte offset of a needle at or after an optional byte `start`, or
 `null`; `replace(from, with)` every non-overlapping occurrence; and `lines`. -/
-def textMethod (method : TextMethod) (text : String) (supplied : List (Supplied Declaration Identity Source)) :
+def textMethod (errors : Errors Declaration Identity Source) (method : TextMethod) (text : String)
+    (supplied : List (Supplied Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
   let stringOf := fun (value : Value Declaration Identity Source) => match value.eraseNominal with
     | .scalar (.string found) => some found
@@ -1762,6 +1802,42 @@ def textMethod (method : TextMethod) (text : String) (supplied : List (Supplied 
       else .value (.list (((splitRun found.toList (text.length + 1) [] text.toList).filter
         fun piece => !piece.isEmpty).map textValue))
     | none => .unsupported
+  | .squeeze, [] => .value (textValue (squeezeRuns (fun _ => true) text.toList))
+  | .squeeze, [.positional chars] | .squeeze, [.named "chars" chars] =>
+    match stringOf chars with
+    | some set => .value (textValue (squeezeRuns (fun char => set.toList.contains char) text.toList))
+    | none => .unsupported
+  | .delete, [.positional chars] | .delete, [.named "chars" chars] =>
+    match stringOf chars with
+    | some set => .value (textValue (text.toList.filter fun char => !set.toList.contains char))
+    | none => .unsupported
+  | .translate, [.positional source, target] =>
+    let replaced := match target with
+      | .positional value | .named "to" value => stringOf value
+      | _ => none
+    match stringOf source, replaced with
+    | some from', some to' => .value (textValue (translateChars from'.toList to'.toList text.toList))
+    | _, _ => .unsupported
+  | .byteAt, [.positional index] =>
+    match index.eraseNominal with
+    | .scalar (.integer offset) =>
+      if 0 ≤ offset.val then
+        match text.toUTF8.toList[offset.val.toNat]? with
+        | some byte => countedValue byte.toNat
+        | none => .value (.scalar .null)
+      else .value (.scalar .null)
+    | _ => .unsupported
+  | .byteSlice, .positional offset :: span =>
+    let length := match span with
+      | [] => some none
+      | [.positional value] | [.named "length" value] =>
+        match value.eraseNominal with
+        | .scalar (.integer count) => some (some count.val)
+        | _ => none
+      | _ => none
+    match offset.eraseNominal, length with
+    | .scalar (.integer start), some count => byteSliceOf errors text start.val count
+    | _, _ => .unsupported
   | _, _ => .unsupported
 
 /-- A list, map, set or text method call: the receiver evaluates first, then
@@ -1773,7 +1849,7 @@ receiver and a collection method to a list, map or set. -/
   (evaluate frame receiver).bind fun target after =>
     (threadArguments context.spelling evaluate after arguments).bind fun supplied last =>
       match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
-      | .scalar (.string text), some method, _ => fromEval last (textMethod method text supplied)
+      | .scalar (.string text), some method, _ => fromEval last (textMethod context.errors method text supplied)
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with
         | some values => fromEval last (collectionMethod context.errors method target values)

@@ -191,6 +191,7 @@ def context : Context Unit Unit Unit where
     streamEmpty := message "stream was empty"
     listGet := fun index => message s!"list index {index} is out of bounds"
     mapGet := fun _ => message "map has no key"
+    textByteSlice := message
     bitset := message "integer-bitset"
     floatConversion := message "float-conversion"
     parseFloat := message "parse-float"
