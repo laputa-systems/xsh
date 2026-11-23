@@ -80,7 +80,14 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
     simp only [evalExpr, unshadowed, found]
   · intro fuel frame receiver method arguments reference kind after cell callable defining captured writable
       parameters body notError spelled received named
-    simp only [evalExpr, notError, spelled, Outcome.bind, received, Value.eraseNominal, named]
+    have notEnv : envFunction machine frame receiver method = none := by
+      unfold envFunction
+      split
+      · split
+        · simp [spelled]
+        · rfl
+      · rfl
+    simp only [evalExpr, notError, notEnv, spelled, Outcome.bind, received, Value.eraseNominal, named]
 
 end Root
 

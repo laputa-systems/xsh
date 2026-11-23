@@ -81,7 +81,14 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     fun producer after loop outer slot items pushed gathers collected => by
       simp only [Frame.resumedBy, gatheredBack, pushed, gathers, collected],
     fun loop last consumer rest slot pushed gathers => by simp only [Frame.closedLoop, pushed, gathers]⟩
-  simp only [evalExpr, plain, spelled]
+  have notEnv : envFunction machine frame receiver method = none := by
+    unfold envFunction
+    split
+    · split
+      · simp [spelled]
+      · rfl
+    · rfl
+  simp only [evalExpr, plain, notEnv, spelled]
   refine congrArg _ (funext fun subject => funext fun after => ?_)
   rcases pendingStream machine after subject with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;> rfl
 

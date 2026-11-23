@@ -526,7 +526,8 @@ Expressions:
   a value block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
-  (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
+  (E), the typed computed-name `env` readers and `env.PATH`'s methods (E),
+  `$?` (E)
 
 
 Writes and values: stream declarations, which need the stream model (E);
@@ -893,7 +894,14 @@ where it was unsupported before. The witnesses follow the verification
 binary on a script that reads an unset variable, assigns it in a called
 `proc` and reads it back, assigns it at the top, and reads a preset and a
 non-UTF-8 variable (`true`, `set-in-proc`, `top preset`, `true`); a call with
-its own empty environment is rejected.
+its own empty environment is rejected. `env.PATH` reads the `PATH` value the same way, empty when unset, and
+splits it at every `:` as Rust's `split_paths` does on Unix
+(`environmentPaths`): the binary finds `p"b"` and `p""` in it with
+`PATH=a::b`, and `p""` with `PATH` unset, and so do the witnesses.
+`env.get(name)` reads as `e"NAME"` does with a computed name, and
+`env.get_or(name, fallback)` gives `Ok` of the fallback only when the variable
+is unset, an undecodable value staying the `invalid-utf8` `Err`, as the
+binary prints for the preset, unset and non-UTF-8 variables.
 
 The `environment_scopes` root, in the same module, adds `env (overlay) { ... }`
 (SPEC 10.4): the overlay's fields convert as argv items and are set in order,

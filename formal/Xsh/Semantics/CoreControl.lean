@@ -821,6 +821,14 @@ def annotate {world : World Declaration Identity Source} (text : String) : Value
   | .exec (.failed (.runtime error) last) => .exec (.failed (.runtime (withContext text error)) last)
   | other => other
 
+/-- `env.PATH` (SPEC 13.6): the `PATH` value the overlay or the host gives,
+empty when it is unset, split at every `:` as Rust's `split_paths` does on
+Unix, so an empty value is one empty entry. -/
+def environmentPaths {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay) :
+    Option (List NativePath) :=
+  let value := ((readEnvironment overlay "PATH".toUTF8.toList).or (machine.hostEnvironment "PATH".toUTF8.toList)).getD []
+  (value.splitOn 58).mapM NativePath.fromBytes?
+
 /-- `e"NAME"` (SPEC 10.5): `Ok` of the variable's value as the script's
 assignments leave it, else as the process started with it, `Err` of
 `env-missing` when it is unset, and `Err` of `invalid-utf8` when its bytes
@@ -833,6 +841,48 @@ def environmentString {world : World Declaration Identity Source} (machine : Mac
     match String.fromUTF8? ⟨bytes.toArray⟩ with
     | some text => .ok (.scalar (.string text))
     | none => .err (machine.invalidUtf8 name)
+
+/-- The `env` module functions the machine reads with (SPEC 10.5). -/
+inductive EnvFunction where
+  | get
+  | getOr
+
+/-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
+def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (receiver : Xsh.Syntax.Expr) (method : Xsh.Syntax.RawName) : Option EnvFunction :=
+  match receiver with
+  | .ident module =>
+    if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
+        (frame.environment.cellOf module).isOk = false then
+      match machine.context.spelling method with
+      | "get" => some .get
+      | "get_or" => some .getOr
+      | _ => none
+    else none
+  | _ => none
+
+/-- `env.get(name)`, which reads as `e"NAME"` does with a computed name, and
+`env.get_or(name, fallback)`, `Ok` of the fallback when the variable is unset
+and as `env.get` otherwise. -/
+def envCall {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
+    (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match function, supplied with
+  | .get, [.positional name] =>
+    match name.eraseNominal with
+    | .scalar (.string text) => .value (environmentString machine overlay text)
+    | _ => .unsupported
+  | .getOr, [.positional name, fallback] =>
+    let written := match fallback with
+      | .positional value | .named "fallback" value => some value
+      | _ => none
+    match name.eraseNominal, written.map Value.eraseNominal with
+    | .scalar (.string text), some (.scalar (.string otherwise)) =>
+      match (readEnvironment overlay text.toUTF8.toList).or (machine.hostEnvironment text.toUTF8.toList) with
+      | none => .value (.ok (.scalar (.string otherwise)))
+      | some _ => .value (environmentString machine overlay text)
+    | _, _ => .unsupported
+  | _, _ => .unsupported
 
 /-- The overrides an `env (overlay) { ... }` scope applies (SPEC 10.4): each
 field or `Str` key with its value converted as an argv item. `none` is a
@@ -3423,6 +3473,10 @@ mutual
       | .envString key =>
         let name := machine.context.spelling key
         .value (environmentString machine frame.overlay name) frame
+      | .envPathList =>
+        match environmentPaths machine frame.overlay with
+        | some paths => .value (.environmentPaths paths) frame
+        | none => .exec .stuck
       | .nullSafeField base name =>
         (evalExpr machine fuel frame base).bind fun receiver next =>
           (fromEval next (hopOf true receiver)).bind fun hop after =>
@@ -3533,6 +3587,11 @@ mutual
                 .value (declaredError machine family variant facets
                   (payloadMessage payload (qualifiedName machine family variant)) payload) last
         | _, _ =>
+          match envFunction machine frame receiver method with
+          | some function =>
+            (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+              fromEval after (envCall machine after.overlay function supplied)
+          | none =>
           match machine.context.spelling method with
           | "call" =>
             (evalExpr machine fuel frame receiver).bind fun callee after =>

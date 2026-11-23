@@ -44,10 +44,19 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
           { Frame.ofScope defining caller.store parameters (some caller.store) scope with
             writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams } body)) ∧
     (∀ (caller callee : Frame world) kind value,
-      frameOverlay (returnTo caller kind (.returned value callee)) = some callee.overlay) := by
+      frameOverlay (returnTo caller kind (.returned value callee)) = some callee.overlay) ∧
+    (∀ paths, environmentPaths machine frame.overlay = some paths →
+      evalExpr machine (fuel + 1) frame .envPathList = .value (.environmentPaths paths) frame) ∧
+    (∀ receiver method arguments function, errorConstructor machine frame receiver method = none →
+      envFunction machine frame receiver method = some function →
+        evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
+          (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+            fromEval after (envCall machine after.overlay function supplied)) := by
   refine ⟨fun _ => rfl, fun name bytes found text decoded => ?_, fun name missing => ?_,
     fun name value => by simp [readEnvironment, List.lookup], fun _ _ _ _ _ _ _ => rfl,
-    fun _ _ kind _ => by cases kind <;> rfl⟩
+    fun _ _ kind _ => by cases kind <;> rfl, fun _ split => by simp only [evalExpr, split],
+    fun _ _ arguments _ notError found => by
+      simp only [evalExpr, notError, found]⟩
   · simp only [environmentString, found, decoded]
   · simp only [environmentString, missing]
 
@@ -99,11 +108,15 @@ def slot (index : Nat) : Xsh.Syntax.RawName :=
 
 def scopedKey : Xsh.Syntax.RawName := name 250 (by decide)
 def assignedKey : Xsh.Syntax.RawName := name 251 (by decide)
+def envModule : Xsh.Syntax.RawName := name 384 (by decide)
+def getName : Xsh.Syntax.RawName := name 385 (by decide)
+def getOrName : Xsh.Syntax.RawName := name 386 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
   else if named = scopedKey then "XSH_PROBE_A" else if named = assignedKey then "XSH_PROBE_B"
-  else if named = badKey then "XSH_PROBE_BAD" else scriptMachine.context.spelling named
+  else if named = badKey then "XSH_PROBE_BAD" else if named = envModule then "env" else if named = getName then "get"
+  else if named = getOrName then "get_or" else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
 holding the byte `0xFF`, and without `XSH_PROBE_HOME`. -/
@@ -205,6 +218,61 @@ set; the model restores the environment it entered with. -/
 theorem leaking_scope_rejected :
     textOf (some (environmentString envMachine [("XSH_PROBE_A".toUTF8.toList, "inner".toUTF8.toList)] "XSH_PROBE_A")) =
       some "inner" ∧ isErrValue (readOutput 1 scopeRun) = true := by
+  decide +kernel
+
+/-- The process started with `PATH=a::b`. -/
+def pathMachine (path : Option (List UInt8)) : Machine witnessWorld :=
+  { envMachine with
+    hostEnvironment := fun name => if name = "PATH".toUTF8.toList then path else startEnvironment name }
+
+def pathTexts (machine : Machine witnessWorld) : Option (List String) :=
+  (environmentPaths machine []).bind fun paths => paths.mapM fun path => String.fromUTF8? ⟨path.bytes.toArray⟩
+
+/-- As the verification binary prints `true true false` for `p"b"`, `p""` and
+`p"c"` `in env.PATH` with `PATH=a::b`, and `false true false` with `PATH`
+unset: the value splits at every `:`, an empty segment and an unset value
+each giving an empty entry. -/
+theorem environment_path_witness :
+    pathTexts (pathMachine (some "a::b".toUTF8.toList)) = some ["a", "", "b"] ∧
+    pathTexts (pathMachine none) = some [""] ∧
+    pathTexts (pathMachine (some [])) = some [""] := by
+  decide +kernel
+
+/-- Dropping empty segments, as a whitespace split would, loses the binary's
+empty entry. -/
+theorem nonempty_segments_rejected : pathTexts (pathMachine none) ≠ some [] := by
+  decide +kernel
+
+def envGet (function : Xsh.Syntax.RawName) (arguments : List String) : Xsh.Syntax.Expr :=
+  .call (.field (ident envModule) function) (arguments.map fun text => .positional (.literal (.string text)))
+
+/-- `env.get` and `env.get_or` with computed names, as the verification
+binary prints `ok preset`, the unset error, `ok fb`, `ok preset` and the
+non-UTF-8 error twice for `env.get(k)` with `k = "XSH_PROBE_PRESET"`,
+`env.get("XSH_PROBE_HOME")`, `env.get_or("XSH_PROBE_HOME", "fb")`,
+`env.get_or(k, "fb")`, `env.get("XSH_PROBE_BAD")` and
+`env.get_or("XSH_PROBE_BAD", "fb")`: `env.get` reads as `e"NAME"` does, and
+`get_or` gives its fallback only when the variable is unset. -/
+theorem env_get_witness :
+    textOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getName ["XSH_PROBE_PRESET"])])) = some "preset" ∧
+    errOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getName ["XSH_PROBE_HOME"])])) = some "env-missing XSH_PROBE_HOME" ∧
+    textOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getOrName ["XSH_PROBE_HOME", "fb"])])) = some "fb" ∧
+    textOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getOrName ["XSH_PROBE_PRESET", "fb"])])) = some "preset" ∧
+    errOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getName ["XSH_PROBE_BAD"])])) = some "invalid-utf8 XSH_PROBE_BAD" ∧
+    errOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getOrName ["XSH_PROBE_BAD", "fb"])])) = some "invalid-utf8 XSH_PROBE_BAD" := by
+  decide +kernel
+
+/-- A `get_or` that also fell back on undecodable bytes would hide the
+binary's `invalid-utf8` error. -/
+theorem lenient_get_or_rejected :
+    textOf (readOutput 0 (runScript envMachine 90 fullStart
+      [letOf (slot 0) (envGet getOrName ["XSH_PROBE_BAD", "fb"])])) ≠ some "fb" := by
   decide +kernel
 
 end Witness
