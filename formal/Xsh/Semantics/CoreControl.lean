@@ -1625,6 +1625,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
   | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
+  | parseInt | parseIntDecimal | parseUint | parseUintPositive
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -1647,6 +1648,10 @@ def TextMethod.ofName : String → Option TextMethod
   | "translate" => some .translate
   | "byte_at" => some .byteAt
   | "byte_slice" => some .byteSlice
+  | "parse_int" => some .parseInt
+  | "parse_int_decimal" => some .parseIntDecimal
+  | "parse_uint" => some .parseUint
+  | "parse_uint_positive" => some .parseUintPositive
   | _ => none
 
 /-- Unicode `White_Space` (UCD PropList), the set Rust's `char::is_whitespace`
@@ -1690,6 +1695,61 @@ def findBytes (needle : List UInt8) : Nat → List UInt8 → Option Nat
   | index, [] => if needle.isEmpty then some index else none
   | index, first :: rest => if needle.isPrefixOf (first :: rest) then some index else findBytes needle (index + 1) rest
 
+/-- A digit's value in `base`: `0`–`9`, then `a`–`z` and `A`–`Z` from ten. -/
+def radixDigit (base : Nat) (char : Char) : Option Nat :=
+  let value :=
+    if '0' ≤ char ∧ char ≤ '9' then some (char.toNat - '0'.toNat)
+    else if 'a' ≤ char ∧ char ≤ 'z' then some (char.toNat - 'a'.toNat + 10)
+    else if 'A' ≤ char ∧ char ≤ 'Z' then some (char.toNat - 'A'.toNat + 10)
+    else none
+  value.bind fun digit => if digit < base then some digit else none
+
+/-- The non-empty digits' value in `base`. -/
+def digitsValue (base : Nat) (chars : List Char) : Option Nat :=
+  if chars.isEmpty then none
+  else chars.foldl (fun total char => total.bind fun sum => (radixDigit base char).map (sum * base + ·)) (some 0)
+
+/-- Rust's `i64::from_str_radix`: one optional sign, then non-empty digits,
+in range. -/
+def int64FromRadix (base : Nat) : List Char → Option Int
+  | '+' :: rest => (digitsValue base rest).bind fun value =>
+      if (value : Int) ≤ 9223372036854775807 then some value else none
+  | '-' :: rest => (digitsValue base rest).bind fun value =>
+      if -9223372036854775808 ≤ -(value : Int) then some (-(value : Int)) else none
+  | chars => (digitsValue base chars).bind fun value =>
+      if (value : Int) ≤ 9223372036854775807 then some value else none
+
+def trimWhitespace (chars : List Char) : List Char :=
+  ((chars.dropWhile isUnicodeWhitespace).reverse.dropWhile isUnicodeWhitespace).reverse
+
+def asciiDigits (chars : List Char) : Bool := chars.all fun char => '0' ≤ char ∧ char ≤ '9'
+
+/-- `Str.parse_int()`: trimmed, one leading `-` then one `+` removed, an
+optional `0x`, `0o` or `0b` base prefix in either case, and every `_` removed,
+then Rust's `i64::from_str_radix`. -/
+def parseIntText (text : String) : Except String Int :=
+  let trimmed := trimWhitespace text.toList
+  let (negative, signed) := match trimmed with
+    | '-' :: rest => (true, rest)
+    | rest => (false, rest)
+  let unsigned := match signed with
+    | '+' :: rest => rest
+    | rest => rest
+  let (base, digits) := match unsigned with
+    | '0' :: 'x' :: rest | '0' :: 'X' :: rest => (16, rest)
+    | '0' :: 'o' :: rest | '0' :: 'O' :: rest => (8, rest)
+    | '0' :: 'b' :: rest | '0' :: 'B' :: rest => (2, rest)
+    | rest => (10, rest)
+  let cleaned := digits.filter (· != '_')
+  if cleaned.isEmpty then .error "expected integer"
+  else
+    match int64FromRadix base cleaned with
+    | some value =>
+      if negative then
+        if -9223372036854775808 ≤ -value then .ok (-value) else .error s!"invalid integer `{text}`"
+      else .ok value
+    | none => .error s!"invalid integer `{text}`"
+
 /-- Each run of one repeated character that `squeezed` admits collapsed to one. -/
 def squeezeRuns (squeezed : Char → Bool) : List Char → List Char
   | [] => []
@@ -1713,7 +1773,7 @@ def textLines (text : List Char) : List (List Char) :=
   let complete := if pieces.getLast? = some [] then pieces.dropLast else pieces
   complete.map fun line => if line.getLast? = some '\r' then line.dropLast else line
 
-def textValue (chars : List Char) : Value Declaration Identity Source := .scalar (.string (String.mk chars))
+def textValue (chars : List Char) : Value Declaration Identity Source := .scalar (.string (String.ofList chars))
 
 /-- `Str.byte_slice(offset, length:)` (SPEC 4.4): the bytes from `offset`,
 `length` of them or to the end, clamped to the text, as text; a negative
@@ -1741,6 +1801,13 @@ scalar value; `split` at a separator, an empty one giving each character;
 def textMethod (errors : Errors Declaration Identity Source) (method : TextMethod) (text : String)
     (supplied : List (Supplied Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let integerParse := fun (kind : String) (parsed : Except String Int) =>
+    match parsed with
+    | .ok value =>
+      match validateInt? value with
+      | some valid => Result.value (Value.ok (.scalar (.integer valid)))
+      | none => Result.unsupported
+    | .error message => Result.value (Value.err (errors.parseInteger kind message))
   let stringOf := fun (value : Value Declaration Identity Source) => match value.eraseNominal with
     | .scalar (.string found) => some found
     | _ => none
@@ -1788,8 +1855,7 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
     | _, _ => .unsupported
   | .lines, [] => .value (.list ((textLines text.toList).map textValue))
   | .countLines, [] => countedValue (textLines text.toList).length
-  | .trim, [] =>
-    .value (textValue ((text.toList.dropWhile isUnicodeWhitespace).reverse.dropWhile isUnicodeWhitespace).reverse)
+  | .trim, [] => .value (textValue (trimWhitespace text.toList))
   | .words, [] | .fields, [] => .value (.list ((wordRuns text.toList).map textValue))
   | .countWords, [] => countedValue (wordRuns text.toList).length
   | .fields, [delimiter] =>
@@ -1827,6 +1893,33 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
         | none => .value (.scalar .null)
       else .value (.scalar .null)
     | _ => .unsupported
+  | .parseInt, [] => integerParse "parse-int" (parseIntText text)
+  | .parseIntDecimal, [] =>
+    let chars := text.toList
+    if !chars.isEmpty && asciiDigits chars && (chars = ['0'] || chars.head? != some '0') then
+      match int64FromRadix 10 chars with
+      | some value => integerParse "parse-int" (.ok value)
+      | none => integerParse "parse-int" (.error s!"invalid integer `{text}`")
+    else integerParse "parse-int" (.error s!"invalid integer `{text}`")
+  | .parseUint, [] =>
+    let trimmed := trimWhitespace text.toList
+    if trimmed.head? = some '+' || trimmed.head? = some '-' then
+      integerParse "parse-uint" (.error "expected unsigned integer")
+    else if trimmed.isEmpty || !asciiDigits trimmed then
+      integerParse "parse-uint" (.error s!"invalid unsigned integer `{text}`")
+    else
+      match int64FromRadix 10 trimmed with
+      | some value => integerParse "parse-uint" (.ok value)
+      | none => integerParse "parse-uint" (.error s!"invalid unsigned integer `{text}`")
+  | .parseUintPositive, [] =>
+    let trimmed := trimWhitespace text.toList
+    if trimmed.isEmpty || !asciiDigits trimmed then
+      integerParse "parse-uint-positive" (.error s!"invalid positive integer `{text}`")
+    else
+      match int64FromRadix 10 trimmed with
+      | some 0 => integerParse "parse-uint-positive" (.error "expected positive integer")
+      | some value => integerParse "parse-uint-positive" (.ok value)
+      | none => integerParse "parse-uint-positive" (.error s!"invalid positive integer `{text}`")
   | .byteSlice, .positional offset :: span =>
     let length := match span with
       | [] => some none

@@ -519,7 +519,7 @@ Expressions:
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split` without `maxsplit`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
-  `translate`, `byte_at` and `byte_slice`;
+  `translate`, `byte_at`, `byte_slice` and the integer parse methods;
   `Map.push`; and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
@@ -714,7 +714,12 @@ clamped byte range as text, or the runtime `text-byte-slice` failure for a
 negative offset or length, an offset past the end, or ends off a UTF-8
 character boundary, which `try` does not capture. Its witnesses carry each of
 the binary's four failure messages, and the mutant rounds a misaligned end
-down. A text
+down. `parse_int`, `parse_int_decimal`, `parse_uint` and `parse_uint_positive`
+follow the runtime's `src/modules/text.rs` exactly: `parse_int` trims, removes
+one leading `-` and then one `+`, a base prefix and every `_`, and parses the
+rest with Rust's `i64::from_str_radix`, so `-9223372036854775808` is invalid
+because its magnitude is. The witnesses are the binary's table for fifteen
+inputs under all four methods. A text
 method applies to a `Str` receiver and a collection method to a list, map or
 set, through one dispatch, `valueMethodCall`. The root proves that a reported
 `find` offset starts an occurrence of the needle. The witnesses follow the

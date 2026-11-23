@@ -458,6 +458,63 @@ theorem rounding_byte_slice_rejected :
         [.positional (intOf 0), .named "length" (intOf 2)]) = some "slice must align to UTF-8 boundaries" := by
   decide +kernel
 
+inductive Parsed where
+  | ok (value : Int)
+  | err (message : String)
+  deriving DecidableEq
+
+def parsed : Result Unit Unit Unit (Value Unit Unit Unit) → Option Parsed
+  | .value (.ok (.scalar (.integer value))) => some (.ok value.val)
+  | .value (.err (.scalar (.string text))) => some (.err text)
+  | _ => none
+
+def parseRow (text : String) : List (Option Parsed) :=
+  [.parseInt, .parseIntDecimal, .parseUint, .parseUintPositive].map fun method =>
+    parsed (textMethod collectionMachine.context.errors method text [])
+
+/-- The verification binary's table for `parse_int`, `parse_int_decimal`,
+`parse_uint` and `parse_uint_positive` on each input, row by row. -/
+theorem parse_witness :
+    parseRow "42" = [some (.ok 42), some (.ok 42), some (.ok 42), some (.ok 42)] ∧
+    parseRow "-7" = [some (.ok (-7)), some (.err "invalid integer `-7`"), some (.err "expected unsigned integer"),
+      some (.err "invalid positive integer `-7`")] ∧
+    parseRow "+3" = [some (.ok 3), some (.err "invalid integer `+3`"), some (.err "expected unsigned integer"),
+      some (.err "invalid positive integer `+3`")] ∧
+    parseRow " 5 " = [some (.ok 5), some (.err "invalid integer ` 5 `"), some (.ok 5), some (.ok 5)] ∧
+    parseRow "0x1f" = [some (.ok 31), some (.err "invalid integer `0x1f`"),
+      some (.err "invalid unsigned integer `0x1f`"), some (.err "invalid positive integer `0x1f`")] ∧
+    parseRow "0b11" = [some (.ok 3), some (.err "invalid integer `0b11`"),
+      some (.err "invalid unsigned integer `0b11`"), some (.err "invalid positive integer `0b11`")] ∧
+    parseRow "0o7" = [some (.ok 7), some (.err "invalid integer `0o7`"),
+      some (.err "invalid unsigned integer `0o7`"), some (.err "invalid positive integer `0o7`")] ∧
+    parseRow "1_000" = [some (.ok 1000), some (.err "invalid integer `1_000`"),
+      some (.err "invalid unsigned integer `1_000`"), some (.err "invalid positive integer `1_000`")] ∧
+    parseRow "" = [some (.err "expected integer"), some (.err "invalid integer ``"),
+      some (.err "invalid unsigned integer ``"), some (.err "invalid positive integer ``")] ∧
+    parseRow "9223372036854775808" = [some (.err "invalid integer `9223372036854775808`"),
+      some (.err "invalid integer `9223372036854775808`"),
+      some (.err "invalid unsigned integer `9223372036854775808`"),
+      some (.err "invalid positive integer `9223372036854775808`")] ∧
+    parseRow "-9223372036854775808" = [some (.err "invalid integer `-9223372036854775808`"),
+      some (.err "invalid integer `-9223372036854775808`"), some (.err "expected unsigned integer"),
+      some (.err "invalid positive integer `-9223372036854775808`")] ∧
+    parseRow "007" = [some (.ok 7), some (.err "invalid integer `007`"), some (.ok 7), some (.ok 7)] ∧
+    parseRow "x" = [some (.err "invalid integer `x`"), some (.err "invalid integer `x`"),
+      some (.err "invalid unsigned integer `x`"), some (.err "invalid positive integer `x`")] ∧
+    parseRow "4.0" = [some (.err "invalid integer `4.0`"), some (.err "invalid integer `4.0`"),
+      some (.err "invalid unsigned integer `4.0`"), some (.err "invalid positive integer `4.0`")] ∧
+    parseRow "-0" = [some (.ok 0), some (.err "invalid integer `-0`"), some (.err "expected unsigned integer"),
+      some (.err "invalid positive integer `-0`")] := by
+  decide +kernel
+
+/-- A `parse_int` that parsed the sign with the digits would accept
+`-9223372036854775808`; XSH parses the magnitude first, so it is invalid. -/
+theorem signed_magnitude_rejected :
+    int64FromRadix 10 "-9223372036854775808".toList = some (-9223372036854775808) ∧
+      parsed (textMethod collectionMachine.context.errors .parseInt "-9223372036854775808" []) =
+        some (.err "invalid integer `-9223372036854775808`") := by
+  decide +kernel
+
 /-- A `byte_len` that counted characters gives `11`; the binary and the model
 give `13`. -/
 theorem character_byte_len_rejected :
