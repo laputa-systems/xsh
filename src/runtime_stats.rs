@@ -101,16 +101,33 @@ impl RuntimePhaseTimes {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RuntimePhaseDurations {
+    pub run_inclusive: u128,
     pub preparation_inclusive: u128,
     pub project_parse_load_exclusive: Option<u128>,
     pub check_solve_fact_build_exclusive: Option<u128>,
     pub declaration_publication_exclusive: Option<u128>,
     pub lower_verify_install_exclusive: Option<u128>,
     pub execution_finish_exclusive: Option<u128>,
+    pub execution_exclusive: Option<u128>,
     pub diagnostic_finish_exclusive: Option<u128>,
 }
 
 impl RuntimePhaseDurations {
+    fn finish_exclusive(&self) -> Option<u128> {
+        self.execution_finish_exclusive.zip(self.execution_exclusive).map(|(outer, execution)| {
+            outer.checked_sub(execution).expect("execution must fit inside execution and finish")
+        })
+    }
+
+    fn unattributed(&self) -> Option<u128> {
+        [
+            Some(self.preparation_inclusive),
+            self.execution_finish_exclusive,
+            self.diagnostic_finish_exclusive,
+        ].into_iter().flatten().try_fold(0u128, u128::checked_add)
+            .and_then(|observed| self.run_inclusive.checked_sub(observed))
+    }
+
     fn preparation_other_exclusive(&self) -> u128 {
         let observed = [
             self.project_parse_load_exclusive,
@@ -133,7 +150,11 @@ impl RuntimePhaseDurations {
             lower_verify_install_exclusive: self.lower_verify_install_exclusive,
             preparation_other_exclusive: self.preparation_other_exclusive(),
             execution_finish_exclusive: self.execution_finish_exclusive,
+            execution_exclusive: self.execution_exclusive,
+            finish_exclusive: self.finish_exclusive(),
             diagnostic_finish_exclusive: self.diagnostic_finish_exclusive,
+            run_inclusive: self.run_inclusive,
+            unattributed: self.unattributed(),
         }
     }
 }
@@ -148,7 +169,11 @@ struct PhaseReport<'a> {
     lower_verify_install_exclusive: Option<u128>,
     preparation_other_exclusive: u128,
     execution_finish_exclusive: Option<u128>,
+    execution_exclusive: Option<u128>,
+    finish_exclusive: Option<u128>,
     diagnostic_finish_exclusive: Option<u128>,
+    run_inclusive: u128,
+    unattributed: Option<u128>,
 }
 
 #[derive(deser::Serialize)]
@@ -294,19 +319,28 @@ mod tests {
     #[test]
     fn phase_wall_times_reconcile_exclusive_work_without_counting_execution_twice() {
         let times = super::RuntimePhaseDurations {
+            run_inclusive: 620,
             preparation_inclusive: 100,
             project_parse_load_exclusive: Some(10),
             check_solve_fact_build_exclusive: Some(20),
             declaration_publication_exclusive: Some(30),
             lower_verify_install_exclusive: Some(25),
             execution_finish_exclusive: Some(500),
+            execution_exclusive: Some(470),
             diagnostic_finish_exclusive: None,
         };
         assert_eq!(times.preparation_other_exclusive(), 15);
+        assert_eq!(times.finish_exclusive(), Some(30));
+        assert_eq!(times.unattributed(), Some(20));
         let json = deser_json::to_string(&times.report("monotonic_wall")).expect("phase JSON");
         assert!(json.contains("\"execution_finish_exclusive\":500"));
+        assert!(json.contains("\"execution_exclusive\":470"));
+        assert!(json.contains("\"finish_exclusive\":30"));
+        assert!(json.contains("\"run_inclusive\":620"));
+        assert!(json.contains("\"unattributed\":20"));
         assert!(json.contains("\"diagnostic_finish_exclusive\":null"));
         let interrupted = super::RuntimePhaseDurations {
+            run_inclusive: 50,
             preparation_inclusive: 45,
             project_parse_load_exclusive: Some(10),
             check_solve_fact_build_exclusive: Some(20),
@@ -315,6 +349,19 @@ mod tests {
         };
         assert_eq!(interrupted.preparation_other_exclusive(), 15);
         assert!(deser_json::to_string(&interrupted.report("monotonic_wall")).expect("phase JSON").contains("\"declaration_publication_exclusive\":null"));
+    }
+
+    #[test]
+    fn phase_wall_times_leave_unattributed_unknown_when_top_level_phases_exceed_the_run() {
+        let times = super::RuntimePhaseDurations {
+            run_inclusive: 10,
+            preparation_inclusive: 8,
+            execution_finish_exclusive: Some(5),
+            ..super::RuntimePhaseDurations::default()
+        };
+        assert_eq!(times.unattributed(), None);
+        let json = deser_json::to_string(&times.report("monotonic_wall")).expect("phase JSON");
+        assert!(json.contains("\"unattributed\":null"));
     }
 
     #[test]

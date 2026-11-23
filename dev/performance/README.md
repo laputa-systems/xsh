@@ -30,7 +30,13 @@ size, and phase durations. Wall time uses a monotonic clock. CPU time counts
 threads in the XSH process and excludes descendants. Both clocks include
 observer overhead, so use the fields for attribution only. Ordinary execution
 does not collect phase data. A `null` phase was not reached; zero is an observed
-zero-length phase. The report schema and callable boundaries live in
+zero-length phase. `run_inclusive` spans the whole measured run, and
+`unattributed` is what the top-level phases (`preparation_inclusive`,
+`execution_finish_exclusive`, `diagnostic_finish_exclusive`) leave of it: the
+measurement's own setup and teardown. It is `null` when those phases do not fit
+inside the run. `execution_exclusive` is the evaluator's run of the script
+inside `execution_finish_exclusive`, and `finish_exclusive` is the rest of it:
+route-witness and coverage-trace writing and output finishing. The report schema and callable boundaries live in
 `crates/xsht/src/stats.rs` and `src/runtime_stats.rs`.
 
 ## Separate process-tree attribution

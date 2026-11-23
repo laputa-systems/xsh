@@ -55,13 +55,17 @@ pub(crate) struct RuntimeAllocationPhases {
 
 impl PreparedRun {
     fn run(self) -> RunAttempt {
+        self.run_observed(None)
+    }
+
+    fn run_observed(self, execution: Option<PhaseDurationSlot<'_>>) -> RunAttempt {
         let route_witness = self.route_witness;
         let route_witness_sink = route_witness
             .as_ref()
             .map(crate::runtime::eval::route_witness::ChildCapture::sink);
-        let output = self
-            .evaluator
-            .eval_installed_compact_indexed_only(self.plan);
+        let evaluator = self.evaluator;
+        let plan = self.plan;
+        let output = observe_phase_time(execution, || evaluator.eval_installed_compact_indexed_only(plan));
         let output = match output {
             Ok(output) => output,
             Err(evaluator) => {
@@ -260,6 +264,7 @@ pub(crate) fn run_script_with_allocation_stats(
     options: RunOptions,
 ) -> (ScriptOutput, RuntimeAllocationPhases) {
     let mut phase_times = RuntimePhaseTimes::default();
+    let run_start = PhaseClockReading::now();
     crate::symbol::reserve_dynamic_symbols(MEASURED_RUN_SYMBOL_RESERVE);
     mem_track::begin_stage();
     let preparation_start = PhaseClockReading::now();
@@ -272,10 +277,16 @@ pub(crate) fn run_script_with_allocation_stats(
     mem_track::begin_worker_collection();
     mem_track::begin_stage();
     let output = match prepared {
-        Ok(Ok(prepared)) => observe_phase_time(
-            Some(phase_times.slot(|times| &mut times.execution_finish_exclusive)),
-            || finish_run_attempt(&options, prepared.run()),
-        ),
+        Ok(Ok(prepared)) => {
+            let mut execution = RuntimePhaseTimes::default();
+            let output = observe_phase_time(
+                Some(phase_times.slot(|times| &mut times.execution_finish_exclusive)),
+                || finish_run_attempt(&options, prepared.run_observed(Some(execution.slot(|times| &mut times.execution_exclusive)))),
+            );
+            phase_times.wall_time_ns.execution_exclusive = execution.wall_time_ns.execution_exclusive;
+            phase_times.cpu_time_ns.execution_exclusive = execution.cpu_time_ns.execution_exclusive;
+            output
+        }
         Ok(Err(attempt)) => observe_phase_time(
             Some(phase_times.slot(|times| &mut times.diagnostic_finish_exclusive)),
             || finish_run_attempt(&options, attempt),
@@ -287,6 +298,9 @@ pub(crate) fn run_script_with_allocation_stats(
     };
     let controller = mem_track::end_stage();
     let worker_stages = mem_track::end_worker_collection();
+    let run = run_start.elapsed(PhaseClockReading::now());
+    phase_times.wall_time_ns.run_inclusive = run.wall_ns;
+    phase_times.cpu_time_ns.run_inclusive = run.cpu_ns;
 
     (
         output,
@@ -951,6 +965,14 @@ mod tests {
                 assert_eq!(times.declaration_publication_exclusive.is_some(), status == 0);
                 assert_eq!(times.lower_verify_install_exclusive.is_some(), status == 0);
                 assert_eq!(times.execution_finish_exclusive.is_some(), status == 0);
+                assert_eq!(times.execution_exclusive.is_some(), status == 0);
+                if let (Some(outer), Some(execution)) = (times.execution_finish_exclusive, times.execution_exclusive) {
+                    assert!(execution <= outer);
+                }
+                let top_level = times.preparation_inclusive
+                    + times.execution_finish_exclusive.unwrap_or(0)
+                    + times.diagnostic_finish_exclusive.unwrap_or(0);
+                assert!(top_level <= times.run_inclusive);
                 assert_eq!(times.diagnostic_finish_exclusive.is_some(), status != 0);
             }
             fs::remove_dir_all(path.parent().expect("temporary script parent"))
