@@ -222,6 +222,7 @@ pub(super) fn indexed_for_pipeline_input(
     execution: &FullExecution<'_>,
     instruction: u32,
     call_span: Span,
+    coverage: bool,
 ) -> Result<Option<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>)>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     if tag != FullTag::ExprPipeline {
@@ -234,7 +235,7 @@ pub(super) fn indexed_for_pipeline_input(
     };
     let input = input.raw();
     let stage_count = stages.len();
-    let decoded = decode_serial_prefix(execution, stages, span)?;
+    let decoded = decode_serial_prefix(execution, stages, span, coverage)?;
     if decoded.len() != stage_count
         || decoded.is_empty()
         || decoded
@@ -263,6 +264,7 @@ pub(super) fn indexed_value_pipeline_input(
     execution: &FullExecution<'_>,
     instruction: u32,
     call_span: Span,
+    coverage: bool,
 ) -> Result<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>), RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     if tag != FullTag::ExprPipeline {
@@ -278,7 +280,7 @@ pub(super) fn indexed_value_pipeline_input(
         unreachable!("pipeline tag has a matching borrowed view")
     };
     let input = input.raw();
-    let decoded = decode_serial_complete(execution, stages, span)?;
+    let decoded = decode_serial_complete(execution, stages, span, coverage)?;
     Ok((input, span, decoded))
 }
 
@@ -2660,16 +2662,18 @@ pub(super) fn decode_serial_prefix(
     execution: &FullExecution<'_>,
     stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
+    coverage: bool,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(execution, stages, span, true)
+    decode_serial_stages(execution, stages, span, true, coverage)
 }
 
 pub(super) fn decode_serial_complete(
     execution: &FullExecution<'_>,
     stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
+    coverage: bool,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(execution, stages, span, false)
+    decode_serial_stages(execution, stages, span, false, coverage)
 }
 
 fn decode_serial_stages(
@@ -2677,6 +2681,7 @@ fn decode_serial_stages(
     mut stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
     stop_after_terminal: bool,
+    coverage: bool,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
     let mut prefix: SmallVec<[IndexedLiveSerialStage; 4]> = SmallVec::new();
     let stage_count = stages.len();
@@ -2707,6 +2712,7 @@ fn decode_serial_stages(
                     predicate.raw(),
                     slot,
                     span,
+                    coverage,
                 )?
                 .map(Arc::new);
                 IndexedSerialState::Stateless

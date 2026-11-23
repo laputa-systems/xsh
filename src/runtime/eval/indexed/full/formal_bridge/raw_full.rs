@@ -251,6 +251,7 @@ impl RawFullProgram {
         let headers = (0..store.functions.len()).map(|_| std::sync::OnceLock::new()).collect();
         FullProgram {
             store,
+            statement_spans: Arc::from([]),
             sources: self.sources,
             symbols,
             binding_namespace: self.binding_namespace,

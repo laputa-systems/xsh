@@ -1395,6 +1395,7 @@ impl FullStore {
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct FullProgram {
     store: FullStore,
+    statement_spans: Arc<[Option<Span>]>,
     sources: Arc<SourceMap>,
     symbols: crate::symbol::SymbolOwner,
     binding_namespace: u64,
@@ -4209,6 +4210,7 @@ struct FullCheckpoint {
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FullBuilder {
     store: FullStore,
+    statement_spans: BTreeMap<usize, Span>,
     semantic: SemanticPoolBuilder,
     source_scheme_callables: Option<Arc<crate::sema::scheme_callable::SchemeCallableTable>>,
     scheme_callable_ids: BTreeMap<crate::sema::types::SchemeCallableId, u32>,
@@ -4453,8 +4455,13 @@ impl FullBuilder {
         let headers = (0..self.store.functions.len())
             .map(|_| std::sync::OnceLock::new())
             .collect();
+        let mut statement_spans = vec![None; self.store.tags.len()];
+        for (instruction, span) in self.statement_spans {
+            statement_spans[instruction] = Some(span);
+        }
         let mut program = FullProgram {
             store: self.store,
+            statement_spans: statement_spans.into(),
             sources,
             symbols,
             binding_namespace: FullProgram::fresh_binding_namespace(),
@@ -6072,6 +6079,7 @@ impl FullBuilder {
     }
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
+        self.statement_spans.retain(|instruction, _| *instruction < checkpoint.tags);
         self.store.tags.truncate(checkpoint.tags);
         self.store.registered_calls.retain(|instruction, _| (*instruction as usize) < checkpoint.tags);
         self.store.resource_transfers.truncate(checkpoint.tags);
@@ -6825,6 +6833,17 @@ pub(in crate::runtime::eval) struct FullExecution<'p> {
 }
 
 impl<'p> FullExecution<'p> {
+    pub(in crate::runtime::eval) fn sources(&self) -> &SourceMap {
+        &self.program().sources
+    }
+
+    pub(in crate::runtime::eval) fn shared_sources(&self) -> Arc<SourceMap> {
+        Arc::clone(&self.program().sources)
+    }
+
+    pub(in crate::runtime::eval) fn statement_span(&self, instruction: u32) -> Option<Span> {
+        self.program().statement_spans.get(instruction as usize).copied().flatten()
+    }
     pub(in crate::runtime::eval) fn expression_has_generic_error_result(
         &self, instruction: u32, invocation: &PreparedInvocationBindings,
     ) -> Result<bool, IrVerifyError> {
@@ -21887,6 +21906,7 @@ fn verify_node_metadata(
 
 
 trait SchemeBodyFactId: Copy {
+    fn source_span(self, _: &BuildScratch) -> Option<Span> { None }
     fn scheme_expression_type(self, builder: &FullBuilder) -> Option<SchemeType>;
     fn scheme_guard_scope(self, _: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { None }
     fn scheme_guard_sites(self, _: &BuildScratch) -> Vec<crate::sema::guarded_requirements::GuardBodySite> { Vec::new() }
@@ -21896,6 +21916,7 @@ trait SchemeBodyFactId: Copy {
 }
 
 impl SchemeBodyFactId for BuildExprId {
+    fn source_span(self, scratch: &BuildScratch) -> Option<Span> { scratch.expression_spans.get(self.index()).copied().flatten() }
     fn scheme_guard_scope(self, scratch: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { scratch.scheme_guards.expressions.get(&self.index()).copied() }
     fn scheme_guard_sites(self, scratch: &BuildScratch) -> Vec<crate::sema::guarded_requirements::GuardBodySite> { scratch.scheme_guards.sites.get(&self.index()).cloned().unwrap_or_default() }
 
@@ -21909,6 +21930,7 @@ impl SchemeBodyFactId for BuildExprId {
 }
 
 impl SchemeBodyFactId for BuildStmtId {
+    fn source_span(self, scratch: &BuildScratch) -> Option<Span> { scratch.statement_spans.get(self.index()).copied().flatten() }
     fn scheme_guard_scope(self, scratch: &BuildScratch) -> Option<crate::sema::guarded_requirements::GuardScopeId> { scratch.scheme_guards.statements.get(&self.index()).copied() }
 
     fn scheme_expression_type(self, _: &FullBuilder) -> Option<SchemeType> {
@@ -21943,7 +21965,11 @@ macro_rules! no_scheme_body_facts {
 
 no_scheme_body_facts!(BuildPatternId);
 no_scheme_body_facts!(BuildIntId);
-no_scheme_body_facts!(BuildBoolId);
+impl SchemeBodyFactId for BuildBoolId {
+    fn source_span(self, scratch: &BuildScratch) -> Option<Span> { scratch.bool_spans.get(self.index()).copied().flatten() }
+    fn scheme_expression_type(self, _: &FullBuilder) -> Option<SchemeType> { None }
+    fn scheme_tail_type(self, _: &FullBuilder) -> Option<SchemeType> { None }
+}
 
 fn emitted_build_instruction(
     output: &[u32],
@@ -22063,6 +22089,7 @@ macro_rules! impl_build_id_codec {
                 } else {
                     false
                 };
+                let source_span = (*self).source_span(&scratch);
                 let needs_instruction = checked_expr_type.is_some()
                     || transfers_resource
                     || application_return.is_some()
@@ -22088,6 +22115,15 @@ macro_rules! impl_build_id_codec {
                     builder.store.tags.len(),
                     needs_instruction,
                 )?;
+                let source_instruction = emitted_build_instruction(
+                    output,
+                    output_start,
+                    builder.store.tags.len(),
+                    source_span.is_some(),
+                )?;
+                if let (Some(instruction), Some(span)) = (source_instruction, source_span) {
+                    builder.statement_spans.insert(instruction, span);
+                }
                 if let Some(instruction) = instruction {
                     builder.attach_value_materialization(instruction, scheme_guard_scope)?;
                     builder.attach_record_constructor(instruction)?;
@@ -57318,6 +57354,7 @@ let rejected = captured(stopped)
 
         let program = FullProgram {
             store: builder.store,
+            statement_spans: Arc::from([]),
             sources: Arc::new(sources),
             symbols: crate::symbol::SymbolOwner::new(),
             binding_namespace: FullProgram::fresh_binding_namespace(),

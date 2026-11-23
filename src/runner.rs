@@ -671,6 +671,7 @@ fn prepare_entry_source(
         .or_else(|| std::env::var_os(XSH_COVERAGE_TRACE_DIR).map(PathBuf::from));
     if let Some(dir) = &coverage_trace_dir {
         evaluator = evaluator.with_tracing();
+        evaluator = evaluator.with_coverage();
         evaluator =
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
     }
@@ -833,6 +834,13 @@ fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> St
             "kind".to_string(),
             JsonValue::from(event.kind.as_str()),
         )];
+
+        if let crate::trace::TracePayload::Coverage { count, outcome } = &event.payload {
+            fields.push(("count".to_string(), JsonValue::from(*count)));
+            if let Some(outcome) = outcome {
+                fields.push(("outcome".to_string(), JsonValue::from(outcome.clone())));
+            }
+        }
 
         if let Some(api_id) = &event.api_id {
             fields.push((

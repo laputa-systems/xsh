@@ -279,18 +279,24 @@ diagnostics remain compiler diagnostics; they are not reported as missing IDs.
 Invalid unselected modules do not block an exact set. Selected declarations in
 the same source module share one prepared program.
 
-`--cov` reports trace-derived line and API coverage; `--cov-json PATH` writes
+`--cov` reports statement-derived line and trace-derived API coverage; `--cov-json PATH` writes
 its structured report. `api_hits` counts distinct test IDs in `tests` and
 trace events in `events`. Each `source_coverage` entry has `denominator_basis`
 (`ast` or fallback `lines`), `executable_line_numbers`, and `line_tests`, an
-object mapping line numbers to test IDs. `source_totals_by_basis` keeps the two
+object mapping line numbers to test IDs. `branches` lists source byte offsets,
+the starting line, kind and an `arms` object of execution counts, including
+zero counts for untaken outcomes. `total_branch_arms` and `covered_branch_arms`
+count possible and taken outcomes for the file. `source_totals_by_basis` keeps the two
 denominators separate. Source `category` is `root` or `outside_root`;
 `unavailable_sources` lists unreadable observed sources and their known hits.
 `test_collection` maps selected IDs to `complete`, `incomplete`, or `missing`;
 these statuses describe the traces the harness can observe. Totals are lower
 bounds when a selected trace is incomplete or missing. A nested child
-killed before it writes its trace cannot currently be detected. Line coverage
-uses trace spans and does not measure branch edges or operations without events.
+killed before it writes its trace cannot currently be detected.
+
+Fused scanner loops report their entire source span as executed once per fused node run.
+Branch points within that span are reported as `fused`, neither taken nor not
+taken; `fused_branch_points` counts them separately from covered branch arms.
 
 `--events-jsonl PATH` creates a new file and refuses existing files or symlinks.
 It cannot combine with `--list`. Each newline-terminated schema-1 object has

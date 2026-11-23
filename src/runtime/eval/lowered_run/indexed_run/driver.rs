@@ -63,6 +63,10 @@ impl Evaluator {
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
+        if self.coverage.is_some() && !matches!(view.tag(), FullDriverTag::Skip | FullDriverTag::Stmt) {
+            let span = view.source_span().map_err(|error| indexed_error(error, call_span))?;
+            self.coverage_hit(execution.sources(), span, None);
+        }
         let payload = view
             .payload()
             .map_err(|error| indexed_error(error, call_span))?;
