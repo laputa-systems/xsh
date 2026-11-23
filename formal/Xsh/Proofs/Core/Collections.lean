@@ -212,6 +212,9 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
           [.scalar (.path other)] = .value (.scalar (.path path))) ∧
     (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .sha256 bytes [] =
       .value (.scalar (.digest ⟨"sha256", Xsh.Values.Digests.sha256 bytes⟩))) ∧
+    (∀ text bits, Xsh.Values.FloatLiterals.parseFloatText text = some bits →
+      textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .parseFloat text [] =
+        .value (.ok (.scalar (.float bits)))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -233,6 +236,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     fun _ => rfl, fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ => rfl, fun _ _ empty => by simp [pathMethod, empty], fun _ _ absent => by simp [pathMethod, absent],
     fun _ => rfl,
+    fun _ _ parsed => by simp [textMethod, parsed],
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -962,6 +966,22 @@ digest of `abc`. -/
 theorem md5_word_order_rejected :
     Xsh.Values.Digests.toBigEndian 16 (Xsh.Values.Digests.littleEndian (Xsh.Values.Digests.md5 [97, 98, 99])) ≠
       Xsh.Values.Digests.md5 [97, 98, 99] := by
+  decide +kernel
+
+
+def okFloat : Result Unit Unit Unit (Value Unit Unit Unit) → Option Nat
+  | .value (.ok (.scalar (.float bits))) => some bits.val
+  | _ => none
+
+/-- As the verification binary prints `1000.5`, `expected number`,
+`expected number`, `invalid float \`1.5x\`` and `-Infinity` for
+`" 1_000.5 "`, `""`, `" _ "`, `"1.5x"` and `"-inf"` `.parse_float()`. -/
+theorem parse_float_witness :
+    okFloat (decoded .parseFloat " 1_000.5 ") = some 4652011706887700480 ∧
+    errText (decoded .parseFloat "") = some "expected number" ∧
+    errText (decoded .parseFloat " _ ") = some "expected number" ∧
+    errText (decoded .parseFloat "1.5x") = some "invalid float `1.5x`" ∧
+    okFloat (decoded .parseFloat "-inf") = some 18442240474082181120 := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

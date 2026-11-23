@@ -2144,7 +2144,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
   | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
-  | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap | base64Decode | base32Decode
+  | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap | base64Decode | base32Decode | parseFloat
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -2156,6 +2156,7 @@ def TextMethod.ofName : String → Option TextMethod
   | "split" => some .split
   | "wrap" => some .wrap
   | "base64_decode" => some .base64Decode
+  | "parse_float" => some .parseFloat
   | "base32_decode" => some .base32Decode
   | "find" => some .find
   | "replace" => some .replace
@@ -2414,6 +2415,14 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
       else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
     | none => .unsupported
+  | .parseFloat, [] =>
+    match Xsh.Values.FloatLiterals.parseFloatText text with
+    | some bits => .value (.ok (.scalar (.float bits)))
+    | none =>
+      let trimmed := ((text.toList.dropWhile Xsh.Values.FloatLiterals.rustWhitespace).reverse.dropWhile
+        Xsh.Values.FloatLiterals.rustWhitespace).reverse
+      .value (.err (errors.described "parse-float"
+        (if (trimmed.filter (· ≠ '_')).isEmpty then "expected number" else s!"invalid float `{text}`")))
   | .base64Decode, [] => baseDecoded errors .base64 (text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte)
   | .base32Decode, [] =>
     baseDecoded errors .base32 ((text.toUTF8.toList.filter fun byte => !isAsciiWhitespaceByte byte).map fun byte =>

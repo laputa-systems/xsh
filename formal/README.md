@@ -520,7 +520,8 @@ Expressions:
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
-  `translate`, `byte_at`, `byte_slice` and the integer parse methods (P)
+  `translate`, `byte_at`, `byte_slice`, the integer parse methods and
+  `parse_float` (P)
 - the contextual `.require()` under a `return` inside an expression, such as
   a value block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -721,6 +722,9 @@ whose meaning does not depend on Unicode case or whitespace tables:
 `starts_with`, `ends_with`, `reverse`, `split` at a separator (an empty one
 giving each character; a `maxsplit` limit splits at most that many times and
 keeps the rest as the last piece, a negative one splitting everywhere),
+`parse_float` (`Ok` of `FloatLiterals.parseFloatText`'s bits, or the
+`parse-float` `Err` with `expected number` when nothing but padding and `_`
+remains and ``invalid float `text` `` otherwise, as the binary prints them),
 `base64_decode` and `base32_decode` (the text's bytes without ASCII
 whitespace, base32 upper-cased, decoded padded when they hold a `=` and
 unpadded otherwise, an `Ok` of the bytes or the `invalid-base64` or
