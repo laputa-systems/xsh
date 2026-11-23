@@ -1624,6 +1624,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
 /-- A text method (SPEC 4.4). -/
 inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
+  | trim | words | fields | countWords | countLines
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -1636,7 +1637,27 @@ def TextMethod.ofName : String → Option TextMethod
   | "find" => some .find
   | "replace" => some .replace
   | "lines" => some .lines
+  | "trim" => some .trim
+  | "words" => some .words
+  | "fields" => some .fields
+  | "count_words" => some .countWords
+  | "count_lines" => some .countLines
   | _ => none
+
+/-- Unicode `White_Space` (UCD PropList), the set Rust's `char::is_whitespace`
+tests. -/
+def isUnicodeWhitespace (char : Char) : Bool :=
+  let code := char.val
+  (9 ≤ code ∧ code ≤ 13) || code == 32 || code == 0x85 || code == 0xA0 || code == 0x1680 ||
+    (0x2000 ≤ code ∧ code ≤ 0x200A) || code == 0x2028 || code == 0x2029 || code == 0x202F || code == 0x205F ||
+    code == 0x3000
+
+/-- The maximal runs of non-whitespace characters. -/
+def wordRuns (text : List Char) : List (List Char) :=
+  (text.splitBy fun first second => isUnicodeWhitespace first == isUnicodeWhitespace second).filter fun run =>
+    match run with
+    | first :: _ => !isUnicodeWhitespace first
+    | [] => false
 
 /-- Every non-overlapping occurrence of `pattern` replaced left to right; an
 empty pattern matches before each character and at the end. -/
@@ -1726,6 +1747,21 @@ def textMethod (method : TextMethod) (text : String) (supplied : List (Supplied 
     | some source, some target => .value (textValue (replaceRun source.toList target.toList (text.length + 1) text.toList))
     | _, _ => .unsupported
   | .lines, [] => .value (.list ((textLines text.toList).map textValue))
+  | .countLines, [] => countedValue (textLines text.toList).length
+  | .trim, [] =>
+    .value (textValue ((text.toList.dropWhile isUnicodeWhitespace).reverse.dropWhile isUnicodeWhitespace).reverse)
+  | .words, [] | .fields, [] => .value (.list ((wordRuns text.toList).map textValue))
+  | .countWords, [] => countedValue (wordRuns text.toList).length
+  | .fields, [delimiter] =>
+    let written := match delimiter with
+      | .positional value | .named "delimiter" value => stringOf value
+      | _ => none
+    match written with
+    | some found =>
+      if found.isEmpty then .value (.list (if text.isEmpty then [] else [textValue text.toList]))
+      else .value (.list (((splitRun found.toList (text.length + 1) [] text.toList).filter
+        fun piece => !piece.isEmpty).map textValue))
+    | none => .unsupported
   | _, _ => .unsupported
 
 /-- A list, map, set or text method call: the receiver evaluates first, then

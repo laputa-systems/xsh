@@ -368,6 +368,40 @@ theorem text_dispatch_witness :
     intValue (textSlot 0) = some 13 ∧ textValue (textSlot 1) = some "héLLo wörLd" := by
   decide +kernel
 
+def spaced : String := "\u3000 a\u00A0b\tc \u2028"
+
+/-- As the verification binary prints `"a b\tc"` (the inner no-break space
+kept), `["a","b","c"]` twice and `3` for `trim`, `words`, `fields` and
+`count_words` on `"\u{3000} a\u{a0}b\tc \u{2028}"`; `["a","b","c"]` for
+`"a:b::c".fields(":")`, `[]` for `"".words()` and `"  ".fields()`, `2 2 0 1`
+for `count_lines` on `"a\nb\n"`, `"a\nb"`, `""` and `"\n"`; `"x\u{200b}"` for
+trimming `"\u{85}x\u{200b}"`; and `["ab"]`, `["a","b"]` and `[]` for
+`"ab".fields("")`, `"a::b".fields(delimiter: "::")` and `"".fields("")`. -/
+theorem whitespace_witness :
+    textResult (textMethod .trim spaced []) = some "a\u00A0b\tc" ∧
+    textsResult (textMethod .words spaced []) = some ["a", "b", "c"] ∧
+    textsResult (textMethod .fields spaced []) = some ["a", "b", "c"] ∧
+    countResult (textMethod .countWords spaced []) = some (some 3) ∧
+    textsResult (textMethod .fields "a:b::c" [textOf ":"]) = some ["a", "b", "c"] ∧
+    textsResult (textMethod .words "" []) = some [] ∧
+    textsResult (textMethod .fields "  " []) = some [] ∧
+    countResult (textMethod .countLines "a\nb\n" []) = some (some 2) ∧
+    countResult (textMethod .countLines "a\nb" []) = some (some 2) ∧
+    countResult (textMethod .countLines "" []) = some (some 0) ∧
+    countResult (textMethod .countLines "\n" []) = some (some 1) ∧
+    textResult (textMethod .trim "\u0085x\u200B" []) = some "x\u200B" ∧
+    textsResult (textMethod .fields "ab" [textOf ""]) = some ["ab"] ∧
+    textsResult (textMethod .fields "a::b" [.named "delimiter" (strOf "::")]) = some ["a", "b"] ∧
+    textsResult (textMethod .fields "" [textOf ""]) = some [] := by
+  decide +kernel
+
+/-- A `trim` on Lean's ASCII `Char.isWhitespace` stops at the leading
+ideographic space; the model removes it, as the binary does. -/
+theorem ascii_trim_rejected :
+    (spaced.toList.dropWhile Char.isWhitespace).head? = some '\u3000' ∧
+      textResult (textMethod .trim spaced []) = some "a\u00A0b\tc" := by
+  decide +kernel
+
 /-- A `byte_len` that counted characters gives `11`; the binary and the model
 give `13`. -/
 theorem character_byte_len_rejected :

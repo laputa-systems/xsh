@@ -517,7 +517,8 @@ Expressions:
   UTF-8 (P)
 - methods other than the numeric, list, map and set methods and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
-  `reverse`, `split` without `maxsplit`, `find`, `replace` and `lines`;
+  `reverse`, `split` without `maxsplit`, `find`, `replace`, `lines`, `trim`,
+  `words`, `fields`, `count_words` and `count_lines`;
   `Map.push`; and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
@@ -699,7 +700,13 @@ whose meaning does not depend on Unicode case or whitespace tables:
 giving each character), `find` (the byte offset of a needle at or after a
 byte `start`, or `null`), `replace(from, with: to)` (every non-overlapping
 occurrence, an empty pattern before each character and at the end) and
-`lines` (`\r\n` and a final newline handled as the binary does). A text
+`lines` (`\r\n` and a final newline handled as the binary does). `trim`,
+`words`, `fields` and `count_words` use exactly the Unicode `White_Space`
+characters, the set Rust's `char::is_whitespace` tests, written out in
+`isUnicodeWhitespace`; `fields` with a delimiter drops empty pieces, and
+`count_lines` counts `lines`. The witnesses include the ideographic space,
+no-break space, `U+0085` and the line separator, and the mutant trims with
+Lean's ASCII `Char.isWhitespace`. A text
 method applies to a `Str` receiver and a collection method to a list, map or
 set, through one dispatch, `valueMethodCall`. The root proves that a reported
 `find` offset starts an occurrence of the needle. The witnesses follow the
