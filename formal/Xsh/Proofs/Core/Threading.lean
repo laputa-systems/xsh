@@ -609,7 +609,7 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
             body)) ∧
     (∀ (caller callee : Frame world) kind value,
       ∃ result, returnTo caller kind (.returned value callee) =

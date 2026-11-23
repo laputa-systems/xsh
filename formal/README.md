@@ -536,7 +536,7 @@ Expressions:
   `parse_float`, `lower` and `upper` (P)
 - the contextual `.require()` under a schema below a `return` nested in a
   statement, or any other expected position (P)
-- `cd` and `within` scopes (E), `tempdir` (E),
+- `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
   `$?` (E)
@@ -959,7 +959,17 @@ value is the scope's own `Err`; and however the body ends, its frame returns
 with the environment the scope entered with, so the overrides and the
 body's own assignments are undone. The witnesses follow the verification
 binary's `inner`, `true true` and `true`, and reject a scope that keeps its
-overrides. `cd` and `within` scopes are not modelled.
+overrides. The root also adds `cd (target) { ... }`: a `Path`, or a `Str`'s
+UTF-8 bytes, joins onto the current directory as Rust's `PathBuf::join` does,
+without normalizing; the body runs as a value block there, giving `Ok` of its
+tail, and the scope's frame returns with the directory it entered with
+however the body ends, calls and stream consumers running in the caller's
+directory; a `Str` holding NUL is the `nul-path` `Err`, and a target the host
+has no directory at is the machine's `directoryError`, the host's `cwd` error
+or `cwd-not-directory`. `fs.cwd()` gives `Ok` of the current directory, the
+machine's `startDirectory` outside any scope. The witnesses follow the
+binary's `PROBE/sub`, `PROBE/sub/..`, `PROBE`, missing-directory `Err` and `/`,
+and reject a normalizing join. `within` scopes are not modelled.
 
 The `script_exit` fragment root, in
 [`Proofs/Core/Exits.lean`](Xsh/Proofs/Core/Exits.lean), adds `exit status`

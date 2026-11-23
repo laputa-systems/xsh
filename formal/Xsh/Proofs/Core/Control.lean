@@ -294,6 +294,13 @@ theorem withOverlay_refines {world : World Declaration Identity Source} (overlay
   · subst out; exact Or.inl rfl
   · subst same; exact valued_refl _
 
+theorem withDirectory_refines {world : World Declaration Identity Source} (directory : Option NativePath)
+    {first second : Valued world} (refined : Valued.Refines first second) :
+    Valued.Refines (withDirectory directory first) (withDirectory directory second) := by
+  rcases refined with out | same
+  · subst out; exact Or.inl rfl
+  · subst same; exact valued_refl _
+
 theorem consumeProducer_refines {world : World Declaration Identity Source} (loop : Frame world)
     {first second : Valued world} (refined : Valued.Refines first second) :
     Exec.Refines (consumeProducer loop first) (consumeProducer loop second) := by
@@ -788,6 +795,7 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine guardElse_refines ?_
   | refine annotate_refines _ ?_
   | refine withOverlay_refines _ ?_
+  | refine withDirectory_refines _ ?_
   | refine gathered_refines _ _ ?_
   | refine consumeProducer_refines _ ?_
   | refine delegatedStream_refines ?_
@@ -1237,6 +1245,18 @@ theorem annotate_persists {world : World Declaration Identity Source} (text : St
 
 theorem withOverlay_persists {world : World Declaration Identity Source} (overlay : Overlay) {before : Store world}
     {outcome : Valued world} (kept : VKeeps before outcome) : VKeeps before (withOverlay overlay outcome) := by
+  cases outcome with
+  | value value frame => exact kept
+  | exec inner =>
+    cases inner with
+    | normal frame | broke frame | continued frame | returned _ frame | failed _ frame | internal _ frame
+    | exited _ frame | consumed _ frame =>
+      exact fun scope present => by cases present; exact kept frame rfl
+    | stuck | unsupported | outOfFuel => exact kept
+
+theorem withDirectory_persists {world : World Declaration Identity Source} (directory : Option NativePath)
+    {before : Store world} {outcome : Valued world} (kept : VKeeps before outcome) :
+    VKeeps before (withDirectory directory outcome) := by
   cases outcome with
   | value value frame => exact kept
   | exec inner =>
@@ -1863,6 +1883,7 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine guardElse_persists ?_
   | refine annotate_persists _ ?_
   | refine withOverlay_persists _ ?_
+  | refine withDirectory_persists _ ?_
   | refine gathered_persists _ _ ?_
   | exact gather_persists _ _ _
   | exact gatherAll_persists _ _ _ _
@@ -2349,6 +2370,19 @@ theorem annotate_restores {world : World Declaration Identity Source} (text : St
 
 theorem withOverlay_restores {world : World Declaration Identity Source} (overlay : Overlay) {frame : Frame world}
     {outcome : Valued world} (restored : VRestores frame outcome) : VRestores frame (withOverlay overlay outcome) := by
+  cases outcome with
+  | value value last => exact restored
+  | exec inner =>
+    cases inner with
+    | normal last => exact restored.elim
+    | broke last | continued last | returned _ last | failed _ last | internal _ last | exited _ last
+    | consumed _ last =>
+      exact fun scope present => by cases present; exact restored last rfl
+    | stuck | unsupported | outOfFuel => exact restored
+
+theorem withDirectory_restores {world : World Declaration Identity Source} (directory : Option NativePath)
+    {frame : Frame world} {outcome : Valued world} (restored : VRestores frame outcome) :
+    VRestores frame (withDirectory directory outcome) := by
   cases outcome with
   | value value last => exact restored
   | exec inner =>
@@ -2952,6 +2986,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | (apply settled_exec; assumption)
   | refine annotate_restores _ ?_
   | refine withOverlay_restores _ ?_
+  | refine withDirectory_restores _ ?_
   | refine gathered_restores _ _ ?_
   | exact gather_restores _ _ _
   | exact gatherAll_restores _ _ _ _
@@ -3005,7 +3040,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | split))
 
 -- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.
-set_option maxHeartbeats 800000 in
+set_option maxHeartbeats 1200000 in
 theorem restoring_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (inner : Restoring machine fuel) :
     ∀ frame expression, VRestores frame (evalExpr machine (fuel + 1) frame expression) := by
@@ -3422,7 +3457,7 @@ theorem call_activation {world : World Declaration Identity Source} (machine : M
     (kind : ReturnKind) (environment : Environment) (declared : Xsh.Syntax.RawName) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
           body) ∧
     (machine.namesAt scope.activation).declaration environment declared =
       (machine.resolution.declaration environment declared).map fun found =>
@@ -3598,7 +3633,7 @@ theorem call_returns {world : World Declaration Identity Source} (machine : Mach
     (kind : ReturnKind) :
     callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
       returnTo caller kind
-        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+        (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
           body) :=
   rfl
 
@@ -4029,7 +4064,7 @@ theorem deferred_cleanup {world : World Declaration Identity Source} [DecidableE
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind environment declared,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
             body) ∧
       (machine.namesAt scope.activation).declaration environment declared =
         (machine.resolution.declaration environment declared).map fun found =>
@@ -4130,7 +4165,7 @@ theorem error_handling {world : World Declaration Identity Source} (machine : Ma
     (∀ fuel (caller : Frame world) scope defining parameters writable body kind,
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind
-          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+          (runBody machine fuel { Frame.ofScope defining caller.store parameters (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
             body)) ∧
     (∀ (value error : Value Declaration Identity Source) failure (caller callee : Frame world),
       returnTo caller .result (.failed (.raised error) callee) =
@@ -4418,6 +4453,9 @@ def machine : Machine witnessWorld where
   hostEnvironment := fun _ => none
   envMissing := fun name => .scalar (.string ("env-missing " ++ name))
   invalidUtf8 := fun name => .scalar (.string ("invalid-utf8 " ++ name))
+  startDirectory := ⟨[47, 119], by decide⟩
+  directoryError := fun path =>
+    if path.bytes = [47, 119, 47, 109] then some (.scalar (.string "cwd missing")) else none
 
 def start : Frame witnessWorld := Frame.ofScope ⟨emptyLexicalEnvironment, []⟩ (fun _ => none) [] none ⟨0, [], none⟩
 

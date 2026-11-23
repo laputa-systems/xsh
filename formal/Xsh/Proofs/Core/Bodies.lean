@@ -473,9 +473,9 @@ theorem body_resolution {world : World Declaration Identity Source} (machine : M
     (∀ fuel (caller : Frame world) scope defining (bound : Locals Declaration Identity Source) writable body kind,
       callBlock machine (fuel + 2) caller scope defining bound writable body kind =
         returnTo caller kind
-          (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+          (leaveBlock machine fuel { Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams }
             (runTail machine fuel
-              ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams } : Frame world).enter
+              ({ Frame.ofScope defining caller.store bound (some caller.store) scope with writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams } : Frame world).enter
               body))) ∧
     (∀ base types, machine.resolution = canonicalResolution base types →
       ∀ fuel (store : Store world) (defining : Environment) (bound : Locals Declaration Identity Source) scope

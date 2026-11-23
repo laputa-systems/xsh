@@ -15225,8 +15225,8 @@
       "declaration": "Xsh.Proofs.Core.EnvironmentReads.environment_scopes",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "SPEC 10.4 env (overlay) { body }: the overlay's converted fields are set in order and the body runs as a value block, giving Ok of its tail; a NUL value is the scope's own Err; and however the body ends its frame returns with the environment the scope entered with.",
-      "boundary": "cd and within scopes, List[Path] search-path values and child-process inheritance are not modelled; argv conversion is the machine's oracle. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
+      "scope": "SPEC 10.4 env (overlay) { body }: the overlay's converted fields are set in order and the body runs as a value block, giving Ok of its tail; a NUL value is the scope's own Err; and however the body ends its frame returns with the environment the scope entered with. cd (target) { body } joins a Path or Str target onto the current directory as PathBuf::join does, without normalizing, runs the body there as a value block giving Ok of its tail, and returns with the directory it entered with; a NUL Str is the nul-path Err; fs.cwd() gives Ok of the current directory.",
+      "boundary": "within scopes, List[Path] search-path values and child-process inheritance are not modelled; argv conversion is the machine's oracle; the starting directory and whether the host has a directory at a joined path, with the cwd or cwd-not-directory error it gives otherwise, are the machine's startDirectory and directoryError host observations. Witnesses follow the verification binary on a named script; it does not close BASE-ENV and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Exits.script_exit",

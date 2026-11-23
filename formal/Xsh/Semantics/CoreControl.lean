@@ -89,6 +89,11 @@ structure Machine (world : World Declaration Identity Source) where
   envMissing : String → Value Declaration Identity Source
   /-- The `invalid-utf8` error a `Str` read of a value that is not UTF-8 gives. -/
   invalidUtf8 : String → Value Declaration Identity Source
+  /-- The working directory the program started in, a host observation. -/
+  startDirectory : NativePath
+  /-- The error `cd` gives for a target the host has no directory at: the
+  host's `cwd` error, or `cwd-not-directory`; `none` when it has one. -/
+  directoryError : NativePath → Option (Value Declaration Identity Source)
 
 /-- The resolution oracles with the context's spellings; a declared name's
 cell is its binder in the given activation. -/
@@ -206,6 +211,9 @@ structure Frame (world : World Declaration Identity Source) where
   /-- The streams the program has created, by creation order: evaluator
   state that calls share, as the store is. -/
   streams : List (StreamState Declaration Identity Source)
+  /-- The working directory a `cd` scope moved the evaluator to; `none` is
+  the one the program started in. -/
+  directory : Option NativePath := none
 
 def Frame.scope {world : World Declaration Identity Source} (frame : Frame world) : Scope Declaration Identity Source :=
   ⟨frame.activation, frame.closures, frame.item⟩
@@ -881,6 +889,51 @@ def withOverlay {world : World Declaration Identity Source} (overlay : Overlay) 
   | .exec (.consumed exit frame) => .exec (.consumed exit { frame with overlay })
   | other => other
 
+def withDirectory {world : World Declaration Identity Source} (directory : Option NativePath) :
+    Valued world → Valued world
+  | .value value frame => .value value { frame with directory }
+  | .exec (.normal frame) => .exec (.normal { frame with directory })
+  | .exec (.broke frame) => .exec (.broke { frame with directory })
+  | .exec (.continued frame) => .exec (.continued { frame with directory })
+  | .exec (.returned value frame) => .exec (.returned value { frame with directory })
+  | .exec (.failed failure frame) => .exec (.failed failure { frame with directory })
+  | .exec (.internal fault frame) => .exec (.internal fault { frame with directory })
+  | .exec (.exited status frame) => .exec (.exited status { frame with directory })
+  | .exec (.consumed exit frame) => .exec (.consumed exit { frame with directory })
+  | other => other
+
+/-- The evaluator's working directory in `frame`. -/
+def currentDirectory {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world) :
+    NativePath :=
+  frame.directory.getD machine.startDirectory
+
+/-- Rust's `PathBuf::join`: an absolute `target` replaces `base`; otherwise
+`target` follows `base` and one `/` unless `base` is empty or ends in one. -/
+def joinPath (base target : NativePath) : Option NativePath :=
+  if target.bytes.head? = some 47 then some target
+  else if base.bytes.isEmpty || base.bytes.getLast? = some 47 then NativePath.fromBytes? (base.bytes ++ target.bytes)
+  else NativePath.fromBytes? (base.bytes ++ 47 :: target.bytes)
+
+/-- Where `cd (target)` moves the evaluator from `current`: a `Path`, or a
+`Str`'s UTF-8 bytes, joined onto it; a `Str` holding NUL is the `nul-path`
+`Err`, and a target the host has no directory at is its `directoryError`. -/
+def cdTarget {world : World Declaration Identity Source} (machine : Machine world) (current : NativePath)
+    (target : Value Declaration Identity Source) :
+    Option (Except (Value Declaration Identity Source) NativePath) :=
+  let named : Option (Except (Value Declaration Identity Source) NativePath) := match target.eraseNominal with
+    | .scalar (.path path) => some (.ok path)
+    | .scalar (.string text) =>
+      match NativePath.fromBytes? text.toUTF8.toList with
+      | some path => some (.ok path)
+      | none => some (.error (machine.context.errors.described "nul-path" "paths cannot contain NUL bytes"))
+    | _ => none
+  named.bind fun
+    | .error error => some (.error error)
+    | .ok path => (joinPath current path).map fun joined =>
+      match machine.directoryError joined with
+      | some error => .error error
+      | none => .ok joined
+
 /-- The first `count` delays of `backoff first..cap` (SPEC 8.8): `first`,
 then each twice the one before, never longer than `cap`. -/
 def backoffSchedule (first cap : Nat) : Nat → List Nat
@@ -943,7 +996,8 @@ def Frame.consuming {world : World Declaration Identity Source} (frame : Frame w
 with the producer's store and environment variables. -/
 def consumerFrame {world : World Declaration Identity Source} (producer : Frame world) (loop : Consumer world)
     (outer : List (Consumer world)) : Frame world :=
-  { environment := loop.environment, store := producer.store, overlay := producer.overlay, locals := loop.locals,
+  { environment := loop.environment, store := producer.store, overlay := producer.overlay,
+    directory := producer.directory, locals := loop.locals,
     callerStore := loop.callerStore, activation := loop.activation, deferred := loop.deferred,
     reported := producer.reported, waited := producer.waited, breakValue := none, closures := loop.closures,
     item := loop.item,
@@ -2373,6 +2427,8 @@ inductive EnvFunction where
   | pathEntries
   /-- `regex.compile(text)`. -/
   | regexCompile
+  /-- `fs.cwd()`. -/
+  | cwd
 
 /-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
 def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
@@ -2381,6 +2437,8 @@ def envFunction {world : World Declaration Identity Source} (machine : Machine w
   | .ident module =>
     if machine.context.spelling module = "regex" ∧ machine.context.spelling method = "compile" ∧
         (frame.locals.lookup module).isNone ∧ (frame.environment.cellOf module).isOk = false then some .regexCompile
+    else if machine.context.spelling module = "fs" ∧ machine.context.spelling method = "cwd" ∧
+        (frame.locals.lookup module).isNone ∧ (frame.environment.cellOf module).isOk = false then some .cwd
     else if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
         (frame.environment.cellOf module).isOk = false then
       match machine.context.spelling method with
@@ -2432,9 +2490,10 @@ ASCII-lowercased; `int` reads a trimmed Rust `i64`, else the `env-int` `Err`;
 `path` takes the bytes as they are; undecodable text is the `invalid-utf8`
 `Err`. -/
 def envCall {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
-    (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
+    (directory : NativePath) (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
   match function, envArguments supplied with
+  | .cwd, _ => if supplied.isEmpty then .value (.ok (.scalar (.path directory))) else .unsupported
   | .regexCompile, some (source, none) =>
     match Xsh.Values.Regex.parse source with
     | some _ => .value (.ok (.scalar (.regex source)))
@@ -3737,7 +3796,8 @@ mutual
                     | some bound => (evalExpr machine fuel middle bound).bind fun high last => Outcome.value (some high) last).bind
                     fun high last => fromEval last (sliceOf present low high)
       | .valueBlock _ | .capture _ | .retry _ _ _ _ | .binary .resultFallback _ _ | .loopExpr _ | .collect _
-          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ | .errorContext _ _ | .contextScope .env _ _ =>
+          | .listComp _ _ | .mapComp _ _ _ | .matchExpr _ _ | .errorContext _ _ | .contextScope .env _ _
+          | .contextScope .cwd _ _ =>
         runValue machine fuel frame expression
       | .ident name =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name,
@@ -3842,7 +3902,7 @@ mutual
           match envFunction machine frame receiver method with
           | some function =>
             (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
-              fromEval after (envCall machine after.overlay function supplied)
+              fromEval after (envCall machine after.overlay (currentDirectory machine after) function supplied)
           | none =>
           match machine.context.spelling method with
           | "call" =>
@@ -3961,7 +4021,8 @@ mutual
       returnTo caller kind
         (runBody machine fuel
           { Frame.ofScope defining caller.store parameters (some caller.store) scope with
-              writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams }
+              writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers,
+              streams := caller.streams }
           body)
 
   /-- An expression in a statement: `try`, `retry`, value blocks, `?` and
@@ -4012,6 +4073,14 @@ mutual
             | .ok applied =>
               (withOverlay next.overlay (valueScope machine fuel { next with overlay := applied } body)).bind
                 fun tail last => .value (.ok tail) last
+      | .contextScope .cwd input body =>
+        (evalExpr machine fuel frame input).bind fun target next =>
+          match cdTarget machine (currentDirectory machine next) target with
+          | none => .exec .unsupported
+          | some (.error error) => .value (.err error) next
+          | some (.ok directory) =>
+            (withDirectory next.directory (valueScope machine fuel { next with directory := some directory } body)).bind
+              fun tail last => .value (.ok tail) last
       | .errorContext message body =>
         (evalExpr machine fuel frame message).bind fun described next =>
           match described.eraseNominal with

@@ -42,7 +42,7 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
       callBlock machine (fuel + 1) caller scope defining parameters writable body kind =
         returnTo caller kind (runBody machine fuel
           { Frame.ofScope defining caller.store parameters (some caller.store) scope with
-            writable, overlay := caller.overlay, consumers := caller.consumers, streams := caller.streams } body)) ∧
+            writable, overlay := caller.overlay, directory := caller.directory, consumers := caller.consumers, streams := caller.streams } body)) ∧
     (∀ (caller callee : Frame world) kind value,
       frameOverlay (returnTo caller kind (.returned value callee)) = some callee.overlay) ∧
     (∀ paths, environmentPaths machine frame.overlay = some paths →
@@ -51,7 +51,7 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
       isEnvPathList receiver = false → envFunction machine frame receiver method = some function →
         evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
           (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
-            fromEval after (envCall machine after.overlay function supplied)) := by
+            fromEval after (envCall machine after.overlay (currentDirectory machine after) function supplied)) := by
   refine ⟨fun _ => rfl, fun name bytes found text decoded => ?_, fun name missing => ?_,
     fun name value => by simp [readEnvironment, List.lookup], fun _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> rfl, fun _ split => by simp only [evalExpr, split],
@@ -64,7 +64,12 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
 evaluates its overlay, sets each converted field in order, and runs the body
 as a value block, giving `Ok` of its tail; a NUL value is the scope's own
 `Err`; and however the body ends, its frame returns with the environment the
-scope entered with, the scope's overrides and the body's assignments undone. -/
+scope entered with, the scope's overrides and the body's assignments undone.
+`cd (target) { body }` (SPEC 10.4) likewise runs the body as a value block in
+the directory `cdTarget` joins onto the current one, giving `Ok` of its tail,
+the target's `Err` when the host has no directory there, and the directory it
+entered with however the body ends; `fs.cwd()` gives `Ok` of the current
+directory. -/
 theorem environment_scopes [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
     (∀ input body, runValue machine (fuel + 1) frame (.contextScope .env input body) =
@@ -83,8 +88,24 @@ theorem environment_scopes [DecidableEq Declaration] {world : World Declaration 
     (∀ (overlay : Overlay) failure (last : Frame world),
       withOverlay overlay (.exec (.failed failure last)) = .exec (.failed failure { last with overlay })) ∧
     (∀ (overlay : Overlay) value (last : Frame world),
-      withOverlay overlay (.exec (.returned value last)) = .exec (.returned value { last with overlay })) :=
-  ⟨fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl⟩
+      withOverlay overlay (.exec (.returned value last)) = .exec (.returned value { last with overlay })) ∧
+    (∀ input body, runValue machine (fuel + 1) frame (.contextScope .cwd input body) =
+      (evalExpr machine fuel frame input).bind fun target next =>
+        match cdTarget machine (currentDirectory machine next) target with
+        | none => .exec .unsupported
+        | some (.error error) => .value (.err error) next
+        | some (.ok directory) =>
+          (withDirectory next.directory (valueScope machine fuel { next with directory := some directory } body)).bind
+            fun tail last => .value (.ok tail) last) ∧
+    (∀ directory (value : Value Declaration Identity Source) (last : Frame world),
+      withDirectory directory (.value value last) = .value value { last with directory }) ∧
+    (∀ directory failure (last : Frame world),
+      withDirectory directory (.exec (.failed failure last)) = .exec (.failed failure { last with directory })) ∧
+    (∀ directory value (last : Frame world),
+      withDirectory directory (.exec (.returned value last)) = .exec (.returned value { last with directory })) ∧
+    (∀ overlay directory, envCall machine overlay directory .cwd [] = .value (.ok (.scalar (.path directory)))) :=
+  ⟨fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ _ => rfl,
+    fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl⟩
 
 end Root
 
@@ -125,6 +146,8 @@ def matchesName : Xsh.Syntax.RawName := name 405 (by decide)
 def basenameName : Xsh.Syntax.RawName := name 406 (by decide)
 def md5Name : Xsh.Syntax.RawName := name 407 (by decide)
 def hexName : Xsh.Syntax.RawName := name 408 (by decide)
+def fsModule : Xsh.Syntax.RawName := name 409 (by decide)
+def cwdName : Xsh.Syntax.RawName := name 410 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
@@ -137,6 +160,7 @@ def keySpelling (named : Xsh.Syntax.RawName) : String :=
   else if named = regexModule then "regex" else if named = compileName then "compile"
   else if named = matchesName then "matches" else if named = basenameName then "basename"
   else if named = md5Name then "md5" else if named = hexName then "hex"
+  else if named = fsModule then "fs" else if named = cwdName then "cwd"
   else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
@@ -239,6 +263,47 @@ set; the model restores the environment it entered with. -/
 theorem leaking_scope_rejected :
     textOf (some (environmentString envMachine [("XSH_PROBE_A".toUTF8.toList, "inner".toUTF8.toList)] "XSH_PROBE_A")) =
       some "inner" ∧ isErrValue (readOutput 1 scopeRun) = true := by
+  decide +kernel
+
+def cwdNow : Xsh.Syntax.Expr := .tryExpr (.call (.field (ident fsModule) cwdName) [])
+
+def pathText : Option (Value Unit Unit Unit) → Option String
+  | some (.scalar (.path path)) => String.fromUTF8? ⟨path.bytes.toArray⟩
+  | _ => none
+
+/-- In a program started in `/w`, where the host has no directory `/w/m`:
+`cd (p"sub") { fs.cwd()? }?`, `cd ("sub") { cd (p"..") { fs.cwd()? }? }?`,
+`fs.cwd()?` after them, `cd (p"m") { 1 }` and `cd (p"/") { cd (p"") {
+fs.cwd()? }? }?`, as the verification binary, started in `PROBE`, prints
+`PROBE/sub`, `PROBE/sub/..`, `PROBE`, the `No such file or directory` `Err`
+and `/`. -/
+def cdScript : List Xsh.Syntax.Statement :=
+  [letOf (slot 0) (.tryExpr (.contextScope .cwd (.literal (.path "sub")) [.expression cwdNow])),
+   letOf (slot 1) (.tryExpr (.contextScope .cwd (.literal (.string "sub"))
+      [.expression (.tryExpr (.contextScope .cwd (.literal (.path "..")) [.expression cwdNow]))])),
+   letOf (slot 2) cwdNow,
+   letOf (slot 3) (.contextScope .cwd (.literal (.path "m")) [.expression (int "1")]),
+   letOf (slot 4) (.tryExpr (.contextScope .cwd (.literal (.path "/"))
+      [.expression (.tryExpr (.contextScope .cwd (.literal (.path "")) [.expression cwdNow]))]))]
+
+def cdRun : Exec witnessWorld := runScript envMachine 90 fullStart cdScript
+
+theorem directory_scope_witness :
+    pathText (readOutput 0 cdRun) = some "/w/sub" ∧
+    pathText (readOutput 1 cdRun) = some "/w/sub/.." ∧
+    pathText (readOutput 2 cdRun) = some "/w" ∧
+    errOf (readOutput 3 cdRun) = some "cwd missing" ∧
+    pathText (readOutput 4 cdRun) = some "/" := by
+  decide +kernel
+
+/-- Normalizing the joined path, as `fs.resolve` would, loses the binary's
+lexical `PROBE/sub/..`; joining an absolute target onto the directory, rather
+than replacing it, loses its `/`. -/
+theorem normalized_directory_rejected :
+    (joinPath ⟨[47, 119, 47, 115, 117, 98], by decide⟩ ⟨[46, 46], by decide⟩).map NativePath.bytes =
+      some "/w/sub/..".toUTF8.toList ∧
+    (joinPath ⟨[47, 119], by decide⟩ ⟨[47], by decide⟩).map NativePath.bytes =
+      some "/".toUTF8.toList := by
   decide +kernel
 
 /-- The process started with `PATH=a::b`. -/
