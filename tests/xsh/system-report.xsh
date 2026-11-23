@@ -308,7 +308,7 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   let root = fs.tempdir()?
   defer root.close()
   for entry in ["card0", "card1"] {
-    let entry_path: RelPath = fp"sys/class/sound/{entry}".require(RelPath)?
+    let entry_path: RelPath = fp"sys/class/sound/{entry}".require()?
     root.mkdir(entry_path, parents: true)
     root.write(
       fp"{entry_path}/id",
@@ -916,7 +916,7 @@ test test_system_report_scope_keeps_all_process_visible_namespace_identities {
       target: "time:[108]",
     },
   ] {
-    let namespace_path: RelPath = fp"proc/self/ns/{namespace.name}".require(RelPath)?
+    let namespace_path: RelPath = fp"proc/self/ns/{namespace.name}".require()?
     root.symlink(target: fp"{namespace.target}", path: namespace_path)
   }
 
@@ -1576,7 +1576,7 @@ test test_system_report_cpu_collection_preserves_128_present_ids {
   defer root.close()
   root.mkdir(p"sys/devices/system/cpu", parents: true)
   for cpu_id in range(128) {
-    let cpu_path: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}".require(RelPath)?
+    let cpu_path: RelPath = fp"sys/devices/system/cpu/cpu{cpu_id}".require()?
     root.mkdir(cpu_path)
   }
 
@@ -2284,7 +2284,7 @@ test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
     },
   ] {
     root.write(
-      fp"{device}/{field.name}".require(RelPath)?,
+      fp"{device}/{field.name}".require()?,
       f"""{field.prefix}
 {padding}""",
     )
@@ -3734,7 +3734,7 @@ Features: fp asimd
       governor: "unlisted-governor",
     },
   ] {
-    let policy_path: RelPath = policy.path.require(RelPath)?
+    let policy_path: RelPath = policy.path.require()?
     root.write(
       fp"{policy_path}/related_cpus",
       f"""{policy.related}
@@ -3934,7 +3934,7 @@ test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
   ] {
     let suffix = if field.name == "scaling_available_frequencies" { long_padding } else { padding }
     root.write(
-      fp"{policy_path}/{field.name}".require(RelPath)?,
+      fp"{policy_path}/{field.name}".require()?,
       f"""{field.prefix}
 {suffix}""",
     )
@@ -4291,7 +4291,7 @@ test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
     },
   ] {
     root.write(
-      fp"{topology}/{field.name}".require(RelPath)?,
+      fp"{topology}/{field.name}".require()?,
       f"""{field.prefix}
 {padding}""",
     )
@@ -4511,7 +4511,7 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
   )
   root.write(p"sys/devices/system/cpu/offline", "\n")
   for entry in [{index: 7, kernel_id: 9}, {index: 8, kernel_id: 10}] {
-    let base: RelPath = fp"sys/devices/system/cpu/cpu0/cache/index{entry.index}".require(RelPath)?
+    let base: RelPath = fp"sys/devices/system/cpu/cpu0/cache/index{entry.index}".require()?
     root.mkdir(base)
     root.write(
       fp"{base}/id",
@@ -5155,7 +5155,7 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
   let root = fs.tempdir()?
   defer root.close()
   for name in ["sda", "dm-0"] {
-    let device_path: RelPath = fp"sys/class/block/{name}".require(RelPath)?
+    let device_path: RelPath = fp"sys/class/block/{name}".require()?
     root.mkdir(fp"{device_path}/holders", parents: true)
     root.mkdir(fp"{device_path}/slaves", parents: true)
     root.write(
@@ -5216,7 +5216,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
   root.symlink(target: p"../../devices/pci0000:00/0000:00:01.0/block/sda", path: p"sys/class/block/sda")
   for number in [1, 3] {
     let name = f"sda{number}"
-    let name_path: RelPath = fp"{name}".require(RelPath)?
+    let name_path: RelPath = fp"{name}".require()?
     let partition_path: RelPath = fp"{disk_path}/{name_path}"
     root.mkdir(fp"{partition_path}/holders", parents: true)
     root.write(
@@ -6274,7 +6274,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let root = fs.tempdir()?
   defer root.close()
   for entry in ["hwmon0", "hwmon1"] {
-    let entry_path: RelPath = fp"sys/class/hwmon/{entry}".require(RelPath)?
+    let entry_path: RelPath = fp"sys/class/hwmon/{entry}".require()?
     root.mkdir(entry_path, parents: true)
     root.write(
       fp"{entry_path}/name",
@@ -6324,7 +6324,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
 """,
     },
   ] {
-    root.write(fp"{pci_path}/{field.name}".require(RelPath)?, field.value)
+    root.write(fp"{pci_path}/{field.name}".require()?, field.value)
   }
 
   root.symlink(target: p"../../../devices/pci0000:00/0000:00:1f.3", path: p"sys/class/hwmon/hwmon0/device")

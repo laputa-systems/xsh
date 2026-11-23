@@ -354,7 +354,7 @@ proc disk_usage_operand(target: Path, policy: Policy, links: Map[Bool]) [fs, pro
   # The operand's parent is the anchor for a lookup beneath it, and a lookup of ".."
   # escapes that anchor, so an operand named ".." is its own anchor.
   let anchor = if component == ".." { target } else { target.parent() }
-  let entry: RelPath = if component == "/" or component == ".." { p"." } else { fp"{component}".require(RelPath)? }
+  let entry: RelPath = if component == "/" or component == ".." { p"." } else { fp"{component}".require()? }
   match fs.open_root(anchor) {
     Ok(root) => {
       defer root.close()

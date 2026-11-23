@@ -399,7 +399,7 @@ test test_classless_static_routes_replace_the_router_are_owned_and_follow_the_re
       scenario.sleep(500),
     ],
   )? else { return }
-  let initial = owned_by_client(json.read(fp"{dir}/first.json")?.require(Snapshot)?)
+  let initial = owned_by_client(json.read(fp"{dir}/first.json")?.require()?)
   let shapes = [f"{route.destination ?? "default"}/{route.prefix} via {route.gateway ?? "link"}" for route in initial]
   assert shapes.len() == 4, shapes.join(",")
   for expected in ["10.77.0.0/16 via 192.168.50.1", "192.0.2.9/32 via link", "198.51.100.0/24 via 192.0.2.9", "default/0 via 192.168.50.1"] {

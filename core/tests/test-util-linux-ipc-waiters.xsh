@@ -54,7 +54,7 @@ proc observe_element(s: uu.Scene, identity: Int, index: Int) [fs, process, env, 
   let status = process.run(plan)?
   assert status.exited_with(0), errors.read_text()?
   assert errors.read_bytes()? == b""
-  json.decode(output.read_text()?)?.require(ApiReport)
+  json.decode(output.read_text()?)?.require()
 }
 
 proc assert_element_reads(report: ApiReport, expected: SemaphoreElement) [error] {
@@ -95,7 +95,7 @@ proc probe_kernel(s: uu.Scene, script: Path, identity: Int) [fs, process, error]
   let status = process.run(plan)?
   assert status.exited_with(0), errors.read_text()?
   assert errors.read_bytes()? == b""
-  json.decode(output.read_text()?)?.require(KernelProbe)
+  json.decode(output.read_text()?)?.require()
 }
 
 proc assert_waiters_reaped(snapshot: WaiterSnapshot) [fs, error] {

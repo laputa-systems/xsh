@@ -9,7 +9,7 @@ type Captures = {reference: Capture, candidate: Capture}
 proc reply(payload: Str) [error] -> Result[Any, Error] {
   let value = json.decode(payload)?
   if let Ok(failure) = json.get(value, ["error"]) {
-    return Err(error.failure(failure.require(Str)?))
+    return Err(error.failure(failure.require()?))
   }
   Ok(value)
 }

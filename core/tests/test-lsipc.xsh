@@ -155,7 +155,7 @@ proc observe_ipc_api(s: uu.Scene, uid: Int, operation: Str, identity: Str, index
   let status = process.run(plan)?
   assert status.exited_with(0), errors.read_text()?
   assert errors.read_bytes()? == b""
-  json.decode(output.read_text()?)?.require(ApiReport)
+  json.decode(output.read_text()?)?.require()
 }
 
 proc assert_api_reads(report: ApiReport, expected: ApiObservation) [error] {

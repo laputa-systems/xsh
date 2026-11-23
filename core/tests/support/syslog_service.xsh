@@ -156,7 +156,7 @@ export proc send_with(ctx: TestContext, lay: Layout, scenario: Str, args: List[S
   let command = sender_command(ctx, lay.root, [scenario, lay.socket.display()].extend(args), stdin)
   let status = process.run(command)?
   assert status.exited_with(0), "the sender failed"
-  Ok(json.decode(fp"{lay.root}/sender.out".read_text()?)?.require(Sent)?)
+  Ok(json.decode(fp"{lay.root}/sender.out".read_text()?)?.require()?)
 }
 
 ## Open descriptors of a process.

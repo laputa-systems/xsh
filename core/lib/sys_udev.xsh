@@ -374,7 +374,7 @@ export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
           let devpath = real.byte_slice(3)
           continue when devpath in seen
 
-          if has_uevent(root, fp"{real}".require(RelPath)?) {
+          if has_uevent(root, fp"{real}".require()?) {
             seen = seen.add(devpath)
             yield devpath
           }
