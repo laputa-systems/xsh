@@ -1,6 +1,7 @@
 import Xsh.Semantics.CoreEval
 import Xsh.Validation.Core.Require
 import Xsh.Values.BaseCodec
+import Xsh.Values.CaseText
 import Xsh.Values.Digests
 import Xsh.Paths.Fields
 import Xsh.Paths.Normalize
@@ -2198,6 +2199,7 @@ inductive TextMethod where
   | byteLen | countChars | isEmpty | startsWith | endsWith | reverse | split | find | replace | lines
   | trim | words | fields | countWords | countLines | squeeze | delete | translate | byteAt | byteSlice
   | parseInt | parseIntDecimal | parseUint | parseUintPositive | wrap | base64Decode | base32Decode | parseFloat
+  | lower | upper
 
 def TextMethod.ofName : String → Option TextMethod
   | "byte_len" => some .byteLen
@@ -2210,6 +2212,8 @@ def TextMethod.ofName : String → Option TextMethod
   | "wrap" => some .wrap
   | "base64_decode" => some .base64Decode
   | "parse_float" => some .parseFloat
+  | "lower" => some .lower
+  | "upper" => some .upper
   | "base32_decode" => some .base32Decode
   | "find" => some .find
   | "replace" => some .replace
@@ -2608,6 +2612,8 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       if found.isEmpty then .value (.list (text.toList.map fun char => textValue [char]))
       else .value (.list ((splitRun found.toList (text.length + 1) [] text.toList).map textValue))
     | none => .unsupported
+  | .lower, [] => .value (textValue (Xsh.Values.CaseText.lower text.toList))
+  | .upper, [] => .value (textValue (Xsh.Values.CaseText.upper text.toList))
   | .parseFloat, [] =>
     match Xsh.Values.FloatLiterals.parseFloatText text with
     | some bits => .value (.ok (.scalar (.float bits)))

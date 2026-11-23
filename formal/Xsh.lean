@@ -53,6 +53,8 @@ import Xsh.Paths.StdComponents
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Values.BaseCodec
+import Xsh.Values.CaseTables
+import Xsh.Values.CaseText
 import Xsh.Values.LossyUtf8
 import Xsh.Values.Digests
 import Xsh.Calls.ArgumentOrder

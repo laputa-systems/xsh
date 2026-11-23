@@ -1004,6 +1004,28 @@ theorem path_literal_witness :
     pathLiteral "\\xff" = none := by
   decide +kernel
 
+
+def cased (method : TextMethod) (text : String) : Option String :=
+  textResult (textMethod collectionMachine.context.errors method text [])
+
+/-- As the verification binary prints `ας`, `σ`, `STRASSE`, `i̇` and
+`héllo` for `"ΑΣ".lower()`, `"Σ".lower()`, `"straße".upper()`,
+`"İ".lower()` and `"HéLLo".lower()`, and `ὀδυσσεύς` for `"ὈΔΥΣΣΕΎΣ".lower()`:
+case changes follow Rust's own tables (`Values.CaseTables`, generated from
+the pinned toolchain), a final `Σ` lowercasing to `ς`. -/
+theorem case_witness :
+    cased .lower "ΑΣ" = some "ας" ∧
+    cased .lower "Σ" = some "σ" ∧
+    cased .upper "straße" = some "STRASSE" ∧
+    cased .lower "İ" = some "i̇" ∧
+    cased .lower "HéLLo" = some "héllo" := by
+  decide +kernel
+
+/-- Lowercasing character by character, without the final-sigma rule, would
+give `ασ`. -/
+theorem contextless_sigma_rejected : cased .lower "ΑΣ" ≠ some "ασ" := by
+  decide +kernel
+
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/
 theorem trailing_bits_rejected : okBytes (decoded .base64Decode "aGl=") = none := by
   decide +kernel

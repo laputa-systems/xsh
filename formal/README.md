@@ -524,8 +524,8 @@ Expressions:
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
-  `translate`, `byte_at`, `byte_slice`, the integer parse methods and
-  `parse_float` (P)
+  `translate`, `byte_at`, `byte_slice`, the integer parse methods,
+  `parse_float`, `lower` and `upper` (P)
 - the contextual `.require()` under a constructor field, a schema under a
   declared result or parameter, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -732,6 +732,12 @@ whose meaning does not depend on Unicode case or whitespace tables:
 `starts_with`, `ends_with`, `reverse`, `split` at a separator (an empty one
 giving each character; a `maxsplit` limit splits at most that many times and
 keeps the rest as the last piece, a negative one splitting everywhere),
+`lower` and `upper` (Rust's `str::to_lowercase` and `str::to_uppercase`
+through `Values.CaseText`, over `Values.CaseTables`, which
+`formal/scripts/case-tables` generates from the pinned toolchain's own case
+data: `cargo run -q --release > ../../Xsh/Values/CaseTables.lean` in that
+directory reproduces it byte for byte; a final `Σ` lowercases to `ς`, and
+`ß` uppercases to `SS`, as the binary prints),
 `parse_float` (`Ok` of `FloatLiterals.parseFloatText`'s bits, or the
 `parse-float` `Err` with `expected number` when nothing but padding and `_`
 remains and ``invalid float `text` `` otherwise, as the binary prints them),
