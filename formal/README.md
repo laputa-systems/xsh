@@ -526,7 +526,7 @@ Expressions:
   a value block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
-  (E), the typed computed-name `env` readers and `env.PATH`'s methods (E),
+  (E), the `env` list readers and `env.PATH`'s methods (E),
   `$?` (E)
 
 
@@ -901,7 +901,13 @@ splits it at every `:` as Rust's `split_paths` does on Unix
 `env.get(name)` reads as `e"NAME"` does with a computed name, and
 `env.get_or(name, fallback)` gives `Ok` of the fallback only when the variable
 is unset, an undecodable value staying the `invalid-utf8` `Err`, as the
-binary prints for the preset, unset and non-UTF-8 variables.
+binary prints for the preset, unset and non-UTF-8 variables. `env.bool`,
+`env.int` and `env.path` give their fallback (`false`, `0` and the empty
+path by default) only when the variable is unset; `bool` reads trimmed,
+ASCII-lowercased `1`, `true`, `yes` or `on` as `true` and other text as
+`false`, `int` reads a trimmed Rust `i64` or gives the `env-int` `Err`, and
+`path` takes the bytes; a name that is empty or holds NUL or `=` is the
+`env-name` `Err` for every reader, as the binary prints for each case.
 
 The `environment_scopes` root, in the same module, adds `env (overlay) { ... }`
 (SPEC 10.4): the overlay's fields convert as argv items and are set in order,

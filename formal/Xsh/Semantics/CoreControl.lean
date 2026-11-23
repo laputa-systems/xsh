@@ -842,48 +842,6 @@ def environmentString {world : World Declaration Identity Source} (machine : Mac
     | some text => .ok (.scalar (.string text))
     | none => .err (machine.invalidUtf8 name)
 
-/-- The `env` module functions the machine reads with (SPEC 10.5). -/
-inductive EnvFunction where
-  | get
-  | getOr
-
-/-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
-def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
-    (receiver : Xsh.Syntax.Expr) (method : Xsh.Syntax.RawName) : Option EnvFunction :=
-  match receiver with
-  | .ident module =>
-    if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
-        (frame.environment.cellOf module).isOk = false then
-      match machine.context.spelling method with
-      | "get" => some .get
-      | "get_or" => some .getOr
-      | _ => none
-    else none
-  | _ => none
-
-/-- `env.get(name)`, which reads as `e"NAME"` does with a computed name, and
-`env.get_or(name, fallback)`, `Ok` of the fallback when the variable is unset
-and as `env.get` otherwise. -/
-def envCall {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
-    (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
-    Result Declaration Identity Source (Value Declaration Identity Source) :=
-  match function, supplied with
-  | .get, [.positional name] =>
-    match name.eraseNominal with
-    | .scalar (.string text) => .value (environmentString machine overlay text)
-    | _ => .unsupported
-  | .getOr, [.positional name, fallback] =>
-    let written := match fallback with
-      | .positional value | .named "fallback" value => some value
-      | _ => none
-    match name.eraseNominal, written.map Value.eraseNominal with
-    | .scalar (.string text), some (.scalar (.string otherwise)) =>
-      match (readEnvironment overlay text.toUTF8.toList).or (machine.hostEnvironment text.toUTF8.toList) with
-      | none => .value (.ok (.scalar (.string otherwise)))
-      | some _ => .value (environmentString machine overlay text)
-    | _, _ => .unsupported
-  | _, _ => .unsupported
-
 /-- The overrides an `env (overlay) { ... }` scope applies (SPEC 10.4): each
 field or `Str` key with its value converted as an argv item. `none` is a
 value the conversion does not cover. -/
@@ -2357,6 +2315,110 @@ def int64FromRadix (base : Nat) : List Char → Option Int
 
 def trimWhitespace (chars : List Char) : List Char :=
   ((chars.dropWhile isUnicodeWhitespace).reverse.dropWhile isUnicodeWhitespace).reverse
+
+/-- The `env` module functions the machine reads with (SPEC 10.5). -/
+inductive EnvFunction where
+  | get
+  | getOr
+  | bool
+  | int
+  | path
+
+/-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
+def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (receiver : Xsh.Syntax.Expr) (method : Xsh.Syntax.RawName) : Option EnvFunction :=
+  match receiver with
+  | .ident module =>
+    if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
+        (frame.environment.cellOf module).isOk = false then
+      match machine.context.spelling method with
+      | "get" => some .get
+      | "get_or" => some .getOr
+      | "bool" => some .bool
+      | "int" => some .int
+      | "path" => some .path
+      | _ => none
+    else none
+  | _ => none
+
+/-- An `env` reader's name and optional fallback, the fallback positional or
+`fallback:`. -/
+def envArguments (supplied : List (Supplied Declaration Identity Source)) :
+    Option (String × Option (Value Declaration Identity Source)) :=
+  match supplied with
+  | [.positional name] =>
+    match name.eraseNominal with
+    | .scalar (.string text) => some (text, none)
+    | _ => none
+  | [.positional name, .positional fallback] | [.positional name, .named "fallback" fallback] =>
+    match name.eraseNominal with
+    | .scalar (.string text) => some (text, some fallback.eraseNominal)
+    | _ => none
+  | _ => none
+
+/-- Rust's `i64` parse: an optional sign and one or more ASCII digits, in
+range. -/
+def rustI64 (text : List Char) : Option Int :=
+  let (negative, digits) := match text with
+    | '-' :: rest => (true, rest)
+    | '+' :: rest => (false, rest)
+    | rest => (false, rest)
+  if digits.isEmpty || !(digits.all Char.isDigit) then none
+  else
+    let magnitude : Int := digits.foldl (fun value digit => value * 10 + (digit.toNat - 48 : Nat)) 0
+    let value := if negative then -magnitude else magnitude
+    (validateInt? value).map fun _ => value
+
+/-- The `env` readers (SPEC 10.5, stdlib `env`): a name that is empty or holds
+NUL or `=` is the `env-name` `Err`; `get` reads as `e"NAME"` does; `get_or`,
+`bool`, `int` and `path` give `Ok` of their fallback (`""`, `false`, `0` and
+the empty path by default) when the variable is unset; `bool` reads `1`,
+`true`, `yes` or `on` as `true` and any other text as `false`, trimmed and
+ASCII-lowercased; `int` reads a trimmed Rust `i64`, else the `env-int` `Err`;
+`path` takes the bytes as they are; undecodable text is the `invalid-utf8`
+`Err`. -/
+def envCall {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
+    (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  match envArguments supplied with
+  | none => .unsupported
+  | some (name, fallback) =>
+    if name.toUTF8.toList.isEmpty || name.toUTF8.toList.contains 0 || name.toUTF8.toList.contains 61 then
+      .value (.err (machine.context.errors.described "env-name" "environment names cannot be empty or contain NUL or `=`"))
+    else
+      let found := (readEnvironment overlay name.toUTF8.toList).or (machine.hostEnvironment name.toUTF8.toList)
+      let decoded := found.map fun bytes => String.fromUTF8? ⟨bytes.toArray⟩
+      let invalid := Result.value (Value.err (machine.invalidUtf8 name))
+      match function, fallback, decoded with
+      | .get, none, _ => .value (environmentString machine overlay name)
+      | .getOr, none, none => .value (.ok (.scalar (.string "")))
+      | .getOr, some (.scalar (.string otherwise)), none => .value (.ok (.scalar (.string otherwise)))
+      | .getOr, _, some _ => .value (environmentString machine overlay name)
+      | .bool, none, none => .value (.ok (.scalar (.boolean false)))
+      | .bool, some (.scalar (.boolean otherwise)), none => .value (.ok (.scalar (.boolean otherwise)))
+      | .bool, _, some (some text) =>
+        let word := String.ofList ((trimWhitespace text.toList).map Char.toLower)
+        .value (.ok (.scalar (.boolean (word = "1" ∨ word = "true" ∨ word = "yes" ∨ word = "on"))))
+      | .bool, _, some none | .int, _, some none => invalid
+      | .int, none, none =>
+        match validateInt? 0 with
+        | some zero => .value (.ok (.scalar (.integer zero)))
+        | none => .unsupported
+      | .int, some (.scalar (.integer otherwise)), none => .value (.ok (.scalar (.integer otherwise)))
+      | .int, _, some (some text) =>
+        match (rustI64 (trimWhitespace text.toList)).bind validateInt? with
+        | some value => .value (.ok (.scalar (.integer value)))
+        | none => .value (.err (machine.context.errors.described "env-int" "environment value is not an integer"))
+      | .path, none, none =>
+        match NativePath.fromBytes? [] with
+        | some empty => .value (.ok (.scalar (.path empty)))
+        | none => .unsupported
+      | .path, some (.scalar (.path otherwise)), none => .value (.ok (.scalar (.path otherwise)))
+      | .path, _, some _ =>
+        match found.bind NativePath.fromBytes? with
+        | some path => .value (.ok (.scalar (.path path)))
+        | none => .unsupported
+      | _, _, _ => .unsupported
 
 def asciiDigits (chars : List Char) : Bool := chars.all fun char => '0' ≤ char ∧ char ≤ '9'
 

@@ -111,12 +111,16 @@ def assignedKey : Xsh.Syntax.RawName := name 251 (by decide)
 def envModule : Xsh.Syntax.RawName := name 384 (by decide)
 def getName : Xsh.Syntax.RawName := name 385 (by decide)
 def getOrName : Xsh.Syntax.RawName := name 386 (by decide)
+def boolName : Xsh.Syntax.RawName := name 387 (by decide)
+def intName : Xsh.Syntax.RawName := name 388 (by decide)
+def pathName : Xsh.Syntax.RawName := name 389 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
   else if named = scopedKey then "XSH_PROBE_A" else if named = assignedKey then "XSH_PROBE_B"
   else if named = badKey then "XSH_PROBE_BAD" else if named = envModule then "env" else if named = getName then "get"
-  else if named = getOrName then "get_or" else scriptMachine.context.spelling named
+  else if named = getOrName then "get_or" else if named = boolName then "bool" else if named = intName then "int"
+  else if named = pathName then "path" else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
 holding the byte `0xFF`, and without `XSH_PROBE_HOME`. -/
@@ -273,6 +277,62 @@ binary's `invalid-utf8` error. -/
 theorem lenient_get_or_rejected :
     textOf (readOutput 0 (runScript envMachine 90 fullStart
       [letOf (slot 0) (envGet getOrName ["XSH_PROBE_BAD", "fb"])])) ≠ some "fb" := by
+  decide +kernel
+
+/-- The process also started with `XSH_PROBE_FLAG=" Yes "`,
+`XSH_PROBE_WORD=abc` and `XSH_PROBE_NUM=" -7 "`. -/
+def typedMachine : Machine witnessWorld :=
+  { envMachine with
+    hostEnvironment := fun name =>
+      if name = "XSH_PROBE_FLAG".toUTF8.toList then some " Yes ".toUTF8.toList
+      else if name = "XSH_PROBE_WORD".toUTF8.toList then some "abc".toUTF8.toList
+      else if name = "XSH_PROBE_NUM".toUTF8.toList then some " -7 ".toUTF8.toList
+      else startEnvironment name }
+
+def readTyped (call : Xsh.Syntax.Expr) : Option (Value Unit Unit Unit) :=
+  readOutput 0 (runScript typedMachine 90 fullStart [letOf (slot 0) call])
+
+def envRead (function : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.Expr) : Xsh.Syntax.Expr :=
+  .call (.field (ident envModule) function) (arguments.map .positional)
+
+def text (value : String) : Xsh.Syntax.Expr := .literal (.string value)
+
+def okBool : Option (Value Unit Unit Unit) → Option Bool
+  | some (.ok (.scalar (.boolean value))) => some value
+  | _ => none
+
+def okInt : Option (Value Unit Unit Unit) → Option Int
+  | some (.ok (.scalar (.integer value))) => some value.val
+  | _ => none
+
+def okPath : Option (Value Unit Unit Unit) → Option (List UInt8)
+  | some (.ok (.scalar (.path path))) => some path.bytes
+  | _ => none
+
+/-- As the verification binary prints `true false true -7`, the
+`not an integer` error, `7`, `abc`, the invalid-name error, an empty
+`get_or` and the `invalid-utf8` error for `env.bool` of `" Yes "` and `abc`,
+`env.bool` of an unset variable with fallback `true`, `env.int` of `" -7 "` and
+`abc`, `env.int` of an unset variable with fallback `7`, `env.path` of `abc`,
+`env.get("A=B")`, `env.get_or` of an unset variable without a fallback and
+`env.int` of the non-UTF-8 variable. -/
+theorem typed_env_witness :
+    okBool (readTyped (envRead boolName [text "XSH_PROBE_FLAG"])) = some true ∧
+    okBool (readTyped (envRead boolName [text "XSH_PROBE_WORD"])) = some false ∧
+    okBool (readTyped (envRead boolName [text "XSH_PROBE_HOME", .literal (.bool true)])) = some true ∧
+    okInt (readTyped (envRead intName [text "XSH_PROBE_NUM"])) = some (-7) ∧
+    errOf (readTyped (envRead intName [text "XSH_PROBE_WORD"])) = some "environment value is not an integer" ∧
+    okInt (readTyped (envRead intName [text "XSH_PROBE_HOME", int "7"])) = some 7 ∧
+    okPath (readTyped (envRead pathName [text "XSH_PROBE_WORD"])) = some "abc".toUTF8.toList ∧
+    errOf (readTyped (envRead getName [text "A=B"])) =
+      some "environment names cannot be empty or contain NUL or `=`" ∧
+    textOf (readTyped (envRead getOrName [text "XSH_PROBE_HOME"])) = some "" ∧
+    errOf (readTyped (envRead intName [text "XSH_PROBE_BAD"])) = some "invalid-utf8 XSH_PROBE_BAD" := by
+  decide +kernel
+
+/-- A `bool` that compared the text without trimming and lowercasing would
+read `" Yes "` as `false`. -/
+theorem untrimmed_bool_rejected : okBool (readTyped (envRead boolName [text "XSH_PROBE_FLAG"])) ≠ some false := by
   decide +kernel
 
 end Witness
