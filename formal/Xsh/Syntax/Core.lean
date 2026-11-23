@@ -102,6 +102,8 @@ inductive TypeExpr where
   | stream (element : TypeExpr)
   | module (interface : TypeExpr)
   | result (value : TypeExpr)
+  /-- `Result[T, E]`, whose error type is written. -/
+  | resultWith (value error : TypeExpr)
   | optional (value : TypeExpr)
   | union (members : List TypeExpr)
   | callable (pure : Bool) (parameters : List TypeExpr)

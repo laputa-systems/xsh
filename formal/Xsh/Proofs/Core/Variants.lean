@@ -27,8 +27,10 @@ argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
 parameter it names; an expected type reaches each branch of a value `if` or
 `match`, a value block's tail, each element of an expected `List[T]`, each value
-of a brace literal under an expected `Map[K, V]` and the payload of `Ok(...)`
-under an expected `Result[T]`; and
+of a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
+under an expected `Result[T]` or `Result[T, E]` and of `Err(...)` under an
+expected `Result[T, E]`, a leading-dot name no enum declares then being the
+error family's constructor; and
 the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
@@ -91,6 +93,13 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       .named name (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
     (∀ expected key value rest, expectFields machine.context.spelling expected (.computed key value :: rest) =
       .computed key (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
+    (∀ target error constructor payload, machine.context.spelling constructor = "Err" →
+      machine.context.spelling constructor ≠ "Ok" →
+      expectTarget machine.context.spelling (some (.resultWith target error)) (.call (.ident constructor) [.positional payload]) =
+        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some error) payload)]) ∧
+    (∀ family name arguments, variantOf machine.context.spelling machine.declarations name = none →
+      evalExpr machine (fuel + 1) frame (.dotVariant (some family) name arguments) =
+        evalExpr machine fuel frame (.call (.field (.ident family) name) (arguments.getD []))) ∧
     (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
       expectBody machine.context.spelling result (statement :: rest) =
         expectReturn machine.context.spelling result statement :: expectBody machine.context.spelling result rest) ∧
@@ -146,7 +155,10 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     fun target _ _ => by cases target <;> simp [expectTarget], fun target _ => by cases target <;> simp [expectTarget],
     fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail],
     fun _ _ _ named => by simp [expectTarget, named], fun _ _ _ => by simp [expectTarget],
-    fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields], fun result statement rest notTail => by
+    fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields],
+    fun _ _ _ _ isErr notOk => by simp [expectTarget, isErr, notOk],
+    fun _ _ arguments absent => by cases arguments <;> simp [evalExpr, absent],
+    fun result statement rest notTail => by
       cases rest with
       | cons _ _ => cases statement <;> rfl
       | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _), fun _ _ => rfl,
@@ -431,6 +443,54 @@ theorem untargeted_map_value_rejected :
     valueOf (slot 0) (runScript shapeMachine 90 fullStart
       [declareLevel, letOf (slot 0) (.record [.named entryName (dot warnName)])]) = none ∧
     entryVariants (valueOf (slot 1) mapRun) = some ["Info"] := by
+  decide +kernel
+
+def errCtor : Xsh.Syntax.RawName := name 378 (by decide)
+def failingName : Xsh.Syntax.RawName := name 379 (by decide)
+
+/-- The constructor machine, with `Ok` and `Err` spelled. -/
+def familyMachine : Machine witnessWorld :=
+  { Xsh.Proofs.Core.Constructors.Witness.constructorMachine with
+    context := { Xsh.Proofs.Core.Constructors.Witness.constructorProgram with
+      spelling := fun named =>
+        if named = okName then "Ok" else if named = errCtor then "Err"
+        else Xsh.Proofs.Core.Constructors.Witness.constructorProgram.spelling named } }
+
+def fetchType : Xsh.Syntax.TypeExpr := .named Xsh.Proofs.Core.Constructors.Witness.fetchName
+
+/-- The message of the error an `Err` holds. -/
+def errMessage : Option (Value Unit Unit Unit) → Option String
+  | some (.err (.error data)) => some data.message
+  | _ => none
+
+/-- `let r: Result[Int, Fetch] = Err(.Usage())`, and
+`proc fail_usage() -> Result[Int, Fetch] { return Err(.Usage()) }` called. -/
+def familyRun : Exec witnessWorld := runScript familyMachine 90 fullStart
+  [Xsh.Proofs.Core.Constructors.Witness.declareFetch,
+   .functionDef .proc failingName [] none (some (.resultWith anyType fetchType))
+     [.returnValue (some (.call (ident errCtor) [.positional (dotCall Xsh.Proofs.Core.Constructors.Witness.usageName [])]))]
+     none false,
+   annotated (slot 0) (.resultWith anyType fetchType)
+     (.call (ident errCtor) [.positional (dotCall Xsh.Proofs.Core.Constructors.Witness.usageName [])]),
+   letOf (slot 1) (.call (ident failingName) [])]
+
+/-- As the verification binary prints `Fetch.Offline` for
+`let r: Result[Int, Fetch] = Err(.Offline())` and for a function declared
+`-> Result[Int, Fetch]` that returns `Err(.Timeout())` or fails with
+`fail .Offline()`: the written error type is the expected type of an `Err`
+payload, and a leading-dot name there is the family's constructor. -/
+theorem error_variant_witness :
+    errMessage (Xsh.Proofs.Core.Constructors.Witness.valueOf (slot 0) familyRun) = some "Fetch.Usage" ∧
+    errMessage (Xsh.Proofs.Core.Constructors.Witness.valueOf (slot 1) familyRun) = some "Fetch.Usage" := by
+  decide +kernel
+
+/-- Under `Result[Int]`, whose error type is the broad `Error`, the variant
+is untargeted (`check.inferred-variant`) and the binding does not complete. -/
+theorem broad_error_variant_rejected :
+    Xsh.Proofs.Core.Constructors.Witness.valueOf (slot 0) (runScript familyMachine 90 fullStart
+      [Xsh.Proofs.Core.Constructors.Witness.declareFetch,
+       annotated (slot 0) (.result anyType)
+         (.call (ident errCtor) [.positional (dotCall Xsh.Proofs.Core.Constructors.Witness.usageName [])])]) = none := by
   decide +kernel
 
 end Witness

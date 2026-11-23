@@ -1269,10 +1269,12 @@ mutual
   (SPEC 5.5) selects from the enum the expected type names, `T?` selecting
   from `T`. The expected type reaches each branch of a value `if` or `match`,
   a value block's tail, each element of an expected `List[T]`, each value of
-  a brace literal under an expected `Map[K, V]`, and the
-  payload of `Ok(...)` under an expected `Result[T]`. -/
+  a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
+  under an expected `Result[T]` or `Result[T, E]`, and the payload of
+  `Err(...)` under an expected `Result[T, E]`. -/
   def expectTarget (spelling : Xsh.Syntax.RawName → String) : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
     | some (.result target), .require value none => .require value (some target)
+    | some (.resultWith target _), .require value none => .require value (some target)
     | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
     | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
     | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
@@ -1284,6 +1286,11 @@ mutual
     | some (.map _ value), .record fields => .record (expectFields spelling (some value) fields)
     | some (.result target), .call (.ident constructor) [.positional payload] =>
       if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
+      else .call (.ident constructor) [.positional payload]
+    | some (.resultWith target error), .call (.ident constructor) [.positional payload] =>
+      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
+      else if spelling constructor = "Err" then
+        .call (.ident constructor) [.positional (expectTarget spelling (some error) payload)]
       else .call (.ident constructor) [.positional payload]
     | _, initializer => initializer
 
@@ -3361,6 +3368,7 @@ mutual
                 else .exec .stuck
               | none => .exec .stuck
           else .exec .stuck
+        | none, _ => evalExpr machine fuel frame (.call (.field (.ident enum) name) (arguments.getD []))
         | _, _ => .exec .stuck
       | .item =>
         match frame.item with

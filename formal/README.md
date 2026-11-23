@@ -533,7 +533,7 @@ Writes and values: stream declarations, which need the stream model (E);
 leading-dot variants whose expected type comes from anything but an annotated
 binding, a declared result's tail or a `return` in the body's statements, a
 parameter's annotation, or a value `if` or `match` branch, value block tail, `List[T]`
-element, `Map[K, V]` brace value or `Ok(...)` payload under one of those, and leading-dot error variants (P).
+element, `Map[K, V]` brace value, or `Ok(...)` or `Result[T, E]` `Err(...)` payload under one of those (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -803,10 +803,14 @@ and so do the witnesses. An expected type also reaches each branch of a value
 `if` or `match`, a value block's tail, each element of an expected `List[T]`,
 each named or computed value of a brace literal under an expected
 `Map[K, V]`, and the payload of `Ok(...)` under an expected `Result[T]`, as
-the binary's `true` for those forms shows. `Err(...)` payloads, which need the
-error type `Result[T, E]` names and the syntax does not carry, record and
-constructor fields, which need the declared schema, and the other operand of
-`==`, which needs the checker's types, are not yet expected positions. The selected variant is the declared one, under the enum's
+the binary's `true` for those forms shows. Record and constructor fields, which need the
+declared schema, and the other operand of `==`, which needs the checker's
+types, are not yet expected positions. The syntax now writes `Result[T, E]` as `TypeExpr.resultWith`,
+whose error type is the expected type of an `Err(...)` payload; a leading-dot
+name no enum declares is then the family's constructor `E.Name(...)`, as the
+binary prints `Fetch.Offline` for an annotated `Err(.Offline())` and for
+`fail .Offline()` and `return Err(.Timeout())` in a function declared
+`-> Result[Int, Fetch]`, and under `Result[T]` it stays untargeted. The selected variant is the declared one, under the enum's
 declaration identity, with its payload arguments evaluated once in order. A
 leading-dot name with no expected type stays unsupported, as the binary
 rejects it with `check.inferred-variant`, and one whose expected enum lacks
