@@ -4,6 +4,9 @@ use super::{
     LoweredStrPredicate, LoweredValue, ScanBytes, ScanCheck, ScanCondition, Span,
 };
 
+#[derive(Clone, Copy)]
+enum ScanConditionRow { Expr(BuildExprId), Bool(BuildBoolId) }
+
 impl CompactLowerConstructProbe<'_, '_> {
     pub(super) fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
         if self
@@ -569,8 +572,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         line_slot: usize,
         body: &[BuildStmtId],
         span: Span,
+        slot_types: &[Option<super::Type>],
     ) -> Option<Vec<BuildStmtId>> {
-        if let Some(lowered) = self.try_lower_scan_bytes_direct(line_slot, body, span) {
+        if let Some(lowered) = self.try_lower_scan_bytes_direct(line_slot, body, span, slot_types) {
             return Some(lowered);
         }
         let mut changed = false;
@@ -587,7 +591,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         .into_iter()
                         .map(|(condition, branch)| {
                             if let Some(branch) =
-                                self.try_lower_scan_bytes(line_slot, &branch, span)
+                                self.try_lower_scan_bytes(line_slot, &branch, span, slot_types)
                             {
                                 branch_changed = true;
                                 (condition, branch)
@@ -597,7 +601,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         })
                         .collect();
                     let else_body = else_body.and_then(|branch| {
-                        self.try_lower_scan_bytes(line_slot, &branch, span)
+                        self.try_lower_scan_bytes(line_slot, &branch, span, slot_types)
                             .inspect(|_| branch_changed = true)
                             .or(Some(branch))
                     });
@@ -621,7 +625,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         .into_iter()
                         .map(|(condition, branch)| {
                             if let Some(branch) =
-                                self.try_lower_scan_bytes(line_slot, &branch, span)
+                                self.try_lower_scan_bytes(line_slot, &branch, span, slot_types)
                             {
                                 branch_changed = true;
                                 (condition, branch)
@@ -631,7 +635,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         })
                         .collect();
                     let else_body = else_body.and_then(|branch| {
-                        self.try_lower_scan_bytes(line_slot, &branch, span)
+                        self.try_lower_scan_bytes(line_slot, &branch, span, slot_types)
                             .inspect(|_| branch_changed = true)
                             .or(Some(branch))
                     });
@@ -663,6 +667,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         line_slot: usize,
         body: &[BuildStmtId],
         span: Span,
+        slot_types: &[Option<super::Type>],
     ) -> Option<Vec<BuildStmtId>> {
         let (while_index, while_id) = body.iter().enumerate().find_map(|(index, stmt)| {
             matches!(
@@ -709,10 +714,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         if loop_body.len() != 3 {
             return None;
         }
-        let (ch_slot, next_slot) = match (
-            self.scratch.borrow().statements[loop_body[0].index()].clone(),
-            self.scratch.borrow().statements[loop_body[1].index()].clone(),
-        ) {
+        let byte_rows = {
+            let scratch = self.scratch.borrow();
+            (scratch.statements[loop_body[0].index()].clone(), scratch.statements[loop_body[1].index()].clone())
+        };
+        let (ch_slot, next_slot) = match byte_rows {
             (
                 BuildStmtRow::LetInt {
                     slot: ch_slot,
@@ -738,8 +744,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     value: next_value,
                     annotation: None,
                 },
-            ) if self.scan_bytes_byte_at_expr(byte_value, line_slot, index_slot, 0)
-                && self.scan_bytes_byte_at_expr(next_value, line_slot, index_slot, 1) =>
+            ) if self.lower_int_expr_candidate(&byte_value).is_some_and(|v| self.scan_bytes_byte_at(v, line_slot, index_slot, 0))
+                && self.lower_int_expr_candidate(&next_value).is_some_and(|v| self.scan_bytes_byte_at(v, line_slot, index_slot, 1)) =>
             {
                 (ch_slot, next_slot)
             }
@@ -768,7 +774,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let escaped_slot = self.scan_bytes_expr_nested_slot(&branches[1].1)?;
             let string_delim_slot =
                 self.scan_bytes_expr_delimiter_assignment(&branches[2].1, ch_slot)?;
-            let config = ScanBytes {
+            let mut config = ScanBytes {
                 line_slot,
                 block_depth_slot,
                 code_seen_slot,
@@ -779,6 +785,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 nested: false,
                 span,
             };
+            if slot_types.get(config.block_depth_slot) != Some(&Some(super::Type::Int)) || !self.scan_guard(body, while_index, index_slot, line_len_slot, ch_slot, next_slot, &config) { return None; }
+            config.nested = self.scan_exact_body(loop_body[2], &config, index_slot, line_len_slot, ch_slot, next_slot)?;
             let scan = push_build_row!(self, stmt, BuildStmtRow::ScanBytes { config });
             let mut lowered = body.to_vec();
             lowered[while_index] = scan;
@@ -814,7 +822,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         {
             return None;
         }
-        let config = ScanBytes {
+        let mut config = ScanBytes {
             line_slot,
             block_depth_slot,
             code_seen_slot,
@@ -825,10 +833,248 @@ impl CompactLowerConstructProbe<'_, '_> {
             nested: false,
             span,
         };
+        if slot_types.get(config.block_depth_slot) != Some(&Some(super::Type::Int)) || !self.scan_guard(body, while_index, index_slot, line_len_slot, ch_slot, next_slot, &config) { return None; }
+        config.nested = self.scan_exact_body(loop_body[2], &config, index_slot, line_len_slot, ch_slot, next_slot)?;
         let scan = push_build_row!(self, stmt, BuildStmtRow::ScanBytes { config });
         let mut lowered = body.to_vec();
         lowered[while_index] = scan;
         Some(lowered)
+    }
+
+    fn scan_if(&self, stmt: BuildStmtId) -> Option<(Vec<(ScanConditionRow, Vec<BuildStmtId>)>, Option<Vec<BuildStmtId>>)> {
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::If { branches, else_body } => Some((branches.into_iter().map(|(c, b)| (ScanConditionRow::Expr(c), b)).collect(), else_body)),
+            BuildStmtRow::IfBool { branches, else_body } => Some((branches.into_iter().map(|(c, b)| (ScanConditionRow::Bool(c), b)).collect(), else_body)),
+            _ => None,
+        }
+    }
+
+    fn scan_condition_slot(&self, condition: ScanConditionRow) -> Option<usize> {
+        match condition {
+            ScanConditionRow::Expr(id) => self.scan_bytes_expr_slot(id),
+            ScanConditionRow::Bool(id) => self.scan_bytes_bool_slot(id),
+        }
+    }
+
+    fn scan_condition_binary(&self, condition: ScanConditionRow, expected: BinaryOp) -> Option<(ScanConditionRow, ScanConditionRow)> {
+        match condition {
+            ScanConditionRow::Expr(id) => match self.scratch.borrow().expressions[id.index()].clone() {
+                BuildExprRow::Binary { op, left, right, .. } if op == expected => Some((ScanConditionRow::Expr(left), ScanConditionRow::Expr(right))),
+                _ => None,
+            },
+            ScanConditionRow::Bool(id) => match self.scratch.borrow().bools[id.index()].clone() {
+                BuildBoolRow::And(left, right) if expected == BinaryOp::And => Some((ScanConditionRow::Bool(left), ScanConditionRow::Bool(right))),
+                BuildBoolRow::Or(left, right) if expected == BinaryOp::Or => Some((ScanConditionRow::Bool(left), ScanConditionRow::Bool(right))),
+                _ => None,
+            },
+        }
+    }
+
+    fn scan_condition_const(&self, condition: ScanConditionRow, op: BinaryOp, slot: usize, value: i64) -> bool {
+        match condition {
+            ScanConditionRow::Expr(id) => self.scan_bytes_expr_compare_slot(id, op, Some(value), Some(slot)).is_some(),
+            ScanConditionRow::Bool(id) => {
+                match self.scratch.borrow().bools[id.index()].clone() {
+                    BuildBoolRow::LiteralCompareSlot { op: actual, slot: actual_slot, value: LoweredValue::Int(actual_value) } => actual == op && actual_slot == slot && actual_value == value,
+                    _ => self.scan_bytes_compare_slot(id, op, Some(value), Some(slot)).is_some(),
+                }
+            }
+        }
+    }
+
+    fn scan_condition_slots_equal(&self, condition: ScanConditionRow, left_slot: usize, right_slot: usize) -> bool {
+        match condition {
+            ScanConditionRow::Expr(id) => match self.scratch.borrow().expressions[id.index()].clone() {
+                BuildExprRow::Binary { op: BinaryOp::Eq, left, right, .. } => self.scan_bytes_expr_slot(left) == Some(left_slot) && self.scan_bytes_expr_slot(right) == Some(right_slot),
+                _ => false,
+            },
+            ScanConditionRow::Bool(id) => match self.scratch.borrow().bools[id.index()].clone() {
+                BuildBoolRow::IntCompare { op: BinaryOp::Eq, left, right } => self.scan_bytes_int_slot(left) == Some(left_slot) && self.scan_bytes_int_slot(right) == Some(right_slot),
+                _ => false,
+            },
+        }
+    }
+
+    fn scan_pair(&self, condition: ScanConditionRow, ch: usize, next: usize, a: i64, b: i64) -> bool {
+        self.scan_condition_binary(condition, BinaryOp::And).is_some_and(|(left, right)|
+            self.scan_condition_const(left, BinaryOp::Eq, ch, a) && self.scan_condition_const(right, BinaryOp::Eq, next, b))
+    }
+
+    fn scan_quotes(&self, condition: ScanConditionRow, ch: usize, found: &mut Vec<i64>) -> bool {
+        if let Some((left, right)) = self.scan_condition_binary(condition, BinaryOp::Or) {
+            return self.scan_quotes(left, ch, found) && self.scan_quotes(right, ch, found);
+        }
+        for value in [34, 39, 96] {
+            if self.scan_condition_const(condition, BinaryOp::Eq, ch, value) {
+                found.push(value);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn scan_assign_bool(&self, stmt: BuildStmtId, slot: usize, expected: bool) -> bool {
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::AssignBool { slot: actual, value } => actual == slot && matches!(self.scratch.borrow().bools[value.index()], BuildBoolRow::Bool(value) if value == expected),
+            BuildStmtRow::Assign { slot: actual, op: AssignOp::Set, value, check: None, .. } => actual == slot && matches!(self.scratch.borrow().expressions[value.index()], BuildExprRow::Bool(value) if value == expected),
+            _ => false,
+        }
+    }
+
+    fn scan_assign_int(&self, stmt: BuildStmtId, slot: usize, op: AssignOp, constant: Option<i64>, source: Option<usize>) -> bool {
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::AssignInt { slot: actual, op: actual_op, value, .. } if actual == slot && actual_op == op => {
+                match self.scratch.borrow().ints[value.index()].clone() {
+                    BuildIntRow::Int(value) => constant == Some(value),
+                    BuildIntRow::Slot(value) => source == Some(value),
+                    _ => false,
+                }
+            },
+            BuildStmtRow::Assign { slot: actual, op: actual_op, value, check: None, .. } if actual == slot && actual_op == op => {
+                (constant.is_some() && self.lowered_inert_int_literal(value) == constant) || (source.is_some() && self.scan_bytes_expr_slot(value) == source)
+            },
+            _ => false,
+        }
+    }
+
+    fn scan_let_int(&self, stmt: BuildStmtId, slot: usize, expected: i64) -> bool {
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::LetInt { slot: actual, value } if actual == slot => match self.scratch.borrow().ints[value.index()].clone() {
+                BuildIntRow::Int(value) => value == expected,
+                BuildIntRow::Binary { op: BinaryOp::Sub, left, right, .. } if expected == -1 => matches!(self.scratch.borrow().ints[left.index()], BuildIntRow::Int(0)) && matches!(self.scratch.borrow().ints[right.index()], BuildIntRow::Int(1)),
+                _ => false,
+            },
+            BuildStmtRow::Let { slot: actual, value, annotation: None } if actual == slot => self.lowered_inert_int_literal(value) == Some(expected),
+            _ => false,
+        }
+    }
+
+    fn scan_let_bool(&self, stmt: BuildStmtId, slot: usize, expected: bool) -> bool {
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::LetBool { slot: actual, value } => actual == slot && matches!(self.scratch.borrow().bools[value.index()], BuildBoolRow::Bool(value) if value == expected),
+            BuildStmtRow::Let { slot: actual, value, annotation: None } => actual == slot && matches!(self.scratch.borrow().expressions[value.index()], BuildExprRow::Bool(value) if value == expected),
+            _ => false,
+        }
+    }
+
+    fn scan_let_len(&self, stmt: BuildStmtId, slot: usize, line: usize) -> bool {
+        let BuildStmtRow::Let { slot: actual, value, annotation: None } = self.scratch.borrow().statements[stmt.index()].clone() else { return false; };
+        if actual != slot { return false; }
+        match self.scratch.borrow().expressions[value.index()].clone() {
+            BuildExprRow::Method { receiver, name, args, .. } => name.as_str() == "len" && args.is_empty() && self.scan_bytes_expr_slot(receiver) == Some(line),
+            _ => false,
+        }
+    }
+
+    fn scan_safe_expr(&self, id: BuildExprId, forbidden: &[usize]) -> bool {
+        match self.scratch.borrow().expressions[id.index()].clone() {
+            BuildExprRow::Int(_) | BuildExprRow::UInt(_) | BuildExprRow::Bool(_) => true,
+            BuildExprRow::Param(slot) => !forbidden.contains(&slot),
+            BuildExprRow::Binary { left, right, .. } => self.scan_safe_expr(left, forbidden) && self.scan_safe_expr(right, forbidden),
+            _ => false,
+        }
+    }
+
+    fn scan_safe_int(&self, id: BuildIntId, forbidden: &[usize]) -> bool {
+        match self.scratch.borrow().ints[id.index()].clone() {
+            BuildIntRow::Int(_) => true,
+            BuildIntRow::Slot(slot) => !forbidden.contains(&slot),
+            BuildIntRow::Binary { left, right, .. } => self.scan_safe_int(left, forbidden) && self.scan_safe_int(right, forbidden),
+            _ => false,
+        }
+    }
+
+    fn scan_safe_bool(&self, id: BuildBoolId, forbidden: &[usize]) -> bool {
+        match self.scratch.borrow().bools[id.index()].clone() {
+            BuildBoolRow::Bool(_) => true,
+            BuildBoolRow::Slot(slot) => !forbidden.contains(&slot),
+            BuildBoolRow::Not(value) => self.scan_safe_bool(value, forbidden),
+            BuildBoolRow::And(left, right) | BuildBoolRow::Or(left, right) => self.scan_safe_bool(left, forbidden) && self.scan_safe_bool(right, forbidden),
+            BuildBoolRow::IntCompare { left, right, .. } => self.scan_safe_int(left, forbidden) && self.scan_safe_int(right, forbidden),
+            BuildBoolRow::LiteralCompareSlot { slot, .. } => !forbidden.contains(&slot),
+            _ => false,
+        }
+    }
+
+    fn scan_safe_tail(&self, statements: &[BuildStmtId], forbidden: &[usize]) -> bool {
+        statements.iter().all(|stmt| match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::Assign { slot, value, check: None, .. } => !forbidden.contains(&slot) && self.scan_safe_expr(value, forbidden),
+            BuildStmtRow::AssignInt { slot, value, .. } => !forbidden.contains(&slot) && self.scan_safe_int(value, forbidden),
+            BuildStmtRow::AssignBool { slot, value } => !forbidden.contains(&slot) && self.scan_safe_bool(value, forbidden),
+            BuildStmtRow::If { branches, else_body } => branches.iter().all(|(condition, body)| self.scan_safe_expr(*condition, forbidden) && self.scan_safe_tail(body, forbidden)) && else_body.as_ref().is_none_or(|body| self.scan_safe_tail(body, forbidden)),
+            BuildStmtRow::IfBool { branches, else_body } => branches.iter().all(|(condition, body)| self.scan_safe_bool(*condition, forbidden) && self.scan_safe_tail(body, forbidden)) && else_body.as_ref().is_none_or(|body| self.scan_safe_tail(body, forbidden)),
+            _ => false,
+        })
+    }
+
+    fn scan_exact_body(&self, control: BuildStmtId, config: &ScanBytes, index: usize, line_len: usize, ch: usize, next: usize) -> Option<bool> {
+        let (branches, else_body) = self.scan_if(control)?;
+        if branches.len() != 5 { return None; }
+        let mut quotes = Vec::new();
+        if !self.scan_condition_const(branches[0].0, BinaryOp::Gt, config.block_depth_slot, 0)
+            || self.scan_condition_slot(branches[1].0) != Some(config.in_string_slot)
+            || !self.scan_quotes(branches[2].0, ch, &mut quotes)
+            || { quotes.sort_unstable(); quotes != [34, 39, 96] }
+            || !self.scan_pair(branches[3].0, ch, next, 47, 47)
+            || !self.scan_pair(branches[4].0, ch, next, 47, 42) { return None; }
+        let block = &branches[0].1;
+        if block.len() != 2 || !self.scan_assign_bool(block[0], config.comment_seen_slot, true) { return None; }
+        let (inner, fallback) = self.scan_if(block[1])?;
+        let fallback = fallback?;
+        if fallback.len() != 1 || !self.scan_assign_int(fallback[0], index, AssignOp::Add, Some(1), None) { return None; }
+        if inner.len() != 1 { return None; }
+        let close = &inner[0];
+        if !self.scan_pair(close.0, ch, next, 42, 47) || close.1.len() != 2
+            || !self.scan_assign_int(close.1[0], config.block_depth_slot, AssignOp::Sub, Some(1), None)
+            || !self.scan_assign_int(close.1[1], index, AssignOp::Add, Some(2), None) { return None; }
+        let string = &branches[1].1;
+        if string.len() != 3 || !self.scan_assign_bool(string[0], config.code_seen_slot, true)
+            || !self.scan_assign_int(string[2], index, AssignOp::Add, Some(1), None) { return None; }
+        let (inner, fallback) = self.scan_if(string[1])?;
+        if fallback.is_some() || inner.len() != 3 || self.scan_condition_slot(inner[0].0) != Some(config.escaped_slot)
+            || !self.scan_condition_const(inner[1].0, BinaryOp::Eq, ch, 92)
+            || !self.scan_condition_slots_equal(inner[2].0, ch, config.string_delim_slot)
+            || inner.iter().any(|(_, body)| body.len() != 1)
+            || !self.scan_assign_bool(inner[0].1[0], config.escaped_slot, false)
+            || !self.scan_assign_bool(inner[1].1[0], config.escaped_slot, true)
+            || !self.scan_assign_bool(inner[2].1[0], config.in_string_slot, false) { return None; }
+        let quote = &branches[2].1;
+        if quote.len() != 4 || !self.scan_assign_bool(quote[0], config.code_seen_slot, true)
+            || !self.scan_assign_bool(quote[1], config.in_string_slot, true)
+            || !self.scan_assign_int(quote[2], config.string_delim_slot, AssignOp::Set, None, Some(ch))
+            || !self.scan_assign_int(quote[3], index, AssignOp::Add, Some(1), None) { return None; }
+        let line_comment = &branches[3].1;
+        if line_comment.len() != 2 || !self.scan_assign_bool(line_comment[0], config.comment_seen_slot, true)
+            || !self.scan_assign_int(line_comment[1], index, AssignOp::Set, None, Some(line_len)) { return None; }
+        let block_comment = &branches[4].1;
+        if block_comment.len() != 3 || !self.scan_assign_bool(block_comment[0], config.comment_seen_slot, true)
+            || !self.scan_assign_int(block_comment[1], config.block_depth_slot, AssignOp::Set, Some(1), None)
+            || !self.scan_assign_int(block_comment[2], index, AssignOp::Add, Some(2), None) { return None; }
+        let fallback = else_body?;
+        if fallback.len() != 2 || !self.scan_assign_int(fallback[1], index, AssignOp::Add, Some(1), None) { return None; }
+        let (inner, otherwise) = self.scan_if(fallback[0])?;
+        if otherwise.is_some() || inner.len() != 1 || inner[0].1.len() != 1
+            || !self.scan_assign_bool(inner[0].1[0], config.code_seen_slot, true) { return None; }
+        let (left, right) = self.scan_condition_binary(inner[0].0, BinaryOp::And)?;
+        if !self.scan_condition_const(left, BinaryOp::Ne, ch, 32) || !self.scan_condition_const(right, BinaryOp::Ne, ch, 9) { return None; }
+        Some(false)
+    }
+
+    fn scan_guard(&self, body: &[BuildStmtId], while_index: usize, index: usize, line_len: usize, ch: usize, next: usize, config: &ScanBytes) -> bool {
+        let slots = [config.line_slot, line_len, index, ch, next, config.block_depth_slot, config.code_seen_slot, config.comment_seen_slot, config.in_string_slot, config.string_delim_slot, config.escaped_slot];
+        for (i, slot) in slots.iter().enumerate() {
+            if slots[..i].contains(slot) { return false; }
+        }
+        if while_index < 7 { return false; }
+        let prefix = &body[while_index - 7..while_index];
+        self.scan_let_len(prefix[0], line_len, config.line_slot)
+            && self.scan_let_int(prefix[1], index, 0)
+            && self.scan_let_bool(prefix[2], config.code_seen_slot, false)
+            && self.scan_let_bool(prefix[3], config.comment_seen_slot, false)
+            && self.scan_let_bool(prefix[4], config.in_string_slot, false)
+            && self.scan_let_int(prefix[5], config.string_delim_slot, -1)
+            && self.scan_let_bool(prefix[6], config.escaped_slot, false)
+            && self.scan_safe_tail(&body[while_index + 1..], &[index, ch, next])
     }
 
     fn scan_bytes_int_slot(&self, value: BuildIntId) -> Option<usize> {
@@ -879,46 +1125,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     && matches!(
                         self.scratch.borrow().ints[right.index()],
                         BuildIntRow::Int(1)
-                    )
-            }
-            _ => false,
-        }
-    }
-
-    fn scan_bytes_byte_at_expr(
-        &self,
-        value: BuildExprId,
-        line_slot: usize,
-        index_slot: usize,
-        offset: i64,
-    ) -> bool {
-        let BuildExprRow::StrByteAt {
-            receiver, index, ..
-        } = self.scratch.borrow().expressions[value.index()].clone()
-        else {
-            return false;
-        };
-        if self.scan_bytes_expr_slot(receiver) != Some(line_slot) {
-            return false;
-        }
-        match (
-            self.scratch.borrow().expressions[index.index()].clone(),
-            offset,
-        ) {
-            (BuildExprRow::Param(slot), 0) => slot == index_slot,
-            (
-                BuildExprRow::Binary {
-                    op: BinaryOp::Add,
-                    left,
-                    right,
-                    ..
-                },
-                1,
-            ) => {
-                self.scan_bytes_expr_slot(left) == Some(index_slot)
-                    && matches!(
-                        self.scratch.borrow().expressions[right.index()],
-                        BuildExprRow::Int(1) | BuildExprRow::UInt(1)
                     )
             }
             _ => false,
