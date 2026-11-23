@@ -249,7 +249,8 @@ value; callables are equal when they have one kind and one runtime identity,
 and handles of one family when they have one runtime identity; process
 statuses are equal when every field is, each segment's process by runtime
 identity; modules are equal when their exports are, whatever module they
-are; and `|`, `&`,
+are; process errors are equal when every field is, their status field by
+field and cause structurally; and `|`, `&`,
 `-` give distinct elements of the union, intersection and difference. -/
 theorem structural_equality_and_membership [DecidableEq Declaration] (context : Context Declaration Identity Source) :
     (∀ left right : Value Declaration Identity Source,
@@ -306,7 +307,10 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
     (∀ (reference other : Reference Identity .module) (exports others : List (String × Value Declaration Identity Source)),
       exports.length = others.length →
         valueEqual context.sameness (.module reference exports) (.module other others) =
-          fieldsEqual context.sameness exports others) :=
+          fieldsEqual context.sameness exports others) ∧
+    (∀ left right : ProcessErrorData Declaration Identity Source,
+      valueEqual context.sameness (.processError left) (.processError right) =
+        processErrorEqual context.sameness left right) :=
   ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameness,
     valueEqual_null context.sameness,
     fun decides declaration other variant otherVariant fields others => by
@@ -324,7 +328,8 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
     fun _ _ _ _ => by simp [valueEqual, Value.eraseNominal, Context.sameness], fun handle other family identity identity' held found =>
       handle_equality context.sameness handle other family identity identity' held found,
     fun _ _ => by simp [valueEqual, Value.eraseNominal],
-    fun _ _ _ _ sized => by simp [valueEqual, Value.eraseNominal, sized]⟩
+    fun _ _ _ _ sized => by simp [valueEqual, Value.eraseNominal, sized],
+    fun _ _ => by simp [valueEqual, Value.eraseNominal]⟩
 
 end Laws
 
@@ -598,6 +603,25 @@ theorem module_witness :
 /-- Comparing modules by identity would call two modules with the same exports
 unequal; the binary calls them equal. -/
 theorem identity_module_rejected : valueEqual sameIds (moduleOf 1 1) (moduleOf 3 1) ≠ some false := by
+  decide +kernel
+
+/-- A `run false` error from process `pid`, as one call site gives it. -/
+def runErrorOf (pid : Nat) : Value Nat Nat Unit :=
+  .processError ⟨"exit-status", "command exited with status 1", none,
+    some ⟨false, .exit, validateInt? 1, [⟨0, "false".toUTF8.toList, some ⟨pid⟩, false, .exit, validateInt? 1, none, none⟩]⟩,
+    [], none⟩
+
+/-- As the verification binary prints `true false` for `a == a` and `a == b`
+with `a` and `b` the errors of two calls of one `try { run false }`: an error
+equals itself, and two runs' errors differ in their status's process. -/
+theorem process_error_witness :
+    valueEqual sameIds (runErrorOf 3) (runErrorOf 3) = some true ∧
+    valueEqual sameIds (runErrorOf 3) (runErrorOf 4) = some false := by
+  decide +kernel
+
+/-- Comparing process errors by kind and message alone calls the two runs'
+errors equal. -/
+theorem message_only_process_error_rejected : valueEqual sameIds (runErrorOf 3) (runErrorOf 4) ≠ some true := by
   decide +kernel
 
 end Witness

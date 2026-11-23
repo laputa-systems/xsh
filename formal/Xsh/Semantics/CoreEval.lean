@@ -331,6 +331,11 @@ mutual
       | .module _ others => if exports.length = others.length then fieldsEqual same exports others else some false
       | .scalar .null => some false
       | _ => none
+    | .processError left, right =>
+      match right.eraseNominal with
+      | .processError other => processErrorEqual same left other
+      | .scalar .null => some false
+      | _ => none
     | .status status, right =>
       match right.eraseNominal with
       | .status other => some (statusEqual same status other)
@@ -353,6 +358,20 @@ mutual
           facets == facets' && spanEqual same span span' && contextsEqual same contexts contexts' &&
           decide (abort = abort') && payload.length == payload'.length then
         (fieldsEqual same payload payload').bind fun equal => if equal then causeEqual same cause cause' else some false
+      else some false
+
+  /-- Two process errors are equal when every field is: kind, message, span
+  and contexts by source and position, status field by field, and the cause
+  structurally. -/
+  def processErrorEqual (same : Sameness Declaration Identity Source) :
+      ProcessErrorData Declaration Identity Source → ProcessErrorData Declaration Identity Source → Option Bool
+    | ⟨kind, message, span, status, contexts, cause⟩, ⟨kind', message', span', status', contexts', cause'⟩ =>
+      if kind == kind' && message == message' && spanEqual same span span' && contextsEqual same contexts contexts' &&
+          (match status, status' with
+            | some left, some right => statusEqual same left right
+            | none, none => true
+            | _, _ => false) then
+        causeEqual same cause cause'
       else some false
 
   def causeEqual (same : Sameness Declaration Identity Source) :

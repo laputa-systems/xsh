@@ -514,7 +514,7 @@ Statements:
 
 Expressions:
 
-- equality of streams, filesystem entries, commands and process errors (P)
+- equality of streams, filesystem entries and commands (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
@@ -592,7 +592,10 @@ rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
 concatenates its operands, variant equality by name alone, error payloads
 compared by raw bits, and callable equality by kind alone. Streams,
-filesystem entries, commands and process errors are not compared, modules
+filesystem entries and commands are not compared; process errors compare
+every field, their status field by field (`processErrorEqual`), as the
+binary's `true false` for an error with itself and two runs' errors shows;
+modules
 compare by their exports whatever module they are, as the binary's `true
 false true` for one module twice, different exports and another module with
 the same exports shows, process

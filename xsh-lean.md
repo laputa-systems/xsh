@@ -78,8 +78,12 @@ acceptance does not wait for this campaign.
   `ComparisonMeaning`, `IntToFloatMeaning`, `ToIntMeaning`, `BitsetMeaning` and
   the `DurationOps` results.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
-  `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
-  correspondence.
+  `Path.parent` edge case, such as `foo/.` and `foo/..`, and claims no API
+  correspondence. The machine's `Path` methods use it only for the POSIX
+  `basename`, `dirname` and `ext_or`; `name`, `ext`, `parent` and the other
+  `std::path` methods go through `Xsh.Paths.StdComponents`, whose witnesses
+  match the verification binary on those edge cases (`a/.` names `a`, `a/..`
+  has no name and parent `a`).
 - No Goose implementation exists, and none is a prerequisite for any
   obligation. See [Replacement implementation
   contract](#replacement-implementation-contract).
