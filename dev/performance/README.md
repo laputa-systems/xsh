@@ -213,3 +213,15 @@ The expected Tokei source commit is
 `8cdd6fa3a54f8cd69442d2f00effb29aa3110353`, but the scenario cannot prove that
 the executable came from that commit. It reports Tokei source provenance and
 P0 qualification as unqualified.
+
+## Source census
+
+Run `python3 -B dev/performance/census.py --repo . --repo ../../../../laputa --json .work/tmp/census.json`
+to inventory tracked XSH sources. Each repository uses its verification or
+debug `xsht`, falling back to `xsht` on PATH. The ordered role rules are in
+the table at the top of `census.py`.
+
+The JSON contains `tool_version`, repository roots, HEADs and parsers, file
+paths, roles and matching rules, parse statuses, SHA-256 digests, static imports
+and their resolved census paths, textual dynamic loads, duplicate digest groups,
+and summary counts. Unresolved static imports have a null resolved path.
