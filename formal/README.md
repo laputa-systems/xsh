@@ -524,8 +524,8 @@ Expressions:
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice`, the integer parse methods and
   `parse_float` (P)
-- the contextual `.require()` under a `return` inside an expression, such as
-  a value block, or any other expected position (P)
+- the contextual `.require()` under a constructor field, a schema under a
+  declared result or parameter, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
@@ -694,7 +694,10 @@ so do the witnesses. A function's declared result is likewise the target of
 its body's tail and of each `return` (`expectBody`), as the binary's
 `err`, `ok 7`, `7` and `err` for the four declared-result forms show. A
 `return` nested in the body's `if`, `while`, `for`, `loop`, `match` and
-`guard` statements takes the declared result too (`expectReturn`), and a
+`guard` statements, or in a value block or `if` or `match` branch of a
+binding or expression statement (`expectReturnsIn`), takes the declared
+result too (`expectReturn`), as the binary does for
+`let x = if c { return .Red } else { 1 }` and `let y = { return .Green }`, and a
 parameter's default takes its annotation (`expectDefaults`). Other
 expected positions need the checker's expected type and are not modelled.
 

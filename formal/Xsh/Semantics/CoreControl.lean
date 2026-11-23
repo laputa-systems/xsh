@@ -1384,7 +1384,33 @@ mutual
     | .withScope bindings body otherwise =>
       .withScope bindings (expectReturns spelling result body) (expectReturns spelling result otherwise)
     | .sugar form expansion => .sugar form (expectReturn spelling result expansion)
+    | .binding kind target annotation initializer =>
+      .binding kind target annotation (expectReturnsIn spelling result initializer)
+    | .expression value => .expression (expectReturnsIn spelling result value)
     | statement => statement
+
+  /-- An expression's value blocks and the branches of its `if` and `match`
+  expressions, whose `return`s leave the function. -/
+  def expectReturnsIn (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      Xsh.Syntax.Expr → Xsh.Syntax.Expr
+    | .valueBlock body => .valueBlock (expectReturns spelling result body)
+    | .ifExpr branches otherwise =>
+      .ifExpr (expectReturnValueBranches spelling result branches) (expectReturnsIn spelling result otherwise)
+    | .matchExpr subject arms => .matchExpr subject (expectReturnValueArms spelling result arms)
+    | value => value
+
+  def expectReturnValueBranches (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr)
+    | [] => []
+    | (condition, value) :: rest =>
+      (condition, expectReturnsIn spelling result value) :: expectReturnValueBranches spelling result rest
+
+  def expectReturnValueArms (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) →
+        List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr)
+    | [] => []
+    | (pattern, guard, value) :: rest =>
+      (pattern, guard, expectReturnsIn spelling result value) :: expectReturnValueArms spelling result rest
 
   def expectReturns (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
       List Xsh.Syntax.Statement → List Xsh.Syntax.Statement

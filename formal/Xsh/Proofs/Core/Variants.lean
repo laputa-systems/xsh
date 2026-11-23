@@ -21,8 +21,9 @@ variable {Declaration Identity Source : Type}
 type is known, a leading-dot name selects a variant of the enum it names, an
 optional `T?` selecting from `T`; an annotated binding and a function's
 declared result, through its tail and each `return` however deeply it sits in
-the body's `if`, `while`, `for`, `loop`, `match` and `guard` statements, give
-that type, and so does a parameter's annotation to its default and to the
+the body's `if`, `while`, `for`, `loop`, `match` and `guard` statements or
+in a value block or `if` or `match` branch of a binding or expression
+statement, give that type, and so does a parameter's annotation to its default and to the
 argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
 parameter it names; an expected type reaches each branch of a value `if` or
@@ -622,6 +623,29 @@ theorem nested_schema_witness :
       | some (.list [first, second]) => (fieldVariant (some first)).bind fun one =>
           (fieldVariant (some second)).map fun two => (one, two)
       | _ => none) = some ("Info", "Warn") := by
+  decide +kernel
+
+/-- `proc pick(c: Bool) -> Level { let x = if c { return .Warn } else { 1 }; return .Info }`
+called as `pick(true)` and `pick(false)`, and
+`proc ring() -> Level { let y = { return .Info }; return .Warn }` called. -/
+def returnInRun : Exec witnessWorld := runScript shapeMachine 120 fullStart
+  [declareLevel,
+   .functionDef .proc pickName [.mk flagName none none false] none (some (.named levelName))
+     [letOf stepName (.ifExpr [(ident flagName, .valueBlock [.returnValue (some (dot warnName))])] (block (int "1"))),
+      .returnValue (some (dot infoName))] none false,
+   .functionDef .proc pickRing [] none (some (.named levelName))
+     [letOf stepName (.valueBlock [.returnValue (some (dot infoName))]), .returnValue (some (dot warnName))] none false,
+   letOf (slot 0) (.call (ident pickName) [.positional yes]),
+   letOf (slot 1) (.call (ident pickName) [.positional (.literal (.bool false))]),
+   letOf (slot 2) (.call (ident pickRing) [])]
+
+/-- As the verification binary prints `true true true` for the same shapes
+over its own enum: a `return` inside a binding's `if` branch or value block
+takes the declared result. -/
+theorem return_in_expression_witness :
+    variantShape (valueOf (slot 0) returnInRun) = some ("Warn", []) ∧
+    variantShape (valueOf (slot 1) returnInRun) = some ("Info", []) ∧
+    variantShape (valueOf (slot 2) returnInRun) = some ("Info", []) := by
   decide +kernel
 
 end Witness
