@@ -534,7 +534,7 @@ Expressions:
 - equality of filesystem entries, commands and the owner-less streams
   `fs.ls` builds, which compare by their buffered items (P)
 - the environment a producer that yields from inside an `env` scope keeps to
-  itself between pulls (P)
+  itself between pulls, whose intended rule is open as XSH-184 (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
@@ -542,10 +542,6 @@ Expressions:
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice`, the integer parse methods,
   `parse_float`, `lower` and `upper` (P)
-- record schemas, and the contextual `.require()` under them, in expected
-  positions other than annotations, a declared result's tail and returns,
-  parameters, schema fields and list elements: a value `if` or `match`
-  branch, an `Ok` payload, a map value (P)
 - `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.list` and `env.entries` (E),
@@ -844,20 +840,23 @@ each named or computed value of a brace literal under an expected
 `Map[K, V]`, and the payload of `Ok(...)` under an expected `Result[T]`, as
 the binary's `true` for those forms shows. A brace literal under an annotation that names
 a record schema gives each named field's value the schema field's type
-(`expectSchema`), as the binary's `true true` for
+(`expectTarget` through `expectSchemaFields`), as the binary's `true true` for
 `let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows, and field
 types that name other schemas expand in turn, as do the elements of an
 annotated `List[T]`, as the binary resolves `{ inner: { c: .Red } }` and
-`[{ c: .Green }]`. A declared result's tail and `return`s, nested ones
-included (`expectSchemaBody` through `expectReturn`), and the arguments of annotated parameters
-(`schemaArguments`) expand the same way, as the binary resolves
+`[{ c: .Green }]`. A record schema is one more case of the expected type, so
+it reaches every expected position: a declared result's tail and `return`s,
+nested ones included, and the arguments of annotated parameters expand
+the same way, as the binary resolves
 `proc f() -> P { { c: .Red } }`, a `return` in an `if` statement or a
 binding's value block, and `h({ c: .Green })`. A record or error
 variant constructor's field types are the expected types of the arguments
 that fill them (`fieldParameters`, `payloadParameters` through
 `expectArguments`), as the binary resolves `P(c: .Red, n: 1)`, `P(.Green, 2)`
-and `Bad.Paint(c: .Green)`; the binary also expands a schema in a value
-`if` branch, an `Ok` payload and a map value, which the model does not. The other operand of `==` or `!=` targets a leading-dot name on
+and `Bad.Paint(c: .Green)`, and a value `if` branch, an `Ok` payload and a
+map value, as the binary resolves `if true { { c: .Warn } } else { ... }`,
+`Ok({ c: .Warn })` and `{ k: { c: .Warn } }` under `P`, `Result[P]` and
+`Map[Str, P]`. The other operand of `==` or `!=` targets a leading-dot name on
 either side when it evaluates to an enum's variant, and `null` there compares
 unequal, as the binary prints `true true true false` for `a == .Red`,
 `a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the

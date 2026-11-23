@@ -4255,8 +4255,8 @@ theorem local_bindings {world : World Declaration Identity Source} (machine : Ma
               locals := hide [name] frame.locals
               closures := (cell, .mk cell callable (extend frame.environment [(name, binder, cell)]) frame.closures
                 (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-                (.block (expectBody machine.context.spelling result
-                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) ::
+                (.block (expectBody machine.context.spelling machine.declarations result
+                  body) (returnKindOf machine result))) ::
                 frame.closures }) ∧
     (∀ fuel (frame : Frame world) value,
       frame.item = some value → evalExpr machine (fuel + 1) frame .item = .value value frame) ∧

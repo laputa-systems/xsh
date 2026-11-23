@@ -1340,6 +1340,15 @@ def bothLimits : Option Nat → Option Nat → Option Nat
   | some first, none | none, some first => some first
   | none, none => none
 
+/-- The top-level record schema a name declares (SPEC 4.7): its fields and
+whether it is nominal. -/
+def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
+    Option (List Xsh.Syntax.SchemaField × Bool) :=
+  declarations.findSome? fun
+    | .typeDef declared _ (.recordSchema fields) nominal _ | .export (.typeDef declared _ (.recordSchema fields) nominal _) =>
+      if declared = name then some (fields, nominal) else none
+    | _ => none
+
 mutual
   /-- An expression in a position with a known expected type, its contextual
   forms given that type. The target of a contextual `.require()` (SPEC 5.3) is
@@ -1351,75 +1360,89 @@ mutual
   a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
   under an expected `Result[T]` or `Result[T, E]`, and the payload of
   `Err(...)` under an expected `Result[T, E]`. -/
-  def expectTarget (spelling : Xsh.Syntax.RawName → String) : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+  def expectTarget (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
     | some (.result target), .require value none => .require value (some target)
     | some (.resultWith target _), .require value none => .require value (some target)
     | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
     | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
     | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
     | some target, .ifExpr branches otherwise =>
-      .ifExpr (expectBranches spelling (some target) branches) (expectTarget spelling (some target) otherwise)
-    | some target, .matchExpr subject arms => .matchExpr subject (expectArms spelling (some target) arms)
-    | some target, .valueBlock body => .valueBlock (expectTail spelling (some target) body)
-    | some (.list element), .list elements => .list (expectElements spelling (some element) elements)
-    | some (.map _ value), .record fields => .record (expectFields spelling (some value) fields)
+      .ifExpr (expectBranches spelling declarations (some target) branches) (expectTarget spelling declarations (some target) otherwise)
+    | some target, .matchExpr subject arms => .matchExpr subject (expectArms spelling declarations (some target) arms)
+    | some target, .valueBlock body => .valueBlock (expectTail spelling declarations (some target) body)
+    | some (.list element), .list elements => .list (expectElements spelling declarations (some element) elements)
+    | some (.map _ value), .record fields => .record (expectFields spelling declarations (some value) fields)
+    | some (.named name), .record fields =>
+      match schemaOf declarations name with
+      | some (schema, _) => .record (expectSchemaFields spelling declarations schema fields)
+      | none => .record fields
     | some (.result target), .call (.ident constructor) [.positional payload] =>
-      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
+      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling declarations (some target) payload)]
       else .call (.ident constructor) [.positional payload]
     | some (.resultWith target error), .call (.ident constructor) [.positional payload] =>
-      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
+      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling declarations (some target) payload)]
       else if spelling constructor = "Err" then
-        .call (.ident constructor) [.positional (expectTarget spelling (some error) payload)]
+        .call (.ident constructor) [.positional (expectTarget spelling declarations (some error) payload)]
       else .call (.ident constructor) [.positional payload]
     | _, initializer => initializer
 
-  def expectBranches (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
+  def expectBranches (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (expected : Option Xsh.Syntax.TypeExpr) :
       List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
-    | (condition, value) :: rest => (condition, expectTarget spelling expected value) :: expectBranches spelling expected rest
+    | (condition, value) :: rest => (condition, expectTarget spelling declarations expected value) :: expectBranches spelling declarations expected rest
 
-  def expectArms (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
+  def expectArms (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (expected : Option Xsh.Syntax.TypeExpr) :
       List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) →
         List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
-    | (pattern, guard, value) :: rest => (pattern, guard, expectTarget spelling expected value) :: expectArms spelling expected rest
+    | (pattern, guard, value) :: rest => (pattern, guard, expectTarget spelling declarations expected value) :: expectArms spelling declarations expected rest
 
-  def expectElements (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
+  def expectElements (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
     | [] => []
-    | value :: rest => expectTarget spelling expected value :: expectElements spelling expected rest
+    | value :: rest => expectTarget spelling declarations expected value :: expectElements spelling declarations expected rest
 
   /-- A brace literal's field values under an expected `Map[K, V]`: a named or
   computed entry's value takes `V`. -/
-  def expectFields (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
+  def expectFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (expected : Option Xsh.Syntax.TypeExpr) :
       List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
     | [] => []
-    | .named name value :: rest => .named name (expectTarget spelling expected value) :: expectFields spelling expected rest
+    | .named name value :: rest => .named name (expectTarget spelling declarations expected value) :: expectFields spelling declarations expected rest
     | .computed key value :: rest =>
-      .computed key (expectTarget spelling expected value) :: expectFields spelling expected rest
-    | field :: rest => field :: expectFields spelling expected rest
+      .computed key (expectTarget spelling declarations expected value) :: expectFields spelling declarations expected rest
+    | field :: rest => field :: expectFields spelling declarations expected rest
+
+  /-- A brace literal's fields under a record schema (SPEC 5.5): each named
+  field's value takes the declared type of the schema field it names. -/
+  def expectSchemaFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
+      (schema : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
+    | [] => []
+    | .named label value :: rest =>
+      let type := (schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type
+      .named label (expectTarget spelling declarations type value) :: expectSchemaFields spelling declarations schema rest
+    | field :: rest => field :: expectSchemaFields spelling declarations schema rest
 
   /-- A value block's tail, its last statement when that is an expression. -/
-  def expectTail (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+  def expectTail (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
     | [] => []
-    | [.expression tail] => [.expression (expectTarget spelling expected tail)]
-    | statement :: rest => statement :: expectTail spelling expected rest
+    | [.expression tail] => [.expression (expectTarget spelling declarations expected tail)]
+    | statement :: rest => statement :: expectTail spelling declarations expected rest
 end
 
 /-- A call's arguments with each parameter's annotation as the expected type
 of the argument that fills it (SPEC 5.5): positional arguments take the
 non-rest parameters in order and a named argument takes the parameter it
 names; after a splice, positions are no longer known. -/
-def expectArguments (spelling : Xsh.Syntax.RawName → String) (parameters : List Xsh.Syntax.Parameter) :
+def expectArguments (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (parameters : List Xsh.Syntax.Parameter) :
     List Xsh.Syntax.Parameter → List Xsh.Syntax.CallArgument → List Xsh.Syntax.CallArgument
   | _, [] => []
   | .mk _ annotation _ false :: positions, .positional value :: rest =>
-    .positional (expectTarget spelling annotation value) :: expectArguments spelling parameters positions rest
-  | _, .positional value :: rest => .positional value :: expectArguments spelling parameters [] rest
+    .positional (expectTarget spelling declarations annotation value) :: expectArguments spelling declarations parameters positions rest
+  | _, .positional value :: rest => .positional value :: expectArguments spelling declarations parameters [] rest
   | positions, .named label value :: rest =>
-    .named label (expectTarget spelling ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
-        fun | .mk _ annotation _ _ => annotation) value) :: expectArguments spelling parameters positions rest
-  | _, .splice value :: rest => .splice value :: expectArguments spelling parameters [] rest
-  | positions, .namedSpread value :: rest => .namedSpread value :: expectArguments spelling parameters positions rest
+    .named label (expectTarget spelling declarations ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
+        fun | .mk _ annotation _ _ => annotation) value) :: expectArguments spelling declarations parameters positions rest
+  | _, .splice value :: rest => .splice value :: expectArguments spelling declarations parameters [] rest
+  | positions, .namedSpread value :: rest => .namedSpread value :: expectArguments spelling declarations parameters positions rest
 
 mutual
   /-- A statement whose `return` operands, also those nested in its `if`,
@@ -1492,19 +1515,19 @@ end
 
 /-- A function body whose tail and `return` operands take the declared result
 type as their expected type (SPEC 5.3). -/
-def expectBody (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+def expectBody (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) (result : Option Xsh.Syntax.TypeExpr) :
     List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
-  | [.expression tail] => [.expression (expectTarget spelling result tail)]
-  | statement :: rest => expectReturn (expectTarget spelling result) statement :: expectBody spelling result rest
+  | [.expression tail] => [.expression (expectTarget spelling declarations result tail)]
+  | statement :: rest => expectReturn (expectTarget spelling declarations result) statement :: expectBody spelling declarations result rest
 
 /-- Parameters whose defaults take the parameter's annotation as their
 expected type (SPEC 5.5). -/
-def expectDefaults (spelling : Xsh.Syntax.RawName → String) : List Xsh.Syntax.Parameter → List Xsh.Syntax.Parameter
+def expectDefaults (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) : List Xsh.Syntax.Parameter → List Xsh.Syntax.Parameter
   | [] => []
   | .mk name annotation (some default) rest :: more =>
-    .mk name annotation (some (expectTarget spelling annotation default)) rest :: expectDefaults spelling more
-  | parameter :: more => parameter :: expectDefaults spelling more
+    .mk name annotation (some (expectTarget spelling declarations annotation default)) rest :: expectDefaults spelling declarations more
+  | parameter :: more => parameter :: expectDefaults spelling declarations more
 
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
@@ -3588,45 +3611,6 @@ def loopStep {world : World Declaration Identity Source} (next : Frame world →
   | .broke frame => .value (frame.breakValue.getD (.scalar .unit)) { frame with breakValue := none }
   | other => .exec other
 
-/-- The top-level record schema a name declares (SPEC 4.7): its fields and
-whether it is nominal. -/
-def schemaOf (declarations : List Xsh.Syntax.Statement) (name : Xsh.Syntax.RawName) :
-    Option (List Xsh.Syntax.SchemaField × Bool) :=
-  declarations.findSome? fun
-    | .typeDef declared _ (.recordSchema fields) nominal _ | .export (.typeDef declared _ (.recordSchema fields) nominal _) =>
-      if declared = name then some (fields, nominal) else none
-    | _ => none
-
-mutual
-  /-- A brace literal under an annotation that names a record schema (SPEC
-  5.5): each named field's value takes the declared type of the schema field
-  it names, itself expanded when that type names a schema; each element of a
-  list under `List[T]` is expanded by `T`. -/
-  def expectSchema (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement) :
-      Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
-    | some (.named name), .record fields =>
-      match schemaOf declarations name with
-      | some (schema, _) => .record (expectSchemaFields spelling declarations schema fields)
-      | none => .record fields
-    | some (.list element), .list elements => .list (expectSchemaElements spelling declarations element elements)
-    | _, initializer => initializer
-
-  def expectSchemaFields (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-      (schema : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.RecordField → List Xsh.Syntax.RecordField
-    | [] => []
-    | .named label value :: rest =>
-      let type := (schema.find? fun | .mk field _ _ => spelling field = spelling label).map fun | .mk _ type _ => type
-      .named label (expectTarget spelling type (expectSchema spelling declarations type value)) ::
-        expectSchemaFields spelling declarations schema rest
-    | field :: rest => field :: expectSchemaFields spelling declarations schema rest
-
-  def expectSchemaElements (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-      (element : Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
-    | [] => []
-    | value :: rest => expectSchema spelling declarations (some element) value ::
-        expectSchemaElements spelling declarations element rest
-end
-
 /-- A record schema's fields as the parameters its constructor fills, each
 annotated with the field's type (SPEC 4.7). -/
 def fieldParameters (fields : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.Parameter :=
@@ -3636,30 +3620,6 @@ def fieldParameters (fields : List Xsh.Syntax.SchemaField) : List Xsh.Syntax.Par
 types (SPEC 4.10). -/
 def payloadParameters (fields : List (Xsh.Syntax.RawName × Xsh.Syntax.TypeExpr)) : List Xsh.Syntax.Parameter :=
   fields.map fun (name, type) => .mk name (some type) none false
-
-/-- A function body whose tail and `return` operands, nested ones included,
-are expanded by the declared result's record schema. -/
-def expectSchemaBody (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-    (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
-  | [] => []
-  | [.expression tail] => [.expression (expectSchema spelling declarations result tail)]
-  | statement :: rest =>
-    expectReturn (expectSchema spelling declarations result) statement :: expectSchemaBody spelling declarations result rest
-
-/-- A call's arguments expanded by the record schema their parameter's
-annotation names, matched to parameters as `expectArguments` matches them. -/
-def schemaArguments (spelling : Xsh.Syntax.RawName → String) (declarations : List Xsh.Syntax.Statement)
-    (parameters : List Xsh.Syntax.Parameter) :
-    List Xsh.Syntax.Parameter → List Xsh.Syntax.CallArgument → List Xsh.Syntax.CallArgument
-  | _, [] => []
-  | .mk _ annotation _ false :: positions, .positional value :: rest =>
-    .positional (expectSchema spelling declarations annotation value) :: schemaArguments spelling declarations parameters positions rest
-  | _, .positional value :: rest => .positional value :: schemaArguments spelling declarations parameters [] rest
-  | positions, .named label value :: rest =>
-    .named label (expectSchema spelling declarations ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
-        fun | .mk _ annotation _ _ => annotation) value) :: schemaArguments spelling declarations parameters positions rest
-  | _, .splice value :: rest => .splice value :: schemaArguments spelling declarations parameters [] rest
-  | positions, .namedSpread value :: rest => .namedSpread value :: schemaArguments spelling declarations parameters positions rest
 
 /-- A call of `closure` with its arguments already evaluated (SPEC 6.3, 9.2):
 they fill the parameters by position and label, omitted defaults evaluate in
@@ -3671,7 +3631,7 @@ def invokeSupplied {world : World Declaration Identity Source} (machine : Machin
     (after : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) : Valued world :=
   match closure with
   | .mk cell callable defining captured writable parameters body =>
-      match placeCall machine.context.spelling (expectDefaults machine.context.spelling parameters) supplied with
+      match placeCall machine.context.spelling (expectDefaults machine.context.spelling machine.declarations parameters) supplied with
       | .error fault =>
         .exec (.failed (.runtime (machine.argumentError fault (fixedCount parameters)
           (supplied.filterMap Supplied.positionalValue).length)) after)
@@ -3702,8 +3662,7 @@ def invokeWith {world : World Declaration Identity Source} (machine : Machine wo
       List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
     (frame : Frame world) (closure : Closure) (arguments : List Xsh.Syntax.CallArgument) : Valued world :=
   (threadArguments machine.context.spelling evaluate frame
-      (expectArguments machine.context.spelling closure.parameters closure.parameters
-        (schemaArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments))).bind
+      (expectArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments)).bind
     fun supplied after => invokeSupplied machine evaluate callBlock after closure supplied
 
 mutual
@@ -3875,7 +3834,7 @@ mutual
             | _ => .exec .stuck
         | some (family, .mk variant fields facets), _ =>
           (threadArguments machine.context.spelling (evalExpr machine fuel) frame
-              (expectArguments machine.context.spelling (payloadParameters fields) (payloadParameters fields) arguments)).bind
+              (expectArguments machine.context.spelling machine.declarations (payloadParameters fields) (payloadParameters fields) arguments)).bind
             fun supplied after =>
             match placeArguments machine.context.spelling (fields.map Prod.fst) supplied with
             | none => .exec .stuck
@@ -3965,7 +3924,7 @@ mutual
                 variantOf machine.context.spelling machine.declarations name with
             | none, none, some (fields, nominal), _ =>
               (threadArguments machine.context.spelling (evalExpr machine fuel) frame
-                  (expectArguments machine.context.spelling (fieldParameters fields) (fieldParameters fields) arguments)).bind
+                  (expectArguments machine.context.spelling machine.declarations (fieldParameters fields) (fieldParameters fields) arguments)).bind
                 fun supplied after =>
                 match placeArguments machine.context.spelling (fields.map fun field => (schemaField field).1) supplied with
                 | none => .exec .stuck
@@ -4345,8 +4304,7 @@ mutual
     | fuel + 1, frame, statement =>
       match statement with
       | .binding kind target annotation initializer =>
-        (runValue machine fuel frame (expectTarget machine.context.spelling annotation
-            (expectSchema machine.context.spelling machine.declarations annotation initializer))).toExec fun value next =>
+        (runValue machine fuel frame (expectTarget machine.context.spelling machine.declarations annotation initializer)).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         (runValue machine fuel frame value).toExec fun result next =>
@@ -4483,8 +4441,7 @@ mutual
               locals := hide [name] frame.locals
               closures := (cell, .mk cell callable environment frame.closures
                 (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-                (.block (expectBody machine.context.spelling result
-                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) :: frame.closures }
+                (.block (expectBody machine.context.spelling machine.declarations result body) (returnKindOf machine result))) :: frame.closures }
         | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
@@ -4695,8 +4652,7 @@ def hoistStatement {world : World Declaration Identity Source} (machine : Machin
             match (extend environment [(name, binder, cell)]).cellOf captured with
             | .ok found => if mutable.contains found then some found else none
             | .error _ => none)
-          parameters (.block (expectBody machine.context.spelling result
-                  (expectSchemaBody machine.context.spelling machine.declarations result body)) (returnKindOf machine result))) :: closures)
+          parameters (.block (expectBody machine.context.spelling machine.declarations result body) (returnKindOf machine result))) :: closures)
     | some _, none => none
     | none, _ => some (environment, mutable, closures)
   | environment, mutable, closures, .sugar _ expansion =>

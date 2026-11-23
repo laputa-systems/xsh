@@ -43,15 +43,14 @@ theorem require_expression [DecidableEq Declaration] {world : World Declaration 
             .keep [] type candidate = .error failure ∧
           error = .error (Xsh.Validation.Core.Require.schemaError machine.schemaFamily failure))) ∧
     (∀ kind target annotation initializer, runStatement machine (fuel + 1) frame (.binding kind target annotation initializer) =
-      (runValue machine fuel frame (expectTarget machine.context.spelling annotation
-          (expectSchema machine.context.spelling machine.declarations annotation initializer))).toExec fun value next =>
+      (runValue machine fuel frame (expectTarget machine.context.spelling machine.declarations annotation initializer)).toExec fun value next =>
         bindTarget machine next (bindingMutability kind) target value) ∧
-    (∀ value schema, expectTarget machine.context.spelling (some (.result schema)) (.require value none) = .require value (some schema)) ∧
-    (∀ value schema, expectTarget machine.context.spelling (some schema) (.tryExpr (.require value none)) =
+    (∀ value schema, expectTarget machine.context.spelling machine.declarations (some (.result schema)) (.require value none) = .require value (some schema)) ∧
+    (∀ value schema, expectTarget machine.context.spelling machine.declarations (some schema) (.tryExpr (.require value none)) =
       .tryExpr (.require value (some schema))) ∧
-    (∀ result tail, expectBody machine.context.spelling result [.expression tail] = [.expression (expectTarget machine.context.spelling result tail)]) ∧
-    (∀ result value rest, expectBody machine.context.spelling result (.returnValue (some value) :: rest) =
-      .returnValue (some (expectTarget machine.context.spelling result value)) :: expectBody machine.context.spelling result rest) := by
+    (∀ result tail, expectBody machine.context.spelling machine.declarations result [.expression tail] = [.expression (expectTarget machine.context.spelling machine.declarations result tail)]) ∧
+    (∀ result value rest, expectBody machine.context.spelling machine.declarations result (.returnValue (some value) :: rest) =
+      .returnValue (some (expectTarget machine.context.spelling machine.declarations result value)) :: expectBody machine.context.spelling machine.declarations result rest) := by
   refine ⟨fun value schema type typed => ?_, fun type candidate result wires wellFormed passed => ?_,
     fun type candidate error wires wellFormed => ?_, fun _ _ _ _ => rfl, fun _ _ => rfl,
     fun _ schema => by cases schema <;> rfl, fun _ _ => rfl, fun _ _ _ => rfl⟩

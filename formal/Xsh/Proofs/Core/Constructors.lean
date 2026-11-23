@@ -65,7 +65,7 @@ theorem declared_constructors {world : World Declaration Identity Source} (machi
       errorConstructor machine frame receiver method = some (family, .mk variant (first :: rest) facets) →
           evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
             (threadArguments machine.context.spelling (evalExpr machine fuel) frame
-                (expectArguments machine.context.spelling (payloadParameters (first :: rest))
+                (expectArguments machine.context.spelling machine.declarations (payloadParameters (first :: rest))
                   (payloadParameters (first :: rest)) arguments)).bind fun supplied after =>
               match placeArguments machine.context.spelling ((first :: rest).map Prod.fst) supplied with
               | none => .exec .stuck

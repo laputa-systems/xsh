@@ -45,9 +45,9 @@ spelling gives; a leading-dot name with no expected type is outside the model
 does not evaluate. -/
 theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
-    (∀ enum name arguments, expectTarget machine.context.spelling (some (.named enum)) (.dotVariant none name arguments) =
+    (∀ enum name arguments, expectTarget machine.context.spelling machine.declarations (some (.named enum)) (.dotVariant none name arguments) =
       .dotVariant (some enum) name arguments) ∧
-    (∀ enum name arguments, expectTarget machine.context.spelling (some (.optional (.named enum))) (.dotVariant none name arguments) =
+    (∀ enum name arguments, expectTarget machine.context.spelling machine.declarations (some (.optional (.named enum))) (.dotVariant none name arguments) =
       .dotVariant (some enum) name arguments) ∧
     (∀ name arguments, evalExpr machine (fuel + 1) frame (.dotVariant none name arguments) = .exec .unsupported) ∧
     (∀ enum name declared variant wire, variantOf machine.context.spelling machine.declarations name =
@@ -69,87 +69,86 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       evalExpr machine (fuel + 1) frame (.dotVariant (some enum) name arguments) = .exec .stuck) ∧
     (∀ evaluate callBlock closure arguments, invokeWith machine evaluate callBlock frame closure arguments =
       (threadArguments machine.context.spelling evaluate frame
-          (expectArguments machine.context.spelling closure.parameters closure.parameters
-            (schemaArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments))).bind
+          (expectArguments machine.context.spelling machine.declarations closure.parameters closure.parameters arguments)).bind
         fun supplied after => invokeSupplied machine evaluate callBlock after closure supplied) ∧
     (∀ parameters name annotation default positions value rest,
-      expectArguments machine.context.spelling parameters (.mk name annotation default false :: positions)
+      expectArguments machine.context.spelling machine.declarations parameters (.mk name annotation default false :: positions)
           (.positional value :: rest) =
-        .positional (expectTarget machine.context.spelling annotation value) ::
-          expectArguments machine.context.spelling parameters positions rest) ∧
+        .positional (expectTarget machine.context.spelling machine.declarations annotation value) ::
+          expectArguments machine.context.spelling machine.declarations parameters positions rest) ∧
     (∀ parameters positions label value rest,
-      expectArguments machine.context.spelling parameters positions (.named label value :: rest) =
-        .named label (expectTarget machine.context.spelling ((parameters.find? fun
+      expectArguments machine.context.spelling machine.declarations parameters positions (.named label value :: rest) =
+        .named label (expectTarget machine.context.spelling machine.declarations ((parameters.find? fun
             | .mk name _ _ _ => machine.context.spelling name = machine.context.spelling label).bind
           fun | .mk _ annotation _ _ => annotation) value) ::
-          expectArguments machine.context.spelling parameters positions rest) ∧
-    (∀ target branches otherwise, expectTarget machine.context.spelling (some target) (.ifExpr branches otherwise) =
-      .ifExpr (expectBranches machine.context.spelling (some target) branches) (expectTarget machine.context.spelling (some target) otherwise)) ∧
-    (∀ target subject arms, expectTarget machine.context.spelling (some target) (.matchExpr subject arms) =
-      .matchExpr subject (expectArms machine.context.spelling (some target) arms)) ∧
-    (∀ target body, expectTarget machine.context.spelling (some target) (.valueBlock body) = .valueBlock (expectTail machine.context.spelling (some target) body)) ∧
-    (∀ element elements, expectTarget machine.context.spelling (some (.list element)) (.list elements) =
-      .list (expectElements machine.context.spelling (some element) elements)) ∧
-    (∀ expected tail, expectTail machine.context.spelling expected [.expression tail] = [.expression (expectTarget machine.context.spelling expected tail)]) ∧
+          expectArguments machine.context.spelling machine.declarations parameters positions rest) ∧
+    (∀ target branches otherwise, expectTarget machine.context.spelling machine.declarations (some target) (.ifExpr branches otherwise) =
+      .ifExpr (expectBranches machine.context.spelling machine.declarations (some target) branches) (expectTarget machine.context.spelling machine.declarations (some target) otherwise)) ∧
+    (∀ target subject arms, expectTarget machine.context.spelling machine.declarations (some target) (.matchExpr subject arms) =
+      .matchExpr subject (expectArms machine.context.spelling machine.declarations (some target) arms)) ∧
+    (∀ target body, expectTarget machine.context.spelling machine.declarations (some target) (.valueBlock body) = .valueBlock (expectTail machine.context.spelling machine.declarations (some target) body)) ∧
+    (∀ element elements, expectTarget machine.context.spelling machine.declarations (some (.list element)) (.list elements) =
+      .list (expectElements machine.context.spelling machine.declarations (some element) elements)) ∧
+    (∀ expected tail, expectTail machine.context.spelling machine.declarations expected [.expression tail] = [.expression (expectTarget machine.context.spelling machine.declarations expected tail)]) ∧
     (∀ target constructor payload, machine.context.spelling constructor = "Ok" →
-      expectTarget machine.context.spelling (some (.result target)) (.call (.ident constructor) [.positional payload]) =
-        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some target) payload)]) ∧
-    (∀ key value fields, expectTarget machine.context.spelling (some (.map key value)) (.record fields) =
-      .record (expectFields machine.context.spelling (some value) fields)) ∧
-    (∀ expected name value rest, expectFields machine.context.spelling expected (.named name value :: rest) =
-      .named name (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
-    (∀ expected key value rest, expectFields machine.context.spelling expected (.computed key value :: rest) =
-      .computed key (expectTarget machine.context.spelling expected value) :: expectFields machine.context.spelling expected rest) ∧
+      expectTarget machine.context.spelling machine.declarations (some (.result target)) (.call (.ident constructor) [.positional payload]) =
+        .call (.ident constructor) [.positional (expectTarget machine.context.spelling machine.declarations (some target) payload)]) ∧
+    (∀ key value fields, expectTarget machine.context.spelling machine.declarations (some (.map key value)) (.record fields) =
+      .record (expectFields machine.context.spelling machine.declarations (some value) fields)) ∧
+    (∀ expected name value rest, expectFields machine.context.spelling machine.declarations expected (.named name value :: rest) =
+      .named name (expectTarget machine.context.spelling machine.declarations expected value) :: expectFields machine.context.spelling machine.declarations expected rest) ∧
+    (∀ expected key value rest, expectFields machine.context.spelling machine.declarations expected (.computed key value :: rest) =
+      .computed key (expectTarget machine.context.spelling machine.declarations expected value) :: expectFields machine.context.spelling machine.declarations expected rest) ∧
     (∀ target error constructor payload, machine.context.spelling constructor = "Err" →
       machine.context.spelling constructor ≠ "Ok" →
-      expectTarget machine.context.spelling (some (.resultWith target error)) (.call (.ident constructor) [.positional payload]) =
-        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some error) payload)]) ∧
+      expectTarget machine.context.spelling machine.declarations (some (.resultWith target error)) (.call (.ident constructor) [.positional payload]) =
+        .call (.ident constructor) [.positional (expectTarget machine.context.spelling machine.declarations (some error) payload)]) ∧
     (∀ holder schema nominal (fields : List Xsh.Syntax.RecordField), schemaOf machine.declarations holder = some (schema, nominal) →
-      expectSchema machine.context.spelling machine.declarations (some (.named holder)) (.record fields) =
+      expectTarget machine.context.spelling machine.declarations (some (.named holder)) (.record fields) =
         .record (expectSchemaFields machine.context.spelling machine.declarations schema fields)) ∧
     (∀ schema label value rest,
       expectSchemaFields machine.context.spelling machine.declarations schema (.named label value :: rest) =
         let type := (schema.find? fun | .mk field _ _ => machine.context.spelling field = machine.context.spelling label).map
           fun | .mk _ type _ => type
-        .named label (expectTarget machine.context.spelling type (expectSchema machine.context.spelling machine.declarations type value)) ::
+        .named label (expectTarget machine.context.spelling machine.declarations type value) ::
           expectSchemaFields machine.context.spelling machine.declarations schema rest) ∧
     (∀ family name arguments, variantOf machine.context.spelling machine.declarations name = none →
       evalExpr machine (fuel + 1) frame (.dotVariant (some family) name arguments) =
         evalExpr machine fuel frame (.call (.field (.ident family) name) (arguments.getD []))) ∧
     (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
-      expectBody machine.context.spelling result (statement :: rest) =
-        expectReturn (expectTarget machine.context.spelling result) statement :: expectBody machine.context.spelling result rest) ∧
-    (∀ result value, expectReturn (expectTarget machine.context.spelling result) (.returnValue (some value)) =
-      .returnValue (some (expectTarget machine.context.spelling result value))) ∧
-    (∀ result branches otherwise, expectReturn (expectTarget machine.context.spelling result) (.ifStmt branches otherwise) =
-      .ifStmt (expectReturnBranches (expectTarget machine.context.spelling result) branches)
-        (otherwise.map (expectReturns (expectTarget machine.context.spelling result)))) ∧
-    (∀ result condition body rest, expectReturnBranches (expectTarget machine.context.spelling result) ((condition, body) :: rest) =
-      (condition, expectReturns (expectTarget machine.context.spelling result) body) :: expectReturnBranches (expectTarget machine.context.spelling result) rest) ∧
-    (∀ result condition body, expectReturn (expectTarget machine.context.spelling result) (.whileStmt condition body) =
-      .whileStmt condition (expectReturns (expectTarget machine.context.spelling result) body)) ∧
-    (∀ result target iterable body, expectReturn (expectTarget machine.context.spelling result) (.forStmt target iterable body) =
-      .forStmt target iterable (expectReturns (expectTarget machine.context.spelling result) body)) ∧
-    (∀ result body, expectReturn (expectTarget machine.context.spelling result) (.loopStmt body) =
-      .loopStmt (expectReturns (expectTarget machine.context.spelling result) body)) ∧
-    (∀ result subject arms, expectReturn (expectTarget machine.context.spelling result) (.matchStmt subject arms) =
-      .matchStmt subject (expectReturnArms (expectTarget machine.context.spelling result) arms)) ∧
-    (∀ result pattern guard body rest, expectReturnArms (expectTarget machine.context.spelling result) ((pattern, guard, body) :: rest) =
-      (pattern, guard, expectReturns (expectTarget machine.context.spelling result) body) :: expectReturnArms (expectTarget machine.context.spelling result) rest) ∧
+      expectBody machine.context.spelling machine.declarations result (statement :: rest) =
+        expectReturn (expectTarget machine.context.spelling machine.declarations result) statement :: expectBody machine.context.spelling machine.declarations result rest) ∧
+    (∀ result value, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.returnValue (some value)) =
+      .returnValue (some (expectTarget machine.context.spelling machine.declarations result value))) ∧
+    (∀ result branches otherwise, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.ifStmt branches otherwise) =
+      .ifStmt (expectReturnBranches (expectTarget machine.context.spelling machine.declarations result) branches)
+        (otherwise.map (expectReturns (expectTarget machine.context.spelling machine.declarations result)))) ∧
+    (∀ result condition body rest, expectReturnBranches (expectTarget machine.context.spelling machine.declarations result) ((condition, body) :: rest) =
+      (condition, expectReturns (expectTarget machine.context.spelling machine.declarations result) body) :: expectReturnBranches (expectTarget machine.context.spelling machine.declarations result) rest) ∧
+    (∀ result condition body, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.whileStmt condition body) =
+      .whileStmt condition (expectReturns (expectTarget machine.context.spelling machine.declarations result) body)) ∧
+    (∀ result target iterable body, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.forStmt target iterable body) =
+      .forStmt target iterable (expectReturns (expectTarget machine.context.spelling machine.declarations result) body)) ∧
+    (∀ result body, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.loopStmt body) =
+      .loopStmt (expectReturns (expectTarget machine.context.spelling machine.declarations result) body)) ∧
+    (∀ result subject arms, expectReturn (expectTarget machine.context.spelling machine.declarations result) (.matchStmt subject arms) =
+      .matchStmt subject (expectReturnArms (expectTarget machine.context.spelling machine.declarations result) arms)) ∧
+    (∀ result pattern guard body rest, expectReturnArms (expectTarget machine.context.spelling machine.declarations result) ((pattern, guard, body) :: rest) =
+      (pattern, guard, expectReturns (expectTarget machine.context.spelling machine.declarations result) body) :: expectReturnArms (expectTarget machine.context.spelling machine.declarations result) rest) ∧
     (∀ result target annotation initializer otherwise,
-      expectReturn (expectTarget machine.context.spelling result) (.guardStmt target annotation initializer otherwise) =
-        .guardStmt target annotation initializer (expectReturns (expectTarget machine.context.spelling result) otherwise)) ∧
-    (∀ result statement rest, expectReturns (expectTarget machine.context.spelling result) (statement :: rest) =
-      expectReturn (expectTarget machine.context.spelling result) statement :: expectReturns (expectTarget machine.context.spelling result) rest) ∧
+      expectReturn (expectTarget machine.context.spelling machine.declarations result) (.guardStmt target annotation initializer otherwise) =
+        .guardStmt target annotation initializer (expectReturns (expectTarget machine.context.spelling machine.declarations result) otherwise)) ∧
+    (∀ result statement rest, expectReturns (expectTarget machine.context.spelling machine.declarations result) (statement :: rest) =
+      expectReturn (expectTarget machine.context.spelling machine.declarations result) statement :: expectReturns (expectTarget machine.context.spelling machine.declarations result) rest) ∧
     (∀ name annotation default rest more,
-      expectDefaults machine.context.spelling (.mk name annotation (some default) rest :: more) =
-        .mk name annotation (some (expectTarget machine.context.spelling annotation default)) rest ::
-          expectDefaults machine.context.spelling more) ∧
+      expectDefaults machine.context.spelling machine.declarations (.mk name annotation (some default) rest :: more) =
+        .mk name annotation (some (expectTarget machine.context.spelling machine.declarations annotation default)) rest ::
+          expectDefaults machine.context.spelling machine.declarations more) ∧
     (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
         (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
           List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
         after cell callable defining captured writable parameters body supplied slots,
-      placeCall machine.context.spelling (expectDefaults machine.context.spelling parameters) supplied = .ok slots →
+      placeCall machine.context.spelling (expectDefaults machine.context.spelling machine.declarations parameters) supplied = .ok slots →
         invokeSupplied machine evaluate callBlock after (.mk cell callable defining captured writable parameters body)
             supplied =
           (bindSlots
@@ -163,11 +162,7 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
             callBlock last ⟨last.activation + machine.activationStep,
               (cell, .mk cell callable defining captured writable parameters body) :: captured ++ last.closures, none⟩
               defining bound
-              writable (bodyStatements body) (bodyKind body)) ∧
-    (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
-      expectSchemaBody machine.context.spelling machine.declarations result (statement :: rest) =
-        expectReturn (expectSchema machine.context.spelling machine.declarations result) statement ::
-          expectSchemaBody machine.context.spelling machine.declarations result rest) := by
+              writable (bodyStatements body) (bodyKind body)) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
     fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
@@ -177,7 +172,7 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     fun _ _ _ named => by simp [expectTarget, named], fun _ _ _ => by simp [expectTarget],
     fun _ _ _ _ => by simp [expectFields], fun _ _ _ _ => by simp [expectFields],
     fun _ _ _ _ isErr notOk => by simp [expectTarget, isErr, notOk],
-    fun _ _ _ _ found => by simp only [expectSchema, found], fun _ _ _ _ => by simp only [expectSchemaFields]; rfl,
+    fun _ _ _ _ found => by simp only [expectTarget, found], fun _ _ _ _ => by simp only [expectSchemaFields]; rfl,
     fun _ _ arguments absent => by cases arguments <;> simp [evalExpr, absent],
     fun result statement rest notTail => by
       cases rest with
@@ -185,11 +180,7 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
       | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _), fun _ _ => rfl,
     fun _ _ otherwise => by cases otherwise <;> rfl, fun _ _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ => rfl,
     fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ => rfl,
-    fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ _ _ _ _ _ _ placed => by simp only [invokeSupplied, placed],
-    fun result statement rest notTail => by
-      cases rest with
-      | cons _ _ => cases statement <;> rfl
-      | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _)⟩
+    fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ _ _ _ _ _ _ placed => by simp only [invokeSupplied, placed]⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -712,6 +703,37 @@ block gives its record the declared result's schema. -/
 theorem nested_schema_return_witness :
     fieldVariant (valueOf (slot 0) nestedSchemaRun) = some "Warn" ∧
     fieldVariant (valueOf (slot 1) nestedSchemaRun) = some "Warn" := by
+  decide +kernel
+
+def mapKey : Xsh.Syntax.RawName := name 413 (by decide)
+
+def okHolderMachine : Machine witnessWorld :=
+  { holderMachine with
+    context := { holderMachine.context with
+      spelling := fun named => if named = okName then "Ok" else holderMachine.context.spelling named } }
+
+/-- `let p: Holder = if true { { c: .Warn } } else { { c: .Info } }`,
+`let r: Result[Holder] = Ok({ c: .Warn })` and `let m: Map[Str, Holder] = {
+k: { c: .Warn } }`. -/
+def schemaPositionRun : Exec witnessWorld := runScript okHolderMachine 90 fullStart
+  [declareLevel, declareHolder,
+   annotated (slot 0) (.named holderName)
+     (.ifExpr [(yes, block (.record [.named cField (dot warnName)]))] (block (.record [.named cField (dot infoName)]))),
+   annotated (slot 1) (.result (.named holderName))
+     (.call (ident okName) [.positional (.record [.named cField (dot warnName)])]),
+   annotated (slot 2) (.map anyType (.named holderName)) (.record [.named mapKey (.record [.named cField (dot warnName)])])]
+
+/-- As the verification binary prints `true true true` for the same bindings
+over its own schema: a record schema reaches a value `if` branch, an `Ok`
+payload and a map value, as every expected type does. -/
+theorem schema_position_witness :
+    fieldVariant (valueOf (slot 0) schemaPositionRun) = some "Warn" ∧
+    (match valueOf (slot 1) schemaPositionRun with
+      | some (.ok inner) => fieldVariant (some inner)
+      | _ => none) = some "Warn" ∧
+    (match valueOf (slot 2) schemaPositionRun with
+      | some (.map [(_, inner)]) | some (.record [(_, inner)]) => fieldVariant (some inner)
+      | _ => none) = some "Warn" := by
   decide +kernel
 
 def badFamily : Xsh.Syntax.RawName := name 401 (by decide)
