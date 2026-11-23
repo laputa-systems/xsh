@@ -87,7 +87,7 @@ impl Evaluator {
         jobs: usize,
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        if let Some(profile) = &mut self.profile { profile.dropped = profile.dropped.saturating_add(1); }
+        self.profile_enter(crate::runtime::eval::SiteKind::Core, None, Some(span));
         let worker_count = jobs.min(items.len()).max(1);
         let item_count = items.len();
         let mut partitions: Vec<Vec<(usize, LoweredValue)>> =
@@ -104,6 +104,9 @@ impl Evaluator {
             .clone();
         let base_slots = slots.to_vec();
         let call_stack = self.call_stack.clone();
+        let profiling = self.profile.is_some();
+        let wait_start = profiling.then(std::time::Instant::now);
+        let mut worker_profiles = Vec::new();
         let tracing = self.trace_enabled;
         let trace_limit = self.trace_limit;
         let mut worker_traces: Vec<(Vec<TraceEvent>, u64)> = (0..worker_count).map(|_| (Vec::new(), 0)).collect();
@@ -130,6 +133,7 @@ impl Evaluator {
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
+                        let worker_start = std::time::Instant::now();
                         let allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
                         let (mut worker, mut worker_slots) = {
@@ -140,6 +144,7 @@ impl Evaluator {
                             // A traceback built in the callback names the
                             // functions that are running the stage.
                             worker.call_stack = call_stack;
+                            if profiling { worker.profile = Some(Box::default()); }
                             worker.trace_enabled = tracing;
                             worker.trace_limit = trace_limit;
                             (worker, base_slots)
@@ -214,6 +219,8 @@ impl Evaluator {
                             results,
                             std::mem::take(&mut worker.stderr),
                             (std::mem::take(&mut worker.trace_events), worker.trace_dropped_events),
+                            worker.profile.take(),
+                            crate::runtime::eval::profile::nanos(worker_start),
                         ));
                     })
                     .expect("failed to spawn lowered par-map worker");
@@ -231,7 +238,8 @@ impl Evaluator {
             let mut gave_up: Option<RuntimeError> = None;
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
-                    Ok((chunk_index, results, worker_stderr, events)) => {
+                    Ok((chunk_index, results, worker_stderr, events, profile, wall_ns)) => {
+                        worker_profiles.push((profile, wall_ns));
                         completed[chunk_index] = Some((results, worker_stderr));
                         worker_traces[chunk_index] = events;
                         remaining -= 1;
@@ -320,6 +328,14 @@ impl Evaluator {
             }
             Ok((results, stderr))
         });
+        self.profile_opaque("parallel-wait", span, wait_start, false);
+        if let Some(profile) = &mut self.profile {
+            if outcome.is_err() || abandoned.load(std::sync::atomic::Ordering::Relaxed) || worker_profiles.len() != worker_count { profile.dropped = profile.dropped.saturating_add(1); }
+            for (worker, wall_ns) in worker_profiles {
+                if let Some(worker) = worker { profile.merge_worker(*worker, span, wall_ns); } else { profile.dropped = profile.dropped.saturating_add(1); }
+            }
+        }
+        self.profile_exit();
         for (events, dropped) in worker_traces {
             self.adopt_worker_trace(events, dropped);
         }
@@ -425,6 +441,7 @@ impl Evaluator {
         jobs: usize,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        if let Some(profile) = &mut self.profile { profile.dropped = profile.dropped.saturating_add(1); }
         let worker_count = jobs.min(items.len()).max(1);
         let chunk_size = items.len().div_ceil(worker_count);
         let shared = self.lowered_shared_state();

@@ -378,6 +378,15 @@ Run `xsht profile --json profile.json --folded profile.folded script.xsh -- arg`
 to collect call attribution. The command prints sites ordered by exclusive time
 and preserves the script's output. `--json` writes a report in the
 `xsht-profile/1` format. `--folded` writes stack paths and exclusive nanoseconds.
+The report's `complete` field is false when attribution was dropped. Parallel
+worker wall times are overlapping regions; the parent records its wait as blocked.
+
+Run `xsht profile --compare base.json new.json --threshold 10` to compare sites.
+The default threshold is 10 percent. A matched site's exclusive time is marked
+regressed only when its increase exceeds both the threshold and ten times the
+larger calibration cost times the larger call count. Added and removed sites are
+listed. The command exits 1 for regressions and 0 otherwise; `--json PATH` also
+writes the comparison.
 
 A site identifies a function definition and call span, or a host call span.
 The report records calls, inclusive and exclusive wall nanoseconds, blocked

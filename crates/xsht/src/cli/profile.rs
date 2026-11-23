@@ -12,6 +12,7 @@ pub struct ProfileOptions {
     pub args: Vec<String>,
     pub json: Option<String>,
     pub folded: Option<String>,
+    pub compare: Option<(String, String, f64)>,
 }
 
 #[derive(deser::Serialize)]
@@ -25,7 +26,7 @@ struct Opaque { kind: String, span: Option<Location>, wall_ns: u64, count: u64, 
 #[derive(deser::Serialize)]
 struct Completeness { mode: &'static str, overhead_ns_per_hook: u64, dropped: u64, blocked_time_rule: &'static str, opaque_regions: Vec<Opaque> }
 #[derive(deser::Serialize)]
-struct Report { format: &'static str, completeness: Completeness, sites: Vec<Site>, edges: Vec<Edge> }
+struct Report { complete: bool, format: &'static str, completeness: Completeness, sites: Vec<Site>, edges: Vec<Edge> }
 
 fn location(sources: &SourceMap, span: Option<Span>) -> Option<Location> {
     let span = span?;
@@ -44,6 +45,7 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     fn failure(message: String) -> CliOutput {
         CliOutput { status: 2, stdout: Vec::new(), stderr: text_bytes(message), trace_text: String::new(), syscall_summary: None }
     }
+    if let Some((base, new, threshold)) = &options.compare { return compare_profiles(base, new, *threshold, options.json.as_deref()); }
     let bytes = match fs::read(&options.script) { Ok(bytes) => bytes, Err(error) => return failure(format!("xsht profile: failed to read '{}': {error}\n", options.script)) };
     let entry = entry_source_from_bytes(&options.script, bytes);
     let source_id = entry.source_id;
@@ -71,7 +73,7 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     }
     edges.sort_by_key(|edge| (edge.caller, edge.callee));
     let opaque_regions = profile.opaque.iter().map(|region| Opaque { kind: region.kind.to_string(), span: location(sources, region.span), wall_ns: region.wall_ns, count: region.count, overlapping: region.overlapping }).collect();
-    let report = Report { format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call wall time only; overlapping external lifetimes are opaque.", opaque_regions }, sites, edges };
+    let report = Report { complete: profile.dropped == 0, format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call and parallel wait wall time; overlapping lifetimes are opaque.", opaque_regions }, sites, edges };
     if let Some(path) = options.json {
         let json = deser_json::to_string(&report).expect("profile report encodes");
         if let Err(error) = fs::write(&path, format!("{json}\n")) { push_text(&mut stderr, &format!("xsht profile: failed to write '{path}': {error}\n")); return CliOutput { status: 4, stdout: output.stdout, stderr, trace_text: String::new(), syscall_summary: None }; }
@@ -91,7 +93,74 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     let mut stdout = output.stdout;
     let mut ranked: Vec<_> = report.sites.iter().collect();
     ranked.sort_by_key(|site| std::cmp::Reverse(site.exclusive_ns));
+    push_text(&mut stdout, &format!("profile: complete: {}\n", report.complete));
     push_text(&mut stdout, "profile: exclusive ns  calls  site\n");
     for site in ranked.iter().take(20) { push_text(&mut stdout, &format!("{:>20} {:>6}  {} {}:{}\n", site.exclusive_ns, site.calls, site.name, site.file, site.line)); }
     CliOutput { status, stdout, stderr, trace_text: String::new(), syscall_summary: None }
+}
+
+#[derive(deser::Deserialize)]
+struct CompareInput { format: String, completeness: CompareCompleteness, sites: Vec<CompareSite> }
+#[derive(deser::Deserialize)]
+struct CompareCompleteness { overhead_ns_per_hook: u64 }
+#[derive(deser::Deserialize)]
+struct CompareLocation { start: usize }
+#[derive(deser::Deserialize)]
+struct CompareSite { kind: String, name: String, file: String, definition_span: Option<CompareLocation>, calls: u64, inclusive_ns: u64, exclusive_ns: u64 }
+#[derive(Default)]
+struct Totals { calls: u64, inclusive_ns: u64, exclusive_ns: u64 }
+#[derive(deser::Serialize)]
+struct ComparisonRow { kind: String, name: String, file: String, definition_start: Option<usize>, status: String, exclusive_delta_ns: i128, inclusive_delta_ns: i128, calls_delta: i128, regressed: bool }
+#[derive(deser::Serialize)]
+struct Comparison { format: &'static str, threshold_pct: f64, sites: Vec<ComparisonRow> }
+
+fn compare_profiles(base: &str, new: &str, threshold: f64, json: Option<&str>) -> CliOutput {
+    fn read(path: &str) -> Result<CompareInput, String> {
+        let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        let report: CompareInput = deser_json::from_str(&text).map_err(|error| format!("{path}: {error}"))?;
+        if report.format != "xsht-profile/1" { return Err(format!("{path}: unsupported profile format")); }
+        Ok(report)
+    }
+    let result = (|| -> Result<(String, bool), String> {
+        let base = read(base)?;
+        let new = read(new)?;
+        let overhead = base.completeness.overhead_ns_per_hook.max(new.completeness.overhead_ns_per_hook);
+        let mut sites = std::collections::BTreeMap::new();
+        for (side, report) in [(0, base), (1, new)] {
+            for site in report.sites {
+                let key = (site.kind, site.name, site.file, site.definition_span.map(|span| span.start));
+                let pair: &mut [Option<Totals>; 2] = sites.entry(key).or_insert_with(|| [None, None]);
+                let totals = pair[side].get_or_insert_with(Totals::default);
+                totals.calls = totals.calls.saturating_add(site.calls);
+                totals.inclusive_ns = totals.inclusive_ns.saturating_add(site.inclusive_ns);
+                totals.exclusive_ns = totals.exclusive_ns.saturating_add(site.exclusive_ns);
+            }
+        }
+        let mut rows = Vec::new();
+        let mut text = String::from("profile comparison: exclusive ns  inclusive ns  calls  site\n");
+        let mut any = false;
+        for ((kind, name, file, definition_start), [before, after]) in sites {
+            let status = match (&before, &after) { (None, _) => "added", (_, None) => "removed", _ => "matched" };
+            let before = before.unwrap_or_default();
+            let after = after.unwrap_or_default();
+            let delta = i128::from(after.exclusive_ns) - i128::from(before.exclusive_ns);
+            let noise = u128::from(overhead).saturating_mul(10).saturating_mul(u128::from(before.calls.max(after.calls)));
+            let regressed = status == "matched" && delta > 0 && (delta as u128) > noise && (after.exclusive_ns as f64) > (before.exclusive_ns as f64) * (1.0 + threshold / 100.0);
+            any |= regressed;
+            let inclusive_delta_ns = i128::from(after.inclusive_ns) - i128::from(before.inclusive_ns);
+            let calls_delta = i128::from(after.calls) - i128::from(before.calls);
+            text.push_str(&format!("{delta:+} {inclusive_delta_ns:+} {calls_delta:+} {name} {file} {status}{}\n", if regressed { " REGRESSED" } else { "" }));
+            rows.push(ComparisonRow { kind, name, file, definition_start, status: status.into(), exclusive_delta_ns: delta, inclusive_delta_ns, calls_delta, regressed });
+        }
+        if let Some(path) = json {
+            let report = Comparison { format: "xsht-profile-comparison/1", threshold_pct: threshold, sites: rows };
+            let data = deser_json::to_string(&report).map_err(|error| error.to_string())?;
+            fs::write(path, format!("{data}\n")).map_err(|error| format!("{path}: {error}"))?;
+        }
+        Ok((text, any))
+    })();
+    match result {
+        Ok((text, any)) => CliOutput { status: u8::from(any), stdout: text_bytes(text), stderr: Vec::new(), trace_text: String::new(), syscall_summary: None },
+        Err(error) => CliOutput { status: 2, stdout: Vec::new(), stderr: text_bytes(format!("xsht profile: {error}\n")), trace_text: String::new(), syscall_summary: None },
+    }
 }

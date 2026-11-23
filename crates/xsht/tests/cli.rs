@@ -2045,6 +2045,7 @@ fn coverage_line_sets(file: &xsh::host::json::Value) -> (Vec<u64>, Vec<u64>) {
 #[derive(deser::Deserialize)]
 struct ProfileTestReport {
     format: String,
+    complete: bool,
     completeness: ProfileTestCompleteness,
     sites: Vec<ProfileTestSite>,
     edges: Vec<ProfileTestEdge>,
@@ -2059,7 +2060,7 @@ struct ProfileTestCompleteness {
 }
 
 #[derive(deser::Deserialize)]
-struct ProfileTestOpaque { kind: String, overlapping: bool, wall_ns: u64 }
+struct ProfileTestOpaque { kind: String, overlapping: bool, wall_ns: u64, count: u64 }
 
 #[derive(deser::Deserialize)]
 struct ProfileTestSite { name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
@@ -2077,6 +2078,7 @@ fn run_profile_fixture(name: &str) -> ProfileTestReport {
     assert!(!fs::read_to_string(folded).expect("folded stacks").is_empty());
     let report: ProfileTestReport = deser_json::from_str(&fs::read_to_string(json).expect("read profile")).expect("parse profile");
     assert_eq!(report.format, "xsht-profile/1");
+    assert!(report.complete);
     assert_eq!(report.completeness.dropped, 0);
     assert!(report.completeness.overhead_ns_per_hook > 0);
     assert!(report.completeness.blocked_time_rule.contains("overlapping"));
@@ -2133,4 +2135,54 @@ fn profile_synchronous_external_wait_is_blocked() {
     let (_, call) = profile_site(&report, "external_wait");
     assert!(call.blocked_ns * 100 >= call.inclusive_ns * 80);
     assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-command" && !region.overlapping && region.wall_ns > 0));
+}
+
+#[test]
+fn profile_parallel_rendezvous() {
+    let temp = cli_tempdir();
+    let json = temp.path().join("profile.json");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/runtime/par-map-rendezvous.xsh");
+    let output = Command::new(test_bin!("xsht")).args(["profile", "--json"]).arg(&json).arg(fixture).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let report: ProfileTestReport = deser_json::from_str(&fs::read_to_string(json).unwrap()).unwrap();
+    assert!(report.complete && report.completeness.dropped == 0);
+    let callback = report.sites.iter().position(|site| site.name == "fp" && site.calls == 2).unwrap_or_else(|| panic!("{:?}", report.sites.iter().map(|s| (&s.name, s.calls)).collect::<Vec<_>>()));
+    assert!(report.edges.iter().any(|edge| edge.callee == callback && edge.calls == 2));
+    assert!(report.completeness.opaque_regions.iter().any(|r| r.kind == "parallel-workers" && r.overlapping && r.count == 2 && r.wall_ns > 0));
+}
+
+#[test]
+fn profile_compare_regression_and_self() {
+    let temp = cli_tempdir();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile");
+    let script = temp.path().join("compare.xsh");
+    let base = temp.path().join("base.json");
+    let new = temp.path().join("new.json");
+    for (fixture, report) in [("compare-base.xsh", &base), ("compare-new.xsh", &new)] {
+        fs::copy(fixtures.join(fixture), &script).unwrap();
+        let output = Command::new(test_bin!("xsht")).args(["profile", "--json"]).arg(report).arg(&script).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let output = Command::new(test_bin!("xsht")).args(["profile", "--compare"]).arg(&base).arg(&new).args(["--threshold", "10"]).output().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(1), "{text} {}", String::from_utf8_lossy(&output.stderr));
+    let regressions: Vec<_> = text.lines().filter(|line| line.contains("REGRESSED")).collect();
+    assert_eq!(regressions.len(), 1, "{text}");
+    assert!(regressions[0].contains("changed"), "{text}");
+    let comparison = temp.path().join("comparison.json");
+    let output = Command::new(test_bin!("xsht")).args(["profile", "--compare"]).arg(&base).arg(&base).arg("--json").arg(&comparison).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("REGRESSED"));
+    assert!(fs::read_to_string(comparison).unwrap().contains("xsht-profile-comparison/1"));
+}
+
+#[test]
+fn profile_interrupted_is_incomplete() {
+    let temp = cli_tempdir();
+    let json = temp.path().join("profile.json");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile/interrupted.xsh");
+    let output = Command::new(test_bin!("xsht")).args(["profile", "--json"]).arg(&json).arg(fixture).output().unwrap();
+    assert!(!output.status.success());
+    let report: ProfileTestReport = deser_json::from_str(&fs::read_to_string(json).unwrap()).unwrap();
+    assert!(!report.complete && report.completeness.dropped > 0);
 }

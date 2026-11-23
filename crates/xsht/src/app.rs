@@ -581,10 +581,39 @@ fn parse_api_details(value: &str) -> Result<ApiDetails, String> {
 }
 
 fn parse_profile(args: &[String]) -> Result<Command, String> {
-    parse_command("profile", args, |parsed| {
+    let mut reordered = args.to_vec();
+    let mut scan = args.iter();
+    let mut comparing = false;
+    while let Some(arg) = scan.next() {
+        if arg == "--compare" { comparing = true; break; }
+        if !arg.starts_with('-') { break; }
+        if arg == "--json" || arg == "--folded" || arg == "--threshold" { scan.next(); }
+    }
+    if comparing {
+        let mut options = Vec::new();
+        let mut positional = Vec::new();
+        let mut iter = args.iter();
+        while let Some(arg) = iter.next() {
+            if arg == "--threshold" || arg == "--json" {
+                options.push(arg.clone());
+                options.push(iter.next().ok_or_else(|| format!("`{arg}` requires a value"))?.clone());
+            } else if arg.starts_with('-') { options.push(arg.clone()); } else { positional.push(arg.clone()); }
+        }
+        options.extend(positional);
+        reordered = options;
+    }
+    parse_command("profile", &reordered, |parsed| {
+        let json = parsed.value("--json").map(str::to_string);
+        if parsed.flag("--compare") {
+            if parsed.positionals.len() != 2 || parsed.value("--folded").is_some() { return Err("`xsht profile --compare` requires BASE.json NEW.json and does not accept --folded".into()); }
+            let threshold = parsed.value("--threshold").unwrap_or("10").parse::<f64>().map_err(|_| "`--threshold` must be a nonnegative percentage".to_string())?;
+            if !threshold.is_finite() || threshold < 0.0 { return Err("`--threshold` must be a nonnegative percentage".into()); }
+            return Ok(Command::Profile { options: ProfileOptions { script: String::new(), args: Vec::new(), json, folded: None, compare: Some((parsed.positionals[0].clone(), parsed.positionals[1].clone(), threshold)) } });
+        }
+        if parsed.value("--threshold").is_some() { return Err("`--threshold` requires `--compare`".into()); }
         let Some((script, args)) = parsed.positionals.split_first() else { return Err("`xsht profile` requires SCRIPT".to_string()); };
         let args = match args { [separator, rest @ ..] if separator == "--" => rest, all => all };
-        Ok(Command::Profile { options: ProfileOptions { script: script.clone(), args: args.to_vec(), json: parsed.value("--json").map(str::to_string), folded: parsed.value("--folded").map(str::to_string) } })
+        Ok(Command::Profile { options: ProfileOptions { script: script.clone(), args: args.to_vec(), json, folded: parsed.value("--folded").map(str::to_string), compare: None } })
     })
 }
 
