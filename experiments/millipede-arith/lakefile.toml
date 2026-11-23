@@ -1,0 +1,18 @@
+name = "millipede_arith"
+version = "0.1.0"
+defaultTargets = ["Arith", "Proof"]
+
+[[require]]
+name = "millipede"
+git = "https://github.com/laputa-systems/millipede"
+rev = "4f13d3980a5570177a774e63cfbc95e652dd3cde"
+
+[[require]]
+name = "xsh"
+path = "../../formal"
+
+[[lean_lib]]
+name = "Arith"
+
+[[lean_lib]]
+name = "Proof"
