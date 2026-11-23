@@ -515,7 +515,9 @@ Expressions:
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
-  methods (the `Bytes` digests aside) and the text
+  methods (the `Bytes` digests aside), the `Path` methods `bytes`,
+  `basename`, `dirname`, `ext_or`, `normalize` and `display` (on valid UTF-8
+  for a text result), and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
@@ -724,6 +726,12 @@ prints them), and the `bytes-strings` and `bytes-dump` runtime failures, `Bytes.
 data that is not all ASCII (whole UTF-8 encoded Unicode `White_Space`
 characters from each end, stopping at any other byte, an invalid one
 included, while all-ASCII data keeps a vertical tab),
+the `Path` methods `bytes`, `basename` and `dirname` (POSIX, through the
+`Paths.Fields` model), `ext_or(fallback)` (the bytes after the last dot that
+does not begin the final name), `normalize` (through the `Paths.Normalize`
+model: `..` cancels a name, stays at the front of a relative path and is
+dropped above the root) and `display`, a text result modelled only for
+valid UTF-8, which the binary decodes lossily,
 `wrap(width)` (each line's words packed greedily with single spaces into lines
 of at most `width` characters, a longer word cut, an empty last line after a
 final newline, and a width below one the runtime `text-wrap` failure, which

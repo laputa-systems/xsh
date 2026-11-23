@@ -48,6 +48,10 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
               | some method, some values =>
                 fromEval last (bytesMethod machine.context.errors method bytes (values.map Value.eraseNominal))
               | _, _ => .exec .unsupported
+            | .scalar (.path path), _, _ =>
+              match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
+              | some method, some values => fromEval last (pathMethod method path (values.map Value.eraseNominal))
+              | _, _ => .exec .unsupported
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (collectionMethod machine.context.errors method target values)
@@ -132,6 +136,9 @@ padding; `Bytes.strings` gives the printable ASCII runs at least four bytes
 long, `compare` the first difference's position, line and bytes, and `dump`
 the canonical hex dump; and `Bytes.trim` of data that is not all ASCII
 removes whole UTF-8 encoded Unicode `White_Space` characters;
+the `Path` methods read its native bytes: `bytes`, the POSIX `dirname` and
+`basename`, `ext_or`'s fallback when the final name has no extension, and
+the lexical `normalize`;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -174,6 +181,20 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
       bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .trim bytes [] =
         .value (.scalar (.bytes (dropWhitespaceEncodings whitespaceEncodingsReversed (bytes.length + 1)
           (dropWhitespaceEncodings whitespaceEncodings (bytes.length + 1) bytes).reverse).reverse))) ∧
+    (∀ path, pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .bytes path [] =
+      .value (.scalar (.bytes path.bytes))) ∧
+    (∀ path made, Xsh.Values.NativePath.fromBytes? (Xsh.Paths.Fields.posixDirname 47 path.bytes) = some made →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .dirname path [] =
+        .value (.scalar (.path made))) ∧
+    (∀ path made, Xsh.Values.NativePath.fromBytes? (Xsh.Paths.Normalize.normalizePath path.bytes) = some made →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .normalize path [] =
+        .value (.scalar (.path made))) ∧
+    (∀ path text, String.fromUTF8? ⟨(Xsh.Paths.Fields.posixBasename 47 path.bytes).toArray⟩ = some text →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .basename path [] =
+        .value (.scalar (.string text))) ∧
+    (∀ path fallback, Xsh.Paths.Fields.extension? 47 path.bytes = none →
+      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) .extOr path
+          [.scalar (.string fallback)] = .value (.scalar (.string fallback))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -191,6 +212,8 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
   refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl,
     fun _ _ _ found => by simp [bytesMethod, found], fun _ => rfl,
     fun _ unicode => by simp [bytesMethod, unicode],
+    fun _ => rfl, fun _ _ made => by simp [pathMethod, made], fun _ _ made => by simp [pathMethod, made],
+    fun _ _ decoded => by simp [pathMethod, decoded], fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -729,6 +752,55 @@ theorem unicode_bytes_trim_witness :
     bytesResult (bytesRun .trim [0xFF, 32, 0xC3, 0xA9, 32, 0xFF] []) = some [0xFF, 32, 0xC3, 0xA9, 32, 0xFF] ∧
     bytesResult (bytesRun .trim [32, 0xFF, 0xC2, 0xA0] []) = some [0xFF] ∧
     bytesResult (bytesRun .trim [0xC2, 0x85, 11, 120, 0xE2, 0x80, 0xA8] []) = some [120] := by
+  decide +kernel
+
+def pathRun (method : PathMethod) (text : String) (arguments : List (Value Unit Unit Unit)) :
+    Result Unit Unit Unit (Value Unit Unit Unit) :=
+  match Xsh.Values.NativePath.fromBytes? text.toUTF8.toList with
+  | some path => pathMethod method path arguments
+  | none => .unsupported
+
+def pathResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option String
+  | .value (.scalar (.path path)) => String.fromUTF8? ⟨path.bytes.toArray⟩
+  | _ => none
+
+/-- A path's `basename`, `dirname`, `ext_or("-")` and `normalize`. -/
+def pathFields (text : String) : Option (String × String × String × String) := do
+  let basename ← textResult (pathRun .basename text [])
+  let dirname ← pathResult (pathRun .dirname text [])
+  let extension ← textResult (pathRun .extOr text [strOf "-"])
+  let normalized ← pathResult (pathRun .normalize text [])
+  pure (basename, dirname, extension, normalized)
+
+/-- As the verification binary prints, for each path below, its `basename()`,
+`dirname().display()`, `ext_or("-")` and `normalize().display()`. -/
+theorem path_fields_witness :
+    ["", "/", "///", "a", "a/", "/a/b//", "a//b", "//a", ".", "..", "a/b/..", "/../a/./b/", "../../a/..", ".bashrc", "a.tar.gz", "x/.e", "d/f."].mapM pathFields = some [
+      ("", ".", "-", "."),
+      ("/", "/", "-", "/"),
+      ("/", "/", "-", "/"),
+      ("a", ".", "-", "a"),
+      ("a", ".", "-", "a"),
+      ("b", "/a", "-", "/a/b"),
+      ("b", "a", "-", "a/b"),
+      ("a", "/", "-", "/a"),
+      (".", ".", "-", "."),
+      ("..", ".", "", ".."),
+      ("..", "a/b", "", "a"),
+      ("b", "/../a/.", "-", "/a/b"),
+      ("..", "../../a", "", "../.."),
+      (".bashrc", ".", "-", ".bashrc"),
+      ("a.tar.gz", ".", "gz", "a.tar.gz"),
+      (".e", "x", "-", "x/.e"),
+      ("f.", "d", "", "d/f.")] := by
+  decide +kernel
+
+/-- `normalize` as the validation model's lexical `normalize`, which drops the
+root and lets `..` empty a relative path, would give `a/b` for `/a/b//` and
+`.` for `../../a/..`. -/
+theorem validation_normalize_rejected :
+    pathResult (pathRun .normalize "/a/b//" []) ≠ some "a/b" ∧
+    pathResult (pathRun .normalize "../../a/.." []) ≠ some "." := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

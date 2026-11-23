@@ -1,6 +1,8 @@
 import Xsh.Semantics.CoreEval
 import Xsh.Validation.Core.Require
 import Xsh.Values.BaseCodec
+import Xsh.Paths.Fields
+import Xsh.Paths.Normalize
 
 namespace Xsh.Semantics.CoreControl
 
@@ -2338,6 +2340,48 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
       ((Xsh.Values.BaseCodec.encode .base32 bytes).map fun byte => Char.ofNat byte.toNat))))
   | _, _ => .unsupported
 
+inductive PathMethod where
+  | bytes | basename | dirname | extOr | normalize | display
+
+def PathMethod.ofName : String → Option PathMethod
+  | "bytes" => some .bytes
+  | "basename" => some .basename
+  | "dirname" => some .dirname
+  | "ext_or" => some .extOr
+  | "normalize" => some .normalize
+  | "display" => some .display
+  | _ => none
+
+/-- The lexical `Path` methods (SPEC 4.4) on its native bytes: `bytes`; the
+POSIX `basename` and `dirname`; `ext_or(fallback)`, the bytes after the last
+dot that does not begin the final name, or the fallback; `normalize`, which
+drops `.` and empty components and lets `..` cancel a name, keeping it at
+the front of a relative path and dropping it above the root; and `display`.
+A text result is modelled only for valid UTF-8, which the binary would
+otherwise decode lossily. -/
+def pathMethod (method : PathMethod) (path : Xsh.Values.NativePath)
+    (arguments : List (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let pathValue := fun (bytes : List UInt8) =>
+    match Xsh.Values.NativePath.fromBytes? bytes with
+    | some made => Result.value (Value.scalar (.path made))
+    | none => .unsupported
+  let textOf := fun (bytes : List UInt8) =>
+    match String.fromUTF8? ⟨bytes.toArray⟩ with
+    | some text => Result.value (Value.scalar (.string text))
+    | none => .unsupported
+  match method, arguments with
+  | .bytes, [] => .value (.scalar (.bytes path.bytes))
+  | .basename, [] => textOf (Xsh.Paths.Fields.posixBasename 47 path.bytes)
+  | .dirname, [] => pathValue (Xsh.Paths.Fields.posixDirname 47 path.bytes)
+  | .extOr, [.scalar (.string fallback)] =>
+    match Xsh.Paths.Fields.extension? 47 path.bytes with
+    | some extension => textOf extension
+    | none => .value (.scalar (.string fallback))
+  | .normalize, [] => pathValue (Xsh.Paths.Normalize.normalizePath path.bytes)
+  | .display, [] => textOf path.bytes
+  | _, _ => .unsupported
+
 /-- A list, map, set or text method call: the receiver evaluates first, then
 each argument once in written order; a text method applies to a `Str`
 receiver and a collection method to a list, map or set. -/
@@ -2352,6 +2396,10 @@ receiver and a collection method to a list, map or set. -/
         match BytesMethod.ofName name, supplied.mapM Supplied.positionalValue with
         | some method, some values =>
           fromEval last (bytesMethod context.errors method bytes (values.map Value.eraseNominal))
+        | _, _ => .exec .unsupported
+      | .scalar (.path path), _, _ =>
+        match PathMethod.ofName name, supplied.mapM Supplied.positionalValue with
+        | some method, some values => fromEval last (pathMethod method path (values.map Value.eraseNominal))
         | _, _ => .exec .unsupported
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with
