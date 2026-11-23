@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 186
+Next: 188
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,23 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+### XSH-187 · P2 · A change to the HTTP client never runs the curl and wget command tests
+
+- **Area:** Verification gates
+- **Where:** `dev/gates.xsh:464` (`crates/xsh-net/` selects only the Runtime area); `core/tests/test-curl.xsh`, `core/tests/test-wget.xsh`
+- **Problem:** `cargo dev gate crates/xsh-net/src/lib.rs` selects the Rust runtime and net unit tests but not the native curl and wget tests, the only tests that drive downloads end to end. XSH-181 (`c127a1b7b`) passed its gate while breaking `curl -o /dev/null` and `wget -O /dev/null`; only the full Linux run showed it.
+- **Recommendation:** Select `core/tests/test-curl.xsh` and `core/tests/test-wget.xsh` for changes under `crates/xsh-net/`, within the unprivileged lane, and keep a gate-plan test for that mapping.
+- **Fix with:** single-source-of-truth
+- **Effort:** S
+
+### XSH-186 · P4 · The byte scanner's nested flag is never read
+
+- **Area:** Runtime lowering
+- **Where:** `src/runtime/eval.rs:2029` (`ScanBytes.nested`), `src/runtime/eval/lower/scalar.rs` (`scan_exact_body` always returns `false`), `src/runtime/eval/indexed/full/decode.rs:1153`, the formal-bridge program image
+- **Problem:** The fused `ScanBytes` runtime implements only the non-nesting comment scanner and never reads `nested`; the matcher now admits only exact non-nesting scanners and always sets it to `false`. The field is carried through lowering, decoding and the program image with no consumer.
+- **Recommendation:** Remove the field and its encoding. Add nesting only with a runtime that implements it and a native test that compares fused and unfused results.
+- **Effort:** S
+
 ### XSH-185 · P2 · par-map still loses writes made through calls and environment assignment
 
 - **Area:** Runtime parallelism
