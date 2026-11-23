@@ -515,12 +515,14 @@ Expressions:
 - equality of streams, modules, filesystem entries, commands, process
   statuses and process errors, and `in` on a `Path` whose bytes are not valid
   UTF-8 (P)
-- methods other than the numeric, list, map and set methods and the text
+- methods other than the numeric, list, map, set, record and `Bytes`
+  methods (the `Bytes` base encodings, digests, `dump`, `strings`, `compare`
+  and non-ASCII `trim` aside) and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split` without `maxsplit`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
   `translate`, `byte_at`, `byte_slice` and the integer parse methods;
-  `Map.push`; and value pipelines (P)
+  and value pipelines (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -693,6 +695,14 @@ the binary's printed results for those methods on a three-element list, a
 two-key map, a two-element set and `["a", "b"].join`, with literal values
 the witness table can spell; the mutant appends a new map key instead of
 placing it in key order, which the binary's `{"0":7,"a":1,"b":2}` rules out.
+The same root covers `Map.push` on a map of lists, a record's `keys` (sorted,
+as the binary prints `["a","b"]` for `{b: 1, a: 2}`) and `get`, and the
+`Bytes` methods `len`, `is_empty`, `byte_at`, `starts_with`, `ends_with`,
+`slice`, `chunks`, `lines`, `count_lines`, ASCII `lower`, `trim` on ASCII
+data and `utf8`, from the runtime's `src/runtime/eval/lowered_ops.rs` and
+`src/modules/bytes.rs`. `slice` and `chunks` fail with the runtime
+`bytes-slice` and `bytes-chunks` in the runtime's check order, and a `utf8`
+`Err` names the first invalid byte; the witnesses carry each message.
 
 The `text_methods` fragment root, in the same file, adds the `Str` methods
 whose meaning does not depend on Unicode case or whitespace tables:

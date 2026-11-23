@@ -192,7 +192,7 @@ def context : Context Unit Unit Unit where
     listGet := fun index => message s!"list index {index} is out of bounds"
     mapGet := fun _ => message "map has no key"
     textByteSlice := message
-    parseInteger := fun _ text => message text
+    described := fun _ text => message text
     bitset := message "integer-bitset"
     floatConversion := message "float-conversion"
     parseFloat := message "parse-float"

@@ -1588,6 +1588,16 @@ def mapMethod (errors : Errors Declaration Identity Source) :
     match mapKeyOf key with
     | some found => .value (.map (entries.filter fun entry => entry.1 != found))
     | none => .unsupported
+  | .push, entries, [key, value] =>
+    match mapKeyOf key with
+    | some found =>
+      match entries.lookup found with
+      | some held =>
+        match held.eraseNominal with
+        | .list items => .value (.map (upsert found (.list (items ++ [value])) entries))
+        | _ => .unsupported
+      | none => .value (.map (upsert found (.list [value]) entries))
+    | none => .unsupported
   | .get, entries, [key] =>
     match mapKeyOf key with
     | some found =>
@@ -1612,6 +1622,28 @@ def setMethod : CollectionMethod → List MapKey → List (Value Declaration Ide
   | .toList, keys, [] => .value (.list (keys.map keyValue))
   | _, _, _ => .unsupported
 
+def insertLabel (label : String) : List String → List String
+  | [] => [label]
+  | first :: rest => if label ≤ first then label :: first :: rest else first :: insertLabel label rest
+
+/-- Labels in ascending order. -/
+def sortLabels : List String → List String
+  | [] => []
+  | label :: rest => insertLabel label (sortLabels rest)
+
+/-- A record's `keys`, its labels in sorted order, and `get`, `Ok` of a
+field's value or the `missing-field` `Err` (SPEC 4.6). -/
+def recordMethod (errors : Errors Declaration Identity Source) :
+    CollectionMethod → List (String × Value Declaration Identity Source) → List (Value Declaration Identity Source) →
+      Result Declaration Identity Source (Value Declaration Identity Source)
+  | .keys, fields, [] =>
+    .value (.list ((sortLabels (fields.map Prod.fst)).map fun label => .scalar (.string label)))
+  | .get, fields, [.scalar (.string label)] =>
+    match fields.lookup label with
+    | some value => .value (.ok value)
+    | none => .value (.err (errors.described "missing-field" s!"missing field `{label}`"))
+  | _, _, _ => .unsupported
+
 def collectionMethod (errors : Errors Declaration Identity Source) (method : CollectionMethod)
     (receiver : Value Declaration Identity Source) (arguments : List (Value Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
@@ -1619,6 +1651,7 @@ def collectionMethod (errors : Errors Declaration Identity Source) (method : Col
   | .list items => listMethod errors method items (arguments.map Value.eraseNominal)
   | .map entries => mapMethod errors method entries (arguments.map Value.eraseNominal)
   | .set keys => setMethod method keys (arguments.map Value.eraseNominal)
+  | .record fields => recordMethod errors method fields (arguments.map Value.eraseNominal)
   | _ => .unsupported
 
 /-- A text method (SPEC 4.4). -/
@@ -1673,7 +1706,7 @@ def wordRuns (text : List Char) : List (List Char) :=
 empty pattern matches before each character and at the end. -/
 def replaceRun (pattern replacement : List Char) : Nat → List Char → List Char
   | 0, text => text
-  | fuel + 1, [] => if pattern.isEmpty then replacement else []
+  | _ + 1, [] => if pattern.isEmpty then replacement else []
   | fuel + 1, first :: rest =>
     if pattern.isEmpty then replacement ++ first :: replaceRun pattern replacement fuel rest
     else if pattern.isPrefixOf (first :: rest) then
@@ -1807,7 +1840,7 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
       match validateInt? value with
       | some valid => Result.value (Value.ok (.scalar (.integer valid)))
       | none => Result.unsupported
-    | .error message => Result.value (Value.err (errors.parseInteger kind message))
+    | .error message => Result.value (Value.err (errors.described kind message))
   let stringOf := fun (value : Value Declaration Identity Source) => match value.eraseNominal with
     | .scalar (.string found) => some found
     | _ => none
@@ -1933,6 +1966,107 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
     | _, _ => .unsupported
   | _, _ => .unsupported
 
+/-- A `Bytes` method (SPEC 4.4). -/
+inductive BytesMethod where
+  | len | isEmpty | byteAt | startsWith | endsWith | slice | chunks | lines | countLines | lower | trim | utf8
+
+def BytesMethod.ofName : String → Option BytesMethod
+  | "len" => some .len
+  | "is_empty" => some .isEmpty
+  | "byte_at" => some .byteAt
+  | "starts_with" => some .startsWith
+  | "ends_with" => some .endsWith
+  | "slice" => some .slice
+  | "chunks" => some .chunks
+  | "lines" => some .lines
+  | "count_lines" => some .countLines
+  | "lower" => some .lower
+  | "trim" => some .trim
+  | "utf8" => some .utf8
+  | _ => none
+
+def isAsciiWhitespaceByte (byte : UInt8) : Bool :=
+  byte == 32 || byte == 9 || byte == 10 || byte == 12 || byte == 13
+
+/-- The pieces of `bytes` between each `0x0A`, a `0x0D` before it removed and
+no empty piece after a final newline. -/
+def byteLines : Nat → List UInt8 → List (List UInt8)
+  | 0, _ => []
+  | _ + 1, [] => []
+  | fuel + 1, bytes =>
+    let line := bytes.takeWhile (· != 10)
+    let trimmed := if line.getLast? = some 13 then line.dropLast else line
+    match bytes.drop line.length with
+    | _ :: rest => trimmed :: byteLines fuel rest
+    | [] => [trimmed]
+
+/-- Fixed-size pieces of `bytes`, the last one shorter. -/
+def byteChunks (size : Nat) : Nat → List UInt8 → List (List UInt8)
+  | 0, _ => []
+  | _ + 1, [] => []
+  | fuel + 1, bytes => bytes.take size :: byteChunks size fuel (bytes.drop size)
+
+/-- The length of the longest prefix of `bytes` that is valid UTF-8. -/
+def validPrefix (bytes : List UInt8) : Nat :=
+  ((List.range (bytes.length + 1)).reverse.find? fun length =>
+    (String.fromUTF8? ⟨(bytes.take length).toArray⟩).isSome).getD 0
+
+/-- The `Bytes` methods (SPEC 4.4): `len`, `is_empty`, `byte_at`,
+`starts_with`, `ends_with`; `slice` and `chunks`, whose bad arguments are the
+runtime `bytes-slice` and `bytes-chunks` failures; `lines` and `count_lines`;
+ASCII `lower`; `trim` of ASCII whitespace from ASCII data; and `utf8`, `Ok` of
+the text or the `invalid-utf8` `Err` at the first invalid byte. -/
+def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMethod) (bytes : List UInt8)
+    (arguments : List (Value Declaration Identity Source)) :
+    Result Declaration Identity Source (Value Declaration Identity Source) :=
+  let bytesValue := fun (data : List UInt8) => (Value.scalar (.bytes data) : Value Declaration Identity Source)
+  let failed := fun (kind message : String) => Result.failure (.runtime (errors.described kind message))
+  match method, arguments with
+  | .len, [] => countedValue bytes.length
+  | .isEmpty, [] => .value (.scalar (.boolean bytes.isEmpty))
+  | .byteAt, [.scalar (.integer index)] =>
+    if 0 ≤ index.val then
+      match bytes[index.val.toNat]? with
+      | some byte => countedValue byte.toNat
+      | none => .value (.scalar .null)
+    else .value (.scalar .null)
+  | .startsWith, [.scalar (.bytes head)] => .value (.scalar (.boolean (head.isPrefixOf bytes)))
+  | .endsWith, [.scalar (.bytes tail)] => .value (.scalar (.boolean (tail.reverse.isPrefixOf bytes.reverse)))
+  | .slice, .scalar (.integer offset) :: span =>
+    let length := match span with
+      | [] => some none
+      | [.scalar (.integer count)] => some (some count.val)
+      | _ => none
+    match length with
+    | some count =>
+      if offset.val < 0 then failed "bytes-slice" "offset cannot be negative"
+      else if bytes.length < offset.val.toNat then failed "bytes-slice" "offset is past end of byte data"
+      else if count.any (· < 0) then failed "bytes-slice" "length cannot be negative"
+      else
+        let rest := bytes.drop offset.val.toNat
+        .value (bytesValue (match count with
+          | some taken => rest.take taken.toNat
+          | none => rest))
+    | none => .unsupported
+  | .chunks, [.scalar (.integer size)] =>
+    if size.val ≤ 0 then failed "bytes-chunks" "chunk size must be positive"
+    else .value (.list ((byteChunks size.val.toNat (bytes.length + 1) bytes).map bytesValue))
+  | .lines, [] => .value (.list ((byteLines (bytes.length + 1) bytes).map bytesValue))
+  | .countLines, [] =>
+    countedValue (if bytes.isEmpty then 0
+      else (bytes.filter (· == 10)).length + (if bytes.getLast? = some 10 then 0 else 1))
+  | .lower, [] => .value (bytesValue (bytes.map fun byte => if 65 ≤ byte ∧ byte ≤ 90 then byte + 32 else byte))
+  | .trim, [] =>
+    if bytes.all (· < 128) then
+      .value (bytesValue ((bytes.dropWhile isAsciiWhitespaceByte).reverse.dropWhile isAsciiWhitespaceByte).reverse)
+    else .unsupported
+  | .utf8, [] =>
+    match String.fromUTF8? ⟨bytes.toArray⟩ with
+    | some text => .value (.ok (.scalar (.string text)))
+    | none => .value (.err (errors.described "invalid-utf8"
+        s!"byte data is not valid UTF-8 at byte {validPrefix bytes}"))
+  | _, _ => .unsupported
+
 /-- A list, map, set or text method call: the receiver evaluates first, then
 each argument once in written order; a text method applies to a `Str`
 receiver and a collection method to a list, map or set. -/
@@ -1943,6 +2077,11 @@ receiver and a collection method to a list, map or set. -/
     (threadArguments context.spelling evaluate after arguments).bind fun supplied last =>
       match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
       | .scalar (.string text), some method, _ => fromEval last (textMethod context.errors method text supplied)
+      | .scalar (.bytes bytes), _, _ =>
+        match BytesMethod.ofName name, supplied.mapM Supplied.positionalValue with
+        | some method, some values =>
+          fromEval last (bytesMethod context.errors method bytes (values.map Value.eraseNominal))
+        | _, _ => .exec .unsupported
       | _, _, some method =>
         match supplied.mapM Supplied.positionalValue with
         | some values => fromEval last (collectionMethod context.errors method target values)
@@ -2560,11 +2699,11 @@ mutual
           | name =>
             if isNumericMethod name then numericCall machine.context (evalExpr machine fuel) frame receiver name arguments
             else
-              match CollectionMethod.ofName name, TextMethod.ofName name with
-              | none, none =>
+              match CollectionMethod.ofName name, TextMethod.ofName name, BytesMethod.ofName name with
+              | none, none, none =>
                 threadStep machine.context (evalExpr machine fuel)
                   (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
-              | _, _ => valueMethodCall machine.context (evalExpr machine fuel) frame receiver name arguments
+              | _, _, _ => valueMethodCall machine.context (evalExpr machine fuel) frame receiver name arguments
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
         | none, some closure@(.mk _ callable _ _ _ _ _) =>

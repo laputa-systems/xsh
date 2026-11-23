@@ -32,7 +32,8 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
       machine.context.spelling method ≠ "call" → machine.context.spelling method ≠ "collect" →
       isNumericMethod (machine.context.spelling method) = false →
       ((CollectionMethod.ofName (machine.context.spelling method)).isSome ∨
-        (TextMethod.ofName (machine.context.spelling method)).isSome) →
+        (TextMethod.ofName (machine.context.spelling method)).isSome ∨
+        (BytesMethod.ofName (machine.context.spelling method)).isSome) →
       evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
         valueMethodCall machine.context (evalExpr machine fuel) frame receiver (machine.context.spelling method)
           arguments) ∧
@@ -42,6 +43,11 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
           (threadArguments machine.context.spelling evaluate after arguments).bind fun supplied last =>
             match target.eraseNominal, TextMethod.ofName name, CollectionMethod.ofName name with
             | .scalar (.string text), some method, _ => fromEval last (textMethod machine.context.errors method text supplied)
+            | .scalar (.bytes bytes), _, _ =>
+              match BytesMethod.ofName name, supplied.mapM Supplied.positionalValue with
+              | some method, some values =>
+                fromEval last (bytesMethod machine.context.errors method bytes (values.map Value.eraseNominal))
+              | _, _ => .exec .unsupported
             | _, _, some method =>
               match supplied.mapM Supplied.positionalValue with
               | some values => fromEval last (collectionMethod machine.context.errors method target values)
@@ -513,6 +519,91 @@ theorem signed_magnitude_rejected :
     int64FromRadix 10 "-9223372036854775808".toList = some (-9223372036854775808) ∧
       parsed (textMethod collectionMachine.context.errors .parseInt "-9223372036854775808" []) =
         some (.err "invalid integer `-9223372036854775808`") := by
+  decide +kernel
+
+def bytesOf (text : String) : List UInt8 := text.toUTF8.toList
+
+def sampleBytes : List UInt8 := bytesOf "  AbC\r\nxy\n"
+
+def bytesRun (method : BytesMethod) (data : List UInt8) (arguments : List (Value Unit Unit Unit)) :
+    Result Unit Unit Unit (Value Unit Unit Unit) :=
+  bytesMethod collectionMachine.context.errors method data arguments
+
+def bytesResult : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List UInt8)
+  | .value (.scalar (.bytes data)) => some data
+  | _ => none
+
+def bytesList : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List (List UInt8))
+  | .value (.list items) => items.mapM fun
+    | .scalar (.bytes data) => some data
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints for `b"  AbC\r\nxy\n"`: `10 2 2 false
+true true`, `65 null`, `lower`, `trim`, `slice(2, length: 3)` and `slice(9)`
+as `"  abc\r\nxy\n"`, `"AbC\r\nxy"`, `"AbC"` and `"\n"`, three `chunks(4)`
+ending `"y\n"`, a first line `"  AbC"`, `utf8` of itself, `byte data is not
+valid UTF-8 at byte 2` for `b"ab\xffc"`, `0` and `1` lines for `b""` and
+`b"a"`, and the four `bytes-slice` and `bytes-chunks` failure messages. -/
+theorem bytes_witness :
+    countResult (bytesRun .len sampleBytes []) = some (some 10) ∧
+    countResult (bytesRun .countLines sampleBytes []) = some (some 2) ∧
+    (bytesList (bytesRun .lines sampleBytes [])).map List.length = some 2 ∧
+    boolResult (bytesRun .isEmpty sampleBytes []) = some false ∧
+    boolResult (bytesRun .startsWith sampleBytes [.scalar (.bytes (bytesOf "  A"))]) = some true ∧
+    boolResult (bytesRun .endsWith sampleBytes [.scalar (.bytes (bytesOf "\n"))]) = some true ∧
+    countResult (bytesRun .byteAt sampleBytes [intOf 2]) = some (some 65) ∧
+    countResult (bytesRun .byteAt sampleBytes [intOf 99]) = some none ∧
+    bytesResult (bytesRun .lower sampleBytes []) = some (bytesOf "  abc\r\nxy\n") ∧
+    bytesResult (bytesRun .trim sampleBytes []) = some (bytesOf "AbC\r\nxy") ∧
+    bytesResult (bytesRun .slice sampleBytes [intOf 2, intOf 3]) = some (bytesOf "AbC") ∧
+    bytesResult (bytesRun .slice sampleBytes [intOf 9]) = some (bytesOf "\n") ∧
+    (bytesList (bytesRun .chunks sampleBytes [intOf 4])).map List.length = some 3 ∧
+    (bytesList (bytesRun .chunks sampleBytes [intOf 4])).bind List.getLast? = some (bytesOf "y\n") ∧
+    (bytesList (bytesRun .lines sampleBytes [])).bind List.head? = some (bytesOf "  AbC") ∧
+    (match bytesRun .utf8 sampleBytes [] with
+      | .value (.ok (.scalar (.string text))) => some text
+      | _ => none) = some "  AbC\r\nxy\n" ∧
+    (match bytesRun .utf8 [97, 98, 255, 99] [] with
+      | .value (.err (.scalar (.string text))) => some text
+      | _ => none) = some "byte data is not valid UTF-8 at byte 2" ∧
+    countResult (bytesRun .countLines [] []) = some (some 0) ∧
+    countResult (bytesRun .countLines [97] []) = some (some 1) ∧
+    failureText (bytesRun .slice [97, 98] [intOf (-1)]) = some "offset cannot be negative" ∧
+    failureText (bytesRun .slice [97, 98] [intOf 3]) = some "offset is past end of byte data" ∧
+    failureText (bytesRun .slice [97, 98] [intOf 0, intOf (-1)]) = some "length cannot be negative" ∧
+    failureText (bytesRun .chunks [97, 98] [intOf 0]) = some "chunk size must be positive" := by
+  decide +kernel
+
+/-- As the verification binary prints `["a","b"]` for `{b: 1, a: 2}.keys()`,
+`ok` and `missing field \`z\`` for `get("a")` and `get("z")`, and
+`{"x":[1,2]}` and `{"x":[1],"y":[3]}` for pushing onto a map of lists. -/
+theorem record_and_push_witness :
+    keyTexts (some (match recordMethod collectionMachine.context.errors .keys [("b", intOf 1), ("a", intOf 2)] [] with
+      | .value value => value
+      | _ => .scalar .null)) = some ["a", "b"] ∧
+    intValue (some (match recordMethod collectionMachine.context.errors .get [("b", intOf 1), ("a", intOf 2)]
+        [strOf "a"] with
+      | .value value => value
+      | _ => .scalar .null)) = some 2 ∧
+    textValue (some (match recordMethod collectionMachine.context.errors .get [("b", intOf 1)] [strOf "z"] with
+      | .value value => value
+      | _ => .scalar .null)) = some "missing field `z`" ∧
+    (match mapMethod collectionMachine.context.errors .push [(.string "x", .list [intOf 1])] [strOf "x", intOf 2] with
+      | .value (.map [(.string "x", .list items)]) => intsOf (some (.list items))
+      | _ => none) = some [1, 2] ∧
+    (match mapMethod collectionMachine.context.errors .push [(.string "x", .list [intOf 1])] [strOf "y", intOf 7] with
+      | .value (.map entries) => some (entries.map fun entry => match entry.1 with
+          | .string key => key
+          | _ => "")
+      | _ => none) = some ["x", "y"] := by
+  decide +kernel
+
+/-- A `Bytes.slice` that checked the length before the end would report
+`length cannot be negative` for `b"ab".slice(3, length: -1)`; the runtime
+checks the offset first. -/
+theorem length_first_slice_rejected :
+    failureText (bytesRun .slice [97, 98] [intOf 3, intOf (-1)]) = some "offset is past end of byte data" := by
   decide +kernel
 
 /-- A `byte_len` that counted characters gives `11`; the binary and the model

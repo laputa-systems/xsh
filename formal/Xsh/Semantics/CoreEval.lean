@@ -46,8 +46,9 @@ structure Errors (Declaration Identity Source : Type) where
   mapGet : MapKey → Value Declaration Identity Source
   /-- The runtime `text-byte-slice` failure of `Str.byte_slice`, by message. -/
   textByteSlice : String → Value Declaration Identity Source
-  /-- The error an integer parse method's `Err` holds, by kind and message. -/
-  parseInteger : String → String → Value Declaration Identity Source
+  /-- An error by its kind and message, for the methods whose messages carry
+  their operands. -/
+  described : String → String → Value Declaration Identity Source
 
 /-- Whether a function returns a `Result`, which decides where its failures
 go (SPEC 8.3, 8.7). -/
