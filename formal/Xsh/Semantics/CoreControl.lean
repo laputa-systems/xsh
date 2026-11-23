@@ -1188,39 +1188,43 @@ mutual
   under `.require()?` it is the expected type itself. A leading-dot variant
   (SPEC 5.5) selects from the enum the expected type names, `T?` selecting
   from `T`. The expected type reaches each branch of a value `if` or `match`,
-  a value block's tail, and each element of an expected `List[T]`. -/
-  def expectTarget : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+  a value block's tail, each element of an expected `List[T]`, and the
+  payload of `Ok(...)` under an expected `Result[T]`. -/
+  def expectTarget (spelling : Xsh.Syntax.RawName → String) : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
     | some (.result target), .require value none => .require value (some target)
     | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
     | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
     | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
     | some target, .ifExpr branches otherwise =>
-      .ifExpr (expectBranches (some target) branches) (expectTarget (some target) otherwise)
-    | some target, .matchExpr subject arms => .matchExpr subject (expectArms (some target) arms)
-    | some target, .valueBlock body => .valueBlock (expectTail (some target) body)
-    | some (.list element), .list elements => .list (expectElements (some element) elements)
+      .ifExpr (expectBranches spelling (some target) branches) (expectTarget spelling (some target) otherwise)
+    | some target, .matchExpr subject arms => .matchExpr subject (expectArms spelling (some target) arms)
+    | some target, .valueBlock body => .valueBlock (expectTail spelling (some target) body)
+    | some (.list element), .list elements => .list (expectElements spelling (some element) elements)
+    | some (.result target), .call (.ident constructor) [.positional payload] =>
+      if spelling constructor = "Ok" then .call (.ident constructor) [.positional (expectTarget spelling (some target) payload)]
+      else .call (.ident constructor) [.positional payload]
     | _, initializer => initializer
 
-  def expectBranches (expected : Option Xsh.Syntax.TypeExpr) :
+  def expectBranches (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
       List (Xsh.Syntax.Expr × Xsh.Syntax.Expr) → List (Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
-    | (condition, value) :: rest => (condition, expectTarget expected value) :: expectBranches expected rest
+    | (condition, value) :: rest => (condition, expectTarget spelling expected value) :: expectBranches spelling expected rest
 
-  def expectArms (expected : Option Xsh.Syntax.TypeExpr) :
+  def expectArms (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) :
       List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr) →
         List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × Xsh.Syntax.Expr)
     | [] => []
-    | (pattern, guard, value) :: rest => (pattern, guard, expectTarget expected value) :: expectArms expected rest
+    | (pattern, guard, value) :: rest => (pattern, guard, expectTarget spelling expected value) :: expectArms spelling expected rest
 
-  def expectElements (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
+  def expectElements (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Expr → List Xsh.Syntax.Expr
     | [] => []
-    | value :: rest => expectTarget expected value :: expectElements expected rest
+    | value :: rest => expectTarget spelling expected value :: expectElements spelling expected rest
 
   /-- A value block's tail, its last statement when that is an expression. -/
-  def expectTail (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+  def expectTail (spelling : Xsh.Syntax.RawName → String) (expected : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
     | [] => []
-    | [.expression tail] => [.expression (expectTarget expected tail)]
-    | statement :: rest => statement :: expectTail expected rest
+    | [.expression tail] => [.expression (expectTarget spelling expected tail)]
+    | statement :: rest => statement :: expectTail spelling expected rest
 end
 
 /-- A call's arguments with each parameter's annotation as the expected type
@@ -1231,21 +1235,23 @@ def expectArguments (spelling : Xsh.Syntax.RawName → String) (parameters : Lis
     List Xsh.Syntax.Parameter → List Xsh.Syntax.CallArgument → List Xsh.Syntax.CallArgument
   | _, [] => []
   | .mk _ annotation _ false :: positions, .positional value :: rest =>
-    .positional (expectTarget annotation value) :: expectArguments spelling parameters positions rest
+    .positional (expectTarget spelling annotation value) :: expectArguments spelling parameters positions rest
   | _, .positional value :: rest => .positional value :: expectArguments spelling parameters [] rest
   | positions, .named label value :: rest =>
-    .named label (expectTarget ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
+    .named label (expectTarget spelling ((parameters.find? fun | .mk name _ _ _ => spelling name = spelling label).bind
         fun | .mk _ annotation _ _ => annotation) value) :: expectArguments spelling parameters positions rest
   | _, .splice value :: rest => .splice value :: expectArguments spelling parameters [] rest
   | positions, .namedSpread value :: rest => .namedSpread value :: expectArguments spelling parameters positions rest
 
 /-- A function body whose tail and top-level `return` operands take the
 declared result type as their expected type (SPEC 5.3). -/
-def expectBody (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+def expectBody (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+    List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
-  | [.expression tail] => [.expression (expectTarget result tail)]
-  | .returnValue (some value) :: rest => .returnValue (some (expectTarget result value)) :: expectBody result rest
-  | statement :: rest => statement :: expectBody result rest
+  | [.expression tail] => [.expression (expectTarget spelling result tail)]
+  | .returnValue (some value) :: rest =>
+    .returnValue (some (expectTarget spelling result value)) :: expectBody spelling result rest
+  | statement :: rest => statement :: expectBody spelling result rest
 
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
@@ -2484,7 +2490,7 @@ mutual
     | fuel + 1, frame, statement =>
       match statement with
       | .binding kind target annotation initializer =>
-        (runValue machine fuel frame (expectTarget annotation initializer)).toExec fun value next =>
+        (runValue machine fuel frame (expectTarget machine.context.spelling annotation initializer)).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         (runValue machine fuel frame value).toExec fun result next =>
@@ -2613,7 +2619,7 @@ mutual
               locals := hide [name] frame.locals
               closures := (cell, .mk cell callable environment frame.closures
                 (mutableCaptures frame (captureNames (parameterNames parameters) body)) parameters
-                (.block (expectBody result body) (returnKindOf machine result))) :: frame.closures }
+                (.block (expectBody machine.context.spelling result body) (returnKindOf machine result))) :: frame.closures }
         | _, _ => .stuck
       | .guardStmt target _ initializer otherwise =>
         (runValue machine fuel frame initializer).toExec fun subject next =>
@@ -2824,7 +2830,7 @@ def hoistStatement {world : World Declaration Identity Source} (machine : Machin
             match (extend environment [(name, binder, cell)]).cellOf captured with
             | .ok found => if mutable.contains found then some found else none
             | .error _ => none)
-          parameters (.block (expectBody result body) (returnKindOf machine result))) :: closures)
+          parameters (.block (expectBody machine.context.spelling result body) (returnKindOf machine result))) :: closures)
     | some _, none => none
     | none, _ => some (environment, mutable, closures)
   | environment, mutable, closures, .sugar _ expansion =>

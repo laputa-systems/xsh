@@ -24,7 +24,8 @@ declared result, through its tail and each top-level `return`, give that type,
 and so does a parameter's annotation to the argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
 parameter it names; an expected type reaches each branch of a value `if` or
-`match`, a value block's tail and each element of an expected `List[T]`; and
+`match`, a value block's tail, each element of an expected `List[T]` and the
+payload of `Ok(...)` under an expected `Result[T]`; and
 the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
@@ -33,9 +34,9 @@ spelling gives; a leading-dot name with no expected type is outside the model
 does not evaluate. -/
 theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
-    (∀ enum name arguments, expectTarget (some (.named enum)) (.dotVariant none name arguments) =
+    (∀ enum name arguments, expectTarget machine.context.spelling (some (.named enum)) (.dotVariant none name arguments) =
       .dotVariant (some enum) name arguments) ∧
-    (∀ enum name arguments, expectTarget (some (.optional (.named enum))) (.dotVariant none name arguments) =
+    (∀ enum name arguments, expectTarget machine.context.spelling (some (.optional (.named enum))) (.dotVariant none name arguments) =
       .dotVariant (some enum) name arguments) ∧
     (∀ name arguments, evalExpr machine (fuel + 1) frame (.dotVariant none name arguments) = .exec .unsupported) ∧
     (∀ enum name declared variant wire, variantOf machine.context.spelling machine.declarations name =
@@ -62,28 +63,32 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     (∀ parameters name annotation default positions value rest,
       expectArguments machine.context.spelling parameters (.mk name annotation default false :: positions)
           (.positional value :: rest) =
-        .positional (expectTarget annotation value) ::
+        .positional (expectTarget machine.context.spelling annotation value) ::
           expectArguments machine.context.spelling parameters positions rest) ∧
     (∀ parameters positions label value rest,
       expectArguments machine.context.spelling parameters positions (.named label value :: rest) =
-        .named label (expectTarget ((parameters.find? fun
+        .named label (expectTarget machine.context.spelling ((parameters.find? fun
             | .mk name _ _ _ => machine.context.spelling name = machine.context.spelling label).bind
           fun | .mk _ annotation _ _ => annotation) value) ::
           expectArguments machine.context.spelling parameters positions rest) ∧
-    (∀ target branches otherwise, expectTarget (some target) (.ifExpr branches otherwise) =
-      .ifExpr (expectBranches (some target) branches) (expectTarget (some target) otherwise)) ∧
-    (∀ target subject arms, expectTarget (some target) (.matchExpr subject arms) =
-      .matchExpr subject (expectArms (some target) arms)) ∧
-    (∀ target body, expectTarget (some target) (.valueBlock body) = .valueBlock (expectTail (some target) body)) ∧
-    (∀ element elements, expectTarget (some (.list element)) (.list elements) =
-      .list (expectElements (some element) elements)) ∧
-    (∀ expected tail, expectTail expected [.expression tail] = [.expression (expectTarget expected tail)]) := by
+    (∀ target branches otherwise, expectTarget machine.context.spelling (some target) (.ifExpr branches otherwise) =
+      .ifExpr (expectBranches machine.context.spelling (some target) branches) (expectTarget machine.context.spelling (some target) otherwise)) ∧
+    (∀ target subject arms, expectTarget machine.context.spelling (some target) (.matchExpr subject arms) =
+      .matchExpr subject (expectArms machine.context.spelling (some target) arms)) ∧
+    (∀ target body, expectTarget machine.context.spelling (some target) (.valueBlock body) = .valueBlock (expectTail machine.context.spelling (some target) body)) ∧
+    (∀ element elements, expectTarget machine.context.spelling (some (.list element)) (.list elements) =
+      .list (expectElements machine.context.spelling (some element) elements)) ∧
+    (∀ expected tail, expectTail machine.context.spelling expected [.expression tail] = [.expression (expectTarget machine.context.spelling expected tail)]) ∧
+    (∀ target constructor payload, machine.context.spelling constructor = "Ok" →
+      expectTarget machine.context.spelling (some (.result target)) (.call (.ident constructor) [.positional payload]) =
+        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some target) payload)]) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
     fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
     fun _ _ _ _ _ => rfl, fun target _ _ => by cases target <;> simp [expectTarget],
     fun target _ _ => by cases target <;> simp [expectTarget], fun target _ => by cases target <;> simp [expectTarget],
-    fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail]⟩
+    fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail],
+    fun _ _ _ named => by simp [expectTarget, named]⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -248,6 +253,25 @@ theorem branch_witness :
     variantShape (valueOf (slot 0) branchRun) = some ("Warn", []) ∧
     variantShape (valueOf (slot 1) branchRun) = some ("Ring", [1]) ∧
     variantNames (valueOf (slot 2) branchRun) = some ["Info", "Warn"] := by
+  decide +kernel
+
+def okName : Xsh.Syntax.RawName := name 315 (by decide)
+
+def okMachine : Machine witnessWorld :=
+  { shapeMachine with
+    context := { shapeProgram with
+      spelling := fun named => if named = okName then "Ok" else shapeProgram.spelling named } }
+
+/-- `proc ok() -> Result[Level] { Ok(.Warn) }` called, as the verification
+binary prints `true` for `Ok(.Blue) == Ok(Blue)` from such a function. -/
+theorem ok_payload_witness :
+    (match valueOf (slot 0) (runScript okMachine 90 fullStart
+        [declareLevel,
+         .functionDef .proc pickName [] none (some (.result (.named levelName)))
+           [.expression (.call (ident okName) [.positional (dot warnName)])] none false,
+         letOf (slot 0) (.call (ident pickName) [])]) with
+      | some (.ok (.tagged _ variant [])) => some variant
+      | _ => none) = some "Warn" := by
   decide +kernel
 
 /-- An expected type that stopped at the `if` would leave its branches'

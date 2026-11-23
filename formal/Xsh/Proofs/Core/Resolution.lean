@@ -172,7 +172,7 @@ theorem statement_resolves {world : World Declaration Identity Source} (machine 
     cases statement with
     | binding kind target annotation initializer =>
       simp only [runStatement] at ran
-      obtain ⟨value, middle, _, environment, _, bound⟩ := toExec_normal (scopes.value frame (expectTarget annotation initializer)) ran
+      obtain ⟨value, middle, _, environment, _, bound⟩ := toExec_normal (scopes.value frame (expectTarget machine.context.spelling annotation initializer)) ran
       exact bindTarget_resolves machine base types resolved middle next _ target value top outer
         (by rw [environment]; exact carried) bound
     | guardStmt target annotation initializer otherwise =>
