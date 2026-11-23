@@ -1,7 +1,7 @@
 use core.lib.monotonic
 
 pure at(ms: Int) -> monotonic.Reading {
-  monotonic.Reading(ms: ms)
+  monotonic.Reading(ms:)
 }
 
 test test_a_budget_expires_exactly_when_it_is_spent {

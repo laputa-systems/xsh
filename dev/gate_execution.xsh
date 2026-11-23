@@ -10,7 +10,7 @@ export error LimitError = Expired(remaining_ns: Int) | InvalidCaseTimeout(second
 ## Caps a declared case timeout by the remaining automatic runtime budget.
 export pure limit_ms(case_timeout_seconds: Int, remaining_ns: Int) -> Result[Int, Error] {
   return Err(LimitError.InvalidCaseTimeout(seconds: case_timeout_seconds)) when case_timeout_seconds <= 0
-  return Err(LimitError.Expired(remaining_ns: remaining_ns)) when remaining_ns < 1000000
+  return Err(LimitError.Expired(remaining_ns:)) when remaining_ns < 1000000
   let remaining_ms = remaining_ns / 1000000
   let case_ms = case_timeout_seconds * 1000
   if remaining_ms < case_ms { remaining_ms } else { case_ms }

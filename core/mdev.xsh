@@ -581,7 +581,7 @@ proc ensure_directory(directory: Path) [fs, error] -> Result[Unit] {
   let components = directory.components()
   let leaf = components[-1].require(RelPath)?
   let mode = 0o755.clear_bits(fs.umask()?).bit_or(inherited)
-  match root.mkdir(leaf, mode: mode) {
+  match root.mkdir(leaf, mode:) {
     Ok(_) => Ok(),
     Err(problem) => {
       return Err(problem) when problem.errno != 17

@@ -16,9 +16,9 @@ proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool
   assert output_stream in ["stdout", "stderr"]
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let words = if is_reference {
-    ul.reference_argv(s, util, args, vars: vars)?
+    ul.reference_argv(s, util, args, vars:)?
   } else {
-    uu.argv(s, util, args, vars: vars)?
+    uu.argv(s, util, args, vars:)?
   }
   let stdout = if output_stream == "stdout" { p"/dev/full" } else { uu.at(s, f".{util}-stdout") }
   let stderr = if output_stream == "stderr" { p"/dev/full" } else { uu.at(s, f".{util}-stderr") }
@@ -71,9 +71,9 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
 
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let command_words = if is_reference {
-    ul.reference_argv(s, util, args, vars: vars)?
+    ul.reference_argv(s, util, args, vars:)?
   } else {
-    uu.argv(s, util, args, vars: vars)?
+    uu.argv(s, util, args, vars:)?
   }
   let wrapper_words = [s.ctx.xsh_bin, wrapper, ready, release, Path.parse_bytes(bytes.from_text(pipe_action))?].extend(command_words)
   let plan = process.command_argv(

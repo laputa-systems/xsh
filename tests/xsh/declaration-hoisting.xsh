@@ -1,13 +1,13 @@
 type ScriptRun = { status: Int, output: Str, errors: Str }
 
 proc run_script(ctx: TestContext, name: Str, source: Str) [error, io, process] -> ScriptRun {
-  let root = test.temp_dir(ctx, name: name)?.resolve()?
+  let root = test.temp_dir(ctx, name:)?.resolve()?
   let script = fp"{root}/main.xsh"
   script.write(source)
   let stdout = fp"{root}/stdout.txt"
   let stderr = fp"{root}/stderr.txt"
   let xsh = ctx.xsh_bin
-  let command = process.command_argv(xsh, [xsh, script], cwd: root, stdout: stdout, stderr: stderr)
+  let command = process.command_argv(xsh, [xsh, script], cwd: root, stdout:, stderr:)
   let status = process.run(command)?
   ScriptRun(
     status: status.shell_code()?,

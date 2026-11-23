@@ -1703,7 +1703,7 @@ test test_bounded_gate_execution_preserves_finished_failed_and_cancelled_statuse
     }
     let output = fp"{root}/output-{raw}"
     let captured = {...spec, argv: ["sh", "-c", f"printf captured; exit {raw}"]}
-    match gate_execution.execute(captured, 1000, output: output)? {
+    match gate_execution.execute(captured, 1000, output:)? {
       gate_execution.Finished(status) => assert status.shell_code()? == raw
       gate_execution.TimedOut(_) | .CouldNotExecute(_) => test.fail("captured child lost its raw status")
     }
@@ -1830,7 +1830,7 @@ if args[0] == "test" {{
   let stderr = fp"{root}/stderr"
   fp"{root}/dev/performance/results.py".write(f"import pathlib,time\npathlib.Path({json.encode(ready.display())?}).write_text('ready')\ntime.sleep(30)\n")
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, fp"{repository}/dev/main.xsh", "--", "internal", "gate-lane", "--case", "test-route-witness-unit"],
-    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
+    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout:, stderr:, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists() {{
@@ -1949,7 +1949,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   let stderr = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout:, stderr:, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists() {
@@ -1996,7 +1996,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   let script = fp"{repository}/dev/main.xsh"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout:, stderr:, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists() {
@@ -2111,7 +2111,7 @@ proc main() [fs, process, env, time, error, io] {{
   gates.execute(fixtures.linux_context(p"{root}")?, ["--case", "showcase/tokei/correctness"])?
 }}
 main()?
-""", status: status, stdout: [f"raw_status={status}"], args: [], env: {{
+""", status:, stdout: [f"raw_status={status}"], args: [], env: {{
       PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:status-fixture",

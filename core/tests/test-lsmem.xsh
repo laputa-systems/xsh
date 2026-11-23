@@ -15,15 +15,15 @@ proc print_lsmem_bytes(label: Str, value: Bytes) [io] {
   while offset < encoded.byte_len() {
     let remaining = encoded.byte_len() - offset
     let length = if remaining > 100 { 100 } else { remaining }
-    let chunk = encoded.byte_slice(offset, length: length)
+    let chunk = encoded.byte_slice(offset, length:)
     print $chunk
     offset += length
   }
 }
 
 proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, io, error] -> Result[Unit, Error] {
-  let reference = ul.reference(s, "lsmem", args, timeout: 5s, vars: vars)?
-  let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars: vars)?
+  let reference = ul.reference(s, "lsmem", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars:)?
   assert reference.util == candidate.util
   assert reference.args == candidate.args
   assert reference.status == candidate.status, f"lsmem status differs: reference={reference.status} stderr_b64={reference.stderr.base64()} candidate={candidate.status} stderr_b64={candidate.stderr.base64()}"

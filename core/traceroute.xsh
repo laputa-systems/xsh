@@ -393,7 +393,7 @@ proc stamp_ns(clock: Clock) [process, net, time, error] -> Int {
 proc mark(clock: Clock) [process, net, time, error] -> Result[Mark] {
   let mono = monotonic.stamp()?
 
-  Ok(Mark(wall_ns: stamp_ns(clock), mono: mono))
+  Ok(Mark(wall_ns: stamp_ns(clock), mono:))
 }
 
 # The instant an answer arrived: the kernel stamp when there is one, else a
@@ -401,7 +401,7 @@ proc mark(clock: Clock) [process, net, time, error] -> Result[Mark] {
 proc arrived(clock: Clock, kernel_ns: Int) [process, net, time, error] -> Result[Mark] {
   let wall_ns = if kernel_ns != 0 { kernel_ns } else { stamp_ns(clock) }
 
-  Ok(Mark(wall_ns: wall_ns, mono: monotonic.stamp()?))
+  Ok(Mark(wall_ns:, mono: monotonic.stamp()?))
 }
 
 # The receive time of a message: its kernel stamp, or a fresh clock reading.

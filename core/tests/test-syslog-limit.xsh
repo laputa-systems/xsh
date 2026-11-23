@@ -3,7 +3,7 @@ use core.lib.syslog_limit as limit
 const TIGHT = limit.Config(sender_rate: 10, sender_burst: 5, global_rate: 1000, global_burst: 1000)
 
 proc plain(uid: Int, pid: Int) -> limit.Datagram {
-  limit.Datagram(sender: limit.Sender(uid: uid, pid: pid), oversize: false, control_truncated: false, rights: 0)
+  limit.Datagram(sender: limit.Sender(uid:, pid:), oversize: false, control_truncated: false, rights: 0)
 }
 
 proc dropped_total(l: limit.Limiter) -> Int {

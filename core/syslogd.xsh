@@ -230,7 +230,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
         limiter = admission.limiter
         continue unless admission.accepted
         sequence += 1
-        let line = render.render(render.Entry(sequence: sequence, source: "kmsg", kernel_sequence: record.sequence, kernel_microseconds: record.microseconds, boot_id: boot_id, boottime_ns: now, pid: null, uid: null, gid: null, message: kernel_message(record)))
+        let line = render.render(render.Entry(sequence:, source: "kmsg", kernel_sequence: record.sequence, kernel_microseconds: record.microseconds, boot_id:, boottime_ns: now, pid: null, uid: null, gid: null, message: kernel_message(record)))
         let written = write_line(line, last_report)?
         last_report = written.reported_at
         if written.blocked { limiter = limit.sink_dropped(limiter, .SinkBlocked, 1) } else if ! written.delivered { limiter = limit.sink_dropped(limiter, .SinkError, 1) }
@@ -257,7 +257,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
       limiter = admission.limiter
       continue unless admission.accepted
       sequence += 1
-      let line = render.render(render.Entry(sequence: sequence, source: "socket", kernel_sequence: null, kernel_microseconds: null, boot_id: boot_id, boottime_ns: now, pid: sender?.pid, uid: sender?.uid, gid: sender?.gid, message: parse.parse(datagram.data)))
+      let line = render.render(render.Entry(sequence:, source: "socket", kernel_sequence: null, kernel_microseconds: null, boot_id:, boottime_ns: now, pid: sender?.pid, uid: sender?.uid, gid: sender?.gid, message: parse.parse(datagram.data)))
       let written = write_line(line, last_report)?
       last_report = written.reported_at
       if written.blocked { limiter = limit.sink_dropped(limiter, .SinkBlocked, 1) } else if ! written.delivered { limiter = limit.sink_dropped(limiter, .SinkError, 1) }

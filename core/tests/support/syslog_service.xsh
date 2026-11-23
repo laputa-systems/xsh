@@ -10,7 +10,7 @@ export type Prepared = {command: Command, layout: Layout, ready: Int, inheritabl
 
 ## Creates the directories of a run. The socket directory is private and 0755.
 export proc layout(ctx: TestContext, name: Str) [fs, error] -> Result[Layout, Error] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   let dev = fp"{root}/dev"
   let state = fp"{root}/state"
   dev.mkdir()

@@ -157,7 +157,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
           let length = if ul_io.byte_locale() { 1 } else if flag >= 194 and flag < 224 { 2 } else if flag >= 224 and flag < 240 { 3 } else if flag >= 240 and flag < 245 { 4 } else { 1 }
           let available = raw_word.len() - position
-          let character = if length <= available and raw_word.slice(position, length: length).utf8() is Ok(_) { raw_word.slice(position, length: length) } else { raw_word.slice(position, length: 1) }
+          let character = if length <= available and raw_word.slice(position, length:).utf8() is Ok(_) { raw_word.slice(position, length:) } else { raw_word.slice(position, length: 1) }
           ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unrecognized option: "), character, bytes.from_text(f"\nTry '{gnu.phrase()} --help' for more information.\n")]))
           exit 1
         }

@@ -674,7 +674,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let rtt = monotonic.round_trip_ns(departed.wall_ns, wall_ns, departed.mono, arrival) / 1000
         let duplicate = echo.sequence in seen
         seen = seen.add(echo.sequence)
-        stats = {...stats, last: Instant(wall_ns: wall_ns, mono: arrival)}
+        stats = {...stats, last: Instant(wall_ns:, mono: arrival)}
         if duplicate {
           stats = {...stats, duplicates: stats.duplicates + 1}
         } else {

@@ -510,7 +510,7 @@ pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args
 # The feature build gets its own target directory so it cannot replace the
 # stub `xshi` product that other cases have already bound.
 pure asterinas_xshi_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args: List[Str], debug = false) -> Result[contract.CommandSpec, Error] {
-  rust_gate(ctx, profile, name, ["-p", "xshi", "--features", "laputa-asterinas", "--target-dir", asterinas_xshi_target_dir(ctx).display(), @args], debug: debug)
+  rust_gate(ctx, profile, name, ["-p", "xshi", "--features", "laputa-asterinas", "--target-dir", asterinas_xshi_target_dir(ctx).display(), @args], debug:)
 }
 
 ## The Cargo target directory the interactive xshi harnesses build into.
@@ -875,7 +875,7 @@ pure area_cases(ctx: context.Context, profile: tests.TestProfile, area: Area, re
   }
   if area == Docs {
     entries += [CatalogCase(id: "check-docs", tier: Change, limit: RuntimeSeconds(300),
-      products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons: reasons,
+      products: [tests.Xsh, tests.Xsht], prerequisite_ids: [], reasons:,
       execution: DocumentationCheck)]
   }
   entries
@@ -1151,7 +1151,7 @@ pure manual_cases(ctx: context.Context, profile: tests.TestProfile) -> Result[Li
   var index = 1
   for spec in rust |> drop(1) {
     let id = f"full/rust/{index}/{spec.stage}"
-    cases += [CatalogCase(id: id, tier: Change, limit: ManualOwner,
+    cases += [CatalogCase(id:, tier: Change, limit: ManualOwner,
       products: tests.all_products(), prerequisite_ids: [preparation_id],
       reasons: ["Full Rust owner"], execution: ManualCommand(spec))]
     root_ids += [id]
@@ -1168,8 +1168,8 @@ pure manual_cases(ctx: context.Context, profile: tests.TestProfile) -> Result[Li
       "batch-ratchets" => [tests.Xsh]
       else => [tests.Xsht]
     }
-    cases += [CatalogCase(id: id, tier: Change, limit: ManualOwner,
-      products: products, prerequisite_ids: [preparation_id],
+    cases += [CatalogCase(id:, tier: Change, limit: ManualOwner,
+      products:, prerequisite_ids: [preparation_id],
       reasons: ["Full repository check owner"], execution: ManualCommand(spec))]
     root_ids += [id]
   }
@@ -1530,10 +1530,10 @@ proc bind_laputa_source(ctx: context.Context, root: Str, case_id: Str) [fs, proc
   let output = fp"{scratch.host_path()?}/digest"
   let command = stages.command("laputa-source", ctx.target.triple, "python3",
     ["python3", "-B", "-m", "dev.performance.laputa_plan", "--owner", ctx.root.display(), "--observe", root], ctx.root, {})
-  match gate_execution.execute(command, 30000, output: output)? {
+  match gate_execution.execute(command, 30000, output:)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Cancelled(case_id:, raw_status: raw)) when raw == 130
       return Err(ExecutionError.SourceUnavailable(detail: f"Laputa source inspection exited {raw}")) when raw != 0
       let digest = output.read_text()?.trim()
       return Err(ExecutionError.SourceUnavailable(detail: "invalid Laputa source digest")) when digest.byte_len() != 64
@@ -1542,7 +1542,7 @@ proc bind_laputa_source(ctx: context.Context, root: Str, case_id: Str) [fs, proc
       }
       digest
     }
-    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
+    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id:, cause:))
     gate_execution.CouldNotExecute(cause) => Err(ExecutionError.SourceUnavailable(detail: cause.message))
   }
 }
@@ -1551,22 +1551,22 @@ proc gate_image(ctx: context.Context, case_id: Str) [fs, process, env, time, err
   let resolved = try { docker.resolve_image(ctx)? }
   match resolved {
     Ok(identity) => identity
-    Err(docker.ImageError.Cancelled {raw_status: raw}) => Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw))
+    Err(docker.ImageError.Cancelled {raw_status: raw}) => Err(ExecutionError.Cancelled(case_id:, raw_status: raw))
     Err(stages.StageError.Failed {detail: detail, ..}) => {
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: 130)) when detail == "exit 130" or detail == "signal 2"
-      Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0))
+      return Err(ExecutionError.Cancelled(case_id:, raw_status: 130)) when detail == "exit 130" or detail == "signal 2"
+      Err(ExecutionError.Incomplete(case_id:, raw_status: 0))
     }
-    Err(docker.ImageError.Unavailable {raw_status: raw}) => Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw))
-    Err(_) => Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0))
+    Err(docker.ImageError.Unavailable {raw_status: raw}) => Err(ExecutionError.Incomplete(case_id:, raw_status: raw))
+    Err(_) => Err(ExecutionError.Incomplete(case_id:, raw_status: 0))
   }
 }
 
 proc require_laputa_source(ctx: context.Context, root: Str, case_id: Str, expected: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  return Err(ExecutionError.SourceChanged(case_id: case_id)) when bind_laputa_source(ctx, root, case_id)? != expected
+  return Err(ExecutionError.SourceChanged(case_id:)) when bind_laputa_source(ctx, root, case_id)? != expected
 }
 
 proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, root: Str, source: Str, laputa_source: Str, image: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0)) when ctx.target.os != "linux"
+  return Err(ExecutionError.Incomplete(case_id:, raw_status: 0)) when ctx.target.os != "linux"
   let scratch = fp"{ctx.root}/.work/tmp"
   let command = stages.command(case_id, ctx.target.triple, "python3", [
     "python3", "-B", "-m", "dev.performance.laputa_plan", "--case", case_id, "--owner", ctx.root.display(), "--observe", root,
@@ -1579,9 +1579,9 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when workload_cancelled(raw)
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
-      return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
+      return Err(ExecutionError.Cancelled(case_id:, raw_status: raw)) when workload_cancelled(raw)
+      return Err(ExecutionError.Incomplete(case_id:, raw_status: raw)) when raw == 2
+      return Err(ExecutionError.Failed(case_id:, raw_status: raw)) when raw != 0
       let bindings = bind_products(ctx, profile, laputa_products(case_id), case_id, 30000000000)?
       require_source(ctx, source, case_id, 30000000000)
       require_laputa_source(ctx, root, case_id, laputa_source)
@@ -1589,14 +1589,14 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
         [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings],
         ctx.target.triple, tests.profile_name(profile), laputa: {root: root, source: laputa_source})
     }
-    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: case_id, cause: cause))
+    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id:, cause:))
     gate_execution.CouldNotExecute(cause) => Err(ExecutionError.SourceUnavailable(detail: cause.message))
   }
 }
 
 proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, source: Str,
     product: ProductObservation, image: Str, case_id: Str, case_name: Str) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: 0)) when ctx.target.os != "linux"
+  return Err(ExecutionError.Incomplete(case_id:, raw_status: 0)) when ctx.target.os != "linux"
   let xsh = tests.product_path(ctx, profile, tests.Xsh)
   let commit = cd (ctx.root) { run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --commit }?.trim()
   let tree = cd (ctx.root) { run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --tree }?.trim()
@@ -1616,12 +1616,12 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
   match gate_execution.execute(fixture_command, 30000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
-      return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
+      return Err(ExecutionError.Cancelled(case_id:, raw_status: raw)) when raw == 130
+      return Err(ExecutionError.Incomplete(case_id:, raw_status: raw)) when raw == 2
+      return Err(ExecutionError.Failed(case_id:, raw_status: raw)) when raw != 0
     }
-    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
+    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id:, cause:)) }
+    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id:, cause:)) }
   }
   let config = {
     schema: 1,
@@ -1642,9 +1642,9 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
   match gate_execution.execute(command, 330000)? {
     gate_execution.Finished(status) => {
       let raw = status.shell_code()?
-      return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when workload_cancelled(raw)
-      return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
-      return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
+      return Err(ExecutionError.Cancelled(case_id:, raw_status: raw)) when workload_cancelled(raw)
+      return Err(ExecutionError.Incomplete(case_id:, raw_status: raw)) when raw == 2
+      return Err(ExecutionError.Failed(case_id:, raw_status: raw)) when raw != 0
       let report = try {
         let decoded = json.decode(output.read_text()?)?
         let record = decoded.require(Record)?
@@ -1667,14 +1667,14 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       }
       match report {
         Ok(true) => {}
-        Ok(false) => { return Err(ExecutionError.ResultsUnavailable(case_id: case_id,
+        Ok(false) => { return Err(ExecutionError.ResultsUnavailable(case_id:,
           detail: f"focused report did not qualify {case_name} correctness")) }
-        Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: case_id,
+        Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id:,
           detail: cause.message)) }
       }
       require_source(ctx, source, case_id, 30000000000)
       let current = bind_product(ctx, xsh.display(), "xsh", case_id, 30000000000)?
-      return Err(ExecutionError.ProductChanged(case_id: case_id, product: "xsh")) when current != product
+      return Err(ExecutionError.ProductChanged(case_id:, product: "xsh")) when current != product
       let resource_report = try {
         let decoded = json.decode(output.read_text()?)?
         let record = decoded.require(Record)?
@@ -1692,8 +1692,8 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
         [evidence_product(ctx, xsh.display(), product.digest, product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
-    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
+    gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id:, cause:)) }
+    gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id:, cause:)) }
   }
 }
 
@@ -1806,8 +1806,8 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
         [evidence_product(ctx, xsh.display(), xsh_product.digest, xsh_product.mode),
           evidence_product(ctx, tokei_path, tokei_product.digest, tokei_product.mode)], ctx.target.triple, tests.profile_name(profile))
     }
-    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause: cause))
-    gate_execution.CouldNotExecute(cause) => Err(ExecutionError.ProcessFailed(case_id: tokei_scenario_case_id, cause: cause))
+    gate_execution.TimedOut(cause) => Err(ExecutionError.TimedOut(case_id: tokei_scenario_case_id, cause:))
+    gate_execution.CouldNotExecute(cause) => Err(ExecutionError.ProcessFailed(case_id: tokei_scenario_case_id, cause:))
   }
 }
 
@@ -1899,7 +1899,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     var forwarded = ["--source-digest", source ?? "", "--tier", tier_name(tier), @paths]
     for id in ids { forwarded += ["--case", id] }
     let confinement = lane_confinement(ids)
-    return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement: confinement)?)
+    return container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded, confinement:)?)
   }
   execute_plan(ctx, profile, plan, paths, source)
 }
@@ -1916,7 +1916,7 @@ export proc cancel_owned_work(ctx: context.Context, signal: Str, grace_ms: Int =
   let owned = [entry for entry in process.list()? if entry.parent_pid == me and entry.status != "Z"]
   for entry in owned {
     let group_id = entry.pgrp ?? process.group_id(entry.pid) ?? 0
-    let signalled = if group_id == entry.pid { process.kill_group(entry.pid, signal: signal) } else { process.kill(entry.pid, signal: signal) }
+    let signalled = if group_id == entry.pid { process.kill_group(entry.pid, signal:) } else { process.kill(entry.pid, signal:) }
     match signalled {
       Ok(_) => {}
       Err(cause) => print f"could not signal process {entry.pid}: {cause.message}" when (cause.errno ?? 0) != 3
@@ -2105,7 +2105,7 @@ type InputObservation = {output: Str, diagnostics: Str, status: Int}
 enum InputObserver { ProductObserver, SourceObserver }
 
 proc observe_input(ctx: context.Context, observer: InputObserver, arguments: List[Str], case_id: Str, available_ns: Int) [fs, process, env, time, error, io] -> Result[InputObservation, Error] {
-  return Err(ExecutionError.BudgetExpired(case_id: case_id)) when available_ns < 1000000
+  return Err(ExecutionError.BudgetExpired(case_id:)) when available_ns < 1000000
   stages.ensure_dir(fp"{ctx.root}/.work/tmp")
   let scratch = fs.tempdir_in(fp"{ctx.root}/.work/tmp")?
   let output = fp"{scratch.host_path()?}/output"
@@ -2120,20 +2120,20 @@ proc observe_input(ctx: context.Context, observer: InputObserver, arguments: Lis
   let status = match process.run(command) {
     Ok(value) => value
     Err(cause) => match cause {
-      ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id: case_id, cause: cause)) }
-      else => { return Err(ExecutionError.ProcessFailed(case_id: case_id, cause: cause)) }
+      ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id:, cause:)) }
+      else => { return Err(ExecutionError.ProcessFailed(case_id:, cause:)) }
     }
   }
   if ! status.exited() and ! status.signaled() {
     let message = if status.segments.is_empty() { "" } else { status.segments[0].error_message.require(Str?)? ?? "" }
     let detail = if message == "" { f"could not start {executable}" } else { message }
     match observer {
-      SourceObserver => { return Err(ExecutionError.SourceUnavailable(detail: detail)) }
-      ProductObserver => { return Err(ExecutionError.ProductUnavailable(product: arguments[0], detail: detail)) }
+      SourceObserver => { return Err(ExecutionError.SourceUnavailable(detail:)) }
+      ProductObserver => { return Err(ExecutionError.ProductUnavailable(product: arguments[0], detail:)) }
     }
   }
   let raw = status.shell_code()?
-  return Err(ExecutionError.Cancelled(case_id: case_id, raw_status: raw)) when raw == 130
+  return Err(ExecutionError.Cancelled(case_id:, raw_status: raw)) when raw == 130
   {output: output.read_text()?, diagnostics: diagnostics.read_text()?.trim(), status: raw}
 }
 
@@ -2141,20 +2141,20 @@ proc bind_product(ctx: context.Context, product_path: Str, product: Str, case_id
   let observed = observe_input(ctx, ProductObserver, [product_path], case_id, available_ns)?
   if observed.status != 0 {
     let detail = observed.diagnostics
-    return Err(ExecutionError.ProductUnavailable(product: product,
+    return Err(ExecutionError.ProductUnavailable(product:,
       detail: if detail == "" { f"inspection exited {observed.status}" } else { detail }))
   }
   let decoded = match json.decode(observed.output) {
     Ok(value) => value
-    Err(cause) => { return Err(ExecutionError.ProductUnavailable(product: product, detail: cause.message)) }
+    Err(cause) => { return Err(ExecutionError.ProductUnavailable(product:, detail: cause.message)) }
   }
   let observation = match decoded.require(ProductObservation) {
     Ok(value) => value
-    Err(cause) => { return Err(ExecutionError.ProductUnavailable(product: product, detail: cause.message)) }
+    Err(cause) => { return Err(ExecutionError.ProductUnavailable(product:, detail: cause.message)) }
   }
-  return Err(ExecutionError.ProductUnavailable(product: product, detail: "invalid digest")) when observation.digest.byte_len() != 64
+  return Err(ExecutionError.ProductUnavailable(product:, detail: "invalid digest")) when observation.digest.byte_len() != 64
   for digit in observation.digest.split("") {
-    return Err(ExecutionError.ProductUnavailable(product: product, detail: "invalid digest")) when digit not in "0123456789abcdef"
+    return Err(ExecutionError.ProductUnavailable(product:, detail: "invalid digest")) when digit not in "0123456789abcdef"
   }
   observation
 }
@@ -2164,7 +2164,7 @@ proc bind_products(ctx: context.Context, profile: tests.TestProfile, products: L
   let started = time.monotonic()?
   for product in products {
     let remaining = available_ns - (time.monotonic()? - started)
-    return Err(ExecutionError.BudgetExpired(case_id: case_id)) when remaining < 1000000
+    return Err(ExecutionError.BudgetExpired(case_id:)) when remaining < 1000000
     let product_path = tests.product_path(ctx, profile, product)
     let observation = bind_product(ctx, product_path.display(), product_name(product), case_id, remaining)?
     bindings += [{product: product, digest: observation.digest, mode: observation.mode}]
@@ -2176,7 +2176,7 @@ proc require_products(ctx: context.Context, profile: tests.TestProfile, bindings
   let current = bind_products(ctx, profile, [binding.product for binding in bindings], case_id, available_ns)?
   var index = 0
   while index < bindings.len() {
-    return Err(ExecutionError.ProductChanged(case_id: case_id, product: product_name(bindings[index].product))) when bindings[index] != current[index]
+    return Err(ExecutionError.ProductChanged(case_id:, product: product_name(bindings[index].product))) when bindings[index] != current[index]
     index += 1
   }
 }
@@ -2196,7 +2196,7 @@ proc bind_source(ctx: context.Context, case_id: Str, available_ns: Int) [fs, pro
 }
 
 proc require_source(ctx: context.Context, source: Str, case_id: Str, available_ns: Int) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  return Err(ExecutionError.SourceChanged(case_id: case_id)) when bind_source(ctx, case_id, available_ns)? != source
+  return Err(ExecutionError.SourceChanged(case_id:)) when bind_source(ctx, case_id, available_ns)? != source
 }
 
 ## A product a case ran against. Paths under the target directory are stored relative to it, because the
@@ -2326,7 +2326,7 @@ proc native_user(ctx: context.Context) [fs, process, env, error, io] -> Result[N
       scratch.display(), home.display(), temp.display()], ctx.root, {}))
   stages.execute(stages.command("native-user-config-root", ctx.target.triple, "setpriv",
     ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/touch", fp"{scratch}/xsht-config.ini".display()], ctx.root, {}))
-  NativeUser(uid: uid, gid: gid, home: home, temp: temp)
+  NativeUser(uid:, gid:, home:, temp:)
 }
 
 pure lane_excluded_tests() -> List[Str] {
@@ -2357,10 +2357,10 @@ proc lane_note(ctx: context.Context, file: Str) [fs, error] -> Result[LaneNote, 
   var scenarios: List[Str] = []
   scenarios += [root_native_case_id] when ! [id for id in excluded if id in gate_lane.root_tests].is_empty()
   scenarios += [namespace_native_case_id] when ! [id for id in excluded if id in gate_lane.namespace_tests].is_empty()
-  return LaneNote(keep: false, unresolved: [unprivileged_lane_gap(file)], scenarios: scenarios) when declared == excluded.len()
+  return LaneNote(keep: false, unresolved: [unprivileged_lane_gap(file)], scenarios:) when declared == excluded.len()
   let remaining = declared - excluded.len()
   let routes = if scenarios.is_empty() { "" } else { f"; {scenarios.join(" and ")} cover the ones that need root or namespaces" }
-  LaneNote(keep: true, unresolved: [f"{file}: {excluded.len()} of {declared} native tests are outside the unprivileged Linux lane, so the case runs only the other {remaining}{routes}"], scenarios: scenarios)
+  LaneNote(keep: true, unresolved: [f"{file}: {excluded.len()} of {declared} native tests are outside the unprivileged Linux lane, so the case runs only the other {remaining}{routes}"], scenarios:)
 }
 
 pure unprivileged_lane_gap(file: Str) -> Str {
@@ -2519,8 +2519,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
         let status = match process.run(discovery) {
           Ok(status) => status
           Err(cause) => match cause {
-            ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-            else => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
+            ProcessError.Timeout {..} => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause:)) }
+            else => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause:)) }
           }
         }
         let raw = status.shell_code()?
@@ -2592,8 +2592,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
             return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
             return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when ! status.ok
           }
-          gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-          gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
+          gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause:)) }
+          gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause:)) }
         }
         let current = bind_product(ctx, executable, executable, entry.id, available_ns - (time.monotonic()? - case_started))?
         return Err(ExecutionError.ProductChanged(case_id: entry.id, product: executable)) when current != harness_bindings.get(executable)?
@@ -2612,7 +2612,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
             return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
             return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when ! status.ok
           }
-          gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
+          gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause:)) }
           gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: entry.id, detail: cause.message)) }
         }
         selected_ids = match names_output.read_lines() {
@@ -2675,7 +2675,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
               gate_execution.TimedOut(cause) => {
                 return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when failed_child
                 return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when raw == 2
-                return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause))
+                return Err(ExecutionError.TimedOut(case_id: entry.id, cause:))
               }
               gate_execution.CouldNotExecute(cause) => {
                 return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when failed_child
@@ -2693,8 +2693,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
           require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))
           require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))
         }
-        gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
-        gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
+        gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause:)) }
+        gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause:)) }
       }
       let case_elapsed = time.monotonic()? - case_started
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when case_elapsed > available_ns
@@ -2708,7 +2708,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
           let observed = harness_bindings.get(executable)?
           bound += [evidence_product(ctx, executable, observed.digest, observed.mode)]
         }
-        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, ctx.target.triple, tests.profile_name(profile), outside_lane: outside_lane)
+        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, ctx.target.triple, tests.profile_name(profile), outside_lane:)
       }
       Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }

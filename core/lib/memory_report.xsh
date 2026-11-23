@@ -330,7 +330,7 @@ proc optional_text(root: FsRoot, attr_path: RelPath) [fs, error] -> Str? {
   if let Ok(raw) = read_attribute(root, attr_path) {
     var length = raw.len()
     for at in range(length) { if raw.byte_at(at) == 0 { length = at; break } }
-    let data = raw.slice(0, length: length)
+    let data = raw.slice(0, length:)
     if let Ok(text) = data.utf8() { return without_final_newline(text) }
     var ascii_length = 0
     while ascii_length < data.len() and (data.byte_at(ascii_length) ?? 0) < 128 { ascii_length += 1 }

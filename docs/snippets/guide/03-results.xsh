@@ -2,9 +2,9 @@ error LookupError = Missing(key: Str) | Malformed(text: Str)
 
 pure port_of(settings: Map[Str], key: Str) -> Result[Int, LookupError] {
   let text = settings.get(key) ?? ""
-  return Err(.Missing(key: key)) when text == ""
+  return Err(.Missing(key:)) when text == ""
 
-  text.parse_int() ?? Err(LookupError.Malformed(text: text))?
+  text.parse_int() ?? Err(LookupError.Malformed(text:))?
 }
 
 let settings: Map[Str] = {http: "8080", admin: "eighty"}

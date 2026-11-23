@@ -38,8 +38,8 @@ type BytePathReady = {
 }
 
 proc compared(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let reference = ul.reference(s, "lslocks", args, timeout: 5s, vars: vars)?
-  let candidate = uu.invoke(s, "lslocks", args, vars: vars, timeout: 5s)?
+  let reference = ul.reference(s, "lslocks", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke(s, "lslocks", args, vars:, timeout: 5s)?
   ul.compare(reference, candidate)
   Ok(candidate)
 }
@@ -50,8 +50,8 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
 }
 
 proc compared_with_stdout_dump(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let reference = ul.reference(s, "lslocks", args, timeout: 5s, vars: vars)?
-  let candidate = uu.invoke(s, "lslocks", args, vars: vars, timeout: 5s)?
+  let reference = ul.reference(s, "lslocks", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke(s, "lslocks", args, vars:, timeout: 5s)?
   let environment = json.encode(vars)?
   let invocation = args.join(" ") + " env=" + environment
   if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {

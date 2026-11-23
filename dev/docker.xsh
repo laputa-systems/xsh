@@ -353,11 +353,11 @@ proc internal_command(
     stress_repeat,
     extra,
     git_common_dir: common_git,
-    shared_lease_dir: shared_lease_dir,
+    shared_lease_dir:,
     host_link_tools: available_link_tools,
-    confinement: confinement,
-    cidfile: cidfile,
-    build_only: build_only,
+    confinement:,
+    cidfile:,
+    build_only:,
   )?
   stages.command(
       f"docker-{operation}",
@@ -378,7 +378,7 @@ export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool,
     defer control.close()
     let directory = control.host_path()?
     let cidfile = fp"{directory}/container.cid"
-    let spec = internal_command(ctx, operation, privileged, extra, cidfile: cidfile)?
+    let spec = internal_command(ctx, operation, privileged, extra, cidfile:)?
     let wrapper = fp"{ctx.root}/dev/tests/split-docker.sh".display()
     return stages.execute({...spec, executable: wrapper,
       argv: [wrapper, cidfile.display(), directory.display(), @spec.argv]})
@@ -445,7 +445,7 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_ti
   while attempt < 8 {
     let inspection = ask_docker(ctx, ["container", "inspect", "--format", "{{.Id}}", id], query_timeout_ms)?
     return when ! inspection.ok and "No such container" in inspection.stderr
-    return Err(ContainerError.Unverified(id: id, detail: inspection.stderr)) when ! inspection.ok
+    return Err(ContainerError.Unverified(id:, detail: inspection.stderr)) when ! inspection.ok
     if attempt == 0 {
       let removal = ask_docker(ctx, ["rm", "-f", id], query_timeout_ms)?
       print f"[docker-container-remove target={ctx.target.triple}] docker rm -f {id}"
@@ -454,7 +454,7 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_ti
     time.sleep(250 * 1ms)
     attempt += 1
   }
-  Err(ContainerError.Survived(id: id))
+  Err(ContainerError.Survived(id:))
 }
 
 proc remove_registry(ctx: context.Context, registry: Path) [fs, process, error, io, time] -> Result[Unit, Error] {
@@ -526,7 +526,7 @@ export proc run_internal_status(ctx: context.Context, operation: Str, privileged
   for build_only in steps {
     let registry = owned_container_dir(ctx)?
     let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
-    let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile, build_only: build_only, pinned_image: image)?
+    let spec = internal_command(ctx, operation, privileged, extra, confinement:, cidfile:, build_only:, pinned_image: image)?
     registry.mkdir(parents: true)
     print f"[{spec.stage}{if build_only { "-build" } else { "" }} target={spec.target}] {spec.argv.join(" ")}"
     let is_split = operation in ["test-linux-split", "test-linux-ci-split"]

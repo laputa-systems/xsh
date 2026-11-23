@@ -199,7 +199,7 @@ spawn_process_group ?pid=1001
 type ReplayRun = {success: Bool, stdout: Str, stderr: Str}
 
 proc run_replay(ctx: TestContext, name: Str, replay: Str, script: Str) [fs, process, error] -> Result[ReplayRun] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   let file = fp"{root}/replay.txt"
   file.write(replay)
   test.unix_fake(ctx, {replay: file})

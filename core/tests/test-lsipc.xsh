@@ -84,7 +84,7 @@ proc start_keeper(s: uu.Scene, kinds: List[Str]) [fs, process, env, net, time, e
     args = args.extend(["--resource", kind])
   }
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/keeper.py"
-  let handle = ul.start_keeper(s, script: script, args: args)?
+  let handle = ul.start_keeper(s, script:, args:)?
   let ready = json.decode(handle.ready)?.require(KeeperReady)?
   assert ready.owner_uid == 10001 and ready.observer_uid == 10002
   var expected_count = 0
@@ -305,11 +305,11 @@ proc run_both(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[
 
 proc run_both_with_vars(s: uu.Scene, args: List[Str], vars: Record) [fs, process, env, error] -> Result[LsipcPair, Error] {
   requires.host_path(p"/usr/bin/lsipc", "util-linux lsipc reference executable is unavailable")
-  let reference = match ul.reference(s, "lsipc", args, timeout: 5s, vars: vars) {
+  let reference = match ul.reference(s, "lsipc", args, timeout: 5s, vars:) {
     Ok(result) => result,
     Err(failure) => { return Err(error.failure(f"lsipc reference argv {args.join(" ")}: {failure.message}"), cause: failure) }
   }
-  let candidate = uu.invoke(s, "lsipc", args, vars: vars, timeout: 5s)?
+  let candidate = uu.invoke(s, "lsipc", args, vars:, timeout: 5s)?
   Ok({reference: reference, candidate: candidate})
 }
 
@@ -1575,8 +1575,8 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
   ul.compare(live.reference, live.candidate)
   let terminal_args = [p"-s", p"-i", fp"{id}"]
   let vars = {LC_ALL: "C", TZ: "UTC"}
-  let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars: vars)?
-  let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 120, vars: vars)?
+  let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars:)?
+  let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 120, vars:)?
   assert ul.observed_equal(reference, candidate)
 }
 
@@ -1741,8 +1741,8 @@ test test_lsipc_regression_terminal_width { |ctx|
   for args in [[p"-m", p"-o", p"COMMAND,COMMAND"], [p"-m", p"--noheadings"], [p"-m", p"--noheadings", p"--notruncate"]] {
     for columns in [40, 80, 270, 400] {
       let vars = {LC_ALL: "C", TZ: "UTC", COLUMNS: "200"}
-      let reference = contexts.terminal_reference(s, "lsipc", args, columns: columns, vars: vars)?
-      let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
+      let reference = contexts.terminal_reference(s, "lsipc", args, columns:, vars:)?
+      let candidate = contexts.terminal_candidate(s, "lsipc", args, columns:, vars:)?
       assert ul.observed_equal(reference, candidate), f"args={[a.display() for a in args].join(" ")} cols={columns} ref={reference.stdout.utf8() ?? ""} candidate={candidate.stdout.utf8() ?? ""}"
     }
   }
@@ -1771,8 +1771,8 @@ test test_lsipc_regression_missing_id_with_other_resource { |ctx|
   ul.compare(pair.reference, pair.candidate)
   let args = [p"-q", p"-i", p"2147483647", p"-M"]
   let vars = {LC_ALL: "C", TZ: "UTC"}
-  let reference = contexts.terminal_reference(s, "lsipc", args, columns: 120, vars: vars)?
-  let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: 120, vars: vars)?
+  let reference = contexts.terminal_reference(s, "lsipc", args, columns: 120, vars:)?
+  let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: 120, vars:)?
   assert ul.observed_equal(reference, candidate)
   let words = uu.argv(s, "lsipc", args, vars)?
   let ref_words = ul.reference_argv(s, "lsipc", args, vars)?
@@ -1843,8 +1843,8 @@ test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
   let args = [p"-m", p"-o", p"ID,COMMAND"]
   for columns in [40, 80] {
     let vars = {LC_ALL: "C", TZ: "UTC", COLUMNS: "200"}
-    let reference = contexts.terminal_reference(s, "lsipc", args, columns: columns, vars: vars)?
-    let candidate = contexts.terminal_candidate(s, "lsipc", args, columns: columns, vars: vars)?
+    let reference = contexts.terminal_reference(s, "lsipc", args, columns:, vars:)?
+    let candidate = contexts.terminal_candidate(s, "lsipc", args, columns:, vars:)?
     assert ul.observed_equal(reference, candidate)
   }
 }
