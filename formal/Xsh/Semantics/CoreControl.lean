@@ -2140,7 +2140,7 @@ def textMethod (errors : Errors Declaration Identity Source) (method : TextMetho
 /-- A `Bytes` method (SPEC 4.4). -/
 inductive BytesMethod where
   | len | isEmpty | byteAt | startsWith | endsWith | slice | chunks | lines | countLines | lower | trim | utf8
-  | base64 | base32
+  | base64 | base32 | strings | compare | dump
 
 def BytesMethod.ofName : String → Option BytesMethod
   | "len" => some .len
@@ -2157,6 +2157,9 @@ def BytesMethod.ofName : String → Option BytesMethod
   | "utf8" => some .utf8
   | "base64" => some .base64
   | "base32" => some .base32
+  | "strings" => some .strings
+  | "compare" => some .compare
+  | "dump" => some .dump
   | _ => none
 
 
@@ -2178,6 +2181,63 @@ def byteChunks (size : Nat) : Nat → List UInt8 → List (List UInt8)
   | _ + 1, [] => []
   | fuel + 1, bytes => bytes.take size :: byteChunks size fuel (bytes.drop size)
 
+/-- A printable ASCII byte: a graphic character or a space. -/
+def isPrintableByte (byte : UInt8) : Bool := 32 ≤ byte && byte ≤ 126
+
+/-- The runs of printable bytes at least `least` long, in order (`strings`). -/
+def printableRuns (least : Nat) (bytes : List UInt8) : List (List UInt8) :=
+  (bytes.splitBy fun first second => isPrintableByte first == isPrintableByte second).filter fun run =>
+    match run with
+    | first :: _ => isPrintableByte first && least ≤ run.length
+    | [] => false
+
+/-- `value` in `radix` digits, zero-padded on the left to `width`. -/
+def paddedDigits (radix width value : Nat) : List Char :=
+  let digits := Nat.toDigits radix value
+  List.replicate (width - digits.length) '0' ++ digits
+
+/-- `bytes.dump()`: 16 bytes a line, each line its eight-digit hex offset, the
+bytes in hex with an extra space after the eighth, and the printable ones
+between bars with a `.` for the rest; then the total length. -/
+def canonicalDump (bytes : List UInt8) : List Char :=
+  let lines := (byteChunks 16 (bytes.length + 1) bytes).zipIdx.map fun (chunk, index) =>
+    paddedDigits 16 8 (index * 16) ++ [' ', ' '] ++
+      ((List.range 16).flatMap fun column =>
+        (if column = 8 then [' '] else []) ++
+          match chunk[column]? with
+          | some byte => paddedDigits 16 2 byte.toNat ++ [' ']
+          | none => [' ', ' ', ' ']) ++
+      [' ', '|'] ++ chunk.map (fun byte => if isPrintableByte byte then Char.ofNat byte.toNat else '.') ++ ['|', '\n']
+  lines.flatten ++ paddedDigits 16 8 bytes.length
+
+/-- `bytes.dump("hex-u8")` and `("octal-u8")`: 16 bytes a line, each line its
+seven-digit octal offset and the bytes as two hex or three octal digits. -/
+def radixDump (hex : Bool) (bytes : List UInt8) : List Char :=
+  if bytes.isEmpty then paddedDigits 8 7 0
+  else
+    ['\n'].intercalate ((byteChunks 16 (bytes.length + 1) bytes).zipIdx.map fun (chunk, index) =>
+      paddedDigits 8 7 (index * 16) ++ chunk.flatMap fun byte =>
+        ' ' :: (if hex then paddedDigits 16 2 byte.toNat else paddedDigits 8 3 byte.toNat))
+
+/-- `left.compare(right)`: the one-based position of the first differing
+byte, the line it is on and the two bytes there, `-1` past an end; equal
+data has position and line `0` and bytes `-1`. -/
+def compareFields (left right : List UInt8) : Option (List (String × Value Declaration Identity Source)) :=
+  let shared := (left.zip right).takeWhile fun (one, other) => one == other
+  let line := (shared.filter fun (one, _) => one == 10).length + 1
+  let differing := fun (bytes : List UInt8) => match bytes[shared.length]? with
+    | some byte => (byte.toNat : Int)
+    | none => -1
+  let int := fun (value : Int) => (validateInt? value).map fun valid => (Value.scalar (.integer valid) : Value Declaration Identity Source)
+  let equal := left.length = right.length ∧ shared.length = left.length
+  if equal then
+    (int 0).bind fun zero => (int (-1)).map fun none =>
+      [("equal", .scalar (.boolean true)), ("byte", zero), ("line", zero), ("left", none), ("right", none)]
+  else
+    (int (shared.length + 1)).bind fun byte => (int line).bind fun line =>
+      (int (differing left)).bind fun leftByte => (int (differing right)).map fun rightByte =>
+        [("equal", .scalar (.boolean false)), ("byte", byte), ("line", line), ("left", leftByte), ("right", rightByte)]
+
 /-- The length of the longest prefix of `bytes` that is valid UTF-8. -/
 def validPrefix (bytes : List UInt8) : Nat :=
   ((List.range (bytes.length + 1)).reverse.find? fun length =>
@@ -2193,6 +2253,8 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
     Result Declaration Identity Source (Value Declaration Identity Source) :=
   let bytesValue := fun (data : List UInt8) => (Value.scalar (.bytes data) : Value Declaration Identity Source)
   let failed := fun (kind message : String) => Result.failure (.runtime (errors.described kind message))
+  let bytesText := fun (data : List UInt8) =>
+    (Value.scalar (.string (String.ofList (data.map fun byte => Char.ofNat byte.toNat))) : Value Declaration Identity Source)
   match method, arguments with
   | .len, [] => countedValue bytes.length
   | .isEmpty, [] => .value (.scalar (.boolean bytes.isEmpty))
@@ -2237,6 +2299,20 @@ def bytesMethod (errors : Errors Declaration Identity Source) (method : BytesMet
     | some text => .value (.ok (.scalar (.string text)))
     | none => .value (.err (errors.described "invalid-utf8"
         s!"byte data is not valid UTF-8 at byte {validPrefix bytes}"))
+  | .strings, [] => .value (.list ((printableRuns 4 bytes).map bytesText))
+  | .strings, [.scalar (.integer least)] =>
+    if least.val ≤ 0 then failed "bytes-strings" "min_len must be positive"
+    else .value (.list ((printableRuns least.val.toNat bytes).map bytesText))
+  | .compare, [.scalar (.bytes right)] =>
+    match compareFields bytes right with
+    | some fields => .value (.record fields)
+    | none => .unsupported
+  | .dump, [] => .value (.scalar (.string (String.ofList (canonicalDump bytes))))
+  | .dump, [.scalar (.string format)] =>
+    if format = "canonical" then .value (.scalar (.string (String.ofList (canonicalDump bytes))))
+    else if format = "hex-u8" then .value (.scalar (.string (String.ofList (radixDump true bytes))))
+    else if format = "octal-u8" then .value (.scalar (.string (String.ofList (radixDump false bytes))))
+    else failed "bytes-dump" "dump format must be canonical, hex-u8, or octal-u8"
   | .base64, [] => .value (.scalar (.string (String.ofList
       ((Xsh.Values.BaseCodec.encode .base64 bytes).map fun byte => Char.ofNat byte.toNat))))
   | .base32, [] => .value (.scalar (.string (String.ofList

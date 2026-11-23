@@ -128,7 +128,9 @@ and with `maxsplit` stops after that many, a negative limit having none;
 `base64_decode` and `base32_decode` decode the text's bytes without ASCII
 whitespace, base32 upper-cased, into `Ok` bytes or the `Err` the decoder the
 binary uses reports, and `Bytes.base64` and `Bytes.base32` encode with
-padding;
+padding; `Bytes.strings` gives the printable ASCII runs at least four bytes
+long, `compare` the first difference's position, line and bytes, and `dump`
+the canonical hex dump;
 `wrap(width)` packs each line's words greedily into lines of at most `width`
 characters, cutting longer words, and a width below one is the runtime
 `text-wrap` failure;
@@ -159,6 +161,14 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .base32 bytes [] =
       .value (.scalar (.string (String.ofList
         ((Xsh.Values.BaseCodec.encode .base32 bytes).map fun byte => Char.ofNat byte.toNat))))) ∧
+    (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .strings bytes [] =
+      .value (.list ((printableRuns 4 bytes).map fun run =>
+        .scalar (.string (String.ofList (run.map fun byte => Char.ofNat byte.toNat)))))) ∧
+    (∀ bytes right fields, compareFields bytes right = some fields →
+      bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .compare bytes
+          [.scalar (.bytes right)] = .value (.record fields)) ∧
+    (∀ bytes, bytesMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .dump bytes [] =
+      .value (.scalar (.string (String.ofList (canonicalDump bytes))))) ∧
     (∀ text count, 0 < count.val →
       textMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .wrap text
           [.positional (.scalar (.integer count))] =
@@ -173,7 +183,8 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
         .value (textValue (replaceRun pattern.toList replacement.toList (text.length + 1) text.toList))) ∧
     (∀ needle index bytes offset, findBytes needle index bytes = some offset →
       index ≤ offset ∧ needle.isPrefixOf (bytes.drop (offset - index)) = true) := by
-  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl,
+  refine ⟨fun _ => rfl, fun _ => rfl, fun text separator nonempty => ?_, fun _ _ _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl,
+    fun _ _ _ found => by simp [bytesMethod, found], fun _ => rfl,
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
   · simp [textMethod, Value.eraseNominal, nonempty]
@@ -651,6 +662,51 @@ theorem base_codec_witness :
     textResult (bytesRun .base64 [] []) = some "" ∧
     textResult (bytesRun .base32 [104, 101, 108, 108, 111] []) = some "NBSWY3DP" ∧
     textResult (bytesRun .base64 [104, 105] []) = some "aGk=" := by
+  decide +kernel
+
+def textsOf : Result Unit Unit Unit (Value Unit Unit Unit) → Option (List String)
+  | .value (.list items) => items.mapM fun
+    | .scalar (.string text) => some text
+    | _ => none
+  | _ => none
+
+/-- A `compare` record's `equal` flag and its `byte`, `line`, `left` and
+`right` fields, in that order. -/
+def compared : Result Unit Unit Unit (Value Unit Unit Unit) → Option (Bool × List Int)
+  | .value (.record [("equal", .scalar (.boolean equal)), ("byte", byte), ("line", line), ("left", left),
+      ("right", right)]) =>
+    [byte, line, left, right].mapM (Xsh.Proofs.Core.Constructors.Witness.intOf) |>.map (equal, ·)
+  | _ => none
+
+def helloWorld : List UInt8 := "hello world, this is!".toUTF8.toList
+
+/-- As the verification binary prints `cdef|xyz  w`, `ab|cdef` and `0` for
+`b"ab\x00cdef\x01xyz  w".strings()`, `b"ab\x00cdef".strings(2)` and
+`b"".strings().len()`; `false 5 2 100 101`, `false 3 1 -1 99` and
+`true 0 0 -1 -1` for `b"ab\ncd".compare(b"ab\nce")`, `b"ab".compare(b"abc")`
+and `b"ab".compare(b"ab")`; `0000000 68 69 0a`, `0000000 150 151 012` and
+`0000000` for the `hex-u8` and `octal-u8` dumps of `b"hi\n"` and of `b""`; the
+canonical dump of `b"hello world, this is!"` and `00000000` for `b""`; and
+the `bytes-strings` and `bytes-dump` failures for `strings(0)` and
+`dump("x")`. -/
+theorem bytes_report_witness :
+    textsOf (bytesRun .strings [97, 98, 0, 99, 100, 101, 102, 1, 120, 121, 122, 32, 32, 119] []) =
+      some ["cdef", "xyz  w"] ∧
+    textsOf (bytesRun .strings [97, 98, 0, 99, 100, 101, 102] [intOf 2]) = some ["ab", "cdef"] ∧
+    textsOf (bytesRun .strings [] []) = some [] ∧
+    compared (bytesRun .compare [97, 98, 10, 99, 100] [.scalar (.bytes [97, 98, 10, 99, 101])]) =
+      some (false, [5, 2, 100, 101]) ∧
+    compared (bytesRun .compare [97, 98] [.scalar (.bytes [97, 98, 99])]) = some (false, [3, 1, -1, 99]) ∧
+    compared (bytesRun .compare [97, 98] [.scalar (.bytes [97, 98])]) = some (true, [0, 0, -1, -1]) ∧
+    textResult (bytesRun .dump [104, 105, 10] [strOf "hex-u8"]) = some "0000000 68 69 0a" ∧
+    textResult (bytesRun .dump [104, 105, 10] [strOf "octal-u8"]) = some "0000000 150 151 012" ∧
+    textResult (bytesRun .dump [] [strOf "hex-u8"]) = some "0000000" ∧
+    textResult (bytesRun .dump helloWorld []) = some
+      ("00000000  68 65 6c 6c 6f 20 77 6f  72 6c 64 2c 20 74 68 69  |hello world, thi|\n" ++
+       "00000010  73 20 69 73 21                                    |s is!|\n00000015") ∧
+    textResult (bytesRun .dump [] []) = some "00000000" ∧
+    failureText (bytesRun .strings [97] [intOf 0]) = some "min_len must be positive" ∧
+    failureText (bytesRun .dump [97] [strOf "x"]) = some "dump format must be canonical, hex-u8, or octal-u8" := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/
