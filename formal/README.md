@@ -514,8 +514,10 @@ Statements:
 
 Expressions:
 
-- path literals with escapes and regex literals (P); a path literal without a
-  backslash is the path of its text, as the binary reads `p"a/b"`
+- regex literals (P); a path literal is the path of its text with its
+  escapes decoded as a string's are (`decodeEscapes`), as the binary reads
+  `p"a\tb"` and `p"\u{e9}/\\"`, text that is not valid UTF-8 being a lexical
+  error
 - equality of streams, filesystem entries and commands (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text

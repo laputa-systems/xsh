@@ -104,9 +104,55 @@ def float (bits : FloatBits) : Value Declaration Identity Source := .scalar (.fl
 def boolean (value : Bool) : Value Declaration Identity Source := .scalar (.boolean value)
 def duration (value : DurationValue) : Value Declaration Identity Source := .scalar (.duration value)
 
-/-- A literal's value. A path literal's lexeme is its text between the quotes:
-without a backslash it is the path of those UTF-8 bytes (SPEC 2.7 `p"..."`),
-and one with an escape is outside the model. -/
+/-- A hex digit's value. -/
+def hexDigit? (char : Char) : Option Nat :=
+  if '0' ≤ char ∧ char ≤ '9' then some (char.toNat - 48)
+  else if 'a' ≤ char ∧ char ≤ 'f' then some (char.toNat - 87)
+  else if 'A' ≤ char ∧ char ≤ 'F' then some (char.toNat - 55)
+  else none
+
+/-- The bytes a string literal's text spells (SPEC 2.6): `\\`, `\"`, `\$`,
+`\n`, `\r`, `\t`, `\0`, `\xNN` and `\u{HEX}`, other characters as their
+UTF-8 bytes; any other escape is a lexical error, `none`. -/
+def decodeEscapes : Nat → List Char → Option (List UInt8)
+  | 0, _ => none
+  | _ + 1, [] => some []
+  | fuel + 1, '\\' :: escape :: rest =>
+    let simple := fun (byte : UInt8) => (decodeEscapes fuel rest).map (byte :: ·)
+    match escape with
+    | '\\' => simple 92
+    | '"' => simple 34
+    | '$' => simple 36
+    | 'n' => simple 10
+    | 'r' => simple 13
+    | 't' => simple 9
+    | '0' => simple 0
+    | 'x' =>
+      match rest with
+      | high :: low :: more =>
+        (hexDigit? high).bind fun first => (hexDigit? low).bind fun second =>
+          (decodeEscapes fuel more).map ((first * 16 + second).toUInt8 :: ·)
+      | _ => none
+    | 'u' =>
+      match rest with
+      | '{' :: more =>
+        let digits := more.takeWhile (· ≠ '}')
+        if digits.isEmpty ∨ digits.length > 6 ∨ more.drop digits.length = [] then none
+        else
+          (digits.mapM hexDigit?).bind fun values =>
+            let code := values.foldl (fun value digit => value * 16 + digit) 0
+            if code ≤ 0x10FFFF ∧ ¬ (0xD800 ≤ code ∧ code ≤ 0xDFFF) then
+              (decodeEscapes fuel (more.drop (digits.length + 1))).map (String.utf8EncodeChar (Char.ofNat code) ++ ·)
+            else none
+      | _ => none
+    | _ => none
+  | fuel + 1, ['\\'] => none
+  | fuel + 1, char :: rest => (decodeEscapes fuel rest).map (String.utf8EncodeChar char ++ ·)
+
+/-- A literal's value. A path literal's lexeme is its text between the quotes,
+its escapes decoded as a string's are (SPEC 2.6 `p"..."`); text that is not
+valid UTF-8 is a lexical error and a NUL no path may hold, both outside the
+model. -/
 def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Identity Source (Value Declaration Identity Source)
   | .null => .value (.scalar .null)
   | .bool value => .value (boolean value)
@@ -116,11 +162,14 @@ def literal (literals : Literals) : Xsh.Syntax.Literal → Result Declaration Id
   | .string value => .value (.scalar (.string value))
   | .bytes value => .value (.scalar (.bytes value))
   | .path lexeme =>
-    if lexeme.toUTF8.toList.contains 92 then .unsupported
-    else
-      match NativePath.fromBytes? lexeme.toUTF8.toList with
-      | some path => .value (.scalar (.path path))
-      | none => .unsupported
+    match decodeEscapes (lexeme.length + 1) lexeme.toList with
+    | some bytes =>
+      if (String.fromUTF8? ⟨bytes.toArray⟩).isSome then
+        match NativePath.fromBytes? bytes with
+        | some path => .value (.scalar (.path path))
+        | none => .unsupported
+      else .unsupported
+    | none => .unsupported
   | _ => .unsupported
 
 def integerResult (errors : Errors Declaration Identity Source) :

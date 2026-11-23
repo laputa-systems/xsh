@@ -986,13 +986,22 @@ theorem parse_float_witness :
   decide +kernel
 
 
-/-- As the verification binary gives the bytes `a/b` and finds `"b"` in
-`p"a/b"`: a path literal without escapes is the path of its text. -/
+def pathLiteral (lexeme : String) : Option (List UInt8) :=
+  match Xsh.Semantics.CoreEval.literal (Declaration := Unit) (Identity := Unit) (Source := Unit)
+      collectionMachine.context.literals (.path lexeme) with
+  | .value (.scalar (.path path)) => some path.bytes
+  | _ => none
+
+/-- As the verification binary gives the bytes `a/b`, `61 09 62`,
+`c3 a9 2f 5c` and `78 22 79` for `p"a/b"`, `p"a\tb"`, `p"\u{e9}/\\"` and
+`p"x\"y"`, and rejects `p"\xff"` as not valid UTF-8: a path literal's escapes
+decode as a string's do. -/
 theorem path_literal_witness :
-    (match Xsh.Semantics.CoreEval.literal (Declaration := Unit) (Identity := Unit) (Source := Unit)
-        collectionMachine.context.literals (.path "a/b") with
-      | .value (.scalar (.path path)) => some path.bytes
-      | _ => none) = some "a/b".toUTF8.toList := by
+    pathLiteral "a/b" = some "a/b".toUTF8.toList ∧
+    pathLiteral "a\\tb" = some [0x61, 0x09, 0x62] ∧
+    pathLiteral "\\u{e9}/\\\\" = some [0xC3, 0xA9, 0x2F, 0x5C] ∧
+    pathLiteral "x\\\"y" = some [0x78, 0x22, 0x79] ∧
+    pathLiteral "\\xff" = none := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/
