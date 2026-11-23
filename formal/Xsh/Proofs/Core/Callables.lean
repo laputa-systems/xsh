@@ -52,7 +52,7 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
             .value (.callable (machine.callableReference cell) callable) frame) ∧
     (∀ fuel (frame : Frame world) receiver method arguments reference kind after cell callable defining captured
         writable parameters body,
-      errorConstructor machine frame receiver method = none →
+      errorConstructor machine frame receiver method = none → isEnvPathList receiver = false →
       machine.context.spelling method = "call" →
         evalExpr machine fuel frame receiver = .value (.callable reference kind) after →
           (machine.callableCell reference).bind (fun found => after.closures.lookup found) =
@@ -79,7 +79,7 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
   · intro fuel frame name cell callable defining captured writable parameters body unshadowed found
     simp only [evalExpr, unshadowed, found]
   · intro fuel frame receiver method arguments reference kind after cell callable defining captured writable
-      parameters body notError spelled received named
+      parameters body notError notPath spelled received named
     have notEnv : envFunction machine frame receiver method = none := by
       unfold envFunction
       split
@@ -87,7 +87,7 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
         · simp [spelled]
         · rfl
       · rfl
-    simp only [evalExpr, notError, notEnv, spelled, Outcome.bind, received, Value.eraseNominal, named]
+    simp only [evalExpr, notError, notPath, Bool.false_eq_true, if_false, notEnv, spelled, Outcome.bind, received, Value.eraseNominal, named]
 
 end Root
 

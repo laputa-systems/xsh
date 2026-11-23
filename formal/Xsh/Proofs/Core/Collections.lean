@@ -29,7 +29,7 @@ set's `add` inserts in map key order without repeating an element. -/
 theorem collection_methods [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
     (∀ receiver method arguments, errorConstructor machine frame receiver method = none →
-      envFunction machine frame receiver method = none →
+      envFunction machine frame receiver method = none → isEnvPathList receiver = false →
       machine.context.spelling method ≠ "call" → machine.context.spelling method ≠ "collect" →
       isNumericMethod (machine.context.spelling method) = false →
       ((CollectionMethod.ofName (machine.context.spelling method)).isSome ∨
@@ -80,13 +80,13 @@ theorem collection_methods [DecidableEq Declaration] {world : World Declaration 
     (∀ errors (receiver : Value Declaration Identity Source) keys item found,
       receiver.eraseNominal = .set keys → mapKeyOf item = some found →
         collectionMethod errors .add receiver [item] = .value (.set (insertKey found keys))) := by
-  refine ⟨fun receiver method arguments none_declared notEnv notCall notCollect notNumeric named => ?_,
+  refine ⟨fun receiver method arguments none_declared notEnv notPath notCall notCollect notNumeric named => ?_,
     fun _ _ _ _ => by unfold valueMethodCall; rfl,
     fun errors receiver items item shape => ?_, fun errors receiver items index item shape found nonnegative => ?_,
     fun errors receiver items index shape missing => ?_, fun errors receiver entries key found value shape keyed => ?_,
     fun errors receiver entries key found shape keyed absent => ?_,
     fun errors receiver keys item found shape keyed => ?_⟩
-  · simp only [evalExpr, none_declared, notEnv]
+  · simp only [evalExpr, none_declared, notPath, Bool.false_eq_true, if_false, notEnv]
     split
     · simp_all
     · split

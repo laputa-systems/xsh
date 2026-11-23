@@ -1360,6 +1360,16 @@ theorem closePipeline_persists {world : World Declaration Identity Source} (cont
     | refine vbind_persists (keyItems_persists scopes _ _ _ _) fun _ _ => ?_
     | split)
 
+theorem writePaths_persists {world : World Declaration Identity Source} (machine : Machine world)
+    (frame : Frame world) (entries : List NativePath) (result : Value Declaration Identity Source) :
+    VKeeps frame.store (writePaths machine frame entries result) := by
+  unfold writePaths
+  split
+  · exact fun _ present => by cases present; exact persists_refl _
+  · split
+    · exact persists_refl _
+    · exact fun _ present => by cases present; exact persists_refl _
+
 theorem pipelineLimit_persists {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VKeeps frame.store (evaluate frame source))
@@ -1901,6 +1911,7 @@ theorem persisting_expr {world : World Declaration Identity Source} (machine : M
     | exact runPipeline_persists _ inner.stageItems _ _ _ _ _
     | refine vbind_persists (pipelineLimit_persists inner.expr _ _) fun _ _ => ?_
     | refine vbind_persists (prepareStages_persists inner.expr _ _) fun _ _ => ?_
+    | exact writePaths_persists _ _ _ _
     | exact runSegments_persists _ inner.expr inner.handlers inner.stageItems _ _ _ _ _
     | exact closePipeline_persists _ inner.expr inner.handlers _ _ _
     | refine vbind_persists (runPipeline_persists _ (fun _ _ _ _ => runSegments_persists _ inner.expr
@@ -2462,6 +2473,16 @@ theorem closePipeline_restores {world : World Declaration Identity Source} (cont
     | refine vbind_restores (keyItems_restores scopes _ _ _ _) fun _ _ => ?_
     | split)
 
+theorem writePaths_restores {world : World Declaration Identity Source} (machine : Machine world)
+    (frame : Frame world) (entries : List NativePath) (result : Value Declaration Identity Source) :
+    VRestores frame (writePaths machine frame entries result) := by
+  unfold writePaths
+  split
+  · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
+  · split
+    · exact ⟨rfl, rfl⟩
+    · exact fun _ present => by cases present; exact ⟨rfl, rfl⟩
+
 theorem pipelineLimit_restores {world : World Declaration Identity Source}
     {evaluate : Frame world → Xsh.Syntax.Expr → Valued world}
     (each : ∀ frame source, VRestores frame (evaluate frame source))
@@ -2954,6 +2975,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | exact runPipeline_restores _ inner.stageItems _ _ _ _ _
   | refine vbind_restores (pipelineLimit_restores inner.expr _ _) fun _ _ => ?_
   | refine vbind_restores (prepareStages_restores inner.expr _ _) fun _ _ => ?_
+  | exact writePaths_restores _ _ _ _
   | exact runSegments_restores _ inner.expr inner.handlers inner.stageItems _ _ _ _ _
   | exact closePipeline_restores _ inner.expr inner.handlers _ _ _
   | refine vbind_restores (runPipeline_restores _ (fun _ _ _ _ => runSegments_restores _ inner.expr

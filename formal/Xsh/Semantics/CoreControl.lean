@@ -2316,6 +2316,22 @@ def int64FromRadix (base : Nat) : List Char → Option Int
 def trimWhitespace (chars : List Char) : List Char :=
   ((chars.dropWhile isUnicodeWhitespace).reverse.dropWhile isUnicodeWhitespace).reverse
 
+def isEnvPathList : Xsh.Syntax.Expr → Bool
+  | .envPathList => true
+  | _ => false
+
+/-- `PATH` set to `entries` joined with `:` as Rust's `join_paths` does on
+Unix, then `result`; an entry holding `:` is the runtime `invalid-path`
+failure. -/
+def writePaths {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
+    (entries : List NativePath) (result : Value Declaration Identity Source) : Valued world :=
+  if entries.any fun entry => entry.bytes.contains 58 then
+    .exec (.failed (.runtime (machine.context.errors.described "invalid-path" "PATH entry contains invalid bytes")) frame)
+  else
+    match setEnvironment machine.raises frame.overlay "PATH".toUTF8.toList ([58].intercalate (entries.map NativePath.bytes)) with
+    | .ok overlay => .value result { frame with overlay := overlay }
+    | .error failure => .exec (.failed failure frame)
+
 /-- The `env` module functions the machine reads with (SPEC 10.5). -/
 inductive EnvFunction where
   | get
@@ -3669,6 +3685,25 @@ mutual
                 .value (declaredError machine family variant facets
                   (payloadMessage payload (qualifiedName machine family variant)) payload) last
         | _, _ =>
+          if isEnvPathList receiver then
+            match machine.context.spelling method, arguments with
+            | "prepend", [.positional entry] | "append", [.positional entry] =>
+              (evalExpr machine fuel frame entry).bind fun value next =>
+                match value.eraseNominal, environmentPaths machine next.overlay with
+                | .scalar (.path added), some entries =>
+                  writePaths machine next
+                    (if machine.context.spelling method = "prepend" then added :: entries else entries ++ [added])
+                    (.ok (.scalar .unit))
+                | _, _ => .exec .unsupported
+            | "pop", [] =>
+              match environmentPaths machine frame.overlay with
+              | some entries =>
+                match entries.getLast? with
+                | some last => writePaths machine frame entries.dropLast (.ok (.scalar (.path last)))
+                | none => .value (.err (machine.context.errors.described "env-path-empty" "PATH is empty")) frame
+              | none => .exec .stuck
+            | _, _ => .exec .unsupported
+          else
           match envFunction machine frame receiver method with
           | some function =>
             (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>

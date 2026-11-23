@@ -48,15 +48,15 @@ theorem environment_reads [DecidableEq Declaration] {world : World Declaration I
     (∀ paths, environmentPaths machine frame.overlay = some paths →
       evalExpr machine (fuel + 1) frame .envPathList = .value (.environmentPaths paths) frame) ∧
     (∀ receiver method arguments function, errorConstructor machine frame receiver method = none →
-      envFunction machine frame receiver method = some function →
+      isEnvPathList receiver = false → envFunction machine frame receiver method = some function →
         evalExpr machine (fuel + 1) frame (.call (.field receiver method) arguments) =
           (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
             fromEval after (envCall machine after.overlay function supplied)) := by
   refine ⟨fun _ => rfl, fun name bytes found text decoded => ?_, fun name missing => ?_,
     fun name value => by simp [readEnvironment, List.lookup], fun _ _ _ _ _ _ _ => rfl,
     fun _ _ kind _ => by cases kind <;> rfl, fun _ split => by simp only [evalExpr, split],
-    fun _ _ arguments _ notError found => by
-      simp only [evalExpr, notError, found]⟩
+    fun _ _ arguments _ notError notPath found => by
+      simp only [evalExpr, notError, notPath, Bool.false_eq_true, if_false, found]⟩
   · simp only [environmentString, found, decoded]
   · simp only [environmentString, missing]
 
@@ -116,6 +116,9 @@ def intName : Xsh.Syntax.RawName := name 388 (by decide)
 def pathName : Xsh.Syntax.RawName := name 389 (by decide)
 def pathListName : Xsh.Syntax.RawName := name 390 (by decide)
 def pathEntriesName : Xsh.Syntax.RawName := name 391 (by decide)
+def prependName : Xsh.Syntax.RawName := name 392 (by decide)
+def appendName : Xsh.Syntax.RawName := name 393 (by decide)
+def popName : Xsh.Syntax.RawName := name 394 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
@@ -123,7 +126,9 @@ def keySpelling (named : Xsh.Syntax.RawName) : String :=
   else if named = badKey then "XSH_PROBE_BAD" else if named = envModule then "env" else if named = getName then "get"
   else if named = getOrName then "get_or" else if named = boolName then "bool" else if named = intName then "int"
   else if named = pathName then "path" else if named = pathListName then "path_list"
-  else if named = pathEntriesName then "path_entries" else scriptMachine.context.spelling named
+  else if named = pathEntriesName then "path_entries" else if named = prependName then "prepend"
+  else if named = appendName then "append" else if named = popName then "pop"
+  else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
 holding the byte `0xFF`, and without `XSH_PROBE_HOME`. -/
@@ -363,6 +368,54 @@ theorem env_path_list_witness :
     okEntries (readTyped (envRead pathEntriesName [text "XSH_PROBE_LIST"])) =
       some [("a", "a".toUTF8.toList), ("", ".".toUTF8.toList), ("b", "b".toUTF8.toList)] ∧
     errOf (readTyped (envRead pathListName [text "XSH_PROBE_HOME"])) = some "env-missing XSH_PROBE_HOME" := by
+  decide +kernel
+
+def pathCall (method : Xsh.Syntax.RawName) (arguments : List Xsh.Syntax.Expr) : Xsh.Syntax.Expr :=
+  .call (.field .envPathList method) (arguments.map .positional)
+
+/-- `PATH` as given, and `XSH_PROBE_Z=z`, `XSH_PROBE_Y=y` and
+`XSH_PROBE_XY=x:y` for the paths the edits add. -/
+def editMachine (path : Option (List UInt8)) : Machine witnessWorld :=
+  { pathMachine path with
+    hostEnvironment := fun name =>
+      if name = "XSH_PROBE_Z".toUTF8.toList then some "z".toUTF8.toList
+      else if name = "XSH_PROBE_Y".toUTF8.toList then some "y".toUTF8.toList
+      else if name = "XSH_PROBE_XY".toUTF8.toList then some "x:y".toUTF8.toList
+      else (pathMachine path).hostEnvironment name }
+
+def editedRun (path : Option (List UInt8)) (script : List Xsh.Syntax.Statement) : Exec witnessWorld :=
+  runScript (editMachine path) 90 fullStart script
+
+def pathOf (key : String) : Xsh.Syntax.Expr := .tryExpr (envRead pathName [text key])
+
+/-- With `PATH=a:b`: `env.PATH.prepend(p"z")`, `env.PATH.append(p"y")` and
+`env.PATH.pop()`, reading `PATH` after each. -/
+def pathEdits : List Xsh.Syntax.Statement :=
+  [.expression (pathCall prependName [pathOf "XSH_PROBE_Z"]),
+   letOf (slot 0) (envRead getName [text "PATH"]),
+   .expression (pathCall appendName [pathOf "XSH_PROBE_Y"]),
+   letOf (slot 1) (envRead getName [text "PATH"]),
+   letOf (slot 2) (pathCall popName []),
+   letOf (slot 3) (envRead getName [text "PATH"])]
+
+
+/-- As the verification binary prints `z:a:b`, `z:a:b:y`, `y` and `z:a:b`
+for the edits over `PATH=a:b`, an empty path and then an empty `PATH` for
+`pop()` over an unset `PATH`, and fails `append(p"x:y")` with
+`PATH entry contains invalid bytes`: the methods rewrite `PATH` joined with
+`:`, and an entry holding `:` is refused. -/
+theorem path_edit_witness :
+    textOf (readOutput 0 (editedRun (some "a:b".toUTF8.toList) pathEdits)) = some "z:a:b" ∧
+    textOf (readOutput 1 (editedRun (some "a:b".toUTF8.toList) pathEdits)) = some "z:a:b:y" ∧
+    okPath (readOutput 2 (editedRun (some "a:b".toUTF8.toList) pathEdits)) = some "y".toUTF8.toList ∧
+    textOf (readOutput 3 (editedRun (some "a:b".toUTF8.toList) pathEdits)) = some "z:a:b" ∧
+    okPath (readOutput 0 (editedRun none [letOf (slot 0) (pathCall popName []),
+      letOf (slot 1) (envRead getName [text "PATH"])])) = some [] ∧
+    textOf (readOutput 1 (editedRun none [letOf (slot 0) (pathCall popName []),
+      letOf (slot 1) (envRead getName [text "PATH"])])) = some "" ∧
+    (match editedRun none [.expression (pathCall appendName [pathOf "XSH_PROBE_XY"])] with
+      | .failed (.runtime (.scalar (.string message))) _ => message == "PATH entry contains invalid bytes"
+      | _ => false) = true := by
   decide +kernel
 
 end Witness

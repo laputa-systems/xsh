@@ -51,7 +51,8 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     (∀ (loop last : Frame world) failure, consumeProducer loop (.exec (.consumed (.failed failure) last)) =
       .failed failure (loop.closedLoop last)) ∧
     (∀ (fuel : Nat) (frame : Frame world) receiver method,
-      errorConstructor machine frame receiver method = none → machine.context.spelling method = "collect" →
+      errorConstructor machine frame receiver method = none → isEnvPathList receiver = false →
+      machine.context.spelling method = "collect" →
       evalExpr machine (fuel + 1) frame (.call (.field receiver method) []) =
         (evalExpr machine fuel frame receiver).bind fun subject after =>
           match pendingStream machine after subject with
@@ -74,7 +75,7 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
     (∀ (loop last : Frame world) consumer rest slot, last.consumers = consumer :: rest → consumer.gathers = some slot →
       (loop.closedLoop last).collected = gatheringAt last.streams slot) := by
   refine ⟨fun _ _ => ⟨rfl, rfl, rfl⟩, fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
-    fun _ _ _ => rfl, fun _ _ _ => rfl, fun fuel frame receiver method plain spelled => ?_,
+    fun _ _ _ => rfl, fun _ _ _ => rfl, fun fuel frame receiver method plain notPath spelled => ?_,
     fun frame index items item held => by simp only [Frame.gather, held],
     fun loop last index items value held => by simp only [gathered, held],
     fun producer loop outer slot _ gathers => by simp only [consumerFrame, gathers],
@@ -88,7 +89,7 @@ theorem stream_producers [DecidableEq Declaration] {world : World Declaration Id
       · simp [spelled]
       · rfl
     · rfl
-  simp only [evalExpr, plain, notEnv, spelled]
+  simp only [evalExpr, plain, notPath, Bool.false_eq_true, if_false, notEnv, spelled]
   refine congrArg _ (funext fun subject => funext fun after => ?_)
   rcases pendingStream machine after subject with _ | ⟨index, _ | ⟨closure, supplied⟩⟩ <;> rfl
 

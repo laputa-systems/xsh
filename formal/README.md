@@ -526,7 +526,7 @@ Expressions:
   a value block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
-  (E), `env.list`, `env.entries` and `env.PATH`'s methods (E),
+  (E), `env.list` and `env.entries` (E),
   `$?` (E)
 
 
@@ -912,7 +912,12 @@ ASCII-lowercased `1`, `true`, `yes` or `on` as `true` and other text as
 `env.path_entries(name)` gives `{empty, index, path, raw}` records, an empty
 entry's path being `.`; both are the unset `Err` for an unset variable.
 `env.list` and `env.entries` read the whole environment, which the host
-oracle, a lookup, does not enumerate.
+oracle, a lookup, does not enumerate. `env.PATH.prepend(path)`,
+`append(path)` and `pop()` rewrite `PATH` with the entries joined by `:` as
+Rust's `join_paths` does (`writePaths`), an entry holding `:` being the
+runtime `invalid-path` failure, as the binary prints `z:a:b`, `z:a:b:y`, `y`
+and `z:a:b` for edits of `PATH=a:b` and pops an empty entry from an unset
+`PATH`.
 
 The `environment_scopes` root, in the same module, adds `env (overlay) { ... }`
 (SPEC 10.4): the overlay's fields convert as argv items and are set in order,
