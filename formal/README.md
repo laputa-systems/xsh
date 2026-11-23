@@ -515,7 +515,8 @@ Expressions:
 - equality and membership of errors and handles, and `in` on a `Path` whose
   bytes are not valid UTF-8 (P)
 - methods and value pipelines (P)
-- the contextual `.require()` (P)
+- the contextual `.require()` under an annotated return or tail or a
+  parameter type (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
   (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
@@ -651,7 +652,12 @@ to what the machine gives: each `Ok` is a member of `T`, and each `Err` is
 the schema error of the conversion's failure. The witnesses give
 `7.require(Int)` as `Ok(7)` and `"x".require(Int)` as a schema error, and
 reject a `.require` that passes its value through. The contextual
-`.require()` needs the checker's expected type and is not modelled.
+`.require()` needs the checker's expected type and is not modelled. A contextual `.require()`
+in an annotated binding takes its target from the annotation: its `Result`
+value type, or under `.require()?` the annotation itself, as each `?` peels
+one `Result` layer. As the binary gives the schema `Err` for
+`let v: Result[Int] = "x".require()` and `7` for `let w: Int = 7.require()?`,
+so do the witnesses.
 
 The `error_contexts` fragment root, in
 [`Proofs/Core/Contexts.lean`](Xsh/Proofs/Core/Contexts.lean), adds

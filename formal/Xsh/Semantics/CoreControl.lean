@@ -1178,6 +1178,15 @@ def bothLimits : Option Nat → Option Nat → Option Nat
   | some first, none | none, some first => some first
   | none, none => none
 
+/-- An annotated binding's initializer with a contextual `.require()` given
+the annotation as its target (SPEC 5.3): the target of `.require()` is the
+annotation's `Result` value type, and each `?` peels one `Result` layer, so
+under `.require()?` it is the annotation itself. -/
+def expectRequire : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+  | some (.result target), .require value none => .require value (some target)
+  | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
+  | _, initializer => initializer
+
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
 def pipelineSource (source : Value Declaration Identity Source) :
@@ -2395,8 +2404,8 @@ mutual
     | 0, _, _ => .outOfFuel
     | fuel + 1, frame, statement =>
       match statement with
-      | .binding kind target _ initializer =>
-        (runValue machine fuel frame initializer).toExec fun value next =>
+      | .binding kind target annotation initializer =>
+        (runValue machine fuel frame (expectRequire annotation initializer)).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         (runValue machine fuel frame value).toExec fun result next =>

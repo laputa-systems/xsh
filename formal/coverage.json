@@ -15171,8 +15171,8 @@
       "declaration": "Xsh.Proofs.Core.Requires.require_expression",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "SPEC 5.3 value.require(T): the machine evaluates the value once and gives the validation model's requireValue with the keep field policy for the checker's T, so by the closed VAL-REQUIRE theorem every Ok it gives is a member of T in the machine's membership world and every Err is the schema error of the conversion's failure.",
-      "boundary": "The contextual .require() needs the checker's expected type and is not modelled; T comes from the machine's typeOf oracle. Witnesses check Int; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+      "scope": "SPEC 5.3 value.require(T): the machine evaluates the value once and gives the validation model's requireValue with the keep field policy for the checker's T, so by the closed VAL-REQUIRE theorem every Ok it gives is a member of T in the machine's membership world and every Err is the schema error of the conversion's failure. A contextual .require() in an annotated binding takes its target from the annotation: the annotation's Result value type, or under .require()? the annotation itself.",
+      "boundary": "A contextual .require() whose target comes from an annotated return or tail or a parameter type is not modelled; T comes from the machine's typeOf oracle. Witnesses check Int; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
     },
     {
       "id": "fragment.Xsh.Proofs.Core.Contexts.error_contexts",

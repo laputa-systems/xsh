@@ -203,7 +203,7 @@ theorem statement_hides {world : World Declaration Identity Source} (machine : M
     cases statement with
     | binding kind target annotation initializer =>
       simp only [runStatement] at ran
-      obtain ⟨value, middle, _, _, locals, bound⟩ := toExec_normal (scopes.value frame initializer) ran
+      obtain ⟨value, middle, _, _, locals, bound⟩ := toExec_normal (scopes.value frame (expectRequire annotation initializer)) ran
       have hidden := bindTarget_hides machine base types resolved middle next _ target value bound
       rw [locals] at hidden
       exact hidden
