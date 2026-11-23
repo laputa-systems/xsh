@@ -433,15 +433,17 @@ theorem nested_equality_witness :
 
 /-- As the verification binary prints `true true true false true` for
 `"share" in p`, `"/xs" in p`, `p"usr/share" in p`, `"bin" in p` and `"" in p`
-with `p = p"usr/share/xsh"`; a path that is not valid UTF-8 is outside the
-model. -/
+with `p = p"usr/share/xsh"`, and `true true false` for `"s"`, `"\u{fffd}s"`
+and `"ts"` in a path whose bytes are `ff 73`, whose display text is lossy. -/
 theorem path_membership_witness :
     ask .member (str "share") (ident pathName) = some true ∧
     ask .member (str "/xs") (ident pathName) = some true ∧
     ask .member (ident subPathName) (ident pathName) = some true ∧
     ask .member (str "bin") (ident pathName) = some false ∧
     ask .member (str "") (ident pathName) = some true ∧
-    ask .member (str "s") (ident oddPathName) = none := by
+    ask .member (str "s") (ident oddPathName) = some true ∧
+    ask .member (str "�s") (ident oddPathName) = some true ∧
+    ask .member (str "ts") (ident oddPathName) = some false := by
   decide +kernel
 
 /-- Raw-bit equality, the representation equality codecs keep, calls `[nan]`

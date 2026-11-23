@@ -2373,8 +2373,8 @@ The rest follow Rust's `std::path` components, which `StdComponents` models:
 or `.` when there is none; component-wise `starts_with` and `ends_with`;
 `strip_prefix`, `Ok` of the remaining bytes or the `path-prefix` `Err` for an
 empty prefix, a mismatch or a remainder that is not a `RelPath`; and
-`relative_to`, the path itself on a mismatch. A text result is modelled only
-for valid UTF-8, which the binary would otherwise decode lossily. -/
+`relative_to`, the path itself on a mismatch. A text result decodes the
+bytes lossily, as the binary does. -/
 def pathMethod (errors : Errors Declaration Identity Source) (method : PathMethod) (path : Xsh.Values.NativePath)
     (arguments : List (Value Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
@@ -2383,9 +2383,7 @@ def pathMethod (errors : Errors Declaration Identity Source) (method : PathMetho
     | some made => Result.value (Value.scalar (.path made))
     | none => .unsupported
   let textOf := fun (bytes : List UInt8) =>
-    match String.fromUTF8? ⟨bytes.toArray⟩ with
-    | some text => Result.value (Value.scalar (.string text))
-    | none => .unsupported
+    (Result.value (Value.scalar (.string (Xsh.Values.LossyUtf8.text bytes))) : Result Declaration Identity Source _)
   match method, arguments with
   | .bytes, [] => .value (.scalar (.bytes path.bytes))
   | .basename, [] => textOf (Xsh.Paths.Fields.posixBasename 47 path.bytes)

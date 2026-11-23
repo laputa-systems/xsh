@@ -192,9 +192,8 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     (∀ path made, Xsh.Values.NativePath.fromBytes? (Xsh.Paths.Normalize.normalizePath path.bytes) = some made →
       pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .normalize path [] =
         .value (.scalar (.path made))) ∧
-    (∀ path text, String.fromUTF8? ⟨(Xsh.Paths.Fields.posixBasename 47 path.bytes).toArray⟩ = some text →
-      pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .basename path [] =
-        .value (.scalar (.string text))) ∧
+    (∀ path, pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .basename path [] =
+        .value (.scalar (.string (Xsh.Values.LossyUtf8.text (Xsh.Paths.Fields.posixBasename 47 path.bytes))))) ∧
     (∀ path fallback, Xsh.Paths.Fields.extension? 47 path.bytes = none →
       pathMethod (Declaration := Declaration) (Identity := Identity) (Source := Source) errors .extOr path
           [.scalar (.string fallback)] = .value (.scalar (.string fallback))) ∧
@@ -224,7 +223,7 @@ theorem text_methods (errors : Errors Declaration Identity Source) :
     fun _ _ _ found => by simp [bytesMethod, found], fun _ => rfl,
     fun _ unicode => by simp [bytesMethod, unicode],
     fun _ => rfl, fun _ _ made => by simp [pathMethod, made], fun _ _ made => by simp [pathMethod, made],
-    fun _ _ decoded => by simp [pathMethod, decoded], fun _ _ absent => by simp [pathMethod, absent],
+    fun _ => rfl, fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ => rfl, fun _ _ empty => by simp [pathMethod, empty], fun _ _ absent => by simp [pathMethod, absent],
     fun _ _ positive => by simp [textMethod, Value.eraseNominal, positive],
     fun _ _ nonpositive => by simp [textMethod, Value.eraseNominal, nonpositive], fun _ _ _ => ?_, findBytes_found⟩
@@ -900,6 +899,30 @@ theorem path_prefix_witness :
 /-- A `parent` that rebuilt the path from its components would give `a/c`
 for `a//c/b`, where the binary keeps the original `a//c`. -/
 theorem rebuilt_parent_rejected : pathResult (pathRun .parent "a//c/b" []) ≠ some "a/c" := by
+  decide +kernel
+
+/-- As the verification binary displays the file names `61 ff 62`, `e2 82`,
+`c0 af`, `e2 82 78`, `f0 9f 98`, `e0 80 80 7a`, `ed a0 80` and
+`f4 90 80 80`: one U+FFFD (`ef bf bd`) for each maximal prefix of a
+well-formed sequence and for each byte that cannot begin one. -/
+theorem lossy_display_witness :
+    Xsh.Values.LossyUtf8.bytes [0x61, 0xFF, 0x62] = [0x61, 0xEF, 0xBF, 0xBD, 0x62] ∧
+    Xsh.Values.LossyUtf8.bytes [0xE2, 0x82] = [0xEF, 0xBF, 0xBD] ∧
+    Xsh.Values.LossyUtf8.bytes [0xC0, 0xAF] = [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD] ∧
+    Xsh.Values.LossyUtf8.bytes [0xE2, 0x82, 0x78] = [0xEF, 0xBF, 0xBD, 0x78] ∧
+    Xsh.Values.LossyUtf8.bytes [0xF0, 0x9F, 0x98] = [0xEF, 0xBF, 0xBD] ∧
+    Xsh.Values.LossyUtf8.bytes [0xE0, 0x80, 0x80, 0x7A] =
+      [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD, 0x7A] ∧
+    Xsh.Values.LossyUtf8.bytes [0xED, 0xA0, 0x80] = [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD] ∧
+    Xsh.Values.LossyUtf8.bytes [0xF4, 0x90, 0x80, 0x80] =
+      [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD] ∧
+    Xsh.Values.LossyUtf8.bytes "héllo €𝄞".toUTF8.toList = "héllo €𝄞".toUTF8.toList := by
+  decide +kernel
+
+/-- A decoder that replaced each invalid byte separately would give two
+U+FFFD for the truncated `e2 82`. -/
+theorem per_byte_replacement_rejected :
+    Xsh.Values.LossyUtf8.bytes [0xE2, 0x82] ≠ [0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD] := by
   decide +kernel
 
 /-- A decoder that ignored trailing bits would accept `"aGl="`. -/

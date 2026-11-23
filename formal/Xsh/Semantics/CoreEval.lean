@@ -4,6 +4,7 @@ import Xsh.Values.DurationOps
 import Xsh.Values.FloatOps
 import Xsh.Values.FloatEquality
 import Xsh.Values.FloatLiterals
+import Xsh.Values.LossyUtf8
 
 namespace Xsh.Semantics.CoreEval
 
@@ -376,17 +377,17 @@ def displayable (path : NativePath) : Bool := (String.fromUTF8? ⟨path.bytes.to
 containment in `Bytes`, an equal item in a `List`, a `Path` entry of
 `env.PATH`, key presence in a `Map` (whatever its value, `null` included), an
 element of a `Set`, a `Str` field label of a record, and display-text
-containment of a `Str` or `Path` in a `Path` whose bytes are valid UTF-8; a
-path that is not is outside the model. -/
+containment of a `Str` or `Path` in a `Path`, a path's display text being its
+bytes decoded lossily as the binary decodes them. -/
 def membership (same : Sameness Declaration Identity Source) (needle container : Value Declaration Identity Source) :
     Option Bool :=
   match needle.eraseNominal, container.eraseNominal with
   | .scalar (.string part), .scalar (.string text) => some (containsRun part.toList text.toList)
   | .scalar (.bytes part), .scalar (.bytes data) => some (containsRun part data)
   | .scalar (.string part), .scalar (.path path) =>
-    if displayable path then some (containsRun part.toUTF8.toList path.bytes) else none
+    some (containsRun part.toUTF8.toList (Xsh.Values.LossyUtf8.bytes path.bytes))
   | .scalar (.path part), .scalar (.path path) =>
-    if displayable part && displayable path then some (containsRun part.bytes path.bytes) else none
+    some (containsRun (Xsh.Values.LossyUtf8.bytes part.bytes) (Xsh.Values.LossyUtf8.bytes path.bytes))
   | _, .list items => anyEqual same needle items
   | .scalar (.path entry), .environmentPaths paths => some (paths.contains entry)
   | _, .map entries => (mapKeyOf needle).map fun key => entries.any fun entry => entry.1 == key

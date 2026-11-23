@@ -512,11 +512,9 @@ Statements:
 Expressions:
 
 - equality of streams, modules, filesystem entries, commands, process
-  statuses and process errors, and `in` on a `Path` whose bytes are not valid
-  UTF-8 (P)
+  statuses and process errors (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
-  methods (the `Bytes` digests aside), the `Path` methods (a text result on
-  valid UTF-8 only), and the text
+  methods (the `Bytes` digests aside), the `Path` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split`, `wrap`, `base64_decode`, `base32_decode`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
@@ -593,7 +591,9 @@ membership that requires a non-`null` map value, and a union that
 concatenates its operands, variant equality by name alone, error payloads
 compared by raw bits, and callable equality by kind alone. Streams, modules,
 filesystem entries, commands, process statuses and process errors are not
-compared, a `Path` whose bytes are not valid UTF-8 is outside membership, and String containment is stated on
+compared, a `Path`'s display text for membership is its bytes decoded lossily
+(`LossyUtf8`, one U+FFFD per maximal ill-formed subsequence, as Rust's
+`from_utf8_lossy`), and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
 order, and that is not proved.
 
@@ -736,8 +736,8 @@ the original bytes), `parent` (the original bytes up to the previous
 component, `/` or `.` when there is none), component-wise `starts_with` and
 `ends_with`, `strip_prefix` (`Ok` of the remaining bytes, or the `path-prefix`
 `Err` for an empty prefix, a mismatch or a remainder that is not a `RelPath`)
-and `relative_to` (the path itself on a mismatch); a text result is modelled
-only for valid UTF-8, which the binary decodes lossily,
+and `relative_to` (the path itself on a mismatch); a text result decodes the
+bytes lossily as the binary does,
 `wrap(width)` (each line's words packed greedily with single spaces into lines
 of at most `width` characters, a longer word cut, an empty last line after a
 final newline, and a width below one the runtime `text-wrap` failure, which
