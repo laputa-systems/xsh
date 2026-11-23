@@ -317,6 +317,7 @@ mutual
     | tryExpr (value : Expr)
     | require (value : Expr) (schema : Option TypeExpr)
     | convert (value : Expr) (target : TypeExpr)
+    | dotVariant (expected : Option RawName) (name : RawName) (arguments : Option (List CallArgument))
     | capture (body : List Statement)
     | collect (body : List Statement)
     | loopExpr (body : List Statement)
@@ -525,6 +526,7 @@ mutual
       | .tryExpr value => freeExprFuel fuel bound value
       | .require value _ => freeExprFuel fuel bound value
       | .convert value _ => freeExprFuel fuel bound value
+      | .dotVariant _ _ arguments => (arguments.map (freeCallArgumentsFuel fuel bound)).getD []
       | .capture body => freeStatementsFuel fuel bound body
       | .collect body => freeStatementsFuel fuel bound body
       | .loopExpr body => freeStatementsFuel fuel bound body

@@ -1178,21 +1178,25 @@ def bothLimits : Option Nat → Option Nat → Option Nat
   | some first, none | none, some first => some first
   | none, none => none
 
-/-- An annotated binding's initializer with a contextual `.require()` given
-the annotation as its target (SPEC 5.3): the target of `.require()` is the
-annotation's `Result` value type, and each `?` peels one `Result` layer, so
-under `.require()?` it is the annotation itself. -/
-def expectRequire : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
+/-- An expression in a position with a known expected type, its contextual
+forms given that type. The target of a contextual `.require()` (SPEC 5.3) is
+the expected `Result` value type, and each `?` peels one `Result` layer, so
+under `.require()?` it is the expected type itself. A leading-dot variant
+(SPEC 5.5) selects from the enum the expected type names, `T?` selecting
+from `T`. -/
+def expectTarget : Option Xsh.Syntax.TypeExpr → Xsh.Syntax.Expr → Xsh.Syntax.Expr
   | some (.result target), .require value none => .require value (some target)
   | some target, .tryExpr (.require value none) => .tryExpr (.require value (some target))
+  | some (.named enum), .dotVariant none name arguments => .dotVariant (some enum) name arguments
+  | some (.optional (.named enum)), .dotVariant none name arguments => .dotVariant (some enum) name arguments
   | _, initializer => initializer
 
 /-- A function body whose tail and top-level `return` operands take the
 declared result type as their expected type (SPEC 5.3). -/
 def expectBody (result : Option Xsh.Syntax.TypeExpr) : List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
-  | [.expression tail] => [.expression (expectRequire result tail)]
-  | .returnValue (some value) :: rest => .returnValue (some (expectRequire result value)) :: expectBody result rest
+  | [.expression tail] => [.expression (expectTarget result tail)]
+  | .returnValue (some value) :: rest => .returnValue (some (expectTarget result value)) :: expectBody result rest
   | statement :: rest => statement :: expectBody result rest
 
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
@@ -1918,6 +1922,24 @@ mutual
           match machine.conversion value target with
           | some converted => fromEval next (propagate converted)
           | none => .exec .unsupported
+      | .dotVariant none _ _ => .exec .unsupported
+      | .dotVariant (some enum) name arguments =>
+        match variantOf machine.context.spelling machine.declarations name, arguments with
+        | some (declared, .mk variant [] _), none =>
+          if machine.context.spelling declared = machine.context.spelling enum then
+            .value (.tagged (machine.identity declared) (machine.context.spelling variant) []) frame
+          else .exec .stuck
+        | some (declared, .mk variant fields _), some arguments =>
+          if machine.context.spelling declared = machine.context.spelling enum then
+            (threadArguments machine.context.spelling (evalExpr machine fuel) frame arguments).bind fun supplied after =>
+              match supplied.mapM Supplied.positionalValue with
+              | some values =>
+                if values.length = fields.length then
+                  .value (.tagged (machine.identity declared) (machine.context.spelling variant) values) after
+                else .exec .stuck
+              | none => .exec .stuck
+          else .exec .stuck
+        | _, _ => .exec .stuck
       | .item =>
         match frame.item with
         | some value => .value value frame
@@ -2413,7 +2435,7 @@ mutual
     | fuel + 1, frame, statement =>
       match statement with
       | .binding kind target annotation initializer =>
-        (runValue machine fuel frame (expectRequire annotation initializer)).toExec fun value next =>
+        (runValue machine fuel frame (expectTarget annotation initializer)).toExec fun value next =>
           bindTarget machine next (bindingMutability kind) target value
       | .assign (.env key) .set value =>
         (runValue machine fuel frame value).toExec fun result next =>

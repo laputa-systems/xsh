@@ -523,8 +523,10 @@ Expressions:
   (E), `env.PATH` and the computed-name `env` readers (E), `$?` (E)
 
 
-Writes and values: stream declarations, which need the stream model (E); `.Variant` constructors, which need a leading-dot
-syntax form and the checker's expected type (P).
+Writes and values: stream declarations, which need the stream model (E);
+leading-dot variants whose expected type comes from anything but an annotated
+binding or a declared result's tail or top-level `return`, and leading-dot
+error variants (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -670,6 +672,23 @@ so do the witnesses. A function's declared result is likewise the target of
 its body's tail and of each top-level `return` (`expectBody`), as the binary's
 `err`, `ok 7`, `7` and `err` for the four declared-result forms show. Other
 expected positions need the checker's expected type and are not modelled.
+
+The `leading_dot_variants` fragment root, in
+[`Proofs/Core/Variants.lean`](Xsh/Proofs/Core/Variants.lean), adds the
+leading-dot variant `.Name` and `.Name(args)` (SPEC 5.5) as the syntax form
+`dotVariant`. The same `expectTarget` rewrite that targets a contextual
+`.require()` gives it the enum its expected type names, `T?` selecting from
+`T`, in an annotated binding and in a declared result's tail and top-level
+`return`. The selected variant is the declared one, under the enum's
+declaration identity, with its payload arguments evaluated once in order. A
+leading-dot name with no expected type stays unsupported, as the binary
+rejects it with `check.inferred-variant`, and one whose expected enum lacks
+the variant does not evaluate. Its witnesses follow the verification binary,
+which prints `true` for the annotated, optional, payload, tail and `return`
+forms over one enum; the mutants leave the variant untargeted or select it
+from an enum that does not declare it. Constructor names are unique across a
+program's enums (`check.duplicate-name`), so the variant's name finds its
+declaration.
 
 The `error_contexts` fragment root, in
 [`Proofs/Core/Contexts.lean`](Xsh/Proofs/Core/Contexts.lean), adds

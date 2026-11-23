@@ -15265,6 +15265,15 @@
       "boundary": "Only where, map and flat-map stages without arguments, a take(n) that ends them, and a closing count(), collect(), sum(), first(), last(), min(), max(), any or all are modelled; min and max over items < does not order are stuck; a negative take count is stuck rather than the runtime's error; every other stage, value-call stages and streams from anything but a producer, folds, worker stages and stage callback contracts are not. Witnesses follow the verification binary's per-item order, producer interleaving and count on named programs and reject a stage-by-stage order and a source collected before its stages; it does not close BASE-STEP or any STREAM obligation and claims no Rust conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.Core.Variants.leading_dot_variants",
+      "module": "Xsh.Proofs.Core.Variants",
+      "declaration": "Xsh.Proofs.Core.Variants.leading_dot_variants",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "SPEC 5.5 leading-dot variants: an annotated binding and a function's declared result, through its tail and each top-level return, give a leading-dot name the enum its expected type names, T? selecting from T; the selected variant is the declared one with the enum's declaration identity, its payload arguments evaluated once in order; a leading-dot name with no expected type is outside the model and one whose expected enum does not declare it does not evaluate.",
+      "boundary": "Expected types from parameters, Ok and Err, record and constructor fields, list and map elements, value if and match branches, the other operand of == and !=, nested returns, generic callables, and error families are not modelled; enum visibility and check.inferred-variant belong to the checker. Witnesses agree with the verification binary's printed output on named programs; it does not close BASE-ENV or BASE-STEP and claims no Rust conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.Core.Threading.expression_store_threading",
       "module": "Xsh.Proofs.Core.Threading",
       "declaration": "Xsh.Proofs.Core.Threading.expression_store_threading",

@@ -2553,7 +2553,7 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | split))
 
 -- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.
-set_option maxHeartbeats 400000 in
+set_option maxHeartbeats 800000 in
 theorem restoring_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (inner : Restoring machine fuel) :
     ∀ frame expression, VRestores frame (evalExpr machine (fuel + 1) frame expression) := by
