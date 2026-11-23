@@ -6,6 +6,8 @@ const constant_same_nan_unequal = constant_same_nan != constant_same_nan
 const constant_nested_zero_equal = [[constant_positive_zero]] == [[constant_negative_zero]]
 const constant_nested_nan_unequal = [[constant_same_nan]] != [[constant_same_nan]]
 
+error FloatPayload = Holding(value: Float)
+
 pure equals_zero(value: Float) -> Bool {
   value == 0.0
 }
@@ -90,4 +92,13 @@ test test_keyed_stages_compare_recursive_float_keys_semantically {
   assert nan_key_groups.len() == 2
   assert nan_key_groups[0].key[0] != nan_key_groups[0].key[0]
   assert nan_key_groups[1].key[0] != nan_key_groups[1].key[0]
+}
+
+test test_error_payloads_compare_floats_by_ieee_value {
+  let positive_zero = 0.0
+  let negative_zero = -0.0
+  let nan = 0.0 / 0.0
+
+  assert FloatPayload.Holding(value: positive_zero) == FloatPayload.Holding(value: negative_zero)
+  assert FloatPayload.Holding(value: nan) != FloatPayload.Holding(value: nan)
 }

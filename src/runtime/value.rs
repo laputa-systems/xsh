@@ -1554,12 +1554,16 @@ impl fmt::Debug for RuntimeError {
 }
 
 impl PartialEq for RuntimeError {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &Self) -> bool { self.eq_with_payload(other, |left, right| left == right) }
+}
+
+impl RuntimeError {
+    pub(crate) fn eq_with_payload(&self, other: &Self, payload_eq: impl Fn(&RecordMap, &RecordMap) -> bool) -> bool {
         self.family == other.family
             && self.variant == other.variant
             && self.kind == other.kind
             && self.message == other.message
-            && self.payload == other.payload
+            && payload_eq(&self.payload, &other.payload)
             && self.facets == other.facets
             && self.span == other.span
             && self.contexts == other.contexts

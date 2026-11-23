@@ -2780,6 +2780,13 @@ fn lowered_semantic_map_eq<K: Ord>(
         })
 }
 
+fn runtime_records_semantically_equal(left: &RecordMap, right: &RecordMap) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .all(|(key, value)| right.get(key).is_some_and(|other| runtime_values_semantically_equal(value, other)))
+}
+
 fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::EnvPathList(paths), Value::List(items)) | (Value::List(items), Value::EnvPathList(paths)) => {
@@ -2800,14 +2807,8 @@ fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
                 })
         }
         (Value::Record(left), Value::Record(right))
-        | (Value::Module(left), Value::Module(right)) => {
-            left.len() == right.len()
-                && left.iter().all(|(key, value)| {
-                    right
-                        .get(key)
-                        .is_some_and(|other| runtime_values_semantically_equal(value, other))
-                })
-        }
+        | (Value::Module(left), Value::Module(right)) => runtime_records_semantically_equal(left, right),
+        (Value::Error(left), Value::Error(right)) => left.eq_with_payload(right, runtime_records_semantically_equal),
         (Value::Result(ResultValue::Ok(left)), Value::Result(ResultValue::Ok(right)))
         | (Value::Result(ResultValue::Err(left)), Value::Result(ResultValue::Err(right))) => {
             runtime_values_semantically_equal(left, right)
