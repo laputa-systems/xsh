@@ -1,14 +1,14 @@
 # XSH semantic soundness campaign
 
-**Status:** paused 2026-11-23. Resume: "Resume the Lean campaign from the
-Status in xsh-lean.md"; first command `cd formal && lake build`. Last accepted
+**Status:** paused 2026-11-23; per the owner (2026-11-23) Lean continues
+only as the focused lane L1 to L3 of `dev/campaign/CAMPAIGN-2026-11-23.md`.
+First command `cd formal && lake build`. Last accepted
 revision `2c7959ff9` on `master`, green (build, axiom audit, inventory tests,
 `check-inventory.py`, `leanchecker --fresh` 0); commits after `34a7deaf8`
 are unpushed. Inventory: 1,312 roots; 8 of 77 obligations closed;
 `formal/README.md` lists each fragment and gap. Kept:
 `lane/lean-effects` (`.work/wt/lean-effects`), whose commits are on `master` by
-patch; delete it once its worktree is removed. Other `.work/wt` lanes belong to
-other campaigns.
+patch; delete it once its worktree is removed.
 Next slices, each verified against `target/verification/xsh`: (1) `env.list()`
 and `env.entries()` from a `hostNames` oracle, names in byte order, list failing
 `invalid-utf8` (`src/runtime/eval/lowered_run/module_env.rs:147`); (2)
@@ -16,8 +16,8 @@ and `env.entries()` from a `hostNames` oracle, names in byte order, list failing
 `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1653`, seed 0 when
 omitted (binary: `bcdae`, `acedb`, `bfdeacg` for letters `a`–`e`
 `shuffle(7)`, `shuffle()`, and `a`–`g` `shuffle(9223372036854775807)`); (3)
-`par-map` as an eager stage that keeps input order and drops workers' outer
-writes. `within` waits for a cancellation model; the producer `env` scope rule
+`par-map` as an eager stage that keeps input order; captured writes are a
+check error once XSH-185 lands. `within` waits for a cancellation model; the producer `env` scope rule
 waits on XSH-184.
 
 Fragment proofs hold for their models only. The certified source/IR vertical

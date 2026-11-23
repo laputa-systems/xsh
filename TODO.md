@@ -27,7 +27,7 @@ out of scope.
 - **Area:** Runtime parallelism
 - **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1306-1307` (route selection: `!evaluator.trace_enabled && jobs > 1 && item_count > 1`), `src/runtime/eval/lowered_run/indexed_run/pipeline.rs:102` (workers start from cloned `base_slots`); SPEC 13.5 states no rule for a callback that assigns a captured `var`
 - **Problem:** A `par-map` callback that writes a captured mutable binding keeps the write on the sequential route and silently drops it on the parallel route. The checker accepts the program. With `var b = 0` and `[1, 2, 7] |> par-map { b += 1; . }`, the verification binary leaves `b` at `0`. The same stage gives `3` with `par-map(jobs: 1)`, `1` over a one-item list, `3` with `map`, and `3` under `xsht trace`, which forces the sequential route. A program's result therefore depends on item count, `jobs:`, available CPUs and whether it is traced.
-- **Recommendation:** Reject writes to captured bindings in `par-map` callbacks at check time (a new `check.` diagnostic naming the binding), or specify one route-independent rule in SPEC 13.5. Keep the reproducer, run on every route including tracing, as a native test. The profiling campaign's fidelity suite uses it to show that observation does not change results.
+- **Recommendation:** Reject writes to captured bindings in `par-map` callbacks at check time, with a new `check.` diagnostic naming the binding and a SPEC 13.5 rule (owner decision, 2026-11-23). Keep the reproducer, run on every route including tracing, as a native test. The profiling campaign's fidelity suite uses it to show that observation does not change results.
 - **Fix with:** lifecycle-concurrency, error-model
 - **Effort:** S
 
