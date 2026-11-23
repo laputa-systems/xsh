@@ -296,7 +296,7 @@ pure begin_delete(app: App) -> App {
   if app.read_only {
     return {...app, message: "This session is read only; deletion is disabled."}
   }
-  if app.browser.focus != browser.Marked {
+  if app.browser.focus != .Marked {
     return {...app, message: "Press Tab to review marks, then Ctrl-R."}
   }
   if app.browser.marks.is_empty() {
@@ -347,7 +347,7 @@ proc execute_delete(app: App, columns: Int, rows: Int) [fs, error] -> App {
 pure live_entries(tree: model.Tree) -> Int {
   var count = 0
   for index in range(tree.nodes.len()) {
-    if index != tree.root and tree.nodes[index].state != model.Tombstone {
+    if index != tree.root and tree.nodes[index].state != .Tombstone {
       count += 1
     }
   }
@@ -355,17 +355,17 @@ pure live_entries(tree: model.Tree) -> Int {
 }
 
 pure keeps_mark(tree: model.Tree, id: Int) -> Bool {
-  if tree.nodes[id].state == model.Tombstone {
+  if tree.nodes[id].state == .Tombstone {
     return false
   }
-  if tree.nodes[id].state == model.Stale {
+  if tree.nodes[id].state == .Stale {
     return true
   }
   var pending = [id]
   while ! pending.is_empty() {
     let at = pending[pending.len() - 1]
     pending = pending[..pending.len() - 1]
-    if tree.nodes[at].state == model.Stale {
+    if tree.nodes[at].state == .Stale {
       return true
     }
     for child in model.children(tree, at) {
@@ -392,14 +392,14 @@ proc rescan(app: App, columns: Int, rows: Int) [fs, error] -> App {
 
 pure action_for(key: input.Key) -> Action {
   match key {
-    input.Up | input.Text("k") => MoveUp
-    input.Down | input.Text("j") => MoveDown
+    input.Up | .Text("k") => MoveUp
+    input.Down | .Text("j") => MoveDown
     input.PageUp => PageUp
     input.PageDown => PageDown
     input.Home => Home
     input.End => End
-    input.Enter | input.Right | input.Text("l") => Enter
-    input.Left | input.Backspace | input.Text("h") => Parent
+    input.Enter | .Right | .Text("l") => Enter
+    input.Left | .Backspace | .Text("h") => Parent
     input.Tab => Switch
     input.Text("d") => Mark
     input.Text("v") => Range
@@ -412,7 +412,7 @@ pure action_for(key: input.Key) -> Action {
     input.Text("?") => Help
     input.Control(18) => DeleteStart
     input.Text("r") => Rescan
-    input.Text("q") | input.Cancel => Quit
+    input.Text("q") | .Cancel => Quit
     input.Escape => Cancel
     else => None
   }
@@ -443,9 +443,9 @@ proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error]
     Quit => return {app: app, quit: true}
     None => {}
     Cancel => next.message = null
-    Help => next.dialog = ui.Help(app.browser.focus)
-    FilterStart => if app.browser.focus == browser.Browser {
-      next.dialog = ui.Filter(app.filter)
+    Help => next.dialog = .Help(app.browser.focus)
+    FilterStart => if app.browser.focus == .Browser {
+      next.dialog = .Filter(app.filter)
       next.message = null
     } else {
       next.message = "That applies to the list; press Tab."
@@ -458,13 +458,13 @@ proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error]
     Size => next = toggle_size(app, columns, rows)
     Rescan => next = rescan(app, columns, rows)
     DeleteStart => next = begin_delete(app)
-    Enter => next = if app.browser.focus == browser.Marked {
+    Enter => next = if app.browser.focus == .Marked {
       reveal_marked(app, columns, rows)
     } else {
       enter_cursor(app, columns, rows)
     }
     Parent => next = go_parent(app, columns, rows)
-    Mark => next = if app.browser.focus == browser.Marked {
+    Mark => next = if app.browser.focus == .Marked {
       unmark_at_cursor(app, columns, rows)
     } else {
       toggle_mark(app, columns, rows)
@@ -474,12 +474,12 @@ proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error]
       next.message = null
       next.browser = browser.normalize(next.browser, columns, rows)
     }
-    Range => if app.browser.focus == browser.Marked {
+    Range => if app.browser.focus == .Marked {
       next.message = "That applies to the list; press Tab."
     } else {
       next.browser = browser.toggle_range(app.browser)
     }
-    MarkAll => if app.browser.focus == browser.Marked {
+    MarkAll => if app.browser.focus == .Marked {
       next.message = "That applies to the list; press Tab."
     } else {
       next.browser = browser.mark_all(app.browser, rows_of(app))
@@ -540,11 +540,11 @@ proc apply_key(app: App, key: input.Key, columns: Int, rows: Int) [fs, error] ->
   match app.dialog {
     ui.Filter(value) => {
       match key {
-        input.Text(text) => {app: {...app, dialog: ui.Filter(value + text)}, quit: false}
+        input.Text(text) => {app: {...app, dialog: .Filter(value + text)}, quit: false}
         input.Backspace => {
           let characters = value.count_chars()
           let shorter = if characters == 0 { "" } else { value.split("") |> take(characters - 1).join("") }
-          {app: {...app, dialog: ui.Filter(shorter)}, quit: false}
+          {app: {...app, dialog: .Filter(shorter)}, quit: false}
         }
         input.Enter => {app: apply_filter(app, value, columns, rows), quit: false}
         input.Escape => {app: {...app, dialog: ui.None}, quit: false}
@@ -553,9 +553,9 @@ proc apply_key(app: App, key: input.Key, columns: Int, rows: Int) [fs, error] ->
       }
     }
     ui.Help(_) => {
-      if key == input.Escape or key == input.Text("?") {
+      if key == .Escape or key == input.Text("?") {
         {app: {...app, dialog: ui.None}, quit: false}
-      } else if key == input.Cancel {
+      } else if key == .Cancel {
         {app: app, quit: true}
       } else {
         {app: app, quit: false}

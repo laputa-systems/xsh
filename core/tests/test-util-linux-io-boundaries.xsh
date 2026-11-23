@@ -32,7 +32,7 @@ proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool
   let termination = if status.signaled() {
     ul.Signaled(status.signal_number()?)
   } else {
-    ul.Exited(status.exit_code()?)
+    .Exited(status.exit_code()?)
   }
   Ok({termination: termination, stdout: stdout_bytes, stderr: stderr_bytes})
 }
@@ -101,7 +101,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
   let termination = if completed.status.signaled() {
     ul.Signaled(completed.status.signal_number()?)
   } else {
-    ul.Exited(completed.status.exit_code()?)
+    .Exited(completed.status.exit_code()?)
   }
   Ok({termination: termination, stdout: b"", stderr: stderr_bytes})
 }

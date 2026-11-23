@@ -151,31 +151,31 @@ test test_unmodeled_families_are_counted_not_dropped_and_unmodeled_route_attribu
 }
 
 test test_address_requests_name_the_exact_local_prefix_and_link [error] {
-  let add = net_state.request(net_state.AddAddress(address("192.0.3.3", 24)))?
+  let add = net_state.request(.AddAddress(address("192.0.3.3", 24)))?
   assert add.message_type == 20 and add.flags == 1541
   assert add.payload == b"\x02\x18\x00\x00\x07\x00\x00\x00\x08\x00\x01\x00\xc0\x00\x03\x03\x08\x00\x02\x00\xc0\x00\x03\x03"
-  let remove = net_state.request(net_state.RemoveAddress({...address("192.0.2.2", 24), broadcast: "192.0.2.255"}))?
+  let remove = net_state.request(.RemoveAddress({...address("192.0.2.2", 24), broadcast: "192.0.2.255"}))?
   assert remove.message_type == 21 and remove.flags == 5
   assert remove.payload == b"\x02\x18\x00\x00\x07\x00\x00\x00\x08\x00\x01\x00\xc0\x00\x02\x02\x08\x00\x02\x00\xc0\x00\x02\x02"
-  let six = net_state.request(net_state.AddAddress({...address("2001:db8::1", 64), family: .Inet6}))?
+  let six = net_state.request(.AddAddress({...address("2001:db8::1", 64), family: .Inet6}))?
   assert six.payload.len() == 8 + 20 + 20 and six.payload[0..2] == b"\x0a\x40"
 }
 
 test test_route_requests_carry_the_hop_priority_and_table_and_removal_keeps_the_observed_selectors [error] {
-  let add = net_state.request(net_state.AddRoute(default_route("192.0.2.1", 101)))?
+  let add = net_state.request(.AddRoute(default_route("192.0.2.1", 101)))?
   assert add.message_type == 24 and add.flags == 1541
   assert add.payload == b"\x02\x00\x00\x00\xfe\x03\x00\x01\x00\x00\x00\x00\x08\x00\x05\x00\xc0\x00\x02\x01\x08\x00\x04\x00\x07\x00\x00\x00\x08\x00\x06\x00\x65\x00\x00\x00\x08\x00\x0f\x00\xfe\x00\x00\x00"
-  let remove = net_state.request(net_state.RemoveRoute({...default_route("192.0.2.1", 0), other_attributes: [8]}))?
+  let remove = net_state.request(.RemoveRoute({...default_route("192.0.2.1", 0), other_attributes: [8]}))?
   assert remove.message_type == 25 and remove.flags == 5
   assert remove.payload == b"\x02\x00\x00\x00\xfe\x03\x00\x01\x00\x00\x00\x00\x08\x00\x05\x00\xc0\x00\x02\x01\x08\x00\x04\x00\x07\x00\x00\x00\x08\x00\x0f\x00\xfe\x00\x00\x00"
 }
 
 test test_changes_the_library_cannot_express_exactly_are_refused_before_any_request [error] {
-  assert unencodable(net_state.AddRoute({...default_route("192.0.2.1", 0), other_attributes: [8]}))
-  assert unencodable(net_state.AddRoute({...default_route("192.0.2.1", 0), hops: [{ifindex: 7, gateway: "192.0.2.1"}, {ifindex: 9, gateway: "192.0.2.9"}]}))
-  assert unencodable(net_state.AddRoute({...default_route("192.0.2.1", 0), prefix: 24}))
-  assert unencodable(net_state.AddAddress(address("192.0.2.300", 24)))
-  assert unencodable(net_state.AddAddress({...address("192.0.2.3", 24), family: .Inet6}))
+  assert unencodable(.AddRoute({...default_route("192.0.2.1", 0), other_attributes: [8]}))
+  assert unencodable(.AddRoute({...default_route("192.0.2.1", 0), hops: [{ifindex: 7, gateway: "192.0.2.1"}, {ifindex: 9, gateway: "192.0.2.9"}]}))
+  assert unencodable(.AddRoute({...default_route("192.0.2.1", 0), prefix: 24}))
+  assert unencodable(.AddAddress(address("192.0.2.300", 24)))
+  assert unencodable(.AddAddress({...address("192.0.2.3", 24), family: .Inet6}))
 }
 
 pure header(length: Int, kind: Int) -> Bytes {

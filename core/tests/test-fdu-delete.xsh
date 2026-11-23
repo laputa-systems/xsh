@@ -38,7 +38,7 @@ test test_fdu_browser_scan_errors_inside_a_directory_skip_only_that_entry {
   assert result.ok
   assert result.plan.targets == [built.second]
   assert result.plan.roots == [built.directory]
-  assert result.plan.disposition[built.directory] == delete.Enter
+  assert result.plan.disposition[built.directory] == .Enter
   assert result.plan.skipped.len() == 1
   assert result.plan.skipped[0].node == built.file
   assert result.plan.skipped[0].reason == "scan is incomplete"
@@ -86,7 +86,7 @@ test test_fdu_browser_running_scan_plans_finished_subtrees_and_skips_directories
   let result = delete.browser_plan(tree, [built.directory, scanning.id])
   assert result.ok
   assert result.plan.targets == [built.file, built.second, built.directory]
-  assert result.plan.disposition[scanning.id] == delete.Retain
+  assert result.plan.disposition[scanning.id] == .Retain
   assert result.plan.skipped.len() == 1
   assert result.plan.skipped[0].node == scanning.id
   assert result.plan.skipped[0].reason == "scan is still in progress"
@@ -100,8 +100,8 @@ test test_fdu_browser_excluded_entries_are_skipped_and_never_entered {
     let result = delete.browser_plan(tree, [built.directory])
     assert result.ok
     assert result.plan.targets == [built.file, built.second]
-    assert result.plan.disposition[nested.id] == delete.Retain
-    assert result.plan.disposition[built.directory] == delete.Enter
+    assert result.plan.disposition[nested.id] == .Retain
+    assert result.plan.disposition[built.directory] == .Enter
     assert result.plan.skipped.len() == 1
     assert result.plan.skipped[0].node == nested.id
   }

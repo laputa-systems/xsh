@@ -15,7 +15,7 @@ proc reply(payload: Str) [error] -> Result[Any, Error] {
 }
 
 pure observation(args: List[Path], captured: Capture) -> Result[ul.Observed, Error] {
-  let termination = if captured.returncode < 0 { ul.Signaled(-captured.returncode) } else { ul.Exited(captured.returncode) }
+  let termination = if captured.returncode < 0 { ul.Signaled(-captured.returncode) } else { .Exited(captured.returncode) }
   Ok({util: "lslocks", args: [word.display() for word in args], termination: termination,
     stdout: captured.stdout_b64.base64_decode()?, stderr: captured.stderr_b64.base64_decode()?})
 }

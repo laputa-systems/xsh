@@ -48,8 +48,8 @@ test test_tui_colors_renders_complete_sgr_and_cursor_highlight {
   assert colors.ansi(colors.PLAIN) == "\u{1b}[0m"
   assert colors.ansi(colors.RED) == "\u{1b}[0;31m"
   assert colors.ansi({fg: colors.Cyan, bg: colors.Black, bold: true, dim: true, reversed: true}) == "\u{1b}[0;1;2;7;36;40m"
-  assert colors.ansi({fg: colors.Ansi256(27), bg: null, bold: false, dim: false, reversed: false}) == "\u{1b}[0;38;5;27m"
-  assert colors.ansi({fg: null, bg: colors.Rgb(1, 2, 3), bold: false, dim: false, reversed: false}) == "\u{1b}[0;48;2;1;2;3m"
+  assert colors.ansi({fg: .Ansi256(27), bg: null, bold: false, dim: false, reversed: false}) == "\u{1b}[0;38;5;27m"
+  assert colors.ansi({fg: null, bg: .Rgb(1, 2, 3), bold: false, dim: false, reversed: false}) == "\u{1b}[0;48;2;1;2;3m"
 
   let focused = colors.with_cursor(colors.YELLOW, true)
   assert focused.fg == colors.Yellow and focused.reversed and ! focused.bold

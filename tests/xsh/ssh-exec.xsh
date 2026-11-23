@@ -96,10 +96,10 @@ test ssh_exec_timeout_carries_certainty {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "sleep 5", {timeout_ms: 200}) {
       Ok(_) => assert false, "slow command did not time out"
-      Err(SshError.Timeout {certainty, ..}) => assert certainty == .Submitted
+      Err(.Timeout {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
-    assert ssh.exec(session, "true", {}) is Err(SshError.Unusable {..})
+    assert ssh.exec(session, "true", {}) is Err(.Unusable {..})
   }
 }
 
@@ -125,7 +125,7 @@ test ssh_exec_rejects_concurrent_use {
       let command = if index == 1 { "sleep 1" } else { "true" }
       match ssh.exec(session, command, {timeout_ms: 5000}) {
         Ok(_) => false,
-        Err(SshError.Busy {..}) => true,
+        Err(.Busy {..}) => true,
         Err(_) => false,
       }
     }
@@ -202,7 +202,7 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "head -c 4096 /dev/zero", {max_output: 1024}) {
       Ok(_) => assert false, "output limit was not enforced"
-      Err(SshError.OutputLimit {certainty, ..}) => assert certainty == .Submitted
+      Err(.OutputLimit {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
   }
@@ -228,7 +228,7 @@ test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
   with session = ssh.connect(options)? {
     let flood = "head -c 3000000 /dev/zero"
     let input = {max_output: 1024, stdin_path: p"/dev/null"}
-    assert ssh.exec(session, flood, input) is Err(SshError.OutputLimit {..})
+    assert ssh.exec(session, flood, input) is Err(.OutputLimit {..})
   }
   with session = ssh.connect(options)? {
     let to_file = {max_output: 1024, stdout_path: fp"{root}/out"}
@@ -239,7 +239,7 @@ test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
   with session = ssh.connect(options)? {
     let stderr_flood = "head -c 3000000 /dev/zero >&2"
     let to_file = {max_output: 1024, stdout_path: fp"{root}/sink"}
-    assert ssh.exec(session, stderr_flood, to_file) is Err(SshError.OutputLimit {..})
+    assert ssh.exec(session, stderr_flood, to_file) is Err(.OutputLimit {..})
   }
 }
 
@@ -408,11 +408,11 @@ test ssh_exec_environment_is_sent_when_the_server_accepts_it { |_|
   with session = ssh.connect(options)? {
     let accepted = ssh.exec(session, "printenv LC_XSH", {env: {LC_XSH: "set by the client"}})?
     assert accepted.stdout.utf8()? == "set by the client\n"
-    assert ssh.exec(session, "printenv", {env: {["1BAD"]: "x"}}) is Err(SshError.Options {..})
+    assert ssh.exec(session, "printenv", {env: {["1BAD"]: "x"}}) is Err(.Options {..})
     assert ssh.exec(session, "true", {})?.exit_code == 0
     match ssh.exec(session, "touch /tmp/ran-despite-refused-env", {env: {NOT_ACCEPTED: "x"}}) {
       Ok(_) => assert false, "a refused variable still ran the command"
-      Err(SshError.Rejected {certainty, ..}) => assert certainty == .NotSubmitted
+      Err(.Rejected {certainty, ..}) => assert certainty == .NotSubmitted
       Err(other) => assert false, other.message
     }
   }
@@ -444,11 +444,11 @@ test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
     assert ssh.info(session)?.usable
     match ssh.exec(session, "sleep 30", {stdin_path: payload, timeout_ms: 300}) {
       Ok(_) => assert false, "the command finished"
-      Err(SshError.Timeout {certainty, ..}) => assert certainty == .Submitted
+      Err(.Timeout {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
     assert ! ssh.info(session)?.usable
-    assert ssh.exec(session, "true", {}) is Err(SshError.Unusable {..})
+    assert ssh.exec(session, "true", {}) is Err(.Unusable {..})
   }
   with session = ssh.connect(options)? {
     assert ssh.exec(session, "true", {})?.exit_code == 0
@@ -475,7 +475,7 @@ test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
     match ssh.exec(session, "kill -9 $PPID; sleep 5", {}) {
       Ok(result) => assert result.missing or result.signal != "", "the connection survived"
       Err(error) => {
-        assert error is SshError.Transport {..}
+        assert error is .Transport {..}
         assert ssh.certainty(error) == .Submitted
       }
     }

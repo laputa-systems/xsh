@@ -18,11 +18,11 @@ test test_tui_browser_ports_fdu_split_geometry {
   assert ! browser.fits_two_panes(browser.Vertical, 59, 100)
   assert browser.fits_two_panes(browser.Horizontal, 1, 12)
   assert ! browser.fits_two_panes(browser.Horizontal, 100, 11)
-  assert browser.split_toggled(browser.Vertical) == browser.Horizontal
-  assert browser.split_toggled(browser.Horizontal) == browser.Vertical
+  assert browser.split_toggled(browser.Vertical) == .Horizontal
+  assert browser.split_toggled(browser.Horizontal) == .Vertical
 
   let stacked = browser.apply(browser.initial(), browser.ToggleSplit, [], 100, 30)
-  assert stacked.split == browser.Horizontal
+  assert stacked.split == .Horizontal
 }
 
 test test_tui_browser_focus_and_marks_control_side_visibility {
@@ -33,7 +33,7 @@ test test_tui_browser_focus_and_marks_control_side_visibility {
   state = browser.apply(state, browser.MoveDown, [1, 2, 3], 80, 24)
   assert state.cursor == 2
   state = browser.apply(state, browser.SwitchPane, [1, 2, 3], 80, 24)
-  assert state.focus == browser.Browser
+  assert state.focus == .Browser
 
   state = browser.apply(state, browser.ToggleMark, [1, 2, 3], 80, 24)
   assert state.marks == [2]
@@ -41,17 +41,17 @@ test test_tui_browser_focus_and_marks_control_side_visibility {
   assert browser.side_visible(state, 80, 24)
 
   state = browser.apply(state, browser.SwitchPane, [1, 2, 3], 80, 24)
-  assert state.focus == browser.Marked
+  assert state.focus == .Marked
   let narrow_marked = browser.normalize(state, 50, 24)
-  assert narrow_marked.focus == browser.Marked
+  assert narrow_marked.focus == .Marked
   assert narrow_marked.side_visible
 
   let narrow_browser = browser.normalize({...narrow_marked, focus: browser.Browser}, 50, 24)
-  assert narrow_browser.focus == browser.Browser
+  assert narrow_browser.focus == .Browser
   assert ! narrow_browser.side_visible
 
   let cleared = browser.apply(narrow_marked, browser.ClearMarks, [1, 2, 3], 50, 24)
-  assert cleared.focus == browser.Browser
+  assert cleared.focus == .Browser
   assert ! cleared.side_visible
 }
 

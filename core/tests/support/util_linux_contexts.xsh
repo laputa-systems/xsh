@@ -47,7 +47,7 @@ export proc terminal_observe(s: uu.Scene, command: Str, args: List[Path], words:
       stdout = terminal_drain(output.master, stdout)?
       stderr = terminal_drain(errors.master, stderr)?
       let status = completed.status
-      let termination = if status.signaled() { ul.Signaled(status.signal_number()?) } else { ul.Exited(status.exit_code()?) }
+      let termination = if status.signaled() { ul.Signaled(status.signal_number()?) } else { .Exited(status.exit_code()?) }
       return Ok({util: command, args: [word.display() for word in args], termination: termination, stdout: stdout, stderr: stderr})
     }
     assert time.now() < deadline, "terminal command timed out"

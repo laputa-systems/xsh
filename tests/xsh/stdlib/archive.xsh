@@ -28,7 +28,7 @@ test test_archive_tar_cpio_and_compression { |ctx|
   archive.extract(tarball, selected, .Tar, members: [p"dir/a.txt"])
   assert fp"{selected}/dir/a.txt".read_text()?.trim() == "alpha"
   assert ! fp"{selected}/link".exists()?
-  assert archive.extract(tarball, extracted, .Tar) is Err(ArchiveError.Collision {..})
+  assert archive.extract(tarball, extracted, .Tar) is Err(.Collision {..})
   let cpio = fp"{out}/pkg.cpio"
   archive.create(cpio, src, [p"."], .Cpio)
   let cpio_entries = archive.list(cpio, .Cpio)?.collect()
@@ -56,8 +56,8 @@ test test_archive_tar_cpio_and_compression { |ctx|
 
 test test_archive_zip_error_contracts { |ctx|
   let not_zip = test.temp_file(ctx, name: "not.zip", contents: b"not a zip")?
-  assert archive.list(not_zip, .Zip) is Err(ArchiveError.Corrupt {..})
-  assert archive.extract(not_zip, test.temp_path(ctx, name: "zip-out"), .Zip) is Err(ArchiveError.Corrupt {..})
+  assert archive.list(not_zip, .Zip) is Err(.Corrupt {..})
+  assert archive.extract(not_zip, test.temp_path(ctx, name: "zip-out"), .Zip) is Err(.Corrupt {..})
 }
 
 # One member of a hand-written ustar archive: `kind` is the type flag ("0"
@@ -211,7 +211,7 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   let stripped = fp"{out}/stripped"
   archive.extract(tgz, stripped, .Tar, strip_components: 1)
   assert fp"{stripped}/a.txt".read_text()?.trim() == "alpha"
-  assert archive.extract(tgz, dest, .Tar) is Err(ArchiveError.Collision {..})
+  assert archive.extract(tgz, dest, .Tar) is Err(.Collision {..})
   assert archive.list(tbz, .Tar)?.collect().len() == 3
   assert archive.list(txz, .Tar)?.collect().len() == 3
   assert archive.list(plain, .Tar)?.collect().len() == 3
@@ -260,13 +260,13 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   assert archive.decompress_bytes(bz2_probe)?.utf8()?.trim() == "alpha"
   assert archive.decompress_bytes(xz_probe)?.utf8()?.trim() == "alpha"
   assert archive.decompress_bytes(auto_lzma)?.utf8()?.trim() == "alpha"
-  assert archive.compress(payload, fp"{out}/bad.zz") is Err(ArchiveError.Options {..})
-  assert archive.compress(payload, fp"{out}/bad.zz", format: .Plain) is Err(ArchiveError.Options {..})
-  assert archive.compress(payload, fp"{out}/bad.gz", format: .Auto, level: 10) is Err(ArchiveError.Options {..})
+  assert archive.compress(payload, fp"{out}/bad.zz") is Err(.Options {..})
+  assert archive.compress(payload, fp"{out}/bad.zz", format: .Plain) is Err(.Options {..})
+  assert archive.compress(payload, fp"{out}/bad.gz", format: .Auto, level: 10) is Err(.Options {..})
   assert ! fp"{out}/bad.gz".exists()?
   let unknown = fp"{out}/unknown.bin"
   payload.copy(to: unknown)
-  assert archive.decompress(unknown, fp"{out}/unknown.out") is Err(ArchiveError.Options {..})
+  assert archive.decompress(unknown, fp"{out}/unknown.out") is Err(.Options {..})
 
   let good_zip = fp"{root}/good.zip"
   write_zip(ctx, good_zip, [{name: "zip/note.txt", data: b"zip\n"}], true)
@@ -284,10 +284,10 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   write_tar(absolute_escape, [{name: "/evil", kind: "0", link: "", data: b"bad"}])
   write_tar(symlink_escape, [{name: "link", kind: "2", link: "../evil", data: b""}])
   write_zip(ctx, bad_zip, [{name: "../escape.txt", data: b"bad\n"}], true)
-  assert archive.extract(parent_escape, fp"{out}/bad-parent", .Tar) is Err(ArchiveError.Unsafe {..})
-  assert archive.extract(absolute_escape, fp"{out}/bad-absolute", .Tar) is Err(ArchiveError.Unsafe {..})
-  assert archive.extract(symlink_escape, fp"{out}/bad-symlink", .Tar) is Err(ArchiveError.Unsafe {..})
-  assert archive.extract(bad_zip, fp"{out}/bad-zip", .Zip) is Err(ArchiveError.Unsafe {..})
+  assert archive.extract(parent_escape, fp"{out}/bad-parent", .Tar) is Err(.Unsafe {..})
+  assert archive.extract(absolute_escape, fp"{out}/bad-absolute", .Tar) is Err(.Unsafe {..})
+  assert archive.extract(symlink_escape, fp"{out}/bad-symlink", .Tar) is Err(.Unsafe {..})
+  assert archive.extract(bad_zip, fp"{out}/bad-zip", .Zip) is Err(.Unsafe {..})
   assert ! fp"{out}/bad-parent".exists()?
   assert ! fp"{root}/evil".exists()?
 }
@@ -340,7 +340,7 @@ test test_archive_zip_extracts_many_files_and_overwrites { |ctx|
   write_zip(ctx, zip, files, true)
 
   assert archive.list(zip, .Zip)?.collect().len() == 12
-  assert archive.extract(zip, fp"{out}/extract", .Zip) is Err(ArchiveError.Collision {..})
+  assert archive.extract(zip, fp"{out}/extract", .Zip) is Err(.Collision {..})
   assert fp"{out}/extract/many/file-00.txt".read_text()? == "old\n", "a refused extraction publishes nothing"
   assert ! fp"{out}/extract/many/file-01.txt".exists()?
   archive.extract(zip, fp"{out}/extract", .Zip, collision: .Replace)
@@ -350,8 +350,8 @@ test test_archive_zip_extracts_many_files_and_overwrites { |ctx|
 
   let not_zip = fp"{root}/not.zip"
   not_zip.write("not a zip")
-  assert archive.list(not_zip, .Zip) is Err(ArchiveError.Corrupt {..})
-  assert archive.extract(not_zip, fp"{out}/bad-open", .Zip) is Err(ArchiveError.Corrupt {..})
+  assert archive.list(not_zip, .Zip) is Err(.Corrupt {..})
+  assert archive.extract(not_zip, fp"{out}/bad-open", .Zip) is Err(.Corrupt {..})
 }
 
 test test_archive_zip_extracts_deflated_files { |ctx|
@@ -382,7 +382,7 @@ test test_archive_zip_rejects_crc_mismatches { |ctx|
   let flipped = if crc_byte % 2 == 0 { crc_byte + 1 } else { crc_byte - 1 }
   put(zip, central + 16, bytes.from_ints([flipped])?)
 
-  assert archive.extract(zip, fp"{root}/out", .Zip) is Err(ArchiveError.Corrupt {..})
+  assert archive.extract(zip, fp"{root}/out", .Zip) is Err(.Corrupt {..})
   assert ! fp"{root}/out".exists()?, "a failed extraction publishes nothing"
 }
 
@@ -543,12 +543,12 @@ test test_archive_reads_tar_and_cpio_from_byte_streams_and_rejects_zip_streams {
   let zip = fp"{root}/pkg.zip"
   write_zip(ctx, zip, [{name: "note.txt", data: b"zip\n"}], false)
   let zip_stream = run.stream --bytes cat $zip
-  assert archive.list(zip_stream, .Zip) is Err(ArchiveError.NeedsSeek {..})
+  assert archive.list(zip_stream, .Zip) is Err(.NeedsSeek {..})
   let second_zip_stream = run.stream --bytes cat $zip
-  assert archive.extract(second_zip_stream, fp"{root}/zip-stream", .Zip) is Err(ArchiveError.NeedsSeek {..})
+  assert archive.extract(second_zip_stream, fp"{root}/zip-stream", .Zip) is Err(.NeedsSeek {..})
   assert ! fp"{root}/zip-stream".exists()?
   assert archive.list(zip.read_bytes()?, .Zip)?.collect().len() == 1
-  assert archive.list(zip, .Zip, compression: .Gzip) is Err(ArchiveError.Unsupported {..})
+  assert archive.list(zip, .Zip, compression: .Gzip) is Err(.Unsupported {..})
 }
 
 test test_archive_reports_missing_trailers_and_damaged_compression { |ctx|
@@ -573,7 +573,7 @@ print listing.collect().len()
     stderr: ["ArchiveError.Truncated"],
     args: [no_trailer],
   )?
-  assert archive.extract(no_trailer, fp"{root}/out-no-trailer", .Tar) is Err(ArchiveError.Truncated {..})
+  assert archive.extract(no_trailer, fp"{root}/out-no-trailer", .Tar) is Err(.Truncated {..})
   assert ! fp"{root}/out-no-trailer".exists()?
 
   let packed = gz.read_bytes()?
@@ -586,7 +586,7 @@ print listing.collect().len()
   flipped.write(packed)
   let at = packed.len() - 8
   put(flipped, at, bytes.from_ints([(packed.byte_at(at) ?? 0) + 1 - 2 * ((packed.byte_at(at) ?? 0) % 2)])?)
-  assert archive.extract(flipped, fp"{root}/out-flipped", .Tar) is Err(ArchiveError.Corrupt {..})
+  assert archive.extract(flipped, fp"{root}/out-flipped", .Tar) is Err(.Corrupt {..})
   assert ! fp"{root}/out-flipped".exists()?
 
   let garbage = fp"{root}/garbage.tar"
@@ -600,7 +600,7 @@ print listing.collect().len()
     stderr: ["ArchiveError.Corrupt"],
     args: [garbage],
   )?
-  assert archive.extract(garbage, fp"{root}/out-garbage", .Tar) is Err(ArchiveError.Corrupt {..})
+  assert archive.extract(garbage, fp"{root}/out-garbage", .Tar) is Err(.Corrupt {..})
   assert ! fp"{root}/out-garbage".exists()?
 }
 
@@ -616,17 +616,17 @@ test test_archive_extraction_policy_and_budgets { |ctx|
     ],
   )
 
-  assert archive.extract(tarball, fp"{root}/default", .Tar) is Err(ArchiveError.Unsafe {..})
-  assert archive.extract(tarball, fp"{root}/refused", .Tar, links: .Refuse) is Err(ArchiveError.Unsafe {..})
+  assert archive.extract(tarball, fp"{root}/default", .Tar) is Err(.Unsafe {..})
+  assert archive.extract(tarball, fp"{root}/refused", .Tar, links: .Refuse) is Err(.Unsafe {..})
   archive.extract(tarball, fp"{root}/verbatim", .Tar, links: .Verbatim)
   assert fp"{root}/verbatim/dir/absolute".readlink()? == p"/etc/hostname"
   assert fp"{root}/verbatim/dir/up".readlink()? == p".."
 
   let many = fp"{root}/many.tar"
   write_tar(many, [{name: f"f{index}", kind: "0", link: "", data: b"x"} for index in range(6)])
-  assert archive.extract(many, fp"{root}/too-many", .Tar, max_entries: 3) is Err(ArchiveError.Limit {..})
+  assert archive.extract(many, fp"{root}/too-many", .Tar, max_entries: 3) is Err(.Limit {..})
   assert ! fp"{root}/too-many".exists()?
-  assert archive.extract(many, fp"{root}/too-big", .Tar, max_entry: 0) is Err(ArchiveError.Limit {..})
+  assert archive.extract(many, fp"{root}/too-big", .Tar, max_entry: 0) is Err(.Limit {..})
   assert archive.list(many, .Tar)?.collect().len() == 6
 
   let rootfs = fp"{root}/modes.tar"
@@ -642,7 +642,7 @@ test test_archive_extraction_policy_and_budgets { |ctx|
   let zeros = fp"{root}/zeros"
   zeros.write(bytes.zero(2 * 1024 * 1024)?)
   archive.compress(zeros, bomb)
-  assert archive.decompress_bytes(bomb, max_bytes: 1024) is Err(ArchiveError.Limit {..})
+  assert archive.decompress_bytes(bomb, max_bytes: 1024) is Err(.Limit {..})
   assert archive.decompress_bytes(bomb)?.len() == 2 * 1024 * 1024
 }
 
@@ -651,7 +651,7 @@ test test_archive_error_variants_carry_the_entry_and_facets { |ctx|
   let tarball = fp"{root}/escape.tar"
   write_tar(tarball, [{name: "../evil", kind: "0", link: "", data: b"bad"}])
   match archive.extract(tarball, fp"{root}/out", .Tar) {
-    Err(ArchiveError.Unsafe {entry, format, ..}) => {
+    Err(.Unsafe {entry, format, ..}) => {
       assert entry == p"../evil"
       assert format == .Tar
     }
@@ -659,7 +659,7 @@ test test_archive_error_variants_carry_the_entry_and_facets { |ctx|
   }
 
   assert archive.list(fp"{root}/missing.tar", .Tar) is Err(is NotFound)
-  assert archive.list(fp"{root}/missing.tar", .Tar) is Err(ArchiveError.Open {..})
+  assert archive.list(fp"{root}/missing.tar", .Tar) is Err(.Open {..})
   assert archive.extract(tarball, fp"{root}/out2", .Tar) is Err(is InvalidData)
 }
 
@@ -679,9 +679,9 @@ test test_archive_lists_a_process_stream_by_draining_bodies_within_the_budget { 
   let many = fp"{root}/many.tar"
   write_tar(many, [{name: f"f{index}", kind: "0", link: "", data: b"x"} for index in range(6)])
   let counted = run.stream --bytes cat $many
-  assert archive.list(counted, .Tar, max_entries: 3) is Err(ArchiveError.Limit {..})
+  assert archive.list(counted, .Tar, max_entries: 3) is Err(.Limit {..})
   let sized = run.stream --bytes cat $many
-  assert archive.list(sized, .Tar, max_output: 1024) is Err(ArchiveError.Limit {..})
+  assert archive.list(sized, .Tar, max_output: 1024) is Err(.Limit {..})
   let whole = run.stream --bytes cat $many
   assert archive.list(whole, .Tar, max_entries: 6)?.collect().len() == 6
 }

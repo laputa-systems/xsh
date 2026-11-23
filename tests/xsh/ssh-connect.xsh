@@ -91,7 +91,7 @@ test ssh_changed_pin_is_rejected {
     host_key: changed,
     timeout_ms: fixture.timeout_ms,
   }
-  assert ssh.connect(options) is Err(SshError.HostKeyMismatch {..})
+  assert ssh.connect(options) is Err(.HostKeyMismatch {..})
 }
 
 test ssh_scope_releases_session {
@@ -111,7 +111,7 @@ test ssh_scope_releases_session {
     timeout_ms: fixture.timeout_ms,
   }
   let released = leave_early(options)?
-  assert ssh.close(released) is Err(SshError.Session {..})
+  assert ssh.close(released) is Err(.Session {..})
 }
 
 type Base = {
@@ -171,13 +171,13 @@ test ssh_known_hosts_refuses_unknown_changed_and_revoked_keys { |ctx|
     }
   }
   let unknown = known_hosts_file(root, "unknown", [known_hosts_line("B", "", "B")?])?
-  assert ssh.connect({...base, known_hosts: unknown}) is Err(SshError.HostKeyUnknown {..})
+  assert ssh.connect({...base, known_hosts: unknown}) is Err(.HostKeyUnknown {..})
   let changed = known_hosts_file(root, "changed", [known_hosts_line("A", "", "B")?])?
-  assert ssh.connect({...base, known_hosts: changed}) is Err(SshError.HostKeyMismatch {..})
+  assert ssh.connect({...base, known_hosts: changed}) is Err(.HostKeyMismatch {..})
   let revoked = known_hosts_file(root, "revoked", [known_hosts_line("A", "", "A")?, known_hosts_line("A", "@revoked ", "A")?])?
-  assert ssh.connect({...base, known_hosts: revoked}) is Err(SshError.HostKeyRevoked {..})
+  assert ssh.connect({...base, known_hosts: revoked}) is Err(.HostKeyRevoked {..})
   let hashed = known_hosts_file(root, "hashed", ["|1|c2FsdA==|aGFzaA== ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA=="])?
-  assert ssh.connect({...base, known_hosts: hashed}) is Err(SshError.TrustMaterial {..})
+  assert ssh.connect({...base, known_hosts: hashed}) is Err(.TrustMaterial {..})
 }
 
 test ssh_connect_requires_exactly_one_trust_and_identity {
@@ -189,13 +189,13 @@ test ssh_connect_requires_exactly_one_trust_and_identity {
     }
   }
   let missing_trust = {host: fixture.host, port: fixture.port, user: fixture.username, key: fixture.key}
-  assert ssh.connect(missing_trust) is Err(SshError.Options {..})
+  assert ssh.connect(missing_trust) is Err(.Options {..})
   let missing_identity = {host: fixture.host, port: fixture.port, user: fixture.username, host_key: fixture.host_key}
-  assert ssh.connect(missing_identity) is Err(SshError.Options {..})
+  assert ssh.connect(missing_identity) is Err(.Options {..})
   let both_trusts = {host: fixture.host, port: fixture.port, user: fixture.username, key: fixture.key, host_key: fixture.host_key, known_hosts: fixture.key}
-  assert ssh.connect(both_trusts) is Err(SshError.Options {..})
+  assert ssh.connect(both_trusts) is Err(.Options {..})
   let both_identities = {host: fixture.host, port: fixture.port, user: fixture.username, key: fixture.key, agent: fixture.key, host_key: fixture.host_key}
-  assert ssh.connect(both_identities) is Err(SshError.Options {..})
+  assert ssh.connect(both_identities) is Err(.Options {..})
 }
 
 test ssh_info_reports_the_authenticated_host_and_algorithms {
@@ -242,7 +242,7 @@ test ssh_return_from_a_with_body_releases_the_session {
     timeout_ms: fixture.timeout_ms,
   }
   let released = leave_early(options)?
-  assert ssh.close(released) is Err(SshError.Session {..})
+  assert ssh.close(released) is Err(.Session {..})
 }
 
 proc leave_early(options: Record) [fs, net, error] -> Result[SshSession, Error] {
@@ -257,7 +257,7 @@ proc open_both(a: Base, b: Base, wrong_pin: Str, fingerprint_a: Str, fingerprint
   let third = {...b, host_key: wrong_pin}
   let results = ssh.connect_all({targets: [first, second, third], jobs: 3})?
   assert results.len() == 3
-  assert results[2] is Err(SshError.HostKeyMismatch {..})
+  assert results[2] is Err(.HostKeyMismatch {..})
   let sessions = [results[0]?, results[1]?]
   let names = sessions |> par-map(jobs: 2) { |session| ssh.exec(session, "hostname", {})?.stdout.utf8()?.trim() }
   names
@@ -315,7 +315,7 @@ test ssh_certainty_reads_the_certainty_of_any_ssh_error {
 test ssh_certainty_field_and_accessor_agree {
   match ssh.connect({}) {
     Ok(_) => assert false, "connect without options succeeded"
-    Err(SshError.Options {certainty, ..} as error) => assert certainty == ssh.certainty(error)
+    Err(.Options {certainty, ..} as error) => assert certainty == ssh.certainty(error)
     Err(other) => assert false, other.message
   }
 }

@@ -2442,10 +2442,10 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
               let reader = stages.command("cargo-diagnostics", ctx.target.triple, "python3",
                 ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(), "--runner", "cargo", "--events", output.display(), "--cargo-diagnostics"], ctx.root, {})
               match gate_execution.execute(reader, 1000) {
-                Ok(gate_execution.Finished(reader_status)) => {
+                Ok(.Finished(reader_status)) => {
                   print "Cargo diagnostics could not be read" when ! reader_status.ok
                 }
-                Ok(gate_execution.TimedOut(_)) | Ok(gate_execution.CouldNotExecute(_)) | Err(_) => print "Cargo diagnostics could not be read"
+                Ok(.TimedOut(_)) | Ok(.CouldNotExecute(_)) | Err(_) => print "Cargo diagnostics could not be read"
               }
               return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw))
             }

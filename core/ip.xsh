@@ -113,8 +113,8 @@ pure parsed_prefix(word: Str) -> Result[HostPrefix, Error] {
 proc link_set(name: Str, state_word: Str) [process, env, net, error] -> Result[Unit, Error] {
   let link = device(observe()?, name)?
   match state_word {
-    "up" => change(net_state.LinkUp(link.ifindex))
-    "down" => change(net_state.LinkDown(link.ifindex))
+    "up" => change(.LinkUp(link.ifindex))
+    "down" => change(.LinkDown(link.ifindex))
     else => error.fail(f"expected up or down, not \"{state_word}\"")
   }
 }
@@ -124,11 +124,11 @@ proc address_change(add: Bool, word: Str, name: Str, broadcast: Str?) [process, 
   let link = device(state, name)?
   let wanted = parsed_prefix(word)?
   if add {
-    return change(net_state.AddAddress({ifindex: link.ifindex, family: wanted.family, local: wanted.host, prefix: wanted.prefix, peer: null, broadcast, scope: 0, flags: 0}))
+    return change(.AddAddress({ifindex: link.ifindex, family: wanted.family, local: wanted.host, prefix: wanted.prefix, peer: null, broadcast, scope: 0, flags: 0}))
   }
   let matches = [item for item in net_state.addresses_of(state, link.ifindex) if item.family == wanted.family and item.local == wanted.host and item.prefix == wanted.prefix]
   fail f"{word} is not an address of {name}" when matches.is_empty()
-  change(net_state.RemoveAddress(matches[0]))
+  change(.RemoveAddress(matches[0]))
 }
 
 type RouteWords = {destination: Str, gateway: Str?, device: Str?, metric: Int}
@@ -181,13 +181,13 @@ proc route_change(add: Bool, words: List[Str]) [process, env, net, error] -> Res
   if !add {
     let matches = [item for item in state.routes if route_matches(item, wanted)]
     fail f"no route matches \"{words.join(" ")}\"" when matches.is_empty()
-    return change(net_state.RemoveRoute(matches[0]))
+    return change(.RemoveRoute(matches[0]))
   }
   fail "a route needs dev or via" when wanted.ifindex == null and wanted.gateway == null
   let c = linux.net_constants()
   let scope = if wanted.family == .Inet and wanted.gateway == null { c.RT_SCOPE_LINK } else { c.RT_SCOPE_UNIVERSE }
   change(
-    net_state.AddRoute({
+    .AddRoute({
       family: wanted.family,
       table: net_state.TABLE_MAIN,
       destination: wanted.destination,

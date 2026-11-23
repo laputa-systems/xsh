@@ -125,7 +125,7 @@ test ssh_session_passed_to_a_worker_still_works { |_|
       let command = f"exit {index}"
       match ssh.exec(session, command, {timeout_ms: 5000}) {
         Ok(result) => result.exit_code,
-        Err(SshError.Busy {..}) => 0,
+        Err(.Busy {..}) => 0,
         Err(_) => -1,
       }
     }

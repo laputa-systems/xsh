@@ -42,7 +42,7 @@ proc procedure_selection(value: Result[Int, Sample], label) [] {
 
 test generic_pattern_conditions_preserve_success_and_failure_scopes [error] {
   let success: Result[Int, Sample] = Ok(7)
-  let failure: Result[Int, Sample] = Err(Sample.Missing())
+  let failure: Result[Int, Sample] = Err(.Missing())
   assert typed_selection(success, "kept").found == 7
   assert typed_selection(failure, "kept").found == 0
   assert generic_selection(success, "kept") == {label: "kept", found: 7}

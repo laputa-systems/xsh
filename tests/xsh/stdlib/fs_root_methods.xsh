@@ -424,7 +424,7 @@ test fs_root_extract_stays_beneath_the_retained_root { |ctx|
   let root = fs.open_root(fp"{base}/root")?
   root.extract(tarball, p"gen/1", .Tar)
   assert root.read_text(p"gen/1/dir/a.txt")? == "alpha"
-  assert root.extract(tarball, p"gen/1", .Tar) is Err(ArchiveError.Collision {..})
+  assert root.extract(tarball, p"gen/1", .Tar) is Err(.Collision {..})
   assert root.extract(tarball, p"gen/1/dir/a.txt", .Tar) is Err(_)
   assert fp"{base}/outside/sentinel".read_text()? == "sentinel"
 }

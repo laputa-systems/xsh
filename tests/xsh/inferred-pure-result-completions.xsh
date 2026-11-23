@@ -18,7 +18,7 @@ pure completion_row(failed: Bool) {
 }
 
 pure completion_integer_typed(failed: Bool) -> Result[Int, PureCompletionProblem] {
-  if failed { return Err(PureCompletionProblem.Rejected()) }
+  if failed { return Err(.Rejected()) }
   7
 }
 

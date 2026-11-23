@@ -1228,9 +1228,9 @@ main()?
 test test_focused_catalogue_rejects_manual_closure_cycles_and_missing_cases {
   let ctx = fixtures.linux_context(p"/repo")?
   let command = gates.CatalogCase(
-    id: "safe", tier: gates.Change, limit: gates.RuntimeSeconds(30),
+    id: "safe", tier: gates.Change, limit: .RuntimeSeconds(30),
     products: [tests.Xsht], prerequisite_ids: [], reasons: ["fixture"],
-    execution: gates.RunCommand({stage: "safe", target: ctx.target.triple,
+    execution: .RunCommand({stage: "safe", target: ctx.target.triple,
       executable: "never-start", argv: ["never-start"], cwd: ctx.root, environment: {}}),
   )
   let manual = {...command, id: "full", limit: gates.ManualOwner, execution: gates.ManualFull}
@@ -1249,7 +1249,7 @@ test test_focused_catalogue_rejects_manual_closure_cycles_and_missing_cases {
   let plan = gates.resolve_selection(catalogue, ["safe", "safe"], ["safe", "safe"], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["safe"]
   assert plan.products == [tests.Xsht]
-  assert gates.resolve_selection(catalogue, ["scenario"], ["scenario"], gates.Change)?.cases[0].tier == gates.Scenario
+  assert gates.resolve_selection(catalogue, ["scenario"], ["scenario"], gates.Change)?.cases[0].tier == .Scenario
 }
 
 test test_gate_request_rejects_all_nonliteral_full_routes {
@@ -1378,13 +1378,13 @@ test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership
   }
   assert expected.len() == 1 + 2 * (module_tests.len() - 1)
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], [], gates.Edit)?
-  assert plan.tier == gates.Edit
+  assert plan.tier == .Edit
   assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness"]
   assert plan.products == [tests.Xsh, tests.Xsht]
   assert plan.unresolved.is_empty()
   match plan.cases[0].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == expected
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("core correctness was not a native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("core correctness was not a native command")
   }
 }
 
@@ -1396,16 +1396,16 @@ test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
   assert plan.unresolved.is_empty()
   match plan.cases[1].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == ["test", "--exact-id", "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the heavy lsmem case was not one exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("the heavy lsmem case was not one exact native command")
   }
-  assert plan.cases[1].tier == gates.Change
+  assert plan.cases[1].tier == .Change
   match plan.cases[2].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == [
       "test",
       "--exact-id", "core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory",
       "--exact-id", "core/tests/test-util-linux-io-boundaries.xsh::test_util_linux_lsmem_preserves_raw_sysroot_argv",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("lsmem consumers were not one exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("lsmem consumers were not one exact native command")
   }
   match gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], ["core/lsmem/consumers"], gates.Edit) {
     Ok(_) => test.fail("Edit accepted a Change-only case")
@@ -1426,7 +1426,7 @@ test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps
   }
   let suite = gates.plan_paths(ctx, tests.Verification, ["core/lib/accounts.xsh"], ["native-core/tests"], gates.Change)?
   assert [entry.id for entry in suite.cases] == ["native-core/tests"]
-  assert suite.cases[0].tier == gates.Scenario
+  assert suite.cases[0].tier == .Scenario
   assert suite.cases[0].limit == gates.RuntimeSeconds(3600)
 }
 
@@ -1459,14 +1459,14 @@ test test_root_and_namespace_groups_are_separate_scenarios_each_selected_alone {
   for pair in [{id: "lane/root-native", tests: gate_lane.root_tests}, {id: "lane/namespace-native", tests: gate_lane.namespace_tests}] {
     let plan = gates.plan_paths(ctx, tests.Verification, [], [pair.id], gates.Change)?
     assert [entry.id for entry in plan.cases] == [pair.id]
-    assert plan.cases[0].tier == gates.Scenario
+    assert plan.cases[0].tier == .Scenario
     match plan.cases[0].execution {
       gates.RunCommand(spec) => {
         var expected = ["test"]
         for id in pair.tests { expected += ["--exact-id", id] }
         assert spec.argv[1..] == expected
       }
-      gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("the lane case was not one exact native command")
+      gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("the lane case was not one exact native command")
     }
     match gates.parse_request(["--case", pair.id, "--case", "test-api"]) {
       Ok(_) => test.fail("a lane case was accepted beside another case")
@@ -1549,10 +1549,10 @@ test test_evidence_is_current_only_for_the_target_and_profile_it_ran_on { |ctx|
 }
 
 test test_evidence_for_a_reduced_native_selection_is_not_labelled_current {
-  let reduced = gates.evidence_label(gates.Reduced(3))?
+  let reduced = gates.evidence_label(.Reduced(3))?
   assert reduced.starts_with("reduced")
   assert "3 tests outside the lane" in reduced
-  assert gates.evidence_label(gates.Current(1700000000000))?.starts_with("current")
+  assert gates.evidence_label(.Current(1700000000000))?.starts_with("current")
 }
 
 test test_evidence_recorded_in_the_container_is_current_on_the_host { |ctx|
@@ -1616,10 +1616,10 @@ test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against
 }
 
 test test_only_the_root_lane_runs_without_a_network {
-  assert gates.lane_confinement(["lane/root-native"]) == docker.Isolated
-  assert gates.lane_confinement(["lane/namespace-native"]) == docker.Namespaces
-  assert gates.lane_confinement(["native-tests/xsh/stdlib"]) == docker.Default
-  assert gates.lane_confinement([]) == docker.Default
+  assert gates.lane_confinement(["lane/root-native"]) == .Isolated
+  assert gates.lane_confinement(["lane/namespace-native"]) == .Namespaces
+  assert gates.lane_confinement(["native-tests/xsh/stdlib"]) == .Default
+  assert gates.lane_confinement([]) == .Default
 }
 
 test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
@@ -1642,7 +1642,7 @@ test test_catalogue_preserves_documentation_verification_and_products {
   let plan = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["check-docs"]
   assert plan.products == [tests.Xsh, tests.Xsht]
-  assert plan.cases[0].execution == gates.DocumentationCheck
+  assert plan.cases[0].execution == .DocumentationCheck
 }
 
 test test_catalogue_preserves_combined_route_witness_exclusions {
@@ -1687,7 +1687,7 @@ test test_soundness_fuzzing_is_an_explicit_scenario_offered_for_semantic_changes
   let requested = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/records.rs"], ["test-soundness"], gates.Change)?
   let soundness = [entry for entry in requested.cases |> where .id == "test-soundness"]
   assert soundness.len() == 1
-  assert soundness[0].tier == gates.Scenario
+  assert soundness[0].tier == .Scenario
   assert requested.available_scenarios.is_empty()
 }
 
@@ -1699,13 +1699,13 @@ test test_bounded_gate_execution_preserves_finished_failed_and_cancelled_statuse
     let spec = {stage: "child", target: "fixture", executable: "sh", argv: argv, cwd: root, environment: {}}
     match gate_execution.execute(spec, 1000)? {
       gate_execution.Finished(status) => assert status.shell_code()? == raw
-      gate_execution.TimedOut(_) | gate_execution.CouldNotExecute(_) => test.fail("completed child lost its raw status")
+      gate_execution.TimedOut(_) | .CouldNotExecute(_) => test.fail("completed child lost its raw status")
     }
     let output = fp"{root}/output-{raw}"
     let captured = {...spec, argv: ["sh", "-c", f"printf captured; exit {raw}"]}
     match gate_execution.execute(captured, 1000, output: output)? {
       gate_execution.Finished(status) => assert status.shell_code()? == raw
-      gate_execution.TimedOut(_) | gate_execution.CouldNotExecute(_) => test.fail("captured child lost its raw status")
+      gate_execution.TimedOut(_) | .CouldNotExecute(_) => test.fail("captured child lost its raw status")
     }
     assert output.read_text()? == "captured"
   }
@@ -1721,7 +1721,7 @@ test test_bounded_gate_timeout_consumes_leader_and_descendant_cleanup { |ctx|
   let spec = {stage: "deadline", target: "fixture", executable: "sh", argv: ["sh", "-c", source], cwd: root, environment: {}}
   match gate_execution.execute(spec, 100)? {
     gate_execution.TimedOut(cause) => assert cause is ProcessError.Timeout {..}
-    gate_execution.Finished(_) | gate_execution.CouldNotExecute(_) => test.fail("deadline did not stop owned work")
+    gate_execution.Finished(_) | .CouldNotExecute(_) => test.fail("deadline did not stop owned work")
   }
   for file in [leader_file, child_file] {
     let pid = file.read_text()?.trim() as Int
@@ -2194,7 +2194,7 @@ test test_full_catalogue_validates_alias_dependency_and_product_closure {
     argv: ["never-start"], cwd: ctx.root, environment: {}}
   let base = gates.CatalogCase(id: "prepare", tier: gates.Change, limit: gates.ManualOwner,
     products: [], prerequisite_ids: [], reasons: ["fixture"],
-    execution: gates.ManualPreparation({products: [tests.Xsht], command: command}))
+    execution: .ManualPreparation({products: [tests.Xsht], command: command}))
   let check = {...base, id: "check", products: [tests.Xsht], prerequisite_ids: ["prepare"], execution: gates.ManualCommand(command)}
   let alias = {...base, id: "alias", prerequisite_ids: ["check"], execution: gates.Alias}
   let full = {...base, id: "full", prerequisite_ids: ["alias"], execution: gates.ManualFull}
@@ -2229,7 +2229,7 @@ test test_full_catalogue_preserves_the_existing_batch_owner_sequence {
       match entry.execution {
         gates.ManualPreparation(preparation) => yield preparation.command
         gates.ManualCommand(spec) => yield spec
-        gates.RunCommand(_) | gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualNative | gates.ManualDocumentation => {}
+        gates.RunCommand(_) | .DocumentationCheck | .Alias | .ManualFull | .ManualNative | .ManualDocumentation => {}
       }
     }
   }
@@ -2317,7 +2317,7 @@ test test_laputa_root_is_explicit_and_scoped {
   let context = fixtures.linux_context(p"/repo")?
   let selected = gates.plan_paths(context, tests.Verification, [], ["laputa/pm.make/plan"], gates.Change)?
   assert [entry.id for entry in selected.cases] == ["laputa/pm.make/plan"]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
 }
 
 test test_laputa_kbuild_discovery_is_an_explicit_scenario {
@@ -2336,7 +2336,7 @@ test test_laputa_kbuild_discovery_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2349,7 +2349,7 @@ test test_laputa_root_composition_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2362,7 +2362,7 @@ test test_laputa_package_inventory_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2375,7 +2375,7 @@ test test_laputa_kbuild_graph_cache_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2388,7 +2388,7 @@ test test_laputa_world_host_plan_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2401,7 +2401,7 @@ test test_laputa_kbuild_make_semantics_is_an_explicit_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
 }
 
@@ -2449,7 +2449,7 @@ test test_laputa_pm_reuse_is_an_explicit_separate_scenario {
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
   let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht, tests.Xshi]
   let pm = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], ["laputa/pm.make/plan"], gates.Change)?
   let kbuild = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], ["laputa/kbuild/discovery"], gates.Change)?
@@ -2486,7 +2486,7 @@ test test_core_workload_scenarios_require_explicit_selection {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in selected.cases] == [id]
     assert selected.products == [tests.Xsh]
-    assert selected.cases[0].tier == gates.Scenario
+    assert selected.cases[0].tier == .Scenario
   }
   assert gates.plan_paths(context, tests.Verification, [], [], gates.Change)?.cases.is_empty()
   for changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/core_trace.py", "dev/performance/test_core_cases.py", "dev/performance/fixtures/core-cases/traversal.xsh"] {
@@ -2497,13 +2497,13 @@ test test_core_workload_scenarios_require_explicit_selection {
     let trace = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in trace.cases] == [id]
     assert trace.products == [tests.Xsht]
-    assert trace.cases[0].tier == gates.Scenario
+    assert trace.cases[0].tier == .Scenario
   }
   for id in ["performance/core-pipeline-small/correctness", "performance/core-pipeline-medium/correctness", "performance/core-pipeline-large/correctness"] {
     let pipeline = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in pipeline.cases] == [id]
     assert pipeline.products == [tests.Xsht]
-    assert pipeline.cases[0].tier == gates.Scenario
+    assert pipeline.cases[0].tier == .Scenario
   }
 }
 
@@ -2568,7 +2568,7 @@ test test_frontend_disposal_scenarios_select_exact_runtime_controls {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in selected.cases] == [id]
     assert selected.products.is_empty()
-    assert selected.cases[0].tier == gates.Scenario
+    assert selected.cases[0].tier == .Scenario
     match selected.cases[0].execution {
       gates.RunCommand(spec) => assert "--exact" in spec.argv
       else => test.fail("frontend disposal case must run its exact Rust control")
@@ -2582,7 +2582,7 @@ test test_frontend_scenario_and_owner_are_explicit {
   let scenario = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in scenario.cases] == [id]
   assert scenario.products == [tests.Xsh, tests.Xsht]
-  assert scenario.cases[0].tier == gates.Scenario
+  assert scenario.cases[0].tier == .Scenario
   for changed_path in ["dev/performance/frontend_cases.py", "dev/performance/frontend_scenario.py", "dev/performance/test_frontend_cases.py"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in selected.cases] == ["verification/inference-workloads"]
@@ -2606,7 +2606,7 @@ test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection
   let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.products == [tests.Xsh]
-  assert selected.cases[0].tier == gates.Scenario
+  assert selected.cases[0].tier == .Scenario
   assert selected.cases[0].reasons == [
     "json-n output/status/state correctness only; product and source bound to gate preparation; performance not measured",
   ]
@@ -2948,7 +2948,7 @@ test test_local_inference_case_owns_only_its_compiler_source_and_exact_tests {
   assert [entry.id for entry in plan.cases] == [id]
   let matching = [entry for entry in plan.cases if entry.id == id]
   assert matching.len() == 1
-  assert matching[0].tier == gates.Edit
+  assert matching[0].tier == .Edit
   assert matching[0].limit == gates.RuntimeSeconds(120)
   assert matching[0].products == [tests.Xsh, tests.Xsht]
   match matching[0].execution {
@@ -2958,7 +2958,7 @@ test test_local_inference_case_owns_only_its_compiler_source_and_exact_tests {
       "--exact-id", "tests/xsh/local-inference.xsh::empty_list_collects_loop_contributions_before_earlier_reads",
       "--exact-id", "tests/xsh/local-inference.xsh::nullable_local_rejects_incompatible_branch_contributions",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("local inference correctness was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("local inference correctness was not an exact native command")
   }
   let explicit = gates.plan_paths(ctx, tests.Verification, [], [id], gates.Edit)?
   assert [entry.id for entry in explicit.cases] == [id]
@@ -2986,7 +2986,7 @@ test test_imported_inference_case_owns_scheme_source_and_exact_tests {
       "--exact-id", "tests/xsh/full-inference-callables.xsh::test_full_inference_imported_alias_flows_through_proc_result_and_producer",
       "--exact-id", "tests/xsh/full-inference-callables.xsh::test_full_inference_private_module_callables_remain_inaccessible",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("imported inference correctness was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("imported inference correctness was not an exact native command")
   }
   let explicit = gates.plan_paths(ctx, tests.Verification, [], [id], gates.Edit)?
   assert [entry.id for entry in explicit.cases] == [id]
@@ -3013,7 +3013,7 @@ test test_inference_work_case_owns_collection_source_and_exact_unit_test {
       "frontend_stats::tests::inference_work_invocations_are_isolated_and_generic_calls_count_instantiations",
       "--", "--exact",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("inference work correctness was not an exact Rust unit test")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("inference work correctness was not an exact Rust unit test")
   }
   let explicit = gates.plan_paths(ctx, tests.Verification, [], [id], gates.Edit)?
   assert [entry.id for entry in explicit.cases] == [id]
@@ -3040,7 +3040,7 @@ test test_cat_edit_selects_bounded_byte_stream_and_error_contracts {
       "--exact-id", "core/tests/test-cat.xsh::test_cat_reports_each_failure_and_exits_one",
       "--exact-id", "core/tests/test-cat.xsh::test_cat_accepts_non_utf8_file_path_arguments",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("cat byte-stream case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("cat byte-stream case was not an exact native command")
   }
 }
 
@@ -3052,7 +3052,7 @@ test test_cat_change_selects_its_module_and_exact_external_consumers {
   assert plan.unresolved.is_empty()
   match plan.cases[0].execution {
     gates.RunCommand(spec) => assert spec.argv[1..] == ["test", "core/tests/test-cat.xsh"]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("cat module was not a native file selection")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("cat module was not a native file selection")
   }
   match plan.cases[1].execution {
     gates.RunCommand(spec) => {
@@ -3081,7 +3081,7 @@ test test_cat_change_selects_its_module_and_exact_external_consumers {
       }
       assert "native-core/tests" not in ids
     }
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("cat external consumers were not exact native tests")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("cat external consumers were not exact native tests")
   }
 }
 
@@ -3099,7 +3099,7 @@ test test_uniq_edit_selects_record_grouping_and_stream_contracts {
       "--exact-id", "core/tests/test-uniq.xsh::test_uniq_skips_fields_chars_and_limits_width",
       "--exact-id", "core/tests/test-uniq.xsh::test_uniq_zero_terminated",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("uniq records case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("uniq records case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/uniq.xsh"], [], gates.Change)?
   assert [entry.id for entry in change.cases] == ["native-core/tests/test-uniq.xsh"]
@@ -3120,7 +3120,7 @@ test test_find_edit_selects_traversal_and_path_contracts {
       "--exact-id", "core/tests/test-find.xsh::test_find_metadata_survives_delete_for_later_actions",
       "--exact-id", "core/tests/test-find.xsh::test_find_accepts_non_utf8_operands",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("find traversal case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("find traversal case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/find.xsh"], [], gates.Change)?
   assert [entry.id for entry in change.cases] == ["native-core/tests/test-find.xsh"]
@@ -3141,7 +3141,7 @@ test test_sort_edit_selects_ordering_and_spill_contracts {
       "--exact-id", "core/tests/test-sort.xsh::test_sort_separator_null_and_invalid_character_counts",
       "--exact-id", "core/tests/test-sort.xsh::test_sort_buffer_size_spills_sorted_runs",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("sort ordering case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("sort ordering case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/sort.xsh"], [], gates.Change)?
   assert [entry.id for entry in change.cases] == ["native-core/tests/test-sort.xsh"]
@@ -3163,7 +3163,7 @@ test test_xargs_edit_selects_process_and_stream_contracts {
       "--exact-id", "core/tests/test-xargs.xsh::test_xargs_argfile_preserves_child_standard_input",
       "--exact-id", "core/tests/test-xargs.xsh::test_xargs_token_spans_reader_chunk_boundary",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("xargs processes case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("xargs processes case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/xargs.xsh"], [], gates.Change)?
   assert [entry.id for entry in change.cases] == ["native-core/tests/test-xargs.xsh"]
@@ -3184,7 +3184,7 @@ test test_awk_edit_selects_record_and_program_contracts {
       "--exact-id", "core/tests/test-awk.xsh::test_awk_record_and_field_mutation",
       "--exact-id", "core/tests/test-awk.xsh::test_awk_gawk_regex_record_separators_and_rt",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("awk records case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("awk records case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["core/awk.xsh"], [], gates.Change)?
   assert [entry.id for entry in change.cases] == ["core/awk/records"]
@@ -3206,7 +3206,7 @@ test test_json_edit_selects_structured_data_contracts {
       "--exact-id", "tests/xsh/stdlib/json.xsh::test_json_set_updates_the_named_position",
       "--exact-id", "tests/xsh/stdlib/json.xsh::test_json_remove_drops_the_named_position",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("JSON structured-data case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("JSON structured-data case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["src/modules/json.rs"], [], gates.Change)?
   assert "test-stdlib-catalog" in [entry.id for entry in change.cases]
@@ -3227,7 +3227,7 @@ test test_effect_inference_edit_selects_capability_contracts {
       "--exact-id", "tests/xsh/full-inference-effect-union.xsh::test_imported_effect_union_keeps_unknown_dynamic_effects_rejected",
       "--exact-id", "tests/xsh/full-inference-stream-effects.xsh::test_full_inference_inferred_stream_effect_alias_rejects_empty_bound",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("effect inference case was not an exact native command")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("effect inference case was not an exact native command")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/infer_effects.rs"], [], gates.Change)?
   assert "test-sema" in [entry.id for entry in change.cases]
@@ -3243,7 +3243,7 @@ test test_frontend_retention_edit_selects_exact_measurement_contract {
     gates.RunCommand(spec) => assert spec.argv[5..] == [
       "-p", "xsh", "--lib", "frontend_stats::tests::indexed_execution_retained_columns_are_stable", "--", "--exact",
     ]
-    gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("frontend retention case was not an exact Rust test")
+    gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("frontend retention case was not an exact Rust test")
   }
   let change = gates.plan_paths(ctx, tests.Verification, ["src/frontend_stats.rs"], [], gates.Change)?
   assert "test-frontend-memory" in [entry.id for entry in change.cases]
@@ -3260,7 +3260,7 @@ test test_constraint_solver_edit_selects_reference_continuations {
       gates.RunCommand(spec) => assert spec.argv[5..] == [
         "-p", "xsh", "--lib", "sema::constraints::reference_tests::production_trials_restore_generalization_and_row_continuations", "--", "--exact",
       ]
-      gates.DocumentationCheck | gates.Alias | gates.ManualFull | gates.ManualPreparation(_) | gates.ManualCommand(_) | gates.ManualNative | gates.ManualDocumentation => test.fail("constraint solver case was not an exact Rust test")
+      gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("constraint solver case was not an exact Rust test")
     }
     let change = gates.plan_paths(ctx, tests.Verification, [source_path], [], gates.Change)?
     assert "test-sema" in [entry.id for entry in change.cases]

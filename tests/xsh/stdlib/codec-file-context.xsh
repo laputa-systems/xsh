@@ -65,7 +65,7 @@ test test_codec_file_sequences_preserve_non_utf8_paths { |ctx|
   let values = codec.read_all("json", input)? |> collect()
   assert values.len() == 2
   match values[0] {
-    Err(CodecError.Syntax {input_path: actual, ..}) => {
+    Err(.Syntax {input_path: actual, ..}) => {
       assert actual == input
     }
     else => return test.fail("expected the byte-safe input path")

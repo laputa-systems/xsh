@@ -288,8 +288,8 @@ export pure marker(marked: Bool, covered: Bool) -> Str {
 ## Maps the browser keys shared by file and object browsers to intents.
 export pure browse_intent(key: input.Key) -> Intent? {
   match key {
-    input.Up | input.Text("k") => MoveUp
-    input.Down | input.Text("j") => MoveDown
+    input.Up | .Text("k") => MoveUp
+    input.Down | .Text("j") => MoveDown
     input.PageUp => PageUp
     input.PageDown => PageDown
     input.Home => Home

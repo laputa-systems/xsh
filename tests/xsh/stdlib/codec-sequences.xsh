@@ -4,7 +4,7 @@ test test_codec_sequences_recover_json_lines_and_csv_records {
   assert lines[0]? == 1
   assert lines[2]? == 2
   match lines[1] {
-    Err(CodecError.Syntax {line, value_path, ..}) => {
+    Err(.Syntax {line, value_path, ..}) => {
       assert line == 3
       assert value_path == "[2]"
     }

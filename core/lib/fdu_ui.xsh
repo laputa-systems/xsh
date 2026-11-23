@@ -101,7 +101,7 @@ export pure covering_mark(view: View) -> Int? {
 }
 
 pure percent_column(node: model.Node, mode: SizeMode, total: Int) -> Str {
-  if node.state == model.Mount or node.state == model.Alias {
+  if node.state == .Mount or node.state == .Alias {
     return "       "
   }
   let value = size_of(node, mode)
@@ -120,7 +120,7 @@ pure bar_column(node: model.Node, mode: SizeMode, total: Int, cells: Int) -> Str
   return "" when cells == 0
   let value = size_of(node, mode)
   var filled = 0
-  if node.state != model.Mount and node.state != model.Alias and total != 0 and value != 0 {
+  if node.state != .Mount and node.state != .Alias and total != 0 and value != 0 {
     let rounded = (value * cells + total / 2) / total
     filled = if rounded < 1 { 1 } else if rounded > cells { cells } else { rounded }
   }
@@ -143,14 +143,14 @@ pure state_size(node: model.Node, mode: SizeMode) -> Str {
   match node.state {
     model.Mount => "mount"
     model.Alias => "alias"
-    model.Incomplete | model.Stale => f"~{tui_surface.format_size(size_of(node, mode))}"
+    model.Incomplete | .Stale => f"~{tui_surface.format_size(size_of(node, mode))}"
     else => tui_surface.format_size(size_of(node, mode))
   }
 }
 
 pure kind_suffix(node: model.Node) -> Str {
   match node.kind {
-    model.Directory | model.Root => "/"
+    model.Directory | .Root => "/"
     model.Symlink => "@"
     else => ""
   }
@@ -158,7 +158,7 @@ pure kind_suffix(node: model.Node) -> Str {
 
 pure entry_kind(node: model.Node) -> colors.EntryKind {
   match node.kind {
-    model.Directory | model.Root => colors.Directory
+    model.Directory | .Root => colors.Directory
     model.Symlink => colors.Symlink
     model.File => colors.Regular
     model.Other => colors.Other
@@ -172,8 +172,8 @@ export pure row_style(view: View, id: Int) -> colors.Style {
     return colors.RED
   }
   match node.state {
-    model.Incomplete | model.Stale => colors.YELLOW
-    model.Mount | model.Alias => colors.RED
+    model.Incomplete | .Stale => colors.YELLOW
+    model.Mount | .Alias => colors.RED
     else => colors.style_for(view.colors, node.name, entry_kind(node))
   }
 }
@@ -276,7 +276,7 @@ export proc render(view: View, columns: Int, rows: Int, now: Int) -> Result[Rend
     let marked = render_marked(screen, parts[1], {...view, browser: normalized}, marked_top, now)
     screen = marked.screen
     marked_top = marked.top
-  } else if normalized.focus == browser.Marked {
+  } else if normalized.focus == .Marked {
     let marked = render_marked(screen, pane_area, {...view, browser: normalized}, marked_top, now)
     screen = marked.screen
     marked_top = marked.top
@@ -342,7 +342,7 @@ pure quoted(text: Str) -> Str {
 }
 
 pure render_browser(screen: tui_surface.CellScreen, area: tui_surface.Rect, view: View, initial_top: Int, now: Int) -> PaneFrame {
-  let focused = view.browser.focus == browser.Browser
+  let focused = view.browser.focus == .Browser
   let node = view.tree.nodes[view.current]
   let total = size_of(node, view.size_mode)
   let relative = model.relative_display(view.tree, view.current)
@@ -392,7 +392,7 @@ pure render_rows(
     let size_text = state_size(node, view.size_mode)
     let percent = if show_percent { percent_column(node, view.size_mode, directory_total) } else { "" }
     let bar = bar_column(node, view.size_mode, directory_total, bar_cells)
-    let link = if node.nlink > 1 and node.kind != model.Directory and node.kind != model.Root { "*" } else { " " }
+    let link = if node.nlink > 1 and node.kind != .Directory and node.kind != .Root { "*" } else { " " }
     let age = tui_surface.format_age(node.modified, now)
     let suffix = kind_suffix(node)
     let prefix = f"{mark} {marker}{right(size_text, SIZE_COLUMN_WIDTH)} {percent}{bar}{link}{right(age, AGE_COLUMN_WIDTH)} "
@@ -408,7 +408,7 @@ pure render_rows(
 }
 
 pure render_marked(screen: tui_surface.CellScreen, area: tui_surface.Rect, view: View, initial_top: Int, now: Int) -> PaneFrame {
-  let focused = view.browser.focus == browser.Marked
+  let focused = view.browser.focus == .Marked
   var total = 0
   for id in view.browser.marks {
     total += size_of(view.tree.nodes[id], view.size_mode)

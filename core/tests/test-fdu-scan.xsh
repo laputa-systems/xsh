@@ -14,7 +14,7 @@ test test_fdu_indexed_scan_reports_tree_entries_and_root_listed { |ctx|
   fp"{root}/top.bin".write("top")
   let tree = scan.tree(root)?
   assert model.children(tree, tree.root).len() == 2
-  assert tree.nodes[tree.root].state == model.Complete
+  assert tree.nodes[tree.root].state == .Complete
   assert tree.nodes[tree.root].descendants == 3
 }
 
@@ -47,7 +47,7 @@ test test_fdu_indexed_scan_with_exclusions_omits_excluded_paths { |ctx|
   let names: List[Str] = [tree.nodes[id].name.utf8() ?? "" for id in model.children(tree, tree.root)]
   assert "keep" in names
   assert "omit" not in names
-  assert tree.nodes[tree.root].state == model.Incomplete
+  assert tree.nodes[tree.root].state == .Incomplete
 }
 
 test test_fdu_displays_incomplete_directory_from_scan_record { |ctx|
@@ -59,7 +59,7 @@ test test_fdu_displays_incomplete_directory_from_scan_record { |ctx|
   fp"{root}/sub/omit".write("omitted")
   let tree = scan.tree(root, excludes: [p"sub/omit"])?
   let rows = ui.visible_rows(tree, tree.root, "", ui.Name, ui.Apparent)
-  assert tree.nodes[rows[0]].state == model.Incomplete
+  assert tree.nodes[rows[0]].state == .Incomplete
   let view: ui.View = {
     tree: tree, current: tree.root, rows: rows,
     browser: browser.reconcile(browser.initial(), rows), filter: "",

@@ -143,7 +143,7 @@ export pure browser_plan(tree: model.Tree, selected: List[Int]) -> PlanResult {
   }
   if !unique.is_empty() {
     let root_state = tree.nodes[tree.root].state
-    if root_state != model.Complete and root_state != model.Incomplete and root_state != model.Pending {
+    if root_state != .Complete and root_state != .Incomplete and root_state != .Pending {
       rejected += [{node: null, reason: "root totals are stale; rescan first"}]
     }
   }

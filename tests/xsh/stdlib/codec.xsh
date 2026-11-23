@@ -12,7 +12,7 @@ test test_codec_dispatch_preserves_values_and_rejects_wrong_boundaries {
   test.error_kind(codec.decode("JSON", "null"), "CodecError.UnsupportedFormat")
   test.error_kind(codec.decode("pickle", ""), "CodecError.UnsupportedFormat")
   match codec.decode_bytes("toml", b"a=\xff") {
-    Err(CodecError.Encoding {format: format, offset: offset, input_path: input_path, ..}) => {
+    Err(.Encoding {format: format, offset: offset, input_path: input_path, ..}) => {
       assert format == "toml"
       assert offset == 2
       assert input_path == null

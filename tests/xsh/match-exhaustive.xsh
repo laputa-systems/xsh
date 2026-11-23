@@ -506,10 +506,10 @@ pure guarded_failure_status(failure) -> Int {
 }
 
 test test_qualified_error_patterns_infer_subject_family {
-  assert inferred_failure_status(InferredFailure.First("first")) == 1
-  assert inferred_failure_status(InferredFailure.Second("second")) == 2
-  assert forwarded_failure_status(InferredFailure.First("first")) == 1
-  assert guarded_failure_status(InferredFailure.Second("second")) == 2
+  assert inferred_failure_status(.First("first")) == 1
+  assert inferred_failure_status(.Second("second")) == 2
+  assert forwarded_failure_status(.First("first")) == 1
+  assert guarded_failure_status(.Second("second")) == 2
 }
 
 test test_inferred_error_matches_preserve_exhaustiveness_and_family { |ctx|
