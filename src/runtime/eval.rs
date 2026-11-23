@@ -3885,11 +3885,11 @@ impl Evaluator {
 
     pub fn profile_calibration_ns() -> u64 {
         let mut state = ProfileState::default();
-        let key = SiteKey { kind: SiteKind::Proc, definition: None, call_site: None };
-        state.enter(key);
+        let key = SiteKey { kind: SiteKind::Proc, definition: None, call_site: None, module: None, function_name: None };
+        state.enter(key.clone());
         state.exit();
         let start = Instant::now();
-        for _ in 0..10_000 { state.enter(key); state.exit(); }
+        for _ in 0..10_000 { state.enter(key.clone()); state.exit(); }
         std::hint::black_box(&state);
         profile::nanos(start) / 20_000
     }
@@ -3900,7 +3900,7 @@ impl Evaluator {
     }
 
     fn profile_enter(&mut self, kind: SiteKind, definition: Option<Span>, call_site: Option<Span>) {
-        if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind, definition, call_site }); }
+        if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind, definition, call_site, module: None, function_name: None }); }
     }
 
     fn profile_exit(&mut self) {

@@ -4447,7 +4447,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // Tracing is off unless a tool turned it on, and rendering a function's
         // display name allocates; only do it when an event will use it.
         if matches!(kind, CallableKind::Proc | CallableKind::Pure) {
-            self.evaluator.profile_enter(match kind { CallableKind::Proc => crate::runtime::eval::SiteKind::Proc, _ => crate::runtime::eval::SiteKind::Pure }, Some(definition_span), Some(call_span));
+            let kind = match kind { CallableKind::Proc => crate::runtime::eval::SiteKind::Proc, _ => crate::runtime::eval::SiteKind::Pure };
+            if let Some(profile) = &mut self.evaluator.profile {
+                let text = execution.sources().span_text(definition_span).unwrap_or("");
+                let declared = text.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|word| !word.is_empty()).take_while(|word| matches!(*word, "export" | "pure" | "proc" | "stream" | "optional")).any(|word| matches!(word, "pure" | "proc" | "stream"));
+                let function_name = declared.then(|| {
+                    let name = match function { LoweredFunctionKey::Name(name) => name, LoweredFunctionKey::Qualified(name) => name.member };
+                    name.as_str().into_arc()
+                });
+                profile.enter(crate::runtime::eval::SiteKey { kind, definition: Some(definition_span), call_site: Some(call_span), module: None, function_name });
+            }
         }
         if self.evaluator.trace_enabled {
             let name = function.display_name();

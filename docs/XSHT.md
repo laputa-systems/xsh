@@ -393,7 +393,12 @@ The report records calls, inclusive and exclusive wall nanoseconds, blocked
 nanoseconds, allocation count, allocation bytes, and caller-to-callee edges.
 Allocation totals include allocations in nested calls. Inclusive time includes
 blocked time and nested calls. Blocked time includes waits in nested calls.
-The calibration value estimates the cost of a profiling enter or exit hook.
+Dynamic module loads name the canonical path relative to the working directory when
+possible. Their `module-prepare` and `module-init` children measure preparation
+and top-level execution; cached loads omit the corresponding child. Preparation
+has `parse`, `check`, and `lower` phase children; remaining preparation work is
+exclusive time on the parent. The calibration value estimates the cost of a
+profiling enter or exit hook.
 
 Blocked time counts waits made by the evaluator, including sleep, child waits,
 network waits, and process-stream reads. A streamed process lifetime is an

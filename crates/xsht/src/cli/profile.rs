@@ -38,7 +38,9 @@ fn site_name(sources: &SourceMap, definition: Option<Span>, call_site: Option<Sp
     let text = sources.span_text(span).unwrap_or("");
     let mut words = text.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|word| !word.is_empty());
     let first = words.next().unwrap_or(kind);
-    if matches!(first, "pure" | "proc" | "stream") { words.next().unwrap_or(first).to_string() } else { first.to_string() }
+    if matches!(kind, "proc" | "pure") {
+        std::iter::once(first).chain(words).find(|word| !matches!(*word, "export" | "pure" | "proc" | "stream" | "optional")).unwrap_or(first).to_string()
+    } else { first.to_string() }
 }
 
 pub fn profile_script(options: ProfileOptions) -> CliOutput {
@@ -68,7 +70,15 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
         let span = site.key.definition.or(site.key.call_site);
         let loc = span.and_then(|span| sources.location(span.source_id, span.start()));
         let kind = site.key.kind.name();
-        sites.push(Site { kind: kind.to_string(), name: site_name(sources, site.key.definition, site.key.call_site, kind), file: loc.as_ref().map_or_else(String::new, |loc| loc.file.clone()), line: loc.map_or(0, |loc| loc.line), definition_span: location(sources, site.key.definition), call_site_span: location(sources, site.key.call_site), calls: site.calls, inclusive_ns: site.inclusive_ns, exclusive_ns: site.exclusive_ns, blocked_ns: site.blocked_ns, alloc_count: site.alloc_count, alloc_bytes: site.alloc_bytes });
+        let name = match site.key.kind {
+            xsh_kind if xsh_kind.phase_name().is_some() => xsh_kind.phase_name().unwrap().to_string(),
+            _ if site.key.function_name.is_some() => site.key.function_name.as_ref().unwrap().to_string(),
+            _ => site.key.module.as_ref().map(|module| {
+                let path = std::path::Path::new(module.as_ref());
+                std::env::current_dir().ok().and_then(|cwd| path.strip_prefix(cwd).ok().map(|path| path.to_string_lossy().into_owned())).unwrap_or_else(|| module.to_string())
+            }).unwrap_or_else(|| site_name(sources, site.key.definition, site.key.call_site, kind)),
+        };
+        sites.push(Site { kind: kind.to_string(), name, file: loc.as_ref().map_or_else(String::new, |loc| loc.file.clone()), line: loc.map_or(0, |loc| loc.line), definition_span: location(sources, site.key.definition), call_site_span: location(sources, site.key.call_site), calls: site.calls, inclusive_ns: site.inclusive_ns, exclusive_ns: site.exclusive_ns, blocked_ns: site.blocked_ns, alloc_count: site.alloc_count, alloc_bytes: site.alloc_bytes });
         for (&callee, &calls) in &site.children { edges.push(Edge { caller: index as u32, callee, calls }); }
     }
     edges.sort_by_key(|edge| (edge.caller, edge.callee));

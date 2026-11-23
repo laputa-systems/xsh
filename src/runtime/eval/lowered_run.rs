@@ -2,7 +2,7 @@
 //! indexed runtime. Domain implementations live in private child modules;
 //! `indexed_run` owns expression and statement scheduling.
 
-use super::LoweredTypeCheck;
+use super::{LoweredTypeCheck, ProfileState, SiteKey, SiteKind};
 use crate::diagnostic::DiagnosticCode;
 use crate::map_key::MapKey;
 
@@ -1495,12 +1495,21 @@ fn store_prepared_dynamic_module(key: &str, prepared: &Arc<PreparedDynamicModule
         .insert(key.to_string(), Arc::clone(prepared));
 }
 
+fn profile_prepare_phase<T>(profile: &mut Option<Box<ProfileState>>, kind: SiteKind, span: Span, module: &Option<Arc<str>>, operation: impl FnOnce() -> T) -> T {
+    if let Some(profile) = profile.as_mut() { profile.enter(SiteKey { kind, definition: None, call_site: Some(span), module: module.clone(), function_name: None }); }
+    let result = operation();
+    if let Some(profile) = profile.as_mut() { profile.exit(); }
+    result
+}
+
 fn prepare_dynamic_module(
     key: &str,
     display_path: &str,
     bytes: Vec<u8>,
     module_roots: &Arc<[PathBuf]>,
     span: Span,
+    profile: &mut Option<Box<ProfileState>>,
+    module: Option<Arc<str>>,
 ) -> Result<PreparedDynamicModule, RuntimeError> {
     use crate::loader::{
         StdlibLinkage, entry_source_from_bytes, parse_load_entry_source_arena_only_with_linkage,
@@ -1517,12 +1526,9 @@ fn prepare_dynamic_module(
             span,
         ));
     }
-    let (module_sources, parsed) = parse_load_entry_source_arena_only_with_linkage(
-        display_path,
-        entry_source,
-        module_roots.to_vec(),
-        StdlibLinkage::LinkToPrepared,
-    );
+    let (module_sources, parsed) = profile_prepare_phase(profile, SiteKind::PrepareParse, span, &module, || parse_load_entry_source_arena_only_with_linkage(
+        display_path, entry_source, module_roots.to_vec(), StdlibLinkage::LinkToPrepared,
+    ));
     if !parsed.diagnostics.is_empty() {
         return Err(module_load_failure(
             "failed to parse",
@@ -1566,11 +1572,9 @@ fn prepare_dynamic_module(
             .with_span(span));
         }
 
-        let declarations = crate::sema::check::Checker::check_compact_declarations(
-            program,
-            &module_sources,
-            module_source_id,
-        );
+        let declarations = profile_prepare_phase(profile, SiteKind::PrepareCheck, span, &module, || crate::sema::check::Checker::check_compact_declarations(
+            program, &module_sources, module_source_id,
+        ));
         if !declarations.diagnostics.is_empty() {
             return Err(module_load_failure(
                 "failed to check",
@@ -1583,14 +1587,14 @@ fn prepare_dynamic_module(
         let module_graph = crate::loader::CompactModuleGraph::from_file_unit(&file, &declarations);
         let binding_namespace = super::indexed::full::FullProgram::fresh_binding_namespace();
         let mut module_program =
-            super::indexed::full::FullBuilder::build_compact_external_stdlib(
+            profile_prepare_phase(profile, SiteKind::PrepareLower, span, &module, || super::indexed::full::FullBuilder::build_compact_external_stdlib(
                 program,
                 &declarations,
                 &module_graph,
                 &module_text,
                 Arc::new(module_sources.clone()),
                 module_source_id,
-            )
+            ))
             .map_err(|error| {
                 let message = match error.detail {
                     Some(detail) => format!(
@@ -7604,18 +7608,23 @@ impl Evaluator {
         path: PathValue,
         span: Span,
     ) -> Result<RecordMap, RuntimeError> {
-        let result = self.load_dynamic_module_inner(path, span);
+        let module_path = self.host_path(&path);
+        let key = crate::loader::module_key(&module_path);
+        let module = self.profile.as_ref().map(|_| Arc::<str>::from(key.as_str()));
+        if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind: SiteKind::Module, definition: None, call_site: Some(span), module: module.clone(), function_name: None }); }
+        let result = self.load_dynamic_module_inner(module_path, key, span, module);
+        self.profile_exit();
         self.prune_binding_values();
         result
     }
 
     fn load_dynamic_module_inner(
         &mut self,
-        path: PathValue,
+        module_path: PathBuf,
+        key: String,
         span: Span,
+        module: Option<Arc<str>>,
     ) -> Result<RecordMap, RuntimeError> {
-        let module_path = self.host_path(&path);
-        let key = crate::loader::module_key(&module_path);
         let display_path = module_path.to_string_lossy().into_owned();
         let bytes = std::fs::read(&module_path).map_err(|error| {
             RuntimeError::new("module-load", format!("failed to read module: {error}"))
@@ -7637,13 +7646,12 @@ impl Evaluator {
         let prepared = match current {
             Some(prepared) => prepared,
             None => {
-                let prepared = Arc::new(prepare_dynamic_module(
-                    &key,
-                    &display_path,
-                    bytes,
-                    &self.module_roots,
-                    span,
-                )?);
+                if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind: SiteKind::ModulePrepare, definition: None, call_site: Some(span), module: module.clone(), function_name: None }); }
+                let prepared = prepare_dynamic_module(
+                    &key, &display_path, bytes, &self.module_roots, span, &mut self.profile, module.clone(),
+                );
+                self.profile_exit();
+                let prepared = Arc::new(prepared?);
                 store_prepared_dynamic_module(&key, &prepared);
                 prepared
             }
@@ -7699,7 +7707,9 @@ impl Evaluator {
         child.force_frames = self.force_frames;
         child.route_witness_sink = self.route_witness_sink.clone();
         child.route_witness_invocation = self.route_witness_invocation.clone();
+        if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind: SiteKind::ModuleInit, definition: None, call_site: Some(span), module, function_name: None }); }
         let child_output = child.run_prepared_module_top_level(&exported_let_names, span);
+        self.profile_exit();
         self.active_modules.retain(|active| active != &key);
         let values = child_output.map_err(|error| error.with_span(span))?;
         self.indexed_dynamic_functions = values.dynamic_functions;
