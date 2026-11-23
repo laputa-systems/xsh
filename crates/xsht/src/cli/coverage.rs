@@ -20,16 +20,19 @@ pub struct CoverageCollector {
     source_metadata: BTreeMap<String, SourceMetadata>,
     observed_source_files: BTreeSet<String>,
     root: Option<PathBuf>,
+    test_status: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct CoverageHits {
-    tests: u64,
+    tests: BTreeSet<String>,
+    events: u64,
 }
 
 #[derive(Clone, Debug, Default)]
 struct SourceCoverage {
     covered_lines: BTreeSet<usize>,
+    line_tests: BTreeMap<usize, BTreeSet<String>>,
     proc_hits: BTreeMap<usize, u64>,
     proc_name_hits: BTreeMap<String, u64>,
 }
@@ -38,6 +41,7 @@ struct SourceCoverage {
 struct SourceMetadata {
     executable_lines: BTreeSet<usize>,
     proc_decls: BTreeMap<String, usize>,
+    lines_basis: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +51,10 @@ struct SourceFileCoverage {
     covered_lines: usize,
     total_procs: usize,
     covered_procs: usize,
+    basis: String,
+    category: String,
+    executable_set: BTreeSet<usize>,
+    line_tests: BTreeMap<usize, BTreeSet<String>>,
 }
 
 impl CoverageCollector {
@@ -85,6 +93,7 @@ impl CoverageCollector {
             let fallback = SourceMetadata {
                 executable_lines: executable_line_numbers(&file_text),
                 proc_decls: proc_decl_lines(&file_text),
+                lines_basis: true,
             };
             // Each file loads with its own project module roots, as it
             // does when it runs. Metadata is best effort: a file that does
@@ -105,7 +114,34 @@ impl CoverageCollector {
         }
     }
 
-    pub fn ingest_jsonl(&mut self, jsonl: &str) -> Result<(), String> {
+    pub fn register_test(&mut self, id: &str) {
+        self.test_status.insert(id.to_string(), "missing".to_string());
+    }
+
+    pub fn ingest_test(&mut self, id: &str, trace: Option<&str>) -> Result<(), String> {
+        let Some(trace) = trace else {
+            self.register_test(id);
+            return Ok(());
+        };
+        if trace.is_empty() {
+            self.register_test(id);
+            return Ok(());
+        }
+        self.test_status.insert(id.to_string(), "incomplete".to_string());
+        if !trace.ends_with('\n') {
+            return Err("truncated coverage JSONL".to_string());
+        }
+        self.ingest_test_jsonl(id, trace)?;
+        self.test_status.insert(id.to_string(), "complete".to_string());
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn ingest_jsonl(&mut self, jsonl: &str) -> Result<(), String> {
+        self.ingest_test_jsonl("test", jsonl)
+    }
+
+    fn ingest_test_jsonl(&mut self, id: &str, jsonl: &str) -> Result<(), String> {
         for (index, line) in jsonl.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
@@ -126,10 +162,13 @@ impl CoverageCollector {
                     || kind == "cwd.enter")
                 && let Some(api_id) = value.get("api_id").and_then(|value| value.as_str())
             {
-                self.api_hits.entry(api_id.to_string()).or_default().tests += 1;
+                let hits = self.api_hits.entry(api_id.to_string()).or_default();
+                hits.tests.insert(id.to_string());
+                hits.events += 1;
             }
             if let Some(span) = value.get("source_span") {
                 self.ingest_source_span(
+                    id,
                     kind,
                     value.get("name").and_then(|value| value.as_str()),
                     span,
@@ -151,11 +190,18 @@ impl CoverageCollector {
     pub fn render(&self) -> String {
         let mut output = String::new();
         output.push_str("coverage report\n");
+        for status in ["complete", "incomplete", "missing"] {
+            output.push_str(&format!("coverage traces {status}: {}\n", self.test_status.values().filter(|value| value.as_str() == status).count()));
+        }
         output.push_str("Source coverage\n");
         self.render_source_totals(&mut output);
         output.push('\n');
         output.push_str("least covered source files\n");
         self.render_least_covered_source_files(&mut output);
+        output.push_str("\nunavailable source files\n");
+        let unavailable: Vec<_> = self.source_hits.keys().filter(|file| self.read_source_text(file).is_none()).collect();
+        if unavailable.is_empty() { output.push_str("  none\n"); }
+        for file in unavailable { output.push_str(&format!("  {file} (unreadable)\n")); }
         if self.include_api {
             output.push('\n');
             output.push_str("API coverage\n");
@@ -187,6 +233,15 @@ impl CoverageCollector {
                     ),
                 ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             ),
+            ("test_collection".to_string(), self.test_status.iter().map(|(id, status)| (id.clone(), JsonValue::from(status.as_str()))).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()),
+            ("source_totals_by_basis".to_string(), ["ast", "lines"].into_iter().map(|basis| {
+                let files: Vec<_> = source_files.iter().filter(|file| file.basis == basis).collect();
+                let counts = [("covered_lines".to_string(), JsonValue::from(files.iter().map(|file| file.covered_lines).sum::<usize>())), ("executable_lines".to_string(), JsonValue::from(files.iter().map(|file| file.executable_lines).sum::<usize>())), ("covered_procs".to_string(), JsonValue::from(files.iter().map(|file| file.covered_procs).sum::<usize>())), ("total_procs".to_string(), JsonValue::from(files.iter().map(|file| file.total_procs).sum::<usize>()))];
+                (basis.to_string(), counts.into_iter().collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>())
+            }).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()),
+            ("unavailable_sources".to_string(), self.source_hits.iter().filter(|(file, _)| self.read_source_text(file).is_none()).map(|(file, hits)| {
+                [("file".to_string(), JsonValue::from(file.as_str())), ("category".to_string(), JsonValue::from("unreadable")), ("line_tests".to_string(), line_tests_json(&hits.line_tests))].into_iter().collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+            }).collect::<JsonValue>()),
         ];
         if self.include_api {
             fields.extend([
@@ -229,12 +284,24 @@ impl CoverageCollector {
         if self.include_source_file(file) {
             let display = self.display_source_file(file);
             self.observed_source_files.insert(display.clone());
-            self.source_hits.entry(display).or_default();
+            self.source_hits.entry(display.clone()).or_default();
+            if !self.source_metadata.contains_key(&display) {
+                let path = absolute_path(Path::new(file));
+                let roots = xsh::frontend::load::project_module_roots(&path).unwrap_or_default();
+                if let Some(metadata) = parse_source_metadata(&path, &roots) {
+                    for (source, data) in metadata {
+                        if self.include_source_file(&source) {
+                            self.source_metadata.entry(self.display_source_file(&source)).or_insert(data);
+                        }
+                    }
+                }
+            }
         }
     }
 
     fn ingest_source_span(
         &mut self,
+        id: &str,
         kind: &str,
         name: Option<&str>,
         span: &JsonValue,
@@ -262,6 +329,7 @@ impl CoverageCollector {
             .or_default();
         for line in start_line..=end_line.max(start_line) {
             entry.covered_lines.insert(line);
+            entry.line_tests.entry(line).or_default().insert(id.to_string());
         }
         if count_proc && (kind == "proc.enter" || kind == "pure.enter") {
             *entry.proc_hits.entry(start_line).or_default() += 1;
@@ -305,8 +373,14 @@ impl CoverageCollector {
     }
 
     fn include_source_file(&self, file: &str) -> bool {
+        if file.starts_with('<') && file.ends_with('>') { return false; }
         if !file.ends_with(".xsh") {
-            return false;
+            match fs::read_to_string(file) {
+                Ok(text) if !text.lines().next().is_some_and(|line| {
+                    line.starts_with("#!") && line.split_whitespace().any(|word| word.rsplit('/').next() == Some("xsh"))
+                }) => return false,
+                _ => {}
+            }
         }
         let path = Path::new(file);
         if let Some(root) = &self.root
@@ -314,12 +388,6 @@ impl CoverageCollector {
         {
             return false;
         }
-        let Some(root) = &self.root else {
-            return true;
-        };
-        let Ok(_rel) = path.strip_prefix(root) else {
-            return false;
-        };
         true
     }
 
@@ -349,6 +417,7 @@ impl CoverageCollector {
             let fallback = SourceMetadata {
                 executable_lines: executable_line_numbers(&text),
                 proc_decls: proc_decl_lines(&text),
+                lines_basis: true,
             };
             let metadata = self.source_metadata.get(&file).unwrap_or(&fallback);
             let covered_lines = hits
@@ -369,6 +438,10 @@ impl CoverageCollector {
                 covered_lines,
                 total_procs: metadata.proc_decls.len(),
                 covered_procs,
+                basis: if metadata.lines_basis { "lines" } else { "ast" }.to_string(),
+                category: if Path::new(&file).is_absolute() { "outside_root" } else { "root" }.to_string(),
+                executable_set: metadata.executable_lines.clone(),
+                line_tests: hits.line_tests,
             });
         }
         files.sort_by(|a, b| a.file.cmp(&b.file));
@@ -396,14 +469,21 @@ impl CoverageCollector {
             files.len(),
             self.observed_source_files.len()
         ));
-        output.push_str(&format!(
-            "source lines: {covered_lines}/{executable_lines} ({})\n",
-            percent_text(covered_lines, executable_lines)
-        ));
-        output.push_str(&format!(
-            "proc entries: {covered_procs}/{total_procs} ({})\n",
-            percent_text(covered_procs, total_procs)
-        ));
+        for basis in ["ast", "lines"] {
+            let selected: Vec<_> = files.iter().filter(|file| file.basis == basis).collect();
+            let total: usize = selected.iter().map(|file| file.executable_lines).sum();
+            let covered: usize = selected.iter().map(|file| file.covered_lines).sum();
+            output.push_str(&format!("source lines ({basis}): {covered}/{total} ({})\n", percent_text(covered, total)));
+            let total_procs: usize = selected.iter().map(|file| file.total_procs).sum();
+            let covered_procs: usize = selected.iter().map(|file| file.covered_procs).sum();
+            output.push_str(&format!("proc entries ({basis}): {covered_procs}/{total_procs} ({})\n", percent_text(covered_procs, total_procs)));
+        }
+        if files.iter().all(|file| file.basis == "lines") || files.iter().all(|file| file.basis == "ast") {
+            output.push_str(&format!("source lines: {covered_lines}/{executable_lines} ({})\n", percent_text(covered_lines, executable_lines)));
+        }
+        if files.iter().all(|file| file.basis == "lines") || files.iter().all(|file| file.basis == "ast") {
+            output.push_str(&format!("proc entries: {covered_procs}/{total_procs} ({})\n", percent_text(covered_procs, total_procs)));
+        }
     }
 
     fn render_least_covered_source_files(&self, output: &mut String) {
@@ -421,7 +501,7 @@ impl CoverageCollector {
             }
             output.push_str(&format!(
                 "  {:<32} lines {:>6} procs {:>6}\n",
-                truncate_middle(&file.file, 32),
+                truncate_middle(&format!("{}{}", file.file, if file.category == "outside_root" { " (outside_root)" } else { "" }), 32),
                 percent_text(file.covered_lines, file.executable_lines),
                 percent_text(file.covered_procs, file.total_procs),
             ));
@@ -462,7 +542,7 @@ impl CoverageCollector {
         (self.api_hits.iter().map(|(api_id, hits)| {
             (
                 api_id.clone(),
-                ([("tests".to_string(), JsonValue::from(hits.tests))]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
+                ([("tests".to_string(), JsonValue::from(hits.tests.len())), ("events".to_string(), JsonValue::from(hits.events))]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             )
         })).collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
     }
@@ -517,7 +597,7 @@ impl CoverageCollector {
         self.api_hits
             .iter()
             .filter_map(|(api_id, hits)| {
-                let total = hits.tests;
+                let total = hits.tests.len() as u64;
                 (total > 0).then_some((api_id.as_str(), total))
             })
             .collect()
@@ -527,11 +607,11 @@ impl CoverageCollector {
         self.api_hits
             .iter()
             .filter_map(|(api_id, hits)| {
-                let total = hits.tests;
+                let total = hits.tests.len() as u64;
                 (total > 0).then(|| {
                     ([
                         ("api_id".to_string(), JsonValue::from(api_id)),
-                        ("tests".to_string(), JsonValue::from(hits.tests)),
+                        ("tests".to_string(), JsonValue::from(hits.tests.len())),
                         ("total".to_string(), JsonValue::from(total)),
                     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
                 })
@@ -543,6 +623,10 @@ impl CoverageCollector {
 fn source_file_json(file: SourceFileCoverage) -> JsonValue {
     ([
         ("file".to_string(), JsonValue::from(file.file)),
+        ("denominator_basis".to_string(), JsonValue::from(file.basis)),
+        ("category".to_string(), JsonValue::from(file.category)),
+        ("executable_line_numbers".to_string(), file.executable_set.iter().copied().map(JsonValue::from).collect::<JsonValue>()),
+        ("line_tests".to_string(), line_tests_json(&file.line_tests)),
         (
             "executable_lines".to_string(),
             JsonValue::from(file.executable_lines),
@@ -559,6 +643,10 @@ fn source_file_json(file: SourceFileCoverage) -> JsonValue {
     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
 
+fn line_tests_json(lines: &BTreeMap<usize, BTreeSet<String>>) -> JsonValue {
+    lines.iter().map(|(line, tests)| (line.to_string(), tests.iter().map(|id| JsonValue::from(id.as_str())).collect::<JsonValue>())).collect::<BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+}
+
 fn absolute_path(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
@@ -569,6 +657,7 @@ fn parse_source_metadata(
 ) -> Option<BTreeMap<String, SourceMetadata>> {
     let path_text = path.to_string_lossy().into_owned();
     let (sources, parsed) = parse_script_with_module_roots(&path_text, module_roots).ok()?;
+    if !parsed.diagnostics.is_empty() { return None; }
     let mut by_source = BTreeMap::<SourceId, SourceMetadata>::new();
     for file in sources.files() {
         by_source.insert(file.id(), SourceMetadata::default());
@@ -1006,7 +1095,7 @@ mod tests {
             rendered.contains("scope: 1 source files (1 observed)"),
             "{rendered}"
         );
-        assert!(rendered.contains("source lines: 0/3 (0.0%)"), "{rendered}");
+        assert!(rendered.contains("source lines: 0/2 (0.0%)"), "{rendered}");
         assert!(rendered.contains("proc entries: 0/1 (0.0%)"), "{rendered}");
         assert!(rendered.contains("pm/local.xsh"), "{rendered}");
         let _ = fs::remove_dir_all(root);
@@ -1039,7 +1128,7 @@ mod tests {
 
         let rendered = collector.render();
         assert!(
-            rendered.contains("proc entries: 1/1 (100.0%)"),
+            rendered.contains("proc entries (ast): 1/1 (100.0%)"),
             "{rendered}"
         );
         assert!(rendered.contains("pm.xsh"), "{rendered}");
@@ -1119,4 +1208,62 @@ mod tests {
         assert!(!files.iter().any(|file| file.file == "evals/task.xsh"));
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn coverage_distinct_tests_matrix_and_collection_status() {
+        let mut collector = CoverageCollector { include_api: true, root: None, ..CoverageCollector::default() };
+        let trace = "{\"kind\":\"core.call\",\"api_id\":\"core.print\",\"source_span\":{\"file\":\"/missing.xsh\",\"start_line\":3,\"end_line\":3}}\n";
+        collector.ingest_test("one", Some(&format!("{trace}{trace}"))).unwrap();
+        collector.ingest_test("two", Some(trace)).unwrap();
+        collector.ingest_test("missing", None).unwrap();
+        assert!(collector.ingest_test("truncated", Some("{\"kind\":")).is_err());
+        assert_eq!(collector.api_hits["core.print"].tests.len(), 2);
+        assert_eq!(collector.api_hits["core.print"].events, 3);
+        assert_eq!(collector.source_hits["/missing.xsh"].line_tests[&3], BTreeSet::from(["one".to_string(), "two".to_string()]));
+        assert_eq!(collector.test_status["missing"], "missing");
+        assert_eq!(collector.test_status["truncated"], "incomplete");
+        assert_eq!(collector.test_status["one"], "complete");
+    }
+
+    #[test]
+    fn coverage_shebang_and_fallback_basis() {
+        let root = std::env::temp_dir().join(format!("xsh-cov-shebang-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let script = root.join("script");
+        let broken = root.join("broken.xsh");
+        fs::write(&script, "#!/usr/bin/env -S xsh --\nprint \"ok\"\n").unwrap();
+        fs::write(&broken, "let =\n").unwrap();
+        let mut collector = CoverageCollector { root: Some(root.clone()), ..CoverageCollector::default() };
+        collector.register_source_files(&[script, broken]);
+        let files = collector.source_file_coverages();
+        assert_eq!(files.iter().find(|f| f.file == "script").unwrap().basis, "ast");
+        assert_eq!(files.iter().find(|f| f.file == "broken.xsh").unwrap().basis, "lines");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn coverage_reports_outside_and_deleted_sources() {
+        let root = std::env::temp_dir().join(format!("xsh-cov-outside-{}", std::process::id()));
+        let project = root.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let external = root.join("external.xsh");
+        let deleted = project.join("gone.xsh");
+        fs::write(&external, "print \"external\"\n").unwrap();
+        fs::write(&deleted, "print \"gone\"\n").unwrap();
+        let mut collector = CoverageCollector { root: Some(project.clone()), ..CoverageCollector::default() };
+        collector.register_source_files(&[external.clone(), deleted.clone()]);
+        let trace = format!("{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1}}}}\n", deleted.display());
+        collector.ingest_test("case", Some(&trace)).unwrap();
+        fs::remove_file(deleted).unwrap();
+        let output = project.join("report.json");
+        collector.write_json(output.to_str().unwrap()).unwrap();
+        let report = xsh::host::json::parse(&fs::read_to_string(output).unwrap()).unwrap();
+        let sources = report.get("source_coverage").unwrap().as_seq().unwrap();
+        assert!(sources.iter().any(|v| v.get("category").unwrap().as_str() == Some("outside_root")));
+        let unavailable = report.get("unavailable_sources").unwrap().as_seq().unwrap();
+        assert_eq!(unavailable.len(), 1);
+        assert_eq!(unavailable[0].get("file").unwrap().as_str(), Some("gone.xsh"));
+        assert_eq!(unavailable[0].get("line_tests").unwrap().get("1").unwrap().as_seq().unwrap()[0].as_str(), Some("case"));
+        let _ = fs::remove_dir_all(root);
+    }
+
 }

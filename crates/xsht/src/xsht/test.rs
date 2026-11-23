@@ -546,6 +546,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
         .then(|| CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude));
     if let Some(collector) = coverage.as_mut() {
         collector.register_source_files(&coverage_source_files);
+        for case in &cases { collector.register_test(case.id()); }
     }
     let mut interrupted = None;
     let run_result = run_test_cases(cases, &run_id, &options, route_witness.as_ref(), |event| {
@@ -566,8 +567,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
             write_test_error(&bytes_text_lossy(&outcome.stderr));
         }
         if let Some(collector) = coverage.as_mut()
-            && let Some(trace) = &outcome.coverage_trace
-            && let Err(message) = collector.ingest_jsonl(trace)
+            && let Err(message) = collector.ingest_test(&id, outcome.coverage_trace.as_deref())
         {
             failed += 1;
             coverage_error.get_or_insert(message.clone());
@@ -1917,7 +1917,7 @@ fn run_native_test_in_directory(
         if let Some(dir) = &nested_coverage_dir {
             match read_nested_coverage_traces(dir) {
                 Ok(nested) => trace.push_str(&nested),
-                Err(message) => detail.push_str(&format!("coverage: {message}\n")),
+                Err(message) => { detail.push_str(&format!("coverage: {message}\n")); trace.push_str("invalid coverage JSONL"); },
             }
         }
         Some(trace)

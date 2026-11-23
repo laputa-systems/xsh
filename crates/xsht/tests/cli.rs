@@ -462,7 +462,7 @@ fn test_coverage_output_failure_preserves_case_results_and_run_failure() {
     fs::create_dir(&destination).unwrap();
     for structured in [false, true] {
         let events = root.path().join("coverage-events.jsonl");
-        let mut command = Command::new(test_bin!("xsht"));
+        let mut command = Command::new(coverage_xsht_binary());
         command.args(["test", "--exact-id", "tests/pass.xsh::pass", "--cov-json"]).arg(&destination).current_dir(root.path());
         if structured { command.arg("--events-jsonl").arg(&events); }
         let output = command.output().unwrap();
@@ -1865,4 +1865,71 @@ fn xsht_check_compare_rejects_changed_required_effects_with_same_interface() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("checked body contract mismatch"), "{stderr}");
     assert!(stderr.contains("main.xsh::observe"), "{stderr}");
+}
+
+#[test]
+fn coverage_calibration_trace_and_killed_child_missing_status_gaps() {
+    let root = cli_tempdir();
+    fs::create_dir(root.path().join("tests")).unwrap();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coverage");
+    for name in ["calibration.xsh", "dynamic.xsh", "plugin.xsh", "suffixless", "killed.xsh", "child_test.xsh"] {
+        let target = if name == "calibration.xsh" || name == "dynamic.xsh" || name == "child_test.xsh" { root.path().join("tests").join(name) } else { root.path().join(name) };
+        fs::copy(fixtures.join(name), target).unwrap();
+    }
+    let report = root.path().join("report.json");
+    let output = Command::new(coverage_xsht_binary()).args(["test", "--cov-json"]).arg(&report).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let text = fs::read_to_string(report).unwrap();
+    let parsed = xsh::host::json::parse(&text).unwrap();
+    let files = native_event_field(&parsed, "source_coverage").as_seq().unwrap();
+    let file = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/calibration.xsh").unwrap();
+    let executable = native_event_field(file, "executable_line_numbers").as_seq().unwrap().iter().map(native_event_number).collect::<std::collections::BTreeSet<_>>();
+    let hits = native_event_field(file, "line_tests");
+    let covered = executable.iter().copied().filter(|line| hits.get(&line.to_string()).is_some()).collect::<Vec<_>>();
+    let uncovered = executable.iter().copied().filter(|line| hits.get(&line.to_string()).is_none()).collect::<Vec<_>>();
+    assert_eq!(covered, [2, 13, 22, 23, 24, 25, 28]);
+    assert_eq!(uncovered, [5, 6, 7, 9, 10, 11, 14, 15, 17, 18, 19, 20, 26, 27, 29]);
+    for (start, end, expected_covered, expected_uncovered) in [
+        (1, 3, &[2][..], &[][..]),
+        (4, 7, &[][..], &[5, 6, 7][..]),
+        (8, 11, &[][..], &[9, 10, 11][..]),
+        (12, 15, &[13][..], &[14, 15][..]),
+        (16, 20, &[][..], &[17, 18, 19, 20][..]),
+    ] {
+        assert_eq!(covered.iter().copied().filter(|line| (start..=end).contains(line)).collect::<Vec<_>>(), expected_covered);
+        assert_eq!(uncovered.iter().copied().filter(|line| (start..=end).contains(line)).collect::<Vec<_>>(), expected_uncovered);
+    }
+    let plain = Command::new(coverage_xsht_binary()).arg("test").current_dir(root.path()).output().unwrap();
+    assert!(plain.status.success(), "{}", String::from_utf8_lossy(&plain.stderr));
+    let status = native_event_field(&parsed, "test_collection");
+    assert_eq!(native_event_text(native_event_field(status, "tests/child_test.xsh::killed_child")), "complete");
+    let killed = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "killed.xsh").unwrap();
+    assert_eq!(native_event_number(native_event_field(killed, "covered_lines")), 0);
+    let dynamic = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "tests/dynamic.xsh").unwrap();
+    assert_eq!(coverage_line_sets(dynamic), (vec![3, 4], vec![]));
+    let plugin = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "plugin.xsh").unwrap();
+    assert_eq!(coverage_line_sets(plugin), (vec![], vec![4, 5]));
+    let suffixless = files.iter().find(|entry| native_event_text(native_event_field(entry, "file")) == "suffixless").unwrap();
+    assert_eq!(coverage_line_sets(suffixless), (vec![2, 3], vec![]));
+}
+
+fn coverage_xsht_binary() -> PathBuf {
+    let cargo_binary = Path::new(env!("CARGO_BIN_EXE_xsht"));
+    let profile = cargo_binary.parent().unwrap();
+    if profile.file_name().is_some_and(|name| name == "verification" || name == "release") {
+        cargo_binary.to_path_buf()
+    } else {
+        profile.parent().unwrap().join("verification").join("xsht")
+    }
+}
+
+fn coverage_line_sets(file: &xsh::host::json::Value) -> (Vec<u64>, Vec<u64>) {
+    let lines = native_event_field(file, "executable_line_numbers").as_seq().unwrap();
+    let hits = native_event_field(file, "line_tests");
+    let mut covered = Vec::new();
+    let mut uncovered = Vec::new();
+    for line in lines.iter().map(native_event_number) {
+        if hits.get(&line.to_string()).is_some() { covered.push(line); } else { uncovered.push(line); }
+    }
+    (covered, uncovered)
 }
