@@ -20,8 +20,10 @@ variable {Declaration Identity Source : Type}
 /-- The `leading_dot_variants` fragment root (SPEC 5.5): where the expected
 type is known, a leading-dot name selects a variant of the enum it names, an
 optional `T?` selecting from `T`; an annotated binding and a function's
-declared result, through its tail and each top-level `return`, give that type,
-and so does a parameter's annotation to the argument that fills it, positional
+declared result, through its tail and each `return` however deeply it sits in
+the body's `if`, `while`, `for`, `loop`, `match` and `guard` statements, give
+that type, and so does a parameter's annotation to its default and to the
+argument that fills it, positional
 arguments filling the non-rest parameters in order and a named one the
 parameter it names; an expected type reaches each branch of a value `if` or
 `match`, a value block's tail, each element of an expected `List[T]` and the
@@ -81,14 +83,68 @@ theorem leading_dot_variants [DecidableEq Declaration] {world : World Declaratio
     (∀ expected tail, expectTail machine.context.spelling expected [.expression tail] = [.expression (expectTarget machine.context.spelling expected tail)]) ∧
     (∀ target constructor payload, machine.context.spelling constructor = "Ok" →
       expectTarget machine.context.spelling (some (.result target)) (.call (.ident constructor) [.positional payload]) =
-        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some target) payload)]) := by
+        .call (.ident constructor) [.positional (expectTarget machine.context.spelling (some target) payload)]) ∧
+    (∀ result statement rest, (∀ tail, statement :: rest ≠ [.expression tail]) →
+      expectBody machine.context.spelling result (statement :: rest) =
+        expectReturn machine.context.spelling result statement :: expectBody machine.context.spelling result rest) ∧
+    (∀ result value, expectReturn machine.context.spelling result (.returnValue (some value)) =
+      .returnValue (some (expectTarget machine.context.spelling result value))) ∧
+    (∀ result branches otherwise, expectReturn machine.context.spelling result (.ifStmt branches otherwise) =
+      .ifStmt (expectReturnBranches machine.context.spelling result branches)
+        (otherwise.map (expectReturns machine.context.spelling result))) ∧
+    (∀ result condition body rest, expectReturnBranches machine.context.spelling result ((condition, body) :: rest) =
+      (condition, expectReturns machine.context.spelling result body) :: expectReturnBranches machine.context.spelling result rest) ∧
+    (∀ result condition body, expectReturn machine.context.spelling result (.whileStmt condition body) =
+      .whileStmt condition (expectReturns machine.context.spelling result body)) ∧
+    (∀ result target iterable body, expectReturn machine.context.spelling result (.forStmt target iterable body) =
+      .forStmt target iterable (expectReturns machine.context.spelling result body)) ∧
+    (∀ result body, expectReturn machine.context.spelling result (.loopStmt body) =
+      .loopStmt (expectReturns machine.context.spelling result body)) ∧
+    (∀ result subject arms, expectReturn machine.context.spelling result (.matchStmt subject arms) =
+      .matchStmt subject (expectReturnArms machine.context.spelling result arms)) ∧
+    (∀ result pattern guard body rest, expectReturnArms machine.context.spelling result ((pattern, guard, body) :: rest) =
+      (pattern, guard, expectReturns machine.context.spelling result body) :: expectReturnArms machine.context.spelling result rest) ∧
+    (∀ result target annotation initializer otherwise,
+      expectReturn machine.context.spelling result (.guardStmt target annotation initializer otherwise) =
+        .guardStmt target annotation initializer (expectReturns machine.context.spelling result otherwise)) ∧
+    (∀ result statement rest, expectReturns machine.context.spelling result (statement :: rest) =
+      expectReturn machine.context.spelling result statement :: expectReturns machine.context.spelling result rest) ∧
+    (∀ name annotation default rest more,
+      expectDefaults machine.context.spelling (.mk name annotation (some default) rest :: more) =
+        .mk name annotation (some (expectTarget machine.context.spelling annotation default)) rest ::
+          expectDefaults machine.context.spelling more) ∧
+    (∀ (evaluate : Frame world → Xsh.Syntax.Expr → Valued world)
+        (callBlock : Frame world → Scope Declaration Identity Source → Environment → Locals Declaration Identity Source →
+          List CellId → List Xsh.Syntax.Statement → ReturnKind → Valued world)
+        after cell callable defining captured writable parameters body supplied slots,
+      placeCall machine.context.spelling (expectDefaults machine.context.spelling parameters) supplied = .ok slots →
+        invokeSupplied machine evaluate callBlock after (.mk cell callable defining captured writable parameters body)
+            supplied =
+          (bindSlots
+              (fun current default => returnValue current (evaluate
+                { Frame.ofScope defining current.store [] (some current.store)
+                    ⟨current.activation + machine.activationStep,
+                      (cell, .mk cell callable defining captured writable parameters body) :: captured ++ current.closures,
+                      none⟩ with
+                  writable } default))
+              after slots).bind fun bound last =>
+            callBlock last ⟨last.activation + machine.activationStep,
+              (cell, .mk cell callable defining captured writable parameters body) :: captured ++ last.closures, none⟩
+              defining bound
+              writable (bodyStatements body) (bodyKind body)) := by
   refine ⟨fun _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ => rfl, fun enum name declared variant wire found named => ?_,
     fun enum name arguments declared variant fields wire found named => ?_,
     fun enum name arguments declared variant found other => ?_, fun _ _ _ _ => rfl, fun _ _ _ _ _ _ _ => rfl,
     fun _ _ _ _ _ => rfl, fun target _ _ => by cases target <;> simp [expectTarget],
     fun target _ _ => by cases target <;> simp [expectTarget], fun target _ => by cases target <;> simp [expectTarget],
     fun _ _ => by simp [expectTarget], fun _ _ => by simp [expectTail],
-    fun _ _ _ named => by simp [expectTarget, named]⟩
+    fun _ _ _ named => by simp [expectTarget, named], fun result statement rest notTail => by
+      cases rest with
+      | cons _ _ => cases statement <;> rfl
+      | nil => cases statement <;> first | rfl | exact absurd rfl (notTail _), fun _ _ => rfl,
+    fun _ _ otherwise => by cases otherwise <;> rfl, fun _ _ _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ => rfl,
+    fun _ _ => rfl, fun _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ _ _ => rfl, fun _ _ _ => rfl,
+    fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ _ _ _ _ _ _ placed => by simp only [invokeSupplied, placed]⟩
   · simp only [evalExpr, found, named, if_true]
   · cases fields <;> (simp only [evalExpr, found, named, if_true]; try rfl)
   · rcases variant with ⟨variant, fields, wire⟩
@@ -280,6 +336,55 @@ theorem branch_stopping_rejected :
     valueOf (slot 0) (runScript shapeMachine 90 fullStart
       [declareLevel, letOf (slot 0) (.ifExpr [(yes, block (dot warnName))] (block (dot infoName)))]) = none ∧
     variantShape (valueOf (slot 0) branchRun) = some ("Warn", []) := by
+  decide +kernel
+
+def flagName : Xsh.Syntax.RawName := name 364 (by decide)
+def stepName : Xsh.Syntax.RawName := name 365 (by decide)
+def fallName : Xsh.Syntax.RawName := name 366 (by decide)
+
+/-- `proc early(c: Bool) -> Level { if c { return .Warn } for i in [1] { return .Info } .Warn }`,
+`proc picked() -> Shape { match 7 { 7 => { return .Ring(2) } else => {} } .Dot }`
+and `proc fall(c: Level = .Info) -> Level { c }`, called as `early(true)`,
+`early(false)`, `picked()` and `fall()`. -/
+def nestedScript : List Xsh.Syntax.Statement :=
+  [declareLevel, declareShape,
+   .functionDef .proc pickName [.mk flagName none none false] none (some (.named levelName))
+     [.ifStmt [(ident flagName, [.returnValue (some (dot warnName))])] none,
+      .forStmt (.name stepName) (.list [int "1"]) [.returnValue (some (dot infoName))],
+      .expression (dot warnName)] none false,
+   .functionDef .proc pickRing [] none (some (.named shapeName))
+     [.matchStmt (int "7") [(.literal (.integer "7"), none, [.returnValue (some (dotCall ringName [int "2"]))]),
+        (.wildcard, none, [])],
+      .expression (dot dotName)] none false,
+   .functionDef .proc fallName [.mk flagName (some (.named levelName)) (some (dot infoName)) false] none
+     (some (.named levelName)) [.expression (ident flagName)] none false,
+   letOf (slot 0) (.call (ident pickName) [.positional yes]),
+   letOf (slot 1) (.call (ident pickName) [.positional (.literal (.bool false))]),
+   letOf (slot 2) (.call (ident pickRing) []),
+   letOf (slot 3) (.call (ident fallName) [])]
+
+def nestedRun : Exec witnessWorld := runScript shapeMachine 120 fullStart nestedScript
+
+/-- As the verification binary prints `true` for `f(true) == Red`,
+`g(1) == Red` and `m(1) == Red`, whose `return .Red` sits in an `if`, a `for`
+and a `match` arm, and `true` for `d()` and `k() == Green` with defaults
+`.Red` and `.Green`: a nested `return` takes the declared result and a
+default its parameter's annotation. -/
+theorem nested_return_witness :
+    variantShape (valueOf (slot 0) nestedRun) = some ("Warn", []) ∧
+    variantShape (valueOf (slot 1) nestedRun) = some ("Info", []) ∧
+    variantShape (valueOf (slot 2) nestedRun) = some ("Ring", [2]) ∧
+    variantShape (valueOf (slot 3) nestedRun) = some ("Info", []) := by
+  decide +kernel
+
+/-- A default without its parameter's annotation leaves the variant
+untargeted, and the call does not complete. -/
+theorem untargeted_default_rejected :
+    valueOf (slot 0) (runScript shapeMachine 90 fullStart
+      [declareLevel, .functionDef .proc fallName [.mk flagName none (some (dot infoName)) false] none none
+          [.expression (ident flagName)] none false,
+        letOf (slot 0) (.call (ident fallName) [])]) = none ∧
+    variantShape (valueOf (slot 3) nestedRun) = some ("Info", []) := by
   decide +kernel
 
 end Witness

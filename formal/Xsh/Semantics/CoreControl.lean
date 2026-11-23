@@ -1269,15 +1269,62 @@ def expectArguments (spelling : Xsh.Syntax.RawName → String) (parameters : Lis
   | _, .splice value :: rest => .splice value :: expectArguments spelling parameters [] rest
   | positions, .namedSpread value :: rest => .namedSpread value :: expectArguments spelling parameters positions rest
 
-/-- A function body whose tail and top-level `return` operands take the
-declared result type as their expected type (SPEC 5.3). -/
+mutual
+  /-- A statement whose `return` operands, also those nested in its `if`,
+  `while`, `for`, `loop`, `match`, `guard` and `with` bodies, take the declared
+  result type as their expected type (SPEC 5.3). Declarations are allowed only
+  at the top level, so no nested body has a result of its own. -/
+  def expectReturn (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      Xsh.Syntax.Statement → Xsh.Syntax.Statement
+    | .returnValue (some value) => .returnValue (some (expectTarget spelling result value))
+    | .ifStmt branches none => .ifStmt (expectReturnBranches spelling result branches) none
+    | .ifStmt branches (some fallback) =>
+      .ifStmt (expectReturnBranches spelling result branches) (some (expectReturns spelling result fallback))
+    | .whileStmt condition body => .whileStmt condition (expectReturns spelling result body)
+    | .forStmt target iterable body => .forStmt target iterable (expectReturns spelling result body)
+    | .loopStmt body => .loopStmt (expectReturns spelling result body)
+    | .matchStmt subject arms => .matchStmt subject (expectReturnArms spelling result arms)
+    | .guardStmt target annotation initializer otherwise =>
+      .guardStmt target annotation initializer (expectReturns spelling result otherwise)
+    | .guardHandled target annotation initializer failure otherwise =>
+      .guardHandled target annotation initializer failure (expectReturns spelling result otherwise)
+    | .withScope bindings body otherwise =>
+      .withScope bindings (expectReturns spelling result body) (expectReturns spelling result otherwise)
+    | .sugar form expansion => .sugar form (expectReturn spelling result expansion)
+    | statement => statement
+
+  def expectReturns (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
+    | [] => []
+    | statement :: rest => expectReturn spelling result statement :: expectReturns spelling result rest
+
+  def expectReturnBranches (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Expr × List Xsh.Syntax.Statement) → List (Xsh.Syntax.Expr × List Xsh.Syntax.Statement)
+    | [] => []
+    | (condition, body) :: rest => (condition, expectReturns spelling result body) :: expectReturnBranches spelling result rest
+
+  def expectReturnArms (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
+      List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × List Xsh.Syntax.Statement) →
+        List (Xsh.Syntax.Pattern × Option Xsh.Syntax.Expr × List Xsh.Syntax.Statement)
+    | [] => []
+    | (pattern, guard, body) :: rest => (pattern, guard, expectReturns spelling result body) :: expectReturnArms spelling result rest
+end
+
+/-- A function body whose tail and `return` operands take the declared result
+type as their expected type (SPEC 5.3). -/
 def expectBody (spelling : Xsh.Syntax.RawName → String) (result : Option Xsh.Syntax.TypeExpr) :
     List Xsh.Syntax.Statement → List Xsh.Syntax.Statement
   | [] => []
   | [.expression tail] => [.expression (expectTarget spelling result tail)]
-  | .returnValue (some value) :: rest =>
-    .returnValue (some (expectTarget spelling result value)) :: expectBody spelling result rest
-  | statement :: rest => statement :: expectBody spelling result rest
+  | statement :: rest => expectReturn spelling result statement :: expectBody spelling result rest
+
+/-- Parameters whose defaults take the parameter's annotation as their
+expected type (SPEC 5.5). -/
+def expectDefaults (spelling : Xsh.Syntax.RawName → String) : List Xsh.Syntax.Parameter → List Xsh.Syntax.Parameter
+  | [] => []
+  | .mk name annotation (some default) rest :: more =>
+    .mk name annotation (some (expectTarget spelling annotation default)) rest :: expectDefaults spelling more
+  | parameter :: more => parameter :: expectDefaults spelling more
 
 /-- A pipeline's source view (SPEC 13.1): one outer `Result` is removed, an
 `Ok` giving its collection and an `Err` raising its error. -/
@@ -2522,7 +2569,7 @@ def invokeSupplied {world : World Declaration Identity Source} (machine : Machin
     (after : Frame world) (closure : Closure) (supplied : List (Supplied Declaration Identity Source)) : Valued world :=
   match closure with
   | .mk cell callable defining captured writable parameters body =>
-      match placeCall machine.context.spelling parameters supplied with
+      match placeCall machine.context.spelling (expectDefaults machine.context.spelling parameters) supplied with
       | .error fault =>
         .exec (.failed (.runtime (machine.argumentError fault (fixedCount parameters)
           (supplied.filterMap Supplied.positionalValue).length)) after)

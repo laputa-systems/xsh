@@ -26,8 +26,8 @@ membership world, and its `Err` the schema error of the conversion's failure.
 A contextual `.require()` in an annotated binding takes its target from the
 annotation: the annotation's `Result` value type, or under `.require()?` the
 annotation itself, as each `?` peels one `Result` layer; a function's declared
-result is likewise the target of its body's tail and of each top-level
-`return`. -/
+result is likewise the target of its body's tail and of each `return`, also
+one nested in its statements. -/
 theorem require_expression [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
     (∀ value schema type, machine.typeOf schema = some type →
