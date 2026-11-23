@@ -4978,7 +4978,7 @@ A command statement is a core command or a `run` form:
 
 ```xsh
 print "building" $target
-json.write(p"out.json", metadata, pretty: true)?
+json.write(p"out.json", metadata, pretty: true)
 ```
 
 Standard-module APIs are called with expression syntax, such as

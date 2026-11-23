@@ -119,11 +119,9 @@ error LookupError = Missing(key: Str) | Malformed(text: Str)
 
 pure port_of(settings: Map[Str], key: Str) -> Result[Int, LookupError] {
   let text = settings.get(key) ?? ""
-  if text == "" {
-    return Err(LookupError.Missing(key: key))
-  }
+  return Err(.Missing(key:)) when text == ""
 
-  text.parse_int() ?? Err(LookupError.Malformed(text: text))?
+  text.parse_int() ?? Err(LookupError.Malformed(text:))?
 }
 
 let settings: Map[Str] = {http: "8080", admin: "eighty"}
@@ -133,8 +131,8 @@ print f"https, with a default: {port_of(settings, "https") ?? 443}"
 for key in ["admin", "metrics"] {
   match port_of(settings, key) {
     Ok(port) => print f"{key}: {port}"
-    Err(LookupError.Malformed {text}) => print f"{key}: not a number: {text}"
-    Err(LookupError.Missing {key}) => print f"{key}: not set"
+    Err(.Malformed {text}) => print f"{key}: not a number: {text}"
+    Err(.Missing {key}) => print f"{key}: not set"
   }
 }
 ```
@@ -249,9 +247,7 @@ var attempts = 0
 
 proc fetch() -> Result[Str] {
   attempts += 1
-  if attempts < 3 {
-    return Err(FetchError.Busy("try again"))
-  }
+  return Err(FetchError.Busy("try again")) when attempts < 3
 
   "payload"
 }
@@ -271,7 +267,7 @@ let body = retry [50ms, 100ms, 200ms] on (FetchError.Busy {..}) {
 }?
 
 tempdir dir {
-  publish(dir, body)?
+  publish(dir, body)
   let names = fs.children(dir)? |> map .name |> sort()
   print f"{body} after {attempts} attempts; left: {names.join(" ")}"
 }
@@ -294,7 +290,7 @@ conversion. This script accepts `[--keep N] [--dry-run] DIR` and answers a bad
 ```xsh
 #!/usr/bin/env -S xsh --
 cli main(dir: Path, keep: Int = 3, dry_run = false) {
-  if keep < 1 {
+  guard keep >= 1 else {
     eprint f"--keep must be positive, got {keep}"
     exit 2
   }
