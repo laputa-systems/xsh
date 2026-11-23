@@ -3377,22 +3377,95 @@ impl Drop for Evaluator {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+enum CoverageOutcome<'a> {
+    IfArm(usize), IfElse, MatchArm(usize), MatchKey(std::borrow::Cow<'a, str>), MatchFallback,
+    Bool(bool), Loop(bool), TryContinue, TryExit, FusedSpan,
+}
+
+impl CoverageOutcome<'_> {
+    fn owned(&self) -> CoverageOutcome<'static> {
+        match self {
+            Self::IfArm(n) => CoverageOutcome::IfArm(*n),
+            Self::IfElse => CoverageOutcome::IfElse,
+            Self::MatchArm(n) => CoverageOutcome::MatchArm(*n),
+            Self::MatchKey(key) => CoverageOutcome::MatchKey(std::borrow::Cow::Owned(key.to_string())),
+            Self::MatchFallback => CoverageOutcome::MatchFallback,
+            Self::Bool(v) => CoverageOutcome::Bool(*v),
+            Self::Loop(v) => CoverageOutcome::Loop(*v),
+            Self::TryContinue => CoverageOutcome::TryContinue,
+            Self::TryExit => CoverageOutcome::TryExit,
+            Self::FusedSpan => CoverageOutcome::FusedSpan,
+        }
+    }
+
+    fn render(&self) -> String {
+        match self {
+            Self::IfArm(n) => format!("if:arm:{n}"), Self::IfElse => "if:else".into(),
+            Self::MatchArm(n) => format!("match:arm:{n}"), Self::MatchKey(key) => format!("match:key:{key}"),
+            Self::MatchFallback => "match:fallback".into(), Self::Bool(v) => format!("bool:{v}"),
+            Self::Loop(v) => format!("loop:{v}"), Self::TryContinue => "try:continue".into(),
+            Self::TryExit => "try:exit".into(), Self::FusedSpan => "fused:span".into(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct CoverageSpan {
+    statement: Option<u64>,
+    outcomes: BTreeMap<CoverageOutcome<'static>, u64>,
+    match_keys: BTreeMap<String, u64>,
+}
+
 struct CoverageData {
     sources: SourceMap,
-    hits: BTreeMap<(Span, Option<String>), u64>,
+    source_ids: FxHashMap<usize, SourceId>,
+    source_snapshots: Vec<SourceMap>,
+    hits: BTreeMap<Span, CoverageSpan>,
 }
 
 type CoverageCounts = Arc<Mutex<CoverageData>>;
 
-fn coverage_count(coverage: &CoverageCounts, sources: &SourceMap, span: Span, outcome: Option<String>, count: u64) {
+thread_local! {
+    static COVERAGE_REGISTERED: RefCell<(std::sync::Weak<Mutex<CoverageData>>, FxHashSet<(usize, Span, CoverageOutcome<'static>)>)> = RefCell::new((std::sync::Weak::new(), FxHashSet::default()));
+}
+
+fn coverage_count(coverage: &CoverageCounts, sources: &SourceMap, span: Span, outcome: Option<CoverageOutcome<'_>>, count: u64) {
     let file = sources.get(span.source_id).expect("coverage span source is missing");
+    let identity = file as *const _ as usize;
+    if count == 0 && let Some(outcome) = &outcome {
+        let registered = COVERAGE_REGISTERED.with_borrow_mut(|cache| {
+            if !std::sync::Weak::ptr_eq(&cache.0, &Arc::downgrade(coverage)) {
+                cache.0 = Arc::downgrade(coverage);
+                cache.1.clear();
+            }
+            if cache.1.contains(&(identity, span, outcome.clone())) { true } else {
+                cache.1.insert((identity, span, outcome.owned()));
+                false
+            }
+        });
+        if registered { return; }
+    }
     let mut coverage = coverage.lock().expect("coverage collector poisoned");
-    let id = match coverage.sources.files().iter().find(|candidate| candidate.name() == file.name() && candidate.text() == file.text()) {
-        Some(candidate) => candidate.id(),
-        None => coverage.sources.add_file(file.name(), file.text()),
+    let id = if let Some(&id) = coverage.source_ids.get(&identity) { id } else {
+        let id = match coverage.sources.files().iter().find(|candidate| candidate.name() == file.name() && candidate.text() == file.text()) {
+            Some(candidate) => candidate.id(),
+            None => coverage.sources.add_file(file.name(), file.text()),
+        };
+        coverage.source_snapshots.push(sources.clone());
+        coverage.source_ids.insert(identity, id);
+        id
     };
     let span = Span::new(id, span.start(), span.end());
-    *coverage.hits.entry((span, outcome)).or_default() += count;
+    let hits = coverage.hits.entry(span).or_default();
+    match outcome {
+        None => *hits.statement.get_or_insert(0) += count,
+        Some(CoverageOutcome::MatchKey(key)) => {
+            if let Some(value) = hits.match_keys.get_mut(key.as_ref()) { *value += count; }
+            else { hits.match_keys.insert(key.into_owned(), count); }
+        }
+        Some(outcome) => *hits.outcomes.entry(outcome.owned()).or_default() += count,
+    }
 }
 
 struct LoweredSharedState {
@@ -3808,11 +3881,11 @@ impl Evaluator {
     }
 
     pub fn with_coverage(mut self) -> Self {
-        self.coverage = Some(Arc::new(Mutex::new(CoverageData { sources: (*self.sources).clone(), hits: BTreeMap::new() })));
+        self.coverage = Some(Arc::new(Mutex::new(CoverageData { sources: (*self.sources).clone(), source_ids: FxHashMap::default(), source_snapshots: Vec::new(), hits: BTreeMap::new() })));
         self
     }
 
-    fn coverage_hit(&mut self, sources: &SourceMap, span: Span, outcome: Option<String>) {
+    fn coverage_hit(&mut self, sources: &SourceMap, span: Span, outcome: Option<CoverageOutcome<'_>>) {
         if let Some(coverage) = &self.coverage {
             coverage_count(coverage, sources, span, outcome, 1);
         }
@@ -3821,7 +3894,7 @@ impl Evaluator {
     fn coverage_decision(&self, sources: &SourceMap, span: Span, kind: &str, taken: bool) {
         if let Some(coverage) = &self.coverage {
             for value in [false, true] {
-                coverage_count(coverage, sources, span, Some(format!("{kind}:{value}")), u64::from(taken == value));
+                coverage_count(coverage, sources, span, Some(match kind { "bool" => CoverageOutcome::Bool(value), "loop" => CoverageOutcome::Loop(value), _ => unreachable!() }), u64::from(taken == value));
             }
         }
     }
@@ -3831,10 +3904,10 @@ impl Evaluator {
             && sources.span_text(span).is_some_and(|text| text.trim_end().ends_with('?'))
         {
             for (outcome, taken) in [
-                ("try:continue", matches!(value, LoweredValue::ResultOk(_))),
-                ("try:exit", matches!(value, LoweredValue::ResultErr(_))),
+                (CoverageOutcome::TryContinue, matches!(value, LoweredValue::ResultOk(_))),
+                (CoverageOutcome::TryExit, matches!(value, LoweredValue::ResultErr(_))),
             ] {
-                coverage_count(coverage, sources, span, Some(outcome.to_string()), u64::from(taken));
+                coverage_count(coverage, sources, span, Some(outcome), u64::from(taken));
             }
         }
     }
@@ -3843,7 +3916,14 @@ impl Evaluator {
         if let Some(coverage) = self.coverage.take() {
             let mut coverage = coverage.lock().expect("coverage collector poisoned");
             self.sources = Arc::new(coverage.sources.clone());
-            for ((span, outcome), count) in std::mem::take(&mut coverage.hits) {
+            let mut hits = Vec::new();
+            for (span, counts) in std::mem::take(&mut coverage.hits) {
+                if let Some(count) = counts.statement { hits.push(((span, None), count)); }
+                hits.extend(counts.outcomes.into_iter().map(|(outcome, count)| ((span, Some(outcome.render())), count)));
+                hits.extend(counts.match_keys.into_iter().map(|(key, count)| ((span, Some(format!("match:key:{key}"))), count)));
+            }
+            hits.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            for ((span, outcome), count) in hits {
                 let kind = if outcome.is_some() { TraceKind::CoverageBranch } else { TraceKind::CoverageStatement };
                 let event = TraceEvent::new(next_event_id(&self.trace_events), kind)
                     .with_span(span)

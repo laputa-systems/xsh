@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, ControlFlow, Duration,
@@ -1384,23 +1385,23 @@ impl Evaluator {
             ExprView::IfExpr { branches, else_value, span: source_span } => {
                 for (ordinal, branch) in branches.enumerate() {
                     let (_, value) = branch.map_err(|error| indexed_error(error, span))?;
-                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(format!("if:arm:{ordinal}")), u64::from(value.raw() == selected));
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(value.raw() == selected));
                 }
-                crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some("if:else".to_string()), u64::from(else_value.raw() == selected));
+                crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(else_value.raw() == selected));
             }
             ExprView::MatchExpr { arms, span: source_span, .. } => {
                 for (ordinal, arm) in arms.enumerate() {
                     let (_, _, value) = arm.map_err(|error| indexed_error(error, span))?;
-                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(format!("match:arm:{ordinal}")), u64::from(value.raw() == selected));
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchArm(ordinal)), u64::from(value.raw() == selected));
                 }
             }
             ExprView::StrMatchExpr { arms, fallback, span: source_span, .. } | ExprView::TagMatchExpr { arms, fallback, span: source_span, .. } => {
                 for arm in arms {
                     let (key, value) = arm.map_err(|error| indexed_error(error, span))?;
-                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(format!("match:key:{key}")), u64::from(value.raw() == selected));
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchKey(std::borrow::Cow::Borrowed(key))), u64::from(value.raw() == selected));
                 }
                 if let Some(value) = fallback {
-                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some("match:fallback".to_string()), u64::from(value.raw() == selected));
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchFallback), u64::from(value.raw() == selected));
                 }
             }
             _ => unreachable!("selection coverage requires a selection expression"),

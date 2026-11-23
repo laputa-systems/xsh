@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 use super::{
     Arc, AssertionFailure, BinaryOp, ControlFlow, Evaluator,
     FullExecution, FullTag, LoweredValue, Name, RuntimeError, Span, StmtFlow,
@@ -702,8 +703,8 @@ fn eval_indexed_typed_scalar(
                         if let Some(coverage) = coverage {
                             for operand in [left.raw(), right.raw()] {
                                 if let Some(span) = execution.statement_span(operand) {
-                                    for outcome in ["bool:false", "bool:true"] {
-                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome.to_string()), 0);
+                                    for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome), 0);
                                     }
                                 }
                             }
@@ -721,8 +722,8 @@ fn eval_indexed_typed_scalar(
                         if let Some(coverage) = coverage {
                             for operand in [left.raw(), right.raw()] {
                                 if let Some(span) = execution.statement_span(operand) {
-                                    for outcome in ["bool:false", "bool:true"] {
-                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome.to_string()), 0);
+                                    for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                                        crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(outcome), 0);
                                     }
                                 }
                             }
@@ -818,7 +819,7 @@ fn eval_indexed_typed_scalar(
                     return Err(typed_scalar_stack_error("boolean coverage operand", call_span));
                 };
                 if let Some(coverage) = coverage {
-                    crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(format!("bool:{value}")), 1);
+                    crate::runtime::eval::coverage_count(coverage, execution.sources(), span, Some(CoverageOutcome::Bool(*value)), 1);
                 }
             }
             TypedScalarWork::ApplyBoolBranch { op, right } => {

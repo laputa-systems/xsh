@@ -1,3 +1,4 @@
+use crate::runtime::eval::CoverageOutcome;
 #[cfg(test)]
 use super::DeferKind;
 use super::cleanup_policy::{CleanupFailures, Disposition, cleanup_disposition, failure_is_recorded, forced, next_due_defer};
@@ -5382,13 +5383,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             StmtView::ScanLines { text_slot, line_slot, checks, span: scan_span } => {
                 if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(instruction) {
-                    self.evaluator.coverage_hit(execution.sources(), span, Some("fused:span".to_string()));
+                    self.evaluator.coverage_hit(execution.sources(), span, Some(CoverageOutcome::FusedSpan));
                 }
                 self.step_scan_lines(index, text_slot, line_slot, checks, scan_span)
             }
             StmtView::ScanBytes { config } => {
                 if self.evaluator.coverage.is_some() && let Some(span) = execution.statement_span(instruction) {
-                    self.evaluator.coverage_hit(execution.sources(), span, Some("fused:span".to_string()));
+                    self.evaluator.coverage_hit(execution.sources(), span, Some(CoverageOutcome::FusedSpan));
                 }
                 self.step_scan_bytes(index, config)
             }
@@ -5615,23 +5616,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtView::If { branches, else_body } => {
                 for (ordinal, branch) in branches.enumerate() {
                     let (_, body) = branch.map_err(|error| indexed_error(error, span))?;
-                    coverage_count(coverage, execution.sources(), source_span, Some(format!("if:arm:{ordinal}")), u64::from(selected == Some(body.block_id())));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
                 }
-                coverage_count(coverage, execution.sources(), source_span, Some("if:else".to_string()), u64::from(selected == else_body.map(|body| body.block_id())));
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
             }
             StmtView::IfBool { branches, else_body } => {
                 for (ordinal, branch) in branches.enumerate() {
                     let (_, body) = branch.map_err(|error| indexed_error(error, span))?;
-                    coverage_count(coverage, execution.sources(), source_span, Some(format!("if:arm:{ordinal}")), u64::from(selected == Some(body.block_id())));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
                 }
-                coverage_count(coverage, execution.sources(), source_span, Some("if:else".to_string()), u64::from(selected == else_body.map(|body| body.block_id())));
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
             }
             StmtView::PatternIf { branches, else_body, .. } => {
                 for (ordinal, branch) in branches.enumerate() {
                     let (_, body, _) = branch.map_err(|error| indexed_error(error, span))?;
-                    coverage_count(coverage, execution.sources(), source_span, Some(format!("if:arm:{ordinal}")), u64::from(selected == Some(body.block_id())));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfArm(ordinal)), u64::from(selected == Some(body.block_id())));
                 }
-                coverage_count(coverage, execution.sources(), source_span, Some("if:else".to_string()), u64::from(selected == else_body.map(|body| body.block_id())));
+                coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::IfElse), u64::from(selected == else_body.map(|body| body.block_id())));
             }
             _ => unreachable!("if branch coverage requires an if statement"),
         }
@@ -5644,8 +5645,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let right_span = execution.statement_span(right);
         if let Some(coverage) = &self.evaluator.coverage {
             for source_span in [left_span, right_span].into_iter().flatten() {
-                for outcome in ["bool:false", "bool:true"] {
-                    coverage_count(coverage, execution.sources(), source_span, Some(outcome.to_string()), 0);
+                for outcome in [CoverageOutcome::Bool(false), CoverageOutcome::Bool(true)] {
+                    coverage_count(coverage, execution.sources(), source_span, Some(outcome), 0);
                 }
             }
         }
@@ -5661,16 +5662,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtView::Match { arms, .. } => {
                 for (ordinal, arm) in arms.enumerate() {
                     let (_, _, body) = arm.map_err(|error| indexed_error(error, span))?;
-                    coverage_count(coverage, execution.sources(), source_span, Some(format!("match:arm:{ordinal}")), u64::from(body.block_id() == selected));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchArm(ordinal)), u64::from(body.block_id() == selected));
                 }
             }
             StmtView::StrMatch { arms, fallback, .. } | StmtView::TagMatch { arms, fallback, .. } => {
                 for arm in arms {
                     let (key, body) = arm.map_err(|error| indexed_error(error, span))?;
-                    coverage_count(coverage, execution.sources(), source_span, Some(format!("match:key:{key}")), u64::from(body.block_id() == selected));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchKey(std::borrow::Cow::Borrowed(key))), u64::from(body.block_id() == selected));
                 }
                 if let Some(body) = fallback {
-                    coverage_count(coverage, execution.sources(), source_span, Some("match:fallback".to_string()), u64::from(body.block_id() == selected));
+                    coverage_count(coverage, execution.sources(), source_span, Some(CoverageOutcome::MatchFallback), u64::from(body.block_id() == selected));
                 }
             }
             _ => unreachable!("match branch coverage requires a match statement"),
