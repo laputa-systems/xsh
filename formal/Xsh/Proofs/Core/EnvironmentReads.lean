@@ -119,6 +119,12 @@ def pathEntriesName : Xsh.Syntax.RawName := name 391 (by decide)
 def prependName : Xsh.Syntax.RawName := name 392 (by decide)
 def appendName : Xsh.Syntax.RawName := name 393 (by decide)
 def popName : Xsh.Syntax.RawName := name 394 (by decide)
+def regexModule : Xsh.Syntax.RawName := name 403 (by decide)
+def compileName : Xsh.Syntax.RawName := name 404 (by decide)
+def matchesName : Xsh.Syntax.RawName := name 405 (by decide)
+def basenameName : Xsh.Syntax.RawName := name 406 (by decide)
+def md5Name : Xsh.Syntax.RawName := name 407 (by decide)
+def hexName : Xsh.Syntax.RawName := name 408 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
@@ -128,6 +134,9 @@ def keySpelling (named : Xsh.Syntax.RawName) : String :=
   else if named = pathName then "path" else if named = pathListName then "path_list"
   else if named = pathEntriesName then "path_entries" else if named = prependName then "prepend"
   else if named = appendName then "append" else if named = popName then "pop"
+  else if named = regexModule then "regex" else if named = compileName then "compile"
+  else if named = matchesName then "matches" else if named = basenameName then "basename"
+  else if named = md5Name then "md5" else if named = hexName then "hex"
   else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
@@ -416,6 +425,25 @@ theorem path_edit_witness :
     (match editedRun none [.expression (pathCall appendName [pathOf "XSH_PROBE_XY"])] with
       | .failed (.runtime (.scalar (.string message))) _ => message == "PATH entry contains invalid bytes"
       | _ => false) = true := by
+  decide +kernel
+
+/-- As the verification binary prints `true` for
+`regex.compile("a=(b+)")?.matches("xa=bb")`, `b` for `p"a/b".basename()` and
+`900150983cd24fb0d6963f7d28e17f72` for `b"abc".md5().hex()`: `regex.compile`
+gives `Ok` of the regex its text spells, an `=` in it no environment-name
+check, and method calls on a `Regex`, `Path` or `Digest` reach their
+methods. -/
+theorem regex_compile_witness :
+    (match readTyped (.call (.field (.tryExpr (.call (.field (ident regexModule) compileName)
+        [.positional (text "a=(b+)")])) matchesName) [.positional (text "xa=bb")]) with
+      | some (.scalar (.boolean value)) => some value
+      | _ => none) = some true ∧
+    (match readTyped (.call (.field (.literal (.path "a/b")) basenameName) []) with
+      | some (.scalar (.string value)) => some value
+      | _ => none) = some "b" ∧
+    (match readTyped (.call (.field (.call (.field (.literal (.bytes [97, 98, 99])) md5Name) []) hexName) []) with
+      | some (.scalar (.string value)) => some value
+      | _ => none) = some "900150983cd24fb0d6963f7d28e17f72" := by
   decide +kernel
 
 end Witness

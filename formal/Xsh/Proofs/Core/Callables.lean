@@ -82,11 +82,7 @@ theorem callable_values {world : World Declaration Identity Source} (machine : M
       parameters body notError notPath spelled received named
     have notEnv : envFunction machine frame receiver method = none := by
       unfold envFunction
-      split
-      · split
-        · simp [spelled]
-        · rfl
-      · rfl
+      split <;> simp_all
     simp only [evalExpr, notError, notPath, Bool.false_eq_true, if_false, notEnv, spelled, Outcome.bind, received, Value.eraseNominal, named]
 
 end Root

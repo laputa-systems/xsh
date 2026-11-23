@@ -514,8 +514,10 @@ Statements:
 
 Expressions:
 
-- regex patterns outside the `Values.Regex` subset (flags, Unicode classes,
-  `regex.compile`) (P); a regex literal in the subset (literals, `.`, bracket
+- regex patterns outside the `Values.Regex` subset (flags, Unicode classes)
+  and invalid ones, whose `regex.compile` `Err` the model does not tell apart
+  (P); `regex.compile` of a pattern in the subset is `Ok` of it, and a regex
+  literal in the subset (literals, `.`, bracket
   and ASCII Perl classes, `^`, `$`, `\b`, groups, named groups, alternation,
   greedy and lazy repetition) evaluates, and its `matches`, `find`,
   `captures` and `replace(with:)` follow a leftmost-first backtracking
@@ -773,7 +775,10 @@ component, `/` or `.` when there is none), component-wise `starts_with` and
 `ends_with`, `strip_prefix` (`Ok` of the remaining bytes, or the `path-prefix`
 `Err` for an empty prefix, a mismatch or a remainder that is not a `RelPath`)
 and `relative_to` (the path itself on a mismatch); a text result decodes the
-bytes lossily as the binary does; the `Bytes` digests `md5`, `sha1`, `sha256`
+bytes lossily as the binary does (a method call reaches the `Path`, `Digest`
+and `Regex` methods by name, which it did not before: such calls had stayed
+unsupported in the machine, their witnesses calling the method functions
+directly); the `Bytes` digests `md5`, `sha1`, `sha256`
 and `sha512` (`Values.Digests`, the RFC 1321 and FIPS 180-4 algorithms over
 `Nat` words, checked against the standard vectors and the binary) and the
 `Digest` methods `hex` and `base64`,

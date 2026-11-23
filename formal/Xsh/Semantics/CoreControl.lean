@@ -2371,13 +2371,17 @@ inductive EnvFunction where
   | path
   | pathList
   | pathEntries
+  /-- `regex.compile(text)`. -/
+  | regexCompile
 
 /-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
 def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
     (receiver : Xsh.Syntax.Expr) (method : Xsh.Syntax.RawName) : Option EnvFunction :=
   match receiver with
   | .ident module =>
-    if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
+    if machine.context.spelling module = "regex" ∧ machine.context.spelling method = "compile" ∧
+        (frame.locals.lookup module).isNone ∧ (frame.environment.cellOf module).isOk = false then some .regexCompile
+    else if machine.context.spelling module = "env" ∧ (frame.locals.lookup module).isNone ∧
         (frame.environment.cellOf module).isOk = false then
       match machine.context.spelling method with
       | "get" => some .get
@@ -2430,9 +2434,13 @@ ASCII-lowercased; `int` reads a trimmed Rust `i64`, else the `env-int` `Err`;
 def envCall {world : World Declaration Identity Source} (machine : Machine world) (overlay : Overlay)
     (function : EnvFunction) (supplied : List (Supplied Declaration Identity Source)) :
     Result Declaration Identity Source (Value Declaration Identity Source) :=
-  match envArguments supplied with
-  | none => .unsupported
-  | some (name, fallback) =>
+  match function, envArguments supplied with
+  | .regexCompile, some (source, none) =>
+    match Xsh.Values.Regex.parse source with
+    | some _ => .value (.ok (.scalar (.regex source)))
+    | none => .unsupported
+  | _, none => .unsupported
+  | _, some (name, fallback) =>
     if name.toUTF8.toList.isEmpty || name.toUTF8.toList.contains 0 || name.toUTF8.toList.contains 61 then
       .value (.err (machine.context.errors.described "env-name" "environment names cannot be empty or contain NUL or `=`"))
     else
@@ -3866,8 +3874,11 @@ mutual
             else
               match CollectionMethod.ofName name, TextMethod.ofName name, BytesMethod.ofName name with
               | none, none, none =>
-                threadStep machine.context (evalExpr machine fuel)
-                  (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+                if (PathMethod.ofName name).isSome || ["hex", "matches", "captures"].contains name then
+                  valueMethodCall machine.context (evalExpr machine fuel) frame receiver name arguments
+                else
+                  threadStep machine.context (evalExpr machine fuel)
+                    (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
               | _, _, _ => valueMethodCall machine.context (evalExpr machine fuel) frame receiver name arguments
       | .call (.ident name) arguments =>
         match frame.locals.lookup name, localClosure frame.closures frame.environment name with
