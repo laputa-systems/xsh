@@ -1,6 +1,6 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
-    AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
+    AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions, ProfileOptions, profile_script,
     api_command, ast_script, check_paths_timed, compare_paths_timed, desugar_script, format_files, grep_scripts,
     highlight_script, lint_files_timed, refactor_scripts, trace_script,
 };
@@ -84,6 +84,7 @@ pub fn main() -> ExitCode {
         Ok(Command::Highlight { script }) => finish_command(|| highlight_script(&script)),
         Ok(Command::Desugar { script }) => finish_command(|| desugar_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
+        Ok(Command::Profile { options }) => finish_command(|| profile_script(options)),
         Ok(Command::Api { options }) => finish_command(|| api_command(&options)),
         Ok(Command::Test { options }) => finish_command(|| test_scripts(options)),
         Ok(Command::Grep { pattern, files }) => finish_command(|| grep_scripts(&pattern, &files)),
@@ -149,6 +150,7 @@ enum Command {
     Trace {
         options: TraceOptions,
     },
+    Profile { options: ProfileOptions },
     Api {
         options: ApiOptions,
     },
@@ -192,6 +194,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "highlight" => parse_highlight(&args[1..]),
         "desugar" => parse_desugar(&args[1..]),
         "trace" => parse_trace(&args[1..]),
+        "profile" => parse_profile(&args[1..]),
         "api" => parse_api(&args[1..]),
         "ir-tags" => parse_ir_tags(&args[1..]),
         "test" => parse_test(&args[1..]),
@@ -575,6 +578,14 @@ fn parse_api_details(value: &str) -> Result<ApiDetails, String> {
         "full" => Ok(ApiDetails::Full),
         _ => Err("`xsht api --details` must be basic or full".to_string()),
     }
+}
+
+fn parse_profile(args: &[String]) -> Result<Command, String> {
+    parse_command("profile", args, |parsed| {
+        let Some((script, args)) = parsed.positionals.split_first() else { return Err("`xsht profile` requires SCRIPT".to_string()); };
+        let args = match args { [separator, rest @ ..] if separator == "--" => rest, all => all };
+        Ok(Command::Profile { options: ProfileOptions { script: script.clone(), args: args.to_vec(), json: parsed.value("--json").map(str::to_string), folded: parsed.value("--folded").map(str::to_string) } })
+    })
 }
 
 fn parse_trace(args: &[String]) -> Result<Command, String> {

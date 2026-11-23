@@ -87,6 +87,7 @@ impl Evaluator {
         jobs: usize,
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        if let Some(profile) = &mut self.profile { profile.dropped = profile.dropped.saturating_add(1); }
         let worker_count = jobs.min(items.len()).max(1);
         let item_count = items.len();
         let mut partitions: Vec<Vec<(usize, LoweredValue)>> =

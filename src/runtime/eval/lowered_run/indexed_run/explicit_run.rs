@@ -3018,6 +3018,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
 
         let trace_name = if state.stderr { "eprint" } else { "print" };
+        self.evaluator.profile_enter(crate::runtime::eval::SiteKind::Core, None, Some(state.span));
         self.evaluator.trace_enter(
             TraceKind::CoreCall,
             Some(state.span),
@@ -3033,6 +3034,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             self.evaluator.write_stdout_line(&state.line);
         }
+        self.evaluator.profile_exit();
         self.evaluator.trace_exit(
             TraceKind::CoreResult,
             Some(state.span),
@@ -3650,6 +3652,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 CallableKind::Proc => TraceKind::ProcExit,
                 CallableKind::Stream => TraceKind::StreamExit,
             };
+            if matches!(kind, CallableKind::Proc | CallableKind::Pure) { self.evaluator.profile_exit(); }
             let name = function.display_name();
             self.evaluator.trace_exit_with_definition(
                 exit_kind,
@@ -4443,6 +4446,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map_err(|error| indexed_error(error, call_span))?;
         // Tracing is off unless a tool turned it on, and rendering a function's
         // display name allocates; only do it when an event will use it.
+        if matches!(kind, CallableKind::Proc | CallableKind::Pure) {
+            self.evaluator.profile_enter(match kind { CallableKind::Proc => crate::runtime::eval::SiteKind::Proc, _ => crate::runtime::eval::SiteKind::Pure }, Some(definition_span), Some(call_span));
+        }
         if self.evaluator.trace_enabled {
             let name = function.display_name();
             self.evaluator.trace_enter_with_definition(
@@ -10438,6 +10444,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 CallableKind::Proc => TraceKind::ProcExit,
                 CallableKind::Stream => TraceKind::StreamExit,
             };
+            if matches!(kind, CallableKind::Proc | CallableKind::Pure) { self.evaluator.profile_exit(); }
             if self.evaluator.trace_enabled {
                 let name = function.display_name();
                 self.evaluator.trace_exit_with_definition(
@@ -10584,6 +10591,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 CallableKind::Stream => TraceKind::StreamExit,
         };
         self.evaluator.call_stack.pop();
+        if matches!(kind, CallableKind::Proc | CallableKind::Pure) { self.evaluator.profile_exit(); }
         if self.evaluator.trace_enabled {
             let name = function.display_name();
             self.evaluator.trace_exit(

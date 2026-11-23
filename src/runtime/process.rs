@@ -2694,7 +2694,9 @@ impl ProcessStream {
     pub(crate) fn next(
         &mut self,
         policy: &mut dyn CancellationPolicy,
+        wait_ns: Option<&mut u64>,
     ) -> Result<Option<Vec<u8>>, RunError> {
+        let mut wait_ns = wait_ns;
         loop {
             self.update_timeout_watch()?;
             if let Some(error) = &self.child.input_error {
@@ -2772,7 +2774,11 @@ impl ProcessStream {
                 &mut self.cancellation,
                 policy,
             );
+            let started = wait_ns.as_ref().map(|_| std::time::Instant::now());
             std::thread::sleep(WAIT_POLL);
+            if let (Some(total), Some(started)) = (wait_ns.as_deref_mut(), started) {
+                *total = total.saturating_add(started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX));
+            }
         }
     }
 

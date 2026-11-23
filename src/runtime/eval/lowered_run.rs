@@ -5872,7 +5872,9 @@ impl Evaluator {
                         break;
                     }
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    let profile_wait = self.profile.as_ref().map(|_| Instant::now());
                     std::thread::sleep(std::cmp::min(WAIT_POLL, remaining));
+                    self.profile_opaque("sleep", span, profile_wait, false);
                 }
                 lowered_result_ok(LoweredValue::Unit)
             }
@@ -7926,7 +7928,9 @@ impl Evaluator {
         invocations: &[ProcessInvocation],
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let profile_wait = self.profile.as_ref().map(|_| Instant::now());
         let execution = execute_run_with_policy(kind, invocations, span, false, self);
+        self.profile_opaque("external-command", span, profile_wait, false);
         if let Some(status) = execution.end.status.clone() {
             self.last_status = Some(status);
         }
@@ -7971,7 +7975,10 @@ impl Evaluator {
         }
         self.trace_spawn_start(span, &invocation, options.detach || options.new_session);
         self.flush_shared_stdio();
-        match spawn_managed(&invocation, managed_options) {
+        let profile_wait = self.profile.as_ref().map(|_| Instant::now());
+        let spawned = spawn_managed(&invocation, managed_options);
+        self.profile_opaque("spawn", span, profile_wait, false);
+        match spawned {
             Ok(child) => {
                 let handle = self.process_handle_value(child, span);
                 self.trace_leaf(

@@ -39,6 +39,7 @@ Start here:
   Highlight source   xsht highlight SCRIPT
   Expand sugar       xsht desugar SCRIPT
   Read the grammar   xsht grammar 
+  Profile a script   xsht profile SCRIPT [-- ARGS...]
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
   Inspect lowered IR xsht ir-tags 
@@ -135,6 +136,21 @@ Usage:
   xsht grammar [--format ebnf|json]
 
   --format FORMAT  ebnf productions (the default) or the json reference that make docs renders
+```
+
+### `xsht profile`
+
+```text
+xsht profile — Profile a script's calls and waits
+
+Usage:
+  xsht profile [--json PATH] [--folded PATH] SCRIPT [-- ARGS...]
+
+  --json PATH    Write a versioned JSON report to PATH
+  --folded PATH  Write folded stacks to PATH
+
+  Examples:
+    xsht profile --json profile.json script.xsh
 ```
 
 ### `xsht trace`

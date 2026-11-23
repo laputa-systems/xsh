@@ -253,8 +253,10 @@ impl Evaluator {
         let Some(live) = self.take_net_job(&handle.id) else {
             return Err(invalid_net_job_error(handle.id, method_span));
         };
+        let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
         let (result, metrics) =
             self.wait_net_job_task(live.task, live.start_span, method_span, true);
+        self.profile_opaque("network-wait", method_span, profile_wait, false);
         if let Some(metrics) = metrics.as_ref() {
             self.trace_net_transport_lifecycle(
                 live.start_span,

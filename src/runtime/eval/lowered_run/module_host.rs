@@ -16,11 +16,13 @@ impl Evaluator {
             let invocation = self.invocation_from_command_plan(&plan, span)?;
             let cpu_before = child_cpu_ns();
             let started = Instant::now();
+            let profile_wait = self.profile.as_ref().map(|_| Instant::now());
             let outcome = if quiet {
                 run_quiet_with_policy(&invocation, self)
             } else {
                 run_inherit_with_policy(&invocation, self)
             };
+            self.profile_opaque("external-command", span, profile_wait, false);
             match outcome {
                 Ok(end) => {
                     let wall_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;

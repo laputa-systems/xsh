@@ -49,6 +49,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
+#[path = "profile.rs"]
+pub mod profile;
+use profile::{ProfileState, SiteKey, SiteKind};
+
 mod body_contract;
 pub use body_contract::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 mod call_plan;
@@ -134,6 +138,7 @@ pub struct EvalOutput {
     pub stderr: Vec<u8>,
     pub trace_events: Vec<TraceEvent>,
     pub trace_dropped_events: u64,
+    pub profile: Option<ProfileState>,
     pub diagnostics: Vec<Diagnostic>,
     pub traceback: Option<Traceback>,
     pub sources: Arc<SourceMap>,
@@ -704,6 +709,7 @@ struct LiveProcessHandle {
     owner_scope: u64,
     child: ManagedChild,
     span: Span,
+    profile_start: Option<Instant>,
 }
 
 struct OwnedStream {
@@ -3276,6 +3282,7 @@ pub struct Evaluator {
     interactive_command_dispatcher: Option<InteractiveCommandDispatcher>,
     last_status: Option<ProcessStatus>,
     trace_enabled: bool,
+    profile: Option<Box<ProfileState>>,
     coverage: Option<CoverageCounts>,
     pending_value_block_flow: Option<StmtFlow>,
     // An eager stage error was wrapped before it entered explicit unwinding.
@@ -3755,6 +3762,7 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            profile: None,
             coverage: None,
             pending_value_block_flow: None,
             pending_stream_item_error_unwind: false,
@@ -3873,6 +3881,34 @@ impl Evaluator {
             let _ = std::io::stderr().lock().write_all(&self.stderr);
             self.stderr.clear();
         }
+    }
+
+    pub fn profile_calibration_ns() -> u64 {
+        let mut state = ProfileState::default();
+        let key = SiteKey { kind: SiteKind::Proc, definition: None, call_site: None };
+        state.enter(key);
+        state.exit();
+        let start = Instant::now();
+        for _ in 0..10_000 { state.enter(key); state.exit(); }
+        std::hint::black_box(&state);
+        profile::nanos(start) / 20_000
+    }
+
+    pub fn with_profiling(mut self) -> Self {
+        self.profile = Some(Box::new(ProfileState::default()));
+        self
+    }
+
+    fn profile_enter(&mut self, kind: SiteKind, definition: Option<Span>, call_site: Option<Span>) {
+        if let Some(profile) = &mut self.profile { profile.enter(SiteKey { kind, definition, call_site }); }
+    }
+
+    fn profile_exit(&mut self) {
+        if let Some(profile) = &mut self.profile { profile.exit(); }
+    }
+
+    fn profile_opaque(&mut self, kind: &'static str, span: Span, start: Option<Instant>, overlapping: bool) {
+        if let (Some(profile), Some(start)) = (&mut self.profile, start) { profile.opaque(kind, Some(span), profile::nanos(start), overlapping); }
     }
 
     pub fn with_tracing(mut self) -> Self {
@@ -4080,6 +4116,7 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            profile: None,
             coverage: shared.coverage.clone(),
             pending_value_block_flow: None,
             pending_stream_item_error_unwind: false,
@@ -4828,6 +4865,7 @@ impl Evaluator {
                             stderr: std::mem::take(&mut self.stderr),
                             trace_events: self.take_trace_events(),
                             trace_dropped_events: self.trace_dropped_events,
+                            profile: self.profile.take().map(|mut state| { state.finish(); *state }),
                             diagnostics: vec![diagnostic],
                             traceback: None,
                             sources: Arc::clone(&self.sources),
@@ -5541,6 +5579,7 @@ impl Evaluator {
                 stderr: std::mem::take(&mut self.stderr),
                 trace_events: self.take_trace_events(),
                 trace_dropped_events: self.trace_dropped_events,
+                profile: self.profile.take().map(|mut state| { state.finish(); *state }),
                 diagnostics,
                 traceback,
                 sources: Arc::clone(&self.sources),
@@ -6079,6 +6118,7 @@ impl Evaluator {
             stderr: std::mem::take(&mut self.stderr),
             trace_events: self.take_trace_events(),
             trace_dropped_events: self.trace_dropped_events,
+            profile: self.profile.take().map(|mut state| { state.finish(); *state }),
             diagnostics,
             traceback,
             sources: Arc::clone(&self.sources),
@@ -6458,6 +6498,7 @@ impl Evaluator {
                 stderr: std::mem::take(&mut self.stderr),
                 trace_events: self.take_trace_events(),
                 trace_dropped_events: self.trace_dropped_events,
+                profile: self.profile.take().map(|mut state| { state.finish(); *state }),
                 diagnostics,
                 traceback,
                 sources: Arc::clone(&self.sources),
@@ -6994,6 +7035,7 @@ impl Evaluator {
 
     fn take_process_handle(&mut self, id: &u64) -> Option<LiveProcessHandle> {
         let live = self.process_handles.remove(id)?;
+        self.profile_opaque("spawned-child-observed", live.span, live.profile_start, true);
         self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
         Some(live)
     }

@@ -371,3 +371,27 @@ bindings, and a metavariable in a binding position matches any loop binding.
 source text. Its `--dry-run` prints proposed replacements without writing
 files. It does not format; run `xsht fmt` afterwards. See
 [Architecture](ARCHITECTURE.md) for AST and CST invariants.
+
+## Profile a script
+
+Run `xsht profile --json profile.json --folded profile.folded script.xsh -- arg`
+to collect call attribution. The command prints sites ordered by exclusive time
+and preserves the script's output. `--json` writes a report in the
+`xsht-profile/1` format. `--folded` writes stack paths and exclusive nanoseconds.
+
+A site identifies a function definition and call span, or a host call span.
+The report records calls, inclusive and exclusive wall nanoseconds, blocked
+nanoseconds, allocation count, allocation bytes, and caller-to-callee edges.
+Allocation totals include allocations in nested calls. Inclusive time includes
+blocked time and nested calls. Blocked time includes waits in nested calls.
+The calibration value estimates the cost of a profiling enter or exit hook.
+
+Blocked time counts waits made by the evaluator, including sleep, child waits,
+network waits, and process-stream reads. A streamed process lifetime is an
+overlapping opaque region: the evaluator may run consumer code while the
+process exists. The lifetime is never subtracted from exclusive time.
+
+Parallel worker attribution is not collected in this version. Each parallel
+stage increments `completeness.dropped`; treat a nonzero value as incomplete.
+Spawned-child opaque intervals end when the evaluator takes the handle for a
+wait or cleanup, so they describe observed overlap rather than exact exit time.
