@@ -515,7 +515,7 @@ test test_range_yields_each_item_once_in_either_direction {
   var seen: List[Int] = []
   for item in range(1000000000) {
     seen += [item]
-    if item == 2 { break }
+    break when item == 2
   }
   assert seen == [0, 1, 2]
 }

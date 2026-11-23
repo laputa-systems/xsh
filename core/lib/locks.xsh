@@ -94,7 +94,7 @@ pure long_option_name(argument: Str) -> Str? {
   for option in LONG_OPTIONS { return option when option == name }
   let matches = collect {
     for option in LONG_OPTIONS {
-      if option.starts_with(name) { yield option }
+      yield option when option.starts_with(name)
     }
   }
   if matches.len() == 1 { matches[0] } else { null }
@@ -104,7 +104,7 @@ pure first_option_diagnostic(argv: List[Str], permute: Bool) -> Str? {
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
-    if argument == "--" { return null }
+    return null when argument == "--"
     if argument.starts_with("--") {
       let name = long_option_name(argument)
       if name == null {
@@ -134,7 +134,7 @@ pure first_option_diagnostic(argv: List[Str], permute: Bool) -> Str? {
         return f"unrecognized option: {code}" when code not in SHORT_OPTIONS
         return null when code in ["h", "V"]
         if code in ["o", "p", "Q"] {
-          if offset + 1 < shorts.byte_len() { break }
+          break when offset + 1 < shorts.byte_len()
           return f"option requires an argument: {code}" when index + 1 == argv.len()
           index += 1
           break
@@ -262,7 +262,7 @@ proc descriptor_locks(files: List[LinuxOpenFile]) [fs] -> List[DescriptorLock] {
 
 pure file_path(files: List[LinuxOpenFile], pid: Int, lock: KernelLock) -> LinuxOpenFile? {
   for file in files {
-    if file.pid == pid and file.fd > 0 and file.inode == lock.inode { return file }
+    return file when file.pid == pid and file.fd > 0 and file.inode == lock.inode
   }
   null
 }
@@ -275,7 +275,7 @@ proc live_lock_file(pid: Int, lock: KernelLock) [fs, process] -> LinuxOpenFile? 
 
 pure descriptor_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> DescriptorLock? {
   for item in fallback {
-    if ! item.lock.blocked and same_lock(lock, item.lock) { return item }
+    return item when ! item.lock.blocked and same_lock(lock, item.lock)
   }
   null
 }
@@ -302,7 +302,7 @@ pure mount_fallback(lock: KernelLock, content: Bytes) -> Bytes? {
       if line.byte_at(index) == 32 {
         fields += [line[start..index]]
         start = index + 1
-        if fields.len() == 5 { break }
+        break when fields.len() == 5
       }
     }
     if fields.len() >= 5 and fields[2] == device {
@@ -395,7 +395,7 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
 }
 
 pure canonical_column(name: Str) -> Str? {
-  if ! rx"^[A-Za-z0-9:]+$".matches(name) { return null }
+  return null unless rx"^[A-Za-z0-9:]+$".matches(name)
   let upper = name.upper()
   for column in COLUMNS { return column when column == upper }
   null
@@ -403,7 +403,7 @@ pure canonical_column(name: Str) -> Str? {
 
 pure select_columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[Str], ColumnSelectionError] {
   var selected = if output_all { COLUMNS } else { DEFAULT_COLUMNS }
-  if output == null and environment == null { return Ok(selected) }
+  return Ok(selected) when output == null and environment == null
   let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let list = if extend { value.byte_slice(1) } else { value }
@@ -539,7 +539,7 @@ pure operator_precedence(operator: Str) -> Int {
 }
 
 pure filter_integer(value: Str) -> Int? {
-  if rx"^[0-9]+$".matches(value) { return decimal(value) }
+  return decimal(value) when rx"^[0-9]+$".matches(value)
   return null when ! rx"^[0-9]+[KMGTPEZY](iB)?$".matches(value)
   usage.parse_size(value)
 }
@@ -613,12 +613,12 @@ pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], Filt
     }
   }
   return Err(InvalidExpression) when depth != 1
-  if ! unknown.is_empty() { return Err(UnknownFilterColumns(unknown)) }
+  return Err(UnknownFilterColumns(unknown)) unless unknown.is_empty()
   Ok(output)
 }
 
 pure parse_filter(text: Str) -> Result[FilterProgram, FilterFailure] {
-  if text == "" { return Ok({tokens: [], echoed: ""}) }
+  return Ok({tokens: [], echoed: ""}) when text == ""
   let lexed = filter_tokens(text)
   if let Err(failure) = lexed { return Err(failure) }
   let tokens = lexed ?? {tokens: [], echoed: ""}
@@ -696,8 +696,8 @@ pure filter_byte_order(left: Str, right: Str) -> Int {
   let r = filter_bytes(right)
   let length = if l.len() < r.len() { l.len() } else { r.len() }
   for index in range(length) {
-    if l[index] < r[index] { return -1 }
-    if l[index] > r[index] { return 1 }
+    return -1 when l[index] < r[index]
+    return 1 when l[index] > r[index]
   }
   if l.len() < r.len() { -1 } else if l.len() > r.len() { 1 } else { 0 }
 }
@@ -772,10 +772,10 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
 
 pure filter_truth(value: FilterValue, lock: Lock) -> Bool {
   let resolved = if value.kind == "column" { column_value(lock, value.value) } else { value }
-  if resolved.kind == "empty" { return false }
-  if resolved.kind == "boolean" { return resolved.boolean }
-  if resolved.kind == "number" { return (decimal(resolved.value) ?? 0) != 0 }
-  if resolved.kind == "float" { return (resolved.value.parse_float() ?? 0.0) != 0.0 }
+  return false when resolved.kind == "empty"
+  return resolved.boolean when resolved.kind == "boolean"
+  return (decimal(resolved.value) ?? 0) != 0 when resolved.kind == "number"
+  return (resolved.value.parse_float() ?? 0.0) != 0.0 when resolved.kind == "float"
   resolved.value != ""
 }
 
@@ -827,12 +827,12 @@ pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool, path_
 }
 
 pure table_value(lock: Lock, column: Str, as_bytes: Bool, raw: Bool) -> Bytes {
-  if column == "PATH" { return lock.path ?? b"" }
-  if column == "COMMAND" { return lock.command_bytes }
+  return lock.path ?? b"" when column == "PATH"
+  return lock.command_bytes when column == "COMMAND"
   if column == "HOLDERS" {
     return bytes.concat(collect {
       for index in range(lock.holders_bytes.len()) {
-        if index > 0 { yield b"\n" }
+        yield b"\n" when index > 0
         yield lock.holders_bytes[index]
       }
     })
@@ -1159,7 +1159,7 @@ proc validate_early_option(name: Str, value: Str) [process, env, io, error] {
   }
   if name == "filter" {
     if let Err(failure) = parse_filter(value) {
-      if failure.reason is UnknownFilterColumns(_) { return }
+      return when failure.reason is UnknownFilterColumns(_)
       match failure.reason {
         UnexpectedEnd => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected end of file")
         UnexpectedToken(token) => gnu.error(f"failed to parse \"{value}\": syntax error, unexpected '{token}', expecting end of file")
@@ -1261,13 +1261,13 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
     let word = arguments[raw_index]
     let argument = argv[raw_index]
     raw_index += 1
-    if word == b"--" { break }
+    break when word == b"--"
     if argument.starts_with("--") and long_option_name(argument) == "filter" {
       let value = if let equal = argument.find("=") { argument.byte_slice(equal + 1) } else if raw_index < argv.len() { argv[raw_index] } else { "" }
       echoed += filter_echo(value)
     } else if argument.starts_with("-") and ! argument.starts_with("--") {
       for position in range(1, argument.byte_len()) {
-        if (word.byte_at(position) ?? 0) >= 128 { break }
+        break when (word.byte_at(position) ?? 0) >= 128
         let flag = argument.byte_slice(position, length: 1)
         if flag in ["o", "p", "Q"] {
           if flag == "Q" {
@@ -1276,7 +1276,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
           }
           break
         }
-        if flag in ["h", "V"] or flag not in SHORT_OPTIONS { break }
+        break when flag in ["h", "V"] or flag not in SHORT_OPTIONS
       }
     }
     if word.starts_with(b"--") and word.utf8() is Err(_) {
@@ -1314,9 +1314,9 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
           break
         }
         if flag in [104, 86] { stop_options = true; break }
-        if flag not in [98, 105, 74, 110, 114, 117, 72] { break }
+        break when flag not in [98, 105, 74, 110, 114, 117, 72]
       }
-      if stop_options { break }
+      break when stop_options
     } else if word in [b"--help", b"--version"] { break } else if word in [b"--output", b"--pid", b"--filter"] { raw_index += 1 }
     if let value = raw_value {
       if value.utf8() is Err(_) {
@@ -1327,7 +1327,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
         if value_kind == "output" {
           var start = 0
           for index in range(value.len()) {
-            if (value.byte_at(index) ?? 0) >= 128 { break }
+            break when (value.byte_at(index) ?? 0) >= 128
             if value.byte_at(index) == 44 { start = index + 1 }
           }
           ul_io.write_diagnostic_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: unknown column: "), value[start..], b"\n"]))
@@ -1444,7 +1444,7 @@ export proc main(...arguments: List[Bytes]) [fs, process, env, error, io] {
   if program != null {
     if ! (program ?? []).is_empty() { rows = rows |> where filter_matches(program ?? [], .) |> collect }
   }
-  if rows.is_empty() and ! opts.json { return }
+  return when rows.is_empty() and ! opts.json
   let byte_locale = ul_io.byte_locale()
   if echoed != "" { ul_io.write_bytes(bytes.from_ints(filter_bytes(echoed)) ?? b""); echoed = "" }
   if opts.json {

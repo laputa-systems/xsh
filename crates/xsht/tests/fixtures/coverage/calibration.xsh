@@ -6,7 +6,7 @@ pure arithmetic(n: Int) -> Int {
   return x * 2
 }
 pure early(n: Int) -> Int {
-  if n > 0 { return 1 }
+  return 1 when n > 0
   return 2
 }
 proc fallible() -> Result[Int] {

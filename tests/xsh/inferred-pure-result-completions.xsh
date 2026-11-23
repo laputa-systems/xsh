@@ -3,22 +3,22 @@ error PureCompletionProblem = Rejected
 type PureCompletionRow = {value: Int}
 
 pure completion_integer(failed: Bool) {
-  if failed { return Err(PureCompletionProblem.Rejected()) }
+  return Err(PureCompletionProblem.Rejected()) when failed
   7
 }
 
 pure completion_word(failed: Bool) {
-  if ! failed { return "kept" }
+  return "kept" unless failed
   Err(PureCompletionProblem.Rejected())
 }
 
 pure completion_row(failed: Bool) {
-  if failed { return Err(PureCompletionProblem.Rejected()) }
+  return Err(PureCompletionProblem.Rejected()) when failed
   {value: 7}
 }
 
 pure completion_integer_typed(failed: Bool) -> Result[Int, PureCompletionProblem] {
-  if failed { return Err(.Rejected()) }
+  return Err(.Rejected()) when failed
   7
 }
 

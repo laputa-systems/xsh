@@ -65,9 +65,7 @@ proc u64_add_small(value: U64, amount: UInt) [error] -> U64 {
 }
 
 proc u64_subtract_one(value: U64) [error] -> U64 {
-  if value.low != 0 {
-    return {high: value.high, low: (value.low - 1) as Word32}
-  }
+  return {high: value.high, low: (value.low - 1) as Word32} when value.low != 0
   let high = if value.high == 0 { WORD_MAX } else { value.high - 1 }
   {high: high as Word32, low: WORD_MAX as Word32}
 }
@@ -156,7 +154,7 @@ proc fail(message: Str) [process, env] -> Unit {
 pure decimal_digits(value: Str) -> Bool {
   return false when value == ""
   for digit in value {
-    if "0123456789".find(digit) == null { return false }
+    return false when "0123456789".find(digit) == null
   }
   true
 }
@@ -214,10 +212,10 @@ pure memory_version_compare(left: Str, right: Str) -> Int {
   if left_start != 48 and right_start != 48 {
     var tail = index
     while memory_version_digit(memory_byte_at(left_bytes, tail)) {
-      if ! memory_version_digit(memory_byte_at(right_bytes, tail)) { return 1 }
+      return 1 unless memory_version_digit(memory_byte_at(right_bytes, tail))
       tail += 1
     }
-    if memory_version_digit(memory_byte_at(right_bytes, tail)) { return -1 }
+    return -1 when memory_version_digit(memory_byte_at(right_bytes, tail))
   } else if zero_prefix and digit_start < index and (memory_version_digit(left_byte) or memory_version_digit(right_byte)) {
     return memory_version_digit_offset(left_byte) - memory_version_digit_offset(right_byte)
   }
@@ -260,9 +258,9 @@ pure memory_entries(paths: List[RelPath]) -> List[Entry] {
 }
 
 pure hex_digit_byte(value: Int) -> Int? {
-  if value >= 48 and value <= 57 { return value - 48 }
-  if value >= 65 and value <= 70 { return value - 55 }
-  if value >= 97 and value <= 102 { return value - 87 }
+  return value - 48 when value >= 48 and value <= 57
+  return value - 55 when value >= 65 and value <= 70
+  return value - 87 when value >= 97 and value <= 102
   null
 }
 
@@ -283,7 +281,7 @@ proc block_size_value(text: Bytes) [process, env, error] -> U64 {
   var found = false
   while position < length {
     let digit = hex_digit_byte(text.byte_at(position) ?? 0)
-    if digit == null { break }
+    break when digit == null
     let value = (digit ?? 0) as UInt
     let low = number.low * 16 + value
     let carry = low / WORD_BASE
@@ -349,7 +347,7 @@ type Listing = {children: List[RelPath], enumeration_succeeded: Bool, errno: Int
 
 proc rooted_listing(root: FsRoot, directory_path: RelPath) [fs, error] -> Result[Listing, Error] {
   let listing = root.children(directory_path, max_entries: 65536)?
-  if listing.errno != 18 { return Ok(listing) }
+  return Ok(listing) when listing.errno != 18
   let host = root.host_path()?
   let target = fs.open_root(fp"{host}/{directory_path}")?
   defer target.close()
@@ -414,7 +412,7 @@ proc zone_values(root: FsRoot, block_path: RelPath) [fs, error] -> List[Str] {
       var zones = []
       var start = 0
       for at in range(length + 1) {
-        if at < length and (raw.byte_at(at) ?? 0) != 32 { continue }
+        continue when at < length and (raw.byte_at(at) ?? 0) != 32
         if at > start {
           let token = match raw.slice(start, length: at - start).utf8() {
             Ok(text) => text.lower()
@@ -464,16 +462,16 @@ proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes:
 
 pure mergeable(current: Block, next: Block, inventory: Inventory, split: List[Str], all: Bool) -> Bool {
   return false when all or current.index > 9223372036854775807 - current.count or current.index + current.count != next.index
-  if "STATE" in split and current.state != next.state { return false }
-  if "REMOVABLE" in split and current.removable != next.removable { return false }
-  if "NODE" in split and inventory.have_nodes and current.node != next.node { return false }
+  return false when "STATE" in split and current.state != next.state
+  return false when "REMOVABLE" in split and current.removable != next.removable
+  return false when "NODE" in split and inventory.have_nodes and current.node != next.node
   if "ZONES" in split and inventory.have_zones {
     return false when current.zones.len() != next.zones.len()
     for index in range(current.zones.len()) {
       if current.zones[index] == "Unknown" or current.zones[index] != next.zones[index] { return false }
     }
   }
-  if "CONFIGURED" in split and current.configured != next.configured { return false }
+  return false when "CONFIGURED" in split and current.configured != next.configured
   if "MEMMAP-ON-MEMORY" in split and current.memmap_on_memory != next.memmap_on_memory { return false }
   true
 }
@@ -557,7 +555,7 @@ export proc collect(root_path: Path, split: List[Str], all: Bool, include_summar
   var no_digits = true
   for at in range(block_size_contents.len()) {
     let byte = block_size_contents.byte_at(at) ?? 0
-    if byte == 0 { break }
+    break when byte == 0
     if byte not in [9, 10, 11, 12, 13, 32] { no_digits = false; break }
   }
   if no_digits {
@@ -598,7 +596,7 @@ pure exclusive_options(argv: List[Str]) -> List[Str] {
   while index < argv.len() {
     let word = argv[index]
     index += 1
-    if end_options { continue }
+    continue when end_options
     if word == "--" { end_options = true; continue }
     if word.starts_with("--") {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
@@ -614,7 +612,7 @@ pure exclusive_options(argv: List[Str]) -> List[Str] {
     if word.starts_with("-") and word != "-" {
       let flags = word.byte_slice(1)
       for flag in flags {
-        if flag in ["h", "V"] { break }
+        break when flag in ["h", "V"]
         if flag == "a" { names += ["all"] }
         if flag == "J" { names += ["json"] }
         if flag == "P" { names += ["pairs"] }
@@ -651,9 +649,9 @@ export proc modes(argv: List[Str]) [process, env, error] -> Modes {
   while index < argv.len() {
     let word = argv[index]
     index += 1
-    if end_options { continue }
+    continue when end_options
     if word == "--" { end_options = true; continue }
-    if word in ["--help", "--version", "-h", "-V"] { break }
+    break when word in ["--help", "--version", "-h", "-V"]
     check_exclusive(argv[..index])
     if word.starts_with("--") {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
@@ -719,7 +717,7 @@ export proc columns(opts: Options, env_columns: Bytes?, raw: List[gnu.RawArgumen
 
 ## Selects which attributes prevent adjacent memory blocks from merging.
 export proc split_columns(opts: Options, output_columns: List[Str], raw: List[gnu.RawArgument]) [process, env, io] -> List[Str] {
-  if opts.split == null { return output_columns }
+  return output_columns when opts.split == null
   let text = opts.split ?? ""
   return [] when text.lower() == "none"
   let data = gnu.argument_bytes(text, raw)
@@ -727,7 +725,7 @@ export proc split_columns(opts: Options, output_columns: List[Str], raw: List[gn
 }
 
 pure block_number(block: Block) -> Str {
-  if block.count == 1 { return f"{block.index}" }
+  return f"{block.index}" when block.count == 1
   f"{block.index}-{block.index + block.count - 1}"
 }
 
@@ -760,7 +758,7 @@ pure u64_hex(value: U64) -> Str {
 }
 
 proc u64_decimal(value: U64) [error] -> Str {
-  if value.high == 0 and value.low == 0 { return "0" }
+  return "0" when value.high == 0 and value.low == 0
   var number = value
   var text = ""
   while number.high != 0 or number.low != 0 {
@@ -773,7 +771,7 @@ proc u64_decimal(value: U64) [error] -> Str {
 }
 
 proc u64_signed_decimal(value: U64) [error] -> Str {
-  if value.high < 2147483648 { return u64_decimal(value) }
+  return u64_decimal(value) when value.high < 2147483648
   let magnitude = u64_add_small({high: (WORD_MAX - value.high) as Word32, low: (WORD_MAX - value.low) as Word32}, 1)
   "-" + u64_decimal(magnitude)
 }
@@ -825,11 +823,11 @@ proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
 
 proc block_json_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) [error] -> Str? {
   if column == "REMOVABLE" { return if block.state == "online" and block.removable { "true" } else { "false" } }
-  if column == "ZONES" and inventory.have_zones and block.zones.is_empty() { return null }
+  return null when column == "ZONES" and inventory.have_zones and block.zones.is_empty()
   let value = block_value(inventory, block, column, byte_mode)
-  if value == null { return null }
+  return null when value == null
   let text = value ?? ""
-  if column == "NODE" or (column == "SIZE" and byte_mode) { return text }
+  return text when column == "NODE" or (column == "SIZE" and byte_mode)
   json.encode(text)?
 }
 
@@ -927,7 +925,7 @@ proc json_text(inventory: Inventory, output_columns: List[Str], opts: Options, m
       }
       rows += ["{" + fields.join(",") + "}"]
     }
-    if mode == "lines" { return rows.join("\n") + (if rows.is_empty() { "" } else { "\n" }) }
+    return rows.join("\n") + (if rows.is_empty() { "" } else { "\n" }) when mode == "lines"
     return "{\"memory\":[\n" + rows.join(",\n") + (if rows.is_empty() { "" } else { "\n" }) + "]}\n"
   }
   var output = "{\n   \"memory\": ["
@@ -950,7 +948,7 @@ proc json_text(inventory: Inventory, output_columns: List[Str], opts: Options, m
 }
 
 proc summary_value(value: U64, byte_mode: Bool) [error] -> Str {
-  if byte_mode { return u64_signed_decimal(value) }
+  return u64_signed_decimal(value) when byte_mode
   lsmem_size(value)
 }
 

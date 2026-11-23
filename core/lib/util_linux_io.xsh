@@ -8,7 +8,7 @@ use lib.gnu
 export proc byte_locale() [env] -> Bool {
   for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
     let value = env.get(name) ?? ""
-    if value != "" { return value in ["C", "POSIX"] }
+    return value in ["C", "POSIX"] when value != ""
   }
   false
 }

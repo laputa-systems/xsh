@@ -288,9 +288,7 @@ pure covers(route: wire.ClasslessRoute, address: Int) -> Bool {
 
 pure reachable_gateway(gateway: Int, address: Int, mask: Int, on_link: List[wire.ClasslessRoute]) -> Bool {
   return true when gateway == 0
-  if on_subnet(gateway, address, mask) {
-    return gateway != address
-  }
+  return gateway != address when on_subnet(gateway, address, mask)
   for route in on_link {
     return true when covers(route, gateway)
   }

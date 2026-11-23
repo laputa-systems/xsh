@@ -113,11 +113,11 @@ proc replace_stale(temporary: Path, target: Path, shown: Path) [fs, process, net
   if seen.kind != "socket" {
     return Err(refuse(f"{shown} exists and is a {seen.kind}, not a socket"))
   }
-  if is_live(target) { return Err(refuse(f"another receiver is listening on {shown}")) }
+  return Err(refuse(f"another receiver is listening on {shown}")) when is_live(target)
   match fs.rename_exchange(temporary, target) {
     Ok(_) => {}
     Err(failure) => {
-      if failure.errno != EINVAL { return Err(failure) }
+      return Err(failure) when failure.errno != EINVAL
       return quarantine_stale(temporary, target, seen.dev, seen.ino, shown)
     }
   }
@@ -153,7 +153,7 @@ export proc publish(target: Path) [fs, process, net, io, time, error] -> Result[
   match fs.rename_noreplace(temporary, final) {
     Ok(_) => {}
     Err(failure) => {
-      if failure.errno != EEXIST { return Err(failure) }
+      return Err(failure) when failure.errno != EEXIST
       replace_stale(temporary, final, target)
     }
   }
@@ -168,7 +168,7 @@ export proc unpublish(published: Published) [fs, process, error] -> Result[Bool,
   defer unix.close_fd(published.dir)
   let final = anchored(published.dir, published.name)
   let seen = fs.stat(final)
-  if seen is Err(_) { return Ok(false) }
+  return Ok(false) when seen is Err(_)
   let info = seen?
   if info.kind != "socket" or info.dev != published.dev or info.ino != published.ino { return Ok(false) }
   final.unlink()

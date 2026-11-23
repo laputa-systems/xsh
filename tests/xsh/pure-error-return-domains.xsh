@@ -5,12 +5,12 @@ pure pure_return_problem() -> Error {
 }
 
 pure pure_return_attempt(flag, value) {
-  if flag { return Err(pure_return_problem()) }
+  return Err(pure_return_problem()) when flag
   Ok(value)
 }
 
 pure pure_return_string(flag: Bool, value: Int) -> Result[Int, Str] {
-  if flag { return Err("stop") }
+  return Err("stop") when flag
   Ok(value)
 }
 

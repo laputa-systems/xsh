@@ -78,15 +78,11 @@ export proc hand_off(data: Bytes) [env, process, net, error] -> Result[Bool, Err
   guard let fd = configured.parse_int() else {
     return Err(error.failure("XSH_TUI_INPUT_FD is not a descriptor number"))
   }
-  if fd < 0 {
-    return Err(error.failure("XSH_TUI_INPUT_FD is not a descriptor number"))
-  }
+  return Err(error.failure("XSH_TUI_INPUT_FD is not a descriptor number")) when fd < 0
   var written = 0
   while written < data.len() {
     let count = unix.write_fd(fd, data[written..])?
-    if count <= 0 {
-      return Err(error.failure("XSH_TUI_INPUT_FD accepted no bytes"))
-    }
+    return Err(error.failure("XSH_TUI_INPUT_FD accepted no bytes")) when count <= 0
     written += count
   }
   Ok(true)

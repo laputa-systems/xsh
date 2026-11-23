@@ -6,7 +6,7 @@ use gnu
 ## Whether the kernel lists selinuxfs, which is when libselinux treats SELinux
 ## as enabled whether or not the filesystem is mounted or enforcing.
 export proc enabled() [env, fs, error] -> Result[Bool, Error] {
-  if system.uname()?.sysname != "Linux" { return Ok(false) }
+  return Ok(false) when system.uname()?.sysname != "Linux"
   Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
 }
 

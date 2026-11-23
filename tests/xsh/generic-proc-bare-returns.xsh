@@ -4,7 +4,7 @@ proc bare_early(marker, done: Bool) {
 }
 
 proc bare_branch(marker, done: Bool) {
-  if done { return }
+  return when done
   let _ = marker
 }
 

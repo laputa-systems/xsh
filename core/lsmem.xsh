@@ -14,18 +14,18 @@ proc option_diagnostic(argv: List[Str]) [env] -> Str? {
   while index < argv.len() {
     let word = argv[index]
     index += 1
-    if word == "--" { return null }
+    return null when word == "--"
     if word.starts_with("--") {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
       let name = parts[0]
       let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
-      if matches.is_empty() { return f"unrecognized option: {word.byte_slice(2)}" }
+      return f"unrecognized option: {word.byte_slice(2)}" when matches.is_empty()
       if matches.len() != 1 and name not in LONG_OPTIONS { return f"option is ambiguous: {word.byte_slice(2)}" }
       let option = if name in LONG_OPTIONS { name } else { matches[0] }
       if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return f"option does not take an argument: {option}" }
-      if option in ["help", "version"] { return null }
+      return null when option in ["help", "version"]
       if option in ["output", "split", "sysroot"] and parts.len() == 1 {
-        if index == argv.len() { return f"option requires an argument: {name}" }
+        return f"option requires an argument: {name}" when index == argv.len()
         index += 1
       }
       continue
@@ -34,11 +34,11 @@ proc option_diagnostic(argv: List[Str]) [env] -> Str? {
       let flags = word.byte_slice(1)
       for position in range(flags.byte_len()) {
         let flag = flags.byte_slice(position, length: 1)
-        if flag not in SHORT_OPTIONS { return f"unrecognized option: {flag}" }
-        if flag == "h" or flag == "V" { return null }
+        return f"unrecognized option: {flag}" when flag not in SHORT_OPTIONS
+        return null when flag == "h" or flag == "V"
         if flag in ["o", "S", "s"] {
           if position + 1 == flags.byte_len() {
-            if index == argv.len() { return f"option requires an argument: {flag}" }
+            return f"option requires an argument: {flag}" when index == argv.len()
             index += 1
           }
           break
@@ -57,7 +57,7 @@ pure canonical_arguments(argv: List[Str]) -> List[Str] {
   while index < argv.len() {
     let word = argv[index]
     index += 1
-    if word == "--" { return result.extend([word]).extend(argv[index..]) }
+    return result.extend([word]).extend(argv[index..]) when word == "--"
     if word.starts_with("--") {
       let parts = word.byte_slice(2).split("=", maxsplit: 1)
       let matches = [option for option in LONG_OPTIONS if option.starts_with(parts[0])]
@@ -94,7 +94,7 @@ pure short_value_start(argument: Bytes) -> Int? {
   for index in range(1, argument.len()) {
     let flag = argument.byte_at(index) ?? 0
     if flag in [111, 83, 115] { return index + 1 when index + 1 < argument.len() }
-    if flag in [97, 98, 74, 80, 110, 114] { continue }
+    continue when flag in [97, 98, 74, 80, 110, 114]
     return null
   }
   null
@@ -119,17 +119,17 @@ pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
 pure takes_next_argument(word: Str) -> Bool {
   if word.starts_with("--") {
     let name = word.byte_slice(2)
-    if name.find("=") != null { return false }
+    return false when name.find("=") != null
     let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
     let option = if name in LONG_OPTIONS { name } else if matches.len() == 1 { matches[0] } else { "" }
     return option in ["output", "split", "sysroot"]
   }
-  if ! word.starts_with("-") or word == "-" { return false }
+  return false when ! word.starts_with("-") or word == "-"
   let flags = word.byte_slice(1)
   for position in range(flags.byte_len()) {
     let flag = flags.byte_slice(position, length: 1)
-    if flag in ["o", "S", "s"] { return position + 1 == flags.byte_len() }
-    if flag not in SHORT_OPTIONS or flag in ["h", "V"] { return false }
+    return position + 1 == flags.byte_len() when flag in ["o", "S", "s"]
+    return false when flag not in SHORT_OPTIONS or flag in ["h", "V"]
   }
   false
 }
@@ -147,7 +147,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let _ = report.modes(canonical_arguments(prefix))
     let word = arguments[raw_index]
     raw_index += 1
-    if word == "--" { break }
+    break when word == "--"
     let raw_word = gnu.argument_bytes(word, prepared.raw)
     if raw_word.starts_with(b"-") and ! raw_word.starts_with(b"--") {
       var stop_options = false
@@ -162,10 +162,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           exit 1
         }
         if flag in [104, 86] { stop_options = true; break }
-        if flag in [111, 83, 115] { break }
-        if flag not in [97, 98, 74, 80, 110, 114] { break }
+        break when flag in [111, 83, 115]
+        break when flag not in [97, 98, 74, 80, 110, 114]
       }
-      if stop_options { break }
+      break when stop_options
     }
     if raw_word.starts_with(b"--") and raw_word != bytes.from_text(word) {
       if let diagnostic = option_diagnostic(arguments[..raw_index - 1]) { gnu.usage_error(diagnostic) }
@@ -182,7 +182,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 1
     }
     if takes_next_argument(word) { raw_index += 1 }
-    if word in ["--help", "-h", "--version", "-V"] { break }
+    break when word in ["--help", "-h", "--version", "-V"]
   }
   if let diagnostic = option_diagnostic(arguments) { gnu.usage_error(diagnostic) }
 

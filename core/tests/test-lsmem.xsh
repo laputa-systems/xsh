@@ -65,10 +65,10 @@ proc compare_lsmem_paths(s: uu.Scene, args: List[Path]) [fs, process, env, error
 }
 
 pure lsmem_zero_entry_suffix_is_one_line(stderr: Bytes, prefix_length: Int) -> Bool {
-  if stderr.len() <= prefix_length + 1 or ! stderr.ends_with(b"\n") { return false }
+  return false when stderr.len() <= prefix_length + 1 or ! stderr.ends_with(b"\n")
   var offset = prefix_length
   while offset < stderr.len() - 1 {
-    if (stderr.byte_at(offset) ?? 10) == 10 { return false }
+    return false when (stderr.byte_at(offset) ?? 10) == 10
     offset += 1
   }
   true

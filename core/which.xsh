@@ -43,7 +43,7 @@ proc main(...argv: List[Str]) [process, fs, env, error] {
       Err(_) => DEFAULT_PATH
     }
     for directory in search.split(":") {
-      if found and ! opts.all { break }
+      break when found and ! opts.all
       let candidate = if directory == "" { fp"./{name}" } else { fp"{directory}/{name}" }
       if let Ok(meta) = fs.stat(candidate, follow_symlinks: true) {
         if meta.kind == "file" {

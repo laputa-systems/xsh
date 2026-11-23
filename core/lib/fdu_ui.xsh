@@ -86,28 +86,20 @@ export pure matches_filter(node: model.Node, filter: Str) -> Bool {
 ## Returns the rows of one directory that pass the filter.
 export pure visible_rows(tree: model.Tree, directory: Int, filter: Str, sort: SortMode, size: SizeMode) -> List[Int] {
   let rows = list_rows(tree, directory, sort, size)
-  if filter == "" {
-    return rows
-  }
+  return rows when filter == ""
   [id for id in rows if matches_filter(tree.nodes[id], filter)]
 }
 
 ## Returns the marked directory that already covers `id`, if any.
 export pure covering_mark(view: View) -> Int? {
-  if view.current in view.browser.marked_set {
-    return view.current
-  }
+  return view.current when view.current in view.browser.marked_set
   model.marked_ancestor(view.tree, view.current, view.browser.marked_set)
 }
 
 pure percent_column(node: model.Node, mode: SizeMode, total: Int) -> Str {
-  if node.state == .Mount or node.state == .Alias {
-    return "       "
-  }
+  return "       " when node.state == .Mount or node.state == .Alias
   let value = size_of(node, mode)
-  if total == 0 {
-    return "  0.0% "
-  }
+  return "  0.0% " when total == 0
   let tenths = (value * 1000 + total / 2) / total
   let whole = tenths / 10
   let fraction = tenths % 10
@@ -168,9 +160,7 @@ pure entry_kind(node: model.Node) -> colors.EntryKind {
 ## Returns a row's base style from marks, states, and LS_COLORS.
 export pure row_style(view: View, id: Int) -> colors.Style {
   let node = view.tree.nodes[id]
-  if id in view.browser.marked_set {
-    return colors.RED
-  }
+  return colors.RED when id in view.browser.marked_set
   match node.state {
     model.Incomplete | .Stale => colors.YELLOW
     model.Mount | .Alias => colors.RED
@@ -184,9 +174,7 @@ pure padded(value: Str, width: Int) -> Str {
 
 pure right(value: Str, width: Int) -> Str {
   let used = tui.cell_width(value)
-  if used >= width {
-    return value
-  }
+  return value when used >= width
   tui_surface.repeated(" ", width - used) + value
 }
 
@@ -316,9 +304,7 @@ export proc render(view: View, columns: Int, rows: Int, now: Int) -> Result[Rend
 }
 
 pure percent_text(value: Int, total: Int) -> Str {
-  if total == 0 {
-    return "0.0"
-  }
+  return "0.0" when total == 0
   let tenths = (value * 1000 + total / 2) / total
   f"{tenths / 10}.{tenths % 10}"
 }
@@ -372,9 +358,7 @@ pure render_rows(
   now: Int,
 ) -> PaneFrame {
   var current = screen
-  if area.height == 0 {
-    return {screen: current, top: start}
-  }
+  return {screen: current, top: start} when area.height == 0
   let width = area.width
   let show_percent = width >= 52
   let bar_cells = if width >= 63 { BAR_CELLS_WIDE } else if width >= 58 { BAR_CELLS_NARROW } else { 0 }
@@ -382,9 +366,7 @@ pure render_rows(
   let covered = covering_mark(view)
   for offset in range(area.height) {
     let index = start + offset
-    if index >= view.rows.len() {
-      break
-    }
+    break when index >= view.rows.len()
     let id = view.rows[index]
     let node = view.tree.nodes[id]
     let mark = if id in view.browser.marked_set { "[x]" } else if covered != null { "[=]" } else { "   " }
@@ -428,9 +410,7 @@ pure render_marked(screen: tui_surface.CellScreen, area: tui_surface.Rect, view:
     let lines = ["Nothing is marked.", "d marks the selected entry."]
     var current = bordered.screen
     for index in range(lines.len()) {
-      if index >= bordered.inner.height {
-        break
-      }
+      break when index >= bordered.inner.height
       current = apply_rect(
         current,
         {x: bordered.inner.x, y: bordered.inner.y + index, width: bordered.inner.width, height: 1},
@@ -445,9 +425,7 @@ pure render_marked(screen: tui_surface.CellScreen, area: tui_surface.Rect, view:
   let width = bordered.inner.width
   for offset in range(bordered.inner.height) {
     let index = window.start + offset
-    if index >= view.browser.marks.len() {
-      break
-    }
+    break when index >= view.browser.marks.len()
     let id = view.browser.marks[index]
     let node = view.tree.nodes[id]
     let marker = state_marker(node.state)

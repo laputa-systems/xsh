@@ -48,7 +48,7 @@ proc sandbox(ctx: TestContext) [fs, error] -> Result[Path] {
 # Linux symlinks always report 0777; macOS gives them the creating umask, so
 # the expected column is read from the link itself there.
 proc link_mode_column(link: Path) [fs, env, error] -> Result[Str, Error] {
-  if system.uname()?.sysname == "Linux" { return Ok("lrwxrwxrwx") }
+  return Ok("lrwxrwxrwx") when system.uname()?.sysname == "Linux"
   let mode = fs.stat(link, follow_symlinks: false)?.mode
   var column = "l"
   for bit in [0o400, 0o200, 0o100, 0o40, 0o20, 0o10, 0o4, 0o2, 0o1] {

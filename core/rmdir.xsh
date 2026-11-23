@@ -45,7 +45,7 @@ proc trailing_symlink_reason(name: Bytes) [fs, error] -> Str? {
   if let Ok(meta) = fs.stat(target) {
     if meta.kind == "symlink" {
       match fs.stat(target, follow_symlinks: true) {
-        Ok(referent) => { if referent.kind == "dir" { return "Symbolic link not followed" } }
+        Ok(referent) => return "Symbolic link not followed" when referent.kind == "dir"
         Err(failure) => { return gnu.strerror(failure) }
       }
     }

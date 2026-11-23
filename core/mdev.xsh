@@ -32,7 +32,7 @@ pure failure(message: Str) -> Error {
 
 pure path_join(root: Path, child: Bytes) -> Result[Path] {
   let prefix = root.bytes()
-  if prefix.is_empty() or child.starts_with(b"/") { return Path.parse_bytes(child) }
+  return Path.parse_bytes(child) when prefix.is_empty() or child.starts_with(b"/")
   Path.parse_bytes(bytes.concat([prefix, if prefix.ends_with(b"/") { b"" } else { b"/" }, child]))
 }
 
@@ -94,20 +94,20 @@ proc parse_options(argv: List[Str]) -> Result[Options] {
     if arg == "--scan" { scan = true; continue }
     if arg == "--daemon" { daemon = true; continue }
     if arg == "--foreground" { foreground = true; continue }
-    if arg == "--" { return Err(failure("extra operand")) }
-    if arg.starts_with("--") { return Err(failure(f"unrecognized option '{arg}'")) }
+    return Err(failure("extra operand")) when arg == "--"
+    return Err(failure(f"unrecognized option '{arg}'")) when arg.starts_with("--")
     if arg.starts_with("-") and arg.byte_len() > 1 {
       for flag in arg.byte_slice(1).split("") {
         if flag == "s" { scan = true }
         if flag == "d" { daemon = true }
         if flag == "f" { foreground = true }
-        if flag not in ["s", "d", "f"] { return Err(failure(f"invalid option -- '{flag}'")) }
+        return Err(failure(f"invalid option -- '{flag}'")) when flag not in ["s", "d", "f"]
       }
       continue
     }
     return Err(failure("extra operand"))
   }
-  if foreground and ! daemon { return Err(failure("foreground mode requires daemon mode")) }
+  return Err(failure("foreground mode requires daemon mode")) when foreground and ! daemon
   Ok({scan: scan, daemon: daemon, foreground: foreground})
 }
 
@@ -116,7 +116,7 @@ pure next_field(text: Str) -> Field? {
   return null when trimmed.is_empty()
   var end = 0
   for character in trimmed {
-    if rx"^\s$".matches(character) { break }
+    break when rx"^\s$".matches(character)
     end += character.byte_len()
   }
   {field: trimmed.byte_slice(0, length: end), rest: trimmed.byte_slice(end)}
@@ -193,7 +193,7 @@ pure parse_device_id(text: Str) -> Int? {
 }
 
 proc parse_rule_pattern(text: Str, line_number: Int) [error] -> Result[RulePattern] {
-  if text.starts_with("@") { return parse_major_minor(text.byte_slice(1), line_number) }
+  return parse_major_minor(text.byte_slice(1), line_number) when text.starts_with("@")
   if text.starts_with("$") {
     let pattern_text = text.byte_slice(1)
     let equals_at = pattern_text.find("=")
@@ -293,7 +293,7 @@ proc parse_rule_line(line: Str, line_number: Int) [fs, error] -> Result[Rule] {
 proc read_rules(rules_path: Path) [fs, error] -> Result[List[Rule]] {
   let text_result = rules_path.read_text()
   if let Err(problem) = text_result {
-    if problem.errno == 2 { return Ok([]) }
+    return Ok([]) when problem.errno == 2
     return Err(error.failure(f"reading {rules_path.display()}: {problem.message}"))
   }
   let text = text_result?
@@ -311,7 +311,7 @@ proc read_rules(rules_path: Path) [fs, error] -> Result[List[Rule]] {
 proc read_uevent_env(uevent_path: Path, missing_ok: Bool) [fs, error] -> Result[Map[Str, Bytes]] {
   let text_result = uevent_path.read_text()
   if let Err(problem) = text_result {
-    if missing_ok and problem.errno == 2 { return Ok({}) }
+    return Ok({}) when missing_ok and problem.errno == 2
     return Err(error.failure(f"reading {uevent_path.display()}: {problem.message}"))
   }
   let text = text_result?
@@ -328,7 +328,7 @@ proc read_subsystem(sysfs_path: Path) [fs, error] -> Result[Str?] {
   let subsystem_path = path_join(sysfs_path, b"subsystem")?
   let link_result = subsystem_path.readlink()
   if let Err(problem) = link_result {
-    if problem.errno == 2 { return Ok(null) }
+    return Ok(null) when problem.errno == 2
     return Err(error.failure(f"reading {subsystem_path.display()}: {problem.message}"))
   }
   let link = link_result?
@@ -404,15 +404,15 @@ pure full_match(captures: Captures, input_length: Int) -> Bool {
 proc rule_matches(rule: Rule, event: Event) [error] -> Result[Captures] {
   for constraint in rule.env_matches {
     let value = event.env.get(constraint.name)
-    if value is Err(_) { return Ok({matched: false, values: []}) }
+    return Ok({matched: false, values: []}) when value is Err(_)
     let captures = regex_captures(constraint.pattern, value?)?
-    if ! full_match(captures, (value?).len()) { return Ok({matched: false, values: []}) }
+    return Ok({matched: false, values: []}) unless full_match(captures, (value?).len())
   }
   match rule.pattern {
     PatternName(pattern) => regex_captures(pattern, event.device_name.bytes())?
     PatternEnvValue(name, pattern) => {
       let value = event.env.get(name)
-      if value is Err(_) { return Ok({matched: false, values: []}) }
+      return Ok({matched: false, values: []}) when value is Err(_)
       regex_captures(pattern, value?)?
     }
     PatternMajorMinor(major, minor_start, minor_end) => {
@@ -458,7 +458,7 @@ pure build_alias(pattern: Str, device_name: Bytes, captures: Captures) -> Bytes 
 }
 
 proc handle_event(paths: Paths, rules: List[Rule], event: Event) [fs, process, env, error, time, io, net] -> Result[Unit] {
-  if event.action == .DeviceOther { return Ok() }
+  return Ok() when event.action == .DeviceOther
   let next_sequence = sequence_next(paths, event.env)?
   let result = handle_event_rules(paths, rules, event)
   if let next = next_sequence {
@@ -469,13 +469,13 @@ proc handle_event(paths: Paths, rules: List[Rule], event: Event) [fs, process, e
 
 proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -> Result[Int?] {
   let sequence_result = event_env.get("SEQNUM")
-  if sequence_result is Err(_) { return Ok(null) }
+  return Ok(null) when sequence_result is Err(_)
   let sequence_bytes = sequence_result?
   let sequence_text = sequence_bytes.utf8()?
-  if fs.stat(paths.seq_file) is Err(_) { return Ok(null) }
+  return Ok(null) when fs.stat(paths.seq_file) is Err(_)
   if ! decimal_digits(sequence_text) { return Err(failure(f"invalid SEQNUM '{sequence_text}'")) }
   let expected_result = sequence_text.parse_uint()
-  if expected_result is Err(_) { return Err(failure(f"invalid SEQNUM '{sequence_text}'")) }
+  return Err(failure(f"invalid SEQNUM '{sequence_text}'")) when expected_result is Err(_)
   let expected = expected_result?
   let deadline = monotonic.deadline_after(monotonic.now()?, 2000)
   loop {
@@ -488,10 +488,10 @@ proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -
           return Ok(expected + 1)
         }
         let seen = current.parse_uint() ?? expected
-        if seen >= expected { return Ok(expected + 1) }
+        return Ok(expected + 1) when seen >= expected
       }
     }
-    if monotonic.expired(deadline, monotonic.now()?) { return Ok(expected + 1) }
+    return Ok(expected + 1) when monotonic.expired(deadline, monotonic.now()?)
     time.sleep(32ms)
   }
 }
@@ -500,10 +500,10 @@ proc handle_event_rules(paths: Paths, rules: List[Rule], event: Event) [fs, proc
   var matched = false
   for rule in rules {
     let captures = rule_matches(rule, event)?
-    if ! captures.matched { continue }
+    continue unless captures.matched
     matched = true
     apply_rule(paths, event, rule, captures)
-    if ! rule.keep_matching { break }
+    break unless rule.keep_matching
   }
   if ! matched {
     let fallback: Rule = {keep_matching: false, env_matches: [], pattern: .PatternName(".*"), uid: 0, gid: 0, mode: 0o660, alias: .AliasNone, command: null}
@@ -607,7 +607,7 @@ proc run_rule_command(command: CommandRule, event_env: Map[Str, Bytes], node_nam
   let environment = event_env.set("MDEV", node_name)
   let words = [p"/bin/sh", p"-c", p"umask 000; exec /bin/sh -c \"$1\" sh", p"mdev", Path.parse_bytes(bytes.from_text(command.command))?]
   let status = process.run(process.command_argv(p"/bin/sh", words, env: environment))?
-  if ! status.exited_with(0) { return Err(failure(f"command failed: {command.command}")) }
+  return Err(failure(f"command failed: {command.command}")) unless status.exited_with(0)
   Ok()
 }
 
@@ -615,7 +615,7 @@ proc write_fd_all(fd: Int, data: Bytes) [process, net, error] -> Result[Unit] {
   var offset = 0
   while offset < data.len() {
     let written = unix.write_fd(fd, data[offset..])?
-    if written == 0 { return Err(failure("writing device firmware returned zero bytes")) }
+    return Err(failure("writing device firmware returned zero bytes")) when written == 0
     offset += written
   }
   Ok()
@@ -623,7 +623,7 @@ proc write_fd_all(fd: Int, data: Bytes) [process, net, error] -> Result[Unit] {
 
 proc maybe_load_firmware(paths: Paths, event: Event) [fs, process, env, error, time, net] -> Result[Unit] {
   let firmware_name_result = event.env.get("FIRMWARE")
-  if firmware_name_result is Err(_) { return Ok() }
+  return Ok() when firmware_name_result is Err(_)
   let firmware_name = firmware_name_result?
   let firmware_path = path_join(paths.firmware_root, firmware_name)?
   let loading_path = path_join(event.sysfs_path, b"loading")?
@@ -652,7 +652,7 @@ proc read_firmware(fd: Int) [process, net, error] -> Result[Bytes] {
   var data: Bytes = b""
   loop {
     let chunk = unix.read_fd(fd, 65536)?
-    if chunk.is_empty() { break }
+    break when chunk.is_empty()
     data = bytes.concat([data, chunk])
   }
   Ok(data)
@@ -667,17 +667,17 @@ proc run_scan(paths: Paths, rules: List[Rule]) [fs, process, env, error, time, i
     let directory = pending[last]
     pending = pending[0..last]
     let identity = directory.resolve() ?? directory
-    if visited.get(identity) is Ok(_) { continue }
+    continue when visited.get(identity) is Ok(_)
     visited = visited.set(identity, true)
     let children = fs.children(directory, stat: false, ordered: false)
     if let Err(problem) = children {
-      if problem.errno == 2 { continue }
+      continue when problem.errno == 2
       return Err(error.failure(f"reading {directory.display()}: {problem.message}"))
     }
     for entry in children? {
       let entry_path = entry.path
       let metadata_result = fs.stat(entry_path, follow_symlinks: true)
-      if metadata_result is Err(_) { continue }
+      continue when metadata_result is Err(_)
       if metadata_result?.kind == "dir" {
         pending += [entry_path]
         continue
@@ -775,11 +775,11 @@ proc daemon_loop(socket: Int, paths: Paths, rules: List[Rule]) [fs, process, env
   var current_rules = rules
   loop {
     let pending = unix.take_signals()?
-    if "TERM" in pending or "INT" in pending { return Ok() }
+    return Ok() when "TERM" in pending or "INT" in pending
     if "HUP" in pending { current_rules = reload_rules(paths, current_rules)? }
     let readable = unix.poll_fd(socket, ["readable"], timeout_ms: 100)?
     let pending_after_poll = unix.take_signals()?
-    if "TERM" in pending_after_poll or "INT" in pending_after_poll { return Ok() }
+    return Ok() when "TERM" in pending_after_poll or "INT" in pending_after_poll
     if "HUP" in pending_after_poll { current_rules = reload_rules(paths, current_rules)? }
     if "readable" in readable { receive_daemon_event(socket, paths, current_rules) }
   }
@@ -809,7 +809,7 @@ proc receive_daemon_event(socket: Int, paths: Paths, rules: List[Rule]) [fs, pro
       report_daemon_error("mdev: netlink receive buffer overflow; uevents may have been missed")
       return Ok()
     }
-    if problem.errno == 11 { return Ok() }
+    return Ok() when problem.errno == 11
     return Err(problem)
   }
   let message = message_result?
@@ -860,7 +860,7 @@ pure parse_uevent_message(message: Bytes) -> Map[Str, Bytes] {
 
 pure find_byte(input: Bytes, needle: Int) -> Int? {
   for index in range(input.len()) {
-    if input.byte_at(index) == needle { return index }
+    return index when input.byte_at(index) == needle
   }
   null
 }

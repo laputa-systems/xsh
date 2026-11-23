@@ -95,9 +95,7 @@ test test_int_constants_fold_truncating_division {
 }
 
 pure literal_operand(op: Str, operand: Str) -> Str {
-  if op in ["*", "/", "%"] and " " in operand {
-    return "(" + operand + ")"
-  }
+  return "(" + operand + ")" when op in ["*", "/", "%"] and " " in operand
   operand
 }
 

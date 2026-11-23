@@ -124,12 +124,8 @@ export pure cursor_index(state: State, entries: List[Int]) -> Int? {
 
 ## Keeps the cursor on a listed row after the row set changes.
 export pure reconcile(state: State, entries: List[Int]) -> State {
-  if entries.is_empty() {
-    return {...state, cursor: null}
-  }
-  if cursor_index(state, entries) == null {
-    return {...state, cursor: entries[0]}
-  }
+  return {...state, cursor: null} when entries.is_empty()
+  return {...state, cursor: entries[0]} when cursor_index(state, entries) == null
   state
 }
 
@@ -140,9 +136,7 @@ export pure select(state: State, entries: List[Int], id: Int) -> State {
 }
 
 pure extend_range(state: State, entries: List[Int]) -> State {
-  if state.range_anchor == null or state.cursor == null {
-    return state
-  }
+  return state when state.range_anchor == null or state.cursor == null
   let anchor = state.range_anchor ?? 0
   let target = state.cursor ?? 0
   var anchor_at: Int? = null
@@ -151,9 +145,7 @@ pure extend_range(state: State, entries: List[Int]) -> State {
     if entries[index] == anchor { anchor_at = index }
     if entries[index] == target { target_at = index }
   }
-  if anchor_at == null or target_at == null {
-    return state
-  }
+  return state when anchor_at == null or target_at == null
   let first = anchor_at ?? 0
   let last = target_at ?? 0
   let start = if first < last { first } else { last }
@@ -224,9 +216,7 @@ export pure toggle_mark(state: State, entries: List[Int]) -> State {
 
 ## Starts or ends range mode; starting marks the cursor row as the anchor.
 export pure toggle_range(state: State) -> State {
-  if state.range_mode {
-    return {...state, range_mode: false, range_anchor: null}
-  }
+  return {...state, range_mode: false, range_anchor: null} when state.range_mode
   guard let cursor = state.cursor else {
     return state
   }
@@ -257,9 +247,7 @@ export pure clear_marks(state: State) -> State {
 ## Removes the marked-pane cursor's mark and clamps the pane cursor.
 export pure unmark_at_cursor(state: State) -> State {
   let at = state.marked_cursor ?? 0
-  if at < 0 or at >= state.marks.len() {
-    return state
-  }
+  return state when at < 0 or at >= state.marks.len()
   let remaining: List[Int] = collect {
     for index in range(state.marks.len()) {
       yield state.marks[index] when index != at

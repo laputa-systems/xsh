@@ -98,7 +98,7 @@ type SinkCheck = {sink: kernel.Output?, removed: Bool}
 proc check_sink(previous: kernel.Output?) [fs, process, net, io, error] -> Result[SinkCheck, Error] {
   if let before = previous {
     if let current = kernel.output()? {
-      if ! current.linked { return Ok({sink: previous, removed: true}) }
+      return Ok({sink: previous, removed: true}) unless current.linked
       if current.target != before.target {
         finish_line(f"event=sink-moved from=\"{before.target}\" to=\"{current.target}\"")
         return Ok({sink: current, removed: false})
@@ -208,7 +208,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
   while true {
     let watched = if kmsg_fd >= 0 { [{fd: published.fd, events: ["readable"]}, {fd: kmsg_fd, events: ["readable"]}] } else { [{fd: published.fd, events: ["readable"]}] }
     let ready = unix.poll_fds(watched)?
-    if ready.is_empty() { continue }
+    continue when ready.is_empty()
     let checked = boot_clock.micros(boot_clock.now()?)
     if sink != null and checked - last_sink_check >= REPORT_INTERVAL_US {
       last_sink_check = checked
@@ -228,7 +228,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
         let now = time.boottime()?
         let admission = limit.admit(limiter, limit.Datagram(sender: null, oversize: false, control_truncated: false, rights: 0), now / 1000)
         limiter = admission.limiter
-        if ! admission.accepted { continue }
+        continue unless admission.accepted
         sequence += 1
         let line = render.render(render.Entry(sequence: sequence, source: "kmsg", kernel_sequence: record.sequence, kernel_microseconds: record.microseconds, boot_id: boot_id, boottime_ns: now, pid: null, uid: null, gid: null, message: kernel_message(record)))
         let written = write_line(line, last_report)?
@@ -239,7 +239,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
     var drained = 0
     while drained < BATCH_LIMIT {
       let received = receive(published.fd)?
-      if received.is_empty() { break }
+      break when received.is_empty()
       let datagram = received[0]
       drained += 1
       let sender = credentials(datagram.control)
@@ -255,7 +255,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
         now / 1000,
       )
       limiter = admission.limiter
-      if ! admission.accepted { continue }
+      continue unless admission.accepted
       sequence += 1
       let line = render.render(render.Entry(sequence: sequence, source: "socket", kernel_sequence: null, kernel_microseconds: null, boot_id: boot_id, boottime_ns: now, pid: sender?.pid, uid: sender?.uid, gid: sender?.gid, message: parse.parse(datagram.data)))
       let written = write_line(line, last_report)?

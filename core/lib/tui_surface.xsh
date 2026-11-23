@@ -372,7 +372,7 @@ export pure glyph_clusters(text: Str) -> List[Str] {
         glyph = character
       }
     }
-    if glyph != "" { yield glyph }
+    yield glyph when glyph != ""
   }
   clusters
 }
@@ -384,7 +384,7 @@ pure hex_byte(value: Int) -> Str {
 
 pure hex_number(value: Int) -> Str {
   let digits = "0123456789abcdef"
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var remaining = value
   var output = ""
   while remaining > 0 {
@@ -455,16 +455,12 @@ export pure escape_name(name: Bytes) -> Str {
 
 ## Shortens text to at most a cell width, ending with an ellipsis when cut.
 export pure clip_end(text: Str, maximum: Int) -> Str {
-  if tui.cell_width(text) <= maximum {
-    return text
-  }
-  if maximum == 0 {
-    return ""
-  }
+  return text when tui.cell_width(text) <= maximum
+  return "" when maximum == 0
   var output = ""
   for cluster in glyph_clusters(text) {
     let candidate = output + cluster
-    if tui.cell_width(candidate) > maximum - 1 { break }
+    break when tui.cell_width(candidate) > maximum - 1
     output = candidate
   }
   output + "…"
@@ -472,12 +468,8 @@ export pure clip_end(text: Str, maximum: Int) -> Str {
 
 ## Shortens text to at most a cell width while keeping its end.
 export pure clip_start(text: Str, maximum: Int) -> Str {
-  if tui.cell_width(text) <= maximum {
-    return text
-  }
-  if maximum == 0 {
-    return ""
-  }
+  return text when tui.cell_width(text) <= maximum
+  return "" when maximum == 0
   let clusters = glyph_clusters(text)
   var kept: List[Str] = []
   var used = 0
@@ -485,7 +477,7 @@ export pure clip_start(text: Str, maximum: Int) -> Str {
   while index > 0 {
     index -= 1
     let width = tui.cell_width(clusters[index])
-    if used + width > maximum - 1 { break }
+    break when used + width > maximum - 1
     kept = [clusters[index]] + kept
     used += width
   }
@@ -502,9 +494,7 @@ export pure pad_to(text: Str, width: Int) -> Str {
 ## Formats a byte count with one decimal in binary units.
 export pure format_size(size: Int) -> Str {
   let units = ["B", "KiB", "MiB", "GiB", "TiB"]
-  if size < 1024 {
-    return f"{size} B"
-  }
+  return f"{size} B" when size < 1024
   var value = size.float()
   var unit = 0
   while value >= 1024.0 and unit < units.len() - 1 {
@@ -536,9 +526,7 @@ export pure format_age_seconds(seconds: Int) -> Str {
   while true {
     let unit = units[unit_index]
     let value = (seconds + unit.seconds / 2) / unit.seconds
-    if unit_index == 0 {
-      return if value > 999 { "999y+" } else { f"{value}{unit.suffix}" }
-    }
+    return if value > 999 { "999y+" } else { f"{value}{unit.suffix}" } when unit_index == 0
     if value * unit.seconds >= units[unit_index - 1].seconds {
       unit_index -= 1
       continue
@@ -580,9 +568,7 @@ pure cell_text_width(text: Str) -> Int {
 
 ## Returns the cell at a coordinate, or null outside the screen.
 export pure cell_at(screen: CellScreen, x: Int, y: Int) -> Cell? {
-  if x < 0 or y < 0 or x >= screen.width or y >= screen.height {
-    return null
-  }
+  return null when x < 0 or y < 0 or x >= screen.width or y >= screen.height
   {
     text: screen.texts[y][x],
     style: screen.styles[y][x],
@@ -627,9 +613,7 @@ pure erase_span(
 
 ## Writes text into one cell row, clipping at the area edge by display cells.
 export pure cell_text(screen: CellScreen, area: Rect, text: Str, style: colors.Style) -> CellScreen {
-  if area.height == 0 or area.y < 0 or area.y >= screen.height {
-    return screen
-  }
+  return screen when area.height == 0 or area.y < 0 or area.y >= screen.height
   let right = area.x + area.width
   let end = if right < screen.width { right } else { screen.width }
   let start_x = if area.x < 0 { 0 } else { area.x }
@@ -637,7 +621,7 @@ export pure cell_text(screen: CellScreen, area: Rect, text: Str, style: colors.S
   var glyph_texts: List[Str] = []
   for glyph in glyph_clusters(text) {
     let glyph_width = tui.cell_width(glyph)
-    if glyph_width == 0 { continue }
+    continue when glyph_width == 0
     break when x + glyph_width > end
     glyph_texts += [glyph]
     for _ in range(1, glyph_width) {
@@ -645,9 +629,7 @@ export pure cell_text(screen: CellScreen, area: Rect, text: Str, style: colors.S
     }
     x += glyph_width
   }
-  if glyph_texts.is_empty() {
-    return screen
-  }
+  return screen when glyph_texts.is_empty()
   let row_texts = screen.texts[area.y]
   let row_styles = screen.styles[area.y]
   let written = glyph_texts.len()
@@ -677,7 +659,7 @@ export pure cell_lines(screen: CellScreen, area: Rect, lines: List[Str]) -> Cell
   var updated = screen
   var offset = 0
   for line in lines {
-    if offset >= area.height { break }
+    break when offset >= area.height
     updated = cell_text(updated, {x: area.x, y: area.y + offset, width: area.width, height: 1}, line, colors.PLAIN)
     offset += 1
   }
@@ -692,9 +674,7 @@ export pure cell_clear(screen: CellScreen, area: Rect) -> CellScreen {
   let start_y = if area.y < 0 { 0 } else { area.y }
   let end_x = if right < screen.width { right } else { screen.width }
   let end_y = if bottom < screen.height { bottom } else { screen.height }
-  if end_x <= start_x or end_y <= start_y {
-    return screen
-  }
+  return screen when end_x <= start_x or end_y <= start_y
   let texts: List[List[Str]] = collect {
     for y in range(screen.height) {
       if y >= start_y and y < end_y {
@@ -771,7 +751,7 @@ export pure cell_diff(previous: CellScreen, next: CellScreen) -> Str {
   var cursor_y = -1
   var style = PLAIN_STYLE
   let parts: List[Str] = collect {
-    if resized { yield "\u{1b}[0m\u{1b}[2J" }
+    yield "\u{1b}[0m\u{1b}[2J" when resized
     for y in range(next.height) {
       let next_texts = next.texts[y]
       let next_styles = next.styles[y]
@@ -779,19 +759,13 @@ export pure cell_diff(previous: CellScreen, next: CellScreen) -> Str {
       let previous_styles = if resized { next_styles } else { previous.styles[y] }
       for x in range(next.width) {
         let glyph_text = next_texts[x]
-        if glyph_text == "" {
-          continue
-        }
+        continue when glyph_text == ""
         let cell_style = next_styles[x]
-        if resized and glyph_text == " " and cell_style == PLAIN_STYLE {
-          continue
-        }
+        continue when resized and glyph_text == " " and cell_style == PLAIN_STYLE
         if ! resized and glyph_text == previous_texts[x] and cell_style == previous_styles[x] {
           continue
         }
-        if cursor_x != x or cursor_y != y {
-          yield f"\u{1b}[{y + 1};{x + 1}H"
-        }
+        yield f"[{y + 1};{x + 1}H" when cursor_x != x or cursor_y != y
         if style != cell_style {
           yield cell_style
           style = cell_style
@@ -801,7 +775,7 @@ export pure cell_diff(previous: CellScreen, next: CellScreen) -> Str {
         cursor_y = y
       }
     }
-    if style != PLAIN_STYLE { yield PLAIN_STYLE }
+    yield PLAIN_STYLE when style != PLAIN_STYLE
   }
   return "" when parts.is_empty()
   parts.join("") + "\u{1b}[1;1H"

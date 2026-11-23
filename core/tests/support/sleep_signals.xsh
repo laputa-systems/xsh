@@ -18,9 +18,7 @@ proc proc_status_field(pid: Int, field: Str) [fs, error] -> Result[Str?, Error] 
   return null when ! status.exists()
 
   for line in status.read_text()?.lines() {
-    if line.starts_with(f"{field}:") {
-      return line.split(":")[1].trim()
-    }
+    return line.split(":")[1].trim() when line.starts_with(f"{field}:")
   }
   null
 }

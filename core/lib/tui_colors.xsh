@@ -140,9 +140,7 @@ pure foreground_code(color: Color, foreground: Bool) -> Str {
 }
 
 pure parse_sgr(value: Str) -> Style? {
-  if value == "" or value == "target" {
-    return null
-  }
+  return null when value == "" or value == "target"
   var style = PLAIN
   var seen = false
   let parts = value.split(";")

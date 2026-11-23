@@ -79,7 +79,7 @@ export pure new_limiter(config: Config) -> Result[Limiter, Error] {
     out_of_range("global_burst", config.global_burst, MAX_BURST),
   ]
   for problem in problems {
-    if problem != null { return Err(problem ?? error.failure("invalid limit")) }
+    return Err(problem ?? error.failure("invalid limit")) when problem != null
   }
   Ok({config: config, senders: {}, order: {}, tick: 0, oldest: 1, global_allowed_at: 0, counters: zero_counters()})
 }
@@ -106,7 +106,7 @@ pure next_allowed(allowed_at: Int, now_us: Int, rate: Int) -> Int {
 }
 
 pure sender_key(sender: Sender?) -> Str {
-  if sender == null { return "unknown" }
+  return "unknown" when sender == null
   let identity = sender ?? Sender(uid: 0, pid: 0)
   f"{identity.uid}:{identity.pid}"
 }
@@ -123,9 +123,9 @@ pure bump(counters: Counters, reason: Reason, by: Int) -> Counters {
 }
 
 pure structural_reason(datagram: Datagram) -> Reason? {
-  if datagram.rights > 0 { return .Rights }
-  if datagram.control_truncated { return .ControlTruncated }
-  if datagram.oversize { return .Oversize }
+  return .Rights when datagram.rights > 0
+  return .ControlTruncated when datagram.control_truncated
+  return .Oversize when datagram.oversize
   null
 }
 
@@ -137,7 +137,7 @@ pure dropped(limiter: Limiter, reason: Reason) -> Admission {
 pure evict_oldest(limiter: Limiter) -> Limiter {
   var oldest = limiter.oldest
   while oldest <= limiter.tick and oldest not in limiter.order { oldest += 1 }
-  if oldest > limiter.tick { return limiter }
+  return limiter when oldest > limiter.tick
   var senders = limiter.senders
   var order = limiter.order
   senders = senders.remove(order[oldest])
@@ -170,7 +170,7 @@ pure admitted(limiter: Limiter, key: Str, known: Bool, sender_allowed_at: Int, g
 ## the global bucket, and a refusal by either leaves both unchanged.
 export pure admit(limiter: Limiter, datagram: Datagram, now_us: Int) -> Admission {
   let structural = structural_reason(datagram)
-  if structural != null { return dropped(limiter, structural ?? .Rate) }
+  return dropped(limiter, structural ?? .Rate) when structural != null
   let now = clamp_time(now_us)
   let config = limiter.config
   let key = sender_key(datagram.sender)

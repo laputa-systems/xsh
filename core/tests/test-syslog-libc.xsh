@@ -27,7 +27,7 @@ proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str]) [fs, pro
   let plan = process.command_argv("sh", argv, root, {PATH: e"PATH" ?? "/usr/bin:/bin", LC_ALL: "C"})
   match linux.run_in_namespaces(plan, unshare: ["user", "mnt"], map_root_user: true) {
     Err(failure) => {
-      if "unshare failed" in failure.message { return Ok(null) }
+      return Ok(null) when "unshare failed" in failure.message
       Err(failure)
     }
     Ok(status) => {

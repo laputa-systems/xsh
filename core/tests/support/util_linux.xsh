@@ -163,9 +163,9 @@ export proc candidate_as_user(s: uu.Scene, command: Str, args: List[Str], uid: I
 ## Returns true in the outer run, which must then return; returns false where the test should run in place.
 export proc rerun_ipc_isolated(ctx: TestContext) [fs, process, env, error] -> Result[Bool, Error] {
   let names = [entry.name for entry in env.entries()?]
-  if ! (b"XSH_UTIL_LINUX_PRIVATE" in names) { return Ok(false) }
+  return Ok(false) unless b"XSH_UTIL_LINUX_PRIVATE" in names
   let selector = ctx.name
-  if env.get_or("XSH_UTIL_LINUX_IPC_ISOLATED", "")? == selector { return Ok(false) }
+  return Ok(false) when env.get_or("XSH_UTIL_LINUX_IPC_ISOLATED", "")? == selector
   require_private_namespace()
   test.timeout(ctx, 600s)
   let inner = "mount --make-rprivate /; mount -t tmpfs -o size=32m tmpfs /dev/shm; mount -t mqueue mqueue /dev/mqueue; export XSH_UTIL_LINUX_IPC_ISOLATED=\"$2\"; exec \"$1\" test --exact-id \"$2\""

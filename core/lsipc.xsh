@@ -124,7 +124,7 @@ pure human_size(value: Int) -> Str {
   var divisor = 1
   while exponent < 60 and value >= divisor * 1024 { exponent += 10; divisor *= 1024 }
   let unit = LETTERS.byte_slice(exponent / 10, length: 1)
-  if exponent == 0 { return f"{value}B" }
+  return f"{value}B" when exponent == 0
   human_units(value / divisor, value % divisor, divisor, unit)
 }
 
@@ -151,12 +151,12 @@ proc human_limit(value: Str) [error] -> Str {
 proc display_time(seconds: Int, format: Str) [time, env, error] -> Str? {
   return null when seconds == 0
   let ns = seconds * 1000000000
-  if format == "full" { return time.format(ns, "%a %b %e %H:%M:%S %Y")? }
-  if format == "iso" { return time.format(ns, "%Y-%m-%dT%H:%M:%S%:z")? }
+  return time.format(ns, "%a %b %e %H:%M:%S %Y")? when format == "full"
+  return time.format(ns, "%Y-%m-%dT%H:%M:%S%:z")? when format == "iso"
   let now = time.now() * 1000000
   let date = time.format(ns, "%Y-%m-%d")?
   let today = time.format(now, "%Y-%m-%d")?
-  if date == today { return time.format(ns, "%H:%M")? }
+  return time.format(ns, "%H:%M")? when date == today
   if date.byte_slice(0, length: 4) == today.byte_slice(0, length: 4) {
     return time.format(ns, "%b%d")?
   }
@@ -216,7 +216,7 @@ proc command_line(pid: Int) [fs] -> Bytes {
 proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Selection) [fs, process, time, env, error] -> IpcEntry? {
   let id = record.id
   let identity = record.identity
-  if id == null or identity == null { return null }
+  return null when id == null or identity == null
   let key = identity.key
   let mode = identity.mode
   let uid = identity.uid
@@ -518,7 +518,7 @@ pure prepare_arguments(argv: List[Bytes], byte_locale: Bool) -> Result[gnu.Prepa
         for at in range(1, argument.len()) {
           let byte = argument.byte_at(at) ?? 0
           if byte >= 128 { short_non_ascii = at; break }
-          if byte in [105, 78, 111] { break }
+          break when byte in [105, 78, 111]
         }
       }
       if short_non_ascii >= 0 {
@@ -616,11 +616,11 @@ proc report_failure(failure: report.OptionError, raw: List[gnu.RawArgument]) [pr
 }
 
 proc output_width() [env, process] -> Int {
-  if !unix.isatty(1) { return 0 }
-  if let Ok(size) = unix.window_size(1) { if size.cols > 0 { return size.cols } }
+  return 0 unless unix.isatty(1)
+  if let Ok(size) = unix.window_size(1) { return size.cols when size.cols > 0 }
   if let Ok(text) = env.get("COLUMNS") {
     if let Ok(width) = text.parse_int() {
-      if width > 0 { return width }
+      return width when width > 0
     }
   }
   80

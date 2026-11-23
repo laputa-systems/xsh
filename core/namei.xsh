@@ -6,7 +6,7 @@ pure util_strerror(failure: Error) -> Str {
   let text = failure.message
   let segments = text.split(" (os error ")
   let at = if segments.len() > 1 { text.byte_len() - segments[-1].byte_len() - " (os error ".byte_len() } else { -1 }
-  if at < 0 { return text }
+  return text when at < 0
   let parts = text.byte_slice(0, at).split(": ")
   parts[-1]
 }
@@ -71,9 +71,7 @@ proc parse_options(argv: List[Str], raw: List[gnu.RawArgument]) [process, env, i
   while at < argv.len() {
     let word = argv[at]
     at += 1
-    if word == "--" {
-      return {...options, paths: options.paths.extend(argv[at..])}
-    }
+    return {...options, paths: options.paths.extend(argv[at..])} when word == "--"
     if ! word.starts_with("-") or word == "-" {
       options = {...options, paths: options.paths.extend([word])}
       continue
@@ -341,9 +339,9 @@ pure valid_account_name(name: Str, byte_locale: Bool) -> Bool {
   var visible = false
   for character in name {
     let cp = account_codepoint(character)
-    if cp < 32 or cp == 127 or (! byte_locale and cp >= 128 and cp < 160) { return false }
+    return false when cp < 32 or cp == 127 or (! byte_locale and cp >= 128 and cp < 160)
     if byte_locale { visible = true; continue }
-    if cp % 65536 >= 65534 { return false }
+    return false when cp % 65536 >= 65534
     var zero = cp == 917505 or (cp >= 917536 and cp < 917631) or (cp >= 917760 and cp < 917999)
     if cp < 131072 {
       for bounds in NONSPACING {
@@ -371,12 +369,12 @@ proc groupname(gid: Int, byte_locale: Bool) [fs] -> Str {
 
 pure owner_width(name: Str, byte_locale: Bool) -> Int {
   let width = if byte_locale { name.byte_len() } else { tui.cell_width(name) }
-  if width <= 256 { return width }
-  if byte_locale { return 256 }
+  return width when width <= 256
+  return 256 when byte_locale
   var used = 0
   for character in name {
     used += tui.cell_width(character)
-    if used >= 256 { return used }
+    return used when used >= 256
   }
   used
 }
@@ -402,7 +400,7 @@ pure spaces(count: Int) -> Bytes {
 }
 
 proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int, byte_locale: Bool) [fs] -> Listing {
-  if entries.is_empty() { return {chunks: [], failed: false} }
+  return {chunks: [], failed: false} when entries.is_empty()
   var chunks: List[Bytes] = [b"f: ", operand, b"\n"]
   var failed = false
   for entry in entries {
@@ -435,7 +433,7 @@ proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: 
 }
 
 proc write_output(output: Output, data: Bytes) [io] -> Output {
-  if output.failed { return output }
+  return output when output.failed
   if let Err(_) = io.write_stdout_bytes(data) { return {...output, buffer: b"", initialized: true, failed: true} }
   if let Err(_) = io.flush_stdout() { return {...output, buffer: b"", initialized: true, failed: true} }
   {...output, buffer: b"", initialized: true}
@@ -444,8 +442,8 @@ proc write_output(output: Output, data: Bytes) [io] -> Output {
 proc output_chunks(initial: Output, chunks: List[Bytes], terminal: Bool) [io] -> Output {
   var output = initial
   for chunk in chunks {
-    if output.failed { break }
-    if chunk.is_empty() { continue }
+    break when output.failed
+    continue when chunk.is_empty()
     var newline = 0
     if terminal or ! output.initialized {
       for index in range(chunk.len()) {

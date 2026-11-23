@@ -71,7 +71,7 @@ pure without_trailer(data: Bytes) -> Bytes {
 }
 
 pure optional_number(text: Str) -> Int? {
-  if text.is_empty() { return null }
+  return null when text.is_empty()
   match text.parse_uint() {
     Ok(number) => number
     Err(_) => null
@@ -86,7 +86,7 @@ pure window_text(body: Bytes, offset: Int) -> Str {
     Ok(text) => text
     Err(failure) => {
       let position = INVALID_AT.captures(failure.message)
-      if position.is_empty() { return "" }
+      return "" when position.is_empty()
       window.slice(0, optional_number(position[1]) ?? 0).utf8() ?? ""
     }
   }
@@ -107,7 +107,7 @@ pure tagged(text: Str, stamp: Str?, consumed: Int) -> Header {
   if ! direct.is_empty() {
     return {header_time: stamp, host: null, tag: direct[1], tag_pid: optional_number(direct[2]), consumed: consumed + match_end(TAG, rest)}
   }
-  if stamp == null { return bare_header(0) }
+  return bare_header(0) when stamp == null
   let hosted = HOST_TAG.captures(rest)
   if hosted.is_empty() { return {header_time: stamp, host: null, tag: null, tag_pid: null, consumed: consumed} }
   {header_time: stamp, host: hosted[1], tag: hosted[2], tag_pid: optional_number(hosted[3]), consumed: consumed + match_end(HOST_TAG, rest)}
@@ -115,7 +115,7 @@ pure tagged(text: Str, stamp: Str?, consumed: Int) -> Header {
 
 pure header_of(text: Str) -> Header {
   let stamp = TIMESTAMP.captures(text)
-  if stamp.is_empty() { return tagged(text, null, 0) }
+  return tagged(text, null, 0) when stamp.is_empty()
   tagged(text, stamp[1], match_end(TIMESTAMP, text))
 }
 
@@ -130,7 +130,7 @@ export pure parse(data: Bytes) -> Parsed {
   let lead = window_text(body, 0).byte_slice(0, 5)
   let value = VALID_PRIORITY.captures(lead)
   if value.is_empty() {
-    if ANY_PRIORITY.matches(lead) { return unprefixed(.Invalid, body) }
+    return unprefixed(.Invalid, body) when ANY_PRIORITY.matches(lead)
     return unprefixed(.Missing, body)
   }
   let priority = value[1].parse_uint() ?? 0

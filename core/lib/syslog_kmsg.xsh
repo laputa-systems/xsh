@@ -54,7 +54,7 @@ pure header_text(body: Bytes) -> Str {
     Ok(text) => text
     Err(failure) => {
       let position = INVALID_AT.captures(failure.message)
-      if position.is_empty() { return "" }
+      return "" when position.is_empty()
       window.slice(0, number(position[1])).utf8() ?? ""
     }
   }
@@ -63,12 +63,12 @@ pure header_text(body: Bytes) -> Str {
 ## Parses one record: `priority,sequence,microseconds,flag[,...];message` and
 ## optional ` KEY=value` continuation lines. Returns null for anything else.
 export pure parse(raw: Bytes) -> KernelRecord? {
-  if raw.len() == 0 or raw.len() > RECORD_LIMIT { return null }
+  return null when raw.len() == 0 or raw.len() > RECORD_LIMIT
   let end = if (raw.byte_at(raw.len() - 1) ?? 0) == 10 { raw.len() - 1 } else { raw.len() }
   let body = raw.slice(0, end)
   let head = header_text(body)
   let found = HEADER.captures(head)
-  if found.is_empty() { return null }
+  return null when found.is_empty()
   let prefix = found[0].byte_len()
   let rest = body.slice(prefix)
   var message = rest
@@ -99,8 +99,8 @@ export pure classify(result: Result[Bytes, Error]) -> Result[Outcome, Error] {
       if let record = parse(raw) { Ok(.Message(record)) } else { Ok(.Malformed(raw)) }
     }
     Err(failure) => {
-      if failure.errno == EPIPE { return Ok(.Overrun) }
-      if failure.errno == EAGAIN { return Ok(.Empty) }
+      return Ok(.Overrun) when failure.errno == EPIPE
+      return Ok(.Empty) when failure.errno == EAGAIN
       Err(failure)
     }
   }

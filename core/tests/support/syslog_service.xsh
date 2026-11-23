@@ -88,7 +88,7 @@ export proc await_containing(lay: Layout, needle: Str, count: Int) [fs, time, er
   let deadline = time.now() + 30000
   while time.now() < deadline {
     let found = [line for line in lay.log.read_text()?.lines() if needle in line]
-    if found.len() >= count { return Ok(found) }
+    return Ok(found) when found.len() >= count
     time.sleep(20ms)
   }
   Err(error.failure(f"the log never reached {count} lines containing {needle}"))
@@ -99,7 +99,7 @@ export proc await_containing_in(file: Path, needle: Str, count: Int) [fs, time, 
   let deadline = time.now() + 30000
   while time.now() < deadline {
     let found = [line for line in file.read_text()?.lines() if needle in line]
-    if found.len() >= count { return Ok(found) }
+    return Ok(found) when found.len() >= count
     time.sleep(20ms)
   }
   Err(error.failure(f"{file} never reached {count} lines containing {needle}"))
@@ -110,7 +110,7 @@ export proc await_lines(lay: Layout, prefix: Str, count: Int) [fs, time, error] 
   let deadline = time.now() + 30000
   while time.now() < deadline {
     let found = lines_with(lay, prefix)?
-    if found.len() >= count { return Ok(found) }
+    return Ok(found) when found.len() >= count
     time.sleep(20ms)
   }
   Err(error.failure(f"the log never reached {count} lines starting with {prefix}"))
@@ -167,6 +167,6 @@ export proc open_descriptors(pid: Int) [fs, error] -> Result[Int, Error] {
 ## One `name=value` counter from an event line.
 export proc counter(line: Str, name: Str) [error] -> Result[Int, Error] {
   let found = regex.compile(f"(?:^| ){name}=([0-9]+)")?.captures(line)
-  if found.is_empty() { return Err(error.failure(f"{name} is missing from {line}")) }
+  return Err(error.failure(f"{name} is missing from {line}")) when found.is_empty()
   Ok(found[1].parse_int()?)
 }

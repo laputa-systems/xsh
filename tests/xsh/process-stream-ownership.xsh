@@ -11,7 +11,7 @@ test.error_kind(process.kill(pid, signal: "0"), "process-missing")
 }
 
 test test_failed_notify_spawns_release_pipe_descriptors { |ctx|
-  if system.uname()?.sysname != "Linux" { return }
+  return when system.uname()?.sysname != "Linux"
   let worker = fp"{test.temp_dir(ctx, name: "failed-notify-spawn")?}/worker"
   worker.write("#!/xsh-missing-interpreter\n")
   worker.chmod(0o755)

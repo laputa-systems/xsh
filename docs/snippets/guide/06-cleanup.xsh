@@ -4,9 +4,7 @@ var attempts = 0
 
 proc fetch() -> Result[Str] {
   attempts += 1
-  if attempts < 3 {
-    return Err(FetchError.Busy("try again"))
-  }
+  return Err(FetchError.Busy("try again")) when attempts < 3
 
   "payload"
 }

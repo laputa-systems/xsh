@@ -1,12 +1,12 @@
 pure optional_choice(absent, value, marker) {
   let _ = marker
-  if absent { return null }
+  return null when absent
   value
 }
 
 pure optional_other(absent, value, marker) {
   let _ = marker
-  if absent { return null }
+  return null when absent
   value
 }
 

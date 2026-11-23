@@ -20,7 +20,7 @@ proc landlock_available() [process, env, fs, error] -> Result[Bool] {
 proc system_paths() [fs, error] -> Result[List[Path]] {
   let found = collect {
     for dir in [fp"/bin", fp"/usr", fp"/lib", fp"/lib64"] {
-      if dir.exists() { yield dir }
+      yield dir when dir.exists()
     }
   }
   Ok(found)

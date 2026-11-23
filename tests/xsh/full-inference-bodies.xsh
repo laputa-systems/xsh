@@ -2418,7 +2418,7 @@ proc generic_managed_root(output_root: Path, marker, early: Bool) [fs, error] ->
   let _ = marker
   with root = fs.tempdir_in(output_root.parent)? {
     let temporary = root.host_path()?
-    if early { return Ok(temporary) }
+    return Ok(temporary) when early
     root.write(p"note", "payload")
     assert root.read_text(p"note")? == "payload"
     temporary

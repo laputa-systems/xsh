@@ -133,13 +133,13 @@ pure shell_column(column: Str) -> Str {
 }
 
 pure heading(selection: Selection, column: Str) -> Str {
-  if selection.shell { return shell_column(column) }
+  return shell_column(column) when selection.shell
   column
 }
 
 pure pretty_label(column: Str) -> Str {
   for entry in PRETTY_COLUMNS {
-    if entry.column == column { return entry.label }
+    return entry.label when entry.column == column
   }
   column
 }
@@ -163,7 +163,7 @@ pure truncate_cells(text: Str, width: Int) -> Str {
   var used = 0
   for character in text {
     let cells = display_width(character)
-    if used + cells > width { break }
+    break when used + cells > width
     out += character
     used += cells
   }
@@ -219,10 +219,10 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
               let change = if available < wanted { available } else if reduction < wanted { reduction } else { wanted }
               if change > 0 { widths[index] -= change; reduction -= change; changed = true }
               first_command = false
-              if reduction <= 0 { break }
+              break when reduction <= 0
             }
           }
-          if !changed { break }
+          break unless changed
         }
       } else {
         for reverse_index in range(selection.columns.len()) {
@@ -232,7 +232,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int, byte
             let available = widths[index] - minimum
             let change = if available < reduction { available } else { reduction }
             if change > 0 { widths[index] -= change; reduction -= change }
-            if reduction <= 0 { break }
+            break when reduction <= 0
           }
         }
       }
@@ -440,7 +440,7 @@ pure parse_id(value: Str?) -> Result[Int?, OptionError] {
     var out_of_range = false
     while offset < data.len() {
       let byte = data.byte_at(offset) ?? 0
-      if byte < 48 or byte > 57 { break }
+      break when byte < 48 or byte > 57
       digits += 1
       let digit = byte - 48
       if number > (limit - digit) / 10 {
@@ -498,14 +498,14 @@ const SHORT_OPTIONS = [
 
 pure option_code(name: Str) -> Str? {
   for option in SHORT_OPTIONS {
-    if option.name == name { return option.code }
+    return option.code when option.name == name
   }
   null
 }
 
 pure short_option_name(code: Str) -> Str {
   for option in SHORT_OPTIONS {
-    if option.code == code { return option.name }
+    return option.name when option.code == code
   }
   ""
 }
@@ -541,9 +541,7 @@ pure option_display(code: Str) -> Str {
 }
 
 pure id_columns(selection: Selection, resource_order: List[Str]) -> List[Str] {
-  if selection.global and !selection.explicit_resources {
-    return GLOBAL_COLUMNS
-  }
+  return GLOBAL_COLUMNS when selection.global and ! selection.explicit_resources
   var columns: List[Str] = []
   for resource in resource_order {
     for mode in RESOURCE_OPTIONS {
@@ -574,7 +572,7 @@ pure id_columns(selection: Selection, resource_order: List[Str]) -> List[Str] {
 
 pure allowed_column(column: Str, selection: Selection, resource: Str?) -> Bool {
   return true when column in GENERIC_COLUMNS
-  if selection.global { return column in GLOBAL_COLUMNS }
+  return column in GLOBAL_COLUMNS when selection.global
   return false when !selection.explicit_resources
   return true when resource == "posix_mqueues" and column in ["NAME", "MTIME"]
   return true when resource == "posix_shmems" and column in ["NAME", "MTIME"]
@@ -590,7 +588,7 @@ pure ascii_upper(text: Str) -> Str? {
   var out = ""
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
-    if byte >= 128 { return null }
+    return null when byte >= 128
     out += if byte >= 97 and byte <= 122 { "ABCDEFGHIJKLMNOPQRSTUVWXYZ".byte_slice(byte - 97, length: 1) } else { text.byte_slice(index, length: 1) }
   }
   out
@@ -599,17 +597,13 @@ pure ascii_upper(text: Str) -> Str? {
 pure output_columns(raw: Str, selection: Selection, resource: Str?) -> Result[List[Str], OptionError] {
   let append = raw.starts_with("+")
   let body = if append { raw.byte_slice(1) } else { raw }
-  if body.is_empty() { return Err(OptionError.EmptyColumn()) }
+  return Err(OptionError.EmptyColumn()) when body.is_empty()
   let names = body.split(",")
   var columns: List[Str] = if append { selection.columns } else { [] }
   for index in range(names.len()) {
     let source = if index + 2 == names.len() and body.ends_with(",") { names[index] + "," } else { names[index] }
-    if columns.len() >= ALL_COLUMNS.len() * 2 {
-      return Err(OptionError.TooManyColumns())
-    }
-    if source.is_empty() {
-      return Err(OptionError.EmptyColumn())
-    }
+    return Err(OptionError.TooManyColumns()) when columns.len() >= ALL_COLUMNS.len() * 2
+    return Err(OptionError.EmptyColumn()) when source.is_empty()
     let remaining = names[index..].join(",")
     var column: Str? = null
     if let normalized = ascii_upper(source) {
@@ -634,7 +628,7 @@ pure option_names(argv: List[Str], permute: Bool) -> List[Str] {
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
-    if argument == "--" { break }
+    break when argument == "--"
     if let name = option_name(argument) {
       names += [name]
       if name in ARGUMENT_OPTIONS and argument.find("=") == null { index += 1 }
@@ -660,7 +654,7 @@ pure has_terminator(argv: List[Str], permute: Bool) -> Bool {
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
-    if argument == "--" { return true }
+    return true when argument == "--"
     if let name = option_name(argument) {
       if name in ARGUMENT_OPTIONS and argument.find("=") == null { index += 1 }
     } else if argument.starts_with("-") and argument != "-" {
@@ -766,7 +760,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
-    if argument == "--" { break }
+    break when argument == "--"
     if argument.starts_with("--") and option_name(argument) == null {
       let body = argument.byte_slice(2)
       let typed = body.split("=")[0]
@@ -785,7 +779,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       let requires_value = name in ARGUMENT_OPTIONS
       if has_value and !requires_value { return Err(OptionError.Usage(detail: f"option does not take an argument: {name}")) }
       if requires_value and !has_value and index + 1 >= argv.len() { return Err(OptionError.Usage(detail: f"option requires an argument: {name}")) }
-      if name == "help" or name == "version" { break }
+      break when name == "help" or name == "version"
       if let code = option_code(name) {
         let group_index = conflict_group(code)
         if group_index >= 0 {
@@ -852,11 +846,11 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
         }
         offset += code.byte_len()
       }
-      if stop_options { break }
+      break when stop_options
       index += 1
       continue
     }
-    if !permute { break }
+    break unless permute
     index += 1
   }
   Ok()

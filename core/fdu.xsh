@@ -200,9 +200,7 @@ pure refresh_rows(app: App, columns: Int, rows: Int) -> App {
 
 pure toggle_mark(app: App, columns: Int, rows: Int) -> App {
   let selected = app.browser.cursor
-  if selected == null {
-    return app
-  }
+  return app when selected == null
   let cursor = selected ?? 0
   var next = app
   if cursor in app.browser.marked_set {
@@ -221,9 +219,7 @@ pure toggle_mark(app: App, columns: Int, rows: Int) -> App {
 }
 
 pure switch_pane(app: App, columns: Int, rows: Int) -> App {
-  if app.browser.marks.is_empty() {
-    return {...app, message: "Nothing is marked."}
-  }
+  return {...app, message: "Nothing is marked."} when app.browser.marks.is_empty()
   let focus = match app.browser.focus {
     browser.Browser => browser.Marked
     browser.Marked => browser.Browser
@@ -275,9 +271,7 @@ pure enter_cursor(app: App, columns: Int, rows: Int) -> App {
     return app
   }
   let node = app.tree.nodes[cursor]
-  if node.kind != .Directory {
-    return {...app, message: "This entry is not a directory."}
-  }
+  return {...app, message: "This entry is not a directory."} when node.kind != .Directory
   match node.state {
     model.Mount => {...app, message: "This directory is an excluded mount boundary."}
     model.Alias => {...app, message: "This directory is an unsupported filesystem alias."}
@@ -299,9 +293,7 @@ pure begin_delete(app: App) -> App {
   if app.browser.focus != .Marked {
     return {...app, message: "Press Tab to review marks, then Ctrl-R."}
   }
-  if app.browser.marks.is_empty() {
-    return {...app, message: "Nothing is marked."}
-  }
+  return {...app, message: "Nothing is marked."} when app.browser.marks.is_empty()
   let result = fdu_delete.browser_plan(app.tree, app.browser.marks)
   if ! result.ok {
     let first = result.rejected[0]
@@ -355,19 +347,13 @@ pure live_entries(tree: model.Tree) -> Int {
 }
 
 pure keeps_mark(tree: model.Tree, id: Int) -> Bool {
-  if tree.nodes[id].state == .Tombstone {
-    return false
-  }
-  if tree.nodes[id].state == .Stale {
-    return true
-  }
+  return false when tree.nodes[id].state == .Tombstone
+  return true when tree.nodes[id].state == .Stale
   var pending = [id]
   while ! pending.is_empty() {
     let at = pending[pending.len() - 1]
     pending = pending[..pending.len() - 1]
-    if tree.nodes[at].state == .Stale {
-      return true
-    }
+    return true when tree.nodes[at].state == .Stale
     for child in model.children(tree, at) {
       pending += [child]
     }
@@ -420,12 +406,8 @@ pure action_for(key: input.Key) -> Action {
 
 proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error] -> Handled {
   if app.pending != null {
-    if action == Enter {
-      return {app: execute_delete(app, columns, rows), quit: false}
-    }
-    if action == Cancel {
-      return {app: {...app, pending: null}, quit: false}
-    }
+    return {app: execute_delete(app, columns, rows), quit: false} when action == Enter
+    return {app: {...app, pending: null}, quit: false} when action == Cancel
     return {app: app, quit: false}
   }
   match app.dialog {
@@ -497,9 +479,7 @@ proc apply_action(app: App, action: Action, columns: Int, rows: Int) [fs, error]
 
 pure unmark_at_cursor(app: App, columns: Int, rows: Int) -> App {
   let at = app.browser.marked_cursor ?? 0
-  if at < 0 or at >= app.browser.marks.len() {
-    return app
-  }
+  return app when at < 0 or at >= app.browser.marks.len()
   let marks = [app.browser.marks[index] for index in range(app.browser.marks.len()) if index != at]
   var next = {...app, browser: with_marks(app.browser, marks)}
   next.browser = browser.normalize(next.browser, columns, rows)
@@ -508,9 +488,7 @@ pure unmark_at_cursor(app: App, columns: Int, rows: Int) -> App {
 
 pure reveal_marked(app: App, columns: Int, rows: Int) -> App {
   let at = app.browser.marked_cursor ?? 0
-  if at < 0 or at >= app.browser.marks.len() {
-    return app
-  }
+  return app when at < 0 or at >= app.browser.marks.len()
   let id = app.browser.marks[at]
   guard let parent = app.tree.nodes[id].parent else {
     return app
@@ -605,13 +583,9 @@ proc interactive(app: App) [env, fs, process, io, time, error] -> Result[Unit, E
         input.Paste(_) => {}
         input.Eof => quit = true
       }
-      if quit {
-        break
-      }
+      break when quit
     }
-    if quit {
-      break
-    }
+    break when quit
     let measured = unix.window_size(1)?
     if measured.cols != columns or measured.rows != rows {
       columns = measured.cols
@@ -647,9 +621,7 @@ proc interactive(app: App) [env, fs, process, io, time, error] -> Result[Unit, E
           input.Paste(_) => {}
           input.Eof => quit = true
         }
-        if quit {
-          break
-        }
+        break when quit
       }
     }
   }

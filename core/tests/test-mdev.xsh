@@ -458,7 +458,7 @@ test test_mdev_foreground_daemon_reloads_and_terminates { |ctx|
 
   let scan_started = time.now()
   loop {
-    if marker.exists() { break }
+    break when marker.exists()
     if let completed = process.wait_timeout([daemon], 0ms)? {
       test.fail(f"foreground daemon exited before scan completed: {completed.status.shell_code()?}; {errors.read_text()?}")
     }
@@ -473,7 +473,7 @@ test test_mdev_foreground_daemon_reloads_and_terminates { |ctx|
   process.kill(daemon.pid, signal: "HUP")
   let reload_started = time.now()
   loop {
-    if "mdev.conf:1: uid:gid field is required" in errors.read_text()? { break }
+    break when "mdev.conf:1: uid:gid field is required" in errors.read_text()?
     if let completed = process.wait_timeout([daemon], 0ms)? {
       test.fail(f"foreground daemon exited while reloading: {completed.status.shell_code()?}; {errors.read_text()?}")
     }

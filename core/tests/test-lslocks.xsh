@@ -302,7 +302,7 @@ proc filtered_lock_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
 }
 
 pure scene_rows(s: uu.Scene, lines: List[Str]) -> List[Str] {
-  if lines.is_empty() { return [] }
+  return [] when lines.is_empty()
   [lines[0]] + [line for line in lines[1..] if s.root.display() in line]
 }
 

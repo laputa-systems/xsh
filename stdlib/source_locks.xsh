@@ -15,29 +15,29 @@ pure text(entry: Map[Str, Any], key: Str) -> Result[Str] {
 }
 
 pure optional_text(entry: Map[Str, Any], key: Str) -> Result[Str?] {
-  if key in entry { return Ok(text(entry, key)?) }
+  return Ok(text(entry, key)?) when key in entry
   null
 }
 
 pure valid_url(url: Str) -> Bool {
-  if !url.starts_with("https://") { return false }
+  return false unless url.starts_with("https://")
   let authority = url.byte_slice(8).split("/")[0].split("?")[0].split("#")[0]
   let hostport = authority.split("@")[-1]
   var host = hostport
   var port = ""
   if hostport.starts_with("[") {
     let parts = hostport.split("]")
-    if parts.len() != 2 or (parts[1] != "" and !parts[1].starts_with(":")) { return false }
+    return false when parts.len() != 2 or (parts[1] != "" and ! parts[1].starts_with(":"))
     host = parts[0].byte_slice(1)
     port = if parts[1] == "" { "" } else { parts[1].byte_slice(1) }
   } else {
     let parts = hostport.split(":")
-    if parts.len() > 2 { return false }
+    return false when parts.len() > 2
     host = parts[0]
     if parts.len() == 2 { port = parts[1] }
   }
-  if host == "" { return false }
-  if port == "" { return true }
+  return false when host == ""
+  return true when port == ""
   rx"^[0-9]{1,5}$".matches(port) and (port.parse_int() ?? 65536) <= 65535
 }
 
@@ -115,7 +115,7 @@ proc download(item: Input, url: Str, destination: Path) -> Result[Unit] {
 
 ## Fetch an input and publish it only after verification.
 export proc fetch_input(item: Input, destination: Path) -> Result[Path, Error] {
-  if verify_file(destination, item) is Ok(_) { return Ok(destination) }
+  return Ok(destination) when verify_file(destination, item) is Ok(_)
   if destination.is_symlink() ?? false { return Err(error.failure(f"{item.name}: refusing to replace symlink")) }
   var failures: List[Str] = []
   for url in item.urls {

@@ -45,7 +45,7 @@ pure octal(value: Str) -> Int? {
   return null when value.is_empty()
   var accumulated = 0
   for digit in value {
-    if digit < "0" or digit > "7" { return null }
+    return null when digit < "0" or digit > "7"
     accumulated = accumulated * 8 + (digit.byte_at(0) ?? 48) - 48
   }
   accumulated
@@ -101,7 +101,7 @@ pure posix_directory(kind: PosixKind, root: Path) -> Path {
 ## Tests whether procfs exposes System V IPC tables beneath root.
 export proc system_v_available(root: Path = p"/") [fs, error] -> Bool {
   for name in ["msg", "shm", "sem"] {
-    if !source_path(root, fp"proc/sysvipc/{name}").exists() { return false }
+    return false unless source_path(root, fp"proc/sysvipc/{name}").exists()
   }
   true
 }

@@ -1,7 +1,5 @@
 pure recursive_return(count: Int) -> Int {
-  if count <= 0 {
-    return 0
-  }
+  return 0 when count <= 0
   return recursive_return(count - 1) + 1
 }
 

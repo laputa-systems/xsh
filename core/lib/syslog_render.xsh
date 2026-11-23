@@ -50,10 +50,10 @@ pure code_point(character: Str) -> Int {
 
 pure escape_unsafe(character: Str) -> Str {
   let code = code_point(character)
-  if code == 10 { return "\\n" }
-  if code == 13 { return "\\r" }
-  if code == 9 { return "\\t" }
-  if code < 128 { return f"\\x{hex_digit(code / 16)}{hex_digit(code % 16)}" }
+  return "\\n" when code == 10
+  return "\\r" when code == 13
+  return "\\t" when code == 9
+  return f"\\x{hex_digit(code / 16)}{hex_digit(code % 16)}" when code < 128
   f"\\u{{{hex_digit(code / 4096 % 16)}{hex_digit(code / 256 % 16)}{hex_digit(code / 16 % 16)}{hex_digit(code % 16)}}}"
 }
 
@@ -75,17 +75,17 @@ pure escape_text(text: Str, hits: List[Hit]) -> Str {
 ## `ESCAPED_LIMIT` bytes.
 export pure escape(data: Bytes) -> Str? {
   let decoded = data.utf8()
-  if decoded is Err(_) { return null }
+  return null when decoded is Err(_)
   let text = decoded ?? ""
   let quoted = text.replace("\\", with: "\\\\").replace("\"", with: "\\\"")
   let hits = UNSAFE.find(quoted)
-  if hits.len() > ESCAPE_LIMIT { return null }
+  return null when hits.len() > ESCAPE_LIMIT
   let escaped = if hits.is_empty() { quoted } else { escape_text(quoted, hits) }
   if escaped.byte_len() > ESCAPED_LIMIT { null } else { escaped }
 }
 
 pure boundary(content: Bytes, limit: Int) -> Int {
-  if content.len() <= limit { return content.len() }
+  return content.len() when content.len() <= limit
   var end = limit
   var steps = 0
   while end > 0 and steps < 3 and (content.byte_at(end) ?? 0) / 64 == 2 {
@@ -96,19 +96,19 @@ pure boundary(content: Bytes, limit: Int) -> Int {
 }
 
 pure number_field(name: Str, value: Int?) -> Str {
-  if value == null { return f"{name}=-" }
+  return f"{name}=-" when value == null
   f"{name}={value ?? 0}"
 }
 
 pure text_field(name: Str, value: Str?) -> Str {
-  if value == null { return f"{name}=-" }
+  return f"{name}=-" when value == null
   let raw = bytes.from_text(value ?? "")
   f"{name}=\"{escape(raw) ?? raw.base64()}\""
 }
 
 pure payload_field(content: Bytes) -> Str {
   let escaped = escape(content)
-  if escaped == null { return f"payload_base64=\"{content.base64()}\"" }
+  return f"payload_base64=\"{content.base64()}\"" when escaped == null
   f"msg=\"{escaped ?? ""}\""
 }
 

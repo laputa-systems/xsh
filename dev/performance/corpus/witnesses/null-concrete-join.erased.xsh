@@ -1,7 +1,5 @@
 pure nullable_join(flag: Bool) {
-  if flag {
-    return 7
-  }
+  return 7 when flag
   return null
 }
 

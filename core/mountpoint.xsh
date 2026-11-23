@@ -6,7 +6,7 @@ pure util_strerror(failure: Error) -> Str {
   let text = failure.message
   let segments = text.split(" (os error ")
   let at = if segments.len() > 1 { text.byte_len() - segments[-1].byte_len() - " (os error ".byte_len() } else { -1 }
-  if at < 0 { return text }
+  return text when at < 0
   let parts = text.byte_slice(0, at).split(": ")
   parts[-1]
 }
@@ -77,9 +77,7 @@ proc parse_options(argv: List[Str], raw: List[gnu.RawArgument]) [process, env, i
   while at < argv.len() {
     let word = argv[at]
     at += 1
-    if word == "--" {
-      return {...opts, operands: opts.operands.extend(argv[at..])}
-    }
+    return {...opts, operands: opts.operands.extend(argv[at..])} when word == "--"
     if ! word.starts_with("-") or word == "-" {
       opts = {...opts, operands: opts.operands.extend([word])}
       continue
