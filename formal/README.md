@@ -514,8 +514,7 @@ Statements:
 
 Expressions:
 
-- equality of streams, modules, filesystem entries, commands and process
-  errors (P)
+- equality of streams, filesystem entries, commands and process errors (P)
 - methods other than the numeric, list, map, set, record and `Bytes`
   methods, the `Path` and `Digest` methods, and the text
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
@@ -592,8 +591,11 @@ and `t = set.from([2, 4])` are `[1,2,3,4]`, `[2]` and `[1,3]`. The mutants it
 rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
 concatenates its operands, variant equality by name alone, error payloads
-compared by raw bits, and callable equality by kind alone. Streams, modules,
-filesystem entries, commands and process errors are not compared, process
+compared by raw bits, and callable equality by kind alone. Streams,
+filesystem entries, commands and process errors are not compared, modules
+compare by their exports whatever module they are, as the binary's `true
+false true` for one module twice, different exports and another module with
+the same exports shows, process
 statuses compare field by field with each segment's process by runtime
 identity (`statusEqual`), as the binary's `false false true` for two runs of
 `true`, a run of `false` and a status with itself shows, a `Path`'s display text for membership is its bytes decoded lossily

@@ -326,6 +326,11 @@ mutual
       | .callable other otherKind => some (kind == otherKind && same.identity reference.identity other.identity)
       | .scalar .null => some false
       | _ => none
+    | .module _ exports, right =>
+      match right.eraseNominal with
+      | .module _ others => if exports.length = others.length then fieldsEqual same exports others else some false
+      | .scalar .null => some false
+      | _ => none
     | .status status, right =>
       match right.eraseNominal with
       | .status other => some (statusEqual same status other)

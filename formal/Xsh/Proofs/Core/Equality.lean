@@ -248,7 +248,8 @@ their payloads and causes structurally, so a Float in a payload compares by IEEE
 value; callables are equal when they have one kind and one runtime identity,
 and handles of one family when they have one runtime identity; process
 statuses are equal when every field is, each segment's process by runtime
-identity; and `|`, `&`,
+identity; modules are equal when their exports are, whatever module they
+are; and `|`, `&`,
 `-` give distinct elements of the union, intersection and difference. -/
 theorem structural_equality_and_membership [DecidableEq Declaration] (context : Context Declaration Identity Source) :
     (∀ left right : Value Declaration Identity Source,
@@ -301,7 +302,11 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
         valueEqual context.sameness handle other = some (context.sameIdentity identity identity')) ∧
     (∀ status other : ProcessStatus Identity,
       valueEqual context.sameness (Declaration := Declaration) (Source := Source) (.status status) (.status other) =
-        some (statusEqual context.sameness status other)) :=
+        some (statusEqual context.sameness status other)) ∧
+    (∀ (reference other : Reference Identity .module) (exports others : List (String × Value Declaration Identity Source)),
+      exports.length = others.length →
+        valueEqual context.sameness (.module reference exports) (.module other others) =
+          fieldsEqual context.sameness exports others) :=
   ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameness,
     valueEqual_null context.sameness,
     fun decides declaration other variant otherVariant fields others => by
@@ -318,7 +323,8 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
       simp [errorEqual, Context.sameness, sized, family, span, contexts],
     fun _ _ _ _ => by simp [valueEqual, Value.eraseNominal, Context.sameness], fun handle other family identity identity' held found =>
       handle_equality context.sameness handle other family identity identity' held found,
-    fun _ _ => by simp [valueEqual, Value.eraseNominal]⟩
+    fun _ _ => by simp [valueEqual, Value.eraseNominal],
+    fun _ _ _ _ sized => by simp [valueEqual, Value.eraseNominal, sized]⟩
 
 end Laws
 
@@ -575,6 +581,23 @@ theorem status_witness :
 /-- Comparing statuses by exit code alone calls two runs of `true` equal. -/
 theorem code_only_status_rejected :
     valueEqual sameIds (statusOf 3 "true" 0) (statusOf 4 "true" 0) ≠ some true := by
+  decide +kernel
+
+def moduleOf (identity : Nat) (value : Int) : Value Nat Nat Unit :=
+  .module ⟨identity⟩ [("x", .scalar (match validateInt? value with | some valid => .integer valid | none => .null))]
+
+/-- As the verification binary prints `true false true` for two `use`s of one
+module, a module whose `x` differs, and another module with the same `x`:
+modules compare by their exports. -/
+theorem module_witness :
+    valueEqual sameIds (moduleOf 1 1) (moduleOf 1 1) = some true ∧
+    valueEqual sameIds (moduleOf 1 1) (moduleOf 2 2) = some false ∧
+    valueEqual sameIds (moduleOf 1 1) (moduleOf 3 1) = some true := by
+  decide +kernel
+
+/-- Comparing modules by identity would call two modules with the same exports
+unequal; the binary calls them equal. -/
+theorem identity_module_rejected : valueEqual sameIds (moduleOf 1 1) (moduleOf 3 1) ≠ some false := by
   decide +kernel
 
 end Witness
