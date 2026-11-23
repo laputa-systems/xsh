@@ -31,7 +31,9 @@ of a brace literal under an expected `Map[K, V]`, the payload of `Ok(...)`
 under an expected `Result[T]` or `Result[T, E]` and of `Err(...)` under an
 expected `Result[T, E]`, a leading-dot name no enum declares then being the
 error family's constructor; a brace literal under an annotation naming a
-record schema gives each named field's value its schema field's type; and
+record schema gives each named field's value its schema field's type; the
+other operand of `==` or `!=`, when it is an enum's variant, targets a
+leading-dot name on either side, and `null` there compares unequal; and
 the same expected type targets a contextual `.require()`.
 The selected variant is the declared one, with the enum's declaration
 identity and its payload arguments evaluated once in order, as its bare
@@ -547,6 +549,43 @@ not complete. -/
 theorem untargeted_field_rejected :
     valueOf (slot 0) (runScript holderMachine 90 fullStart
       [declareLevel, letOf (slot 0) (.record [.named cField (dot warnName), .named nField (int "1")])]) = none := by
+  decide +kernel
+
+def truth : Option (Value Unit Unit Unit) → Option Bool
+  | some (.scalar (.boolean value)) => some value
+  | _ => none
+
+/-- `let a: Level = .Warn`, `let o: Level? = null`, then `a == .Warn`,
+`a != .Info`, `.Warn == a` and `o == .Warn`. -/
+def equalityRun : Exec witnessWorld := runScript shapeMachine 90 fullStart
+  [declareLevel, annotated (slot 0) (.named levelName) (dot warnName),
+   annotated (slot 1) (.optional (.named levelName)) (.literal .null),
+   letOf (slot 2) (.binary .eq (ident (slot 0)) (dot warnName)),
+   letOf (slot 3) (.binary .ne (ident (slot 0)) (dot infoName)),
+   letOf (slot 4) (.binary .eq (dot warnName) (ident (slot 0))),
+   letOf (name 383 (by decide)) (.binary .eq (ident (slot 1)) (dot warnName))]
+
+/-- As the verification binary prints `true true true false` for
+`a == .Red`, `a != .Green`, `.Red == a` and `o == .Red` with `a = Red` and
+`o: Color? = null`: the other operand of `==` and `!=` is the expected type
+of a leading-dot variant, on either side, also inside another expression. -/
+theorem equality_variant_witness :
+    truth (valueOf (slot 2) equalityRun) = some true ∧
+    truth (valueOf (slot 3) equalityRun) = some true ∧
+    truth (valueOf (slot 4) equalityRun) = some true ∧
+    truth (valueOf (name 383 (by decide)) equalityRun) = some false ∧
+    (match valueOf (slot 0) (runScript shapeMachine 90 fullStart
+        [declareLevel, annotated (slot 1) (.named levelName) (dot warnName),
+         letOf (slot 0) (.list [.binary .eq (ident (slot 1)) (dot warnName)])]) with
+      | some (.list [.scalar (.boolean true)]) => true
+      | _ => false) = true := by
+  decide +kernel
+
+/-- Against a value that is no enum's, a leading-dot name has no expected
+type and the comparison does not evaluate. -/
+theorem untargeted_equality_rejected :
+    valueOf (slot 0) (runScript shapeMachine 90 fullStart
+      [declareLevel, letOf (slot 0) (.binary .eq (int "7") (dot warnName))]) = none := by
   decide +kernel
 
 end Witness

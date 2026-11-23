@@ -1225,6 +1225,18 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
   | _ => (body, none, ending)
 
+/-- Which operand of `==` or `!=` is a bare leading-dot name, whose expected
+type is the other operand's (SPEC 5.5): one on the right, with or without a
+payload, or a payload-free one on the left. -/
+inductive DotComparison where
+  | right (name : Xsh.Syntax.RawName) (arguments : Option (List Xsh.Syntax.CallArgument))
+  | left (name : Xsh.Syntax.RawName)
+
+def dotComparison : Xsh.Syntax.BinaryOp → Xsh.Syntax.Expr → Xsh.Syntax.Expr → Option DotComparison
+  | .eq, _, .dotVariant none name arguments | .ne, _, .dotVariant none name arguments => some (.right name arguments)
+  | .eq, .dotVariant none name none, _ | .ne, .dotVariant none name none, _ => some (.left name)
+  | _, _, _ => none
+
 /-- A pipeline's first value-call stage, with the stages before and after it. -/
 def valueStage : List Xsh.Syntax.PipeStage →
     Option (List Xsh.Syntax.PipeStage × Xsh.Syntax.Expr × List Xsh.Syntax.PipeStage)
@@ -3597,6 +3609,27 @@ mutual
               | _, _ =>
                 threadStep machine.context (evalExpr machine fuel)
                   (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
+      | .binary op left right =>
+        match dotComparison op left right with
+        | some (.right name arguments) =>
+          (evalExpr machine fuel frame left).bind fun value next =>
+            match value.eraseNominal, variantOf machine.context.spelling machine.declarations name with
+            | .tagged _ _ _, some (declared, _) =>
+              (evalExpr machine fuel next (.dotVariant (some declared) name arguments)).bind fun variant last =>
+                fromEval last (binary machine.context op value variant)
+            | .scalar .null, _ => .value (.scalar (.boolean (op = .ne))) next
+            | _, _ => .exec .unsupported
+        | some (.left name) =>
+          (evalExpr machine fuel frame right).bind fun value next =>
+            match value.eraseNominal, variantOf machine.context.spelling machine.declarations name with
+            | .tagged _ _ _, some (declared, _) =>
+              (evalExpr machine fuel next (.dotVariant (some declared) name none)).bind fun variant last =>
+                fromEval last (binary machine.context op variant value)
+            | .scalar .null, _ => .value (.scalar (.boolean (op = .ne))) next
+            | _, _ => .exec .unsupported
+        | none =>
+          threadStep machine.context (evalExpr machine fuel)
+            (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame expression
       | _ => threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
               expression
 

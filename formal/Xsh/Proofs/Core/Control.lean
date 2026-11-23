@@ -800,6 +800,8 @@ local macro "close_refines" : tactic => `(tactic| repeat' (first
   | refine andThen_refines ?_ fun _ => ?_
   | refine iterate_refines ?_ fun _ => ?_
   | refine withinScope_refines _ ?_
+  | exact threadStep_refines machine.context inner.expr
+      (fun _ _ body _ => callFunctionWith_refines machine inner.expr inner.call _ _ body _) _ _
   | split))
 
 theorem runDeferred_outOfFuel {world : World Declaration Identity Source} (machine : Machine world) :
@@ -1866,6 +1868,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine andThen_persists ?_ fun _ => ?_
   | refine iterate_persists ?_ fun _ => ?_
   | refine withinScope_persists _ ?_
+  | exact threadStep_persists machine.context inner.expr
+      (fun _ _ body _ => callFunctionWith_persists machine inner.expr inner.call _ _ body _) _ _
   | split))
 
 -- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.
@@ -1970,6 +1974,8 @@ theorem persisting_matchValues {world : World Declaration Identity Source} (mach
           · exact vkeeps_exec fun _ present => by cases present
         · close_persists
 
+-- Every machine function's persistence shares this declaration's budget, which grows with the arms.
+set_option maxHeartbeats 400000 in
 theorem persisting {world : World Declaration Identity Source} (machine : Machine world) :
     ∀ fuel, Persisting machine fuel
   | 0 => {
@@ -2972,6 +2978,8 @@ local macro "close_restores" : tactic => `(tactic| repeat' (first
   | refine iterate_restores (leave_restores _ _ _ _) fun _ => ?_
   | refine iterate_restores ?_ fun _ => ?_
   | refine vbind_restores ?_ fun _ _ => ?_
+  | exact threadStep_restores _ inner.expr
+      (fun _ _ body _ => callFunctionWith_restores _ _ (callBlock_restores _ _) _ _ body _) _ _
   | split))
 
 -- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.

@@ -438,6 +438,11 @@ theorem returnValue_fromEval {world : World Declaration Identity Source} (caller
 
 variable [DecidableEq Declaration]
 
+/-- No evaluable operand is a bare leading-dot name. -/
+theorem dotComparison_evaluable (operator : Xsh.Syntax.BinaryOp) {left right : Xsh.Syntax.Expr}
+    (leftEvaluable : Evaluable left) (rightEvaluable : Evaluable right) : dotComparison operator left right = none := by
+  cases leftEvaluable <;> cases rightEvaluable <;> cases operator <;> rfl
+
 /-- On a frame without local functions, wherever `CoreEval.evaluate` gives an
 evaluable expression a meaning, the machine's frame-threading step gives the
 same result with the frame unchanged. -/
@@ -476,8 +481,9 @@ theorem evalExpr_agrees {world : World Declaration Identity Source} (machine : M
       · exfalso
         apply supported
         simp only [evaluate, step, hl]
-    | binary operator left right notFallback _ _ =>
-      cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr]
+    | binary operator left right notFallback leftEvaluable rightEvaluable =>
+      have plain := dotComparison_evaluable operator leftEvaluable rightEvaluable
+      cases operator <;> first | exact absurd rfl notFallback | simp only [evalExpr, plain]
     | ident name =>
       simp only [evalExpr, closureFree, localClosure_none]
       cases frame.locals.lookup name with
@@ -515,7 +521,8 @@ variable [DecidableEq Declaration]
 
 theorem binary_threads {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (frame : Frame world) (operator : Xsh.Syntax.BinaryOp) (left right : Xsh.Syntax.Expr)
-    (notAnd : operator ≠ .and) (notOr : operator ≠ .or) (notFallback : operator ≠ .resultFallback) :
+    (notAnd : operator ≠ .and) (notOr : operator ≠ .or) (notFallback : operator ≠ .resultFallback)
+    (plain : dotComparison operator left right = none) :
     evalExpr machine (fuel + 1) frame (.binary operator left right) =
       (evalExpr machine fuel frame left).bind fun first after =>
         (evalExpr machine fuel after right).bind fun second last =>
@@ -524,7 +531,7 @@ theorem binary_threads {world : World Declaration Identity Source} (machine : Ma
     | exact absurd rfl notAnd
     | exact absurd rfl notOr
     | exact absurd rfl notFallback
-    | simp only [evalExpr, threadStep]
+    | simp only [evalExpr, plain, threadStep]
 
 /-- A closure that is not a stream producer, which a call runs directly. -/
 def ClosureNotProducer : Closure → Prop
@@ -575,7 +582,7 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     (∀ fuel (frame : Frame world) expression, VKeeps frame.store (evalExpr machine fuel frame expression)) ∧
     (∀ fuel (frame : Frame world) expression, VRestores frame (evalExpr machine fuel frame expression)) ∧
     (∀ fuel (frame : Frame world) operator left right, operator ≠ .and → operator ≠ .or →
-      operator ≠ .resultFallback →
+      operator ≠ .resultFallback → dotComparison operator left right = none →
         evalExpr machine (fuel + 1) frame (.binary operator left right) =
           (evalExpr machine fuel frame left).bind fun first after =>
             (evalExpr machine fuel after right).bind fun second last =>
@@ -615,8 +622,8 @@ theorem expression_store_threading {world : World Declaration Identity Source} (
     fun frame expression => finished_valued fun fuel extra => (refining machine fuel extra).expr frame expression,
     fun fuel => (persisting machine fuel).expr,
     fun fuel => (restoring machine fuel).expr,
-    fun fuel frame operator left right notAnd notOr notFallback =>
-      binary_threads machine fuel frame operator left right notAnd notOr notFallback,
+    fun fuel frame operator left right notAnd notOr notFallback plain =>
+      binary_threads machine fuel frame operator left right notAnd notOr notFallback plain,
     fun _ _ _ => by simp only [evalExpr, threadStep],
     fun _ _ _ _ => rfl,
     fun _ _ _ => by simp only [evalExpr],

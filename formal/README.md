@@ -534,7 +534,8 @@ leading-dot variants whose expected type comes from anything but an annotated
 binding, a declared result's tail or a `return` in the body's statements, a
 parameter's annotation, or a value `if` or `match` branch, value block tail, `List[T]`
 element, `Map[K, V]` brace value, annotated record-schema field, or `Ok(...)`
-or `Result[T, E]` `Err(...)` payload under one of those (P).
+or `Result[T, E]` `Err(...)` payload under one of those, or the other operand
+of `==` and `!=` (P).
 
 Binders: declared types still come from the resolution oracle (P); the
 resolution pass is tied to the machine for statements and statement lists
@@ -808,8 +809,13 @@ the binary's `true` for those forms shows. A brace literal under an annotation t
 a record schema gives each named field's value the schema field's type
 (`expectSchema`), as the binary's `true true` for
 `let p: P = { c: .Red, n: 1 }` and `{ n: 2, c: .Green }` shows; field types
-that name other schemas, constructor fields, and the other operand of `==`,
-which needs the checker's types, are not yet expected positions. The syntax now writes `Result[T, E]` as `TypeExpr.resultWith`,
+that name other schemas and constructor fields are not yet expected
+positions. The other operand of `==` or `!=` targets a leading-dot name on
+either side when it evaluates to an enum's variant, and `null` there compares
+unequal, as the binary prints `true true true false` for `a == .Red`,
+`a != .Green`, `.Red == a` and `o == .Red` with `o: Color? = null`; the
+model reads the operand's value where the checker reads its type, which
+agrees for every program the checker accepts. The syntax now writes `Result[T, E]` as `TypeExpr.resultWith`,
 whose error type is the expected type of an `Err(...)` payload; a leading-dot
 name no enum declares is then the family's constructor `E.Name(...)`, as the
 binary prints `Fetch.Offline` for an annotated `Err(.Offline())` and for
