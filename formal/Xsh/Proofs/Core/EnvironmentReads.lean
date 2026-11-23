@@ -511,6 +511,34 @@ theorem regex_compile_witness :
       | _ => none) = some "900150983cd24fb0d6963f7d28e17f72" := by
   decide +kernel
 
+def l1Trace : Xsh.Syntax.RawName := name 270 (by decide)
+def l1Note (n : String) : Xsh.Syntax.Statement :=
+  .assign (.name l1Trace) .add (.list [int n])
+
+def l1Scopes : List Xsh.Syntax.Statement :=
+  [.binding .var (.name l1Trace) none (.list []),
+   .expression (.tryExpr (inScope "inner"
+     [.defer .exit (.valueBlock [l1Note "1"]),
+      .expression (.tryExpr (.contextScope .cwd (.literal (.path "/"))
+        [.defer .exit (.valueBlock [l1Note "2"]), l1Note "7"]))]))]
+
+def l1ReadTrace (outcome : Exec witnessWorld) : Option (List Int) :=
+  match outcome with
+  | .normal frame =>
+    match frame.environment.cellOf l1Trace with
+    | .ok cell => (frame.store cell).bind fun found =>
+      match found.contents.value with
+      | .list items => items.mapM fun
+        | .scalar (.integer value) => some value.val
+        | _ => none
+      | _ => none
+    | .error _ => none
+  | _ => none
+
+theorem l1_scoped_defer_witness :
+    l1ReadTrace (runScript envMachine 90 fullStart l1Scopes) = some [7, 2, 1] := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.EnvironmentReads

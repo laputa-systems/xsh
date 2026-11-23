@@ -1,0 +1,6 @@
+before-scope scoped
+consumer 1 unset
+before-scope unset unset
+consumer 2 unset
+unset unset loop
+consumer 3 unset

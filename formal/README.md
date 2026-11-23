@@ -1058,6 +1058,48 @@ each item: as the binary prints `[7]` for `[x * 7 for x in count(2) if x > 0]`,
 so does the witness, and a second comprehension over the consumed stream
 gives `[]`.
 
+### L1 binary probes
+
+The fixtures `formal/tests/fixtures/l1-*.xsh` and their adjacent `.xsh.out`
+files record finite conformance evidence against the L1 verification binary.
+`l1-stream` is the `stream_value_witness` trace in
+[`Producers.lean`](Xsh/Proofs/Core/Producers.lean); `l1-unconsumed` is
+`unconsumed_stream_witness`. `l1-scopes` is `l1_scoped_defer_witness` in
+[`EnvironmentReads.lean`](Xsh/Proofs/Core/EnvironmentReads.lean). The
+`l1-cleanup` body precedes actions 2 and 0 in `l1_normal_cleanup_witness` in
+[`CleanupOrder.lean`](Xsh/Core/CleanupOrder.lean); the middle errdefer is not
+due on normal exit. These examples are finite evidence, not universal
+refinement of the binary.
+
+`l1-par-map` records the called-procedure disagreement in XSH-185: the
+single-worker run retains three writes while the two-worker run loses them;
+both retain the first two mapped values in input order. The core pipeline
+model has no rule for `par-map` eagerness, ordered results, parallel workers,
+or callback write isolation, so it cannot reproduce this probe. `l1-producer-env`
+records the already open XSH-184 producer environment disagreement; the scope
+rule is unresolved and the model continues to share the environment. Neither
+probe settles those tickets or models cancellation and `within`.
+
+Reproduce from the repository root, setting `XSH_L1_BINARY` to the supplied
+verification binary if it lives elsewhere. Each invocation must exit 0, write
+no stderr and match its adjacent file byte for byte:
+
+```sh
+python3 - <<'PYPROBE'
+import glob, os, subprocess
+binary = os.environ.get("XSH_L1_BINARY", "/home/josh/repos/laputa-systems/xsh/.work/tmp/xsh-verif-l1")
+environment = os.environ.copy()
+for key in ("XSH_PROBE_A", "XSH_PA", "XSH_PB", "XSH_PC"):
+    environment.pop(key, None)
+for path in sorted(glob.glob("formal/tests/fixtures/l1-*.xsh")):
+    result = subprocess.run([binary, path], capture_output=True, env=environment, timeout=20)
+    expected = open(path + ".out", "rb").read()
+    if result.returncode != 0 or result.stderr or result.stdout != expected:
+        raise SystemExit(f"FAIL {path}: exit={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}")
+    print(f"PASS {path}")
+PYPROBE
+```
+
 The `structured_pipelines` fragment root, in
 [`Proofs/Core/Pipelines.lean`](Xsh/Proofs/Core/Pipelines.lean), adds
 structured pipelines over a list source (SPEC 13.1-13.3). The syntax model
