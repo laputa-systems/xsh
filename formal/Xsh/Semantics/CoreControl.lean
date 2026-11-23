@@ -2323,6 +2323,8 @@ inductive EnvFunction where
   | bool
   | int
   | path
+  | pathList
+  | pathEntries
 
 /-- `env.name(...)` when `env` is not shadowed by a local or a binding. -/
 def envFunction {world : World Declaration Identity Source} (machine : Machine world) (frame : Frame world)
@@ -2337,6 +2339,8 @@ def envFunction {world : World Declaration Identity Source} (machine : Machine w
       | "bool" => some .bool
       | "int" => some .int
       | "path" => some .path
+      | "path_list" => some .pathList
+      | "path_entries" => some .pathEntries
       | _ => none
     else none
   | _ => none
@@ -2417,6 +2421,22 @@ def envCall {world : World Declaration Identity Source} (machine : Machine world
       | .path, _, some _ =>
         match found.bind NativePath.fromBytes? with
         | some path => .value (.ok (.scalar (.path path)))
+        | none => .unsupported
+      | .pathList, none, none | .pathEntries, none, none => .value (.err (machine.envMissing name))
+      | .pathList, none, some _ =>
+        match found.bind fun bytes => (bytes.splitOn 58).mapM NativePath.fromBytes? with
+        | some paths => .value (.ok (.list (paths.map fun path => .scalar (.path path))))
+        | none => .unsupported
+      | .pathEntries, none, some none => invalid
+      | .pathEntries, none, some (some text) =>
+        let pieces := (text.toList.splitOn ':').zipIdx
+        match pieces.mapM fun (raw, index) =>
+            ((NativePath.fromBytes? (if raw.isEmpty then [46] else (String.ofList raw).toUTF8.toList)).bind fun path =>
+              (validateInt? index).map fun position =>
+                (Value.record [("empty", .scalar (.boolean raw.isEmpty)), ("index", .scalar (.integer position)),
+                  ("path", .scalar (.path path)), ("raw", .scalar (.string (String.ofList raw)))] :
+                  Value Declaration Identity Source)) with
+        | some entries => .value (.ok (.list entries))
         | none => .unsupported
       | _, _, _ => .unsupported
 

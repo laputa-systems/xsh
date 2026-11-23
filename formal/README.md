@@ -526,7 +526,7 @@ Expressions:
   a value block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
   `spawn`, `wait`, run forms, pipelines and stream stages and their callbacks
-  (E), the `env` list readers and `env.PATH`'s methods (E),
+  (E), `env.list`, `env.entries` and `env.PATH`'s methods (E),
   `$?` (E)
 
 
@@ -908,6 +908,11 @@ ASCII-lowercased `1`, `true`, `yes` or `on` as `true` and other text as
 `false`, `int` reads a trimmed Rust `i64` or gives the `env-int` `Err`, and
 `path` takes the bytes; a name that is empty or holds NUL or `=` is the
 `env-name` `Err` for every reader, as the binary prints for each case.
+`env.path_list(name)` splits a variable as `env.PATH` does, and
+`env.path_entries(name)` gives `{empty, index, path, raw}` records, an empty
+entry's path being `.`; both are the unset `Err` for an unset variable.
+`env.list` and `env.entries` read the whole environment, which the host
+oracle, a lookup, does not enumerate.
 
 The `environment_scopes` root, in the same module, adds `env (overlay) { ... }`
 (SPEC 10.4): the overlay's fields convert as argv items and are set in order,

@@ -114,13 +114,16 @@ def getOrName : Xsh.Syntax.RawName := name 386 (by decide)
 def boolName : Xsh.Syntax.RawName := name 387 (by decide)
 def intName : Xsh.Syntax.RawName := name 388 (by decide)
 def pathName : Xsh.Syntax.RawName := name 389 (by decide)
+def pathListName : Xsh.Syntax.RawName := name 390 (by decide)
+def pathEntriesName : Xsh.Syntax.RawName := name 391 (by decide)
 
 def keySpelling (named : Xsh.Syntax.RawName) : String :=
   if named = homeKey then "XSH_PROBE_HOME" else if named = presetKey then "XSH_PROBE_PRESET"
   else if named = scopedKey then "XSH_PROBE_A" else if named = assignedKey then "XSH_PROBE_B"
   else if named = badKey then "XSH_PROBE_BAD" else if named = envModule then "env" else if named = getName then "get"
   else if named = getOrName then "get_or" else if named = boolName then "bool" else if named = intName then "int"
-  else if named = pathName then "path" else scriptMachine.context.spelling named
+  else if named = pathName then "path" else if named = pathListName then "path_list"
+  else if named = pathEntriesName then "path_entries" else scriptMachine.context.spelling named
 
 /-- The process started with `XSH_PROBE_PRESET=preset` and `XSH_PROBE_BAD`
 holding the byte `0xFF`, and without `XSH_PROBE_HOME`. -/
@@ -287,6 +290,7 @@ def typedMachine : Machine witnessWorld :=
       if name = "XSH_PROBE_FLAG".toUTF8.toList then some " Yes ".toUTF8.toList
       else if name = "XSH_PROBE_WORD".toUTF8.toList then some "abc".toUTF8.toList
       else if name = "XSH_PROBE_NUM".toUTF8.toList then some " -7 ".toUTF8.toList
+      else if name = "XSH_PROBE_LIST".toUTF8.toList then some "a::b".toUTF8.toList
       else startEnvironment name }
 
 def readTyped (call : Xsh.Syntax.Expr) : Option (Value Unit Unit Unit) :=
@@ -333,6 +337,32 @@ theorem typed_env_witness :
 /-- A `bool` that compared the text without trimming and lowercasing would
 read `" Yes "` as `false`. -/
 theorem untrimmed_bool_rejected : okBool (readTyped (envRead boolName [text "XSH_PROBE_FLAG"])) ≠ some false := by
+  decide +kernel
+
+def okPaths : Option (Value Unit Unit Unit) → Option (List (List UInt8))
+  | some (.ok (.list items)) => items.mapM fun
+    | .scalar (.path path) => some path.bytes
+    | _ => none
+  | _ => none
+
+/-- Each `path_entries` record's `raw` text and path bytes. -/
+def okEntries : Option (Value Unit Unit Unit) → Option (List (String × List UInt8))
+  | some (.ok (.list items)) => items.mapM fun
+    | .record [("empty", _), ("index", _), ("path", .scalar (.path path)), ("raw", .scalar (.string raw))] =>
+      some (raw, path.bytes)
+    | _ => none
+  | _ => none
+
+/-- As the verification binary prints `3`, `[["a","a"],["","."],["b","b"]]`
+and the unset error for `env.path_list` and `env.path_entries` of
+`XSH_PROBE_LIST=a::b` and `env.path_list` of an unset variable: both split at
+every `:`, and an empty entry's path is `.`. -/
+theorem env_path_list_witness :
+    okPaths (readTyped (envRead pathListName [text "XSH_PROBE_LIST"])) =
+      some ["a".toUTF8.toList, [], "b".toUTF8.toList] ∧
+    okEntries (readTyped (envRead pathEntriesName [text "XSH_PROBE_LIST"])) =
+      some [("a", "a".toUTF8.toList), ("", ".".toUTF8.toList), ("b", "b".toUTF8.toList)] ∧
+    errOf (readTyped (envRead pathListName [text "XSH_PROBE_HOME"])) = some "env-missing XSH_PROBE_HOME" := by
   decide +kernel
 
 end Witness
