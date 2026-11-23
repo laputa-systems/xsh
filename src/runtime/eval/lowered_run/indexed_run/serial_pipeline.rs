@@ -1304,7 +1304,7 @@ impl IndexedMaterializedStage {
             });
             let item_count = par_map.inputs.as_ref().expect("par-map input collected").len();
             if par_map.flatten.is_some()
-                || !evaluator.trace_enabled && jobs > 1 && item_count > 1
+                || jobs > 1 && item_count > 1
             {
                 let inputs = par_map.inputs.take().expect("par-map input was collected");
                 let output = if let Some(flatten) = par_map.flatten {

@@ -6495,6 +6495,18 @@ impl Evaluator {
         self.trace_events.push(event);
     }
 
+    pub(super) fn adopt_worker_trace(&mut self, events: Vec<TraceEvent>) {
+        let offset = next_event_id(&self.trace_events) - 1;
+        let parent = self.event_stack.last().map(|frame| frame.event_id);
+        let depth = self.event_stack.len() as u32;
+        for mut event in events {
+            event.event_id += offset;
+            event.parent_event_id = event.parent_event_id.map(|id| id + offset).or(parent);
+            event.depth += depth;
+            self.trace_events.push(event);
+        }
+    }
+
     pub(super) fn trace_leaf(
         &mut self,
         kind: TraceKind,

@@ -74,6 +74,24 @@ test test_trace_file_keeps_runtime_stderr_separate { |ctx|
   assert "kind=script.enter" not in trace, trace
 }
 
+test test_trace_keeps_par_map_items_running_in_parallel { |ctx|
+  let fixture = "tests/fixtures/runtime/par-map-rendezvous.xsh"
+  let plain = run.capture --text "xsh" $fixture
+  assert plain.status.exited_with(0), plain.stderr
+  assert plain.stdout == "met 0 1\n", plain.stdout
+
+  let root = test.temp_dir(ctx, name: "par-map-trace")?
+  let file = fp"{root}/trace.jsonl"
+  let traced = run.capture --text "xsht" trace --raw --trace-format jsonl --trace-file $file $fixture
+  assert traced.status.exited_with(0), traced.stderr
+  assert traced.stdout == "met 0 1\n", traced.stdout
+  let trace = file.read_text()?
+  for item in [0, 1] {
+    assert f"\"item_index\":{item},\"stage\":\"par-map\"" in trace, trace
+  }
+  assert "\"parallel.job.start\"" in trace, trace
+}
+
 type ProfileRow = {kind: Str, name: Str, count: Int, total_us: Int, self_us: Int, outer_total_us: Int}
 type ProfileSummary = {function_calls: List[ProfileRow]}
 

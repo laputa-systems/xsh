@@ -1,7 +1,7 @@
 use super::{
     Arc, BTreeMap, BinaryOp, ControlFlow, Evaluator, FullExecution,
     FullStageTag, FullTag, LoweredProjectedReduceState, LoweredReduceProjection, LoweredValue,
-    MapKey, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, Traceback,
+    MapKey, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, TraceKind, Traceback,
     ExprView, indexed_error, indexed_value,
     lowered_error_message, lowered_inline_stats_field_value, lowered_record_vec_get,
     lowered_reduce_fields_owned, lowered_reduce_group_insert, lowered_reduce_key_value_owned,
@@ -9,6 +9,7 @@ use super::{
 };
 use crate::runtime::eval::indexed::full::decode::{ListView, RecordEntryView};
 use crate::runtime::eval::LoweredRecordEntry;
+use crate::trace::TraceEvent;
 
 /// Whether a `par-map` item failed: by a runtime error, by a failure that is
 /// propagating out of its callback, or by returning an `Err` from the
@@ -101,6 +102,8 @@ impl Evaluator {
             .clone();
         let base_slots = slots.to_vec();
         let call_stack = self.call_stack.clone();
+        let tracing = self.trace_enabled;
+        let mut worker_traces: Vec<Vec<TraceEvent>> = (0..worker_count).map(|_| Vec::new()).collect();
         // Set once any item fails or leaves a control flow, so no worker
         // starts another item.
         let stopped = std::sync::atomic::AtomicBool::new(false);
@@ -109,7 +112,7 @@ impl Evaluator {
         // cancellation, or while shutting down. A worker then stops the child
         // it is running and fails its item.
         let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (chunks, stderr) = std::thread::scope(|scope| {
+        let outcome = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
             for (chunk_index, chunk) in partitions.into_iter().enumerate() {
@@ -134,6 +137,7 @@ impl Evaluator {
                             // A traceback built in the callback names the
                             // functions that are running the stage.
                             worker.call_stack = call_stack;
+                            worker.trace_enabled = tracing;
                             (worker, base_slots)
                         };
                         let mut results = {
@@ -148,6 +152,15 @@ impl Evaluator {
                                 if stopped.load(std::sync::atomic::Ordering::Relaxed) {
                                     break;
                                 }
+                                if tracing {
+                                    worker.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobStart,
+                                        "par-map",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
                                 let result = worker.eval_indexed_par_map_item(
                                     &execution,
                                     body,
@@ -157,6 +170,15 @@ impl Evaluator {
                                     item,
                                     span,
                                 );
+                                if tracing {
+                                    worker.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobEnd,
+                                        "par-map",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
                                 let flow = worker.pending_value_block_flow.take();
                                 let traceback = worker.pending_traceback.take();
                                 let interrupted = worker.take_stage_stop_observed();
@@ -183,8 +205,12 @@ impl Evaluator {
                         if let Some(error) = worker.finish_owned_resources() {
                             worker.report_cleanup_error(&error, span);
                         }
-                        let _ =
-                            sender.send((chunk_index, results, std::mem::take(&mut worker.stderr)));
+                        let _ = sender.send((
+                            chunk_index,
+                            results,
+                            std::mem::take(&mut worker.stderr),
+                            std::mem::take(&mut worker.trace_events),
+                        ));
                     })
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
@@ -201,8 +227,9 @@ impl Evaluator {
             let mut gave_up: Option<RuntimeError> = None;
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
-                    Ok((chunk_index, results, worker_stderr)) => {
+                    Ok((chunk_index, results, worker_stderr, events)) => {
                         completed[chunk_index] = Some((results, worker_stderr));
+                        worker_traces[chunk_index] = events;
                         remaining -= 1;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -288,7 +315,11 @@ impl Evaluator {
                 );
             }
             Ok((results, stderr))
-        })?;
+        });
+        for events in worker_traces {
+            self.adopt_worker_trace(events);
+        }
+        let (chunks, stderr) = outcome?;
         self.stderr.extend(stderr);
         Ok(chunks)
     }
