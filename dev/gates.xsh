@@ -982,6 +982,11 @@ export pure catalogue(ctx: context.Context, profile: tests.TestProfile, selectio
     reasons: ["source census contract"],
     execution: RunCommand(stages.command("verification/census", ctx.target.triple, "python3",
       ["python3", "-B", "-m", "unittest", "dev.performance.test_census"], ctx.root, {})))]
+  entries += [CatalogCase(id: "verification/matrix", tier: Change,
+    limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
+    reasons: ["workload and oracle matrix contract"],
+    execution: RunCommand(stages.command("verification/matrix", ctx.target.triple, "python3",
+      ["python3", "-B", "-m", "unittest", "dev.performance.test_matrix"], ctx.root, {})))]
   entries += [CatalogCase(id: "verification/source", tier: Change,
     limit: RuntimeSeconds(30), products: [], prerequisite_ids: [],
     reasons: ["source snapshot contract"],
@@ -1242,6 +1247,10 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += ["verification/census"] when "verification/census" not in selected_ids
       continue
     }
+    if changed_path in ["dev/performance/matrix.py", "dev/performance/test_matrix.py"] {
+      selected_ids += ["verification/matrix"] when "verification/matrix" not in selected_ids
+      continue
+    }
     if changed_path in ["dev/gate_source.py", "dev/performance/test_gate_source.py"] {
       selected_ids += ["verification/source"] when "verification/source" not in selected_ids
       continue
@@ -1386,7 +1395,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       RunCommand(_) | DocumentationCheck | Alias => {}
     }
     continue when entry.id in ["showcase/tokei/correctness", "core/lsmem/correctness", "core/lsmem/heavy-inventory", "core/lsmem/consumers", cat_byte_stream_case_id, cat_full_module_case_id, cat_external_consumers_case_id,
-      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/census", "verification/consolidation-harness", "verification/core-workloads", "verification/inference-workloads", "verification/frozen-witnesses", "verification/erase-sites", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
+      "compiler/local-inference/correctness", "compiler/imported-inference/correctness", "compiler/inference-work/correctness", "compiler/frontend-retention/correctness", constraint_solver_case_id, "verification/results", "verification/source", "verification/census", "verification/matrix", "verification/consolidation-harness", "verification/core-workloads", "verification/inference-workloads", "verification/frozen-witnesses", "verification/erase-sites", focused_adapter_case_id, performance_check_case_id, tokei_corpus_case_id, tokei_adapter_case_id, resource_diagnostics_case_id, laputa_adapter_case_id,
       native_leases_case_id]
     continue when entry.id in [case.id for case in source_edit_cases]
     continue when entry.tier == Scenario
