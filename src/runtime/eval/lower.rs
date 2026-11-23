@@ -7587,14 +7587,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let slot = if name.as_str() == "_" {
                     slots.reserve("for discard")
                 } else {
-                    slots.declare_source(self.bodies.resolved_bindings.target(target)?, name, item_ty)
+                    slots.declare_source(self.bodies.resolved_bindings.target(target)?, name, item_ty.clone())
                 };
                 let body =
                     self.lower_block_in_current_scope(block, slots, current_function, Some(slot))?;
                 slots.exit(saved);
                 let span = self.program.arena.stmt(id).span;
                 if str_lines_base.is_some() {
-                    let body = self.try_lower_scan_bytes(slot, &body, span).unwrap_or(body);
+                    let body = if item_ty == Some(Type::Bytes) {
+                        self.try_lower_scan_bytes(slot, &body, span, &slots.type_facts_by_slot(0)).unwrap_or(body)
+                    } else { body };
                     if let Some(scan) = self.try_lower_scan_lines(&text_or_iter, slot, &body, span)
                     {
                         Some(scan)
