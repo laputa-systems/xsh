@@ -197,6 +197,8 @@ def context : Context Unit Unit Unit where
   spelling := fun name => if name = aName then "a" else if name = bName then "b" else "m"
   functions := fun _ => none
   sameDeclaration := fun _ _ => true
+  sameIdentity := fun _ _ => true
+  sameSource := fun _ _ => true
 
 def environment : Environment := ⟨emptyLexicalEnvironment, []⟩
 

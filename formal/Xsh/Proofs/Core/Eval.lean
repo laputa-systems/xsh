@@ -312,7 +312,7 @@ theorem decided_noTypeFailure (decision : Option Bool) :
   intro failure failed
   cases decision <;> simp [decided] at failed
 
-theorem structural_noTypeFailure (same : Declaration → Declaration → Bool) (operator : Xsh.Syntax.BinaryOp)
+theorem structural_noTypeFailure (same : Sameness Declaration Identity Source) (operator : Xsh.Syntax.BinaryOp)
     (left right : Value Declaration Identity Source) :
     NoTypeFailure (structural same operator left right) := by
   intro failure failed

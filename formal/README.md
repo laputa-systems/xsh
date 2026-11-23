@@ -512,8 +512,9 @@ Statements:
 
 Expressions:
 
-- equality and membership of errors and handles, and `in` on a `Path` whose
-  bytes are not valid UTF-8 (P)
+- equality of streams, modules, filesystem entries, commands, process
+  statuses and process errors, and `in` on a `Path` whose bytes are not valid
+  UTF-8 (P)
 - methods and value pipelines (P)
 - the contextual `.require()` under a parameter type, a `return` or tail
   nested in a block, or any other expected position (P)
@@ -557,8 +558,16 @@ pair (SPEC 4.5, 6.2, owner decision 1). `==` is the structural equality
 `valueEqual`: Floats compare by IEEE value at every depth, list items pairwise,
 map entries and record fields by key whatever their order, set elements as
 sets, `Ok` and `Err` payloads structurally, variants by declaration, name
-and payload (a `Fault(1)` of another enum is unequal), and a `null` equals
-only `null`.
+and payload (a `Fault(1)` of another enum is unequal), errors by every
+field of their data with payloads and causes compared structurally, callables
+by kind and runtime identity, process, network-job, filesystem-root,
+filesystem-lock and SSH-session handles by runtime identity, and a `null`
+equals only `null`. As the verification binary gives `true`, `false` and
+`false` for `Probe.Bad(value: 0.0) == Probe.Bad(value: -0.0)`, two `Bad`s
+holding NaN, and `Bad` against `Other`, and `true false` for a callable
+against itself and against another declaration, so do the witnesses; the
+binary compared error payloads by raw bits until the fix that made a payload's
+Float compare by IEEE value.
 `in` is substring containment in a `Str`, byte containment in `Bytes`, an equal
 item in a `List`, a `Path` entry of `env.PATH`, key presence in a `Map` (a key
 whose value is `null` is present), an element of a `Set`, a `Str` label of
@@ -573,9 +582,10 @@ key is present; and `s | t`, `s & t` and `s - t` for `s = set.from([3, 1, 2])`
 and `t = set.from([2, 4])` are `[1,2,3,4]`, `[2]` and `[1,3]`. The mutants it
 rejects are raw-bit Float equality, record equality in written field order,
 membership that requires a non-`null` map value, and a union that
-concatenates its operands, and variant equality by name alone. Errors and
-handles are not compared, a
-`Path` whose bytes are not valid UTF-8 is outside membership, and String containment is stated on
+concatenates its operands, variant equality by name alone, error payloads
+compared by raw bits, and callable equality by kind alone. Streams, modules,
+filesystem entries, commands, process statuses and process errors are not
+compared, a `Path` whose bytes are not valid UTF-8 is outside membership, and String containment is stated on
 code points. The set order is map key order only if `keyBefore` is a total
 order, and that is not proved.
 

@@ -12,7 +12,7 @@ open Xsh.Semantics.CoreEval
 
 section Laws
 
-variable {Declaration Identity Source : Type} (same : Declaration → Declaration → Bool)
+variable {Declaration Identity Source : Type} (same : Sameness Declaration Identity Source)
 
 theorem valueEqual_erase (left right : Value Declaration Identity Source) :
     valueEqual same left.eraseNominal right = valueEqual same left right := by
@@ -38,7 +38,7 @@ theorem valueEqual_null (value : Value Declaration Identity Source) (present : i
   | .stream _ | .filesystemEntry _ | .module _ _ | .status _ | .error _ | .processError _ | .callable _ _
   | .command _ | .processHandle _ | .networkJob _ | .filesystemRoot _ | .filesystemLock _ | .sshSession _
   | .tagged _ _ _ =>
-    simp [valueEqual, isNull, Value.eraseNominal]
+    simp [valueEqual, handleEqual, handleOf, isNull, Value.eraseNominal]
 
 /-- Record equality reads the other record's fields only by label, so their
 order is not observed. -/
@@ -89,9 +89,9 @@ theorem valueEqual_scalar (scalar : Scalar) (right : Value Declaration Identity 
 
 /-- `==` and `!=` are structural equality on every pair of operands. -/
 theorem equality_is_structural (context : Context Declaration Identity Source) (left right : Value Declaration Identity Source) :
-    binary context .eq left right = decided (valueEqual context.sameDeclaration left right) ∧
-      binary context .ne left right = decided ((valueEqual context.sameDeclaration left right).map not) := by
-  rw [← valueEqual_erase context.sameDeclaration left right]
+    binary context .eq left right = decided (valueEqual context.sameness left right) ∧
+      binary context .ne left right = decided ((valueEqual context.sameness left right).map not) := by
+  rw [← valueEqual_erase context.sameness left right]
   constructor <;>
   · unfold binary
     split
@@ -104,7 +104,7 @@ theorem equality_is_structural (context : Context Declaration Identity Source) (
          all_goals first
            | (simp_all [decided, boolean]; done)
            | (simp only [structural]
-              rw [← valueEqual_erase context.sameDeclaration left, leftShape, valueEqual_scalar _ _ right rightShape]))
+              rw [← valueEqual_erase context.sameness left, leftShape, valueEqual_scalar _ _ right rightShape]))
       | (split
          all_goals first
            | (simp_all; done)
@@ -113,8 +113,8 @@ theorem equality_is_structural (context : Context Declaration Identity Source) (
 /-- `in` and `not in` are the membership same decision on every pair of operands. -/
 theorem membership_is_decision (context : Context Declaration Identity Source)
     (needle container : Value Declaration Identity Source) :
-    binary context .member needle container = decided (membership context.sameDeclaration needle container) ∧
-      binary context .notMember needle container = decided ((membership context.sameDeclaration needle container).map not) := by
+    binary context .member needle container = decided (membership context.sameness needle container) ∧
+      binary context .notMember needle container = decided ((membership context.sameness needle container).map not) := by
   constructor <;>
   · unfold binary
     split
@@ -219,14 +219,23 @@ theorem float_items_ieee (left right : FloatBits) :
 
 /-- Two variants are equal when they have the same declaration and variant
 name and equal payloads, compared with the declarations' own equality. -/
-theorem variant_equality [DecidableEq Declaration] (declaration other : Declaration) (variant otherVariant : String)
-    (fields others : List (Value Declaration Identity Source)) :
-    valueEqual (fun first second => decide (first = second)) (.tagged declaration variant fields)
+theorem variant_equality [DecidableEq Declaration] (identity : Identity → Identity → Bool) (source : Source → Source → Bool)
+    (declaration other : Declaration) (variant otherVariant : String) (fields others : List (Value Declaration Identity Source)) :
+    valueEqual ⟨fun first second => decide (first = second), identity, source⟩ (.tagged declaration variant fields)
         (.tagged other otherVariant others) =
-      if declaration = other ∧ variant = otherVariant then itemsEqual (fun first second => decide (first = second)) fields others
+      if declaration = other ∧ variant = otherVariant then
+        itemsEqual ⟨fun first second => decide (first = second), identity, source⟩ fields others
       else some false := by
   by_cases sameDeclaration : declaration = other <;> by_cases sameVariant : variant = otherVariant <;>
     simp [valueEqual, Value.eraseNominal, sameDeclaration, sameVariant]
+
+/-- Two handles of one family compare by runtime identity. -/
+theorem handle_equality (same : Sameness Declaration Identity Source) (handle other : Value Declaration Identity Source)
+    (family : Nat) (identity identity' : Identity) (held : handleOf handle = some (family, identity))
+    (found : handleOf other = some (family, identity')) :
+    valueEqual same handle other = some (same.identity identity identity') := by
+  cases handle <;> simp [handleOf] at held <;> cases other <;> simp [handleOf] at found <;>
+    obtain ⟨rfl, rfl⟩ := held <;> obtain ⟨_, rfl⟩ := found <;> simp_all [valueEqual, handleEqual, handleOf, Value.eraseNominal]
 
 /-- The `structural_equality_and_membership` fragment root (SPEC 4.5, 6.2,
 owner decision 1): `==`/`!=` are structural equality and `in`/`not in` the
@@ -234,34 +243,37 @@ membership same decision on every operand pair; Floats compare by IEEE value ins
 lists; a non-`null` value is unequal to `null`; record and map equality read
 the other operand only by label or key; a map key is present whatever its
 value; two sets with the same elements are equal however they were built; variants are equal when their declaration,
-name and payload are; and `|`, `&`, `-` give distinct elements of the union, intersection and
-difference. -/
+name and payload are; two errors are equal when every field of their data is,
+their payloads and causes structurally, so a Float in a payload compares by IEEE
+value; callables are equal when they have one kind and one runtime identity,
+and handles of one family when they have one runtime identity; and `|`, `&`,
+`-` give distinct elements of the union, intersection and difference. -/
 theorem structural_equality_and_membership [DecidableEq Declaration] (context : Context Declaration Identity Source) :
     (∀ left right : Value Declaration Identity Source,
-      binary context .eq left right = decided (valueEqual context.sameDeclaration left right) ∧
-        binary context .ne left right = decided ((valueEqual context.sameDeclaration left right).map not)) ∧
+      binary context .eq left right = decided (valueEqual context.sameness left right) ∧
+        binary context .ne left right = decided ((valueEqual context.sameness left right).map not)) ∧
     (∀ needle container : Value Declaration Identity Source,
-      binary context .member needle container = decided (membership context.sameDeclaration needle container) ∧
-        binary context .notMember needle container = decided ((membership context.sameDeclaration needle container).map not)) ∧
+      binary context .member needle container = decided (membership context.sameness needle container) ∧
+        binary context .notMember needle container = decided ((membership context.sameness needle container).map not)) ∧
     (∀ left right : FloatBits,
-      valueEqual context.sameDeclaration (Declaration := Declaration) (Identity := Identity) (Source := Source)
+      valueEqual context.sameness (Declaration := Declaration) (Identity := Identity) (Source := Source)
         (.list [.scalar (.float left)]) (.list [.scalar (.float right)]) = some (floatValueEq left right)) ∧
-    (∀ value : Value Declaration Identity Source, isNull value = false → valueEqual context.sameDeclaration value (.scalar .null) = some false) ∧
+    (∀ value : Value Declaration Identity Source, isNull value = false → valueEqual context.sameness value (.scalar .null) = some false) ∧
     (context.sameDeclaration = (fun first second => decide (first = second)) →
       ∀ (declaration other : Declaration) variant otherVariant (fields others : List (Value Declaration Identity Source)),
-        valueEqual context.sameDeclaration (.tagged declaration variant fields) (.tagged other otherVariant others) =
-          if declaration = other ∧ variant = otherVariant then itemsEqual context.sameDeclaration fields others
+        valueEqual context.sameness (.tagged declaration variant fields) (.tagged other otherVariant others) =
+          if declaration = other ∧ variant = otherVariant then itemsEqual context.sameness fields others
           else some false) ∧
     (∀ fields others others' : List (String × Value Declaration Identity Source),
       others.length = others'.length → (∀ label, others.lookup label = others'.lookup label) →
-        valueEqual context.sameDeclaration (.record fields) (.record others) = valueEqual context.sameDeclaration (.record fields) (.record others')) ∧
+        valueEqual context.sameness (.record fields) (.record others) = valueEqual context.sameness (.record fields) (.record others')) ∧
     (∀ entries others others' : List (MapKey × Value Declaration Identity Source),
       others.length = others'.length → (∀ key, others.lookup key = others'.lookup key) →
-        valueEqual context.sameDeclaration (.map entries) (.map others) = valueEqual context.sameDeclaration (.map entries) (.map others')) ∧
+        valueEqual context.sameness (.map entries) (.map others) = valueEqual context.sameness (.map entries) (.map others')) ∧
     (∀ (needle : Value Declaration Identity Source) key entries, mapKeyOf needle = some key →
-      membership context.sameDeclaration needle (.map entries) = some (entries.any fun entry => entry.1 == key)) ∧
+      membership context.sameness needle (.map entries) = some (entries.any fun entry => entry.1 == key)) ∧
     (∀ first second : List MapKey, (∀ key, key ∈ first ↔ key ∈ second) →
-      valueEqual context.sameDeclaration (Declaration := Declaration) (Identity := Identity) (Source := Source)
+      valueEqual context.sameness (Declaration := Declaration) (Identity := Identity) (Source := Source)
         (.set (setOf first)) (.set (setOf second)) = some true) ∧
     (∀ first second : List MapKey,
       (∀ keys, setOperation .union first second = some keys →
@@ -269,14 +281,38 @@ theorem structural_equality_and_membership [DecidableEq Declaration] (context : 
       (∀ keys, setOperation .intersect first second = some keys →
         keys.Nodup ∧ ∀ key, key ∈ keys ↔ key ∈ first ∧ key ∈ second) ∧
       (∀ keys, setOperation .sub first second = some keys →
-        keys.Nodup ∧ ∀ key, key ∈ keys ↔ key ∈ first ∧ key ∉ second)) :=
-  ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameDeclaration,
-    valueEqual_null context.sameDeclaration,
+        keys.Nodup ∧ ∀ key, key ∈ keys ↔ key ∈ first ∧ key ∉ second)) ∧
+    (∀ left right : ErrorData Declaration Identity Source,
+      valueEqual context.sameness (.error left) (.error right) = errorEqual context.sameness left right) ∧
+    (∀ (left right : ErrorData Declaration Identity Source), left.payload.length = right.payload.length →
+      context.sameDeclaration left.family right.family = true → left.variant = right.variant → left.kind = right.kind →
+      left.message = right.message → left.facets = right.facets → spanEqual context.sameness left.span right.span = true →
+      contextsEqual context.sameness left.contexts right.contexts = true → left.abort = right.abort →
+      errorEqual context.sameness left right =
+        (fieldsEqual context.sameness left.payload right.payload).bind fun equal =>
+          if equal then causeEqual context.sameness left.cause right.cause else some false) ∧
+    (∀ (reference other : Reference Identity .callable) kind kind',
+      valueEqual context.sameness (.callable reference kind) (.callable other kind') =
+        some (kind == kind' && context.sameIdentity reference.identity other.identity)) ∧
+    (∀ (handle other : Value Declaration Identity Source) family identity identity',
+      handleOf handle = some (family, identity) → handleOf other = some (family, identity') →
+        valueEqual context.sameness handle other = some (context.sameIdentity identity identity')) :=
+  ⟨equality_is_structural context, membership_is_decision context, float_items_ieee context.sameness,
+    valueEqual_null context.sameness,
     fun decides declaration other variant otherVariant fields others => by
-      rw [decides]; exact variant_equality declaration other variant otherVariant fields others,
-    record_order_free context.sameDeclaration,
-    map_order_free context.sameDeclaration, map_key_presence context.sameDeclaration,
-    sets_with_same_elements_equal context.sameDeclaration, set_operations⟩
+      simp only [Context.sameness, decides]
+      exact variant_equality _ _ declaration other variant otherVariant fields others,
+    record_order_free context.sameness,
+    map_order_free context.sameness, map_key_presence context.sameness,
+    sets_with_same_elements_equal context.sameness, set_operations, fun _ _ => by simp [valueEqual, Value.eraseNominal],
+    fun ⟨_, _, _, _, _, _, _, _, _, _⟩ ⟨_, _, _, _, _, _, _, _, _, _⟩ sized family variant kind message facets span contexts
+      abort => by
+      simp only at sized family variant kind message facets span contexts abort
+      subst variant kind message facets abort
+      simp only [Context.sameness] at span contexts
+      simp [errorEqual, Context.sameness, sized, family, span, contexts],
+    fun _ _ _ _ => by simp [valueEqual, Value.eraseNominal, Context.sameness], fun handle other family identity identity' held found =>
+      handle_equality context.sameness handle other family identity identity' held found⟩
 
 end Laws
 
@@ -444,7 +480,7 @@ def natInt (value : Int) : Value Nat Unit Unit := .scalar (match validateInt? va
   | some valid => .integer valid
   | none => .null)
 
-def sameNat : Nat → Nat → Bool := fun first second => decide (first = second)
+def sameNat : Sameness Nat Unit Unit := ⟨fun first second => decide (first = second), fun _ _ => true, fun _ _ => true⟩
 
 /-- Variants compare by declaration, name and payload: `Fault(1)` equals
 `Fault(1)` and differs from `Fault(2)`, from `Info`, and from a `Fault(1)`
@@ -459,8 +495,56 @@ theorem variant_witness :
 /-- Comparing variants by name alone calls a `Fault(1)` of another enum equal;
 the model does not. -/
 theorem name_only_variant_equality_rejected :
-    valueEqual (fun _ _ => true) (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some true ∧
+    valueEqual ⟨fun _ _ => true, fun _ _ => true, fun _ _ => true⟩ (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some true ∧
       valueEqual sameNat (tag 1 "Fault" [natInt 1]) (tag 2 "Fault" [natInt 1]) = some false := by
+  decide +kernel
+
+def anySame : Sameness Unit Unit Unit := ⟨fun _ _ => true, fun _ _ => true, fun _ _ => true⟩
+
+/-- `Probe.Bad(value: x)` for `error Probe = Bad(value: Float) | Other(value: Float)`. -/
+def probeError (variant : String) (payload : WitnessValue) : WitnessValue :=
+  .error ⟨(), variant, "Probe", variant, [("value", payload)], [], none, [], none, none⟩
+
+/-- As the verification binary gives `true` for
+`Probe.Bad(value: 0.0) == Probe.Bad(value: -0.0)`, `false` for two `Bad`s
+holding NaN, and `false` for `Bad` against `Other`: a payload's Float
+compares by IEEE value. -/
+theorem error_payload_witness :
+    valueEqual anySame (probeError "Bad" positiveZero) (probeError "Bad" negativeZero) = some true ∧
+    valueEqual anySame (probeError "Bad" nan) (probeError "Bad" nan) = some false ∧
+    valueEqual anySame (probeError "Bad" positiveZero) (probeError "Other" positiveZero) = some false := by
+  decide +kernel
+
+/-- Comparing payloads by their bits, as the binary did before, calls the
+two zeros' errors unequal, as `0` and `2^63` differ; the model calls them
+equal. -/
+theorem bitwise_payload_rejected :
+    ((0 : Nat) == 9223372036854775808) = false ∧
+      valueEqual anySame (probeError "Bad" positiveZero) (probeError "Bad" negativeZero) = some true := by
+  decide +kernel
+
+def sameIds : Sameness Nat Nat Unit := ⟨fun first second => decide (first = second),
+  fun first second => decide (first = second), fun _ _ => true⟩
+
+def callableOf (identity : Nat) (kind : CallableKind) : Value Nat Nat Unit := .callable ⟨identity⟩ kind
+
+/-- As the verification binary prints `true false` for `let a = f; let b =
+f; a == b` and `a == g`: a callable is equal to one of the same declaration
+and kind, and handles compare by identity. -/
+theorem handle_witness :
+    valueEqual sameIds (callableOf 1 .procedure) (callableOf 1 .procedure) = some true ∧
+    valueEqual sameIds (callableOf 1 .procedure) (callableOf 2 .procedure) = some false ∧
+    valueEqual sameIds (callableOf 1 .procedure) (callableOf 1 .pure) = some false ∧
+    valueEqual sameIds (.processHandle ⟨3⟩) (.processHandle ⟨3⟩) = some true ∧
+    valueEqual sameIds (.processHandle ⟨3⟩) (.processHandle ⟨4⟩) = some false := by
+  decide +kernel
+
+/-- Comparing callables by kind alone calls `f` and `g` equal; the model
+does not. -/
+theorem kind_only_callable_rejected :
+    valueEqual ⟨fun first second => decide (first = second), fun _ _ => true, fun _ _ => true⟩
+        (callableOf 1 .procedure) (callableOf 2 .procedure) = some true ∧
+      valueEqual sameIds (callableOf 1 .procedure) (callableOf 2 .procedure) = some false := by
   decide +kernel
 
 end Witness
