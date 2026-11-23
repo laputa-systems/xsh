@@ -293,8 +293,8 @@ test fs_root_tempdir_is_private_owned_and_removed_after_the_parent_moves { |ctx|
   work.write(p"chunk", "data")
   work.mkdir(p"nested/deep", parents: true)
   base.rename(from: p"publication", to: p"moved")
-  work.close()?
-  plain.close()?
+  work.close()
+  plain.close()
   assert (base.children(p"moved")?.children |> count()) == 0
   test.error_kind(publication.tempdir(prefix: "a/b"), "fs-root-tempdir")
 }
@@ -317,7 +317,7 @@ test fs_root_rename_refuses_to_clobber_unless_asked { |ctx|
   assert root.rename(from: p"sub/new", to: p"kept") is Err(_)
   assert root.read_text(p"kept")? == "kept"
   assert root.read_text(p"sub/new")? == "new"
-  root.rename(from: p"sub/new", to: p"kept", replace: true)?
+  root.rename(from: p"sub/new", to: p"kept", replace: true)
   assert root.read_text(p"kept")? == "new"
   assert root.exists(p"sub/new")? == false
 }
@@ -327,9 +327,9 @@ test fs_root_fsync_flushes_files_and_directories_but_not_links { |ctx|
   root.mkdir(p"sub")
   root.write(p"sub/file", "data")
   root.symlink(target: p"sub/file", path: p"link")
-  root.fsync(p"sub/file")?
-  root.fsync(p"sub")?
-  root.fsync(p".")?
+  root.fsync(p"sub/file")
+  root.fsync(p"sub")
+  root.fsync(p".")
   assert root.fsync(p"link") is Err(_)
   assert root.fsync(p"missing") is Err(_)
 }
@@ -402,7 +402,7 @@ test fs_root_read_regular_reports_the_replaced_opened_object { |ctx|
   let original = root.stat(p"control")?
   let replacement = root.stat(p"next")?
   let first = root.read_regular(p"control")?
-  root.rename(from: p"next", to: p"control", replace: true)?
+  root.rename(from: p"next", to: p"control", replace: true)
   let second = root.read_regular(p"control")?
   assert first.data == b"first" and first.size == 5
   assert [first.dev, first.ino] == [original.dev, original.ino]
@@ -417,12 +417,12 @@ test fs_root_extract_stays_beneath_the_retained_root { |ctx|
   fp"{src}/dir".mkdir()
   fp"{src}/dir/a.txt".write("alpha")
   let tarball = fp"{base}/pkg.tar"
-  archive.create(tarball, src, [p"."], .Tar)?
+  archive.create(tarball, src, [p"."], .Tar)
   fp"{base}/root".mkdir()
   fp"{base}/outside".mkdir()
   fp"{base}/outside/sentinel".write("sentinel")
   let root = fs.open_root(fp"{base}/root")?
-  root.extract(tarball, p"gen/1", .Tar)?
+  root.extract(tarball, p"gen/1", .Tar)
   assert root.read_text(p"gen/1/dir/a.txt")? == "alpha"
   assert root.extract(tarball, p"gen/1", .Tar) is Err(ArchiveError.Collision {..})
   assert root.extract(tarball, p"gen/1/dir/a.txt", .Tar) is Err(_)

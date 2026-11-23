@@ -26,7 +26,7 @@ let body = retry [50ms, 100ms, 200ms] on (FetchError.Busy {..}) {
 }?
 
 tempdir dir {
-  publish(dir, body)?
+  publish(dir, body)
   let names = fs.children(dir)? |> map .name |> sort()
   print f"{body} after {attempts} attempts; left: {names.join(" ")}"
 }

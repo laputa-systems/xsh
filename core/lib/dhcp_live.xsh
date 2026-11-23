@@ -391,7 +391,7 @@ export proc supervise(settings: client.Settings, mode: client.Mode, notify: Int?
   let beginning = client.Beginning(record:, observed:, admin_down: admin_mark(settings).exists()?)
   if let descriptor = notify {
     assert unix.write_fd(descriptor, b"r")? == 1
-    unix.close_fd(descriptor)?
+    unix.close_fd(descriptor)
   }
   client.drive(host(), ctx, beginning, mode)
 }

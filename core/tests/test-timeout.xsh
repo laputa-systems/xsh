@@ -17,7 +17,7 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   let err = fp"{root}/stderr"
   let ready = fp"{root}/ready"
   let input = fp"{root}/input"
-  fs.mkfifo(input, 0o600)?
+  fs.mkfifo(input, 0o600)
   let script = fp"{ctx.core_dir}/timeout.xsh"
   let command = [
     ctx.xsh_bin.display(),
@@ -61,7 +61,7 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
 }
 
 proc wait_for_marker(marker: Path, handle: ProcessHandle, description: Str, started: Int) [fs, process, time, error] -> Result[Unit] {
-  while ! marker.exists()? {
+  while ! marker.exists() {
     if time.now() - started >= 15000 {
       handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure(f"{description} marker was not written"))
@@ -87,7 +87,7 @@ proc wait_for_process(handle: ProcessHandle, description: Str, started: Int) [pr
 
 proc terminate_timeout(handle: ProcessHandle, cleanup: Path, started: Int) [fs, process, time, error] -> Result[Int] {
   process.kill(handle.pid, signal: "TERM")
-  wait_for_marker(cleanup, handle, "deferred cleanup", started)?
+  wait_for_marker(cleanup, handle, "deferred cleanup", started)
   Ok((wait_for_process(handle, "timeout wrapper", started)?).shell_code()?)
 }
 
@@ -130,7 +130,7 @@ test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
   let handle = spawn plan?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   let started = time.now()
-  wait_for_marker(ready, handle, "CPU-bound child readiness", started)?
+  wait_for_marker(ready, handle, "CPU-bound child readiness", started)
   let status = terminate_timeout(handle, marker, started)?
   assert status == 143
   assert marker.read_text()? == "cleaned"
@@ -144,7 +144,7 @@ test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
   let ready = fp"{root}/ready"
   let blocked = fp"{root}/blocked"
   let fifo = fp"{root}/stdin"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let child = fp"{root}/child.xsh"
   child.write("let marker = Path(args[0])\nlet ready = Path(args[1])\nlet blocked = Path(args[2])\ndefer marker.write(\"cleaned\")?\nready.write(\"ready\")?\nlet first = io.stdin_read(1)?\nassert first == b\"x\"\nblocked.write(\"blocked\")?\nlet _ = io.stdin_bytes()?\n")
   let stdout = fp"{root}/stdout"
@@ -198,8 +198,8 @@ test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
   let handle = spawn plan?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   let started = time.now()
-  wait_for_marker(ready, handle, "stdin child readiness", started)?
-  wait_for_marker(blocked, handle, "stdin blocking read", started)?
+  wait_for_marker(ready, handle, "stdin child readiness", started)
+  wait_for_marker(blocked, handle, "stdin blocking read", started)
   assert ! marker.exists()?
   assert process.wait_timeout([writer], 0ms)? == null
   let status = terminate_timeout(handle, marker, started)?

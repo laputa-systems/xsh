@@ -54,7 +54,7 @@ test test_util_linux_observation_distinguishes_signal_from_shell_exit { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tests/support")
   fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh".copy(to: uu.at(s, "tests/support/uu-launch.xsh"))
-  uu.write(s, "status.xsh", "let environment: Map[Str, Bytes] = {}\nunix.exec_env(process.command_argv(p\"/bin/sh\", [p\"/bin/sh\", p\"-c\", Path(args[0])]), environment)\n")?
+  uu.write(s, "status.xsh", "let environment: Map[Str, Bytes] = {}\nunix.exec_env(process.command_argv(p\"/bin/sh\", [p\"/bin/sh\", p\"-c\", Path(args[0])]), environment)\n")
   let staged: uu.Scene = {ctx: {...ctx, core_dir: s.root}, root: s.root}
   let observed_signal = ul.observe_candidate(staged, "status", [p"kill -TERM $$"])?
   let observed_exit = ul.observe_candidate(staged, "status", [p"exit 143"])?
@@ -69,7 +69,7 @@ test test_util_linux_private_namespace_and_unprivileged_identity { |ctx|
   s.root.chmod(0o755)
   uu.mkdir(s, "tests/support")
   fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh".copy(to: uu.at(s, "tests/support/uu-launch.xsh"))
-  uu.write(s, "identity.xsh", "let lines = p\"/proc/self/status\".read_text()?.split(\"\\n\")\nfor line in lines { if line.starts_with(\"Uid:\") or line.starts_with(\"CapEff:\") { print $line } }\n")?
+  uu.write(s, "identity.xsh", "let lines = p\"/proc/self/status\".read_text()?.split(\"\\n\")\nfor line in lines { if line.starts_with(\"Uid:\") or line.starts_with(\"CapEff:\") { print $line } }\n")
   let staged: uu.Scene = {ctx: {...ctx, core_dir: s.root}, root: s.root}
   for uid in [10001, 10002] {
     let result = ul.candidate_as_user(staged, "identity", [], uid:)?

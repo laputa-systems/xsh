@@ -160,7 +160,7 @@ export proc modinfo(raw: List[Str]) {
   var ok = true
   for name in names {
     let candidate = fp"{name}"
-    let result = if candidate.exists()? { linux.modinfo(candidate) } else { linux.modinfo(name) }
+    let result = if candidate.exists() { linux.modinfo(candidate) } else { linux.modinfo(name) }
     match result {
       Ok(info) => {
         if selected == "filename" { gnu.write_text(f"{info.filename}{delimiter}") } else if selected == "name" { gnu.write_text(f"{info.name}{delimiter}") } else {

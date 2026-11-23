@@ -10,19 +10,19 @@ proc execute(options: Options) [fs, error, io] -> Result[Unit] {
   let report = metrics.measure(root, metrics.RATCHET_SOURCE_ROOTS)?
   if options.report != "" {
     let report_path = fp"{options.report}"
-    if ! report_path.parent().exists() { report_path.parent().mkdir(parents: true)? }
-    json.write(report_path, report)?
+    if ! report_path.parent().exists() { report_path.parent().mkdir(parents: true) }
+    json.write(report_path, report)
   }
-  metrics.assert_source_contract(report)?
+  metrics.assert_source_contract(report)
   let baseline_path = fp"{root}/{metrics.RATCHET_BASELINE}"
   let baseline = json.read(baseline_path)?.require(metrics.Baseline)?
   if options.action == "update" {
     let updated = metrics.lowered(report, baseline)?
-    baseline_path.write(json.encode(updated, pretty: true)? + "\n")?
+    baseline_path.write(json.encode(updated, pretty: true)? + "\n")
     print f"recorded {updated.metrics.len()} structural metrics in {metrics.RATCHET_BASELINE}"
     return
   }
-  metrics.verify(report, baseline)?
+  metrics.verify(report, baseline)
   let advisory = collect { for row in report.metrics { yield f"{row.name} {row.value}" when row.name in metrics.ADVISORY_METRICS } }
   print f"{baseline.metrics.len()} structural metrics match {metrics.RATCHET_BASELINE}; advisory {advisory.join(", ")}"
 }

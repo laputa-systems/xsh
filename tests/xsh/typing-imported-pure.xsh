@@ -4,13 +4,13 @@ test test_imported_required_pure_calls_match_local_and_module_aliases { |ctx|
     fp"{modules}/{name}.xsh".write(f"""##! Required pure operations.
 ## Identifies the selected operation.
 export pure required(field: Str, state: Str, error_kind: Str?, errno: Int?) -> Str {{ "{name}:" + field }}
-""")?
+""")
   }
   fp"{modules}/renamed.xsh".write("""##! Renamed callable export.
 pure original(field: Str, state: Str, error_kind: Str?, errno: Int?) -> Str { "alias:" + field }
 ## Exposes the original required pure operation.
 export let public = original
-""")?
+""")
   let result = test.run_xsh(ctx, r"""use left as selected
 use right as other
 use renamed as rebound
@@ -46,12 +46,12 @@ assert issue.detail.state == report.ReadFailure
 
 test test_imported_generic_calls_keep_kind_and_parameter_restrictions { |ctx|
   let modules = test.temp_dir(ctx, name: "typing-imported-pure-restrictions")?
-  fp"{modules}/decoy.xsh".write("##! Same-name pure operation.\n## Returns its argument.\nexport pure required(value: Int) -> Int { value }\n")?
+  fp"{modules}/decoy.xsh".write("##! Same-name pure operation.\n## Returns its argument.\nexport pure required(value: Int) -> Int { value }\n")
   for declaration in [
     "export proc required(value: Int) -> Int { value }",
     "export stream required(value: Int) -> Stream[Int] { yield value }",
   ] {
-    fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")?
+    fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")
     let result = test.run_xsh(ctx, "use decoy as trusted\nuse selected as actual\npure invoke(row) { actual.required(row.value) }\n", env: {XSH_MODULE_PATH: modules})?
     assert result.status == 2, result.stderr
     assert "[check.pure-effect]" in result.stderr, result.stderr
@@ -65,7 +65,7 @@ test test_imported_defaulted_and_rest_calls_infer_the_caller_parameter { |ctx|
     "export pure required(value: Int, other: Int = 0) -> Int { value + other }",
     "export pure required(value: Int, ...others: List[Int]) -> Int { value + others.len() }",
   ] {
-    fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")?
+    fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")
     let result = test.run_xsh(
       ctx,
       r"""use selected as actual
@@ -81,14 +81,14 @@ print ${invoke({value: 5})}
 
 test test_exported_value_from_a_generic_call_publishes_its_resolved_type { |ctx|
   let modules = test.temp_dir(ctx, name: "typing-exported-generic-value")?
-  fp"{modules}/shared.xsh".write("##! Shared identity.\n## Returns its argument.\nexport pure identity(value) { value }\n")?
+  fp"{modules}/shared.xsh".write("##! Shared identity.\n## Returns its argument.\nexport pure identity(value) { value }\n")
   fp"{modules}/branch.xsh".write("""##! Branch holding a generic call result.
 use shared
 ## The identity of one.
 export let value = shared.identity(1)
 ## The identity of text.
 export let label = shared.identity("x")
-""")?
+""")
   let result = test.run_xsh(ctx, r"""use branch
 let total: Int = branch.value + 1
 let text: Str = branch.label + "y"
@@ -105,7 +105,7 @@ test test_exported_value_with_an_unresolved_type_is_rejected_in_its_module { |ct
 export pure keep(value) { value }
 ## The unresolved result.
 export let value = keep([])
-""")?
+""")
   let result = test.run_xsh(ctx, "use branch\nprint $branch.value.len()\n", env: {XSH_MODULE_PATH: modules})?
   assert result.status == 2, result.stderr
   assert "[check.local-inference]" in result.stderr, result.stderr
@@ -122,7 +122,7 @@ export pure identity(value) { value }
 export pure twice(callback, value) { callback(callback(value)) }
 ## Adds one.
 export pure increment(value: Int) -> Int { value + 1 }
-""")?
+""")
   let output = test.run_xsh(ctx, r"""use helpers
 pure apply(callback, value) { callback(value) }
 assert helpers.twice(helpers.identity, 3) == 3
@@ -155,7 +155,7 @@ export pure tagged(value) { {value, label} }
 export pure twice(callback, value) { callback(callback(value)) }
 ## Applies a callback.
 export pure apply(callback, value) { callback(value) }
-""")?
+""")
   let output = test.run_xsh(ctx, r"""use state
 pure relay(callback, value) { callback(value) }
 let shifted_twice = state.twice(state.shifted, 1)

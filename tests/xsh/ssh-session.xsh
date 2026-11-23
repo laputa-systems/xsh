@@ -80,7 +80,7 @@ test ssh_session_is_not_json_and_leaves_no_token_in_values { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -108,7 +108,7 @@ test ssh_session_passed_to_a_worker_still_works { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }

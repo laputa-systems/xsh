@@ -63,7 +63,7 @@ test test_module_get_keeps_its_export_contract { |ctx|
   module_path.write_atomic("""##! Exports a visible value.
 ## Worker count.
 export let workers: Int = 4
-""")?
+""")
   let output = test.expect(ctx, r"""type Plugin = module { export let workers: Int }
 pure lookup(plugin: Plugin, marker) -> Result[Int] { let _ = marker; plugin.get("workers")? }
 proc main(...args: List[Str]) [fs, error] {

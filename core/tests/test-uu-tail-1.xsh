@@ -224,7 +224,7 @@ test test_uu_tail_args_when_directory_given_shorthand_big_f_together_with_retry 
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let message = "tail: error reading 'dir': Is a directory\ntail: dir: cannot follow end of this type of file\n"
-  wait_output(s, b"", bytes.from_text(message))?
+  wait_output(s, b"", bytes.from_text(message))
   time.sleep(500ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -275,7 +275,7 @@ test test_uu_tail_args_when_settings_check_warnings_follow_indefinitely_then_no_
   let plan = follow(s, row.args, input: row.input, merged: true)?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-    wait_output(s, bytes.from_text(row.expected), b"")?
+    wait_output(s, bytes.from_text(row.expected), b"")
     time.sleep(500ms)
     alive(child)
     child.cancel(signal: "KILL", kill_after: 0ms)
@@ -299,7 +299,7 @@ test test_uu_tail_args_when_settings_check_warnings_follow_indefinitely_then_war
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let warning = bytes.from_text("tail: warning: following standard input indefinitely is ineffective\n")
-  if row.merged { wait_output(s, bytes.from_text(row.expected), b"")? } else { wait_output(s, b"", warning)? }
+  if row.merged { wait_output(s, bytes.from_text(row.expected), b"") } else { wait_output(s, b"", warning) }
   time.sleep(500ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -319,7 +319,7 @@ test test_uu_tail_args_when_settings_check_warnings_follow_retry { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let expected = "tail: warning: --retry only effective for the initial open\nfile data\n"
-  wait_output(s, bytes.from_text(expected), b"")?
+  wait_output(s, bytes.from_text(expected), b"")
   time.sleep(500ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -411,13 +411,13 @@ test test_uu_tail_descriptor_no_retry_skips_late_file { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let missing = "tail: cannot open 'nofile' for reading: No such file or directory\n"
-  wait_output(s, b"==> active <==\n", bytes.from_text(missing))?
+  wait_output(s, b"==> active <==\n", bytes.from_text(missing))
   time.sleep(1000ms)
   alive(child)
   uu.write(s, "nofile", "gone\n")
   time.sleep(1000ms)
   uu.write(s, "active", "here\n")
-  wait_output(s, bytes.from_text("==> active <==\nhere\n"), bytes.from_text(missing))?
+  wait_output(s, bytes.from_text("==> active <==\nhere\n"), bytes.from_text(missing))
   time.sleep(1000ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -526,7 +526,7 @@ test test_uu_tail_follow_dangling_symlink { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(500ms)
   uu.write(s, "target", "X\n")
-  wait_stdout_contains(s, "X\n")?
+  wait_stdout_contains(s, "X\n")
   time.sleep(500ms)
   child.cancel(signal: "KILL", kill_after: 0ms)
   uu.stdout_is(streams(s)?, "X\n")
@@ -579,7 +579,7 @@ test test_uu_tail_follow_descriptor_vs_rename2 { |ctx|
     uu.at(s, "FILE_A").rename(to: uu.at(s, "FILE_C"), overwrite: true)
     time.sleep(row.delay)
     append(s, "FILE_C", "X\n")
-    wait_output(s, bytes.from_text("==> FILE_A <==\n\n==> FILE_B <==\n\n==> FILE_A <==\nX\n"), b"")?
+    wait_output(s, bytes.from_text("==> FILE_A <==\n\n==> FILE_B <==\n\n==> FILE_A <==\nX\n"), b"")
     time.sleep(row.delay)
     alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -626,14 +626,14 @@ test test_uu_tail_follow_multiple { |ctx|
   let plan = follow(s, [option, "foobar.txt", "foobar2.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple.expected")?, b"")?
+  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple.expected")?, b"")
   alive(child)
   let initial = streams(s)?
   append(s, "foobar2.txt", "trois\n")
-  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())?
+  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())
   let first = streams(s)?
   append(s, "foobar.txt", "twenty\nthirty\n")
-  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())?
+  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
   }
@@ -671,7 +671,7 @@ test test_uu_tail_follow_name_hash_table_stress { |ctx|
     uu.rename(s, "1", "moved")
     time.sleep(row.delay)
     uu.write(s, "1", "a\n")
-    wait_output(s, bytes.from_text(row.expected), bytes.concat([row.ready, bytes.from_text("tail: '1' has become inaccessible: No such file or directory\ntail: '1' has appeared;  following new file\n")]))?
+    wait_output(s, bytes.from_text(row.expected), bytes.concat([row.ready, bytes.from_text("tail: '1' has become inaccessible: No such file or directory\ntail: '1' has appeared;  following new file\n")]))
     time.sleep(row.delay)
     alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -690,10 +690,10 @@ test test_uu_tail_follow_name_move_create1 { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let short_expected = fixture_bytes(ctx, "follow_name_short.expected")?
-  wait_output(s, short_expected, b"")?
+  wait_output(s, short_expected, b"")
   alive(child)
   uu.rename(s, "follow_name.txt", "backup")
-  wait_output(s, short_expected, bytes.from_text("tail: 'follow_name.txt' has become inaccessible: No such file or directory\ntail: no files remaining\n"))?
+  wait_output(s, short_expected, bytes.from_text("tail: 'follow_name.txt' has become inaccessible: No such file or directory\ntail: no files remaining\n"))
   uu.at(s, "backup").copy(to: uu.at(s, "follow_name.txt"), overwrite: true)
   let ended = process.wait_timeout([child], 20s)?
   assert ended != null
@@ -718,10 +718,10 @@ test test_uu_tail_follow_name_multiple { |ctx|
   let initial = streams(s)?
   uu.stdout_only_bytes(initial, initial_expected)
   append(s, "foobar2.txt", "trois\n")
-  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())?
+  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())
   let first = streams(s)?
   append(s, "foobar.txt", "twenty\nthirty\n")
-  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())?
+  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
   }
@@ -742,7 +742,7 @@ test test_uu_tail_follow_name_shows_headers_on_creation { |ctx|
   uu.write(s, "log1", "ping\n")
   time.sleep(delay)
   uu.write(s, "log2", "pong\n")
-  wait_output(s, bytes.from_text("==> log1 <==\nping\n\n==> log2 <==\npong\n"), bytes.from_text(initial_stderr + "tail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n"))?
+  wait_output(s, bytes.from_text("==> log1 <==\nping\n\n==> log2 <==\npong\n"), bytes.from_text(initial_stderr + "tail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n"))
   time.sleep(delay)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -782,9 +782,9 @@ test test_uu_tail_follow_name_truncate1 { |ctx|
   }
   uu.at(s, "follow_name.txt").copy(to: uu.at(s, "backup"))
   uu.touch(s, "follow_name.txt")
-  wait_output(s, bytes.from_text(prefix), b"tail: follow_name.txt: file truncated\n")?
+  wait_output(s, bytes.from_text(prefix), b"tail: follow_name.txt: file truncated\n")
   uu.at(s, "backup").copy(to: uu.at(s, "follow_name.txt"), overwrite: true)
-  wait_output(s, expected, b"tail: follow_name.txt: file truncated\n")?
+  wait_output(s, expected, b"tail: follow_name.txt: file truncated\n")
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
   let r = streams(s)?
@@ -825,7 +825,7 @@ test test_uu_tail_follow_name_truncate3 { |ctx|
   time.sleep(1000ms)
   alive(child)
   uu.write(s, "file", "x\n")
-  wait_output(s, b"x\n", b"")?
+  wait_output(s, b"x\n", b"")
   time.sleep(1000ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
@@ -840,7 +840,7 @@ test test_uu_tail_follow_name_truncate4 { |ctx|
   let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "-F", "file"].extend(row.extra))?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  wait_output(s, b"foobar\n", b"")?
+  wait_output(s, b"foobar\n", b"")
   alive(child)
   overwrite_in_place(s, "file", "foobar\n")
   time.sleep(row.delay)
@@ -858,11 +858,11 @@ test test_uu_tail_follow_non_utf8_bytes { |ctx|
   let plan = follow(s, ["-f", "foobar.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  wait_output(s, fixture_bytes(ctx, "foobar_single_default.expected")?, b"")?
+  wait_output(s, fixture_bytes(ctx, "foobar_single_default.expected")?, b"")
   alive(child)
   let initial = streams(s)?
   append_bytes(s, "foobar.txt", b"\x80\n")
-  wait_output(s, b"\x80\n", b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())?
+  wait_output(s, b"\x80\n", b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
 
@@ -974,12 +974,12 @@ test test_uu_tail_follow_symlink_target_change { |ctx|
   let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "-F", "link"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  wait_stdout_contains(s, "A\n")?
+  wait_stdout_contains(s, "A\n")
   uu.remove(s, "link")
   uu.symlink(s, "t2", "link")
   time.sleep(500ms)
   uu.write(s, "t2", "B\n")
-  wait_stdout_contains(s, "B\n")?
+  wait_stdout_contains(s, "B\n")
   child.cancel(signal: "KILL", kill_after: 0ms)
   let r = streams(s)?
   uu.stdout_contains(r, "A\n")
@@ -995,7 +995,7 @@ test test_uu_tail_follow_when_files_are_pointing_to_same_relative_file_and_file_
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let expected = f"==> data <==\nfile data\n==> {absolute} <==\nfile data"
-  wait_output(s, bytes.from_text(expected), b"")?
+  wait_output(s, bytes.from_text(expected), b"")
   overwrite_in_place(s, "data", "same data")
   time.sleep(500ms)
   alive(child)
@@ -1022,14 +1022,14 @@ test test_uu_tail_follow_with_pid { |ctx|
   let plan = follow(s, ["-f", f"--pid={pid}", "foobar.txt", "foobar2.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple.expected")?, b"")?
+  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple.expected")?, b"")
   alive(child)
   let initial = streams(s)?
   append(s, "foobar2.txt", "trois\n")
-  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())?
+  wait_output(s, bytes.from_text("trois\n"), b"", out_offset: initial.stdout.len(), err_offset: initial.stderr.len())
   let first = streams(s)?
   append(s, "foobar.txt", "twenty\nthirty\n")
-  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())?
+  wait_output(s, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?, b"", out_offset: first.stdout.len(), err_offset: first.stderr.len())
   alive(child)
   let second = streams(s)?
   process.kill(pid, "USR1")
@@ -1250,10 +1250,10 @@ test test_uu_tail_n0_with_follow { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let ready = "tail: using notification mode\n"
-  wait_output(s, b"", bytes.from_text(ready))?
+  wait_output(s, b"", bytes.from_text(ready))
   alive(child)
   append(s, "test.txt", "new\n")
-  wait_output(s, b"new\n", bytes.from_text(ready))?
+  wait_output(s, b"new\n", bytes.from_text(ready))
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
 

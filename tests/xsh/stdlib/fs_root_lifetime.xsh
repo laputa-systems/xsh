@@ -38,10 +38,10 @@ test test_fs_root_assigned_to_outer_optional_survives_loop_scope {
 
 proc replace_temp_root_path(owned: FsRoot, base: Path) [fs, error] -> Result[Path] {
   let cached = owned.host_path()?
-  owned.write(p"owned-marker", "original")?
-  fs.rename_noreplace(cached, fp"{base}/moved")?
-  cached.mkdir()?
-  fp"{cached}/sentinel".write("replacement")?
+  owned.write(p"owned-marker", "original")
+  fs.rename_noreplace(cached, fp"{base}/moved")
+  cached.mkdir()
+  fp"{cached}/sentinel".write("replacement")
   cached
 }
 
@@ -70,11 +70,11 @@ test test_temp_root_close_removes_its_directory { |ctx|
   let base = test.temp_dir(ctx, name: "temp-root-removed")?
   let owned = fs.tempdir_in(base)?
   let location = owned.host_path()?
-  owned.write(p"nested-marker", "owned")?
-  owned.close()?
+  owned.write(p"nested-marker", "owned")
+  owned.close()
   assert ! location.exists()?
 
   let emptied = fs.tempdir_in(base)?
-  emptied.host_path()?.remove()?
-  emptied.close()?
+  emptied.host_path()?.remove()
+  emptied.close()
 }

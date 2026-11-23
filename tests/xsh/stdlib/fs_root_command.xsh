@@ -49,8 +49,8 @@ test fs_root_command_runs_the_opened_file_after_its_path_is_swapped { |ctx|
   let rooted = root.command(p"bin/sh", argv, env: {OUT: f"{base}/rooted"})?
   let by_path = process.command_argv(fp"{base}/root/bin/sh", argv, env: {OUT: f"{base}/by-path"})
 
-  root.rename(from: p"bin", to: p"moved")?
-  root.symlink(target: fp"{base}/outside", path: p"bin")?
+  root.rename(from: p"bin", to: p"moved")
+  root.symlink(target: fp"{base}/outside", path: p"bin")
 
   assert process.run(rooted)?.ok
   assert fp"{base}/rooted".read_text()? == "inside\n"

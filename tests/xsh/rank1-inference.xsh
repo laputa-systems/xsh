@@ -59,17 +59,17 @@ export pure name_of(value) {
 export pure project_identity(value) {
   identity(name_of(value))
 }
-""")?
+""")
   fp"{modules}/composition-int.xsh".write(r"""##! Integer specialization of the composed helper.
 use composition as helpers
 ## Exposes the integer specialization of the composed helper.
 export let value: Int = helpers.project_identity({name: 42, enabled: true})
-""")?
+""")
   fp"{modules}/composition-text.xsh".write(r"""##! Text specialization of the composed helper.
 use composition as helpers
 ## Exposes the text specialization of the composed helper.
 export let value: Str = helpers.project_identity({name: "demo", version: "1.0"})
-""")?
+""")
 
   let integer_first = test.run_xsh(
     ctx,
@@ -526,7 +526,7 @@ export proc execute(value: Int) [error] -> Result[Unit, Error] {
   return when value == 7
   Err(RequestError.Rejected())
 }
-""")?
+""")
   let accepted = test.run_xsh(
     ctx,
     "use requests as actions\nactions.execute(7)?\nassert actions.rejected() is Err(_)\nprint \"accepted\"\n",

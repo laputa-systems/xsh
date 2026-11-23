@@ -99,7 +99,7 @@ proc sample_clocks(target: Path, window_ms: Int, period_ms: Int) [fs, process, t
 
 proc announce(text: Str) [fs, io, error] {
   print f"VMMARK {text}"
-  io.flush_stdout()?
+  io.flush_stdout()
 }
 
 proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
@@ -220,12 +220,12 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
       let relink = world.run_support(setup, true, "dhcp_server_link", [world.SERVER_INTERFACE, world.SERVER_ADDRESS, f"{world.SERVER_PREFIX}"], fp"{dir}/recreate.log")?
       fp"{dir}/recreate.status".write(f"{relink.shell_code()?}\n")
     }
-    "mark" => announce(step.text ?? "")?
-    "sample" => sample_clocks(fp"{dir}/{required(step.file, "file", step.do)?}", step.ms ?? 10000, 100)?
-    "wall_step" => linux.set_system_clock(time.now() + (step.ms ?? 0))?
+    "mark" => announce(step.text ?? "")
+    "sample" => sample_clocks(fp"{dir}/{required(step.file, "file", step.do)?}", step.ms ?? 10000, 100)
+    "wall_step" => linux.set_system_clock(time.now() + (step.ms ?? 0))
     "measure" => {
       guard let job = table.get(step.name ?? "client") else { return Err(error.failure("no such job to measure")) }
-      measure(job, step.ms ?? 10000, fp"{dir}/measure-{step.name ?? "client"}.json")?
+      measure(job, step.ms ?? 10000, fp"{dir}/measure-{step.name ?? "client"}.json")
     }
     "sleep" => time.sleep((step.ms ?? 0) * 1ms)
     "wait_for" => wait_for(fp"{dir}/{required(step.file, "file", step.do)?}", step.text ?? "", step.ms ?? 5000)
@@ -241,7 +241,7 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
         fixture.link_up(world.CLIENT_INTERFACE)
       }
     }
-    "abort" => process.kill(process.current_pid()?, "KILL")?
+    "abort" => process.kill(process.current_pid()?, "KILL")
     "snapshot" => snapshot(fp"{dir}/{step.name ?? "snapshot"}.json")
     else => return Err(error.failure(f"unknown step {step.do}"))
   }

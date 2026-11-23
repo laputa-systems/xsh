@@ -64,7 +64,7 @@ test ssh_command_strings_round_trip_hostile_arguments_through_a_posix_shell {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -89,7 +89,7 @@ test ssh_command_strings_with_nul_are_refused_before_submission {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }

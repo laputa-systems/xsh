@@ -29,7 +29,7 @@ test ssh_pinned_connect_succeeds {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -55,7 +55,7 @@ test ssh_session_survives_a_proc_return {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -76,7 +76,7 @@ test ssh_changed_pin_is_rejected {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -98,7 +98,7 @@ test ssh_scope_releases_session {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -135,7 +135,7 @@ proc connect_options(suffix: Str) [env, error] -> Result[Base, Error] {
 
 proc known_hosts_file(root: Path, name: Str, lines: List[Str]) [fs, error] -> Result[Path, Error] {
   let file = fp"{root}/{name}"
-  file.write(lines.join("\n") + "\n")?
+  file.write(lines.join("\n") + "\n")
   file
 }
 
@@ -151,7 +151,7 @@ test ssh_known_hosts_trusts_a_listed_endpoint { |ctx|
   let base = match connect_options("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -166,7 +166,7 @@ test ssh_known_hosts_refuses_unknown_changed_and_revoked_keys { |ctx|
   let base = match connect_options("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -184,7 +184,7 @@ test ssh_connect_requires_exactly_one_trust_and_identity {
   let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -202,7 +202,7 @@ test ssh_info_reports_the_authenticated_host_and_algorithms {
   let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -229,7 +229,7 @@ test ssh_return_from_a_with_body_releases_the_session {
   let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -267,7 +267,7 @@ test ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller {
   let a = match connect_options("A") {
     Ok(value) => value
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }

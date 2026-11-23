@@ -320,7 +320,7 @@ proc internal_command(
   pinned_image: Str? = null,
 ) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   if linux_test_operation(operation) {
-    internal_target_dir(ctx, operation).mkdir(parents: true)?
+    internal_target_dir(ctx, operation).mkdir(parents: true)
     stages.ensure_dir(fp"{ctx.root}/.work/tmp")
   }
   let image = pinned_image ?? (if gate_operation(operation) { resolve_image(ctx)? } else { ensure_image(ctx)? })
@@ -330,7 +330,7 @@ proc internal_command(
   let available_link_tools = host_link_tools(ctx)?
   var common_git = null
   let git_entry = fp"{ctx.root}/.git"
-  if gate_operation(operation) or (linux_test_operation(operation) and git_entry.exists()? and git_entry.is_file()?) {
+  if gate_operation(operation) or (linux_test_operation(operation) and git_entry.exists() and git_entry.is_file()) {
     cd (ctx.root) {
       let output = run.text python3 -B fp"{ctx.root}/dev/gate_source.py" --common-dir
       common_git = fp"{output.trim()}"
@@ -339,7 +339,7 @@ proc internal_command(
   var shared_lease_dir = null
   if common_git != null {
     let lease_dir = fp"{common_git.parent()}/.work/consolidation/infra"
-    lease_dir.mkdir(parents: true)?
+    lease_dir.mkdir(parents: true)
     shared_lease_dir = lease_dir
   }
   let argv = internal_argv(
@@ -373,7 +373,7 @@ proc internal_command(
 export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
   if operation in ["test-linux-split", "test-linux-ci-split"] {
     let temp = fp"{ctx.root}/.work/tmp"
-    temp.mkdir(parents: true)?
+    temp.mkdir(parents: true)
     let control = fs.tempdir_in(temp)?
     defer control.close()
     let directory = control.host_path()?
@@ -395,8 +395,8 @@ export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Boo
 
   return when uid == "" or gid == ""
   let marker = fp"{ctx.root}/.work/tmp/ownership-repaired-{process.current_pid()?}"
-  if ! after_cancellation and marker.exists()? {
-    marker.remove(missing_ok: true)?
+  if ! after_cancellation and marker.exists() {
+    marker.remove(missing_ok: true)
     return
   }
   let container_written = [fp"{ctx.root}/.work/gate", fp"{ctx.root}/.work/consolidation", fp"{ctx.root}/.work/test-records"]
@@ -409,7 +409,7 @@ export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Boo
   return Err(OwnershipError.Unrepaired(file: first, command: f"chown -R {uid}:{gid} {outputs.join(" ")}")) when first != ""
   if after_cancellation {
     stages.ensure_dir(fp"{ctx.root}/.work/tmp")
-    marker.write("repaired")?
+    marker.write("repaired")
   }
 }
 
@@ -434,7 +434,7 @@ proc ask_docker(ctx: context.Context, arguments: List[Str], timeout_ms: Int) [fs
 ## cancelled can leave the container running; this never touches a container the gate did not start. Each docker
 ## call is bounded by query_timeout_ms, so a hung daemon makes the removal unverified instead of blocking.
 export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_timeout_ms: Int = 10000) [fs, process, error, io, time] -> Result[Unit, Error] {
-  return when ! cidfile.exists()?
+  return when ! cidfile.exists()
   let id = cidfile.read_text()?.trim()
   return when id == ""
   guard id.byte_len() == 64 else { return Err(ContainerError.InvalidIdentity(detail: "the cidfile does not hold a container ID")) }
@@ -458,12 +458,12 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_ti
 }
 
 proc remove_registry(ctx: context.Context, registry: Path) [fs, process, error, io, time] -> Result[Unit, Error] {
-  return when ! registry.exists()?
+  return when ! registry.exists()
   var failure: Error? = null
   for entry in fs.children(registry)? {
     if entry.name.ends_with(".cid") {
       match remove_owned_container(ctx, entry.path) {
-        Ok(_) => entry.path.remove(missing_ok: true)?
+        Ok(_) => entry.path.remove(missing_ok: true)
         Err(cause) => {
           match cause {
             ContainerError.Unverified {id: id, detail: detail} => print f"container {id} removal is unverified ({detail}); remove it by hand with: docker rm -f {id}"
@@ -476,7 +476,7 @@ proc remove_registry(ctx: context.Context, registry: Path) [fs, process, error, 
     }
   }
   if let cause = failure { return Err(cause) }
-  registry.remove(missing_ok: true)?
+  registry.remove(missing_ok: true)
 }
 
 proc registry_prefix() [fs, error] -> Result[Str, Error] {
@@ -502,7 +502,7 @@ export proc remove_owned_containers(ctx: context.Context) [fs, process, error, i
 ## belongs to a process that started at another time.
 export proc sweep_stale_containers(ctx: context.Context) [fs, process, error, io, time] -> Result[Unit, Error] {
   let tmp = fp"{ctx.root}/.work/tmp"
-  return when ! tmp.exists()?
+  return when ! tmp.exists()
   let live = [f"{entry.pid}-{entry.start_time_ms}" for entry in process.list()?]
   let prefix = registry_prefix()?
   for entry in fs.children(tmp)? {
@@ -519,7 +519,7 @@ export proc sweep_stale_containers(ctx: context.Context) [fs, process, error, io
 ## cidfile in the run's registry. Whatever way the client ends, a container that is still present is removed and its
 ## removal verified. A cancellation hook removes the registered containers before the client can be killed.
 export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str], confinement: Confinement = Default) [fs, process, env, error, io, time] -> Result[Status, Error] {
-  sweep_stale_containers(ctx)?
+  sweep_stale_containers(ctx)
   let image = if gate_operation(operation) { resolve_image(ctx)? } else { ensure_image(ctx)? }
   let steps = if gate_operation(operation) { [true, false] } else { [false] }
   var outcome: Result[Status, Error]? = null
@@ -527,19 +527,19 @@ export proc run_internal_status(ctx: context.Context, operation: Str, privileged
     let registry = owned_container_dir(ctx)?
     let cidfile = fp"{registry}/{operation}-{time.monotonic()?}.cid"
     let spec = internal_command(ctx, operation, privileged, extra, confinement: confinement, cidfile: cidfile, build_only: build_only, pinned_image: image)?
-    registry.mkdir(parents: true)?
+    registry.mkdir(parents: true)
     print f"[{spec.stage}{if build_only { "-build" } else { "" }} target={spec.target}] {spec.argv.join(" ")}"
     let is_split = operation in ["test-linux-split", "test-linux-ci-split"]
     let executable = if is_split { fp"{ctx.root}/dev/tests/split-docker.sh".display() } else { spec.executable }
     let argv = if is_split { [executable, cidfile.display(), registry.display(), @spec.argv] } else { spec.argv }
     let ran = try { process.run(process.command_argv(executable, argv, cwd: spec.cwd, env: spec.environment))? }
-    remove_owned_container(ctx, cidfile)?
-    cidfile.remove(missing_ok: true)?
+    remove_owned_container(ctx, cidfile)
+    cidfile.remove(missing_ok: true)
     if is_split {
-      fp"{registry}/ready".remove(missing_ok: true)?
-      fp"{registry}/go".remove(missing_ok: true)?
+      fp"{registry}/ready".remove(missing_ok: true)
+      fp"{registry}/go".remove(missing_ok: true)
     }
-    registry.remove(missing_ok: true)? when (fs.children(registry)? |> count()) == 0
+    registry.remove(missing_ok: true) when (fs.children(registry)? |> count()) == 0
     outcome = ran
     break when ! build_only
     match ran {

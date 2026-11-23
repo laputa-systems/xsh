@@ -446,7 +446,7 @@ test test_within_stops_a_network_wait_on_a_silent_server {
     linux.bind(second, {family: "inet", address: "127.0.0.1", port: 0})
     linux.listen(second, 1)
 
-    check_silent_server_deadlines(linux.getsockname(first)?.port, linux.getsockname(second)?.port)?
+    check_silent_server_deadlines(linux.getsockname(first)?.port, linux.getsockname(second)?.port)
     for listener in [first, second] {
       let connection = linux.accept(listener, nonblock: true)?
       defer unix.close_fd(connection.fd)
@@ -472,5 +472,5 @@ test test_within_stops_a_network_wait_on_a_silent_server {
   defer second.cancel()
   time.sleep(300ms)
 
-  check_silent_server_deadlines(port, port + 1)?
+  check_silent_server_deadlines(port, port + 1)
 }

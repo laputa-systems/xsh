@@ -1,6 +1,6 @@
 proc copy_full_inference_metamorphic_module(root: Path, name: Str) [fs, error] -> Result[Unit] {
   let fixture = fp"tests/fixtures/modules/full-inference-metamorphic/{name}"
-  fp"{root}/{name}".write(fixture.read_text()?)?
+  fp"{root}/{name}".write(fixture.read_text()?)
   Ok()
 }
 
@@ -214,7 +214,7 @@ print ${render("value")}
 
 test test_full_inference_exported_proc_and_stream_schemes_are_client_independent { |ctx|
   let modules = test.temp_dir(ctx, name: "full-inference-metamorphic-clients")?
-  copy_full_inference_metamorphic_module(modules, "transport.xsh")?
+  copy_full_inference_metamorphic_module(modules, "transport.xsh")
   let clients = [
     {
       name: "integer client",
@@ -258,8 +258,8 @@ print ${values[1]}
 test test_full_inference_reordering_independent_import_roots_preserves_client_bytes { |ctx|
   let transport_root = test.temp_dir(ctx, name: "full-inference-metamorphic-transport")?
   let numbers_root = test.temp_dir(ctx, name: "full-inference-metamorphic-numbers")?
-  copy_full_inference_metamorphic_module(transport_root, "transport.xsh")?
-  copy_full_inference_metamorphic_module(numbers_root, "numbers.xsh")?
+  copy_full_inference_metamorphic_module(transport_root, "transport.xsh")
+  copy_full_inference_metamorphic_module(numbers_root, "numbers.xsh")
   let first_roots = f"{transport_root.display()}:{numbers_root.display()}"
   let second_roots = f"{numbers_root.display()}:{transport_root.display()}"
   let cases = [

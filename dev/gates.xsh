@@ -180,7 +180,7 @@ pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
 
 ## Resolves the entire focused dependency closure before returning commands.
 export pure resolve_selection(entries: List[CatalogCase], ids: List[Str], explicit_ids: List[Str], tier: Tier) -> Result[CatalogPlan, Error] {
-  validate_cases(entries)?
+  validate_cases(entries)
   var resolved: List[CatalogCase] = []
   for id in ids {
     resolved = resolve_case(entries, id, explicit_ids, [], resolved, FocusedAuthority)?
@@ -742,7 +742,7 @@ proc dispatch_manual(ctx: context.Context, profile: tests.TestProfile, request: 
 }
 
 proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: CatalogPlan) [fs, process, env, time, error, io] -> Result[Unit, Error] {
-  full_evidence_path(ctx).remove(missing_ok: true)?
+  full_evidence_path(ctx).remove(missing_ok: true)
   let source = try { bind_source(ctx, full_evidence_id, 30000000000)? }
   for entry in plan.cases {
     match entry.execution {
@@ -758,7 +758,7 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
   match source {
     Ok(bound) => {
       match try { require_source(ctx, bound, full_evidence_id, 30000000000)? } {
-        Ok(_) => store_evidence(full_evidence_path(ctx), full_evidence_id, bound, [], ctx.target.triple, tests.profile_name(profile))?
+        Ok(_) => store_evidence(full_evidence_path(ctx), full_evidence_id, bound, [], ctx.target.triple, tests.profile_name(profile))
         Err(_) => print "Full evidence not recorded: source changed during the run"
       }
     }
@@ -1180,7 +1180,7 @@ pure manual_cases(ctx: context.Context, profile: tests.TestProfile) -> Result[Li
 
 ## Resolves the manual root and its complete dependency and product closure without effects.
 export pure resolve_full(entries: List[CatalogCase]) -> Result[CatalogPlan, Error] {
-  validate_cases(entries)?
+  validate_cases(entries)
   let roots = [entry for entry in entries |> where .id == "full"]
   return Err(PlanError.Invalid(detail: "Full requires exactly one manual root")) when roots.len() != 1 or roots[0].execution != ManualFull
   return Err(PlanError.Invalid(detail: "Full root has no declared verification dependencies")) when roots[0].prerequisite_ids.is_empty()
@@ -1353,7 +1353,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     if changed_path.starts_with("core/") and changed_path.ends_with(".xsh") and changed_path.split("/").len() == 2 {
       let applet_tests = f"core/tests/test-{changed_path[5..changed_path.byte_len() - 4]}.xsh"
-      if fp"{ctx.root}/{applet_tests}".exists()? {
+      if fp"{ctx.root}/{applet_tests}".exists() {
         let note = lane_note(ctx, applet_tests)?
         unresolved += note.unresolved
         for scenario in note.scenarios { lane_scenarios += [scenario] when scenario not in lane_scenarios }
@@ -1413,7 +1413,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     }
     return Err(PlanError.Invalid(detail: f"native case {id} has no file owner")) when file not in owner.native_files
     let native_path = fp"{ctx.root}/{file}"
-    return Err(PlanError.Invalid(detail: f"native case {id} is missing")) when ! native_path.exists()?
+    return Err(PlanError.Invalid(detail: f"native case {id} is missing")) when ! native_path.exists()
     let resolved_path = native_path.resolve()?
     let owned_root = ctx.root.resolve()?.display() + "/"
     return Err(PlanError.Invalid(detail: f"native case {id} escapes the owned source root")) when ! resolved_path.display().starts_with(owned_root)
@@ -1574,8 +1574,8 @@ proc run_laputa(ctx: context.Context, profile: tests.TestProfile, case_id: Str, 
       return Err(ExecutionError.Incomplete(case_id: case_id, raw_status: raw)) when raw == 2
       return Err(ExecutionError.Failed(case_id: case_id, raw_status: raw)) when raw != 0
       let bindings = bind_products(ctx, profile, laputa_products(case_id), case_id, 30000000000)?
-      require_source(ctx, source, case_id, 30000000000)?
-      require_laputa_source(ctx, root, case_id, laputa_source)?
+      require_source(ctx, source, case_id, 30000000000)
+      require_laputa_source(ctx, root, case_id, laputa_source)
       return store_evidence(case_evidence_path(ctx, case_id), case_id, source,
         [evidence_product(ctx, tests.product_path(ctx, profile, binding.product).display(), binding.digest, binding.mode) for binding in bindings],
         ctx.target.triple, tests.profile_name(profile), laputa: {root: root, source: laputa_source})
@@ -1597,7 +1597,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
   let output = fp"{scratch_path}/report.json"
   let config_path = fp"{scratch_path}/config.json"
   let fixtures = fp"{scratch_path}/fixtures"
-  fixtures.mkdir()?
+  fixtures.mkdir()
   let fixture_args = if case_name == "json-n" {
     ["python3", "-B", fp"{ctx.root}/bench/consolidation/fixtures.py".display(), fp"{fixtures}/2048".display()]
   } else {
@@ -1626,7 +1626,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
     measurement: {fixtures: fixtures.display(), output: output.display()},
     gate_binding: {source_digest: source, product_digest: product.digest, product_mode: product.mode},
   }
-  config_path.write(json.encode(config)?)?
+  config_path.write(json.encode(config)?)
   let command = stages.command(case_id, ctx.target.triple, "python3", [
     "python3", "-B", "-m", "dev.performance.focused", "--config", config_path.display(), "--case", case_name,
   ], ctx.root, {})
@@ -1663,7 +1663,7 @@ proc run_focused_workload(ctx: context.Context, profile: tests.TestProfile, sour
         Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: case_id,
           detail: cause.message)) }
       }
-      require_source(ctx, source, case_id, 30000000000)?
+      require_source(ctx, source, case_id, 30000000000)
       let current = bind_product(ctx, xsh.display(), "xsh", case_id, 30000000000)?
       return Err(ExecutionError.ProductChanged(case_id: case_id, product: "xsh")) when current != product
       let resource_report = try {
@@ -1719,7 +1719,7 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
       tokei_mode: tokei_product.mode,
     },
   }
-  config_path.write(json.encode(config)?)?
+  config_path.write(json.encode(config)?)
   let command = stages.command(tokei_scenario_case_id, ctx.target.triple, "python3", [
     "python3", "-B", "-m", "dev.performance.tokei_scenario", "--config", config_path.display(),
   ], ctx.root, {TMPDIR: fp"{ctx.root}/.work/tmp"})
@@ -1782,7 +1782,7 @@ proc run_tokei_rust(ctx: context.Context, profile: tests.TestProfile, source: St
         Err(cause) => { return Err(ExecutionError.ResultsUnavailable(case_id: tokei_scenario_case_id,
           detail: cause.message)) }
       }
-      require_source(ctx, source, tokei_scenario_case_id, 30000000000)?
+      require_source(ctx, source, tokei_scenario_case_id, 30000000000)
       let current_xsh = bind_product(ctx, xsh.display(), "xsh", tokei_scenario_case_id, 30000000000)?
       return Err(ExecutionError.ProductChanged(case_id: tokei_scenario_case_id, product: "xsh")) when current_xsh != xsh_product
       let current_tokei = bind_product(ctx, tokei_path, "tokei-14.0.0", tokei_scenario_case_id, 30000000000)?
@@ -1812,7 +1812,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
   let profile = tests.execution_profile()?
   let plan = plan_paths(ctx, profile, paths, ids, tier)?
   if output == InspectStatus {
-    inspect_evidence(ctx, profile, plan, laputa_root)?
+    inspect_evidence(ctx, profile, plan, laputa_root)
     if ! plan.unresolved.is_empty() { exit 2 }
     return
   }
@@ -1826,7 +1826,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     let regular_ids = [id for id in ids if id not in laputa_case_ids]
     let preparation = ["--source-digest", source ?? "", "--laputa-preparation", laputa_id, "--tier", tier_name(tier)]
     env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
-      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
+      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)
     }
     var regular_incomplete = false
     if ! paths.is_empty() or ! regular_ids.is_empty() {
@@ -1860,9 +1860,9 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     let image = gate_image(ctx, focused_case_id)?
     let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", focused_case_id]
     env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
-      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
+      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)
     }
-    require_source(ctx, source ?? "", focused_case_id, 30000000000)?
+    require_source(ctx, source ?? "", focused_case_id, 30000000000)
     let xsh = tests.product_path(ctx, profile, tests.Xsh)
     let product = bind_product(ctx, xsh.display(), "xsh", focused_case_id, 30000000000)?
     return run_focused_workload(ctx, profile, source ?? "", product, image, focused_case_id, focused_case_name)
@@ -1879,9 +1879,9 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     }
     let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", tokei_scenario_case_id]
     env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
-      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
+      container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)
     }
-    require_source(ctx, source ?? "", tokei_scenario_case_id, 30000000000)?
+    require_source(ctx, source ?? "", tokei_scenario_case_id, 30000000000)
     let xsh = tests.product_path(ctx, profile, tests.Xsh)
     let xsh_product = bind_product(ctx, xsh.display(), "xsh", tokei_scenario_case_id, 30000000000)?
     return run_tokei_rust(ctx, profile, source ?? "", xsh_product, tokei_path, corpus_root, image)
@@ -2075,7 +2075,7 @@ proc prepared_harness(spec: contract.CommandSpec, output: Path, target_dir: Path
     }
     if reason == "compiler-artifact" {
       let profile = record.get("profile")?.require(Record)?
-      if profile.get("test")?.require(Bool)? {
+      if profile.get("test")?.require(Bool) {
         let candidate = record.get("executable")?.require(Str?)?
         if candidate != null {
           return Err(PlanError.Invalid(detail: "multiple Cargo test harnesses selected")) when executable != null
@@ -2233,14 +2233,14 @@ pure evidence_product_path(ctx: context.Context, product: EvidenceProduct) -> St
 ## Writes the record for a case that passed.
 export proc store_evidence(record_path: Path, id: Str, source: Str, products: List[EvidenceProduct], target: Str, profile: Str, outside_lane: Int = 0, laputa: LaputaBinding? = null) [fs, time, error] -> Result[Unit, Error] {
   let directory = record_path.parent()
-  if ! directory.exists()? { directory.mkdir(parents: true)? }
+  if ! directory.exists() { directory.mkdir(parents: true) }
   let record: EvidenceRecord = {case: id, source: source, target: target, profile: profile, products: products, recorded_ms: time.now(), outside_lane: outside_lane, laputa: laputa}
   record_path.write_atomic(json.encode(record)?)
 }
 
 ## Compares a stored record with the current source and products.
 export proc evidence_state(ctx: context.Context, record_path: Path, id: Str, current_source: Result[Str, Error], profile: Str, laputa: LaputaBinding? = null) [fs, process, env, time, error, io] -> Result[EvidenceState, Error] {
-  return NotRun when ! record_path.exists()?
+  return NotRun when ! record_path.exists()
   let loaded = try { json.decode(record_path.read_text()?)?.require(EvidenceRecord)? }
   let record = match loaded {
     Ok(value) => value
@@ -2406,7 +2406,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
   var harnesses: Map[Str] = {}
   var harness_bindings: Map[ProductObservation] = {}
   for entry in plan.cases {
-    case_evidence_path(ctx, entry.id).remove(missing_ok: true)?
+    case_evidence_path(ctx, entry.id).remove(missing_ok: true)
     var commands: List[contract.CommandSpec] = []
     var outside_lane = 0
     var compiled = false
@@ -2462,8 +2462,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
       let seconds = required_runtime_seconds(entry.limit)?
       let available_ns = case_budget_ns(entry.tier, seconds, remaining_ns, binding_ns)
       binding_ns = 0
-      require_products(ctx, profile, products, entry.id, available_ns)?
-      require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - started))?
+      require_products(ctx, profile, products, entry.id, available_ns)
+      require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - started))
       let elapsed = time.monotonic()? - started
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when elapsed > available_ns
       remaining_ns -= elapsed when entry.tier != Scenario
@@ -2474,8 +2474,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
       let available_ns = case_budget_ns(entry.tier, seconds, remaining_ns, binding_ns)
       binding_ns = 0
       return Err(ExecutionError.BudgetExpired(case_id: entry.id)) when available_ns < 1000000
-      require_products(ctx, profile, products, entry.id, available_ns)?
-      require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))?
+      require_products(ctx, profile, products, entry.id, available_ns)
+      require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))
       if let executable = harness {
         let observed = bind_product(ctx, executable, executable, entry.id, available_ns - (time.monotonic()? - case_started))?
         if let Ok(previous) = harness_bindings.get(executable) {
@@ -2498,7 +2498,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
           native = native_user(ctx)?
           native_prepared = true
         }
-        hand_to_native_user(ctx, native, scratch.host_path()?)?
+        hand_to_native_user(ctx, native, scratch.host_path()?)
       }
       if command.executable == xsht and command.argv.len() == 3 and command.argv[1] == "test" {
         let output = fp"{scratch.host_path()?}/native-ids"
@@ -2518,8 +2518,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
         return Err(ExecutionError.Cancelled(case_id: entry.id, raw_status: raw)) when raw == 130
         return Err(ExecutionError.Incomplete(case_id: entry.id, raw_status: raw)) when raw == 2
         return Err(ExecutionError.Failed(case_id: entry.id, raw_status: raw)) when ! status.ok
-        require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))?
-        require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))?
+        require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))
+        require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))
         let text = match output.read_text() {
           Ok(value) => value
           Err(cause) => { return Err(ExecutionError.DiscoveryUnavailable(case_id: entry.id, detail: cause.message)) }
@@ -2588,8 +2588,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
         }
         let current = bind_product(ctx, executable, executable, entry.id, available_ns - (time.monotonic()? - case_started))?
         return Err(ExecutionError.ProductChanged(case_id: entry.id, product: executable)) when current != harness_bindings.get(executable)?
-        require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))?
-        require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))?
+        require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))
+        require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))
         let names_output = fp"{scratch.host_path()?}/cargo-ids"
         let discovery_reader = {...command, stage: f"{entry.id}-discovery-results", executable: "python3",
           argv: ["python3", "-B", fp"{ctx.root}/dev/performance/results.py".display(), "--runner", "cargo",
@@ -2681,8 +2681,8 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
             let current = bind_product(ctx, executable, executable, entry.id, available_ns - (time.monotonic()? - case_started))?
             return Err(ExecutionError.ProductChanged(case_id: entry.id, product: executable)) when current != harness_bindings.get(executable)?
           }
-          require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))?
-          require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))?
+          require_products(ctx, profile, products, entry.id, available_ns - (time.monotonic()? - case_started))
+          require_source(ctx, source, entry.id, available_ns - (time.monotonic()? - case_started))
         }
         gate_execution.TimedOut(cause) => { return Err(ExecutionError.TimedOut(case_id: entry.id, cause: cause)) }
         gate_execution.CouldNotExecute(cause) => { return Err(ExecutionError.ProcessFailed(case_id: entry.id, cause: cause)) }
@@ -2699,7 +2699,7 @@ export proc execute_plan(ctx: context.Context, profile: tests.TestProfile, plan:
           let observed = harness_bindings.get(executable)?
           bound += [evidence_product(ctx, executable, observed.digest, observed.mode)]
         }
-        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, ctx.target.triple, tests.profile_name(profile), outside_lane: outside_lane)?
+        store_evidence(case_evidence_path(ctx, entry.id), entry.id, source, bound, ctx.target.triple, tests.profile_name(profile), outside_lane: outside_lane)
       }
       Alias | ManualFull | ManualPreparation(_) | ManualCommand(_) | ManualNative | ManualDocumentation => {}
     }

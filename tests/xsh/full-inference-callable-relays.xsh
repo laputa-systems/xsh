@@ -8,7 +8,7 @@ export proc wrap(value) {
   value
 }
 """,
-  )?
+  )
   fp"{modules}/streams.xsh".write(
     r"""##! Generic stream relay for full inference tests.
 
@@ -20,7 +20,7 @@ export stream replay(value, count) {
   }
 }
 """,
-  )?
+  )
   modules
 }
 

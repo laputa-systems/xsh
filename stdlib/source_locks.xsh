@@ -108,8 +108,8 @@ proc download(item: Input, url: Str, destination: Path) -> Result[Unit] {
   } else {
     let _ = net.download({url: url, dest: staged, timeout: 120s, redirects: 10, fail_status: true, headers: [{name: "User-Agent", value: "laputa-buildlib/0.1"}]})?
   }
-  verify_file(staged, item)?
-  staged.rename(to: destination, overwrite: true)?
+  verify_file(staged, item)
+  staged.rename(to: destination, overwrite: true)
   return Ok()
 }
 

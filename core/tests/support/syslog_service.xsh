@@ -49,14 +49,14 @@ export proc prepare(ctx: TestContext, lay: Layout, wrapper: Str = "", extra: Lis
   let reader = unix.open_fd(fifo, nonblock: true)?
   let writer = unix.open_fd(fifo, write: true, nonblock: true)?
   let inheritable = unix.duplicate_fd(writer, min_fd: 100)?
-  unix.dup_fd(inheritable, inheritable)?
-  unix.close_fd(writer)?
+  unix.dup_fd(inheritable, inheritable)
+  unix.close_fd(writer)
   Ok({command: xsh_command(ctx, lay, wrapper, extra, inheritable, stderr_file ?? lay.log), layout: lay, ready: reader, inheritable: inheritable})
 }
 
 ## Drops the parent's copy of the readiness descriptor once the child is spawned.
 export proc attach(prepared: Prepared) [process, error] {
-  unix.close_fd(prepared.inheritable)?
+  unix.close_fd(prepared.inheritable)
 }
 
 ## Waits until the readiness byte arrives, then checks that the socket is already
@@ -70,7 +70,7 @@ export proc await_ready(prepared: Prepared) [fs, net, process, error] {
 
 ## Closes the readiness reader.
 export proc finish(prepared: Prepared) [process, error] {
-  unix.close_fd(prepared.ready)?
+  unix.close_fd(prepared.ready)
 }
 
 ## The log text so far.
@@ -89,7 +89,7 @@ export proc await_containing(lay: Layout, needle: Str, count: Int) [fs, time, er
   while time.now() < deadline {
     let found = [line for line in lay.log.read_text()?.lines() if needle in line]
     if found.len() >= count { return Ok(found) }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   Err(error.failure(f"the log never reached {count} lines containing {needle}"))
 }
@@ -100,7 +100,7 @@ export proc await_containing_in(file: Path, needle: Str, count: Int) [fs, time, 
   while time.now() < deadline {
     let found = [line for line in file.read_text()?.lines() if needle in line]
     if found.len() >= count { return Ok(found) }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   Err(error.failure(f"{file} never reached {count} lines containing {needle}"))
 }
@@ -111,7 +111,7 @@ export proc await_lines(lay: Layout, prefix: Str, count: Int) [fs, time, error] 
   while time.now() < deadline {
     let found = lines_with(lay, prefix)?
     if found.len() >= count { return Ok(found) }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   Err(error.failure(f"the log never reached {count} lines starting with {prefix}"))
 }

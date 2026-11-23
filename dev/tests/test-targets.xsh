@@ -10,8 +10,8 @@ use targets as target_policy
 use unix
 
 proc install_split_wrapper(root: Path) [fs, error] -> Result[Unit, Error] {
-  fp"{root}/dev/tests".mkdir(parents: true)?
-  fp"{root}/dev/tests/split-docker.sh".write("#!/bin/sh\nshift 2\nexec \"$@\"\n", mode: 0o755)?
+  fp"{root}/dev/tests".mkdir(parents: true)
+  fp"{root}/dev/tests/split-docker.sh".write("#!/bin/sh\nshift 2\nexec \"$@\"\n", mode: 0o755)
 }
 
 test test_linux_docker_workflows_prepare_host_writable_scratch { |ctx|
@@ -21,7 +21,7 @@ test test_linux_docker_workflows_prepare_host_writable_scratch { |ctx|
   for operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"] {
     let checkout = fp"{root}/{operation}"
     checkout.mkdir()
-    install_split_wrapper(checkout)?
+    install_split_wrapper(checkout)
     let probe = fp"{checkout}/.work/tmp/probe"
     fp"{tools}/docker".write(f"""#!{ctx.xsh_bin}
 if args[0] == "run" {{
@@ -29,7 +29,7 @@ if args[0] == "run" {{
 }}
 """, mode: 0o755)
     env ({PATH: tools, XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture"}) {
-      docker_workflows.run_internal({...fixtures.linux_context(checkout)?, host_arch: target_policy.Aarch64}, operation, false, [])?
+      docker_workflows.run_internal({...fixtures.linux_context(checkout)?, host_arch: target_policy.Aarch64}, operation, false, [])
     }
     assert probe.read_text()? == "writable"
     assert fs.stat(probe.parent())?.uid == unix.id()?.euid
@@ -219,11 +219,11 @@ test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
   }
   let root = test.temp_dir(ctx, name: "split-quota-handshake")?
   let tools = fp"{root}/tools"
-  tools.mkdir()?
+  tools.mkdir()
   let log = fp"{root}/docker-log"
-  fp"{tools}/docker".write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_LOG\"\n", mode: 0o755)?
+  fp"{tools}/docker".write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_LOG\"\n", mode: 0o755)
   let container = fp"{root}/container"
-  container.write("#!/bin/sh\nprintf '%s' fake-id > \"$1/id\"\n: > \"$1/ready\"\nwhile [ ! -e \"$1/go\" ]; do /bin/sleep 0.01; done\n", mode: 0o755)?
+  container.write("#!/bin/sh\nprintf '%s' fake-id > \"$1/id\"\n: > \"$1/ready\"\nwhile [ ! -e \"$1/go\" ]; do /bin/sleep 0.01; done\n", mode: 0o755)
   let wrapper = fp"{fs.cwd()?}/dev/tests/split-docker.sh"
   let status = process.run(process.command_argv(wrapper,
     [wrapper, fp"{root}/id", root, container, root],
@@ -265,7 +265,7 @@ test test_linux_test_docker_argv_isolates_products_and_keeps_registry_cache {
 
 test test_linux_ci_maps_requested_architecture_and_isolates_host_products { |ctx|
   let root = test.temp_dir(ctx, name: "linux-test-product-isolation")?
-  install_split_wrapper(root)?
+  install_split_wrapper(root)
   let tools = fp"{root}/tools"
   tools.mkdir()
   let log = fp"{root}/docker.log"

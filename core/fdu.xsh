@@ -679,5 +679,5 @@ proc main(...argv: List[Str]) [env, fs, process, io, time, error] {
     exit 1
   }
   let app = initial_app(tree, options.target, options.target_name, options.excludes, options.read_only, options.apparent)
-  interactive(app)?
+  interactive(app)
 }

@@ -14,7 +14,7 @@ export let name: Str = "demo"
 export let rows: List[Record] = [{kind: "ready"}]
 ## Renders a label.
 export pure render(value: Str) -> Str { "demo-" + value }
-""")?
+""")
   bad_name.write(r"""##! A module with an incompatible value export.
 ## The incompatible name.
 export let name: Int = 1
@@ -22,7 +22,7 @@ export let name: Int = 1
 export let rows: List[Record] = []
 ## Renders a label.
 export pure render(value: Str) -> Str { value }
-""")?
+""")
   bad_callable.write(r"""##! A module with an incompatible callable export.
 ## The module name.
 export let name: Str = "demo"
@@ -30,7 +30,7 @@ export let name: Str = "demo"
 export let rows: List[Record] = []
 ## The incompatible rendering result.
 export pure render(value: Str) -> Int { value.byte_len() }
-""")?
+""")
   let source = r"""type Info = module {
   export let name: Str
   export let rows: List[Record]
@@ -242,7 +242,7 @@ let value = Box(value: raw.require()?, anchor: 1)
 
 test test_require_imported_phantom_schema_needs_ground_target { |ctx|
   let modules = test.temp_dir(ctx, name: "require-imported-phantom")?
-  fp"{modules}/model.xsh".write("##! Imported phantom schema.\n## An entry with a label.\nexport type Entry[T] = {label: Str}\n")?
+  fp"{modules}/model.xsh".write("##! Imported phantom schema.\n## An entry with a label.\nexport type Entry[T] = {label: Str}\n")
   let accepted = test.run_xsh(ctx, r"""use model as m
 let good: Any = {label: "ready"}
 let bad: Any = {label: 7}

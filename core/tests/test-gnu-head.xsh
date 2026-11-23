@@ -160,7 +160,7 @@ test test_gnu_head_head_pos_log { |ctx|
 
 # origin: gnu head/head-write-error.log
 test test_gnu_head_head_write_error_log { |ctx|
-  if system.uname()?.sysname != "Linux" and ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
+  if system.uname()?.sysname != "Linux" and ! p"/dev/full".exists() { test.skip("macOS has no /dev/full device"); return }
   let s = uu.scene(ctx)?
   uu.write_bytes(s, "bigseek", bytes.concat([b"y\n" for _ in range(0, 5 * 1024 * 1024)]))
   let diagnostic = "head: error writing 'standard output': No space left on device\n"

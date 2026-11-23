@@ -2,7 +2,7 @@ proc main(...arguments: List[Str]) [fs, error, io] {
   guard arguments.len() == 1 else { exit 2 }
   let product_path = fp"{arguments[0]}"
   let before = fs.stat(product_path)?
-  guard before.kind == "file" and product_path.executable()? else { exit 2 }
+  guard before.kind == "file" and product_path.executable() else { exit 2 }
   let digest = hash.sha256(product_path)?.hex()
   let after = fs.stat(product_path)?
   guard before.kind == after.kind and before.dev == after.dev and before.ino == after.ino and

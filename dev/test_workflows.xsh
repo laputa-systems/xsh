@@ -260,9 +260,9 @@ export proc full(
   privileged = false,
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
   let records = test_records(ctx)
-  records.remove()?
+  records.remove()
   let cargo_records = fp"{records}/cargo"
-  cargo_records.mkdir(parents: true)?
+  cargo_records.mkdir(parents: true)
   if ctx.target.os == "linux" and unix.id()?.euid == 0 {
     let owner = f"{env.get("HOST_UID")?.trim()}:{env.get("HOST_GID")?.trim()}"
     stages.execute(stages.command("test-records-owner", ctx.target.triple, "chown",
@@ -270,9 +270,9 @@ export proc full(
   }
   let root = ctx.root.display()
   let commit = run.capture --text git -C $root rev-parse HEAD
-  fp"{records}/commit".write(commit.stdout)?
+  fp"{records}/commit".write(commit.stdout)
   env ({XSH_CARGO_TIMINGS_DIR: cargo_records.display()}) {
-    run_commands(rust_plan(ctx, profile, privileged)?)?
+    run_commands(rust_plan(ctx, profile, privileged)?)
   }
   native(ctx, profile, ["--events-jsonl", fp"{records}/native-events.jsonl".display()])
 }

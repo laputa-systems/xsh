@@ -123,9 +123,9 @@ proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, e
   } else {
     "COMMAND,TYPE,SIZE,MODE,START,END"
   }
-  parity(s, ["--raw", "--noheadings", "--pid", pid, "--output", columns])?
+  parity(s, ["--raw", "--noheadings", "--pid", pid, "--output", columns])
   if ! holders {
-    parity(s, ["--raw", "--noheadings", "--pid", pid, "--output", "PATH"])?
+    parity(s, ["--raw", "--noheadings", "--pid", pid, "--output", "PATH"])
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
@@ -472,7 +472,7 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
     defer ul.stop_keeper(keeper)
     let ready = json.decode(keeper.ready)?.require(LockReady)?
     for args in [["-r", "-n", "-p", f"{ready.pid}", "-o", "PATH"], ["-n", "-p", f"{ready.pid}", "-o", "PATH"]] {
-      parity(s, args, {LC_ALL: "C.UTF-8"})?
+      parity(s, args, {LC_ALL: "C.UTF-8"})
     }
     ul.keeper_send(keeper, "DONE")
     ul.finish_keeper(keeper)
@@ -505,11 +505,11 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
     let candidate = uu.invoke_paths(s, "lslocks", args, timeout: 5s)?
     ul.compare(reference, candidate)
   }
-  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH != \"\""])?
+  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH != \"\""])
   let raw_filter = bytes.concat([b"PATH == \"", invalid_utf8.bytes(), b"\""]) as Path
   let filter_args = [p"-r", p"-n", p"-p", fp"{invalid_pid}", p"-o", p"PID", p"-Q", raw_filter]
   ul.compare(ul.reference_paths(s, "lslocks", filter_args)?, uu.invoke_paths(s, "lslocks", filter_args, timeout: 5s)?)
-  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH =~ \"ff\""])?
+  parity(s, ["-r", "-n", "-p", invalid_pid, "-o", "PID", "-Q", "PATH =~ \"ff\""])
   ul.keeper_send(invalid_utf8_keeper, "DONE")
   ul.finish_keeper(invalid_utf8_keeper)
   Ok()
@@ -592,7 +592,7 @@ test test_lslocks_list_columns_modes { |ctx|
     ["-H"], ["--list-columns", "--raw"], ["-H", "--json"],
     ["-H", "-r"], ["-H", "-J"], ["-H", "-b"],
   ] {
-    parity(s, args)?
+    parity(s, args)
   }
   let listing = compared(s, ["--list-columns", "--raw"])?
   let text = listing.stdout.utf8()?
@@ -605,7 +605,7 @@ test test_lslocks_list_columns_modes { |ctx|
 test test_lslocks_raw_noheadings_and_json { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  output_lock_modes_case(s)?
+  output_lock_modes_case(s)
 }
 
 test test_lslocks_defaults_and_lslocks_columns { |ctx|
@@ -644,8 +644,8 @@ test test_lslocks_output_column_names_and_errors { |ctx|
     let result = compared_with_stdout_dump(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty(), args.join(" ")
   }
-  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])?
-  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])?
+  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])
+  parity(s, ["-p", pid, "-o", "PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID,PID"])
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
   for args in [
@@ -654,7 +654,7 @@ test test_lslocks_output_column_names_and_errors { |ctx|
     ["--output", "PID,BOGUS,TYPE"], ["--output", "BOGUS,TYPE"],
     ["--output", "+BOGUS,TYPE"], ["-o", "UNKNOWN"], ["-o"],
   ] {
-    rejected(s, args)?
+    rejected(s, args)
   }
 }
 
@@ -673,42 +673,42 @@ test test_lslocks_help_and_usage_errors { |ctx|
     ["--pid", "-1"], ["--pid", "2147483648"], ["--filter"], ["-Q"],
     ["--json", "--raw"], ["-J", "-r"],
   ] {
-    rejected(s, args)?
+    rejected(s, args)
   }
 }
 
 test test_lslocks_smartcols_json_environment { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  json_environment_case(s)?
+  json_environment_case(s)
 }
 
 test test_lslocks_deleted_path_and_owner_exit { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  deleted_path_and_owner_exit_case(s)?
+  deleted_path_and_owner_exit_case(s)
 }
 
 test test_lslocks_path_escaping_and_non_utf8_names { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  path_escaping_case(s)?
+  path_escaping_case(s)
 }
 
 test test_lslocks_reference_path_bytes { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  reference_path_case(s)?
+  reference_path_case(s)
 }
 
 test test_lslocks_filter_errors { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   for args in [["-J", "-r", "-h"], ["-p", "abc", "-h"], ["-Q", "bad(", "-h"], ["-Q", "PID ==", "-H"], ["-p", "abc", "-J", "-r"], ["-J", "-r", "-p", "abc"]] {
-    parity(s, args)?
+    parity(s, args)
   }
   for expression in ["PATH =~ \"(\"", "PATH =~ \"[\"", "PATH =~ \"*\"", "PATH =~ \"[a-\"", "PID > 0)"] {
-    parity(s, ["-Q", expression])?
+    parity(s, ["-Q", expression])
   }
   let missing_operand = compared(s, ["--filter", "TYPE =="])?
   assert missing_operand.status == 1 and missing_operand.stdout.is_empty()
@@ -740,7 +740,7 @@ test test_lslocks_filter_empty_and_non_numeric { |ctx|
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   for expression in ["START == \"x\"", ""] {
-    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "PATH", "-Q", expression])?
+    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "PATH", "-Q", expression])
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
@@ -749,13 +749,13 @@ test test_lslocks_filter_empty_and_non_numeric { |ctx|
 test test_lslocks_filter_values_and_hidden_columns { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  filtered_lock_case(s)?
+  filtered_lock_case(s)
 }
 
 test test_lslocks_default_and_selected_lock_rows { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  selected_lock_rows_case(s)?
+  selected_lock_rows_case(s)
 }
 
 test test_lslocks_version_provenance { |ctx|
@@ -770,136 +770,136 @@ test test_lslocks_version_provenance { |ctx|
 test test_lslocks_upstream_flock_sh { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "flock-sh", false)?
+  upstream_lock_case(s, "flock-sh", false)
 }
 
 test test_lslocks_upstream_flock_ex { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "flock-ex", false)?
+  upstream_lock_case(s, "flock-ex", false)
 }
 
 test test_lslocks_upstream_posix_read { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "posix-r-", false)?
+  upstream_lock_case(s, "posix-r-", false)
 }
 
 test test_lslocks_upstream_posix_write { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "posix--w", false)?
+  upstream_lock_case(s, "posix--w", false)
 }
 
 test test_lslocks_upstream_posix_read_write { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "posix-rw", false)?
+  upstream_lock_case(s, "posix-rw", false)
 }
 
 test test_lslocks_upstream_ofd_read { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd-r-", false)?
+  upstream_lock_case(s, "ofd-r-", false)
 }
 
 test test_lslocks_upstream_ofd_write { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd--w", false)?
+  upstream_lock_case(s, "ofd--w", false)
 }
 
 test test_lslocks_upstream_ofd_read_write { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd-rw", false)?
+  upstream_lock_case(s, "ofd-rw", false)
 }
 
 test test_lslocks_upstream_lease_write { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "lease-w", false)?
+  upstream_lock_case(s, "lease-w", false)
 }
 
 test test_lslocks_upstream_flock_sh_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "flock-sh", true)?
+  upstream_lock_case(s, "flock-sh", true)
 }
 
 test test_lslocks_upstream_flock_ex_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "flock-ex", true)?
+  upstream_lock_case(s, "flock-ex", true)
 }
 
 test test_lslocks_upstream_ofd_read_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd-r-", true)?
+  upstream_lock_case(s, "ofd-r-", true)
 }
 
 test test_lslocks_upstream_ofd_write_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd--w", true)?
+  upstream_lock_case(s, "ofd--w", true)
 }
 
 test test_lslocks_upstream_ofd_read_write_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "ofd-rw", true)?
+  upstream_lock_case(s, "ofd-rw", true)
 }
 
 test test_lslocks_posix_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "posix-r-", true)?
+  upstream_lock_case(s, "posix-r-", true)
 }
 
 test test_lslocks_upstream_lease_write_holders { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  upstream_lock_case(s, "lease-w", true)?
+  upstream_lock_case(s, "lease-w", true)
 }
 
 test test_lslocks_blocker_flock { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  blocked_lock_case(s, "flock-ex")?
+  blocked_lock_case(s, "flock-ex")
 }
 
 test test_lslocks_blocker_posix { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  blocked_lock_case(s, "posix--w")?
+  blocked_lock_case(s, "posix--w")
 }
 
 test test_lslocks_blocker_ofd { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  blocked_lock_case(s, "ofd--w")?
+  blocked_lock_case(s, "ofd--w")
 }
 
 test test_lslocks_all_columns_types_and_json { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  all_columns_json_case(s)?
+  all_columns_json_case(s)
 }
 
 test test_lslocks_bytes_and_human_size { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  byte_size_case(s)?
+  byte_size_case(s)
 }
 
 test test_lslocks_ranges_and_eof { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  ranged_lock_case(s, "posix-rw", ["0:0:READ", "2:2:WRITE"])?
-  ranged_lock_case(s, "posix-eof-w", ["2:0:WRITE"])?
-  ranged_lock_case(s, "ofd-rw", ["0:0:READ", "2:2:WRITE"])?
-  ranged_lock_case(s, "ofd-eof-w", ["2:0:WRITE"])?
+  ranged_lock_case(s, "posix-rw", ["0:0:READ", "2:2:WRITE"])
+  ranged_lock_case(s, "posix-eof-w", ["2:0:WRITE"])
+  ranged_lock_case(s, "ofd-rw", ["0:0:READ", "2:2:WRITE"])
+  ranged_lock_case(s, "ofd-eof-w", ["2:0:WRITE"])
 }
 
 test test_lslocks_human_size_boundaries_match_reference { |ctx|
@@ -910,8 +910,8 @@ test test_lslocks_human_size_boundaries_match_reference { |ctx|
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   for size in [1023, 1024, 4096, 1536, 1048575, 84094976, 1099511627776] {
-    lock_path.truncate(size)?
-    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "SIZE"])?
+    lock_path.truncate(size)
+    parity(s, ["-r", "-n", "-p", f"{ready.pid}", "-o", "SIZE"])
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
@@ -1027,25 +1027,25 @@ test test_lslocks_non_ascii_filter { |ctx|
 
 test test_lslocks_trailing_column_delimiter { |ctx|
   let s = uu.scene(ctx)?
-  rejected(s, ["-o", "COMMAND,PID,"])?
+  rejected(s, ["-o", "COMMAND,PID,"])
 }
 
 test test_lslocks_multibyte_short_option { |ctx|
   let s = uu.scene(ctx)?
-  for args in [["-é"], ["-bé"]] { rejected(s, args)? }
+  for args in [["-é"], ["-bé"]] { rejected(s, args) }
   let _ = compared(s, ["-é"], {LC_ALL: "C.UTF-8"})?
   let _ = compared(s, ["-h", "-é"])?
 }
 
 test test_lslocks_output_mode_conflict_order { |ctx|
   let s = uu.scene(ctx)?
-  for args in [["-r", "-J"], ["-J", "-r"]] { rejected(s, args)? }
+  for args in [["-r", "-J"], ["-J", "-r"]] { rejected(s, args) }
 }
 
 test test_lslocks_pid_leading_whitespace { |ctx|
   let s = uu.scene(ctx)?
   let _ = compared(s, ["-p", " 1"])?
-  for value in ["a'b", "x\nq"] { rejected(s, ["-p", value])? }
+  for value in ["a'b", "x\nq"] { rejected(s, ["-p", value]) }
 }
 
 test test_lslocks_raw_option_diagnostics { |ctx|
@@ -1063,7 +1063,7 @@ test test_lslocks_raw_option_diagnostics { |ctx|
 
 test test_lslocks_argument_error_precedence { |ctx|
   let s = uu.scene(ctx)?
-  for args in [["-p", "abc", "--bogus"], ["-Q", "FOO == 1", "-h"]] { parity(s, args)? }
+  for args in [["-p", "abc", "--bogus"], ["-Q", "FOO == 1", "-h"]] { parity(s, args) }
 }
 
 test test_lslocks_process_name_bytes_and_spaces { |ctx|
@@ -1074,9 +1074,9 @@ test test_lslocks_process_name_bytes_and_spaces { |ctx|
     let keeper = ul.start_keeper(s, script, [lock_path.display(), name])?
     defer ul.stop_keeper(keeper)
     let pid = json.get(json.decode(keeper.ready)?, ["pid"])?.require(Int)?
-    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS"])?
-    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-J"])?
-    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-r"])?
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS"])
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-J"])
+    parity(s, ["-p", f"{pid}", "-o", "COMMAND,HOLDERS", "-r"])
     ul.keeper_send(keeper, "DONE")
     ul.finish_keeper(keeper)
   }
@@ -1087,7 +1087,7 @@ test test_lslocks_mount_bytes_fallback { |ctx|
   let script = fp"{s.ctx.core_dir}/tests/data/lslocks-mount-keeper.py"
   for mode in ["fallback"] {
     let root = uu.at(s, mode)
-    root.mkdir()?
+    root.mkdir()
     let keeper = ul.start_keeper(s, script, [root.display(), mode, s.ctx.xsh_bin.display(), fp"{s.ctx.core_dir}/lslocks.xsh".display()])?
     defer ul.stop_keeper(keeper)
     let result = json.decode(keeper.ready)?
@@ -1105,32 +1105,32 @@ test test_lslocks_mount_bytes_fallback { |ctx|
 test test_lslocks_review6_columns { |ctx|
   let s = uu.scene(ctx)?
   for args in [["-o", ","], ["-o", "PID,,"], ["-o", "FOO,,"], ["-o", ",PID,,"]] {
-    parity(s, args)?
+    parity(s, args)
   }
-  parity(s, [], {LSLOCKS_COLUMNS: ","})?
+  parity(s, [], {LSLOCKS_COLUMNS: ","})
 }
 
 test test_lslocks_review6_filter_lexer { |ctx|
   let s = uu.scene(ctx)?
   for expression in ["pıd > 0", "PID == \"a\\\"b\"", "COMMAND == café", "FOO == 1 && BAR", "\"abc"] {
-    parity(s, ["-Q", expression])?
+    parity(s, ["-Q", expression])
   }
 }
 
 
 test test_lslocks_review6_ascii_columns { |ctx|
   let s = uu.scene(ctx)?
-  for args in [["-o", "pıd"], ["-o", "ſize"]] { parity(s, args)? }
+  for args in [["-o", "pıd"], ["-o", "ſize"]] { parity(s, args) }
 }
 
 test test_lslocks_review6_list_columns_filter { |ctx|
   let s = uu.scene(ctx)?
-  parity(s, ["-H", "-Q", "FOO"])?
+  parity(s, ["-H", "-Q", "FOO"])
 }
 
 test test_lslocks_review6_filter_echo { |ctx|
   let s = uu.scene(ctx)?
-  for args in [["-Q", "@ PID > 0", "-p", "abc"], ["-Q", "@ PID > 0", "-h"], ["-Q", "@ PID > 0", "-Q", "#PID == 0"]] { parity(s, args)? }
+  for args in [["-Q", "@ PID > 0", "-p", "abc"], ["-Q", "@ PID > 0", "-h"], ["-Q", "@ PID > 0", "-Q", "#PID == 0"]] { parity(s, args) }
 }
 
 test test_lslocks_review6_merged_filter_error { |ctx|
@@ -1192,7 +1192,7 @@ test test_lslocks_review6_empty_cells { |ctx|
   defer ul.stop_keeper(keeper)
   let pid = json.decode(keeper.ready)?.require(LockReady)?.pid
   for expression in ["BLOCKER == 0", "SIZE == 0", "SIZE", "NOT SIZE"] {
-    parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PATH", "-Q", expression])?
+    parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PATH", "-Q", expression])
   }
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
@@ -1224,9 +1224,9 @@ proc empty_cell_comparisons(s: uu.Scene, column: Str, blocked: Bool) [fs, proces
   Ok()
 }
 
-test test_lslocks_filter_empty_size_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "SIZE", false)? }
-test test_lslocks_filter_empty_blocker_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "BLOCKER", false)? }
-test test_lslocks_filter_empty_holders_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "HOLDERS", true)? }
+test test_lslocks_filter_empty_size_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "SIZE", false) }
+test test_lslocks_filter_empty_blocker_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "BLOCKER", false) }
+test test_lslocks_filter_empty_holders_comparisons { |ctx| empty_cell_comparisons(uu.scene(ctx)?, "HOLDERS", true) }
 
 test test_lslocks_review6_filter_path_bytes { |ctx|
   let s = uu.scene(ctx)?
@@ -1235,7 +1235,7 @@ test test_lslocks_review6_filter_path_bytes { |ctx|
   let keeper = ul.start_keeper(s, script, ["hold-bytes", "posix-r-", s.root.display(), "6c6f636b2dff", "none"])?
   defer ul.stop_keeper(keeper)
   let pid = json.decode(keeper.ready)?.require(BytePathReady)?.pid
-  parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PID", "-Q", f"PATH > \"{s.root}/lock-x\""])?
+  parity(s, ["-r", "-n", "-p", f"{pid}", "-o", "PID", "-Q", f"PATH > \"{s.root}/lock-x\""])
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }

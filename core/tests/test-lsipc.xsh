@@ -345,7 +345,7 @@ proc known_reference_sigsegv_candidate_success(s: uu.Scene, args: List[Str]) [fs
 
 proc merged_columns_json(s: uu.Scene, output: Bytes) [fs, process, env, error] -> Result[Str, Error] {
   let document = uu.at(s, "merged-columns.json")
-  document.write(output)?
+  document.write(output)
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/merged_json.py"
   let folded = run.capture --text python3 -I $script $document
   assert folded.status.exited_with(0), folded.stderr
@@ -508,7 +508,7 @@ proc compare_option_alias(s: uu.Scene, prefix: List[Str], long: List[Str], short
 }
 
 test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--help"])?
   ul.compare(pair.reference, pair.candidate)
@@ -589,7 +589,7 @@ test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
 }
 
 test test_lsipc_version_preserves_xsh_provenance { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--version"])?
   ul.version_identity(pair.reference, pair.candidate)
@@ -605,7 +605,7 @@ test test_lsipc_version_preserves_xsh_provenance { |ctx|
 }
 
 test test_lsipc_short_option_aliases_match_long_options { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -632,13 +632,13 @@ test test_lsipc_short_option_aliases_match_long_options { |ctx|
     {prefix: [queue_mode.selector], long: ["--time"], short: ["-t"]},
   ]
   for alias in aliases {
-    compare_option_alias(s, alias.prefix, alias.long, alias.short)?
+    compare_option_alias(s, alias.prefix, alias.long, alias.short)
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_long_option_abbreviations_match_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, ["sysv_queue", "posix_mqueue"])?
   defer ul.stop_keeper(fixture.handle)
@@ -658,11 +658,11 @@ test test_lsipc_long_option_abbreviations_match_reference { |ctx|
   assert ambiguous.candidate.status == 1
   assert ambiguous.candidate.stdout == b""
   assert "ambiguous" in (ambiguous.candidate.stderr.utf8() ?? "")
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_rejects_unknown_time_format { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--time-format=invalid"])?
   ul.compare(pair.reference, pair.candidate)
@@ -672,7 +672,7 @@ test test_lsipc_rejects_unknown_time_format { |ctx|
 }
 
 test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let unknown = run_both(s, ["--queues", "--output", "NOT_A_COLUMN"])?
   ul.compare(unknown.reference, unknown.candidate)
@@ -724,7 +724,7 @@ test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
 }
 
 test test_lsipc_output_column_capacity_matches_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   var columns: List[Str] = []
@@ -763,7 +763,7 @@ test test_lsipc_output_column_capacity_matches_reference { |ctx|
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let cases = [
     ["--not-a-real-option"],
@@ -798,7 +798,7 @@ proc parse_reference_json(output: Bytes) [error] -> Result[Unit] {
 }
 
 test test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -876,7 +876,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let posix_pair = args[0].starts_with("--posix-") and args[1].starts_with("--posix-")
     if posix_pair {
       let accepted = known_reference_sigsegv_candidate_success(s, args)?
-      assert_posix_selector_pair_candidate(s, fixture, args, accepted)?
+      assert_posix_selector_pair_candidate(s, fixture, args, accepted)
     } else {
       let accepted = run_both(s, args)?
       ul.compare(accepted.reference, accepted.candidate)
@@ -886,7 +886,7 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let reversed_args = [args[1], args[0]]
     if posix_pair {
       let reversed = known_reference_sigsegv_candidate_success(s, reversed_args)?
-      assert_posix_selector_pair_candidate(s, fixture, reversed_args, reversed)?
+      assert_posix_selector_pair_candidate(s, fixture, reversed_args, reversed)
     } else {
       let reversed = run_both(s, reversed_args)?
       ul.compare(reversed.reference, reversed.candidate)
@@ -896,22 +896,22 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     let json_args = args.extend(["--json"])
     if posix_pair {
       let json_output = known_reference_sigsegv_candidate_success(s, json_args)?
-      assert_posix_selector_pair_candidate(s, fixture, json_args, json_output)?
+      assert_posix_selector_pair_candidate(s, fixture, json_args, json_output)
     } else {
       let json_output = run_both(s, json_args)?
       ul.compare(json_output.reference, json_output.candidate)
       assert json_output.candidate.status == 0, f"rejected JSON resource selectors {args.join(" ")}"
-      parse_reference_json(json_output.candidate.stdout)?
+      parse_reference_json(json_output.candidate.stdout)
     }
     let reversed_json_args = [args[1], args[0], "--json"]
     if posix_pair {
       let reversed_json = known_reference_sigsegv_candidate_success(s, reversed_json_args)?
-      assert_posix_selector_pair_candidate(s, fixture, reversed_json_args, reversed_json)?
+      assert_posix_selector_pair_candidate(s, fixture, reversed_json_args, reversed_json)
     } else {
       let reversed_json = run_both(s, reversed_json_args)?
       ul.compare(reversed_json.reference, reversed_json.candidate)
       assert reversed_json.candidate.status == 0, f"rejected reversed JSON resource selectors {args.join(" ")}"
-      parse_reference_json(reversed_json.candidate.stdout)?
+      parse_reference_json(reversed_json.candidate.stdout)
     }
   }
 
@@ -948,11 +948,11 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
   assert posix_columns_last.candidate.stdout == b""
   assert posix_columns_last.candidate.stderr != b""
 
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_rejects_id_and_name_without_matching_modes { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let id = run_both(s, ["--id", "1"])?
   ul.compare(id.reference, id.candidate)
@@ -968,7 +968,7 @@ test test_lsipc_rejects_id_and_name_without_matching_modes { |ctx|
 }
 
 test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1002,11 +1002,11 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
     ul.compare(columns.reference, columns.candidate)
     assert columns.candidate.status == 0, mode.args.join(" ")
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1039,7 +1039,7 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
   let reference_finished_ms = time.now()
   assert_snapshot_read_preserves_state(fixture.ready, before, after, mqueue_read_indices, reference_started_ms, reference_finished_ms, "reference resource selection")
 
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
   for mode in RESOURCE_MODES {
     let resource = resource_of(fixture.ready, mode.kind)?
     let args = resource_args(mode, resource)
@@ -1057,7 +1057,7 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
 }
 
 test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1088,7 +1088,7 @@ test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
 }
 
 test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1137,11 +1137,11 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
   assert upper_case.candidate.status == 0
   assert lower_case.candidate.stdout == upper_case.candidate.stdout
   assert full_name.candidate.status == 0
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_id_and_name_select_registered_objects { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1187,11 +1187,11 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
       }
     }
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_id_option_order_controls_detail_columns { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, ["sysv_queue", "sysv_shmem", "sysv_semaphore"])?
   defer ul.stop_keeper(fixture.handle)
@@ -1213,11 +1213,11 @@ test test_lsipc_id_option_order_controls_detail_columns { |ctx|
     assert flag_last.candidate.stdout != b"", mode.selector
     assert id_last.candidate.stdout != flag_last.candidate.stdout, mode.selector
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1236,11 +1236,11 @@ test test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics 
     assert pair.candidate.status == 0, args.join(" ")
     assert pair.candidate.stderr != b"", args.join(" ")
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_creator_and_time_options_report_live_metadata { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1279,11 +1279,11 @@ test test_lsipc_creator_and_time_options_report_live_metadata { |ctx|
       assert pair.candidate.stdout != b"", f"{mode.selector} {format}"
     }
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_bytes_and_numeric_permissions_match_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1299,11 +1299,11 @@ test test_lsipc_bytes_and_numeric_permissions_match_reference { |ctx|
   let global = run_both(s, ["--global", "--bytes"])?
   ul.compare(global.reference, global.candidate)
   assert global.candidate.status == 0
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
@@ -1374,11 +1374,11 @@ test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
     assert pair.candidate.stdout != b"", args.join(" ")
     if "--json" in args { let _ = json.decode(pair.candidate.stdout.utf8() ?? "")? }
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1403,11 +1403,11 @@ test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
       assert owner.candidate.stdout != observer.candidate.stdout, mode.selector
     }
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
@@ -1438,11 +1438,11 @@ test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx
       ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
     }
   }
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 }
 
 test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycle { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   let fixture = start_keeper(s, RESOURCE_KINDS)?
@@ -1498,7 +1498,7 @@ test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycl
 
   let after = keeper_snapshot(fixture.handle)?
   assert before == after, "read-only Linux IPC observations changed registered fixture state"
-  release_keeper(fixture.handle)?
+  release_keeper(fixture.handle)
 
   let missing_semaphore = observe_ipc_api(s, fixture.ready.owner_uid, "posix_semaphore", semaphore_identity)?
   assert_api_reads(missing_semaphore, {errno: 2, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
@@ -1509,7 +1509,7 @@ test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycl
 }
 
 test test_lsipc_global_shell_percent_heading { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   for mode in [[], ["-e"], ["-r"], ["-n"], ["-J"]] {
     let pair = run_both(s, ["-g", "-y"].extend(mode))?
@@ -1520,7 +1520,7 @@ test test_lsipc_global_shell_percent_heading { |ctx|
 }
 
 test test_lsipc_non_utf8_posix_name { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   let name = Path.parse_bytes(b"/a\xff")?
   for selector in [p"-M", p"-Q", p"-S"] {
@@ -1539,7 +1539,7 @@ test test_lsipc_non_utf8_posix_name { |ctx|
 }
 
 test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   for args in [[p"-g", p"-o", b"LIMIT,\xff" as Path], [p"-g", b"-oLIMIT,\xff" as Path], [p"-g", b"--output=LIMIT,\xff" as Path]] {
@@ -1551,7 +1551,7 @@ test test_lsipc_unknown_non_utf8_column_after_known_column { |ctx|
 }
 
 test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1567,7 +1567,7 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
     ul.compare(pair.reference, pair.candidate)
   }
   let script = uu.at(s, "semop-keeper.py")
-  uu.write(s, "semop-keeper.py", "import ctypes,os,sys\nclass Op(ctypes.Structure): _fields_=[('num',ctypes.c_ushort),('op',ctypes.c_short),('flags',ctypes.c_short)]\nlibc=ctypes.CDLL(None)\nassert libc.semop(int(sys.argv[1]),ctypes.byref(Op(0,1,0)),1)==0\nprint('ready',flush=True)\nos.execv('/bin/cat',['cat'])\n")?
+  uu.write(s, "semop-keeper.py", "import ctypes,os,sys\nclass Op(ctypes.Structure): _fields_=[('num',ctypes.c_ushort),('op',ctypes.c_short),('flags',ctypes.c_short)]\nlibc=ctypes.CDLL(None)\nassert libc.semop(int(sys.argv[1]),ctypes.byref(Op(0,1,0)),1)==0\nprint('ready',flush=True)\nos.execv('/bin/cat',['cat'])\n")
   let keeper = ul.start_keeper(s, script, [id])?
   defer ul.stop_keeper(keeper)
   time.sleep(100ms)
@@ -1581,7 +1581,7 @@ test test_lsipc_empty_semaphore_command_has_no_padding { |ctx|
 }
 
 test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let object_path = Path.parse_bytes(b"/dev/shm/xsh-lsipc-\xc3\xa9\xff\\\"$`-test")?
@@ -1603,7 +1603,7 @@ test test_lsipc_posix_name_preserves_and_escapes_bytes { |ctx|
 }
 
 test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "command-keeper.py")
@@ -1619,7 +1619,7 @@ test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
     "    print(identity, flush=True)\n" +
     "    sys.stdin.readline()\n" +
     "finally:\n" +
-    "    libc.shmctl(identity, 0, None)\n")?
+    "    libc.shmctl(identity, 0, None)\n")
   let keeper = ul.start_keeper(s, script, [])?
   defer ul.stop_keeper(keeper)
   let id = keeper.ready
@@ -1651,7 +1651,7 @@ test test_lsipc_creator_command_preserves_and_escapes_bytes { |ctx|
 }
 
 test test_lsipc_regression_unicode_short_options { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   for locale in ["C", "C.UTF-8"] {
     for option in ["-é", "-bé"] {
@@ -1662,7 +1662,7 @@ test test_lsipc_regression_unicode_short_options { |ctx|
 }
 
 test test_lsipc_regression_json_environment { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   for mode in ["compact", "lines", "other"] {
     let pair = run_both_with_vars(s, ["-g", "-J"], vars: {LC_ALL: "C", TZ: "UTC", LIBSMARTCOLS_JSON: mode})?
@@ -1671,7 +1671,7 @@ test test_lsipc_regression_json_environment { |ctx|
 }
 
 test test_lsipc_regression_repeated_selector_limit { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   let s = uu.scene(ctx)?
   for args in [["-m", "-m", "-m", "-m", "-m", "-m", "-m"], ["-qqqqqqqqqqqq", "-c", "-t"]] {
     let pair = run_both(s, args)?
@@ -1680,7 +1680,7 @@ test test_lsipc_regression_repeated_selector_limit { |ctx|
 }
 
 test test_lsipc_regression_unicode_table { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let names = ["n一x", "nAx", "x\u{200c}", "x\u{200f}", "x\u{202a}", "x\u{202e}", "x\u{205f}", "x\u{206f}", "x\u{feff}", "x\u{fff9}", "x\u{fffa}", "x\u{fffb}", "x\u{fffe}", "x\u{ffff}", "x\u{10ffff}"]
@@ -1691,7 +1691,7 @@ test test_lsipc_regression_unicode_table { |ctx|
 }
 
 test test_lsipc_regression_detail_terminator { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1711,7 +1711,7 @@ test test_lsipc_regression_detail_terminator { |ctx|
 }
 
 test test_lsipc_regression_mixed_detail_and_missing_id { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1731,11 +1731,11 @@ test test_lsipc_regression_mixed_detail_and_missing_id { |ctx|
 }
 
 test test_lsipc_regression_terminal_width { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "terminal-keeper.py")
-  uu.write(s, "terminal-keeper.py", "import ctypes,os,sys\nif len(sys.argv)==1: os.execv(sys.executable,[sys.executable,__file__,'X'*370])\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nlibc.shmat.restype=ctypes.c_void_p\nlibc.shmat(id,None,0)\nlibc.shmctl(id,0,None)\nprint(id,flush=True)\nsys.stdin.readline()\n")?
+  uu.write(s, "terminal-keeper.py", "import ctypes,os,sys\nif len(sys.argv)==1: os.execv(sys.executable,[sys.executable,__file__,'X'*370])\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nlibc.shmat.restype=ctypes.c_void_p\nlibc.shmat(id,None,0)\nlibc.shmctl(id,0,None)\nprint(id,flush=True)\nsys.stdin.readline()\n")
   let fixture = ul.start_keeper(s, script, [])?
   defer ul.stop_keeper(fixture)
   for args in [[p"-m", p"-o", p"COMMAND,COMMAND"], [p"-m", p"--noheadings"], [p"-m", p"--noheadings", p"--notruncate"]] {
@@ -1749,7 +1749,7 @@ test test_lsipc_regression_terminal_width { |ctx|
 }
 
 test test_lsipc_regression_display_cell_padding { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let paths = [p"/dev/shm/n一x", p"/dev/shm/nAx", p"/dev/shm/\u{301}x", p"/dev/shm/n\u{601}x", p"/dev/shm/n\u{ad}x", p"/dev/shm/n\u{2065}x"]
@@ -1760,7 +1760,7 @@ test test_lsipc_regression_display_cell_padding { |ctx|
 }
 
 test test_lsipc_regression_missing_id_with_other_resource { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let target = p"/dev/shm/xsh-lsipc-missing"
@@ -1785,7 +1785,7 @@ test test_lsipc_regression_missing_id_with_other_resource { |ctx|
 }
 
 test test_lsipc_regression_negative_id_detail { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/ipcmk.out"
@@ -1808,7 +1808,7 @@ test test_lsipc_regression_negative_id_detail { |ctx|
 }
 
 test test_lsipc_regression_zero_limit { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/zero.out"
@@ -1833,11 +1833,11 @@ test test_lsipc_regression_zero_limit { |ctx|
 }
 
 test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let script = uu.at(s, "columns-keeper.py")
-  uu.write(s, "columns-keeper.py", "import ctypes,sys\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nprint(id,flush=True)\nsys.stdin.readline()\nlibc.shmctl(id,0,None)\n")?
+  uu.write(s, "columns-keeper.py", "import ctypes,sys\nlibc=ctypes.CDLL(None)\nid=libc.shmget(0,4096,0o1600)\nprint(id,flush=True)\nsys.stdin.readline()\nlibc.shmctl(id,0,None)\n")
   let fixture = ul.start_keeper(s, script, [])?
   defer ul.stop_keeper(fixture)
   let args = [p"-m", p"-o", p"ID,COMMAND"]
@@ -1850,7 +1850,7 @@ test test_lsipc_regression_terminal_ignores_columns_when_sized { |ctx|
 }
 
 test test_lsipc_without_procfs_empty_namespace { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/no-proc.out"
@@ -1865,7 +1865,7 @@ test test_lsipc_without_procfs_empty_namespace { |ctx|
 }
 
 test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/no-proc-global.out"
@@ -1881,7 +1881,7 @@ test test_lsipc_global_without_procfs_fails_cleanly { |ctx|
 }
 
 test test_lsipc_posix_shmem_symlink_targets { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   assert (run.capture --text mount -t tmpfs none /dev/shm).status.exited_with(0)
@@ -1895,7 +1895,7 @@ test test_lsipc_posix_shmem_symlink_targets { |ctx|
 }
 
 test test_lsipc_inaccessible_semaphore_elements { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let created = run.capture --text ipcmk -S 2 -p 000
@@ -1910,7 +1910,7 @@ test test_lsipc_inaccessible_semaphore_elements { |ctx|
 }
 
 test test_lsipc_global_shared_memory_overflow { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let code = "import ctypes\nl=ctypes.CDLL(None); l.shmget.argtypes=[ctypes.c_int,ctypes.c_size_t,ctypes.c_int]\nfor n in [2**62,2**62+2**61,2**62]:\n i=l.shmget(0,n,0o11600); assert i>=0; print(i)"
@@ -1927,7 +1927,7 @@ test test_lsipc_global_shared_memory_overflow { |ctx|
 
 
 test test_lsipc_missing_global_limits { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/limits.out"
@@ -1951,7 +1951,7 @@ test test_lsipc_missing_global_limits { |ctx|
 
 
 test test_lsipc_global_page_sum_exceeds_int { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let code = "import ctypes, os, subprocess, sys\n" +
@@ -1969,7 +1969,7 @@ test test_lsipc_global_page_sum_exceeds_int { |ctx|
     " assert int(rows['SHMALL']) == 4097 * (2**63-1) // os.sysconf('SC_PAGE_SIZE'), rows\n" +
     "finally:\n" +
     " for ident in ids: assert libc.shmctl(ident, 0, None) == 0\n"
-  uu.write(s, "large-pages.py", code)?
+  uu.write(s, "large-pages.py", code)
   let script = "echo 4097 > /proc/sys/kernel/shmmni\nexec python3 \"$1/large-pages.py\" \"$2\" \"$3\"\n"
   let out = fp"{s.root}/pages.out"
   let err = fp"{s.root}/pages.err"
@@ -1980,7 +1980,7 @@ test test_lsipc_global_page_sum_exceeds_int { |ctx|
 
 
 test test_lsipc_proc_subset_diagnostic { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/subset.out"
@@ -1998,7 +1998,7 @@ test test_lsipc_proc_subset_diagnostic { |ctx|
 
 
 test test_lsipc_missing_system_v_table { |ctx|
-  if ul.rerun_ipc_isolated(ctx)? { return }
+  if ul.rerun_ipc_isolated(ctx) { return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let out = fp"{s.root}/tables.out"

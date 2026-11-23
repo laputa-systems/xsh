@@ -433,7 +433,7 @@ match internal.linux_ci_test(ctx) {{
 }
 
 test test_docker_image_and_container_failures_are_staged { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -841,7 +841,7 @@ test test_an_owned_container_that_outlives_its_client_is_removed_by_id_and_verif
   let log = fp"{root}/calls"
   let cidfile = fp"{root}/container.cid"
   cidfile.write(id)
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)
   let source = f"""
 use context
 use docker
@@ -856,8 +856,8 @@ match docker.remove_owned_container(ctx, p"{cidfile}") {{
   test.expect(ctx, source, status: 0, stdout: ["removed"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"})?
   assert f"rm|-f|{id}" in log.read_lines()?
-  fp"{root}/gone-{id}".remove()?
-  log.remove()?
+  fp"{root}/gone-{id}".remove()
+  log.remove()
   test.expect(ctx, source, status: 0, stdout: ["ContainerError.Survived"], args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev", KEEP: "1"})?
 }
@@ -902,7 +902,7 @@ test test_every_container_a_run_started_is_removed_by_id_from_its_registry { |ct
   let first = "1ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let second = "2ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let log = fp"{root}/calls"
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)
   test.expect(
     ctx,
     f"""
@@ -938,7 +938,7 @@ test test_a_cancelled_gate_removes_its_containers_before_the_runtime_kills_the_c
   let id = "eccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let log = fp"{root}/calls"
   let ready = fp"{root}/ready"
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)
   let script = fp"{root}/run.xsh"
   script.write(f"""
 use context
@@ -967,7 +967,7 @@ proc main() [fs, process, env, time, error, io] {{
   env ({PATH: search_path, XSH_MODULE_PATH: module_path}) {
     let child = spawn run $xsh $script ?
     var waited = 0
-    while ! ready.exists()? and waited < 100 {
+    while ! ready.exists() and waited < 100 {
       time.sleep(100ms)
       waited += 1
     }
@@ -1015,7 +1015,7 @@ proc main() [fs, process, env, time, error, io] {{
   env ({PATH: search_path, XSH_MODULE_PATH: module_path}) {
     let child = spawn run $xsh $script ?
     var waited = 0
-    while ! ready.exists()? and waited < 100 {
+    while ! ready.exists() and waited < 100 {
       time.sleep(100ms)
       waited += 1
     }
@@ -1036,7 +1036,7 @@ test test_container_removal_is_verified_against_the_daemon_not_assumed { |ctx|
   let id = "dccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let cidfile = fp"{root}/container.cid"
   cidfile.write(id)
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")
   let source = f"""
 use context
 use docker
@@ -1060,7 +1060,7 @@ test test_a_gate_that_fails_before_launching_leaves_no_container_registry { |ctx
   let tools = fp"{root}/tools"
   tools.mkdir()
   let repository = fs.cwd()?
-  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "exit 1", )?
+  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "exit 1", )
   test.expect(
     ctx,
     f"""
@@ -1147,7 +1147,7 @@ proc main() [fs, process, env, time, error, io] {{
   env ({PATH: search_path, XSH_MODULE_PATH: module_path, HOST_UID: "1000", HOST_GID: "1000"}) {
     let child = spawn run $xsh $script ?
     var waited = 0
-    while ! ready.exists()? and waited < 100 {
+    while ! ready.exists() and waited < 100 {
       time.sleep(100ms)
       waited += 1
     }
@@ -1179,7 +1179,7 @@ test test_an_unverifiable_removal_is_reported_with_the_id_and_the_manual_command
   tools.mkdir()
   let repository = fs.cwd()?
   let id = "bccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, fp"{root}/calls")
   test.expect(
     ctx,
     f"""
@@ -1211,7 +1211,7 @@ test test_a_hung_daemon_cannot_hold_the_cleanup_past_its_query_timeout { |ctx|
   let repository = fs.cwd()?
   let id = "dccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   fp"{root}/container.cid".write(id)
-  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "time.sleep(60s)?")?
+  write_fake_tool(fp"{tools}/docker", ctx.xsh_bin, "time.sleep(60s)?")
   test.expect(
     ctx,
     f"""
@@ -1240,7 +1240,7 @@ test test_a_registry_of_a_dead_run_is_swept_and_a_live_one_is_kept { |ctx|
   let repository = fs.cwd()?
   let id = "fccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let log = fp"{root}/calls"
-  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)?
+  write_container_stub(fp"{tools}/docker", ctx.xsh_bin, root, log)
   test.expect(
     ctx,
     f"""

@@ -139,7 +139,7 @@ for key in ["HOME", "PATH"] {
 proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-procedure-modules")?
   let fixture = fp"{ctx.file.parent()}/../fixtures/modules/full-inference-procedures/wrappers.xsh"
-  fp"{modules}/wrappers.xsh".write(fixture.read_text()?)?
+  fp"{modules}/wrappers.xsh".write(fixture.read_text()?)
   modules
 }
 

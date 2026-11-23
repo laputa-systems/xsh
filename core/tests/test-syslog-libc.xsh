@@ -31,7 +31,7 @@ proc run_scene(ctx: TestContext, name: Str, mode: Str, args: List[Str]) [fs, pro
       Err(failure)
     }
     Ok(status) => {
-      let text = if err.exists()? { err.read_text()? } else { "" }
+      let text = if err.exists() { err.read_text()? } else { "" }
       if status.shell_code()? == 90 or ("mount:" in text and "denied" in text) { return Ok(null) }
       assert status.exited_with(0), f"scene {mode} failed: {text}"
       Ok({log: log.read_text()?, err: text})

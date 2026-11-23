@@ -20,7 +20,7 @@ proc landlock_available() [process, env, fs, error] -> Result[Bool] {
 proc system_paths() [fs, error] -> Result[List[Path]] {
   let found = collect {
     for dir in [fp"/bin", fp"/usr", fp"/lib", fp"/lib64"] {
-      if dir.exists()? { yield dir }
+      if dir.exists() { yield dir }
     }
   }
   Ok(found)
@@ -32,7 +32,7 @@ proc workspace(ctx: TestContext, name: Str) [fs, error] -> Result[Workspace] {
   let writable = fp"{root}/writable"
   let outside = fp"{root}/outside"
   for dir in [declared, writable, outside] {
-    dir.mkdir()?
+    dir.mkdir()
   }
   fp"{declared}/input".write("declared input\n")
   fp"{outside}/secret".write("outside secret\n")
@@ -41,7 +41,7 @@ proc workspace(ctx: TestContext, name: Str) [fs, error] -> Result[Workspace] {
 }
 
 test test_linux_run_confined_allows_declared_paths_and_denies_the_rest { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let w = workspace(ctx, "confined-fs")?
   let script = f"""
 cat '{w.declared}/input' > '{w.writable}/copy' && echo read-declared ok
@@ -76,7 +76,7 @@ proc connect_probe(
 }
 
 test test_linux_run_confined_denies_tcp_unless_allowed { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let w = workspace(ctx, "confined-tcp")?
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
@@ -99,7 +99,7 @@ match linux.connect(fd, {{family: "inet", address: "127.0.0.1", port: {port}}}) 
 }
 
 test test_linux_run_confined_closes_inherited_descriptors { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let w = workspace(ctx, "confined-fd")?
   var read = ""
   for dir in system_paths()? {
@@ -120,7 +120,7 @@ let _ = linux.run_confined(confined, read:)?
 }
 
 test test_linux_run_confined_fails_before_exec_for_a_missing_declared_path { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let w = workspace(ctx, "confined-missing")?
   let marker = fp"{w.writable}/ran"
   let plan = process.command_argv("/bin/sh", ["sh", "-c", f"touch '{marker}'"], w.writable)
@@ -135,7 +135,7 @@ test test_linux_run_confined_fails_before_exec_for_a_missing_declared_path { |ct
 }
 
 test test_linux_run_confined_keeps_typed_path_lists_and_accepts_mixed_roots { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let w = workspace(ctx, "confined-authorities")?
   let read: List[Path] = system_paths()? + [w.declared]
   let write: List[Path] = [w.writable]
@@ -151,7 +151,7 @@ test test_linux_run_confined_keeps_typed_path_lists_and_accepts_mixed_roots { |c
 }
 
 test test_linux_run_confined_held_roots_survive_ancestor_replacement_before_policy_setup { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let base = test.temp_dir(ctx, name: "confined-held-swap")?
   let parent = fp"{base}/parent"
   let original = fp"{parent}/root"
@@ -185,7 +185,7 @@ exit 0
 }
 
 test test_linux_run_confined_returns_spawn_error_for_a_closed_root { |ctx|
-  guard landlock_available()? else { return }
+  guard landlock_available() else { return }
   let root = fs.open_root(test.temp_dir(ctx, name: "confined-closed-root")?)?
   let alias: Any = root
   alias.require(FsRoot)?.close()

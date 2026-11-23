@@ -142,7 +142,7 @@ test test_linux_system_v_semaphore_waiter_counts_and_pid_match_kernel { |ctx|
 
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
-  assert_waiters_reaped(ready)?
+  assert_waiters_reaped(ready)
   let missing = probe_kernel(s, script, ready.semaphore_id)?
   assert missing == {exists: false, errno: 22, value: null}
 
@@ -150,7 +150,7 @@ test test_linux_system_v_semaphore_waiter_counts_and_pid_match_kernel { |ctx|
   defer ul.stop_keeper(cancelled_keeper)
   let cancelled_ready = json.decode(cancelled_keeper.ready)?.require(WaiterSnapshot)?
   cancelled_keeper.child.cancel(signal: "TERM", kill_after: 2s)
-  assert_waiters_reaped(cancelled_ready)?
+  assert_waiters_reaped(cancelled_ready)
   let missing_after_cancel = probe_kernel(s, script, cancelled_ready.semaphore_id)?
   assert missing_after_cancel == {exists: false, errno: 22, value: null}
 }

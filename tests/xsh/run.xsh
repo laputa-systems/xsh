@@ -1233,7 +1233,7 @@ test test_inherited_run_returns_when_the_child_exits {
     let started = time.monotonic()?
     run true
     let between = time.monotonic()?
-    let _ = run.text true ?
+    let _ = run.text true
     let finished = time.monotonic()?
     inherited += between - started
     captured += finished - between
@@ -1248,8 +1248,8 @@ test test_inherited_pipeline_returns_when_its_children_exit {
     let started = time.monotonic()?
     run true | run true
     let between = time.monotonic()?
-    let _ = run.text true ?
-    let _ = run.text true ?
+    let _ = run.text true
+    let _ = run.text true
     let finished = time.monotonic()?
     piped += between - started
     captured += finished - between

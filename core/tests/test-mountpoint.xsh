@@ -24,7 +24,7 @@ test test_mountpoint_upstream_default_follows_mountpoint_symlink { |ctx|
   let mount = fs.mount_for(s.root)?
   let link = uu.at(s, "mount-link")
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
-  parity(s, ["--", fp"{s.root}/mount-link".display()])?
+  parity(s, ["--", fp"{s.root}/mount-link".display()])
   assert fs.stat(link, follow_symlinks: false)?.kind == "symlink"
   assert link.readlink()? == mount.mounted_on
 }
@@ -34,14 +34,14 @@ test test_mountpoint_upstream_nofollow_does_not_follow_mountpoint_symlink { |ctx
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(s.root)?
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
-  parity(s, ["--nofollow", "--", fp"{s.root}/mount-link".display()])?
+  parity(s, ["--nofollow", "--", fp"{s.root}/mount-link".display()])
   assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
 
 test test_mountpoint_upstream_mutually_exclusive_devno_nofollow { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  parity(s, ["--devno", "--nofollow", "/"])?
+  parity(s, ["--devno", "--nofollow", "/"])
 }
 
 test test_mountpoint_quiet_for_files_directories_and_dangling_symlinks { |ctx|
@@ -52,12 +52,12 @@ test test_mountpoint_quiet_for_files_directories_and_dangling_symlinks { |ctx|
   uu.symlink(s, "regular", "file-link")
   uu.symlink(s, "missing", "dangling-link")
   for operand in ["regular", "directory", "file-link", "dangling-link", "missing"] {
-    parity(s, ["--", f"{s.root}/{operand}"])?
-    parity(s, ["--quiet", "--", f"{s.root}/{operand}"])?
-    parity(s, ["-q", "--", f"{s.root}/{operand}"])?
+    parity(s, ["--", f"{s.root}/{operand}"])
+    parity(s, ["--quiet", "--", f"{s.root}/{operand}"])
+    parity(s, ["-q", "--", f"{s.root}/{operand}"])
   }
-  parity(s, ["--nofollow", "--", fp"{s.root}/file-link".display()])?
-  parity(s, ["--nofollow", "--", fp"{s.root}/dangling-link".display()])?
+  parity(s, ["--nofollow", "--", fp"{s.root}/file-link".display()])
+  parity(s, ["--nofollow", "--", fp"{s.root}/dangling-link".display()])
   assert uu.read_text(s, "regular")? == "regular path\n"
   assert uu.at(s, "file-link").readlink()? == p"regular"
   assert uu.at(s, "dangling-link").readlink()? == p"missing"
@@ -68,17 +68,17 @@ test test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths { |
   let s = uu.scene(ctx)?
   uu.write(s, "regular", "regular path\n")
   let mount = fs.mount_for(s.root)?
-  parity(s, ["--fs-devno", "--", mount.mounted_on.display()])?
-  parity(s, ["-d", "--", fp"{s.root}/regular".display()])?
+  parity(s, ["--fs-devno", "--", mount.mounted_on.display()])
+  parity(s, ["-d", "--", fp"{s.root}/regular".display()])
   assert uu.read_text(s, "regular")? == "regular path\n"
 }
 
 test test_mountpoint_device_number_requires_a_block_device { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  parity(s, ["--devno", "/dev/null"])?
-  parity(s, ["-x", "/"])?
-  parity(s, ["-q", "-x", "/dev/null"])?
+  parity(s, ["--devno", "/dev/null"])
+  parity(s, ["-x", "/"])
+  parity(s, ["-q", "-x", "/dev/null"])
 }
 
 test test_mountpoint_devno_reports_owned_block_device { |ctx|
@@ -86,9 +86,9 @@ test test_mountpoint_devno_reports_owned_block_device { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let device = uu.at(s, "block-device")
-  fs.mknod(device, "block", 0o600, major: 8, minor: 0)?
-  parity(s, ["--devno", "--", device.display()])?
-  parity(s, ["-x", "--", device.display()])?
+  fs.mknod(device, "block", 0o600, major: 8, minor: 0)
+  parity(s, ["--devno", "--", device.display()])
+  parity(s, ["-x", "--", device.display()])
   assert fs.stat(device)?.kind == "block"
 }
 
@@ -97,32 +97,32 @@ test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(s.root)?
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
-  parity(s, ["--show", "--", mount.mounted_on.display()])?
-  parity(s, ["--show", "--", fp"{s.root}/mount-link".display()])?
-  parity(s, ["--show", "--quiet", "--", s.root.display()])?
-  parity(s, ["--show", "--fs-devno", "--", mount.mounted_on.display()])?
-  parity(s, ["--show", "--nofollow", "--", fp"{s.root}/mount-link".display()])?
-  parity(s, ["--show", "--", fp"{mount.mounted_on}//.".display()])?
-  parity(s, ["--show", "--", fp"{s.root}//.".display()])?
-  parity(s, ["--show", "--", s.root.display()])?
+  parity(s, ["--show", "--", mount.mounted_on.display()])
+  parity(s, ["--show", "--", fp"{s.root}/mount-link".display()])
+  parity(s, ["--show", "--quiet", "--", s.root.display()])
+  parity(s, ["--show", "--fs-devno", "--", mount.mounted_on.display()])
+  parity(s, ["--show", "--nofollow", "--", fp"{s.root}/mount-link".display()])
+  parity(s, ["--show", "--", fp"{mount.mounted_on}//.".display()])
+  parity(s, ["--show", "--", fp"{s.root}//.".display()])
+  parity(s, ["--show", "--", s.root.display()])
   let proc_mount = fs.mount_for(p"/proc/1")?
   assert proc_mount.mounted_on == p"/proc"
   let proc_show = ul.reference(s, "mountpoint", ["--show", "--", proc_mount.mounted_on.display()], timeout: 5s)?
   assert proc_show.status == 0
   assert proc_show.stdout == b"/proc\n"
   assert proc_show.stderr == b""
-  parity(s, ["--show", "--", proc_mount.mounted_on.display()])?
+  parity(s, ["--show", "--", proc_mount.mounted_on.display()])
   assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
 
 test test_mountpoint_rejects_bad_operand_counts_and_options { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  parity(s, [])?
-  parity(s, ["/", "/dev"])?
-  parity(s, ["--not-an-option", "/"])?
-  parity(s, ["--help"])?
-  parity(s, ["-h"])?
+  parity(s, [])
+  parity(s, ["/", "/dev"])
+  parity(s, ["--not-an-option", "/"])
+  parity(s, ["--help"])
+  parity(s, ["-h"])
 }
 
 test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
@@ -130,13 +130,13 @@ test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"entry-\xff")?
   name.write("owned raw path\n")
-  parity_paths(s, [p"--", name])?
-  parity_paths(s, [p"--quiet", p"--", name])?
+  parity_paths(s, [p"--", name])
+  parity_paths(s, [p"--quiet", p"--", name])
   let spaced = fp"{s.root}/space and quote'"
   spaced.write("quoted path\n")
-  parity_paths(s, [p"--", spaced])?
+  parity_paths(s, [p"--", spaced])
   for locale in ["C", "C.UTF-8"] {
-    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})?
+    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})
   }
   assert name.read_text()? == "owned raw path\n"
   assert spaced.read_text()? == "quoted path\n"
@@ -153,7 +153,7 @@ test test_mountpoint_option_prefixes_clusters_and_argument_errors { |ctx|
     ["--d=1", "/"], ["--not-an-option=value", "/"],
     ["/", "--quiet"], ["-", "--quiet"], ["--", "--quiet"],
   ] {
-    parity(s, arguments)?
+    parity(s, arguments)
   }
 }
 
@@ -200,9 +200,9 @@ test test_mountpoint_private_same_device_bind_mount { |ctx|
   mounted = true
   assert fp"{target}/entry".exists()?
   assert ! fp"{target}/sentinel".exists()?
-  parity(s, ["--", target.display()])?
-  parity(s, ["--fs-devno", "--", target.display()])?
-  parity(s, ["--show", "--", target.display()])?
+  parity(s, ["--", target.display()])
+  parity(s, ["--fs-devno", "--", target.display()])
+  parity(s, ["--show", "--", target.display()])
   let unmounted = run.capture --text umount -- $target
   assert unmounted.status.exited_with(0), unmounted.stderr
   mounted = false
@@ -312,7 +312,7 @@ test test_mountpoint_invalid_utf8_long_option { |ctx|
 
 test test_mountpoint_error_with_os_error_in_path { |ctx|
   let s = uu.scene(ctx)?
-  parity(s, ["x/nope (os error 5)/z"])?
+  parity(s, ["x/nope (os error 5)/z"])
 }
 
 test test_mountpoint_hidden_mount_identity { |ctx|
@@ -338,7 +338,7 @@ test test_mountpoint_hidden_mount_identity { |ctx|
   assert (run.capture --text mount -t tmpfs over $a).status.exited_with(0)
   mounted_over = true
   b.mkdir()
-  for args in [[b.display()], ["-q", b.display()], ["-d", b.display()]] { parity(s, args)? }
+  for args in [[b.display()], ["-q", b.display()], ["-d", b.display()]] { parity(s, args) }
 }
 
 test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
@@ -351,7 +351,7 @@ test test_mountpoint_non_utf8_mountinfo_does_not_break_other_queries { |ctx|
   defer { if mounted { run.status umount -- $bad } }
   assert (run.capture --text mount -t tmpfs bad $bad).status.exited_with(0)
   mounted = true
-  parity(s, ["/"])?
+  parity(s, ["/"])
   assert fs.mount_for(p"/")?.mounted_on == p"/"
   assert fs.mount_for(bad)?.mounted_on == bad
 }
@@ -366,11 +366,11 @@ proc review6_mountpoint_fixture(ctx: TestContext, mode: Str) [fs, process, env, 
   Ok()
 }
 
-test test_mountpoint_chroot_without_root_mount { |ctx| review6_mountpoint_fixture(ctx, "chroot")? }
-test test_mountpoint_hidden_cwd { |ctx| review6_mountpoint_fixture(ctx, "hidden")? }
+test test_mountpoint_chroot_without_root_mount { |ctx| review6_mountpoint_fixture(ctx, "chroot") }
+test test_mountpoint_hidden_cwd { |ctx| review6_mountpoint_fixture(ctx, "hidden") }
 
 test test_mountpoint_multibyte_short_option_c_locale { |ctx|
   let s = uu.scene(ctx)?
-  parity(s, ["-é"], vars: {LC_ALL: "C"})?
-  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-é"], vars: {LC_ALL: "C"})
+  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})
 }

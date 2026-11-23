@@ -112,7 +112,7 @@ test test_a_list_of_anything_else_is_not_an_environment_value { |ctx|
 
 test test_a_list_word_that_is_not_a_path_list_keeps_the_one_item_rule { |ctx|
   let one = ["only"]
-  let shown = run.text XSH_PATH_LIST=$one printenv XSH_PATH_LIST ?
+  let shown = run.text XSH_PATH_LIST=$one printenv XSH_PATH_LIST
   assert shown.trim() == "only"
   for names in ["[\"a\", \"b\"]", "[]"] {
     test.expect(

@@ -484,7 +484,7 @@ proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -
         let text = paths.seq_file.read_text()?
         let current = text.trim()
         if current.is_empty() {
-          paths.seq_file.write(bytes.from_text(f"{expected}"))?
+          paths.seq_file.write(bytes.from_text(f"{expected}"))
           return Ok(expected + 1)
         }
         let seen = current.parse_uint() ?? expected
@@ -502,14 +502,14 @@ proc handle_event_rules(paths: Paths, rules: List[Rule], event: Event) [fs, proc
     let captures = rule_matches(rule, event)?
     if ! captures.matched { continue }
     matched = true
-    apply_rule(paths, event, rule, captures)?
+    apply_rule(paths, event, rule, captures)
     if ! rule.keep_matching { break }
   }
   if ! matched {
     let fallback: Rule = {keep_matching: false, env_matches: [], pattern: .PatternName(".*"), uid: 0, gid: 0, mode: 0o660, alias: .AliasNone, command: null}
-    apply_rule(paths, event, fallback, {matched: false, values: []})?
+    apply_rule(paths, event, fallback, {matched: false, values: []})
   }
-  if event.action == .DeviceAdd { maybe_load_firmware(paths, event)? }
+  if event.action == .DeviceAdd { maybe_load_firmware(paths, event) }
   Ok()
 }
 
@@ -519,43 +519,43 @@ proc apply_rule(paths: Paths, event: Event, rule: Rule, captures: Captures) [fs,
     if let kind = event.kind {
       if let major = event.major {
         if let minor = event.minor {
-          create_device(paths, resolved.name, {kind: kind, major: major, minor: minor, mode: rule.mode, uid: rule.uid, gid: rule.gid})?
-          if resolved.create_link { create_device_link(paths, event.device_name.bytes(), resolved.name)? }
+          create_device(paths, resolved.name, {kind: kind, major: major, minor: minor, mode: rule.mode, uid: rule.uid, gid: rule.gid})
+          if resolved.create_link { create_device_link(paths, event.device_name.bytes(), resolved.name) }
         }
       }
     }
   } else if event.action == .DeviceRemove and ! resolved.suppressed {
-    if resolved.create_link { remove_node(paths, event.device_name.bytes())? }
-    remove_node(paths, resolved.name)?
+    if resolved.create_link { remove_node(paths, event.device_name.bytes()) }
+    remove_node(paths, resolved.name)
   }
   if let command = rule.command {
     let run_command_now = command.trigger == .CommandAny or (command.trigger == .CommandOnAdd and event.action == .DeviceAdd) or (command.trigger == .CommandOnRemove and event.action == .DeviceRemove)
-    if run_command_now { run_rule_command(command, event.env, resolved.name)? }
+    if run_command_now { run_rule_command(command, event.env, resolved.name) }
   }
   Ok()
 }
 
 proc create_device(paths: Paths, name: Bytes, spec: DeviceSpec) [fs, error] -> Result[Unit] {
   let target = path_join(paths.dev_root, name)?
-  ensure_parent(target)?
+  ensure_parent(target)
   if paths.plain_files {
     let marker = if spec.kind == .BlockDevice { b"b" } else { b"c" }
-    target.write(bytes.concat([marker, bytes.from_text(f" {spec.major}:{spec.minor}\n")]))?
+    target.write(bytes.concat([marker, bytes.from_text(f" {spec.major}:{spec.minor}\n")]))
   } else {
     let kind = if spec.kind == .BlockDevice { "block" } else { "char" }
     if let Err(problem) = fs.mknod(target, kind, spec.mode, major: spec.major, minor: spec.minor) {
       if problem.errno != 17 { return Err(error.failure(f"creating {target.display()}: {problem.message}")) }
     }
   }
-  target.chmod(spec.mode)?
-  fs.set_owner(target, uid: spec.uid, gid: spec.gid)?
+  target.chmod(spec.mode)
+  fs.set_owner(target, uid: spec.uid, gid: spec.gid)
   Ok()
 }
 
 proc create_device_link(paths: Paths, device_name: Bytes, node_name: Bytes) [fs, error] -> Result[Unit] {
   let link_path = path_join(paths.dev_root, device_name)?
-  ensure_parent(link_path)?
-  remove_existing(link_path)?
+  ensure_parent(link_path)
+  remove_existing(link_path)
   link_path.symlink(to: Path.parse_bytes(node_name)?)
 }
 
@@ -574,7 +574,7 @@ proc ensure_directory(directory: Path) [fs, error] -> Result[Unit] {
   }
   let parent = directory.parent()
   if parent == directory { return Err(failure(f"creating {directory.display()}: no parent directory")) }
-  ensure_directory(parent)?
+  ensure_directory(parent)
   let inherited = fs.stat(parent, follow_symlinks: true)?.mode.bit_and(0o2000)
   let root = fs.open_root(parent)?
   defer root.close()
@@ -639,11 +639,11 @@ proc maybe_load_firmware(paths: Paths, event: Event) [fs, process, env, error, t
     firmware = read_firmware(fd)?
   }
   if let data = firmware {
-    write_fd_all(loading_fd, b"1")?
-    data_path.write(data)?
-    write_fd_all(loading_fd, b"0")?
+    write_fd_all(loading_fd, b"1")
+    data_path.write(data)
+    write_fd_all(loading_fd, b"0")
   } else {
-    write_fd_all(loading_fd, b"-1")?
+    write_fd_all(loading_fd, b"-1")
   }
   Ok()
 }
@@ -684,7 +684,7 @@ proc run_scan(paths: Paths, rules: List[Rule]) [fs, process, env, error, time, i
       }
       continue when entry.name != "dev"
       let event = event_from_scan_path(paths, entry_path.parent())?
-      handle_event(paths, rules, event)?
+      handle_event(paths, rules, event)
     }
   }
   Ok()
@@ -703,23 +703,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time, net] -> Int {
 
 proc run_mdev(argv: List[Str]) [fs, process, env, error, io, time, net] -> Result[Int] {
   if argv.len() == 1 and argv[0] == DAEMON_WORKER_ARG {
-    mdev_daemon_worker(true)?
+    mdev_daemon_worker(true)
     return Ok(0)
   }
   let options = parse_options(argv)?
   let paths = load_paths()?
   if options.daemon {
     if options.foreground {
-      mdev_daemon_worker(false)?
+      mdev_daemon_worker(false)
       return Ok(0)
     }
     return start_daemon_worker()
   }
   let rules = read_rules(paths.conf)?
-  if options.scan { run_scan(paths, rules)?; return Ok(0) }
+  if options.scan { run_scan(paths, rules); return Ok(0) }
   let inherited = inherited_environment()?
   let event = event_from_environment(paths, inherited)?
-  handle_event(paths, rules, event)?
+  handle_event(paths, rules, event)
   Ok(0)
 }
 
@@ -733,7 +733,7 @@ proc start_daemon_worker() [process, error] -> Result[Int] {
 
 proc mdev_daemon_worker(detached: Bool) [fs, process, env, error, io, time, net] -> Result[Unit] {
   let signals = ["HUP", "INT", "TERM"]
-  unix.signal_setup(signals)?
+  unix.signal_setup(signals)
   var ready_fd: Int? = null
   var ready_open = true
   if detached {
@@ -742,24 +742,24 @@ proc mdev_daemon_worker(detached: Bool) [fs, process, env, error, io, time, net]
     let descriptor = unix.duplicate_fd(notification_number)?
     ready_fd = descriptor
     defer { if ready_open { let _ = unix.close_fd(descriptor) } }
-    unix.close_fd(notification_number)?
+    unix.close_fd(notification_number)
   }
   let paths = load_paths()?
   var rules = read_rules(paths.conf)?
   let socket = open_uevent_socket()?
   defer unix.close_fd(socket)
-  run_scan(paths, rules)?
+  run_scan(paths, rules)
   if let descriptor = ready_fd {
     let _ = process.new_session()?
     let root = p"/"
     cd (root) {
-      write_fd_all(descriptor, b"R")?
-      unix.close_fd(descriptor)?
+      write_fd_all(descriptor, b"R")
+      unix.close_fd(descriptor)
       ready_open = false
-      daemon_loop(socket, paths, rules)?
+      daemon_loop(socket, paths, rules)
     }
   } else {
-    daemon_loop(socket, paths, rules)?
+    daemon_loop(socket, paths, rules)
   }
   Ok()
 }
@@ -781,7 +781,7 @@ proc daemon_loop(socket: Int, paths: Paths, rules: List[Rule]) [fs, process, env
     let pending_after_poll = unix.take_signals()?
     if "TERM" in pending_after_poll or "INT" in pending_after_poll { return Ok() }
     if "HUP" in pending_after_poll { current_rules = reload_rules(paths, current_rules)? }
-    if "readable" in readable { receive_daemon_event(socket, paths, current_rules)? }
+    if "readable" in readable { receive_daemon_event(socket, paths, current_rules) }
   }
 }
 
@@ -789,7 +789,7 @@ proc reload_rules(paths: Paths, current: List[Rule]) [fs, io, error] -> Result[L
   match read_rules(paths.conf) {
     Ok(updated) => Ok(updated)
     Err(problem) => {
-      report_daemon_error(f"mdev: reload: {problem.message}")?
+      report_daemon_error(f"mdev: reload: {problem.message}")
       Ok(current)
     }
   }
@@ -797,7 +797,7 @@ proc reload_rules(paths: Paths, current: List[Rule]) [fs, io, error] -> Result[L
 
 proc report_daemon_error(message: Str) [io, error] -> Result[Unit] {
   eprint $message
-  io.flush_stderr()?
+  io.flush_stderr()
   Ok()
 }
 
@@ -806,7 +806,7 @@ proc receive_daemon_event(socket: Int, paths: Paths, rules: List[Rule]) [fs, pro
   let message_result = linux.recvfrom(socket, UEVENT_BUFFER_SIZE, constants.MSG_DONTWAIT.bit_or(constants.MSG_TRUNC))
   if let Err(problem) = message_result {
     if problem.errno == 105 {
-      report_daemon_error("mdev: netlink receive buffer overflow; uevents may have been missed")?
+      report_daemon_error("mdev: netlink receive buffer overflow; uevents may have been missed")
       return Ok()
     }
     if problem.errno == 11 { return Ok() }
@@ -814,21 +814,21 @@ proc receive_daemon_event(socket: Int, paths: Paths, rules: List[Rule]) [fs, pro
   }
   let message = message_result?
   if message.flags.bit_and(constants.MSG_TRUNC) != 0 {
-    report_daemon_error(f"mdev: truncated uevent message: more than {UEVENT_BUFFER_SIZE} bytes exceeds {UEVENT_BUFFER_SIZE} byte buffer")?
+    report_daemon_error(f"mdev: truncated uevent message: more than {UEVENT_BUFFER_SIZE} bytes exceeds {UEVENT_BUFFER_SIZE} byte buffer")
     return Ok()
   }
   let values = parse_uevent_message(message.data)
   if values.get("ACTION") is Err(_) or values.get("DEVPATH") is Err(_) {
-    report_daemon_error("mdev: ignoring malformed uevent")?
+    report_daemon_error("mdev: ignoring malformed uevent")
     return Ok()
   }
   let event = event_from_environment(paths, values)
   if let Err(problem) = event {
-    report_daemon_error(f"mdev: event: {problem.message}")?
+    report_daemon_error(f"mdev: event: {problem.message}")
     return Ok()
   }
   if let Err(problem) = handle_event(paths, rules, event?) {
-    report_daemon_error(f"mdev: event: {problem.message}")?
+    report_daemon_error(f"mdev: event: {problem.message}")
   }
   Ok()
 }

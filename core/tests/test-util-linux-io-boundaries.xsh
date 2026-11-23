@@ -67,7 +67,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
     "assert args[2] in [\"default\", \"ignore\"]\n" +
     "let words = [Path(word) for word in args[3..]]\n" +
     "process.set_signal_action(\"PIPE\", args[2])?\n" +
-    "unix.exec(process.command_argv(words[0], words))?\n")?
+    "unix.exec(process.command_argv(words[0], words))?\n")
 
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let command_words = if is_reference {
@@ -91,7 +91,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
   let ready_events = unix.poll_fd(ready_channel, ["readable"], timeout_ms: 3000)?
   assert "readable" in ready_events, f"{util} did not reach the close barrier"
   assert unix.read_fd(ready_channel, 1)? == b"R"
-  unix.close_fd(stdout_reader)?
+  unix.close_fd(stdout_reader)
   stdout_reader_open = false
   assert unix.write_fd(release_channel, b"R")? == 1
   guard let completed = process.wait_timeout([child], 3s)? else {

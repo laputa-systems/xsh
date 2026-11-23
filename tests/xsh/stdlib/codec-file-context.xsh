@@ -44,7 +44,7 @@ test test_codec_files_roundtrip_each_format_and_preserve_failed_destinations { |
   for format in ["json", "yaml", "toml", "ini", "csv", "tsv"] {
     let config_path = test.temp_path(ctx, name: f"roundtrip-{format}.data")
     let value: Any = if format == "csv" or format == "tsv" { [record] } else { record }
-    codec.write(format, config_path, value)?
+    codec.write(format, config_path, value)
     assert codec.read(format, config_path)? == value
     let original = config_path.read_bytes()?
     test.error_kind(codec.write(format, config_path, value), "fs-write")
@@ -88,7 +88,7 @@ test test_codec_file_boundaries_follow_existing_symlink_policy { |ctx|
   let root = test.temp_dir(ctx, name: "codec-file-links")?
   let target = fp"{root}/target.json"
   let link = fp"{root}/input.json"
-  codec.write("json", target, 1)?
+  codec.write("json", target, 1)
   link.symlink(to: target)
   assert codec.read("json", link)? == 1
   let values = codec.read_all("json", link)? |> collect()
@@ -96,7 +96,7 @@ test test_codec_file_boundaries_follow_existing_symlink_policy { |ctx|
   assert values[0]? == 1
   test.error_kind(codec.write("json", link, 2), "fs-write")
   assert codec.read("json", target)? == 1
-  codec.write("json", link, 2, overwrite: true)?
+  codec.write("json", link, 2, overwrite: true)
   assert link.readlink()? == target
   assert codec.read("json", target)? == 2
   let missing = fp"{root}/missing.json"
@@ -114,7 +114,7 @@ test test_codec_file_writes_preserve_read_only_destinations { |ctx|
     return
   }
   let input = test.temp_path(ctx, name: "codec-read-only.json")
-  codec.write("json", input, {value: 1})?
+  codec.write("json", input, {value: 1})
   input.chmod(0o400)
   defer input.chmod(0o600)
   assert codec.read("json", input)? == {value: 1}

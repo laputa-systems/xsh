@@ -5,9 +5,9 @@ proc check_root_bundle(pem: Bytes) [] -> Result[Unit] {
 }
 
 test test_net_validate_root_bundle_accepts_each_valid_pem_certificate {
-  check_root_bundle(valid_root_bundle)?
-  check_root_bundle(bytes.concat([b"COMODO ECC Certification Authority\n==================================\n", valid_root_bundle, b"Root bundle footer\n"]))?
-  net.validate_root_bundle(bytes.concat([valid_root_bundle, b"\n# extra root\n", valid_root_bundle]))?
+  check_root_bundle(valid_root_bundle)
+  check_root_bundle(bytes.concat([b"COMODO ECC Certification Authority\n==================================\n", valid_root_bundle, b"Root bundle footer\n"]))
+  net.validate_root_bundle(bytes.concat([valid_root_bundle, b"\n# extra root\n", valid_root_bundle]))
 }
 
 test test_net_validate_root_bundle_rejects_empty_raw_der_and_mixed_invalid_pem {

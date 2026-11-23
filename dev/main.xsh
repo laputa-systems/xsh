@@ -191,14 +191,14 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
 
       let records = tests.test_records(ctx)
       let native_events = fp"{records}/native-events.jsonl"
-      guard native_events.exists()? else {
+      guard native_events.exists() else {
         return Err(usage(f"no recorded full run at {records.display()}; run cargo dev test linux first"))
       }
       let cargo_records = [entry.path.display() for entry in fs.children(fp"{records}/cargo")? if entry.name.starts_with("cargo-")]
       var argv = ["python3", "-B", "dev/performance/rank.py", "--limit", "15"]
       if args == ["--record"] {
         let recorded = fp"{records}/commit"
-        guard recorded.exists()? else {
+        guard recorded.exists() else {
           return Err(usage(f"the run at {records.display()} did not record its commit"))
         }
         let day = time.format(time.now() * 1000000, "%Y-%m-%d", utc: true)?

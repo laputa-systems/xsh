@@ -58,7 +58,7 @@ test test_tee_write_errors_follow_the_output_error_mode { |ctx|
   assert exits.status == 1
   assert ! fp"{root}/late".exists()?, "exit mode stops at the first failure"
 
-  if ! p"/dev/full".exists()? { test.skip("macOS has no /dev/full device"); return }
+  if ! p"/dev/full".exists() { test.skip("macOS has no /dev/full device"); return }
   let full = tee_run(ctx, root, ["-p", "/dev/full", "kept"], b"data")?
   assert full.status == 1
   assert full.stderr == "tee: /dev/full: No space left on device\n", full.stderr

@@ -404,7 +404,7 @@ proc skip_stdin_block(offset: Int, opts: Options, started: monotonic.Reading) [f
   if offset > 0 {
     if let Ok(entry) = fs.stat(p"/dev/stdin", follow_symlinks: true) {
       if entry.kind == "block" {
-        skip_block_input(0, offset, opts, started)?
+        skip_block_input(0, offset, opts, started)
         return Ok(true)
       }
     }
@@ -430,7 +430,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
     }
   } else if ! opts.output_flags.is_empty() {
     let current = unix.fd_info(1)?
-    unix.set_fd_flags(1, current.flags + opts.output_flags)?
+    unix.set_fd_flags(1, current.flags + opts.output_flags)
     output_fd = 1
     if let Ok(entry) = fs.stat(p"/dev/fd/1", follow_symlinks: true) {
       if entry.kind == "file" { output_kind = 8 }
@@ -458,7 +458,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
   if let fd = input_fd {
     let kind = if let file = source { file.kind } else { 0 }
     if kind == 6 {
-      skip_block_input(fd, skip, opts, started)?
+      skip_block_input(fd, skip, opts, started)
     } else if kind == 8 {
       if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
     } else {
@@ -471,7 +471,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
         discarded += block.len()
       }
     }
-  } else if source == null and !skip_stdin_block(skip, opts, started)? {
+  } else if source == null and !skip_stdin_block(skip, opts, started) {
     var discarded = 0
     while discarded < skip {
       let requested = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
@@ -568,7 +568,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monoto
       if "direct" in opts.output_flags and output_length % DIRECT_SECTOR != 0 {
         if fd == 1 {
           let current = unix.fd_info(fd)?
-          unix.set_fd_flags(fd, [flag for flag in current.flags if flag != "direct"])?
+          unix.set_fd_flags(fd, [flag for flag in current.flags if flag != "direct"])
         } else {
           tail_fd = reopen_without_direct(fd, dest, tail_offset, opts.output_flags)?
           output_fd = tail_fd
@@ -678,7 +678,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     var discarded = 0
     if source_kind in [6, 8] {
       if source_kind == 6 {
-        skip_block_input(fd, skip, opts, started)?
+        skip_block_input(fd, skip, opts, started)
       } else if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
       discarded = skip
     }
@@ -768,7 +768,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   var write_failure = null
   if opts.output == null and ! opts.output_flags.is_empty() {
     let current = unix.fd_info(1)?
-    unix.set_fd_flags(1, current.flags + opts.output_flags)?
+    unix.set_fd_flags(1, current.flags + opts.output_flags)
     let data = if converted.blocks.is_empty() { converted.data } else { joined_records(converted.blocks)? }
     let outcome = write_fd_all(1, data)
     written = outcome.written

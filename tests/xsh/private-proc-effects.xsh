@@ -417,8 +417,8 @@ test test_private_proc_effects_reject_glob_without_filesystem_bound { |ctx|
 
 test test_private_proc_effects_allow_glob_with_filesystem_bound { |ctx|
   let root = test.temp_dir(ctx, name: "private-proc-glob-effect")?
-  fp"{root}/only.xsh".write("script")?
-  fp"{root}/other.txt".write("text")?
+  fp"{root}/only.xsh".write("script")
+  fp"{root}/other.txt".write("text")
   let output = test.run_xsh(
     ctx,
     f"""let root = p"{root}"

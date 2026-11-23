@@ -128,7 +128,7 @@ proc main() [env, fs, process, error] {
 }
 
 test test_released_handle_cannot_signal_a_recycled_pid { |ctx|
-  guard linux_only()? else {
+  guard linux_only() else {
     test.skip("recycling a chosen pid needs Linux ns_last_pid in an unprivileged pid namespace")
     return
   }
@@ -159,7 +159,7 @@ proc main() [fs, process, time, error] {
   let cancelled = stale_cancel()?
   assert process.kill(cancelled, signal: "0") is Ok(_), "stale cancel signaled a recycled pid"
 }
-""")?
+""")
   let probe = run.status unshare -Urpf --mount-proc true
   guard probe.exited_with(0) else {
     test.skip("recycling a pid needs an unprivileged user and pid namespace")

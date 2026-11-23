@@ -627,7 +627,7 @@ proc output_width() [env, process] -> Int {
 }
 
 proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
-  if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default")? }
+  if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default") }
   let prepared = prepare_arguments(arguments, ul_io.byte_locale())?
   let argv = prepared.text
   let permute = env.get("POSIXLY_CORRECT") is Err(_)

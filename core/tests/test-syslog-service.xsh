@@ -9,7 +9,7 @@ test test_readiness_never_precedes_the_published_socket { |ctx|
   let handle = spawn handle_command?
     svc.attach(launch)
     svc.await_ready(launch)
-    svc.signal(lay, "TERM")?
+    svc.signal(lay, "TERM")
     let status = wait handle?
     assert status.exited_with(0), svc.log_text(lay)?
     svc.finish(launch)
@@ -28,7 +28,7 @@ test test_the_start_record_states_the_limits_and_that_kernel_loss_is_unobservabl
   for field in ["pid=", "boot=\"", "datagram_limit=8192", "batch=16", "receive_buffer=262144", "kernel_loss=unobservable", "sender_rate=", "global_burst="] {
     assert field in start, start
   }
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -48,7 +48,7 @@ test test_a_record_separates_the_kernel_sender_from_what_the_sender_claims { |ct
   assert f"uid={unix.id()?.uid} " in line, line
   assert "tag=\"forged\" tag_pid=999 host=\"otherhost\"" in line, line
   assert line.ends_with("msg=\"hello\""), line
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -60,7 +60,7 @@ test test_stop_while_idle_exits_zero_prints_final_counters_and_removes_only_its_
   let handle = spawn handle_command?
   svc.attach(launch)
   svc.await_ready(launch)
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   let status = wait handle?
   assert status.exited_with(0)
   assert ! lay.socket.exists()?
@@ -89,7 +89,7 @@ test test_a_live_competing_receiver_makes_the_second_start_fail_without_touching
   assert after.ino == before.ino and after.dev == before.dev
   assert svc.send(lay.socket, b"<13>still up")? > 0
   let _ = svc.await_lines(lay, "seq=", 1)?
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -109,7 +109,7 @@ test test_a_second_service_on_the_same_state_directory_is_refused_by_the_lock { 
   svc.attach(second)
   assert (wait rival_handle?).shell_code()? == 1
   assert "another receiver holds" in svc.log_text(contender)?
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -132,7 +132,7 @@ test test_a_restart_replaces_the_stale_socket_of_a_killed_predecessor { |ctx|
   svc.await_ready(again)
   assert svc.send(lay.socket, b"<13>after restart")? > 0
   let _ = svc.await_lines(lay, "seq=", 1)?
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait restarted?).exited_with(0)
 }
 
@@ -192,7 +192,7 @@ test test_unexpected_descriptors_are_closed_counted_and_never_leak { |ctx|
   let lines = svc.await_lines(lay, "seq=", 1)?
   assert "msg=\"sentinel\"" in lines[0]
   assert svc.open_descriptors(pid)? == before
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
   let stop = svc.lines_with(lay, "event=stop")?[0]
   assert svc.counter(stop, "dropped_rights")? == 50, stop
@@ -215,7 +215,7 @@ test test_descriptor_exhaustion_leaves_the_service_running_without_leaking { |ct
   let lines = svc.await_lines(lay, "seq=", 1)?
   assert "msg=\"after exhaustion\"" in lines[0]
   assert svc.open_descriptors(pid)? == before
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
   let stop = svc.lines_with(lay, "event=stop")?[0]
   assert svc.counter(stop, "dropped_rights")? + svc.counter(stop, "dropped_control_truncated")? == 20, stop
@@ -238,7 +238,7 @@ test test_empty_oversize_and_exact_limit_datagrams_are_told_apart { |ctx|
   assert "priority=missing" in lines[0] and "msg=\"\"" in lines[0], lines[0]
   assert "payload_base64=" in lines[1] and " cut=" in lines[1], lines[1]
   assert "msg=\"sentinel\"" in lines[2]
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
   let stop = svc.lines_with(lay, "event=stop")?[0]
   assert svc.counter(stop, "dropped_oversize")? == 2, stop
@@ -267,7 +267,7 @@ test test_malformed_binary_multiline_and_cut_payloads_each_render_one_line { |ct
     assert lines[index].starts_with(f"seq={index + 1} "), lines[index]
   }
   assert "cut=952" in lines[5], lines[5]
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -305,7 +305,7 @@ test test_concurrent_senders_are_all_recorded_in_order_with_their_own_kernel_pid
     last_by_pid[fields[1]] = number
   }
   assert last_by_pid.len() == 3
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
   let stop = svc.lines_with(lay, "event=stop")?[0]
   assert svc.counter(stop, "offered")? == 300 and svc.counter(stop, "accepted")? == 300, stop
@@ -338,7 +338,7 @@ test test_a_flood_is_bounded_counted_and_leaves_the_service_responsive { |ctx|
   let peak = rx"VmHWM:\s+([0-9]+) kB".captures(status)[1].parse_int()?
   assert peak < 400000, f"peak resident set {peak} kB"
   assert svc.open_descriptors(pid)? < 20
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
   let stop = svc.lines_with(lay, "event=stop")?[0]
   let offered = svc.counter(stop, "offered")?
@@ -362,7 +362,7 @@ test test_a_termination_signal_during_a_flood_stops_the_service_promptly { |ctx|
   let flooder = spawn flood?
   let _ = svc.await_lines(lay, "seq=", 20)?
   let started = time.monotonic()?
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   let status = wait handle?
   let elapsed = time.monotonic()? - started
   assert status.exited_with(0), svc.log_text(lay)?
@@ -394,7 +394,7 @@ test test_a_full_pipe_never_stalls_the_receive_loop_and_is_counted { |ctx|
     assert result.sent == 150
   }
   assert svc.send(lay.socket, b"<13>still receiving")? > 0
-  time.sleep(500ms)?
+  time.sleep(500ms)
   process.kill(pid, signal: "TERM")
   let status = wait handle?
   assert status.exited_with(0), errors.read_text()?
@@ -422,13 +422,13 @@ test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow
     assert result.sent == 150
   }
   assert svc.send(lay.socket, b"<13>sentinel")? > 0
-  time.sleep(500ms)?
+  time.sleep(500ms)
   let seconds = (time.monotonic()? - started) / 1000000000
   let found = [line for line in errors.read_text()?.lines() if line.starts_with("syslogd: output failed")]
   assert found.len() >= 1 and found.len() <= seconds + 2, f"{found.len()} reports in {seconds} s"
   let after = resident.captures(fp"/proc/{pid}/status".read_text()?)[1].parse_int()?
   assert after < before + 30000, f"resident set grew from {before} kB to {after} kB"
-  handle.cancel("TERM", kill_after: 10s)?
+  handle.cancel("TERM", kill_after: 10s)
   let finale = [line for line in errors.read_text()?.lines() if line.starts_with("event=stop")]
   assert finale.len() == 1, errors.read_text()?
   assert svc.counter(finale[0], "dropped_sink_error")? > 0, finale[0]
@@ -467,7 +467,7 @@ test test_a_renamed_log_is_followed_and_reported_once { |ctx|
   let _ = svc.await_containing(lay, "msg=\"first\"", 1)?
   let moved = fp"{lay.root}/syslogd.log.1"
   fs.rename_noreplace(lay.log, moved)
-  time.sleep(1200ms)?
+  time.sleep(1200ms)
   assert svc.send(lay.socket, b"<13>second")? > 0
   let _ = svc.await_containing_in(moved, "msg=\"second\"", 1)?
   let after = moved.read_text()?
@@ -489,7 +489,7 @@ test test_a_removed_log_stops_the_service_so_a_supervisor_can_reopen_it { |ctx|
   assert svc.send(lay.socket, b"<13>first")? > 0
   let _ = svc.await_containing(lay, "msg=\"first\"", 1)?
   lay.log.remove()
-  time.sleep(1200ms)?
+  time.sleep(1200ms)
   assert svc.send(lay.socket, b"<13>second")? > 0
   let status = wait handle?
   assert status.shell_code()? == 1
@@ -505,7 +505,7 @@ test test_the_interrupt_signal_stops_the_service_like_a_termination_signal { |ct
   let handle = spawn command?
   svc.attach(launch)
   svc.await_ready(launch)
-  svc.signal(lay, "INT")?
+  svc.signal(lay, "INT")
   assert (wait handle?).exited_with(0)
   assert ! lay.socket.exists()?
 }
@@ -518,10 +518,10 @@ test test_a_hangup_from_a_supervisor_reload_leaves_the_service_running { |ctx|
   let handle = spawn command?
   svc.attach(launch)
   svc.await_ready(launch)
-  svc.signal(lay, "HUP")?
+  svc.signal(lay, "HUP")
   assert svc.send(lay.socket, b"<13>after reload")? > 0
   let _ = svc.await_containing(lay, "msg=\"after reload\"", 1)?
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }
 
@@ -569,6 +569,6 @@ test test_senders_with_different_uids_are_told_apart_by_the_kernel_credentials {
   }
   assert seen.len() == 4
   assert [seen.get(uid) ?? 0 for uid in ["1001", "1002", "1003", "1004"]] == [10, 10, 10, 1]
-  svc.signal(lay, "TERM")?
+  svc.signal(lay, "TERM")
   assert (wait handle?).exited_with(0)
 }

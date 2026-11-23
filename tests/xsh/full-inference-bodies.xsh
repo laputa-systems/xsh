@@ -1519,13 +1519,13 @@ proc import_roots_fixture(ctx: TestContext, name: Str) [fs, process, error] -> R
 export pure first_of(items) {
   items[0]
 }
-""")?
+""")
   fp"{second}/beta.xsh".write(r"""##! A generic selection helper.
 ## Chooses between two values of one type.
 export pure pick(left, right, flag) {
   if flag { left } else { right }
 }
-""")?
+""")
   Ok({first, second})
 }
 
@@ -1551,7 +1551,7 @@ test test_full_inference_named_and_imported_constants_match_inline_descriptors {
   fp"{root}/shapes.xsh".write(r"""##! Shared descriptors.
 ## A shared row.
 export const SHARED = {label: "shared", weight: 3}
-""")?
+""")
   let reader = r"""pure label_of(row) {
   row.label
 }
@@ -1743,7 +1743,7 @@ print $words.len()
 
 test test_full_inference_null_safe_path_method_with_a_stream_result_runs_for_present_and_absent_paths { |ctx|
   let root = test.temp_dir(ctx, name: "null-safe-lines")?
-  fp"{root}/data.txt".write("one\ntwo\n")?
+  fp"{root}/data.txt".write("one\ntwo\n")
   let output = test.expect(
     ctx,
     r"""proc probe(target: Path?) [fs, error, io] {
@@ -1764,7 +1764,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
 test test_full_inference_diverging_fallback_handler_in_a_generic_body_runs_both_paths { |ctx|
   let root = test.temp_dir(ctx, name: "diverging-handler")?
-  fp"{root}/present.txt".write("contents")?
+  fp"{root}/present.txt".write("contents")
   let program = r"""proc load(file) [fs, process, error, io] {
   let text = fp"{file}".read_text() ?? { |_|
     exit 7

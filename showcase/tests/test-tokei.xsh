@@ -142,7 +142,7 @@ test test_tokei_small_fixture_selects_exact_files_and_preserves_table_bytes { |c
     "translations.pot",
   ]
 
-  let table = run.capture --bytes "xsh" "showcase/tokei.xsh" -- $root ?
+  let table = run.capture --bytes "xsh" "showcase/tokei.xsh" -- $root
   assert table.status.ok
   assert table.stdout == fp"showcase/tests/fixtures/tokei-small.txt".read_bytes()?
 }
@@ -178,21 +178,21 @@ test test_tokei_fails_when_selected_file_cannot_be_read { |ctx|
   let unreadable = fp"{root}/unreadable.rs"
   unreadable.write("fn main() {}\n")
   let prefix = if unix.id()?.euid == 0 {
-    ctx.temp_root.chmod(0o755)?
-    root.chmod(0o755)?
+    ctx.temp_root.chmod(0o755)
+    root.chmod(0o755)
     ["setpriv", "--reuid=65534", "--regid=65534", "--clear-groups"]
   } else { [] }
 
   let json_args = [@prefix, "xsh", "showcase/tokei.xsh", "--", "--json", root.display()]
   let table_args = [@prefix, "xsh", "showcase/tokei.xsh", "--", root.display()]
-  let readable_json = run.capture --bytes @json_args ?
-  let readable_table = run.capture --bytes @table_args ?
+  let readable_json = run.capture --bytes @json_args
+  let readable_table = run.capture --bytes @table_args
   assert readable_json.status.ok, readable_json.stderr.utf8()?
   assert readable_table.status.ok, readable_table.stderr.utf8()?
-  unreadable.chmod(0o000)?
+  unreadable.chmod(0o000)
   defer unreadable.chmod(0o600)
-  let json_run = run.capture --bytes @json_args ?
-  let table_run = run.capture --bytes @table_args ?
+  let json_run = run.capture --bytes @json_args
+  let table_run = run.capture --bytes @table_args
   assert ! json_run.status.ok
   assert ! table_run.status.ok
 }

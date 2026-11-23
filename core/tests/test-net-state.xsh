@@ -376,7 +376,7 @@ proc replayed(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error
   let log = fp"{root}/calls.jsonl"
   test.linux_fake(ctx, {network_replay: file, log})
   let ran = test.run_script(ctx, f"use lib.net_state\n\n{OBSERVE_CHANGE_OBSERVE}", [], {XSH_MODULE_PATH: ctx.core_dir}, b"", name)?
-  {success: ran.success, stdout: ran.stdout, stderr: ran.stderr, calls: if log.exists()? { log.read_text()? } else { "" }}
+  {success: ran.success, stdout: ran.stdout, stderr: ran.stderr, calls: if log.exists() { log.read_text()? } else { "" }}
 }
 
 test test_a_fixed_replay_drives_observe_change_observe_without_the_host { |ctx|

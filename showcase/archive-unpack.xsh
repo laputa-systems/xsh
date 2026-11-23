@@ -123,7 +123,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
       let output = staged_output(opts.out)?
       defer output.pending.remove()
 
-      archive.extract(archive_path, output.pending, format)?
+      archive.extract(archive_path, output.pending, format)
 
       output.pending.rename(to: output.published)
       print f"extracted to {opts.out}"

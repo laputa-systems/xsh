@@ -202,7 +202,7 @@ proc run_replay(ctx: TestContext, name: Str, replay: Str, script: Str) [fs, proc
   let root = test.temp_dir(ctx, name: name)?
   let file = fp"{root}/replay.txt"
   file.write(replay)
-  test.unix_fake(ctx, {replay: file})?
+  test.unix_fake(ctx, {replay: file})
   let result = test.run_script(ctx, script)?
   {success: result.success, stdout: result.stdout, stderr: result.stderr}
 }

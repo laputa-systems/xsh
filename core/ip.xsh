@@ -78,7 +78,7 @@ proc show_routes() [process, env, error] -> Result[Unit, Error] {
 }
 
 proc change(request: net_state.Change) [process, net, error] -> Result[Unit, Error] {
-  net_state.apply(request)?
+  net_state.apply(request)
 }
 
 pure device(state: net_state.State, name: Str) -> Result[net_state.Link, Error] {

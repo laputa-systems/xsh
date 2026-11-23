@@ -21,7 +21,7 @@ proc interrupt(s: uu.Scene, args: List[Str], signal: Str) [fs, process, env, tim
   let child = spawn plan?
   let ready = uu.at(s, ".child-ready")
   var waited = 0ms
-  while ! ready.exists()? {
+  while ! ready.exists() {
     assert waited < 8s, "the timed command never installed its trap"
     time.sleep(10ms)
     waited += 10ms

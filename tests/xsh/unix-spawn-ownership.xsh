@@ -5,8 +5,8 @@ test test_failed_logger_spawn_reaps_service { |ctx|
   }
   let root = test.temp_dir(ctx, name: "failed-logger-spawn")?
   let logger = fp"{root}/logger"
-  logger.write("#!/xsh-missing-interpreter\n")?
-  logger.chmod(0o755)?
+  logger.write("#!/xsh-missing-interpreter\n")
+  logger.chmod(0o755)
   test.expect(ctx, r"""let logger = Path(args[0])
 let service = process.command_argv("sleep", ["sleep", "30"])
 let broken = process.command_argv(logger, [logger])

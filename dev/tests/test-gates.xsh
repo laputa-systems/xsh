@@ -10,7 +10,7 @@ use unix
 
 proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error] -> Result[Unit, Error] {
   let dev = fp"{root}/dev"
-  dev.mkdir(parents: true)?
+  dev.mkdir(parents: true)
   fp"{dev}/gate_source.py".write(fp"{repository}/dev/gate_source.py".read_bytes()?)
   fp"{dev}/performance".mkdir()
   fp"{dev}/performance/results.py".write(fp"{repository}/dev/performance/results.py".read_bytes()?)
@@ -18,12 +18,12 @@ proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error
   let _ = run.capture --text git -C $root init --quiet
   let _ = run.capture --text git -C $root add .
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
-  open_fixture_to_native_user(root)?
+  open_fixture_to_native_user(root)
 }
 
 proc open_fixture_to_native_user(root: Path) [fs, process, error] -> Result[Unit, Error] {
   return when unix.id()?.euid != 0
-  fp"{root}/.work/tmp".mkdir(parents: true)?
+  fp"{root}/.work/tmp".mkdir(parents: true)
   for directory in [root, fp"{root}/.work", fp"{root}/.work/tmp", root.parent()] {
     let mode = if directory == root.parent() { "a+x" } else { "a+rwx" }
     let changed = run.capture --text chmod $mode $directory
@@ -33,7 +33,7 @@ proc open_fixture_to_native_user(root: Path) [fs, process, error] -> Result[Unit
 
 proc hand_to_native_user(root: Path) [fs, process, env, error] -> Result[Unit, Error] {
   return when unix.id()?.euid != 0
-  fp"{root}/.work/tmp".mkdir(parents: true)?
+  fp"{root}/.work/tmp".mkdir(parents: true)
   let owner = f"{env.get("HOST_UID")?.trim()}:{env.get("HOST_GID")?.trim()}"
   for step in [["chown", "-R", owner, root.display()], ["chmod", "a+x", root.parent().display()]] {
     let changed = run.capture --text @step
@@ -48,7 +48,7 @@ proc open_to_native_user(directory: Path) [process, error] -> Result[Unit, Error
 }
 
 proc init_laputa_gate_repository(root: Path, repository: Path) [fs, process, env, error] -> Result[Unit, Error] {
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   for entry in fs.children(fp"{repository}/dev/performance")? {
     if entry.name.ends_with(".py") and entry.kind == "file" {
       fp"{root}/dev/performance/{entry.name}".write(entry.path.read_bytes()?)
@@ -126,7 +126,7 @@ test test_gate_rejects_source_changed_after_host_selection { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-selection-source")?
   fp"{root}/Cargo.toml".write("original\n")
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let snapshot = cd (root) { run.text python3 -B dev/gate_source.py }?
   fp"{root}/Cargo.toml".write("changed\n")
   fp"{root}/tools".mkdir()
@@ -150,7 +150,7 @@ main()?
 test test_source_observation_ignores_user_git_excludes { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-source-excludes")?
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   fp"{root}/tools".mkdir()
   fp"{root}/tools/excludes".write("local-input\n")
   let config = fp"{root}/tools/gitconfig"
@@ -182,7 +182,7 @@ test test_result_reconciler_changes_select_its_tests {
 test test_scenario_only_scope_does_not_report_a_focused_pass { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-scenario-only")?
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let _ = test.expect(ctx, f"""
 use gates
 use fixtures
@@ -210,9 +210,9 @@ done
 exec '{python}' "$@"
 """, mode: 0o755)
   let products = fp"{root}/target/x86_64-unknown-linux-musl/verification"
-  products.mkdir(parents: true)?
+  products.mkdir(parents: true)
   fp"{products}/xsht".write("fixture\n", mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let inherited = env.get_or("PATH", "")?
   let source = f"""
 use gates
@@ -250,7 +250,7 @@ test test_native_gate_reports_required_skips_as_incomplete { |ctx|
   let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
   fp"{root}/target/x86_64-unknown-linux-musl/verification/xsht".write(
     f"#!/bin/sh\nexec '{xsht}' \"$@\"\n", mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let source = f"""
 use gates
 use fixtures
@@ -260,7 +260,7 @@ proc main() [fs, process, env, time, error, io] {{
 """
   let inherited = env.get_or("PATH", "")?
   let _ = run.capture --text git -C $root update-ref -d HEAD
-  fp"{root}/.git/index".unlink()?
+  fp"{root}/.git/index".unlink()
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
@@ -372,8 +372,8 @@ test test_native_gate_rejects_product_changes_during_execution { |ctx|
   fp"{products}/xsht".write(f"#!/bin/sh\nexec '{xsht}' \"$@\"\n", mode: 0o755)
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ run sh -c \"printf changed > '{product}'\" }}\n")
-  init_gate_repository(root, repository)?
-  open_to_native_user(products)?
+  init_gate_repository(root, repository)
+  open_to_native_user(products)
   let source = f"""
 use gates
 use fixtures
@@ -428,7 +428,7 @@ test test_native_gate_rejects_source_changes_during_execution { |ctx|
   let _ = run.capture --text git -C $root init --quiet
   let _ = run.capture --text git -C $root add .
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
-  hand_to_native_user(root)?
+  hand_to_native_user(root)
   fp"{root}/tools".mkdir()
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
@@ -482,7 +482,7 @@ proc main() [fs, process, env, time, error, io] {{
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let link = fp"{root}/source-link"
-  link.symlink(to: p"input.txt")?
+  link.symlink(to: p"input.txt")
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ p\"{link}\".unlink()?; p\"{link}\".symlink(to: p\"missing\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
@@ -492,15 +492,15 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
-  link.unlink()?
-  link.symlink(to: p"/")?
+  link.unlink()
+  link.symlink(to: p"/")
   let marker = fp"{root}/leaf-started"
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{marker}\".write(\"started\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "escapes"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
-  link.unlink()?
+  link.unlink()
   let opaque = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/opaque-\\xff', 'wb').close()" $root
   if opaque.status.shell_code()? == 0 {
     let _ = run.capture --text git -C $root add -A
@@ -776,7 +776,7 @@ proc declared_harnesses(directory: Path) [fs, error] -> Result[List[RustHarness]
   let package = manifest.get("package")?.require(Record)?
   let name = package.get("name")?.require(Str)?
   var found: List[RustHarness] = []
-  found += [{package: name, harness: "lib"}] when fp"{directory}/src/lib.rs".exists()?
+  found += [{package: name, harness: "lib"}] when fp"{directory}/src/lib.rs".exists()
   var declared: List[Str] = []
   if "test" in manifest.keys() {
     for entry in manifest.get("test")?.require(List[Record])? {
@@ -784,7 +784,7 @@ proc declared_harnesses(directory: Path) [fs, error] -> Result[List[RustHarness]
     }
   }
   let autotests = if "autotests" in package.keys() { package.get("autotests")?.require(Bool)? } else { true }
-  if autotests and fp"{directory}/tests".exists()? {
+  if autotests and fp"{directory}/tests".exists() {
     for entry in fs.children(fp"{directory}/tests")? {
       continue when entry.kind != "file" or ! entry.name.ends_with(".rs")
       let stem = entry.name[..entry.name.byte_len() - 3]
@@ -1169,7 +1169,7 @@ p"{observed}".write(args.join("|"))?
 }
 
 test test_docker_gate_evaluates_context_root_path_expression { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "docker-gate-tools")?
   let cargo_home = fp"{tools}/cargo"
@@ -1287,7 +1287,7 @@ test test_invalid_gate_dispatch_never_starts_docker_or_cargo { |ctx|
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-invalid-repository")?
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let tools = test.temp_dir(ctx, name: "gate-forbidden-processes")?
   let marker = fp"{tools}/started"
   for name in ["cargo", "docker"] {
@@ -1536,7 +1536,7 @@ test test_evidence_is_current_only_for_the_target_and_profile_it_ran_on { |ctx|
   let on_linux = fixtures.linux_context(root)?
   let darwin = fixtures.darwin_context(root)?
   let record = gates.case_evidence_path(on_linux, "check-compile")
-  gates.store_evidence(record, "check-compile", "source", [], "x86_64-unknown-linux-musl", "verification")?
+  gates.store_evidence(record, "check-compile", "source", [], "x86_64-unknown-linux-musl", "verification")
   let cases = [
     {context: on_linux, profile: "verification", expected: "current (passed"},
     {context: on_linux, profile: "release", expected: "stale (profile changed: verification to release)"},
@@ -1563,7 +1563,7 @@ test test_evidence_recorded_in_the_container_is_current_on_the_host { |ctx|
   for root in [container, host] {
     fp"{root}/dev".mkdir()
     fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
-    fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir(parents: true)?
+    fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir(parents: true)
     fp"{root}/{relative}".write("fixture\n", mode: 0o755)
   }
   let environment = {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}
@@ -1580,7 +1580,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """
   let _ = test.expect(ctx, store, status: 0, args: [], env: environment)?
-  fp"{container}/{relative}".unlink()?
+  fp"{container}/{relative}".unlink()
   let observe = f"""
 use gates
 use fixtures
@@ -1599,7 +1599,7 @@ test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against
   let ctx_root = fixtures.linux_context(test.temp_dir(ctx, name: "laputa-evidence")?)?
   let record = gates.case_evidence_path(ctx_root, "laputa/pm.make/plan")
   let ran: gates.LaputaBinding = {root: "/laputa", source: "a"}
-  gates.store_evidence(record, "laputa/pm.make/plan", "xsh", [], "x86_64-unknown-linux-musl", "verification", laputa: ran)?
+  gates.store_evidence(record, "laputa/pm.make/plan", "xsh", [], "x86_64-unknown-linux-musl", "verification", laputa: ran)
   let cases = [
     {observed: ran, expected: "current (passed"},
     {observed: {root: "/laputa", source: "b"}, expected: "stale (Laputa source changed)"},
@@ -1777,7 +1777,7 @@ if args[0] == "test" {{
   print json.encode({{reason: "build-finished", success: true}})?
 }}
 """, mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let inherited = env.get_or("PATH", "")?
   let request_source = f"""
 use gates
@@ -1833,7 +1833,7 @@ if args[0] == "test" {{
     cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
-  while ! ready.exists()? {{
+  while ! ready.exists() {{
     if let _ = process.wait_timeout([handle], 10ms)? {{ test.fail(stdout.read_text()? + stderr.read_text()?) }}
   }}
   process.kill(handle.pid, signal: "TERM")
@@ -1896,7 +1896,7 @@ if args[0] == "test" {{
   print json.encode({{reason: "build-finished", success: true}})?
 }}
 """, mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let inherited = env.get_or("PATH", "")?
   let request = f"""
 use gates
@@ -1944,7 +1944,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   fp"{products}/xsh".write("fixture\n", mode: 0o755)
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{products}/xsht".write(f"#!/bin/sh\nsleep 30 & child=$!; trap 'wait $child; exit 143' TERM INT; echo $child > '{child_file}'; touch '{ready}'; wait $child\n", mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
@@ -1952,7 +1952,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
       PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
-  while ! ready.exists()? {
+  while ! ready.exists() {
     if let _ = process.wait_timeout([handle], 10ms)? {
       test.fail(stdout.read_text()? + stderr.read_text()?)
     }
@@ -1990,7 +1990,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   let products = fp"{root}/target/x86_64-unknown-linux-musl/verification"
   products.mkdir()
   for product in ["xsh", "xsht"] { fp"{products}/{product}".write("fixture\n", mode: 0o755) }
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{repository}/dev/main.xsh"
@@ -1999,7 +1999,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
       PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", TARGET: "x86_64-unknown-linux-musl", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
-  while ! ready.exists()? {
+  while ! ready.exists() {
     if let _ = process.wait_timeout([handle], 10ms)? {
       test.fail(stdout.read_text()? + stderr.read_text()?)
     }
@@ -2033,7 +2033,7 @@ test test_product_inspection_respects_the_selected_case_deadline { |ctx|
   let products = fp"{root}/target/x86_64-unknown-linux-musl/verification"
   products.mkdir()
   for product in ["xsh", "xsht"] { fp"{products}/{product}".write("fixture\n", mode: 0o755) }
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let source = f"""
 use gates
 use fixtures
@@ -2070,14 +2070,14 @@ test test_container_status_returns_gate_errors {
 }
 
 test test_gate_container_preserves_selected_failure_incomplete_and_cancel_statuses { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-container-status")?
   let root = fp"{tools}/checkout"
-  root.mkdir()?
-  init_gate_repository(root, repository)?
-  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)?
+  root.mkdir()
+  init_gate_repository(root, repository)
+  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)
   let cargo_home = fp"{tools}/cargo"
   cargo_home.mkdir()
   fp"{cargo_home}/bin".mkdir()
@@ -2118,7 +2118,7 @@ main()?
     }})?
     assert "--source-digest" in invocation.read_lines()?
   }
-  invocation.unlink()?
+  invocation.unlink()
   for scenario in [{inspect: "1", identity: "0", raw: 1}, {inspect: "0", identity: "1", raw: 1}, {inspect: "130", identity: "0", raw: 130}, {inspect: "0", identity: "130", raw: 130}] {
     env ({PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home.display(), INSPECT_STATUS: scenario.inspect,
       IDENTITY_STATUS: scenario.identity, XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:status-fixture"}) {
@@ -2688,20 +2688,20 @@ test test_performance_python_owners_select_contract_tests {
 }
 
 test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   test.timeout(ctx, 60s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "gate-focused-json")?
   let root = fp"{tools}/checkout"
-  root.mkdir()?
-  fp"{root}/bench/consolidation".mkdir(parents: true)?
-  fp"{root}/bench/consolidation/fixtures.py".write(fp"{repository}/bench/consolidation/fixtures.py".read_bytes()?)?
-  init_gate_repository(root, repository)?
-  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)?
-  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)?
+  root.mkdir()
+  fp"{root}/bench/consolidation".mkdir(parents: true)
+  fp"{root}/bench/consolidation/fixtures.py".write(fp"{repository}/bench/consolidation/fixtures.py".read_bytes()?)
+  init_gate_repository(root, repository)
+  fp"{root}/dev/musl-linker.sh".write(fp"{repository}/dev/musl-linker.sh".read_bytes()?)
+  fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
   let cargo_home = fp"{tools}/cargo"
-  fp"{cargo_home}/bin".mkdir(parents: true)?
-  fp"{cargo_home}/bin/kache".write("#!/bin/sh\nexit 0\n", mode: 0o755)?
+  fp"{cargo_home}/bin".mkdir(parents: true)
+  fp"{cargo_home}/bin/kache".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let target_dir = fp"{tools}/target"
   let product = fp"{target_dir}/x86_64-unknown-linux-musl/verification/xsh"
   let preparation = fp"{tools}/preparation"
@@ -2815,15 +2815,15 @@ main()?
 }
 
 test test_laputa_mixed_case_preserves_regular_child_status { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   test.timeout(ctx, 180s)
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "laputa-mixed")?
   let checkout = fp"{tools}/checkout"
   checkout.mkdir()
-  init_laputa_gate_repository(checkout, repository)?
+  init_laputa_gate_repository(checkout, repository)
   let products = fp"{checkout}/target/x86_64-unknown-linux-musl/verification"
-  products.mkdir(parents: true)?
+  products.mkdir(parents: true)
   for product in ["xsh", "xsht", "xshi"] { fp"{products}/{product}".write("fixture\n", mode: 0o755) }
   let laputa = fp"{tools}/laputa"
   laputa.mkdir()
@@ -2894,7 +2894,7 @@ main()?
     let status = pair[0]
     let external = pair[1]
     desired.write(f"{status}")
-    if tag_seen.exists()? { tag_seen.remove()? }
+    if tag_seen.exists() { tag_seen.remove() }
     adapter_status.write(f"{external}")
     let expected = if status == 130 { 130 } else if status == 1 or external == 1 { 1 } else if status == 2 { 2 } else { 0 }
     let _ = test.expect(ctx, source, status: expected, args: [], env: {{
@@ -2909,8 +2909,8 @@ main()?
     assert pinned in invocation.read_lines()?
     if status in [0, 2] { assert pinned in adapter_called.read_lines()? }
   }
-  invocation.remove()?
-  preparation_invocation.remove()?
+  invocation.remove()
+  preparation_invocation.remove()
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [], env: {{
     PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_TEST_IMAGE_BUILD: "0",
@@ -2918,7 +2918,7 @@ main()?
   }})?
   assert ! invocation.exists()?
   assert ! preparation_invocation.exists()?
-  if tag_seen.exists()? { tag_seen.remove()? }
+  if tag_seen.exists() { tag_seen.remove() }
   desired.write("0")
   adapter_status.write("0")
   let _ = test.expect(ctx, source, status: 0, args: [], env: {{
@@ -2928,8 +2928,8 @@ main()?
   }})?
   assert build_calls.read_lines()? == ["build"]
   assert "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" in preparation_invocation.read_lines()?
-  invocation.remove()?
-  preparation_invocation.remove()?
+  invocation.remove()
+  preparation_invocation.remove()
   for setup in [["0", "1", "2"], ["1", "1", "2"], ["0", "130", "130"], ["1", "130", "130"]] {
     let _ = test.expect(ctx, source, status: setup[2] as Int, args: [], env: {{
       PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
@@ -3323,7 +3323,7 @@ if args[0] == "test" {{
 """, mode: 0o755)
   let docker_marker = fp"{root}/docker-started"
   fp"{root}/tools/docker".write(f"#!/bin/sh\ntouch '{docker_marker}'\nexit 1\n", mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let inherited = env.get_or("PATH", "")?
   let environment = {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}
   let run_source = f"""
@@ -3360,7 +3360,7 @@ main()?
   fp"{root}/Cargo.toml".write("")
   record.write("{not json")
   let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (unreadable record"], args: [], env: environment)?
-  record.remove()?
+  record.remove()
   let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
   assert cargo_calls.read_lines()?.len() == compile_calls
   assert harness_calls.read_lines()?.len() == 1
@@ -3368,7 +3368,7 @@ main()?
 }
 
 test test_gate_status_tracks_laputa_scenario_evidence_after_the_external_run { |ctx|
-  if ! p"/usr/local/bin/mold".exists()? { test.skip("requires the host mold linker") }
+  if ! p"/usr/local/bin/mold".exists() { test.skip("requires the host mold linker") }
   test.timeout(ctx, 120s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-status-laputa")?
@@ -3404,7 +3404,7 @@ if args[0] == "image" {{
 }}
 exit 0
 """, mode: 0o755)
-  init_gate_repository(root, repository)?
+  init_gate_repository(root, repository)
   let inherited = env.get_or("PATH", "")?
   let environment = {PATH: f"{root}/tools:{inherited}", CARGO_HOME: cargo_home,
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
@@ -3447,12 +3447,12 @@ printf '%s\\n' "$@" > "$CHOWN_ARGS"
   fp"{checkout}/.work/gate/cases".mkdir(parents: true)
   let gate_ctx = fixtures.linux_context(checkout, "verification")?
   env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: ""}) {
-    docker.repair_mounted_outputs(gate_ctx)?
+    docker.repair_mounted_outputs(gate_ctx)
   }
   assert log.read_lines()? == ["-R", "1000:1000", gate_ctx.target_dir.display(), fp"{checkout}/.work/gate".display()]
   fp"{checkout}/.work/consolidation".mkdir()
   env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: ""}) {
-    docker.repair_mounted_outputs(gate_ctx)?
+    docker.repair_mounted_outputs(gate_ctx)
   }
   assert log.read_lines()? == ["-R", "1000:1000", gate_ctx.target_dir.display(), fp"{checkout}/.work/gate".display(), fp"{checkout}/.work/consolidation".display()]
   env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: "/work/target/x"}) {

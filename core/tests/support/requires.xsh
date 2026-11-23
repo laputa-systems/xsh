@@ -19,5 +19,5 @@ export proc linux_kernel(reason: Str) [env, error] {
 
 ## Skips the calling test where the host lacks `required`.
 export proc host_path(required: Path, reason: Str) [fs, error] {
-  if ! required.exists()? { test.skip(reason) }
+  if ! required.exists() { test.skip(reason) }
 }

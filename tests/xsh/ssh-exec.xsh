@@ -29,7 +29,7 @@ test ssh_exec_reports_status_and_output {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -55,7 +55,7 @@ test ssh_exec_reports_signals {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -80,7 +80,7 @@ test ssh_exec_timeout_carries_certainty {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -107,7 +107,7 @@ test ssh_exec_rejects_concurrent_use {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -138,7 +138,7 @@ test ssh_exec_moves_stdin_larger_than_the_window {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -162,7 +162,7 @@ test ssh_session_serves_successive_commands {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -187,7 +187,7 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -213,7 +213,7 @@ test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -277,7 +277,7 @@ test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -292,11 +292,11 @@ test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
   let root = test.temp_dir(ctx, name: "cleanup")?
   let program = fp"{root}/cleanup.xsh"
   let ready = fp"{root}/ready"
-  program.write(CLEANUP_PROGRAM)?
+  program.write(CLEANUP_PROGRAM)
   with session = ssh.connect(options)? {
     assert ssh.exec(session, "rm -f /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0
     let child = spawn run @(command_for(ctx.xsh_bin, program, ready)) ?
-    wait until ready.exists()? within 30s every 50ms
+    wait until ready.exists() within 30s every 50ms
     child.cancel(signal: "TERM", kill_after: 10s)
     wait until ssh.exec(session, "test -e /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0 within 30s every 100ms
   }
@@ -324,7 +324,7 @@ test ssh_exec_running_when_sigterm_arrives_is_canceled_promptly { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -339,7 +339,7 @@ test ssh_exec_running_when_sigterm_arrives_is_canceled_promptly { |ctx|
   let root = test.temp_dir(ctx, name: "cancel-exec")?
   let program = fp"{root}/cancel.xsh"
   let outcome = fp"{root}/outcome"
-  program.write(CANCEL_PROGRAM)?
+  program.write(CANCEL_PROGRAM)
   with session = ssh.connect(options)? {
     assert ssh.exec(session, "rm -f /tmp/xsh-exec-before-signal", {})?.exit_code == 0
     let child = spawn run @([ctx.xsh_bin.display(), program.display(), outcome.display()]) ?
@@ -353,7 +353,7 @@ test ssh_exec_running_when_sigterm_arrives_is_canceled_promptly { |ctx|
     }
     assert submitted, "the remote command never started"
     let started = time.now()
-    process.kill(child.pid, signal: "TERM")?
+    process.kill(child.pid, signal: "TERM")
     let status = wait child?
     let elapsed = time.now() - started
     assert elapsed < 5000, f"cancellation took {elapsed} ms"
@@ -368,13 +368,13 @@ test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
   let root = test.temp_dir(ctx, name: "chained-stdin")?
   let body = fp"{root}/body.bin"
-  body.write("tail-from-file")?
+  body.write("tail-from-file")
   let options = {
     host: fixture.host,
     port: fixture.port,
@@ -393,7 +393,7 @@ test ssh_exec_environment_is_sent_when_the_server_accepts_it { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -425,7 +425,7 @@ test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }
@@ -459,7 +459,7 @@ test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
-      test.skip("fixture environment is absent")?
+      test.skip("fixture environment is absent")
       return
     }
   }

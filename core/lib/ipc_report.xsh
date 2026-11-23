@@ -864,6 +864,6 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
 
 ## Resolves parsed options into the resource, column and output selection.
 export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
-  validate_cli_options(argv, permute)?
+  validate_cli_options(argv, permute)
   select(options, argv, permute)
 }

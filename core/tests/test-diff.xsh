@@ -216,7 +216,7 @@ test test_diff_recorded_directories_and_operands { |ctx|
 test test_diff_recorded_case_distinct_directories { |ctx|
   let probe = test.temp_dir(ctx, name: "diff-case-probe")?
   fp"{probe}/Case".write("")
-  if fp"{probe}/case".exists()? { test.skip("the filesystem is case-insensitive"); return }
+  if fp"{probe}/case".exists() { test.skip("the filesystem is case-insensitive"); return }
   let root = fixtures(ctx, "diff-case-distinct")?
   let all = load(fp"{ctx.core_dir}/tests/data/diff/cases.txt")?
   let chosen = [item for item in all if item.id == "dir_173"]

@@ -1,8 +1,8 @@
 proc full_inference_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-modules")?
   let root = fp"{ctx.file.parent()}/../fixtures/modules/full-inference"
-  fp"{modules}/identity.xsh".write(fp"{root}/identity.xsh".read_text()?)?
-  fp"{modules}/utilities.xsh".write(fp"{root}/utilities.xsh".read_text()?)?
+  fp"{modules}/identity.xsh".write(fp"{root}/identity.xsh".read_text()?)
+  fp"{modules}/utilities.xsh".write(fp"{root}/utilities.xsh".read_text()?)
   modules
 }
 

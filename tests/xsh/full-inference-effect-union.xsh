@@ -3,7 +3,7 @@ type EffectUnionInputs = {root: Path, source: Str}
 proc effect_union_inputs(ctx: TestContext) [fs, error] -> Result[EffectUnionInputs] {
   let root = test.temp_dir(ctx, name: "effect-union")?
   let fixtures = fp"{ctx.file.parent()}/../fixtures"
-  fp"{root}/effects.xsh".write(fp"{fixtures}/modules/full-inference-effect-union/effects.xsh".read_text()?)?
+  fp"{root}/effects.xsh".write(fp"{fixtures}/modules/full-inference-effect-union/effects.xsh".read_text()?)
   let source = fp"{fixtures}/runtime/exported-effect-union.xsh".read_text()?
   {root, source}
 }

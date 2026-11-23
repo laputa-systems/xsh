@@ -101,7 +101,7 @@ pure posix_directory(kind: PosixKind, root: Path) -> Path {
 ## Tests whether procfs exposes System V IPC tables beneath root.
 export proc system_v_available(root: Path = p"/") [fs, error] -> Bool {
   for name in ["msg", "shm", "sem"] {
-    if !source_path(root, fp"proc/sysvipc/{name}").exists()? { return false }
+    if !source_path(root, fp"proc/sysvipc/{name}").exists() { return false }
   }
   true
 }
@@ -164,7 +164,7 @@ export proc read_limit_text(limit: Limit, root: Path = p"/") [fs, error] -> Str 
   let limit_path = source_path(root, fp"proc/sys/{relative}")
   let content = try { limit_path.read_text()? }
   if let Ok(value) = content { return value.trim() }
-  if limit in [PosixQueueCount, PosixMessageBytes, PosixQueueMessages] and !limit_path.exists()? and source_path(root, p"proc/sys/kernel").exists()? { return "0" }
+  if limit in [PosixQueueCount, PosixMessageBytes, PosixQueueMessages] and !limit_path.exists() and source_path(root, p"proc/sys/kernel").exists() { return "0" }
   content?.trim()
 }
 

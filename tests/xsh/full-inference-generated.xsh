@@ -2,7 +2,7 @@ test test_generated_inference_equivalences_and_type_mutants { |ctx|
   let modules = test.temp_dir(ctx, name: "generated-inference-modules")?
   for name in ["numbers.xsh", "transport.xsh"] {
     let fixture = fp"tests/fixtures/modules/full-inference-metamorphic/{name}"
-    fp"{modules}/{name}".write(fixture.read_text()?)?
+    fp"{modules}/{name}".write(fixture.read_text()?)
   }
   for seed in [2, 5, 9] {
     for variant in [0, 1] {

@@ -12,43 +12,43 @@ test test_archive_tar_cpio_and_compression { |ctx|
 
   fp"{src}/link".symlink(to: p"dir/a.txt")
   let tarball = fp"{out}/pkg.tar.gz"
-  archive.create(tarball, src, [p"."], .Tar, compression: .Gzip)?
+  archive.create(tarball, src, [p"."], .Tar, compression: .Gzip)
   let entries = archive.list(tarball, .Tar)?.collect()
   assert entries.len() >= 3, "tar list should include dir, file, and symlink"
   assert entries |> any .path.display().ends_with("dir/a.txt"), "tar entry missing"
   let sorted_tarball = fp"{out}/sorted.tar"
   var sorted_entries = [p"dir/a.txt"]
   sorted_entries = sorted_entries |> sort-by .display()
-  archive.create(sorted_tarball, src, sorted_entries, .Tar)?
+  archive.create(sorted_tarball, src, sorted_entries, .Tar)
   assert archive.list(sorted_tarball, .Tar)?.collect().len() == 1
   let extracted = fp"{out}/extract"
-  archive.extract(tarball, extracted, .Tar)?
+  archive.extract(tarball, extracted, .Tar)
   assert fp"{extracted}/dir/a.txt".read_text()?.trim() == "alpha"
   let selected = fp"{out}/selected"
-  archive.extract(tarball, selected, .Tar, members: [p"dir/a.txt"])?
+  archive.extract(tarball, selected, .Tar, members: [p"dir/a.txt"])
   assert fp"{selected}/dir/a.txt".read_text()?.trim() == "alpha"
   assert ! fp"{selected}/link".exists()?
   assert archive.extract(tarball, extracted, .Tar) is Err(ArchiveError.Collision {..})
   let cpio = fp"{out}/pkg.cpio"
-  archive.create(cpio, src, [p"."], .Cpio)?
+  archive.create(cpio, src, [p"."], .Cpio)
   let cpio_entries = archive.list(cpio, .Cpio)?.collect()
   assert cpio_entries.len() >= 3, "cpio list should include source entries"
   let cpio_out = fp"{out}/cpio"
-  archive.extract(cpio, cpio_out, .Cpio)?
+  archive.extract(cpio, cpio_out, .Cpio)
   assert fp"{cpio_out}/dir/a.txt".read_text()?.trim() == "alpha"
   let payload = fp"{src}/dir/a.txt"
   let gz = fp"{out}/a.txt.gz"
   let bz2 = fp"{out}/a.txt.bz2"
   let xz = fp"{out}/a.txt.xz"
   let lzma = fp"{out}/a.txt.lzma"
-  archive.compress(payload, gz, format: .Gzip)?
-  archive.compress(payload, bz2, format: .Bzip2)?
-  archive.compress(payload, xz, format: .Xz)?
-  archive.compress(payload, lzma, format: .Lzma)?
+  archive.compress(payload, gz, format: .Gzip)
+  archive.compress(payload, bz2, format: .Bzip2)
+  archive.compress(payload, xz, format: .Xz)
+  archive.compress(payload, lzma, format: .Lzma)
   assert archive.decompress_bytes(gz)?.utf8()?.trim() == "alpha"
-  archive.decompress(bz2, fp"{out}/bz2.out")?
-  archive.decompress(xz, fp"{out}/xz.out")?
-  archive.decompress(lzma, fp"{out}/lzma.out")?
+  archive.decompress(bz2, fp"{out}/bz2.out")
+  archive.decompress(xz, fp"{out}/xz.out")
+  archive.decompress(lzma, fp"{out}/lzma.out")
   assert fp"{out}/bz2.out".read_text()?.trim() == "alpha"
   assert fp"{out}/xz.out".read_text()?.trim() == "alpha"
   assert fp"{out}/lzma.out".read_text()?.trim() == "alpha"
@@ -199,17 +199,17 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   let txz = fp"{out}/pkg.tar.xz"
   let plain = fp"{out}/pkg.tar"
   let inferred = fp"{out}/inferred.tgz"
-  archive.create(tgz, src, [p"."], .Tar, compression: .Gzip)?
-  archive.create(tbz, src, [p"."], .Tar, compression: .Bzip2)?
-  archive.create(txz, src, [p"."], .Tar, compression: .Xz)?
-  archive.create(plain, src, [p"."], .Tar)?
-  archive.create(inferred, src, [p"."], .Tar)?
+  archive.create(tgz, src, [p"."], .Tar, compression: .Gzip)
+  archive.create(tbz, src, [p"."], .Tar, compression: .Bzip2)
+  archive.create(txz, src, [p"."], .Tar, compression: .Xz)
+  archive.create(plain, src, [p"."], .Tar)
+  archive.create(inferred, src, [p"."], .Tar)
   assert archive.list(tgz, .Tar)?.collect().len() == 3
   let dest = fp"{out}/dest"
-  archive.extract(tgz, dest, .Tar)?
+  archive.extract(tgz, dest, .Tar)
   assert fp"{dest}/dir/a.txt".read_text()? == " alpha\n"
   let stripped = fp"{out}/stripped"
-  archive.extract(tgz, stripped, .Tar, strip_components: 1)?
+  archive.extract(tgz, stripped, .Tar, strip_components: 1)
   assert fp"{stripped}/a.txt".read_text()?.trim() == "alpha"
   assert archive.extract(tgz, dest, .Tar) is Err(ArchiveError.Collision {..})
   assert archive.list(tbz, .Tar)?.collect().len() == 3
@@ -218,10 +218,10 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   assert archive.list(inferred, .Tar)?.collect().len() == 3
 
   let cpio = fp"{out}/pkg.cpio"
-  archive.create(cpio, src, [p"."], .Cpio)?
+  archive.create(cpio, src, [p"."], .Cpio)
   assert archive.list(cpio, .Cpio)?.collect().len() == 3
   let cpio_dest = fp"{out}/cpio"
-  archive.extract(cpio, cpio_dest, .Cpio)?
+  archive.extract(cpio, cpio_dest, .Cpio)
   assert fp"{cpio_dest}/dir/a.txt".read_text()?.trim() == "alpha"
 
   let payload = fp"{src}/dir/a.txt"
@@ -229,19 +229,19 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   let bz2 = fp"{out}/a.txt.bz2"
   let xz = fp"{out}/a.txt.xz"
   let lzma = fp"{out}/a.txt.lzma"
-  archive.compress(payload, gz, format: .Gzip)?
-  archive.compress(payload, bz2, format: .Bzip2)?
-  archive.compress(payload, xz, format: .Xz)?
-  archive.compress(payload, lzma, format: .Lzma)?
+  archive.compress(payload, gz, format: .Gzip)
+  archive.compress(payload, bz2, format: .Bzip2)
+  archive.compress(payload, xz, format: .Xz)
+  archive.compress(payload, lzma, format: .Lzma)
   # Without a format, compression follows the destination's extension.
   let auto_gz = fp"{out}/auto.gz"
   let auto_bz2 = fp"{out}/auto.bz2"
   let auto_xz = fp"{out}/auto.xz"
   let auto_lzma = fp"{out}/auto.lzma"
-  archive.compress(payload, auto_gz)?
-  archive.compress(payload, auto_bz2)?
-  archive.compress(payload, auto_xz)?
-  archive.compress(payload, auto_lzma)?
+  archive.compress(payload, auto_gz)
+  archive.compress(payload, auto_bz2)
+  archive.compress(payload, auto_xz)
+  archive.compress(payload, auto_lzma)
   # Decompression recognizes gzip, bzip2, and xz by content under any name.
   let gz_probe = fp"{out}/gzip.probe"
   let bz2_probe = fp"{out}/bzip2.probe"
@@ -250,9 +250,9 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   auto_bz2.copy(to: bz2_probe)
   auto_xz.copy(to: xz_probe)
   assert archive.decompress_bytes(gz)?.utf8()?.trim() == "alpha"
-  archive.decompress(bz2, fp"{out}/a.bz2.out")?
-  archive.decompress(xz, fp"{out}/a.xz.out")?
-  archive.decompress(lzma, fp"{out}/a.lzma.out")?
+  archive.decompress(bz2, fp"{out}/a.bz2.out")
+  archive.decompress(xz, fp"{out}/a.xz.out")
+  archive.decompress(lzma, fp"{out}/a.lzma.out")
   assert fp"{out}/a.bz2.out".read_text()?.trim() == "alpha"
   assert fp"{out}/a.xz.out".read_text()?.trim() == "alpha"
   assert fp"{out}/a.lzma.out".read_text()?.trim() == "alpha"
@@ -273,7 +273,7 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   let good_entries = archive.list(good_zip, .Zip)?.collect()
   assert good_entries.len() == 1
   assert good_entries[0].modified != null, "an Info-ZIP timestamp is a UTC time, never zero"
-  archive.extract(good_zip, fp"{out}/zip", .Zip)?
+  archive.extract(good_zip, fp"{out}/zip", .Zip)
   assert fp"{out}/zip/zip/note.txt".read_text()?.trim() == "zip"
 
   let parent_escape = fp"{root}/parent.tar"
@@ -343,7 +343,7 @@ test test_archive_zip_extracts_many_files_and_overwrites { |ctx|
   assert archive.extract(zip, fp"{out}/extract", .Zip) is Err(ArchiveError.Collision {..})
   assert fp"{out}/extract/many/file-00.txt".read_text()? == "old\n", "a refused extraction publishes nothing"
   assert ! fp"{out}/extract/many/file-01.txt".exists()?
-  archive.extract(zip, fp"{out}/extract", .Zip, collision: .Replace)?
+  archive.extract(zip, fp"{out}/extract", .Zip, collision: .Replace)
   for file in files {
     assert fp"{out}/extract/{file.name}".read_bytes()? == file.data
   }
@@ -362,7 +362,7 @@ test test_archive_zip_extracts_deflated_files { |ctx|
   write_zip(ctx, zip, [{name: "nested/note.txt", data: payload}], false)
 
   assert archive.list(zip, .Zip)?.collect().len() == 1
-  archive.extract(zip, out, .Zip)?
+  archive.extract(zip, out, .Zip)
   assert fp"{out}/nested/note.txt".read_bytes()? == payload
 }
 
@@ -397,7 +397,7 @@ test test_archive_preserves_tar_metadata_filters_and_overwrites { |ctx|
   fp"{src}/link".symlink(to: p"dir/a.txt")
 
   let tarball = fp"{out}/pkg.tar"
-  archive.create(tarball, src, [p"."], .Tar)?
+  archive.create(tarball, src, [p"."], .Tar)
   let entries = archive.list(tarball, .Tar)?.collect()
   assert entries.len() == 4
   let files = entries |> where .path == p"dir/a.txt"
@@ -414,24 +414,24 @@ test test_archive_preserves_tar_metadata_filters_and_overwrites { |ctx|
   assert archive.list(tarball, .Tar, members: [p"dir"])?.collect().len() == 3
 
   let dest = fp"{out}/dest"
-  archive.extract(tarball, dest, .Tar)?
+  archive.extract(tarball, dest, .Tar)
   assert fp"{dest}/dir/a.txt".read_text()?.trim() == "alpha"
   assert fp"{dest}/dir/a.txt".metadata()?.mode % 512 == 0o640
   assert fp"{dest}/link".is_symlink()?
   assert fp"{dest}/link".readlink()? == p"dir/a.txt"
   fp"{dest}/dir/a.txt".write("stale")
-  archive.extract(tarball, dest, .Tar, collision: .Replace, members: [p"dir/a.txt"])?
+  archive.extract(tarball, dest, .Tar, collision: .Replace, members: [p"dir/a.txt"])
   assert fp"{dest}/dir/a.txt".read_text()?.trim() == "alpha"
 
   let selected = fp"{out}/selected"
-  archive.extract(tarball, selected, .Tar, members: [p"dir"])?
+  archive.extract(tarball, selected, .Tar, members: [p"dir"])
   assert fp"{selected}/dir/a.txt".exists()?
   assert fp"{selected}/dir/other.txt".exists()?
   assert ! fp"{selected}/link".exists()?
 
   # Every member has fewer than two leading components left to strip.
   let stripped = fp"{out}/stripped"
-  archive.extract(tarball, stripped, .Tar, strip_components: 2)?
+  archive.extract(tarball, stripped, .Tar, strip_components: 2)
   assert ! fp"{stripped}/a.txt".exists()?
 }
 
@@ -449,13 +449,13 @@ test test_archive_roundtrips_long_tar_paths_and_link_targets { |ctx|
   fp"{src}/long-link".symlink(to: fp"{long_target}")
 
   let tarball = fp"{out}/pkg.tar"
-  archive.create(tarball, src, [p"."], .Tar)?
+  archive.create(tarball, src, [p"."], .Tar)
   let path_entries = archive.list(tarball, .Tar, members: [fp"{long_path}"])?.collect()
   let link_entries = archive.list(tarball, .Tar, members: [p"long-link"])?.collect()
   assert path_entries[0].path.display() == long_path
   assert (link_entries[0].link_name ?? p"").display() == long_target
   let dest = fp"{out}/dest"
-  archive.extract(tarball, dest, .Tar)?
+  archive.extract(tarball, dest, .Tar)
   assert fp"{dest}/long-link".readlink()?.display() == long_target
 }
 
@@ -492,7 +492,7 @@ test test_archive_extracts_tar_hardlinks_as_hardlinks { |ctx|
     ],
   )
 
-  archive.extract(tarball, out, .Tar)?
+  archive.extract(tarball, out, .Tar)
   assert fp"{out}/dir/source.txt".read_text()? == "shared\n"
   assert fp"{out}/dir/copy.txt".read_text()? == "shared\n"
   assert inode(fp"{out}/dir/source.txt")? == inode(fp"{out}/dir/copy.txt")?
@@ -512,7 +512,7 @@ test test_archive_strips_tar_hardlink_targets_like_their_names { |ctx|
     ],
   )
 
-  archive.extract(tarball, out, .Tar, strip_components: 1)?
+  archive.extract(tarball, out, .Tar, strip_components: 1)
   assert fp"{out}/source.txt".read_text()? == "shared\n"
   assert fp"{out}/copy.txt".read_text()? == "shared\n"
   assert inode(fp"{out}/source.txt")? == inode(fp"{out}/copy.txt")?
@@ -525,19 +525,19 @@ test test_archive_reads_tar_and_cpio_from_byte_streams_and_rejects_zip_streams {
   fp"{src}/dir/a.txt".write("streamed\n")
   let tarball = fp"{root}/pkg.tar.gz"
   let cpio = fp"{root}/pkg.cpio"
-  archive.create(tarball, src, [p"."], .Tar)?
-  archive.create(cpio, src, [p"."], .Cpio)?
+  archive.create(tarball, src, [p"."], .Tar)
+  archive.create(cpio, src, [p"."], .Cpio)
 
   let listing_stream = run.stream --bytes cat $tarball
   let from_process = archive.list(listing_stream, .Tar)?.collect()
   assert from_process |> any .path == p"dir/a.txt"
   let tar_stream = run.stream --bytes cat $tarball
-  archive.extract(tar_stream, fp"{root}/from-stream", .Tar)?
+  archive.extract(tar_stream, fp"{root}/from-stream", .Tar)
   assert fp"{root}/from-stream/dir/a.txt".read_text()? == "streamed\n"
   let cpio_stream = run.stream --bytes cat $cpio
-  archive.extract(cpio_stream, fp"{root}/from-cpio-stream", .Cpio)?
+  archive.extract(cpio_stream, fp"{root}/from-cpio-stream", .Cpio)
   assert fp"{root}/from-cpio-stream/dir/a.txt".read_text()? == "streamed\n"
-  archive.extract(tarball.read_bytes()?, fp"{root}/from-bytes", .Tar)?
+  archive.extract(tarball.read_bytes()?, fp"{root}/from-bytes", .Tar)
   assert fp"{root}/from-bytes/dir/a.txt".read_text()? == "streamed\n"
 
   let zip = fp"{root}/pkg.zip"
@@ -558,8 +558,8 @@ test test_archive_reports_missing_trailers_and_damaged_compression { |ctx|
   fp"{src}/a.txt".write("payload payload payload\n")
   let plain = fp"{root}/pkg.tar"
   let gz = fp"{root}/pkg.tar.gz"
-  archive.create(plain, src, [p"."], .Tar)?
-  archive.create(gz, src, [p"."], .Tar)?
+  archive.create(plain, src, [p"."], .Tar)
+  archive.create(gz, src, [p"."], .Tar)
 
   # One header block and one data block, with the end-of-archive blocks cut off.
   let no_trailer = fp"{root}/no-trailer.tar"
@@ -618,7 +618,7 @@ test test_archive_extraction_policy_and_budgets { |ctx|
 
   assert archive.extract(tarball, fp"{root}/default", .Tar) is Err(ArchiveError.Unsafe {..})
   assert archive.extract(tarball, fp"{root}/refused", .Tar, links: .Refuse) is Err(ArchiveError.Unsafe {..})
-  archive.extract(tarball, fp"{root}/verbatim", .Tar, links: .Verbatim)?
+  archive.extract(tarball, fp"{root}/verbatim", .Tar, links: .Verbatim)
   assert fp"{root}/verbatim/dir/absolute".readlink()? == p"/etc/hostname"
   assert fp"{root}/verbatim/dir/up".readlink()? == p".."
 
@@ -633,15 +633,15 @@ test test_archive_extraction_policy_and_budgets { |ctx|
   write_tar(rootfs, [{name: "setuid", kind: "0", link: "", data: b"x"}])
   put(rootfs, 100, bytes.from_text(tar_octal(0o4755, 7)))
   rewrite_checksum(rootfs)
-  archive.extract(rootfs, fp"{root}/plain-modes", .Tar)?
+  archive.extract(rootfs, fp"{root}/plain-modes", .Tar)
   assert fp"{root}/plain-modes/setuid".metadata()?.mode % 4096 == 0o755
-  archive.extract(rootfs, fp"{root}/exact-modes", .Tar, modes: .Exact)?
+  archive.extract(rootfs, fp"{root}/exact-modes", .Tar, modes: .Exact)
   assert fp"{root}/exact-modes/setuid".metadata()?.mode % 4096 == 0o4755
 
   let bomb = fp"{root}/bomb.gz"
   let zeros = fp"{root}/zeros"
   zeros.write(bytes.zero(2 * 1024 * 1024)?)
-  archive.compress(zeros, bomb)?
+  archive.compress(zeros, bomb)
   assert archive.decompress_bytes(bomb, max_bytes: 1024) is Err(ArchiveError.Limit {..})
   assert archive.decompress_bytes(bomb)?.len() == 2 * 1024 * 1024
 }
@@ -670,7 +670,7 @@ test test_archive_lists_a_process_stream_by_draining_bodies_within_the_budget { 
   let line = repeated("a", 1023)
   run "sh" "-c" "yes \"$1\" | head -c 12582912 > \"$2\"" "sh" $line fp"{source}/huge.txt"
   let big = fp"{root}/big.tar"
-  archive.create(big, source, [p"."], .Tar)?
+  archive.create(big, source, [p"."], .Tar)
   let drained = run.stream --bytes cat $big
   let entries = archive.list(drained, .Tar)?.collect()
   assert entries.len() == 1

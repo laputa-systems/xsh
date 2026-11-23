@@ -22,8 +22,8 @@ test test_namei_upstream_logic_plain_relative_paths { |ctx|
   uu.mkdir(s, "namei1/namei2")
   uu.write(s, "namei1/namei2/a", "a\n")
   uu.write(s, "namei1/namei2/b", "b\n")
-  parity(s, ["namei1/namei2/a"])?
-  parity(s, ["namei1/namei2/b"])?
+  parity(s, ["namei1/namei2/a"])
+  parity(s, ["namei1/namei2/b"])
   assert uu.read_text(s, "namei1/namei2/a")? == "a\n"
   assert uu.read_text(s, "namei1/namei2/b")? == "b\n"
 }
@@ -33,11 +33,11 @@ test test_namei_root_and_repeated_path_separators { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree/inner")
   uu.write(s, "tree/inner/file", "file\n")
-  parity(s, ["/"])?
-  parity(s, ["//"])?
-  parity(s, ["///"])?
-  parity(s, ["--", fp"{s.root}//tree///inner//file".display()])?
-  parity(s, ["--", fp"{s.root}/tree/inner/".display()])?
+  parity(s, ["/"])
+  parity(s, ["//"])
+  parity(s, ["///"])
+  parity(s, ["--", fp"{s.root}//tree///inner//file".display()])
+  parity(s, ["--", fp"{s.root}/tree/inner/".display()])
 }
 
 test test_namei_each_output_option_and_long_combination { |ctx|
@@ -51,7 +51,7 @@ test test_namei_each_output_option_and_long_combination { |ctx|
     ["-l"], ["--long"], ["-n"], ["--nosymlinks"], ["-v"], ["--vertical"],
     ["-Z"], ["--context"], ["-xmo"], ["-l", "-n"], ["-m", "-o", "-v"]
   ] {
-    parity(s, options.extend(["--", operand]))?
+    parity(s, options.extend(["--", operand]))
   }
   for args in [["-Z", "--", operand], ["--context", "--", operand]] {
     let reference = ul.reference(s, "namei", args, timeout: 5s)?
@@ -70,14 +70,14 @@ test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
   uu.mkfifo(s, "tree/pipe")
   uu.symlink(s, "inner/file", "tree/relative")
   uu.symlink(s, fp"{s.root}/tree/inner/file".display(), "tree/absolute")
-  parity(s, ["-l", "--", fp"{s.root}/tree/relative".display()])?
-  parity(s, ["-l", "--", fp"{s.root}/tree/absolute".display()])?
-  parity(s, ["--nosymlinks", "--", fp"{s.root}/tree/relative".display()])?
-  parity(s, ["-l", "--", fp"{s.root}/tree/pipe".display()])?
-  parity(s, ["-l", "--", "/dev/null"])?
+  parity(s, ["-l", "--", fp"{s.root}/tree/relative".display()])
+  parity(s, ["-l", "--", fp"{s.root}/tree/absolute".display()])
+  parity(s, ["--nosymlinks", "--", fp"{s.root}/tree/relative".display()])
+  parity(s, ["-l", "--", fp"{s.root}/tree/pipe".display()])
+  parity(s, ["-l", "--", "/dev/null"])
   let quoted = fp"{s.root}/tree/space and quote'"
   quoted.write("quoted path\n")
-  parity_paths(s, [p"--", quoted])?
+  parity_paths(s, [p"--", quoted])
   assert uu.read_text(s, "tree/inner/file")? == "file\n"
   assert uu.at(s, "tree/relative").readlink()? == p"inner/file"
   assert uu.at(s, "tree/absolute").readlink()? == fp"{s.root}/tree/inner/file"
@@ -90,10 +90,10 @@ test test_namei_component_walk_reports_socket_and_block_device { |ctx|
   let s = uu.scene(ctx)?
   let socket = uu.at(s, "socket")
   let block = uu.at(s, "block")
-  fs.mknod(socket, "socket", 0o600)?
-  fs.mknod(block, "block", 0o600, major: 0, minor: 0)?
-  parity(s, ["--modes", "--", socket.display()])?
-  parity(s, ["-m", "--", block.display()])?
+  fs.mknod(socket, "socket", 0o600)
+  fs.mknod(block, "block", 0o600, major: 0, minor: 0)
+  parity(s, ["--modes", "--", socket.display()])
+  parity(s, ["-m", "--", block.display()])
   assert fs.stat(socket)?.kind == "socket"
   assert fs.stat(block)?.kind == "block"
 }
@@ -110,13 +110,13 @@ test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
   sticky.mkdir()
   sticky.chmod(0o3777)
   owned.write("fixture\n")
-  fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: "/"})?
-  fs.chgrp(owned, {gid: 100001, members: [], name: ""})?
+  fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: "/"})
+  fs.chgrp(owned, {gid: 100001, members: [], name: ""})
   owned.chmod(0o6755)
-  parity(s, ["--modes", "--", setuid.display()])?
-  parity(s, ["-m", "--", sticky.display()])?
-  parity(s, ["-v", "-o", "--", owned.display()])?
-  parity(s, ["-l", "--", owned.display()])?
+  parity(s, ["--modes", "--", setuid.display()])
+  parity(s, ["-m", "--", sticky.display()])
+  parity(s, ["-v", "-o", "--", owned.display()])
+  parity(s, ["-l", "--", owned.display()])
   let modes = ul.reference(s, "namei", ["-m", "--", setuid.display()], timeout: 5s)?
   let mode_text = modes.stdout.utf8()?
   assert "-rwsr-xr-x" in mode_text, mode_text
@@ -134,12 +134,12 @@ test test_namei_committed_path_fixture_links_and_components { |ctx|
   let s = uu.scene(ctx)?
   let tree = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/tree"
   for name in ["regular", "inner/entry", "relative", "dangling", "loop-a"] {
-    parity(s, ["-l", "--", fp"{tree}/{name}".display()])?
+    parity(s, ["-l", "--", fp"{tree}/{name}".display()])
   }
-  uu.symlink(s, "/", "root-link")?
+  uu.symlink(s, "/", "root-link")
   let root_link = uu.at(s, "root-link")
   assert root_link.readlink()? == p"/"
-  parity(s, ["-l", "--", root_link.display()])?
+  parity(s, ["-l", "--", root_link.display()])
 }
 
 test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
@@ -148,8 +148,8 @@ test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
   let s = uu.scene(ctx)?
   let mount = fs.mount_for(p"/proc/1")?
   assert mount.mounted_on == p"/proc"
-  parity(s, ["--mountpoints", "--", mount.mounted_on.display()])?
-  parity(s, ["-x", "--", p"/proc/1".display()])?
+  parity(s, ["--mountpoints", "--", mount.mounted_on.display()])
+  parity(s, ["-x", "--", p"/proc/1".display()])
   let reference = ul.reference(s, "namei", ["-x", "--", p"/proc/1".display()], timeout: 5s)?
   let output = reference.stdout.utf8()?
   assert "D proc\n" in output, output
@@ -182,7 +182,7 @@ test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
   let output = reference.stdout.utf8()?
   assert output.ends_with("d target\n"), output
   ul.compare(reference, candidate)
-  parity(s, ["-l", "--", fp"{target}/entry".display()])?
+  parity(s, ["-l", "--", fp"{target}/entry".display()])
   let unmounted = run.capture --text umount -- $target
   assert unmounted.status.exited_with(0), unmounted.stderr
   mounted = false
@@ -197,10 +197,10 @@ test test_namei_dangling_missing_and_looping_components { |ctx|
   uu.symlink(s, "missing", "tree/dangling")
   uu.symlink(s, "loop-b", "tree/loop-a")
   uu.symlink(s, "loop-a", "tree/loop-b")
-  parity(s, ["tree/dangling"])?
-  parity(s, ["tree/missing/child"])?
-  parity(s, ["tree/loop-a"])?
-  parity(s, ["-n", "tree/loop-a"])?
+  parity(s, ["tree/dangling"])
+  parity(s, ["tree/missing/child"])
+  parity(s, ["tree/loop-a"])
+  parity(s, ["-n", "tree/loop-a"])
 }
 
 test test_namei_multiple_operands_and_usage_errors { |ctx|
@@ -208,11 +208,11 @@ test test_namei_multiple_operands_and_usage_errors { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "first", "first\n")
   uu.mkdir(s, "second")
-  parity(s, [])?
-  parity(s, ["--not-an-option"])?
-  parity(s, ["first", "missing", "second"])?
-  parity(s, ["--help"])?
-  parity(s, ["-h"])?
+  parity(s, [])
+  parity(s, ["--not-an-option"])
+  parity(s, ["first", "missing", "second"])
+  parity(s, ["--help"])
+  parity(s, ["-h"])
 }
 
 test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
@@ -222,10 +222,10 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
   directory.mkdir()
   let name = Path.parse_bytes(bytes.concat([directory.bytes(), b"/leaf-\xff"]))?
   name.write("owned raw path\n")
-  parity_paths(s, [p"--", name])?
-  parity_paths(s, [p"-m", p"--", name])?
+  parity_paths(s, [p"--", name])
+  parity_paths(s, [p"-m", p"--", name])
   for locale in ["C", "C.UTF-8"] {
-    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})?
+    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})
   }
   assert name.read_text()? == "owned raw path\n"
 }
@@ -307,7 +307,7 @@ test test_namei_owner_width_includes_components_after_link_limit { |ctx|
     operand += link + "/"
   }
   uu.symlink(s, "/", "r21")
-  parity(s, ["-o", operand + "r21/etc/shadow"])?
+  parity(s, ["-o", operand + "r21/etc/shadow"])
 }
 
 test test_namei_invalid_utf8_short_option { |ctx|
@@ -365,21 +365,21 @@ test test_namei_loop_terminal_interleaving { |ctx|
 
 test test_namei_error_with_os_error_in_path { |ctx|
   let s = uu.scene(ctx)?
-  parity(s, ["e (os error 5)/x"])?
+  parity(s, ["e (os error 5)/x"])
 }
 
 test test_namei_fatal_readlink_after_link_limit_and_repeated_slashes { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  for n in range(0, 25) { uu.symlink(s, f"p{n + 1}", f"p{n}")? }
-  uu.symlink(s, "/proc/1", "p25")?
-  parity(s, ["p0/cwd"])?
+  for n in range(0, 25) { uu.symlink(s, f"p{n + 1}", f"p{n}") }
+  uu.symlink(s, "/proc/1", "p25")
+  parity(s, ["p0/cwd"])
 }
 
 test test_namei_fatal_readlink_preserves_repeated_slashes { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
-  parity(s, ["/proc//1/cwd"])?
+  parity(s, ["/proc//1/cwd"])
 }
 
 test test_namei_owner_display_cell_width { |ctx|
@@ -408,22 +408,22 @@ test test_namei_owner_display_cell_width { |ctx|
   assert (run.capture --text mount --bind $groups /etc/group).status.exited_with(0)
   mounted_group = true
   for locale in ["C", "C.UTF-8"] {
-    parity(s, ["-l", s.root.display()], vars: {LC_ALL: locale})?
+    parity(s, ["-l", s.root.display()], vars: {LC_ALL: locale})
   }
   passwd.write("ééééééé:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
   groups.write("äääääääää:x:0:\nnogroup:x:65534:\n")
   for vars in [{LC_ALL: "", LANG: ""}, {LC_ALL: "", LANG: "C"}] {
-    parity(s, ["-l", s.root.display()], vars:)?
+    parity(s, ["-l", s.root.display()], vars:)
   }
   let long_name = ["a"] |> repeat(300) |> join("")
   passwd.write(f"{long_name}:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
   groups.write("root:x:0:\nnogroup:x:65534:\n")
-  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})
   let wide_name = (["a"] |> repeat(255) |> join("")) + "中中中"
   passwd.write(f"{wide_name}:x:0:0::/:/bin/sh\nnobody:x:65534:65534::/:/bin/sh\n")
-  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})
   passwd.write("一:x:0:0::/:/bin/sh\nabcd:x:65534:65534::/:/bin/sh\n")
-  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})
 }
 
 test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
@@ -451,15 +451,15 @@ test test_namei_nonprintable_owner_falls_back_to_id { |ctx|
   mounted_passwd = true
   assert (run.capture --text mount --bind $groups /etc/group).status.exited_with(0)
   mounted_group = true
-  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})
   for name in ["a\u{85}b", "a\u{fffe}b", "\u{200b}", "\u{301}", "\u{1160}", "\u{feff}", "\u{e0001}", "a\u{fff9}b", "a\u{fffb}b", "a\u{1fffe}b", "a\u{3fffe}b", "a\u{effff}b", "a\u{10fffe}b"] {
     passwd.write(f"{name}:x:0:0::/:/bin/sh\n")
-    parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})?
+    parity(s, ["-l", s.root.display()], vars: {LC_ALL: "C.UTF-8"})
   }
 }
 
 test test_namei_multibyte_short_option_c_locale { |ctx|
   let s = uu.scene(ctx)?
-  parity(s, ["-é"], vars: {LC_ALL: "C"})?
-  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})?
+  parity(s, ["-é"], vars: {LC_ALL: "C"})
+  parity(s, ["-é"], vars: {LC_ALL: "C.UTF-8"})
 }

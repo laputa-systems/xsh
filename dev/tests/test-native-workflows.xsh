@@ -136,8 +136,8 @@ test test_linux_nonroot_native_tests_keep_the_callers_environment { |ctx|
   let parent_root = test.temp_dir(ctx, name: "native-nonroot-identity")?
   let as_root = unix.id()?.euid == 0
   if as_root {
-    ctx.temp_root.chmod(0o755)?
-    parent_root.chmod(0o777)?
+    ctx.temp_root.chmod(0o755)
+    parent_root.chmod(0o777)
   }
   let fixture_root = fp"{parent_root}/fixture"
   let result = fp"{parent_root}/result"
@@ -170,7 +170,7 @@ env ({{HOST_UID: "", HOST_GID: "", HOME: home_value, TMPDIR: temp_value, XDG_CAC
 }}
 let expected = f"{{unix.id()?.euid}}|{{home}}|{{temp}}|{{cache}}|test|--exact|native-workflow-contract"
 p"{result}".write(if log.read_text()? == expected {{ "same" }} else {{ log.read_text()? }})?
-""")?
+""")
   let prefix = if as_root { ["setpriv", "--reuid=65534", "--regid=65534", "--clear-groups"] } else { [] }
   let module_path = f"{repository}/dev/tests:{repository}/dev"
   let scenario = run.capture --text env XSH_MODULE_PATH=$module_path @prefix ${ctx.xsh_bin} $script

@@ -1,7 +1,7 @@
 test test_optional_api_argument_uses_fallback_evidence { |ctx|
   let root = test.temp_dir(ctx, name: "optional-owner")?
   let file = fp"{root}/file"
-  file.write("contents")?
+  file.write("contents")
   for declaration in [
     r"""type Options = {owner: Int?}
 proc change(opts: Options, fallback: Int, file: Path) -> Result[Unit] {

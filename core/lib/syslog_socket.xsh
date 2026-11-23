@@ -53,7 +53,7 @@ proc open_parent(parent: Path) [fs, process, error] -> Result[Int, Error] {
   match inspect_parent(dir, parent) {
     Ok(_) => Ok(dir)
     Err(failure) => {
-      unix.close_fd(dir)?
+      unix.close_fd(dir)
       Err(failure)
     }
   }
@@ -93,19 +93,19 @@ proc same_entry(entry: Path, dev: Int, ino: Int) [fs, error] -> Result[Bool, Err
 
 proc quarantine_stale(temporary: Path, target: Path, dev: Int, ino: Int, shown: Path) [fs, error] -> Result[Unit, Error] {
   let quarantine = fp"{temporary.display()}.stale"
-  fs.rename_noreplace(target, quarantine)?
-  if ! same_entry(quarantine, dev, ino)? {
-    fs.rename_noreplace(quarantine, target)?
+  fs.rename_noreplace(target, quarantine)
+  if ! same_entry(quarantine, dev, ino) {
+    fs.rename_noreplace(quarantine, target)
     return Err(refuse(f"{shown} changed while it was being replaced"))
   }
   match fs.rename_noreplace(temporary, target) {
     Ok(_) => {}
     Err(failure) => {
-      fs.rename_noreplace(quarantine, target)?
+      fs.rename_noreplace(quarantine, target)
       return Err(failure)
     }
   }
-  quarantine.unlink()?
+  quarantine.unlink()
 }
 
 proc replace_stale(temporary: Path, target: Path, shown: Path) [fs, process, net, io, error] -> Result[Unit, Error] {
@@ -113,7 +113,7 @@ proc replace_stale(temporary: Path, target: Path, shown: Path) [fs, process, net
   if seen.kind != "socket" {
     return Err(refuse(f"{shown} exists and is a {seen.kind}, not a socket"))
   }
-  if is_live(target)? { return Err(refuse(f"another receiver is listening on {shown}")) }
+  if is_live(target) { return Err(refuse(f"another receiver is listening on {shown}")) }
   match fs.rename_exchange(temporary, target) {
     Ok(_) => {}
     Err(failure) => {
@@ -121,11 +121,11 @@ proc replace_stale(temporary: Path, target: Path, shown: Path) [fs, process, net
       return quarantine_stale(temporary, target, seen.dev, seen.ino, shown)
     }
   }
-  if ! same_entry(temporary, seen.dev, seen.ino)? {
-    fs.rename_exchange(temporary, target)?
+  if ! same_entry(temporary, seen.dev, seen.ino) {
+    fs.rename_exchange(temporary, target)
     return Err(refuse(f"{shown} changed while it was being replaced"))
   }
-  temporary.unlink()?
+  temporary.unlink()
 }
 
 ## Binds a nonblocking, credential-passing datagram socket and publishes it at
@@ -154,7 +154,7 @@ export proc publish(target: Path) [fs, process, net, io, time, error] -> Result[
     Ok(_) => {}
     Err(failure) => {
       if failure.errno != EEXIST { return Err(failure) }
-      replace_stale(temporary, final, target)?
+      replace_stale(temporary, final, target)
     }
   }
   let info = fs.stat(final)?
@@ -171,6 +171,6 @@ export proc unpublish(published: Published) [fs, process, error] -> Result[Bool,
   if seen is Err(_) { return Ok(false) }
   let info = seen?
   if info.kind != "socket" or info.dev != published.dev or info.ino != published.ino { return Ok(false) }
-  final.unlink()?
+  final.unlink()
   Ok(true)
 }

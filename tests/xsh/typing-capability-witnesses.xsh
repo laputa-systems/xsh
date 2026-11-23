@@ -100,7 +100,7 @@ let concrete: Int = identity(raw)
 
 test test_typing_generic_module_alias_preserves_independent_instances { |ctx|
   let module_dir = test.temp_dir(ctx, name: "typing-generic-pure-value")?
-  fp"{module_dir}/model.xsh".write("##! Generic module callable.\n## Returns its input.\nexport pure identity(value) { value }\n")?
+  fp"{module_dir}/model.xsh".write("##! Generic module callable.\n## Returns its input.\nexport pure identity(value) { value }\n")
   let result = test.run_xsh(
     ctx,
     "use model\nlet identity = model.identity\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nassert !boolean\nprint $number\nprint $text\nprint $boolean\n",
@@ -134,7 +134,7 @@ test test_typing_generic_module_alias_preserves_independent_instances { |ctx|
 
 test test_typing_concrete_module_index_beside_generic_export { |ctx|
   let module_dir = test.temp_dir(ctx, name: "typing-concrete-module-index")?
-  fp"{module_dir}/model.xsh".write("##! Mixed module exports.\n## Returns its input.\nexport pure identity(value) { value }\n## The concrete answer.\nexport const answer = 42\n")?
+  fp"{module_dir}/model.xsh".write("##! Mixed module exports.\n## Returns its input.\nexport pure identity(value) { value }\n## The concrete answer.\nexport const answer = 42\n")
   let result = test.run_xsh(
     ctx,
     "use model\nassert model[\"answer\"] == 42\nassert model.get(\"answer\")? == 42\n",
@@ -192,8 +192,8 @@ test test_typing_exported_scheme_is_independent_of_other_importers { |ctx|
   let reversed_joint_root = typing_module_fixture(ctx, "typing-capability-root-joint-reversed.xsh")?
   let bool_root = typing_module_fixture(ctx, "typing-capability-root-bool.xsh")?
 
-  fp"{module_dir}/typing-capability-identity.xsh".write(identity)?
-  fp"{module_dir}/typing-capability-import-int.xsh".write(integer_importer)?
+  fp"{module_dir}/typing-capability-identity.xsh".write(identity)
+  fp"{module_dir}/typing-capability-import-int.xsh".write(integer_importer)
   let only_integer = test.run_script(
     ctx,
     integer_root,
@@ -203,7 +203,7 @@ test test_typing_exported_scheme_is_independent_of_other_importers { |ctx|
     "typing-root-int.xsh",
   )?
 
-  fp"{module_dir}/typing-capability-import-text.xsh".write(text_importer)?
+  fp"{module_dir}/typing-capability-import-text.xsh".write(text_importer)
   let only_text = test.run_script(
     ctx,
     text_root,
@@ -229,7 +229,7 @@ test test_typing_exported_scheme_is_independent_of_other_importers { |ctx|
     "typing-root-joint-reversed.xsh",
   )?
 
-  fp"{module_dir}/typing-capability-import-text.xsh".remove(missing_ok: false)?
+  fp"{module_dir}/typing-capability-import-text.xsh".remove(missing_ok: false)
   let after_text_removal = test.run_script(
     ctx,
     integer_root,
@@ -238,8 +238,8 @@ test test_typing_exported_scheme_is_independent_of_other_importers { |ctx|
     b"",
     "typing-root-int-after-removal.xsh",
   )?
-  fp"{module_dir}/typing-capability-import-text.xsh".write(text_importer)?
-  fp"{module_dir}/typing-capability-import-int.xsh".remove(missing_ok: false)?
+  fp"{module_dir}/typing-capability-import-text.xsh".write(text_importer)
+  fp"{module_dir}/typing-capability-import-int.xsh".remove(missing_ok: false)
   let after_integer_removal = test.run_script(
     ctx,
     text_root,
@@ -249,7 +249,7 @@ test test_typing_exported_scheme_is_independent_of_other_importers { |ctx|
     "typing-root-text-after-removal.xsh",
   )?
 
-  fp"{module_dir}/typing-capability-identity.xsh".write(reordered_identity)?
+  fp"{module_dir}/typing-capability-identity.xsh".write(reordered_identity)
   let reordered_bool = test.run_script(
     ctx,
     bool_root,

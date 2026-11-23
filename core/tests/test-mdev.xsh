@@ -458,7 +458,7 @@ test test_mdev_foreground_daemon_reloads_and_terminates { |ctx|
 
   let scan_started = time.now()
   loop {
-    if marker.exists()? { break }
+    if marker.exists() { break }
     if let completed = process.wait_timeout([daemon], 0ms)? {
       test.fail(f"foreground daemon exited before scan completed: {completed.status.shell_code()?}; {errors.read_text()?}")
     }
@@ -482,7 +482,7 @@ test test_mdev_foreground_daemon_reloads_and_terminates { |ctx|
     }
     time.sleep(10ms)
   }
-  process.kill(daemon.pid, signal: "0")?
+  process.kill(daemon.pid, signal: "0")
   process.kill(daemon.pid, signal: "TERM")
   guard let completed = process.wait_timeout([daemon], 3s)? else {
     test.fail("foreground daemon did not stop after TERM")

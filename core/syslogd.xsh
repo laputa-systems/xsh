@@ -85,10 +85,10 @@ proc writable(fd: Int) [process, net, error] -> Result[Bool, Error] {
 }
 
 proc finish_line(line: Str) [process, net, io, error] {
-  if writable(1)? {
+  if writable(1) {
     announce(line)
     if io.flush_stdout() is Err(_) { complain(line) }
-  } else if writable(2)? {
+  } else if writable(2) {
     complain(line)
   }
 }
@@ -111,7 +111,7 @@ proc check_sink(previous: kernel.Output?) [fs, process, net, io, error] -> Resul
 type Written = {delivered: Bool, blocked: Bool, reported_at: Int}
 
 proc write_line(line: Str, last_report: Int) [process, net, io, time, error] -> Result[Written, Error] {
-  if ! writable(1)? { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
+  if ! writable(1) { return Ok({delivered: false, blocked: true, reported_at: last_report}) }
   announce(line)
   if let Err(failure) = io.flush_stdout() {
     let reported = boot_clock.micros(boot_clock.now()?)
@@ -184,7 +184,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
   if ! notify.is_empty() {
     let channel = notify.parse_int()?
     assert unix.write_fd(channel, b"r")? == 1
-    unix.close_fd(channel)?
+    unix.close_fd(channel)
   }
   let config = limit.DEFAULT_CONFIG
   finish_line(f"event=start pid={process.current_pid()?} boot=\"{boot_id}\" socket=\"{socket_path}\" state=\"{state_dir}\" receive_buffer={sock.RECEIVE_BUFFER} datagram_limit={DATAGRAM_LIMIT} batch={BATCH_LIMIT} sender_rate={config.sender_rate} sender_burst={config.sender_burst} global_rate={config.global_rate} global_burst={config.global_burst} line_limit_bytes={render.CONTENT_LIMIT} kernel_loss=unobservable")

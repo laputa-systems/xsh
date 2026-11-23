@@ -13,7 +13,7 @@ export pure by_key(value) {
   {key: value for key in ["z", "a"]}
 }
 """,
-  )?
+  )
   fp"{modules}/integer_client.xsh".write(
     r"""##! Integer client of inferred comprehension helpers.
 
@@ -26,7 +26,7 @@ export pure total() -> Int {
   copies[0] + copies[1] + indexed["a"] + indexed["z"]
 }
 """,
-  )?
+  )
   fp"{modules}/text_client.xsh".write(
     r"""##! Text client of inferred comprehension helpers.
 
@@ -39,7 +39,7 @@ export pure total() -> Str {
   copies[0] + copies[1] + indexed["a"] + indexed["z"]
 }
 """,
-  )?
+  )
   modules
 }
 
