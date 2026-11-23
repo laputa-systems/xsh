@@ -2025,8 +2025,10 @@ fn coverage_reports_fused_byte_scanner_without_selecting_branch_arms() {
     }
     assert!(native_event_number(native_event_field(file, "fused_branch_points")) >= fused.len() as u64);
     let (covered, uncovered) = coverage_line_sets(file);
-    assert!(covered.contains(&13));
-    assert!(uncovered.iter().all(|line| !(13..=55).contains(line)), "{uncovered:?}");
+    let first_line = source[..start as usize].matches('\n').count() as u64 + 1;
+    let last_line = source[..end as usize].matches('\n').count() as u64 + 1;
+    assert!(covered.contains(&first_line));
+    assert!(uncovered.iter().all(|line| !(first_line..=last_line).contains(line)), "{uncovered:?}");
 }
 
 fn coverage_line_sets(file: &xsh::host::json::Value) -> (Vec<u64>, Vec<u64>) {

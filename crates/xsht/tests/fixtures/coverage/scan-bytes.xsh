@@ -15,11 +15,7 @@ pure scan_slash_text(text: Bytes) -> Bool {
       let next = line.byte_at(index + 1) ?? -1
       if block_depth > 0 {
         comment_seen = true
-        any_code = true
-        if ch == 47 and next == 42 {
-          block_depth += 1
-          index += 2
-        } else if ch == 42 and next == 47 {
+        if ch == 42 and next == 47 {
           block_depth -= 1
           index += 2
         } else {
