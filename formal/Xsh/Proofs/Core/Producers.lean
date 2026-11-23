@@ -335,6 +335,14 @@ theorem stream_comprehension_witness :
       readList traceVar (runCollect comprehensionScript) = some [1, 1, 7] := by
   decide +kernel
 
+def unconsumedScript : List Xsh.Syntax.Statement :=
+  [.binding .var (.name traceVar) none (.list []), declareCount,
+   letOf streamLocal (.call (ident countFn) [.positional (int "8")]), note "8"]
+
+theorem unconsumed_stream_witness :
+    readList traceVar (runCanonical unconsumedScript) = some [8] := by
+  decide +kernel
+
 end Witness
 
 end Xsh.Proofs.Core.Producers

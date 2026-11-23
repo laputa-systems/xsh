@@ -167,4 +167,8 @@ theorem unwind_onError_due (actions : List Action) (flag : Bool) (i : Nat) (acti
       ∃ j ∈ (unwind actions flag).1, i < j ∧ (actions[j]?.map recorded).getD false = true := by
   simpa [unwind, ha, hk] using unwindFrom_membership actions actions.length flag i hi
 
+theorem l1_normal_cleanup_witness :
+    unwind [⟨.always, .ok⟩, ⟨.onError, .ok⟩, ⟨.always, .ok⟩] false = ([2, 0], false) := by
+  simp [unwind, unwindFrom, nextDue, recorded]
+
 end Xsh.Core.CleanupOrder
