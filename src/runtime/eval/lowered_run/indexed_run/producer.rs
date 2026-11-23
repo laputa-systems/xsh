@@ -634,6 +634,7 @@ pub(super) struct ProcessProducer {
     completion_error: Option<super::RunError>,
     finished: bool,
     trace: Option<crate::runtime::eval::TraceFrame>,
+    profile_start: Option<std::time::Instant>,
     span: Span,
 }
 
@@ -684,6 +685,7 @@ impl ProcessProducer {
         self.finished = true;
         evaluator.untrack_process_group(self.process.process_group());
         let end = self.process.end(error);
+        evaluator.profile_opaque("external-stream", self.span, self.profile_start.take(), true);
         if let Some(status) = &end.status {
             evaluator.last_status = Some(status.clone());
         }
@@ -754,7 +756,13 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
                 }
                 return self.decoded_line(line, evaluator, span);
             }
-            match self.process.next(evaluator) {
+            let mut waited_ns = 0;
+            let measure = evaluator.profile.is_some();
+            let next = self.process.next(evaluator, measure.then_some(&mut waited_ns));
+            if let Some(profile) = &mut evaluator.profile {
+                profile.opaque("stream-pull", Some(self.span), waited_ns, false);
+            }
+            match next {
                 Ok(Some(bytes)) => {
                     if self.text {
                         self.pending.extend(bytes);
@@ -796,6 +804,7 @@ impl Evaluator {
         text: bool,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        let profile_start = self.profile.as_ref().map(|_| std::time::Instant::now());
         self.trace_process_run_start(span, invocation);
         let trace = if self.trace_enabled {
             self.event_stack.pop()
@@ -805,6 +814,7 @@ impl Evaluator {
         let process = match crate::runtime::process::ProcessStream::start(invocation) {
             Ok(process) => process,
             Err(error) => {
+                self.profile_opaque("external-stream", span, profile_start, true);
                 if let Some(trace) = trace {
                     self.event_stack.push(trace);
                 }
@@ -831,6 +841,7 @@ impl Evaluator {
             completion_error: None,
             finished: false,
             trace,
+            profile_start,
             span,
         });
         Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Stream(

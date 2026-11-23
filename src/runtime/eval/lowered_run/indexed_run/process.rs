@@ -205,6 +205,7 @@ impl Evaluator {
             }
             return Ok(ControlFlow::Continue(value));
         }
+        let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
         self.trace_process_run_start(span, &invocation);
         let execution = execute_run_with_policy(
             kind,
@@ -213,6 +214,7 @@ impl Evaluator {
             assert_success,
             self,
         );
+        self.profile_opaque("external-command", span, profile_wait, false);
         if let Some(status) = execution.end.status.clone() {
             self.last_status = Some(status);
         }
@@ -261,7 +263,10 @@ impl Evaluator {
         if !matches!(head, RunKind::Plain | RunKind::Status) {
             return self.eval_capture_pipeline(head, invocations, span);
         }
-        let mut end = match run_pipeline_inherit_with_policy(invocations, self) {
+        let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
+        let pipeline = run_pipeline_inherit_with_policy(invocations, self);
+        self.profile_opaque("external-command", span, profile_wait, false);
+        let mut end = match pipeline {
             Ok(end) => end,
             Err(error) => {
                 self.trace_lowered_pipeline_end(

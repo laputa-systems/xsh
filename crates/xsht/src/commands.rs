@@ -378,6 +378,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         examples: &[],
     },
     CommandSpec {
+        name: "profile",
+        summary: "Profile a script's calls and waits",
+        quick_label: "Profile a script",
+        args: "SCRIPT [-- ARGS...]",
+        usage: &[&[UsagePart::Opt("--json"), UsagePart::Opt("--folded"), UsagePart::Args]],
+        options: &[
+            OptionSpec { names: &["--json"], arg: OptionArg::value_or_equals("PATH"), repeatable: false, description: "Write a versioned JSON report to PATH" },
+            OptionSpec { names: &["--folded"], arg: OptionArg::value_or_equals("PATH"), repeatable: false, description: "Write folded stacks to PATH" },
+        ],
+        removed: &[],
+        options_end_at_first_argument: true,
+        notes: &[],
+        examples: &["xsht profile --json profile.json script.xsh"],
+    },
+    CommandSpec {
         name: "trace",
         summary: "Run a script with trace output",
         quick_label: "Run with tracing",

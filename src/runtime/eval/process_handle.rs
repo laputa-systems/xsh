@@ -43,6 +43,7 @@ impl Evaluator {
                 owner_scope: self.current_scope_id(),
                 child,
                 span,
+                profile_start: self.profile.as_ref().map(|_| std::time::Instant::now()),
             },
         );
         handle
@@ -145,7 +146,10 @@ impl Evaluator {
             return Ok(process_handle_error(error));
         };
         let pid = Some(live.child.pid);
-        match wait_managed(&mut live.child, WaitMode::Script, self) {
+        let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
+        let waited = wait_managed(&mut live.child, WaitMode::Script, self);
+        self.profile_opaque("child-wait", span, profile_wait, false);
+        match waited {
             Ok((ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status), None)) => {
                 self.trace_wait_end(
                     span,
@@ -245,7 +249,10 @@ impl Evaluator {
                 continue;
             };
             let pid = Some(live.child.pid);
-            match wait_managed(&mut live.child, WaitMode::Script, self) {
+            let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
+            let waited = wait_managed(&mut live.child, WaitMode::Script, self);
+            self.profile_opaque("child-wait", span, profile_wait, false);
+            match waited {
                 Ok((
                     ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status),
                     None,

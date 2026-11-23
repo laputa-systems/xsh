@@ -1441,6 +1441,14 @@ impl Evaluator {
         call_plan: Option<&crate::runtime::eval::call_plan::ModuleCallPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
+        if self.profile.is_some() && !self.trace_enabled {
+            self.profile_enter(crate::runtime::eval::SiteKind::Module, None, Some(span));
+            let result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
+            self.profile_exit();
+            let mut result = result?;
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
+        }
         if !self.trace_enabled {
             let mut result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor)?;
             self.register_returned_lowered_streams(&mut result, span)?;

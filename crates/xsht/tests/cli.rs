@@ -2041,3 +2041,96 @@ fn coverage_line_sets(file: &xsh::host::json::Value) -> (Vec<u64>, Vec<u64>) {
     }
     (covered, uncovered)
 }
+
+#[derive(deser::Deserialize)]
+struct ProfileTestReport {
+    format: String,
+    completeness: ProfileTestCompleteness,
+    sites: Vec<ProfileTestSite>,
+    edges: Vec<ProfileTestEdge>,
+}
+
+#[derive(deser::Deserialize)]
+struct ProfileTestCompleteness {
+    overhead_ns_per_hook: u64,
+    dropped: u64,
+    blocked_time_rule: String,
+    opaque_regions: Vec<ProfileTestOpaque>,
+}
+
+#[derive(deser::Deserialize)]
+struct ProfileTestOpaque { kind: String, overlapping: bool, wall_ns: u64 }
+
+#[derive(deser::Deserialize)]
+struct ProfileTestSite { name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
+
+#[derive(deser::Deserialize)]
+struct ProfileTestEdge { caller: usize, callee: usize, calls: u64 }
+
+fn run_profile_fixture(name: &str) -> ProfileTestReport {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile");
+    let temp = cli_tempdir();
+    let json = temp.path().join("profile.json");
+    let folded = temp.path().join("profile.folded");
+    let output = Command::new(test_bin!("xsht")).arg("profile").arg("--json").arg(&json).arg("--folded").arg(&folded).arg(fixtures.join(name)).output().expect("run profile");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!fs::read_to_string(folded).expect("folded stacks").is_empty());
+    let report: ProfileTestReport = deser_json::from_str(&fs::read_to_string(json).expect("read profile")).expect("parse profile");
+    assert_eq!(report.format, "xsht-profile/1");
+    assert_eq!(report.completeness.dropped, 0);
+    assert!(report.completeness.overhead_ns_per_hook > 0);
+    assert!(report.completeness.blocked_time_rule.contains("overlapping"));
+    report
+}
+
+fn profile_site<'a>(report: &'a ProfileTestReport, name: &str) -> (usize, &'a ProfileTestSite) {
+    report.sites.iter().enumerate().find(|(_, site)| site.name == name).unwrap_or_else(|| panic!("missing {name}: {:?}", report.sites.iter().map(|site| &site.name).collect::<Vec<_>>()))
+}
+
+#[test]
+fn profile_nested_calls_reconcile() {
+    let report = run_profile_fixture("nested.xsh");
+    for (caller, callee, calls) in [("outer", "middle", 3), ("middle", "leaf", 12)] {
+        let (parent, _) = profile_site(&report, caller);
+        let (child, _) = profile_site(&report, callee);
+        assert!(report.edges.iter().any(|edge| edge.caller == parent && edge.callee == child && edge.calls == calls));
+    }
+    let (_, leaf) = profile_site(&report, "leaf");
+    assert!(leaf.alloc_count > 0 && leaf.alloc_bytes > 0);
+    for (name, calls) in [("outer", 1), ("middle", 3), ("leaf", 12)] {
+        let (index, site) = profile_site(&report, name);
+        assert_eq!(site.calls, calls);
+        assert!(site.inclusive_ns >= site.exclusive_ns);
+        let children: u64 = report.edges.iter().filter(|edge| edge.caller == index).map(|edge| { assert!(edge.calls > 0); report.sites[edge.callee].inclusive_ns }).sum();
+        let remainder = site.inclusive_ns.abs_diff(site.exclusive_ns.saturating_add(children).saturating_add(site.blocked_ns));
+        assert!(remainder <= report.completeness.overhead_ns_per_hook.saturating_mul(1000) + 2_000_000, "{name}: remainder {remainder}");
+    }
+}
+
+#[test]
+fn profile_sleep_and_compute_are_distinguished() {
+    let sleep = run_profile_fixture("sleep.xsh");
+    let compute = run_profile_fixture("compute.xsh");
+    let (_, sleep) = profile_site(&sleep, "sleeper");
+    let (_, compute) = profile_site(&compute, "compute");
+    assert!(sleep.blocked_ns * 100 >= sleep.inclusive_ns * 80);
+    assert!(compute.exclusive_ns * 100 >= compute.inclusive_ns * 80);
+    assert!(sleep.inclusive_ns < compute.inclusive_ns.saturating_mul(4));
+    assert!(compute.inclusive_ns < sleep.inclusive_ns.saturating_mul(4));
+}
+
+#[test]
+fn profile_stream_lifetime_does_not_hide_consumer_work() {
+    let report = run_profile_fixture("stream.xsh");
+    let (_, consumer) = profile_site(&report, "consumer");
+    assert!(consumer.exclusive_ns * 2 > consumer.inclusive_ns);
+    assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-stream" && region.overlapping && region.wall_ns > 0));
+}
+
+#[test]
+fn profile_synchronous_external_wait_is_blocked() {
+    let report = run_profile_fixture("external.xsh");
+    let (_, call) = profile_site(&report, "external_wait");
+    assert!(call.blocked_ns * 100 >= call.inclusive_ns * 80);
+    assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-command" && !region.overlapping && region.wall_ns > 0));
+}

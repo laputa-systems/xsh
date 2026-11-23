@@ -19,6 +19,7 @@ impl Evaluator {
         invocation: ProcessInvocation,
         span: Span,
     ) -> LoweredValue {
+        let profile_wait = self.profile.as_ref().map(|_| std::time::Instant::now());
         self.trace_process_run_start(span, &invocation);
         let outcome = if self.capture_process_output {
             run_capture_with_stderr_policy(&invocation, self).map(|output| {
@@ -29,6 +30,7 @@ impl Evaluator {
         } else {
             run_inherit_with_policy(&invocation, self)
         };
+        self.profile_opaque("external-command", span, profile_wait, false);
         match outcome {
             Ok(end) => {
                 let status = end.status.clone().expect("completed process has status");

@@ -273,6 +273,14 @@ impl Evaluator {
         values: Vec<LoweredValue>,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if self.profile.is_some() && !self.trace_enabled {
+            self.profile_enter(crate::runtime::eval::SiteKind::Method, None, Some(span));
+            let result = self.eval_indexed_registered_method_value(plan, receiver, values, span);
+            self.profile_exit();
+            let mut result = ControlFlow::Continue(result?);
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
+        }
         let value = if self.trace_enabled {
             use crate::modules::MethodReceiver;
             let domain = match plan.receiver.expect("verified registered method has a receiver") {
@@ -320,6 +328,14 @@ impl Evaluator {
                 None,
             );
         }
+        if self.profile.is_some() && !self.trace_enabled {
+            self.profile_enter(crate::runtime::eval::SiteKind::Method, None, Some(span));
+            let result = super::super::super::lowered_ops::lowered_registered_method_identity_value(method, receiver, values, span);
+            self.profile_exit();
+            let mut result = ControlFlow::Continue(result?);
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
+        }
         let value = if self.trace_enabled {
             let trace_name = format!("{}.{}", xsh_registry::signature::receiver_name(domain), name);
             self.trace_enter(TraceKind::MethodCall, Some(span), Some(&trace_name), TracePayload::None);
@@ -342,6 +358,14 @@ impl Evaluator {
         values: Vec<LoweredValue>,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if self.profile.is_some() && !self.trace_enabled {
+            self.profile_enter(crate::runtime::eval::SiteKind::Method, None, Some(span));
+            let result = self.eval_lowered_method_dispatch(receiver, name, values, &span);
+            self.profile_exit();
+            let mut result = result?;
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
+        }
         if !self.trace_enabled {
             let mut result = self.eval_lowered_method_dispatch(receiver, name, values, &span)?;
             self.register_returned_lowered_streams(&mut result, span)?;
