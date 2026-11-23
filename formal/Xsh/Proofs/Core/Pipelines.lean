@@ -35,7 +35,18 @@ Whatever it gives, it leaves the environment and locals as it found them and
 keeps every cell already in the store. -/
 theorem structured_pipelines [DecidableEq Declaration] {world : World Declaration Identity Source}
     (machine : Machine world) (fuel : Nat) (frame : Frame world) :
-    (∀ input stages, evalExpr machine (fuel + 1) frame (.structuredPipeline input stages) =
+    (∀ input stages before call after, valueStage stages = some (before, call, after) →
+      evalExpr machine (fuel + 1) frame (.structuredPipeline input stages) =
+        (evalExpr machine fuel frame (if before.isEmpty then input else .structuredPipeline input before)).bind
+          fun piped next =>
+            (evalExpr machine fuel { next with piped := some piped } (valueStageCall call)).bind fun called last =>
+              if after.isEmpty then .value called last
+              else evalExpr machine fuel { last with piped := some called } (.structuredPipeline .valuePipelineHole after)) ∧
+    (∀ (method : Xsh.Syntax.RawName) arguments, arguments.any isHoleArgument = false →
+      valueStageCall (.call (.ident method) arguments) = .call (.field .valuePipelineHole method) arguments) ∧
+    (∀ callee arguments, arguments.any isHoleArgument = true →
+      valueStageCall (.call callee arguments) = .call callee arguments) ∧
+    (∀ input stages, valueStage stages = none → evalExpr machine (fuel + 1) frame (.structuredPipeline input stages) =
       (evalExpr machine fuel frame input).bind fun result next =>
         match pipelineSource result with
         | .error error => .exec (.failed (.raised error) next)
@@ -90,7 +101,10 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
           stageItem machine fuel after rest result) ∧
     (∀ input stages, VRestores frame (evalExpr machine fuel frame (.structuredPipeline input stages))) ∧
     (∀ input stages, VKeeps frame.store (evalExpr machine fuel frame (.structuredPipeline input stages))) := by
-  refine ⟨fun input stages => ?_, fun source stages limit items listed => by simp only [runPipeline, listed],
+  refine ⟨fun input stages before call after staged => by simp only [evalExpr, staged],
+    fun method arguments unheld => by simp [valueStageCall, unheld],
+    fun callee arguments held => by simp [valueStageCall, held],
+    fun input stages streamOnly => ?_, fun source stages limit items listed => by simp only [runPipeline, listed],
     fun stages items => by cases items <;> rfl,
     fun stages item rest limit nonzero => ?_,
     fun _ _ => ⟨rfl, rfl⟩,
@@ -100,7 +114,7 @@ theorem structured_pipelines [DecidableEq Declaration] {world : World Declaratio
     fun loop last index items held => by simp only [gathered, held],
     fun _ => rfl, fun _ _ _ _ => ⟨rfl, rfl, rfl, rfl⟩,
     fun input stages => (restoring machine fuel).expr frame _, fun input stages => (persisting machine fuel).expr frame _⟩
-  · simp only [evalExpr]
+  · simp only [evalExpr, streamOnly]
     refine congrArg _ (funext fun result => funext fun next => ?_)
     cases sourced : pipelineSource result with
     | error error => simp only [sourced]

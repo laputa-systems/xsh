@@ -502,8 +502,7 @@ environment).
 
 Statements:
 
-- value-call stages, and every stage
-  but argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
+- every stage but value calls, argument-free `where`, `map` and `flat-map`, a `take(n)` after them, and
   a closing `count()`, `collect()`, `sum()`, `first()`, `last()`, `min()`,
   `max()`, `any` or `all`, and a `Stream[T]` from anything but a producer (E)
 - `use` aliases, which need module loading (E)
@@ -521,8 +520,7 @@ Expressions:
   methods `byte_len`, `count_chars`, `is_empty`, `starts_with`, `ends_with`,
   `reverse`, `split` without `maxsplit`, `find`, `replace`, `lines`, `trim`,
   `words`, `fields`, `count_words`, `count_lines`, `squeeze`, `delete`,
-  `translate`, `byte_at`, `byte_slice` and the integer parse methods;
-  and value pipelines (P)
+  `translate`, `byte_at`, `byte_slice` and the integer parse methods (P)
 - the contextual `.require()` under a parameter default, a `return` or tail
   nested in a block, or any other expected position (P)
 - `cd` and `within` scopes (E), `tempdir` (E),
@@ -917,7 +915,16 @@ of the value's list on in turn; the pipeline gives the list of items that
 reach its end, or their count under a closing `count()`. As the verification
 binary records `a1 b10 a2 b20` and gives `[11,21]` for two `map` stages over
 `[1, 2]`, and `2` for `where { |x| x > 1 } |> count` over `[1, 2, 3]`, so do
-the witnesses, and a stage-by-stage order is rejected. A pending stream
+the witnesses, and a stage-by-stage order is rejected. A value-call stage
+(SPEC 13.1) is a call on the piped value `_`, held in the frame's `piped`:
+the first value stage receives the value of the stages before it, evaluated
+before its own arguments as the binary does (`sm` for a source and an
+argument that each log), a bare method name takes it as receiver, any other
+callee as first argument, and an argument written `_` takes it in place; the
+stages after it continue from it. The witnesses follow the binary's
+`["a","b"]`, `2`, `7` and `[2,7,1]` for `"a,b" |> split(",")`,
+`[7, 1, 2] |> where . > 1 |> len()`, `"7" |> parse_int()?` and
+`[7, 1] |> [2].extend(_)`. A pending stream
 source runs its producer with a sink consumer that carries the stages: each
 yield passes the item through them in the pipeline's scope and gathers what
 it becomes into the stream's entry. As the binary records `1, 20, 1, 21, 7`

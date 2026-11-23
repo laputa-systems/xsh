@@ -606,6 +606,57 @@ theorem length_first_slice_rejected :
     failureText (bytesRun .slice [97, 98] [intOf 3, intOf (-1)]) = some "offset is past end of byte data" := by
   decide +kernel
 
+def splitName : Xsh.Syntax.RawName := name 362 (by decide)
+def parseIntName : Xsh.Syntax.RawName := name 363 (by decide)
+
+def pipeMachine : Machine witnessWorld :=
+  { textMachine with
+    context := { textMachine.context with
+      spelling := fun named =>
+        if named = splitName then "split" else if named = parseIntName then "parse_int"
+        else textMachine.context.spelling named } }
+
+def pipe (input : Xsh.Syntax.Expr) (stages : List Xsh.Syntax.PipeStage) : Xsh.Syntax.Expr :=
+  .structuredPipeline input stages
+
+def keepAbove (bound : String) : Xsh.Syntax.PipeStage :=
+  .stream .whereStage [] (some (none, [.expression (.binary .gt .item (int bound))]))
+
+/-- `"a,b" |> split(",")`, `[7, 1, 2] |> where . > 1 |> len()`,
+`"7" |> parse_int()?` and `[7, 1] |> [2].extend(_)`. -/
+def pipeRun : Exec witnessWorld :=
+  runStatements pipeMachine 60 start
+    [letOf (slot 0) (pipe (str "a,b") [.value (.call (ident splitName) [.positional (str ",")])]),
+     letOf (slot 1) (pipe (.list [int "7", int "1", int "2"]) [keepAbove "1", .value (.call (ident (methodName 0)) [])]),
+     letOf (slot 2) (pipe (str "7") [.value (.tryExpr (.call (ident parseIntName) []))]),
+     letOf (slot 3) (pipe (.list [int "7", int "1"])
+       [.value (.call (.field (.list [int "2"]) (methodName 3)) [.positional .valuePipelineHole])])]
+
+def pipeSlot (index : Nat) : Option (Value Unit Unit Unit) :=
+  match pipeRun with
+  | .normal frame =>
+    match frame.environment.cellOf (slot index) with
+    | .ok cell => (frame.store cell).map fun found => found.contents.value
+    | .error _ => none
+  | _ => none
+
+/-- As the verification binary prints `["a","b"]`, `2`, `7` and `[2,7,1]`
+for a bare method stage, a value stage after a stream stage, a trailing `?`,
+and an explicit `_` that places the piped value as that argument. -/
+theorem value_stage_witness :
+    keyTexts (pipeSlot 0) = some ["a", "b"] ∧
+    intValue (pipeSlot 1) = some 2 ∧
+    intValue (pipeSlot 2) = some 7 ∧
+    intsOf (pipeSlot 3) = some [2, 7, 1] := by
+  decide +kernel
+
+/-- A value stage that treated the call as a stream stage would split each
+character; one that ignored `_` would pass `[7, 1]` as the receiver and give
+`[7, 1, 2]`. The model gives `[2, 7, 1]`. -/
+theorem receiver_hole_rejected :
+    ([7, 1] ++ [2] : List Int) = [7, 1, 2] ∧ intsOf (pipeSlot 3) = some [2, 7, 1] := by
+  decide +kernel
+
 /-- A `byte_len` that counted characters gives `11`; the binary and the model
 give `13`. -/
 theorem character_byte_len_rejected :

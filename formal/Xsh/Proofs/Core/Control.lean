@@ -1626,6 +1626,8 @@ local macro "close_persists" : tactic => `(tactic| repeat' (first
   | refine withinScope_persists _ ?_
   | split))
 
+-- The macro closes every `evalExpr` arm in one search, and its cost grows with the arms.
+set_option maxHeartbeats 400000 in
 theorem persisting_expr {world : World Declaration Identity Source} (machine : Machine world) (fuel : Nat)
     (inner : Persisting machine fuel) :
     ∀ frame expression, VKeeps frame.store (evalExpr machine (fuel + 1) frame expression) := by

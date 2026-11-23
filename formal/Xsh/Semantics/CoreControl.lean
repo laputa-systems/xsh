@@ -186,6 +186,8 @@ structure Frame (world : World Declaration Identity Source) where
   item : Option (Value Declaration Identity Source)
   /-- What the enclosing `collect` has gathered from `yield`, if there is one. -/
   collected : Option (List (Value Declaration Identity Source))
+  /-- The value a pipeline's value-call stage receives, which `_` reads. -/
+  piped : Option (Value Declaration Identity Source) := none
   /-- The caller's cells this frame may still write: a closure's captured
   mutable cells. -/
   writable : List CellId
@@ -1168,6 +1170,30 @@ def pipelineSplit (stages : List Xsh.Syntax.PipeStage) :
   match body.getLast? with
   | some (.stream .take [.positional count] none) => (body.dropLast, some count, ending)
   | _ => (body, none, ending)
+
+/-- A pipeline's first value-call stage, with the stages before and after it. -/
+def valueStage : List Xsh.Syntax.PipeStage →
+    Option (List Xsh.Syntax.PipeStage × Xsh.Syntax.Expr × List Xsh.Syntax.PipeStage)
+  | [] => none
+  | .value call :: rest => some ([], call, rest)
+  | stage :: rest => (valueStage rest).map fun (before, call, after) => (stage :: before, call, after)
+
+def isHoleArgument : Xsh.Syntax.CallArgument → Bool
+  | .positional .valuePipelineHole | .named _ .valuePipelineHole => true
+  | _ => false
+
+/-- A value-call stage as a call on the piped value `_` (SPEC 13.1): an
+argument written `_` receives it; otherwise a bare method name takes it as its
+receiver and any other callee as its first argument; a trailing `?` stays. -/
+def valueStageCall : Xsh.Syntax.Expr → Xsh.Syntax.Expr
+  | .tryExpr inner => .tryExpr (valueStageCall inner)
+  | .call callee arguments =>
+    if arguments.any isHoleArgument then .call callee arguments
+    else
+      match callee with
+      | .ident method => .call (.field .valuePipelineHole method) arguments
+      | other => .call other (.positional .valuePipelineHole :: arguments)
+  | other => other
 
 /-- The items a closing stage needs before its answer is known: one for
 `first()`, `any` and `all` (SPEC 13.2). -/
@@ -2570,6 +2596,10 @@ mutual
         match frame.item with
         | some value => .value value frame
         | none => .exec .unsupported
+      | .valuePipelineHole =>
+        match frame.piped with
+        | some value => .value value frame
+        | none => .exec .unsupported
       | .record fields =>
         if namedOnly fields then
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel))
@@ -2633,6 +2663,14 @@ mutual
           threadStep machine.context (evalExpr machine fuel) (callFunctionWith machine (evalExpr machine fuel) (callBlock machine fuel)) frame
             expression
       | .structuredPipeline input stages =>
+        match valueStage stages with
+        | some (before, call, after) =>
+          (evalExpr machine fuel frame (if before.isEmpty then input else .structuredPipeline input before)).bind
+            fun piped next =>
+              (evalExpr machine fuel { next with piped := some piped } (valueStageCall call)).bind fun called last =>
+                if after.isEmpty then .value called last
+                else evalExpr machine fuel { last with piped := some called } (.structuredPipeline .valuePipelineHole after)
+        | none =>
         (evalExpr machine fuel frame input).bind fun result next =>
           match pipelineSource result with
           | .error error => .exec (.failed (.raised error) next)
