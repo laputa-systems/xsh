@@ -642,13 +642,12 @@ impl BindingNamespaceLeases {
         }
     }
 
-    fn namespaces(&self) -> FxHashSet<u64> {
-        self.active
+    fn extend_namespaces(&self, namespaces: &mut FxHashSet<u64>) {
+        namespaces.extend(self.active
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .keys()
-            .copied()
-            .collect()
+            .copied());
     }
 }
 
@@ -3249,6 +3248,7 @@ pub struct Evaluator {
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
+    live_binding_namespaces: FxHashSet<u64>,
     binding_namespace_leases: BindingNamespaceLeases,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
@@ -3738,6 +3738,7 @@ impl Evaluator {
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
             binding_values: Arc::new(FxHashMap::default()),
+            live_binding_namespaces: FxHashSet::default(),
             binding_namespace_leases: BindingNamespaceLeases::default(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
@@ -4086,6 +4087,7 @@ impl Evaluator {
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
             binding_values: shared.binding_values.clone(),
+            live_binding_namespaces: FxHashSet::default(),
             binding_namespace_leases: shared.binding_namespace_leases.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
@@ -6884,7 +6886,8 @@ impl Evaluator {
     }
 
     fn prune_binding_values(&mut self) {
-        let mut namespaces = FxHashSet::default();
+        let namespaces = &mut self.live_binding_namespaces;
+        namespaces.clear();
         namespaces.insert(0);
         if let Some(program) = &self.indexed_program {
             namespaces.insert(program.binding_namespace());
@@ -6895,7 +6898,10 @@ impl Evaluator {
         for function in self.indexed_dynamic_functions.values() {
             namespaces.insert(function.program.binding_namespace());
         }
-        namespaces.extend(self.binding_namespace_leases.namespaces());
+        self.binding_namespace_leases.extend_namespaces(namespaces);
+        if !self.binding_values.keys().any(|identity| !namespaces.contains(&identity.namespace)) {
+            return;
+        }
         Arc::make_mut(&mut self.binding_values)
             .retain(|identity, _| namespaces.contains(&identity.namespace));
     }
@@ -9273,6 +9279,33 @@ mod capture_transfer_tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn unrelated_call_prunes_binding_after_last_lease_drops() {
+        let source = "pure inner() -> Int { 1 }\npure outer() -> Int { inner() }\n";
+        let mut sources = crate::source::SourceMap::new();
+        let source_id = sources.add_file("lease-release.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let name = parsed.arena.symbol_owner().with_current(|| Name::intern("outer"));
+        let program = FullBuilder::build_compact(&parsed.arena, &declarations, source, Arc::new(sources.clone()), source_id).unwrap();
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+        evaluator.install_compact_runtime_declarations(&declarations);
+        evaluator.indexed_program = Some(Arc::new(program));
+        let namespace = u64::MAX;
+        let lease = evaluator.retain_binding_namespace(namespace);
+        let value: Arc<str> = Arc::from("retained binding");
+        let weak = Arc::downgrade(&value);
+        let identity = RuntimeBindingIdentity { namespace, name: Arc::from("binding"), source: Arc::from(""), start: 0, len: 0, owner: None };
+        Arc::make_mut(&mut evaluator.binding_values).insert(identity, Binding { value: Value::Str(value), mutable: false, identity: None });
+        evaluator.prune_binding_values();
+        assert!(weak.upgrade().is_some());
+        drop(lease);
+        evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &[], Span::new(source_id, 0, 0)).unwrap().unwrap();
+        assert!(weak.upgrade().is_none());
     }
 
     #[test]

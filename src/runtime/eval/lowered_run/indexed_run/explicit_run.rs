@@ -2612,6 +2612,8 @@ pub(super) enum ProducerStep {
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
+    binary_continuations: Vec<Box<FrameContinuation>>,
+    empty_applications: PreparedInvocationBindings,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
@@ -2619,6 +2621,23 @@ pub(in crate::runtime::eval) struct FrameScratch {
 
 impl FrameScratch {
     const POOL_CAP: usize = 32;
+
+    fn take_binary_continuation(&mut self, next: FrameContinuation) -> Box<FrameContinuation> {
+        if let Some(mut storage) = self.binary_continuations.pop() {
+            *storage = next;
+            storage
+        } else {
+            Box::new(next)
+        }
+    }
+
+    fn recycle_binary_continuation(&mut self, mut storage: Box<FrameContinuation>, span: Span) -> FrameContinuation {
+        let next = std::mem::replace(&mut *storage, FrameContinuation::Discard(span));
+        if self.binary_continuations.len() < Self::POOL_CAP {
+            self.binary_continuations.push(storage);
+        }
+        next
+    }
 
     fn take_work(&mut self) -> Vec<FrameWork> {
         self.work.pop().unwrap_or_default()
@@ -3691,7 +3710,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map(|view| view.index())
         {
             return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                 program: caller,
                 function,
                 kind,
@@ -3718,7 +3737,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .with_span(span)
                 })?;
             return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                 program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
                 function: dynamic.function,
                 kind: dynamic.kind,
@@ -3749,7 +3768,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             crate::runtime::eval::PreparedCallableState::Instance(bindings) => bindings.clone(),
             crate::runtime::eval::PreparedCallableState::SchemeValue(relationship) => {
                 instance.program.validate_scheme_callable_target(*relationship, target, kind).map_err(|error| indexed_error(error, span))?;
-                PreparedInvocationBindings::default()
+                self.evaluator.frame_scratch.empty_applications.clone()
             }
         };
         Ok(ResolvedCall {
@@ -3774,7 +3793,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .map(|view| view.index())
             {
                 return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                     program: caller,
                     function,
                     kind,
@@ -3799,7 +3818,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span)
             })?;
         Ok(ResolvedCall {
-            applications: PreparedInvocationBindings::default(),
+            applications: self.evaluator.frame_scratch.empty_applications.clone(),
             program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
             function: dynamic.function,
             kind: dynamic.kind,
@@ -3871,9 +3890,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         let mut resolved = self.resolve_active_call(index, function, kind, true, span)?;
-        resolved.applications = self.calls[index].execution.program()
-            .invocation_applications(instruction, resolved.index, &self.calls[index].applications)
-            .map_err(|error| indexed_error(error, span))?;
+        let program = self.calls[index].execution.program();
+        if program.has_invocation(instruction) {
+            resolved.applications = program
+                .invocation_applications(instruction, resolved.index, &self.calls[index].applications)
+                .map_err(|error| indexed_error(error, span))?;
+        }
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
@@ -6098,7 +6120,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left.raw(), right.raw(), value_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: Box::new(next) }
+                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -6721,6 +6743,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
                 let kind = self.external_kind(index, qualified, span)?;
+                let mut values = self.evaluator.take_lowered_slots(0);
+                values.reserve(capacity);
                 self.push_static_arguments(
                     index,
                     instruction,
@@ -6728,7 +6752,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     LoweredFunctionKey::Qualified(qualified),
                     kind,
                     true,
-                    Vec::with_capacity(capacity),
+                    values,
                     value_span,
                     next,
                 )?;
@@ -6759,6 +6783,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
+                let values = self.evaluator.take_lowered_slots(0);
                 self.push_static_arguments(
                     index,
                     instruction,
@@ -6766,7 +6791,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     function,
                     kind,
                     false,
-                    Vec::new(),
+                    values,
                     value_span,
                     next,
                 )?;
@@ -7048,7 +7073,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left, right, op_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: Box::new(next) }
+                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -7570,7 +7595,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(left) if op == BinaryOp::And || op == BinaryOp::Or => {
                     let left = lowered_condition_bool(left, span)?;
                     if (op == BinaryOp::And && !left) || (op == BinaryOp::Or && left) {
-                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(left)), *next);
+                        let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(left)), next);
                     } else {
                         self.push_expr(
                             index,
@@ -7601,21 +7627,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
                 next,
             } => match value {
-                FrameValue::Value(right) => self.push_value(
-                    index,
-                    FrameValue::Value(lowered_binary_value(op, left, right, span)?),
-                    *next,
-                ),
+                FrameValue::Value(right) => {
+                    let value = lowered_binary_value(op, left, right, span)?;
+                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    self.push_value(index, FrameValue::Value(value), next);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BoolBinaryRight { next, span } => match value {
-                FrameValue::Value(value) => self.push_value(
-                    index,
-                    FrameValue::Value(LoweredValue::Bool(lowered_condition_bool(value, span)?)),
-                    *next,
-                ),
+                FrameValue::Value(value) => {
+                    let value = lowered_condition_bool(value, span)?;
+                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    self.push_value(index, FrameValue::Value(LoweredValue::Bool(value)), next);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
