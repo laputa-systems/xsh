@@ -45,9 +45,11 @@ pub(super) struct ReturnInferenceIndex {
 }
 
 impl ReturnInferenceIndex {
-    pub(super) fn merge_owner(&mut self, other: &Self) {
-        self.references.extend(other.references.iter().copied());
-        self.references.sort_unstable();
+    pub(super) fn merge_owners<'a>(&mut self, others: impl IntoIterator<Item = &'a Self>) {
+        for other in others {
+            self.references.extend(other.references.iter().copied());
+        }
+        self.references.sort();
         self.references.dedup();
     }
 
