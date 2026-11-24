@@ -9276,6 +9276,33 @@ mod capture_transfer_tests {
     }
 
     #[test]
+    fn unrelated_call_prunes_binding_after_last_lease_drops() {
+        let source = "pure inner() -> Int { 1 }\npure outer() -> Int { inner() }\n";
+        let mut sources = crate::source::SourceMap::new();
+        let source_id = sources.add_file("lease-release.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let name = parsed.arena.symbol_owner().with_current(|| Name::intern("outer"));
+        let program = FullBuilder::build_compact(&parsed.arena, &declarations, source, Arc::new(sources.clone()), source_id).unwrap();
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+        evaluator.install_compact_runtime_declarations(&declarations);
+        evaluator.indexed_program = Some(Arc::new(program));
+        let namespace = u64::MAX;
+        let lease = evaluator.retain_binding_namespace(namespace);
+        let value: Arc<str> = Arc::from("retained binding");
+        let weak = Arc::downgrade(&value);
+        let identity = RuntimeBindingIdentity { namespace, name: Arc::from("binding"), source: Arc::from(""), start: 0, len: 0, owner: None };
+        Arc::make_mut(&mut evaluator.binding_values).insert(identity, Binding { value: Value::Str(value), mutable: false, identity: None });
+        evaluator.prune_binding_values();
+        assert!(weak.upgrade().is_some());
+        drop(lease);
+        evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), CallableKind::Pure, &[], Span::new(source_id, 0, 0)).unwrap().unwrap();
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
     fn dropped_stream_state_remains_available_for_scope_cleanup() {
         let mut evaluator = Evaluator::new(Vec::new());
         let owner_scope = evaluator.enter_owned_host_scope();
