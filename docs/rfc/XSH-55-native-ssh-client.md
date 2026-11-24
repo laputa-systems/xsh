@@ -9,8 +9,8 @@ the interface is [Native SSH](../ssh.md).
 
 ## Audit
 
-Every row of the RFC and of the roadmap's
-[Stage 1 contract](../ROADMAP.md#stage-1-the-remote-execution-contract-over-the-native-client)
+Every row of the RFC and of the
+[remote execution contract](../ssh.md#remote-execution-contract)
 is classified against evidence on `master` with a test that fails without the
 behavior (D delivered, P partial, M missing). "2026-10-31" is the state the
 seven earlier commits left; "Now" is after this campaign. Interop means a real

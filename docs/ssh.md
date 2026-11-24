@@ -306,3 +306,47 @@ below remain part of the client contract.
 - A command string runs under the remote account's login shell with that
   shell's semantics. Do not build it from untrusted values; use a fixed remote
   entrypoint and send data on stdin.
+
+## Remote execution contract
+
+XSH-55 implements this contract directly with the native Graviola/OxiSH-backed
+client; the runtime never invokes `ssh`, `scp` or `sftp`. The OpenSSL-less
+OpenSSH client in [ssh-build](https://github.com/laputa-systems/ssh-build) is a
+test oracle against the same servers, never a production fallback, and not an
+excuse to narrow algorithm support. Do not write cryptographic primitives or
+weaken host-key verification to get an initial connection.
+
+The remote-execution contract requires:
+
+- Explicit host identity, provisioned/pinned host-key verification, and
+  authentication. Changed keys fail closed; first contact and key rotation
+  require a deliberate trust decision. No implicit agent forwarding or secret
+  material in logs, plans, or diagnostics.
+- Structured executable/argv, environment, working directory, and byte-preserving
+  paths. SSH exec carries a command string, not a native argv vector. Where
+  the remote runs XSH, as on Laputa, invoke a fixed reviewed remote entrypoint
+  and send bounded, versioned data to it; never interpolate request values into
+  remote shell source. Reuse the existing data/validation model rather than
+  inventing an RPC framework. Separate protocol framing from the invoked
+  program's input and output. A host without XSH, as xsh-infra targets, goes
+  through one audited quoting helper for an explicitly probed remote shell,
+  tested with hostile values; that helper is the only place request values
+  become shell source.
+- Streaming stdin/stdout/stderr, explicit exit status versus transport failure,
+  bounded buffering/backpressure, deadlines, and owned channel/process cleanup.
+  Non-PTY execution comes first; PTY/interactive behavior is a separate explicit
+  contract, not an implicit change to byte streams.
+- Safe file staging under an authorized destination, digest verification, and
+  atomic publication where supported. Specify replacement, permissions, cleanup,
+  confinement, and durability separately; transport success is not an fsync or
+  package-authenticity claim.
+- Disconnect/cancellation semantics that distinguish not submitted, completed,
+  and unknown outcome. A lost acknowledgement must not replay a mutation.
+  Remote cancellation requires an acknowledged action or re-observation;
+  closing the local connection is not proof the remote process stopped.
+
+The remote endpoint remains an authorization boundary. Authenticate the user,
+validate requests, and use that user's actual filesystem/process authority.
+Privileged operations require explicit delegation; a typed request or effect
+annotation does not grant root access. Keep a read-only inspection path useful
+without elevated privileges.
