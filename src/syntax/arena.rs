@@ -1495,6 +1495,17 @@ pub struct ArenaProgramBuilder<'a> {
     internal_source_depth: usize,
 }
 
+impl ArenaProgramBuilder<'static> {
+    pub(crate) fn resume(program: ArenaProgram) -> Self {
+        let mut builder = Self::with_token_capacity_and_symbols(0, program.symbols);
+        builder.lowerer.arena = program.arena;
+        builder.modules = program.modules;
+        builder.docs = program.docs;
+        builder.paren_groups = program.paren_groups;
+        builder
+    }
+}
+
 impl<'a> ArenaProgramBuilder<'a> {
     pub fn with_token_capacity(tokens: usize) -> Self {
         Self::with_token_capacity_and_symbols(tokens, crate::symbol::SymbolOwner::new())

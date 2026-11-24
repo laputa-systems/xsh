@@ -386,6 +386,7 @@ mod module_driver;
 pub use module_driver::CheckSession;
 #[path = "check/module_record.rs"]
 mod module_record;
+pub(crate) use module_record::SharedModuleRecords;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
