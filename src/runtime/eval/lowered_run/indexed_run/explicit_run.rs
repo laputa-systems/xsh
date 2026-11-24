@@ -2557,20 +2557,21 @@ fn call_argument_at(
         .transpose()
         .map_err(|error| indexed_error(error, span))?;
     let position = args.position();
-    Ok(argument.map(|argument| {
-        let operand = match argument {
-            CallArgView::Default(slot) => CallArgumentOperand::Default(slot),
-            CallArgView::Single(instruction) => CallArgumentOperand::Expression {
-                instruction: instruction.raw(),
-                mode: CallArgumentMode::Single,
-            },
-            CallArgView::Splice(instruction) => CallArgumentOperand::Expression {
-                instruction: instruction.raw(),
-                mode: CallArgumentMode::Splice,
-            },
-        };
-        (operand, position)
-    }))
+    Ok(argument.map(|argument| (call_argument_operand(argument), position)))
+}
+
+fn call_argument_operand(argument: CallArgView<'_>) -> CallArgumentOperand {
+    match argument {
+        CallArgView::Default(slot) => CallArgumentOperand::Default(slot),
+        CallArgView::Single(instruction) => CallArgumentOperand::Expression {
+            instruction: instruction.raw(),
+            mode: CallArgumentMode::Single,
+        },
+        CallArgView::Splice(instruction) => CallArgumentOperand::Expression {
+            instruction: instruction.raw(),
+            mode: CallArgumentMode::Splice,
+        },
+    }
 }
 
 fn indexed_method_arguments<'e>(
@@ -4168,6 +4169,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(InlineOperand::Pending);
         }
         let call = &mut self.calls[index];
+        if in_place && tag == FullTag::ExprParam {
+            self.evaluator.sync_indexed_root_slots(&mut call.slots, span)?;
+            if let Some(slot) = indexed_slot_read(&call.execution, instruction, span)?
+                && let Some(LoweredValue::Int(value)) = call.slots.get(slot)
+            {
+                return Ok(InlineOperand::Value(LoweredValue::Int(*value)));
+            }
+        }
         if in_place {
             return match self.evaluator.eval_indexed_expr(
                 &call.execution,
@@ -4192,6 +4201,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         instruction: u32,
         mut position: CallArgumentPosition,
+        mut first: Option<CallArgumentOperand>,
         function: LoweredFunctionKey,
         kind: CallableKind,
         external: bool,
@@ -4199,12 +4209,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some((argument, next_position)) = call_argument_at(
-            &self.calls[index].execution,
-            instruction,
-            position,
-            span,
-        )? {
+        loop {
+            let (argument, next_position) = if let Some(argument) = first.take() {
+                (argument, position)
+            } else if !position.is_exhausted() {
+                let Some(argument) = call_argument_at(
+                    &self.calls[index].execution, instruction, position, span,
+                )? else { break };
+                argument
+            } else {
+                break;
+            };
             match argument {
                 CallArgumentOperand::Default(slot) => {
                     values.push(self.argument_default_for_active(
@@ -6803,6 +6818,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let capacity = args.len();
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
+                let first = args.next().transpose()
+                    .map_err(|error| indexed_error(error, value_span))?
+                    .map(call_argument_operand);
                 let position = args.position();
                 let kind = self.external_kind(index, qualified, span)?;
                 let mut values = self.evaluator.take_lowered_slots(0);
@@ -6811,6 +6829,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     instruction,
                     position,
+                    first,
                     LoweredFunctionKey::Qualified(qualified),
                     kind,
                     true,
@@ -6844,12 +6863,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
+                let first = args.next().transpose()
+                    .map_err(|error| indexed_error(error, value_span))?
+                    .map(call_argument_operand);
                 let position = args.position();
                 let values = self.evaluator.take_lowered_slots(0);
                 self.push_static_arguments(
                     index,
                     instruction,
                     position,
+                    first,
                     function,
                     kind,
                     false,
@@ -8656,6 +8679,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         index,
                         instruction,
                         position,
+                        None,
                         function,
                         kind,
                         external,
@@ -12669,6 +12693,63 @@ mod tests {
     #[test]
     fn call_frame_size() {
         assert!(std::mem::size_of::<CallFrame<'_>>() <= 320);
+    }
+
+    #[test]
+    fn nested_calls_keep_argument_positions_and_defaults() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure zero() -> Int { 5 }\npure pair(a: Int, b: Int = 7) -> Int { a * 10 + b }\npure main() -> Int { pair(pair(zero()), pair(1, 2)) }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("call-arguments.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let function = parsed.arena.symbol_owner().with_current(|| Name::intern("main"));
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            evaluator.force_frames = true;
+            let value = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(function), CallableKind::Pure, &[], Span::new(source_id, 0, 0),
+            ).expect("prepared call").expect("nested calls succeed");
+            assert!(matches!(value, Value::Int(582)));
+        });
+    }
+
+    #[test]
+    fn first_argument_preserves_following_call_arguments() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure id(x: Int) -> Int { x }\npure digits(a: Int, b: Int, c: Int) -> Int { a * 100 + b * 10 + c }\npure main() -> Int { digits(id(1), id(2), id(3)) }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("first-call-argument.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let function = parsed.arena.symbol_owner().with_current(|| Name::intern("main"));
+            for forced in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+                evaluator.force_frames = forced;
+                let value = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(function), CallableKind::Pure, &[], Span::new(source_id, 0, 0),
+                ).expect("prepared call").expect("arguments evaluate");
+                assert!(matches!(value, Value::Int(123)));
+            }
+        });
+    }
+
+    #[test]
+    fn scalar_call_argument_refreshes_mutated_root_binding() {
+        let source = "var value = 3\nproc advance() -> Int { value += 2; return value }\npure id(n: Int) -> Int { n }\nvar total = 0\nfor i in range(3) {\n  total += id(value)\n  value = advance()\n}\nprint f\"{total} {value}\"\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("scalar-call-root.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+        let plan = evaluator.prepare_compact_indexed_only(&parsed.arena, source_id)
+            .expect("program prepares");
+        let output = evaluator.eval_installed_compact_indexed_only(plan)
+            .unwrap_or_else(|_| panic!("program runs"));
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, b"15 9\n");
+        assert!(output.stderr.is_empty());
     }
 
     fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
