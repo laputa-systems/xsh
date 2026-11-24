@@ -34,6 +34,7 @@ structure State where
   paths : Path → PathStats := fun _ => {}
   dropped : Nat := 0
   closed : List Receipt := []
+  work : Path → Nat := fun _ => 0
 
 def updatePath (paths : Path → PathStats) (path : Path) (f : PathStats → PathStats) : Path → PathStats :=
   fun p => if p = path then f (paths p) else paths p
@@ -42,6 +43,12 @@ def parentPath (stack : List Frame) : Path :=
   match stack with
   | [] => []
   | frame :: _ => frame.path
+
+def tick (state : State) (duration : Nat) : State :=
+  let work := match state.stack with
+    | [] => state.work
+    | frame :: _ => fun path => state.work path + if path = frame.path then duration else 0
+  {state with clock := state.clock + duration, work := work}
 
 def enter (state : State) (site : Site) : State :=
   let path := (site, false) :: parentPath state.stack
@@ -64,8 +71,8 @@ def exit (state : State) : State :=
 
 def opaqueBlocked (state : State) (wall : Nat) : State :=
   match state.stack with
-  | [] => state
-  | frame :: rest => {state with stack := {frame with blockedNs := frame.blockedNs + wall} :: rest}
+  | [] => {state with clock := state.clock + wall}
+  | frame :: rest => {state with clock := state.clock + wall, stack := {frame with blockedNs := frame.blockedNs + wall} :: rest}
 
 def addStats (a b : PathStats) : PathStats :=
   ⟨a.calls + b.calls, a.inclusiveNs + b.inclusiveNs,
@@ -95,7 +102,7 @@ inductive Event (Obs : Type) where
 
 def profileEvent (state : State) : Event Obs → State
   | .sem _ => state
-  | .tick amount => {state with clock := state.clock + amount}
+  | .tick amount => tick state amount
   | .enter site => enter state site
   | .exit => exit state
   | .opaqueBlocked wall => opaqueBlocked state wall
@@ -143,7 +150,8 @@ theorem run_profile_projection (step : S → Obs → S) (events : List (Event Ob
 theorem event_dropped_monotone (state : State) (event : Event Obs) :
     state.dropped ≤ (profileEvent state event).dropped := by
   cases event with
-  | sem _ | tick _ | opaqueOverlapping _ => simp [profileEvent]
+  | sem _ | opaqueOverlapping _ => simp [profileEvent]
+  | tick _ => simp [profileEvent, tick]
   | enter site => simp [profileEvent, enter]
   | exit =>
     cases h : state.stack with
@@ -164,7 +172,7 @@ theorem run_dropped_monotone (state : State) (events : List (Event Obs)) :
 
 def complete (state : State) : Prop := state.dropped = 0
 
-theorem profile_incomplete_reported (state : State) (events : List (Event Obs)) :
+theorem incomplete_local (state : State) (events : List (Event Obs)) :
     state.dropped ≤ (runProfile state events).dropped ∧
     (state.stack ≠ [] → ¬ complete (runProfile (finish state) events)) ∧
     (∀ dropped openFrames paths, dropped ≠ 0 ∨ openFrames ≠ 0 →
@@ -202,11 +210,7 @@ def StackValid : Nat → List Frame → Prop
   | now, frame :: rest =>
     frame.start + frame.childNs + frame.blockedNs ≤ now ∧ StackValid frame.start rest
 
-def ValidEvent (state : State) : Event Obs → Prop
-  | .opaqueBlocked wall =>
-    match state.stack with
-    | [] => True
-    | frame :: _ => frame.start + frame.childNs + frame.blockedNs + wall ≤ state.clock
+def ValidEvent (_state : State) : Event Obs → Prop
   | .mergeWorker _ _ paths => ∀ entry ∈ paths, entry.1 ≠ []
   | _ => True
 
@@ -224,7 +228,7 @@ theorem event_preserves_stack_valid (state : State) (event : Event Obs)
   cases event with
   | sem _ | opaqueOverlapping _ => exact valid
   | tick amount =>
-    simp only [profileEvent]
+    simp only [profileEvent, tick]
     exact stack_valid_advance valid (Nat.le_add_right _ _)
   | enter site =>
     simp only [profileEvent, enter, StackValid]
@@ -248,7 +252,6 @@ theorem event_preserves_stack_valid (state : State) (event : Event Obs)
     | nil => simp [profileEvent, opaqueBlocked, h, StackValid]
     | cons frame rest =>
       simp only [h, StackValid] at valid
-      simp only [ValidEvent, h] at admitted
       simp only [profileEvent, opaqueBlocked, h, StackValid]
       exact ⟨by omega, valid.2⟩
   | mergeWorker dropped openFrames paths => exact valid
@@ -283,20 +286,34 @@ def activeStack : Nat → List Frame → List Nat
   | _, [] => []
   | now, frame :: rest => active now frame :: activeStack frame.start rest
 
-theorem profile_single_active (state : State) (frame : Frame) (rest : List Frame)
+
+theorem exit_freezes_ancestors (state : State) (frame : Frame) (rest : List Frame)
+    (stack : state.stack = frame :: rest) (valid : StackValid state.clock state.stack) :
+    activeStack (exit state).clock (exit state).stack = activeStack frame.start rest := by
+  rw [stack] at valid
+  cases rest with
+  | nil => simp [exit, stack, activeStack]
+  | cons parent tail =>
+    simp only [StackValid] at valid
+    simp only [exit, stack, activeStack]
+    congr 1
+    simp only [active, elapsed]
+    omega
+
+theorem single_active_step (state : State) (frame : Frame) (rest : List Frame)
     (stack : state.stack = frame :: rest) (valid : StackValid state.clock state.stack)
-    (duration wall : Nat)
-    (blockedValid : ValidEvent state (.opaqueBlocked wall : Event Obs)) :
+    (duration wall : Nat) :
     activeStack (state.clock + duration) state.stack =
       (active state.clock frame + duration) :: activeStack frame.start rest ∧
     activeStack (opaqueBlocked state wall).clock (opaqueBlocked state wall).stack =
-      (active state.clock frame - wall) :: activeStack frame.start rest ∧
-    active state.clock frame + frame.blockedNs + frame.childNs = elapsed state.clock frame := by
+      active state.clock frame :: activeStack frame.start rest ∧
+    active state.clock frame + frame.blockedNs + frame.childNs = elapsed state.clock frame ∧
+    activeStack (exit state).clock (exit state).stack = activeStack frame.start rest ∧
+    (∀ site, activeStack (enter state site).clock (enter state site).stack =
+      0 :: activeStack state.clock state.stack) := by
   have bound : frame.start + frame.childNs + frame.blockedNs ≤ state.clock := by
     rw [stack] at valid
     exact valid.1
-  have blockedBound : frame.start + frame.childNs + frame.blockedNs + wall ≤ state.clock := by
-    simpa [ValidEvent, stack] using blockedValid
   constructor
   · simp only [stack, activeStack]
     congr 1
@@ -307,7 +324,11 @@ theorem profile_single_active (state : State) (frame : Frame) (rest : List Frame
     congr 1
     simp only [active, elapsed]
     omega
-  · exact (frame_accounting state.clock frame bound).2.2.symm
+  · refine ⟨(frame_accounting state.clock frame bound).2.2.symm, ?_, ?_⟩
+    · apply exit_freezes_ancestors state frame rest stack
+      simpa [stack] using valid
+    · intro site
+      simp [enter, activeStack, active, elapsed]
 
 
 def StackPaths : List Frame → Prop
@@ -317,7 +338,8 @@ def StackPaths : List Frame → Prop
 theorem event_preserves_stack_paths (state : State) (event : Event Obs)
     (valid : StackPaths state.stack) : StackPaths (profileEvent state event).stack := by
   cases event with
-  | sem _ | tick _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish => exact valid
+  | sem _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish => exact valid
+  | tick amount => simpa [profileEvent, tick] using valid
   | enter site => simp [profileEvent, enter, StackPaths, valid]
   | exit =>
     cases h : state.stack with
@@ -373,7 +395,8 @@ theorem event_preserves_ledger (state : State) (event : Event Obs)
   intro path nonempty
   have previous := ledger path nonempty
   cases event with
-  | sem _ | tick _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish => exact previous
+  | sem _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish => exact previous
+  | tick amount => simpa [profileEvent, tick] using previous
   | enter site =>
     simpa [profileEvent, enter, openChildren] using previous
   | opaqueBlocked wall =>
@@ -475,7 +498,8 @@ theorem event_preserves_serial_stats (state : State) (event : Event Obs)
   intro site parent
   have old := valid site parent
   cases event with
-  | sem _ | tick _ | opaqueOverlapping _ | finish => exact old
+  | sem _ | opaqueOverlapping _ | finish => exact old
+  | tick amount => simpa [profileEvent, tick] using old
   | enter entered =>
     simp only [profileEvent, enter, updatePath]
     split <;> simp_all
@@ -677,5 +701,340 @@ theorem profile_accounting (events : List (Event Obs)) (trace : ValidTrace initi
       exact fold_worker_serial (parentPath state.stack) entries admitted state.paths site parent
   · intros
     rfl
+
+
+def credited (state : State) (event : Event Obs) (path : Path) : Nat :=
+  match event, state.stack with
+  | .tick duration, frame :: _ => if path = frame.path then duration else 0
+  | _, _ => 0
+
+theorem event_work (state : State) (event : Event Obs) (path : Path) :
+    (profileEvent state event).work path = state.work path + credited state event path := by
+  cases event with
+  | sem _ | opaqueOverlapping _ | finish => simp [profileEvent, credited, finish]
+  | tick duration =>
+    cases h : state.stack <;> simp [profileEvent, tick, credited, h]
+  | enter site => simp [profileEvent, enter, credited]
+  | exit =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, exit, credited, h]
+    | cons frame rest =>
+      cases rest <;> simp [profileEvent, exit, credited, h]
+  | opaqueBlocked wall =>
+    cases h : state.stack <;> simp [profileEvent, opaqueBlocked, credited, h]
+  | mergeWorker dropped openFrames entries => simp [profileEvent, mergeWorker, credited]
+
+def intervalWork (state : State) (events : List (Event Obs)) (path : Path) : Nat :=
+  match events with
+  | [] => 0
+  | event :: rest => credited state event path + intervalWork (profileEvent state event) rest path
+
+theorem interval_work (state : State) (events : List (Event Obs)) (path : Path) :
+    (runProfile state events).work path = state.work path + intervalWork state events path := by
+  induction events generalizing state with
+  | nil => simp [runProfile, intervalWork]
+  | cons event rest ih =>
+    simp only [runProfile, intervalWork, ih, event_work]
+    omega
+
+
+def openActive (path : Path) : Nat → List Frame → Nat
+  | _, [] => 0
+  | now, frame :: rest =>
+    (if frame.path = path then active now frame else 0) + openActive path frame.start rest
+
+def WorkValid (state : State) : Prop :=
+  ∀ site parent, let path := (site, false) :: parent
+    state.work path = (state.paths path).exclusiveNs + openActive path state.clock state.stack
+
+theorem openActive_exit (state : State) (frame : Frame) (rest : List Frame) (path : Path)
+    (stack : state.stack = frame :: rest) (valid : StackValid state.clock state.stack) :
+    openActive path (exit state).clock (exit state).stack = openActive path frame.start rest := by
+  rw [stack] at valid
+  cases rest with
+  | nil => simp [exit, stack, openActive]
+  | cons parent tail =>
+    simp only [StackValid] at valid
+    simp only [exit, stack, openActive]
+    by_cases same : parent.path = path
+    · simp only [same, ↓reduceIte]
+      simp only [active, elapsed]
+      omega
+    · simp [same]
+
+theorem event_preserves_work (state : State) (event : Event Obs)
+    (timed : StackValid state.clock state.stack) (admitted : ValidEvent state event)
+    (valid : WorkValid state) : WorkValid (profileEvent state event) := by
+  intro site parent
+  have old := valid site parent
+  dsimp only at old
+  cases event with
+  | sem _ | opaqueOverlapping _ | finish => exact old
+  | enter entered =>
+    simp only [profileEvent, enter, updatePath, openActive, active, elapsed]
+    split <;> simpa using old
+  | tick duration =>
+    cases h : state.stack with
+    | nil => simpa [profileEvent, tick, h, openActive] using old
+    | cons frame rest =>
+      have bound : frame.start + frame.childNs + frame.blockedNs ≤ state.clock := by
+        rw [h] at timed
+        exact timed.1
+      have accrual : active (state.clock + duration) frame = active state.clock frame + duration := by
+        simp only [active, elapsed]
+        omega
+      simp only [profileEvent, tick, h, openActive, accrual]
+      simp only [h, openActive] at old
+      by_cases same : ((site, false) :: parent) = frame.path
+      · have reverse : frame.path = ((site, false) :: parent) := same.symm
+        simp only [reverse, ↓reduceIte] at old ⊢
+        omega
+      · have reverse : frame.path ≠ ((site, false) :: parent) := Ne.symm same
+        simp only [same, reverse, ↓reduceIte, Nat.add_zero] at *
+        exact old
+  | opaqueBlocked wall =>
+    cases h : state.stack with
+    | nil => simpa [profileEvent, opaqueBlocked, h, openActive] using old
+    | cons frame rest =>
+      have bound : frame.start + frame.childNs + frame.blockedNs ≤ state.clock := by
+        rw [h] at timed
+        exact timed.1
+      have blocked : active (state.clock + wall) {frame with blockedNs := frame.blockedNs + wall} =
+          active state.clock frame := by
+        simp only [active, elapsed]
+        omega
+      simp only [profileEvent, opaqueBlocked, h, openActive, blocked]
+      simpa [h, openActive] using old
+  | mergeWorker dropped openFrames entries =>
+    simp only [ValidEvent] at admitted
+    simp only [profileEvent, mergeWorker]
+    rw [fold_worker_serial (parentPath state.stack) entries admitted state.paths site parent]
+    exact old
+  | exit =>
+    cases h : state.stack with
+    | nil => simpa [profileEvent, exit, h] using old
+    | cons frame rest =>
+      have held := openActive_exit state frame rest ((site, false) :: parent) h timed
+      simp only [h, openActive] at old
+      cases rest with
+      | nil =>
+        simp only [profileEvent, exit, h, updatePath, openActive]
+        by_cases same : ((site, false) :: parent) = frame.path
+        · have reverse : frame.path = ((site, false) :: parent) := same.symm
+          simp only [reverse, ↓reduceIte, Nat.add_zero] at old ⊢
+          simp only [active, elapsed, openActive, Nat.add_zero] at old
+          exact old
+        · have reverse : frame.path ≠ ((site, false) :: parent) := Ne.symm same
+          simp only [same, reverse, ↓reduceIte, Nat.add_zero] at *
+          exact old
+      | cons previous tail =>
+        simp only [profileEvent, exit, h, updatePath]
+        have held' : openActive ((site, false) :: parent) state.clock
+            ({previous with childNs := previous.childNs + (state.clock - frame.start), childBlockedNs := previous.childBlockedNs + frame.blockedNs + frame.childBlockedNs} :: tail) =
+            openActive ((site, false) :: parent) frame.start (previous :: tail) := by
+          simpa [exit, h] using held
+        rw [held']
+        by_cases same : ((site, false) :: parent) = frame.path
+        · have reverse : frame.path = ((site, false) :: parent) := same.symm
+          simp only [reverse, ↓reduceIte] at old ⊢
+          simp only [active, elapsed] at old
+          omega
+        · have reverse : frame.path ≠ ((site, false) :: parent) := Ne.symm same
+          simp only [same, reverse, ↓reduceIte, Nat.zero_add] at *
+          exact old
+
+
+theorem trace_work (state : State) (events : List (Event Obs))
+    (timed : StackValid state.clock state.stack) (valid : WorkValid state)
+    (trace : ValidTrace state events) : WorkValid (runProfile state events) := by
+  induction trace with
+  | nil => exact valid
+  | cons state event rest admitted trace ih =>
+    exact ih (event_preserves_stack_valid state event timed admitted)
+      (event_preserves_work state event timed admitted valid)
+
+theorem initial_work : WorkValid initial := by
+  simp [WorkValid, initial, openActive]
+
+theorem credited_only_top (state : State) (event : Event Obs) (path : Path)
+    (positive : 0 < credited state event path) :
+    ∃ duration frame rest, event = .tick duration ∧ state.stack = frame :: rest ∧ frame.path = path := by
+  cases event with
+  | tick duration =>
+    cases h : state.stack with
+    | nil => simp [credited, h] at positive
+    | cons frame rest =>
+      by_cases same : path = frame.path
+      · exact ⟨duration, frame, rest, rfl, rfl, same.symm⟩
+      · simp [credited, h, same] at positive
+  | sem _ | enter _ | exit | opaqueBlocked _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish =>
+    cases state.stack <;> simp [credited] at positive
+
+
+
+def eventTime : Event Obs → Nat
+  | .tick duration | .opaqueBlocked duration => duration
+  | _ => 0
+
+def childTime (state : State) (event : Event Obs) (path : Path) : Nat :=
+  match state.stack with
+  | [] => 0
+  | frame :: _ => if frame.path = path then 0 else eventTime event
+
+def blockedTime (state : State) (event : Event Obs) (path : Path) : Nat :=
+  match event, state.stack with
+  | .opaqueBlocked wall, frame :: _ => if frame.path = path then wall else 0
+  | _, _ => 0
+
+def intervalChildren (state : State) (events : List (Event Obs)) (path : Path) : Nat :=
+  match events with
+  | [] => 0
+  | event :: rest => childTime state event path + intervalChildren (profileEvent state event) rest path
+
+def intervalBlocked (state : State) (events : List (Event Obs)) (path : Path) : Nat :=
+  match events with
+  | [] => 0
+  | event :: rest => blockedTime state event path + intervalBlocked (profileEvent state event) rest path
+
+def OnStack (path : Path) (state : State) : Prop :=
+  ∃ frame ∈ state.stack, frame.path = path
+
+inductive FramePresent (path : Path) : State → List (Event Obs) → Prop where
+  | nil (state) : OnStack path state → FramePresent path state []
+  | cons (state) (event) (rest) : OnStack path state →
+      FramePresent path (profileEvent state event) rest → FramePresent path state (event :: rest)
+
+theorem event_clock (state : State) (event : Event Obs) :
+    (profileEvent state event).clock = state.clock + eventTime event := by
+  cases event with
+  | sem _ | enter _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish =>
+    simp [profileEvent, eventTime, enter, mergeWorker, finish]
+  | tick duration => simp [profileEvent, eventTime, tick]
+  | opaqueBlocked wall =>
+    cases h : state.stack <;> simp [profileEvent, eventTime, opaqueBlocked, h]
+  | exit =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, eventTime, exit, h]
+    | cons frame rest => cases rest <;> simp [profileEvent, eventTime, exit, h]
+
+theorem event_partition (state : State) (event : Event Obs) (path : Path)
+    (present : OnStack path state) :
+    eventTime event = credited state event path + blockedTime state event path + childTime state event path := by
+  cases h : state.stack with
+  | nil => simp [OnStack, h] at present
+  | cons frame rest =>
+    cases event <;> by_cases same : frame.path = path <;>
+      simp [eventTime, credited, blockedTime, childTime, h, same]
+    all_goals intro equal; exact (same equal.symm).elim
+
+theorem interval_partition (state : State) (events : List (Event Obs)) (path : Path)
+    (present : FramePresent path state events) :
+    (runProfile state events).clock = state.clock + intervalWork state events path +
+      intervalBlocked state events path + intervalChildren state events path := by
+  induction present with
+  | nil state _ => simp [runProfile, intervalWork, intervalBlocked, intervalChildren]
+  | cons state event rest here follow ih =>
+    have time := event_clock state event
+    have partition := event_partition state event path here
+    simp only [runProfile, intervalWork, intervalBlocked, intervalChildren, ih]
+    omega
+
+theorem stack_path_desc (frame : Frame) (rest : List Frame) (valid : StackPaths (frame :: rest)) :
+    ∀ other ∈ rest, other.path.length < frame.path.length := by
+  induction rest generalizing frame with
+  | nil => simp
+  | cons parent tail ih =>
+    simp only [StackPaths, parentPath] at valid
+    intro other member
+    simp only [List.mem_cons] at member
+    rcases member with rfl | member
+    · rw [valid.1]
+      simp
+    · have bound := ih parent valid.2 other member
+      rw [valid.1]
+      simp only [List.length_cons]
+      omega
+
+theorem stack_paths_unique (frame : Frame) (rest : List Frame) (valid : StackPaths (frame :: rest)) :
+    ∀ other ∈ rest, other.path ≠ frame.path := by
+  intro other member equal
+  have smaller := stack_path_desc frame rest valid other member
+  rw [equal] at smaller
+  exact Nat.lt_irrefl _ smaller
+
+theorem profile_single_active (events : List (Event Obs)) (trace : ValidTrace initial events) :
+    WorkValid (runProfile initial events) ∧
+    (∀ state (interval : List (Event Obs)) path,
+      (runProfile state interval).work path = state.work path + intervalWork state interval path) ∧
+    (∀ state (interval : List (Event Obs)) path, FramePresent path state interval →
+      (runProfile state interval).clock = state.clock + intervalWork state interval path +
+        intervalBlocked state interval path + intervalChildren state interval path) ∧
+    (∀ state (event : Event Obs) path, 0 < credited state event path →
+      ∃ duration frame rest, event = .tick duration ∧ state.stack = frame :: rest ∧ frame.path = path) ∧
+    (∀ frame rest, (runProfile initial events).stack = frame :: rest →
+      ∀ other ∈ rest, other.path ≠ frame.path) ∧
+    (∀ frame rest, (runProfile initial events).stack = frame :: rest → ∀ duration wall,
+      let state := runProfile initial events
+      activeStack (state.clock + duration) state.stack =
+        (active state.clock frame + duration) :: activeStack frame.start rest ∧
+      activeStack (opaqueBlocked state wall).clock (opaqueBlocked state wall).stack =
+        active state.clock frame :: activeStack frame.start rest ∧
+      active state.clock frame + frame.blockedNs + frame.childNs = elapsed state.clock frame ∧
+      activeStack (exit state).clock (exit state).stack = activeStack frame.start rest ∧
+      (∀ site, activeStack (enter state site).clock (enter state site).stack =
+        0 :: activeStack state.clock state.stack)) ∧
+    ((runProfile initial events).stack = [] → ∀ site parent,
+      (runProfile initial events).work ((site, false) :: parent) =
+        ((runProfile initial events).paths ((site, false) :: parent)).exclusiveNs) := by
+  have valid := trace_work initial events initial_valid.1 initial_work trace
+  refine ⟨valid, interval_work, interval_partition, credited_only_top, ?_, ?_, ?_⟩
+  · intro frame rest stack
+    have paths := (trace_ledger initial events initial_valid.1 initial_valid.2.1 initial_valid.2.2.1 trace).2.1
+    rw [stack] at paths
+    exact stack_paths_unique frame rest paths
+  · intro frame rest stack duration wall
+    exact single_active_step _ frame rest stack
+      (trace_preserves_stack_valid initial events initial_valid.1 trace) duration wall
+  · intro closed site parent
+    have h := valid site parent
+    simpa [closed, openActive] using h
+
+
+def CleanEvent (state : State) : Event Obs → Prop
+  | .finish => state.stack = []
+  | .mergeWorker dropped openFrames _ => dropped = 0 ∧ openFrames = 0
+  | _ => True
+
+def CleanTrace (state : State) : List (Event Obs) → Prop
+  | [] => True
+  | event :: rest => CleanEvent state event ∧ CleanTrace (profileEvent state event) rest
+
+theorem complete_clean_trace (state : State) (events : List (Event Obs))
+    (done : complete (runProfile state events)) : CleanTrace state events := by
+  induction events generalizing state with
+  | nil => trivial
+  | cons event rest ih =>
+    have after : complete (runProfile (profileEvent state event) rest) := done
+    constructor
+    · cases event with
+      | finish =>
+        exact (incomplete_local state rest).2.2.2.2 after
+      | mergeWorker dropped openFrames paths =>
+        exact (incomplete_local state rest).2.2.2.1 dropped openFrames paths after
+      | sem _ | tick _ | enter _ | exit | opaqueBlocked _ | opaqueOverlapping _ => trivial
+    · exact ih _ after
+
+theorem profile_incomplete_reported (state : State) (events : List (Event Obs)) :
+    state.dropped ≤ (runProfile state events).dropped ∧
+    (state.stack ≠ [] → ¬ complete (runProfile (finish state) events)) ∧
+    (∀ dropped openFrames paths, dropped ≠ 0 ∨ openFrames ≠ 0 →
+      ¬ complete (runProfile (mergeWorker state dropped openFrames paths) events)) ∧
+    (∀ dropped openFrames paths, complete (runProfile (mergeWorker state dropped openFrames paths) events) →
+      dropped = 0 ∧ openFrames = 0) ∧
+    (complete (runProfile (finish state) events) → state.stack = []) ∧
+    (complete (runProfile state events) → CleanTrace state events) := by
+  have localProof := incomplete_local state events
+  exact ⟨localProof.1, localProof.2.1, localProof.2.2.1, localProof.2.2.2.1,
+    localProof.2.2.2.2, complete_clean_trace state events⟩
 
 end Xsh.Proofs.Core.Profile
