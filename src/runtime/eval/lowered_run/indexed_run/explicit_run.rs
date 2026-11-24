@@ -4199,12 +4199,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some((argument, next_position)) = call_argument_at(
+        while !position.is_exhausted() {
+            let Some((argument, next_position)) = call_argument_at(
             &self.calls[index].execution,
             instruction,
             position,
             span,
-        )? {
+            )? else { break };
             match argument {
                 CallArgumentOperand::Default(slot) => {
                     values.push(self.argument_default_for_active(
@@ -12669,6 +12670,25 @@ mod tests {
     #[test]
     fn call_frame_size() {
         assert!(std::mem::size_of::<CallFrame<'_>>() <= 320);
+    }
+
+    #[test]
+    fn nested_calls_keep_argument_positions_and_defaults() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure zero() -> Int { 5 }\npure pair(a: Int, b: Int = 7) -> Int { a * 10 + b }\npure main() -> Int { pair(pair(zero()), pair(1, 2)) }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("call-arguments.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let function = parsed.arena.symbol_owner().with_current(|| Name::intern("main"));
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            evaluator.force_frames = true;
+            let value = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(function), CallableKind::Pure, &[], Span::new(source_id, 0, 0),
+            ).expect("prepared call").expect("nested calls succeed");
+            assert!(matches!(value, Value::Int(582)));
+        });
     }
 
     fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
