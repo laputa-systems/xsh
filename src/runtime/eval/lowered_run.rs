@@ -1609,7 +1609,7 @@ fn prepare_dynamic_module(
                 &module_text,
                 Arc::new(module_sources.clone()),
                 module_source_id,
-                &super::lower::CompactRootScope::from_view(&view),
+                &super::lower::CompactRootScope::from_view(&view).reachable_from_root(program, &declarations.bodies, &module_sources),
             ))
             .map_err(|error| {
                 let message = match error.detail {
