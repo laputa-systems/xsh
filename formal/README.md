@@ -1093,6 +1093,39 @@ revision was not verified.
 and cancellation in the model. The write-count observations in the L1 fixture
 are not modeled by these witnesses.
 
+### Profiling erasure (L3)
+
+[`Profile.lean`](Xsh/Proofs/Core/Profile.lean) models semantic observations and
+per-task profiler events. `profile_erasure` proves that erasing profiler events
+preserves semantic state for the same observations and schedule.
+`profile_accounting` proves the frame subtraction bounds and, after all frames
+exit, the serial path equation with non-worker child totals. Worker merges
+cannot change serial paths or the parent stack. Overlapping regions do not
+change the modeled profiler state.
+
+`profile_single_active` partitions any interval in which a frame remains on the
+stack into its active time, its blocked time, and time in children. It assigns
+active ticks to the top frame and relates them to exclusive path totals.
+`profile_incomplete_reported` proves that dropped counts never decrease and
+that a complete report excludes open frames at finish and incomplete merged
+workers.
+
+The clock is monotone. A non-overlapping opaque event advances the clock while
+its frame is on top, so its interval lies inside that frame and is disjoint from
+children. `Nat` addition models saturating additions without u64 saturation.
+The model omits per-site accumulators, allocation counters, stage timing, and a
+Rust refinement proof. Blocked path totals and active-work counters are ghost
+accounting state, as are each frame's recorded child durations. Worker merge
+inputs carry the worker's dropped count, open frame count, and nonempty paths.
+The model does not prove their provenance.
+
+After building from the repository root, replay the module in a fresh kernel
+environment with:
+
+```sh
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" leanchecker --fresh Xsh.Proofs.Core.Profile
+```
+
 ### L1 binary probes
 
 The fixtures `formal/tests/fixtures/l1-*.xsh` and their adjacent `.xsh.out`
