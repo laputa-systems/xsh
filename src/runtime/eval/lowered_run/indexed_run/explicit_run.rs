@@ -4627,6 +4627,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         ) {
             return self.step_cleanup_group(index);
         }
+        if matches!(self.calls[index].work.last(), Some(FrameWork::ForStream(_))) {
+            return self.step_for_stream(index);
+        }
         let work = self.calls[index].work.pop().expect("indexed frame work");
         match work {
             FrameWork::ClearSlots(slots) => {
@@ -4638,6 +4641,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::CleanupGroup(_) | FrameWork::CleanupBoundary(_) | FrameWork::Discard(_) => {
                 unreachable!("cleanup and discard work is stepped in place")
             }
+            FrameWork::ForStream(_) => unreachable!("stream loop work is stepped in place"),
             FrameWork::GuardFailureEnd(span) => {
                 Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span))
             }
@@ -4741,12 +4745,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 body,
                 span,
             } => self.step_for_items(index, target, items, item_index, body, span),
-            FrameWork::ForStream(state) => { let WorkForStreamState {
-                target,
-                stream,
-                body,
-                span,
-            } = state; self.step_for_stream(index, target, stream, body, span) },
             FrameWork::ForPipeline {
                 slot,
                 pipeline,
@@ -11287,50 +11285,81 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
-    fn step_for_stream(
-        &mut self,
-        index: usize,
-        target: Box<LoweredCompTarget>,
-        mut stream: StreamValue,
-        body: u32,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        self.evaluator.service_pending_signal(span)?;
+    fn pop_for_stream(&mut self, index: usize) -> WorkForStreamState {
+        match self.calls[index].work.pop() {
+            Some(FrameWork::ForStream(state)) => state,
+            _ => unreachable!("stream loop work is on top"),
+        }
+    }
+
+    fn step_for_stream(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let span = match self.calls[index].work.last() {
+            Some(FrameWork::ForStream(state)) => state.span,
+            _ => unreachable!("stream loop work is on top"),
+        };
+        if let Err(error) = self.evaluator.service_pending_signal(span) {
+            self.pop_for_stream(index);
+            return Err(error);
+        }
         if self.evaluator.shutting_down() {
-            self.cancel_stream_with_bindings(index, &mut stream, span)?;
+            let mut state = self.pop_for_stream(index);
+            self.cancel_stream_with_bindings(index, &mut state.stream, span)?;
             return Ok(());
         }
-        self.publish_caller_bindings(index, span)?;
-        let next = self.evaluator.stream_next(&mut stream, span);
-        self.refresh_caller_bindings(index, span)?;
-        let next = next?;
+        let publish = match self.calls[index].work.last() {
+            Some(FrameWork::ForStream(state)) => {
+                self.evaluator.stream_pull_observes_bindings(&state.stream)
+            }
+            _ => unreachable!("stream loop work is on top"),
+        };
+        if publish && let Err(error) = self.publish_caller_bindings(index, span) {
+            self.pop_for_stream(index);
+            return Err(error);
+        }
+        let next = match self.calls[index].work.last_mut() {
+            Some(FrameWork::ForStream(state)) => self.evaluator.stream_next(&mut state.stream, span),
+            _ => unreachable!("stream loop work is on top"),
+        };
+        if publish && let Err(error) = self.refresh_caller_bindings(index, span) {
+            self.pop_for_stream(index);
+            return Err(error);
+        }
+        let next = match next {
+            Ok(next) => next,
+            Err(error) => {
+                self.pop_for_stream(index);
+                return Err(error);
+            }
+        };
         if self.evaluator.coverage.is_some() { self.evaluator.coverage_decision(self.calls[index].execution.sources(), span, "loop", next.is_some()); }
         let Some(value) = next else {
+            self.pop_for_stream(index);
             return Ok(());
         };
         let Some(item) = lowered_value_from_runtime_any(&value) else {
+            self.pop_for_stream(index);
             return Err(RuntimeError::new(
                 "type-error",
                 format!("stream produced unsupported {}", value.type_name()),
             )
             .with_span(span));
         };
-        if let Err(error) =
-            bind_lowered_comp_target(&target, item, &mut self.calls[index].slots, span)
-        {
-            self.cancel_stream_with_bindings(index, &mut stream, span)?;
+        let call = &mut self.calls[index];
+        let (bound, body) = match call.work.last() {
+            Some(FrameWork::ForStream(state)) => (
+                bind_lowered_comp_target(&state.target, item, &mut call.slots, span),
+                state.body,
+            ),
+            _ => unreachable!("stream loop work is on top"),
+        };
+        if let Err(error) = bound {
+            let mut state = self.pop_for_stream(index);
+            self.cancel_stream_with_bindings(index, &mut state.stream, span)?;
             return Err(error);
         }
-        // Re-arm before running the body, so a `continue` reaches the next item
-        // and a `break` discards this item and stops the producer.
-        self.calls[index].work.push(FrameWork::ForStream(WorkForStreamState {
-            target,
-            stream,
-            body,
-            span,
-        }));
-        self.push_statement_block(index, body, span)?;
-        Ok(())
+        // The loop work stays below the body, so a `continue` reaches the
+        // next item and a `break` discards this item and stops the producer.
+        self.push_statement_block(index, body, span)
     }
 
     fn step_for_pipeline(
