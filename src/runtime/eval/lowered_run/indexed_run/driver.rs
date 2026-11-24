@@ -522,6 +522,18 @@ impl Evaluator {
         }
     }
 
+    /// Whether an expression that reads only slots must still synchronize the
+    /// script's root bindings first: scopes were written since the last
+    /// synchronization, or a signal hook or trace may read bindings mid-run.
+    pub(super) fn indexed_root_publication_pending(&self) -> bool {
+        self.trace_enabled
+            || !self.signal_hooks.is_empty()
+            || self
+                .indexed_root_slots
+                .as_ref()
+                .is_some_and(|root| root.scope_revision != self.scope_write_revision)
+    }
+
     /// Whether `slot` holds a script binding that is also visible through scopes.
     pub(super) fn indexed_root_binds(&self, slots: &[LoweredValue], slot: usize) -> bool {
         self.indexed_root_slots.as_ref().is_some_and(|root| {

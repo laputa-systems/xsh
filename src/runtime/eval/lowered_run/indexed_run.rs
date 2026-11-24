@@ -1421,13 +1421,21 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        self.sync_indexed_root_slots(slots, call_span)?;
-        let result = if self.force_frames || !execution.is_in_place(instruction) {
-            self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
-        } else {
+        let in_place = !self.force_frames && execution.is_in_place(instruction);
+        let publish = !in_place || self.indexed_root_publication_pending();
+        if publish {
+            self.sync_indexed_root_slots(slots, call_span)?;
+        }
+        let result = if in_place {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
+        } else {
+            self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
         };
-        let publication = self.sync_indexed_root_slots(slots, call_span);
+        let publication = if publish {
+            self.sync_indexed_root_slots(slots, call_span)
+        } else {
+            Ok(())
+        };
         let flow = result?;
         publication?;
         let mut flow = match flow {
