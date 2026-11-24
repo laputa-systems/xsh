@@ -227,7 +227,8 @@ pure count_data(data: Bytes, shown: Shown, posix: Bool, utf8: Bool) -> Counts {
   var counts = {lines: 0, words: 0, chars: 0, bytes: byte_count(data.len()), longest: 0}
 
   if shown.lines {
-    counts = {...counts, lines: tio.line_ends(data, false).len()}
+    let trailing = if ! data.is_empty() and ! data.ends_with(b"\n") { 1 } else { 0 }
+    counts = {...counts, lines: data.count_lines() - trailing}
   }
 
   if shown.words or shown.chars or shown.longest {
