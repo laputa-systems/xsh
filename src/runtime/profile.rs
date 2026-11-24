@@ -46,7 +46,13 @@ pub struct OpaqueRegion {
 }
 
 #[derive(Clone, Debug)]
-pub struct StackPath { pub parent: Option<u32>, pub site: u32, pub calls: u64, pub exclusive_ns: u64 }
+pub struct StackPath { pub parent: Option<u32>, pub site: u32, pub calls: u64, pub exclusive_ns: u64, pub inclusive_ns: u64, pub worker: bool }
+
+#[derive(Clone, Debug, Default)]
+pub struct WorkerTiming { pub items: u64, pub start_delay_ns: u64, pub setup_ns: u64, pub busy_ns: u64, pub wall_ns: u64 }
+
+#[derive(Clone, Debug)]
+pub struct StageTiming { pub span: Span, pub path: Option<u32>, pub executions: u64, pub items: u64, pub workers: u64, pub worker: Vec<WorkerTiming>, pub critical_ns: u64, pub parent_wait_ns: u64, pub buffered_results: u64 }
 
 #[derive(Clone, Debug)]
 struct Frame {
@@ -66,6 +72,7 @@ pub struct ProfileState {
     pub sites: Vec<SiteStats>,
     pub opaque: Vec<OpaqueRegion>,
     pub paths: Vec<StackPath>,
+    pub stages: Vec<StageTiming>,
     site_index: FxHashMap<SiteKey, u32>,
     path_index: FxHashMap<(Option<u32>, u32), u32>,
     stack: Vec<Frame>,
@@ -109,13 +116,18 @@ impl ProfileState {
             let parent = path.parent.map(|id| paths[id as usize]).or(root.map(|v| v.0));
             let id = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
                 let id = self.paths.len() as u32;
-                self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0 });
+                self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0, inclusive_ns: 0, worker: true });
                 self.path_index.insert((parent, site), id);
                 id
             };
             self.paths[id as usize].calls = self.paths[id as usize].calls.saturating_add(path.calls);
             self.paths[id as usize].exclusive_ns = self.paths[id as usize].exclusive_ns.saturating_add(path.exclusive_ns);
+            self.paths[id as usize].inclusive_ns = self.paths[id as usize].inclusive_ns.saturating_add(path.inclusive_ns);
             paths.push(id);
+        }
+        for mut stage in worker.stages {
+            stage.path = stage.path.map(|id| paths[id as usize]);
+            self.merge_stage(stage);
         }
         if let Some((_, parent)) = root {
             for path in worker.paths.iter().filter(|path| path.parent.is_none()) {
@@ -133,6 +145,26 @@ impl ProfileState {
         self.opaque("parallel-workers", Some(span), wall_ns, true);
     }
 
+    pub fn stage(&mut self, mut stage: StageTiming) {
+        stage.path = self.stack.last().map(|frame| frame.path);
+        self.merge_stage(stage);
+    }
+
+    fn merge_stage(&mut self, stage: StageTiming) {
+        if let Some(old) = self.stages.iter_mut().find(|old| old.span == stage.span) {
+            old.executions += stage.executions;
+            old.items += stage.items;
+            old.workers += stage.workers;
+            old.critical_ns = old.critical_ns.max(stage.critical_ns);
+            old.parent_wait_ns += stage.parent_wait_ns;
+            old.buffered_results += stage.buffered_results;
+            old.worker.resize_with(old.worker.len().max(stage.worker.len()), WorkerTiming::default);
+            for (a, b) in old.worker.iter_mut().zip(stage.worker) {
+                a.items += b.items; a.start_delay_ns += b.start_delay_ns; a.setup_ns += b.setup_ns; a.busy_ns += b.busy_ns; a.wall_ns += b.wall_ns;
+            }
+        } else { self.stages.push(stage); }
+    }
+
     pub fn enter(&mut self, key: SiteKey) {
         let site = if let Some(&id) = self.site_index.get(&key) { id } else {
             let id = self.sites.len() as u32;
@@ -143,7 +175,7 @@ impl ProfileState {
         let parent = self.stack.last().map(|frame| frame.path);
         let path = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
             let id = self.paths.len() as u32;
-            self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0 });
+            self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0, inclusive_ns: 0, worker: false });
             self.path_index.insert((parent, site), id);
             id
         };
@@ -167,6 +199,7 @@ impl ProfileState {
         site.blocked_ns = site.blocked_ns.saturating_add(frame.blocked_ns).saturating_add(frame.child_blocked_ns);
         site.alloc_count = site.alloc_count.saturating_add(alloc.alloc_count.saturating_sub(frame.alloc_count) as u64);
         site.alloc_bytes = site.alloc_bytes.saturating_add(alloc.alloc_bytes.saturating_sub(frame.alloc_bytes) as u64);
+        self.paths[frame.path as usize].inclusive_ns = self.paths[frame.path as usize].inclusive_ns.saturating_add(elapsed);
         self.paths[frame.path as usize].exclusive_ns = self.paths[frame.path as usize].exclusive_ns.saturating_add(active);
         if let Some(parent) = self.stack.last_mut() {
             parent.child_ns = parent.child_ns.saturating_add(elapsed);

@@ -377,7 +377,9 @@ files. It does not format; run `xsht fmt` afterwards. See
 Run `xsht profile --json profile.json --folded profile.folded script.xsh -- arg`
 to collect call attribution. The command prints sites ordered by exclusive time
 and preserves the script's output. `--json` writes a report in the
-`xsht-profile/1` format. `--folded` writes stack paths and exclusive nanoseconds.
+`xsht-profile/1` format. `--folded` writes stack paths and exclusive nanoseconds. The JSON also includes `critical_path`, a largest-inclusive-child walk of the main-thread stack paths, ending at the critical worker when it reaches a parallel stage. Worker frame paths are not separated by worker, so the walk stops there.
+
+`stages` reports each observed parallel stage's executions, items, workers, per-worker item counts and timings, critical time, busy-time imbalance, parent wait, and buffered result count. Times are nanoseconds. Repeated executions sum counts and worker timings; critical time is the maximum. Worker setup starts at thread entry; the parent clones worker slots before that point. `buffered_bytes` is null because retained result allocations are not tracked. `unobserved` lists these and other gaps. Parallel worker timings overlap and must not be added to parent time.
 The report's `complete` field is false when attribution was dropped. Parallel
 worker wall times are overlapping regions; the parent records its wait as blocked.
 

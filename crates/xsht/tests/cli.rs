@@ -2049,7 +2049,16 @@ struct ProfileTestReport {
     completeness: ProfileTestCompleteness,
     sites: Vec<ProfileTestSite>,
     edges: Vec<ProfileTestEdge>,
+    stages: Vec<ProfileTestStage>,
+    critical_path: Vec<ProfileTestCritical>,
 }
+
+#[derive(deser::Deserialize)]
+struct ProfileTestStage { items: u64, workers: u64, worker: Vec<ProfileTestWorker>, critical_ns: u64, imbalance: f64, buffered_results: u64 }
+#[derive(deser::Deserialize)]
+struct ProfileTestWorker { items: u64, busy_ns: u64 }
+#[derive(deser::Deserialize)]
+struct ProfileTestCritical { kind: String }
 
 #[derive(deser::Deserialize)]
 struct ProfileTestCompleteness {
@@ -2166,6 +2175,21 @@ fn profile_synchronous_external_wait_is_blocked() {
     let (_, call) = profile_site(&report, "external_wait");
     assert!(call.blocked_ns * 100 >= call.inclusive_ns * 80);
     assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-command" && !region.overlapping && region.wall_ns > 0));
+}
+
+#[test]
+fn profile_parallel_imbalance() {
+    for (fixture, uneven) in [("uneven.xsh", true), ("balanced.xsh", false)] {
+        let report = run_profile_fixture(fixture);
+        let stage = &report.stages[0];
+        assert_eq!(stage.workers, 2);
+        assert_eq!(stage.items, 4);
+        assert_eq!(stage.worker.iter().map(|worker| worker.items).collect::<Vec<_>>(), vec![2, 2]);
+        assert!(if uneven { stage.imbalance > 1.5 } else { stage.imbalance < 1.5 }, "{}", stage.imbalance);
+        assert!(stage.critical_ns >= stage.worker.iter().map(|worker| worker.busy_ns).max().unwrap());
+        assert_eq!(stage.buffered_results, stage.items);
+        assert_eq!(report.critical_path.last().unwrap().kind, "parallel-worker");
+    }
 }
 
 #[test]

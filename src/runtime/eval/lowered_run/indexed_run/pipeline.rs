@@ -87,6 +87,7 @@ impl Evaluator {
         jobs: usize,
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        let stage_start = self.profile.as_ref().map(|_| std::time::Instant::now());
         self.profile_enter(crate::runtime::eval::SiteKind::Core, None, Some(span));
         let worker_count = jobs.min(items.len()).max(1);
         let item_count = items.len();
@@ -107,6 +108,7 @@ impl Evaluator {
         let profiling = self.profile.is_some();
         let wait_start = profiling.then(std::time::Instant::now);
         let mut worker_profiles = Vec::new();
+        let mut worker_timings = if profiling { vec![crate::runtime::eval::profile::WorkerTiming::default(); worker_count] } else { Vec::new() };
         let tracing = self.trace_enabled;
         let trace_limit = self.trace_limit;
         let mut worker_traces: Vec<(Vec<TraceEvent>, u64)> = (0..worker_count).map(|_| (Vec::new(), 0)).collect();
@@ -134,6 +136,8 @@ impl Evaluator {
                     .stack_size(super::super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
                         let worker_start = std::time::Instant::now();
+                        let mut timing = crate::runtime::eval::profile::WorkerTiming::default();
+                        if let Some(start) = stage_start { timing.start_delay_ns = worker_start.duration_since(start).as_nanos().try_into().unwrap_or(u64::MAX); }
                         let allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
                         let (mut worker, mut worker_slots) = {
@@ -154,6 +158,8 @@ impl Evaluator {
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapResults);
                             Vec::with_capacity(chunk.len())
                         };
+                        let mut first_item = None;
+                        let mut last_item = None;
                         {
                             let _items = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
@@ -161,6 +167,7 @@ impl Evaluator {
                                 if stopped.load(std::sync::atomic::Ordering::Relaxed) {
                                     break;
                                 }
+                                if profiling { let now = std::time::Instant::now(); if first_item.is_none() { timing.setup_ns = now.duration_since(worker_start).as_nanos().try_into().unwrap_or(u64::MAX); first_item = Some(now); } timing.items += 1; }
                                 if tracing {
                                     worker.trace_lowered_parallel_job(
                                         TraceKind::ParallelJobStart,
@@ -179,6 +186,7 @@ impl Evaluator {
                                     item,
                                     span,
                                 );
+                                if profiling { last_item = Some(std::time::Instant::now()); }
                                 if tracing {
                                     worker.trace_lowered_parallel_job(
                                         TraceKind::ParallelJobEnd,
@@ -214,13 +222,15 @@ impl Evaluator {
                         if let Some(error) = worker.finish_owned_resources() {
                             worker.report_cleanup_error(&error, span);
                         }
+                        if let (Some(first), Some(last)) = (first_item, last_item) { timing.busy_ns = last.duration_since(first).as_nanos().try_into().unwrap_or(u64::MAX); }
+                        timing.wall_ns = crate::runtime::eval::profile::nanos(worker_start);
                         let _ = sender.send((
                             chunk_index,
                             results,
                             std::mem::take(&mut worker.stderr),
                             (std::mem::take(&mut worker.trace_events), worker.trace_dropped_events),
                             worker.profile.take(),
-                            crate::runtime::eval::profile::nanos(worker_start),
+                            timing,
                         ));
                     })
                     .expect("failed to spawn lowered par-map worker");
@@ -238,8 +248,9 @@ impl Evaluator {
             let mut gave_up: Option<RuntimeError> = None;
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
-                    Ok((chunk_index, results, worker_stderr, events, profile, wall_ns)) => {
-                        worker_profiles.push((profile, wall_ns));
+                    Ok((chunk_index, results, worker_stderr, events, profile, timing)) => {
+                        worker_profiles.push((profile, timing.wall_ns));
+                        if profiling { worker_timings[chunk_index] = timing; }
                         completed[chunk_index] = Some((results, worker_stderr));
                         worker_traces[chunk_index] = events;
                         remaining -= 1;
@@ -328,9 +339,13 @@ impl Evaluator {
             }
             Ok((results, stderr))
         });
+        let parent_wait_ns = wait_start.map(crate::runtime::eval::profile::nanos).unwrap_or(0);
         self.profile_opaque("parallel-wait", span, wait_start, false);
         if let Some(profile) = &mut self.profile {
             if outcome.is_err() || abandoned.load(std::sync::atomic::Ordering::Relaxed) || worker_profiles.len() != worker_count { profile.dropped = profile.dropped.saturating_add(1); }
+            let critical_ns = worker_timings.iter().map(|worker| worker.start_delay_ns.saturating_add(worker.wall_ns)).max().unwrap_or(0);
+            let buffered_results = worker_timings.iter().map(|worker| worker.items).sum();
+            profile.stage(crate::runtime::eval::profile::StageTiming { span, path: None, executions: 1, items: item_count as u64, workers: worker_count as u64, worker: worker_timings, critical_ns, parent_wait_ns, buffered_results });
             for (worker, wall_ns) in worker_profiles {
                 if let Some(worker) = worker { profile.merge_worker(*worker, span, wall_ns); } else { profile.dropped = profile.dropped.saturating_add(1); }
             }

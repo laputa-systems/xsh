@@ -56,6 +56,8 @@ def evaluate(plain, profiled, report):
                if region.get('kind') == 'parallel-workers' and region.get('overlapping')]
     if not workers or max(region.get('count', 0) for region in workers) < 2:
         failures.append('no parallel-worker region: the fetch stage did not run in parallel')
+    if not report.get('stages'):
+        failures.append('no parallel stages in profile')
     return failures
 
 
@@ -107,6 +109,10 @@ def main(argv=None):
     print(f'plain median {plain_median:.3f}s, profiled median {profiled_median:.3f}s, '
           f'overhead {profiled_median / plain_median - 1:+.1%} over {options.repeats} interleaved pairs')
     print(*top_sites(report, 10), sep='\n')
+    for site in report.get('critical_path', []):
+        print(f"critical {site['kind']} {site['name']}: {site['inclusive_ns'] / 1e9:.3f}s")
+    for stage in report.get('stages', []):
+        print(f"stage {stage['file']}:{stage['line']}: {stage['items']} items, imbalance {stage['imbalance']:.2f}, buffered {stage['buffered_results']}")
     for region in report.get('completeness', {}).get('opaque_regions', []):
         print(f"opaque {region['kind']}: {region['wall_ns'] / 1e9:.3f}s over {region['count']}, "
               f"overlapping={region['overlapping']}")
