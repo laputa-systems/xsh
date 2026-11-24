@@ -761,7 +761,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(id).span;
         let source_args = self.program.arena.call_args(args);
+        let direct_record_fields = matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(_))
+            && source_args.iter().all(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. }))
+            && self.checked_record_construction(id).is_some_and(|construction| {
+                matches!(construction.schema, Type::Record(fields) if fields.values().all(|ty| *ty == Type::Int))
+            });
         if prepared_arguments.is_none()
+            && !direct_record_fields
             && source_args.iter().any(|arg| {
                 matches!(
                     arg.kind,
