@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import signal
 
-from dev.performance import core_cases, core_trace, focused, owned_case
+from dev.performance import core_bench, core_cases, core_trace, focused, owned_case
 
 
 def framed_trace(rows):
@@ -356,6 +356,50 @@ class CoreCasesTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.prepare(case.name)
         core_cases.validate_case(case, fixtures=self.fixtures)
+
+
+class CoreBenchTests(unittest.TestCase):
+    def setUp(self):
+        scratch = core_cases.SOURCE_ROOT / '.work/tmp'
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.directory = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+
+    def fake_xsh(self, output):
+        binary = self.root / 'xsh'
+        binary.write_text(f"#!/bin/sh\nprintf '{output}'\n")
+        binary.chmod(0o755)
+        return str(binary)
+
+    def test_summaries_report_median_and_range_per_metric(self):
+        samples = {'core-wc-small': [core_bench.Sample(w, w / 2, int(w * 1000)) for w in (0.3, 0.1, 0.2)],
+                   'core-json-small': [core_bench.Sample(w, w, int(w * 10)) for w in (1.0, 3.0, 2.0)]}
+        result = core_bench.evaluate(samples)
+        self.assertEqual(result['samples'], 3)
+        self.assertTrue(result['cycles'])
+        self.assertEqual(result['cases']['core-wc-small']['wall'], {'median': 0.2, 'min': 0.1, 'max': 0.3})
+        self.assertEqual(result['cases']['core-json-small']['cycles'], {'median': 20, 'min': 10, 'max': 30})
+
+    def test_unequal_or_partial_samples_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'same nonzero sample count'):
+            core_bench.evaluate({'a': [core_bench.Sample(1, 1, None)], 'b': []})
+        with self.assertRaisesRegex(ValueError, 'incomplete cycle'):
+            core_bench.evaluate({'a': [core_bench.Sample(1, 1, None), core_bench.Sample(1, 1, 5)]})
+
+    def test_a_run_counts_only_when_stdout_matches_the_oracle(self):
+        workload = core_cases.Workload('core-wc-small', 'byte-stream', 'small', self.root / 'script.xsh', (), b'ok\n', 0)
+        sample = core_bench.measure(self.fake_xsh('ok\\n'), workload, False)
+        self.assertIsNone(sample.cycles)
+        self.assertGreater(sample.wall, 0)
+        with self.assertRaisesRegex(ValueError, 'differs from the oracle'):
+            core_bench.measure(self.fake_xsh('no\\n'), workload, False)
+
+    def test_perf_output_must_name_exactly_one_cycle_count(self):
+        self.assertEqual(core_bench.parse_cycles('ok\n1234,,cycles:u,1000,100.00,,\n'), 1234)
+        for stderr in ('', '<not counted>,,cycles:u,0,0.00,,\n'):
+            with self.subTest(stderr=stderr), self.assertRaisesRegex(RuntimeError, 'cycles:u'):
+                core_bench.parse_cycles(stderr)
 
 
 if __name__ == '__main__':
