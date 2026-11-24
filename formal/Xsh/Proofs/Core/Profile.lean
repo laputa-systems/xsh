@@ -269,4 +269,35 @@ theorem frame_accounting (now : Nat) (frame : Frame)
   simp only [elapsed, active]
   omega
 
+
+def activeStack : Nat → List Frame → List Nat
+  | _, [] => []
+  | now, frame :: rest => active now frame :: activeStack frame.start rest
+
+theorem profile_single_active (state : State) (frame : Frame) (rest : List Frame)
+    (stack : state.stack = frame :: rest) (valid : StackValid state.clock state.stack)
+    (duration wall : Nat)
+    (blockedValid : ValidEvent state (.opaqueBlocked wall : Event Obs)) :
+    activeStack (state.clock + duration) state.stack =
+      (active state.clock frame + duration) :: activeStack frame.start rest ∧
+    activeStack (opaqueBlocked state wall).clock (opaqueBlocked state wall).stack =
+      (active state.clock frame - wall) :: activeStack frame.start rest ∧
+    active state.clock frame + frame.blockedNs + frame.childNs = elapsed state.clock frame := by
+  have bound : frame.start + frame.childNs + frame.blockedNs ≤ state.clock := by
+    rw [stack] at valid
+    exact valid.1
+  have blockedBound : frame.start + frame.childNs + frame.blockedNs + wall ≤ state.clock := by
+    simpa [ValidEvent, stack] using blockedValid
+  constructor
+  · simp only [stack, activeStack]
+    congr 1
+    simp only [active, elapsed]
+    omega
+  constructor
+  · simp only [opaqueBlocked, stack, activeStack]
+    congr 1
+    simp only [active, elapsed]
+    omega
+  · exact (frame_accounting state.clock frame bound).2.2.symm
+
 end Xsh.Proofs.Core.Profile
