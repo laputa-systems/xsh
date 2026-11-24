@@ -4594,7 +4594,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .take_slot_scopes(slots.len(), scope_id);
         let binding_namespace_lease = self
             .evaluator
-            .retain_binding_namespace(execution.program().binding_namespace());
+            .retain_call_binding_namespace(execution.program().binding_namespace());
         self.calls.push(CallFrame {
             owner: FrameOwner::Function(function, kind),
             producer: false,
@@ -4602,7 +4602,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             scope_id,
             execution,
             applications,
-            _binding_namespace_lease: Some(binding_namespace_lease),
+            _binding_namespace_lease: binding_namespace_lease,
             _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(slots),
             slot_scopes,
