@@ -78,6 +78,15 @@ out of scope.
   | Schemes | 0.107 | 0.051 | 0.026 | 0.015 | 56.693 | 0.95, 1.03, 1.15 |
   | Verifier total | 2.997 | 2.276 | 1.761 | 1.678 | 81.629 | 1.52, 1.55, 1.91 |
 
+- **O4 scheme attribution (2026-11-24):** At `f4357dc0`, a host verification build with temporary counters loaded `load3 with 10` successfully in five processes. Each of the 50 dynamic loads had 69 ground functions, **zero schemes, zero scheme instantiations, zero generic body facts and zero scheme callable relationships**. The earlier 56.693 µs per function is the enclosing `verify_schemes::verify` phase, not a cost per inferred scheme. The `pm/make.xsh` functions use concrete parameter types. Per load, the instrumented phase counted 43,244 charged work units, 726 charged type-clone traversals, 9,255 explicit `Arc::clone` calls in producer verification, four instrumented type-match calls, zero instrumented module signature-index lookups, and 6,028 decoder owner-range comparisons. These counts do not cover every type comparison, clone or signature lookup. In a further process, the first `ProducerProof::finish` obligation drain took 3.50–4.37 ms of 3.81–4.71 ms in `producers::verify` per load. Timings include instrumentation and host noise. The probe has no schemes to reverify; a per-scheme cost is undefined.
+- **O4 generic scaling:** Five interleaved process samples per size loaded one generated module of unannotated identity helpers. The chain calls its preceding helper. Each fan helper after `f1` calls the first and preceding helper. All loads printed `loaded`. The chain has 9, 19, 39 and 79 instantiations and 56, 116, 236 and 476 body facts. The fan has 17, 37, 77 and 157 instantiations and 80, 170, 350 and 710 body facts. Median enclosing-verifier time per scheme in µs and ratios of median total time for each doubling were:
+
+  | Shape | S=10 | S=20 | S=40 | S=80 | 2x total-time ratios |
+  |---|---:|---:|---:|---:|---|
+  | Chain | 9.687 | 6.544 | 5.434 | 4.919 | 1.35, 1.66, 1.81 |
+  | Fan | 11.794 | 9.223 | 7.864 | 7.578 | 1.56, 1.71, 1.93 |
+
+  Caller-scope and decoder owner scans together visited 270, 1,045, 4,095 and 16,195 function ranges for the chain, and 530, 2,080, 8,180 and 32,380 for the fan. Those scans grow quadratically, but the measured total does not cross the specified 2.6× threshold and the real probe has no schemes. No duplicate verification of an identical scheme or instantiation was established. **Verdict for this series: linear by the timing criterion; the real-probe cost is ground producer verification, not scheme verification.** The scan count is a separate scaling risk, not proof that it dominates the probe. Absolute timing and inherent cost at larger sizes remain unverified.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
