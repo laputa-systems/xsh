@@ -28,15 +28,22 @@ the window.
 
 The core rows ran seven interleaved rounds over all fifteen cases after one
 warmup each, and every run matched its exact oracle. Their `cycles:u` ranges
-stay within 4% of the median. The `core-wc-small` wall range includes one
-0.168 s outlier. The comparative rows report the pooled XSH median and median
+stay within 4% of the median. The `core-wc-small` wall range includes one 0.168
+s outlier. The comparative rows report the pooled XSH median and median
 absolute deviation over 90 samples on one CPU in the pinned overlay, with all
 seven parity checks passing. The other interpreters' medians are in each run's
 `result.json`. `tooling-check` runs six files, including three core tests,
 although the matrix describes three. Its 21 measured rounds follow five
 warmups. The frontend diagnostic selects two of the matrix's 52 generated
-workloads and has no timing distribution. Laputa registry rows are deferred to
-B1b. The native Kbuild and pyramid tests used Laputa revision
+workloads and has no timing distribution. The Laputa registry rows (B1b) ran on
+2026-11-24 at Laputa revision `f9b1245f52ba043219b8a06d331edc0561152d18` during
+the openorange cutover, so every timing is a busy-host observation. The
+scenario workloads run the Laputa seed's `xsh`, built from XSH
+`748dc69e5ebd8a46be9303e1614eb8e5a830b6cd`, inside the pinned package-tools
+image; `make-graph` runs the verification `xsht` at `b950a4c68`. Scenario
+ranges cover five measured rounds, every round passed its oracle, and every
+scenario median is within its 2026-11-20 anchor tolerance. The native Kbuild
+and pyramid tests used Laputa revision
 `300a59cd635f0570972d353f401380f7fc9ab08e` and exercise correctness, not a
 performance distribution.
 
@@ -59,15 +66,15 @@ gap has an explanation.
 | text and filesystem processing | consolidation-directory | `cargo dev bench --workload consolidation-directory` | 5784eaec | 9.305 ms (MAD 0.329) | pass, 7 parity checks | quiet host | baseline |
 | structured data | core-json-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-json-SIZE` | 5784eaec | small 0.0164 [0.0146, 0.0184] s; medium 0.0226 [0.0208, 0.0252] s; large 0.0729 [0.0693, 0.0761] s | pass, every run | quiet host | baseline |
 | structured data | consolidation-json | `cargo dev bench --workload consolidation-json` | 5784eaec | 7.522 ms (MAD 0.173) | pass, 7 parity checks | quiet host | baseline |
-| build orchestration | warm-rebuild | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=warm-rebuild` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
-| build orchestration | make-graph (registry) | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=make-graph` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| build orchestration | warm-rebuild | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=warm-rebuild` | seed 748dc69e | 1.51 [0.65, 2.43] s | pass, 5 rounds | busy host (21–32 cores) | inconclusive: host busy |
+| build orchestration | make-graph (registry) | Laputa `make bench XSH_ROOT=XSH TIER=change WORKLOADS=make-graph` | b950a4c6 | 2.02 s, one run | pass | busy host | inconclusive: host busy, one sample |
 | parallel work | kbuild-parallel-archive-analysis | `cargo dev gate --case laputa/kbuild/graph-cache --laputa-root LAPUTA` | e99cfcb8 | — | pass | busy host | inconclusive: correctness runner does not measure timing |
 | parallel work | make-graph (native) | `xsht test --jobs 1 --exact-id packages/linux/tests/pyramid.xsh::test_pyramid_kernel_graph_small --exact-id packages/linux/tests/pyramid.xsh::test_pyramid_kernel_graph_medium` | e99cfcb8 | — | pass | busy host | inconclusive: no repeated timing samples |
-| long-running services | xinit-service-start | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=xinit-service-start` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
-| deployment boundaries | world-plan | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=world-plan` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
-| deployment boundaries | mirror-publish | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=mirror-publish` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
-| deployment boundaries | root-compose | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=root-compose` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
-| deployment boundaries | profile-ready | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=profile-ready` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| long-running services | xinit-service-start | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=xinit-service-start` | seed 748dc69e | 0.288 [0.218, 0.655] s | pass, 5 rounds | quiet before; busy after (32 cores) | inconclusive: host busy |
+| deployment boundaries | world-plan | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=world-plan` | seed 748dc69e | 4.22 [4.16, 4.71] s | pass, 5 rounds | quiet before; busy after (13 cores) | inconclusive: host busy |
+| deployment boundaries | mirror-publish | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=mirror-publish` | seed 748dc69e | 0.616 [0.575, 0.660] s | pass, 5 rounds | quiet host | inconclusive: spread exceeds the anchor tolerance |
+| deployment boundaries | root-compose | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=root-compose` | seed 748dc69e | 1.97 [1.79, 2.26] s | pass, 5 rounds | busy before (7–8.5 cores); quiet after | inconclusive: host busy |
+| deployment boundaries | profile-ready | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=profile-ready` | seed 748dc69e | 26.39 [23.69, 33.41] s | pass, 5 rounds | quiet before; busy after (2.8 cores) | inconclusive: host busy |
 
 `SIZE` is `small`, `medium`, or `large`. `XSH`, `XSHT`, `SCRATCH`, and
 `LAPUTA` are absolute paths to the relevant products or directories. The

@@ -4,7 +4,7 @@ This is the single plan for this repository: all current and future work, and th
 
 ## Status
 
-- **Active:** performance and profiling. M2 needs B1b: Laputa's scenario workloads (`make bench TIER=scenario`, seed present under `.out/seed`) for build orchestration, parallel work, services and deployment. The openorange cutover makes the host noisy (owner, 2026-11-24), so judge by cycle counts and record wall timings as busy-host.
+- **Active:** performance and profiling. M2 is met: B1b recorded Laputa's nine registry rows on 2026-11-24 in [performance baseline](TESTING.md#performance-baseline), every oracle passing and every scenario median within its anchor tolerance, but as busy-host observations during the openorange cutover (owner, 2026-11-24). Judge optimizations by cycle counts until the host is quiet. The scenario rows time the Laputa seed's `xsh` (XSH `748dc69e`), so XSH gains reach them only after a seed rebuild.
 - Last integrated revision: `8e3095d93`, each slice green on its `cargo dev gate` (the last three as one batch gate).
 - B1 `b4c3b7afd`: quiet-host baselines at `5784eaec` in [performance baseline](TESTING.md#performance-baseline) for every XSH-side family. That covers the 15 core cases through `dev.performance.core_bench`, comparative directory 9.31 ms and JSON 7.52 ms (fastest of seven interpreters), and `tooling-check` 0.0699 s. That last row's anchor regression is not in the checker: a cycle A/B against the anchor revision matches instructions within 0.3%.
 - O4 slices since B1 (cycles:u, interleaved, oracles pass):
@@ -72,7 +72,7 @@ This is the single plan for this repository: all current and future work, and th
 
 ### Goal and state
 
-Make `xsht` profile real XSH and Laputa workloads faithfully without external profilers, then use that evidence to optimize natural, well-factored XSH. M1 is met. M2 needs complete B1 baselines and the O1 abstraction ranking. The broad Lean sweep stays paused; targeted proofs serve this campaign. See the [ticket backlog](../TODO.md) and [workload matrix](../dev/performance/MATRIX.md).
+Make `xsht` profile real XSH and Laputa workloads faithfully without external profilers, then use that evidence to optimize natural, well-factored XSH. M1 and M2 are met. The broad Lean sweep stays paused; targeted proofs serve this campaign. See the [ticket backlog](../TODO.md) and [workload matrix](../dev/performance/MATRIX.md).
 
 ### Decisions
 
