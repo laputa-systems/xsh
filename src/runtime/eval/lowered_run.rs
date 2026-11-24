@@ -7736,6 +7736,7 @@ impl Evaluator {
         self.module_value_cache = values.module_cache;
         Arc::make_mut(&mut self.binding_values).extend(values.lexical_bindings.iter()
             .map(|(identity, binding)| (identity.clone(), binding.clone())));
+        self.binding_keys_revision = self.binding_keys_revision.wrapping_add(1);
         for (name, binding) in values.visible_bindings {
             if self
                 .lookup(name)
