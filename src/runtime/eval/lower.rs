@@ -2391,7 +2391,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>, within: Span) -> LoweredTopLevelSlots {
         let mut bindings = self.bodies.resolved_bindings.declarations.iter()
             .filter(|(id, declaration)| {
-                reads.is_none_or(|reads| reads.contains(id)) && (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace))
+                (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace)) && reads.is_none_or(|reads| reads.contains(id))
                     && slots.resolve_binding(**id).is_none()
                     && !self.declarations.prepared_constants.binding_values.contains_key(id)
             })
@@ -2897,7 +2897,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for _ in &params {
             slots.reserve("parameter");
         }
-        let captures = self.append_immutable_top_level_captures(&mut slots, scheme_body_facts.as_ref().map(|facts| facts.read_bindings()), self.program.arena.span(self.program.arena.block(def.body).span));
+        let ground_reads = scheme_body_facts.is_none().then(|| {
+            let reads = &self.bodies.binding_reads;
+            let mut bindings = reads.read_within(body_span).collect::<std::collections::BTreeSet<_>>();
+            bindings.insert(BindingId::args());
+            for param in self.program.arena.params(def.params) {
+                if let Some(default) = param.default {
+                    bindings.extend(reads.read_within(self.program.arena.expr(default).span));
+                }
+            }
+            bindings
+        });
+        let captures = self.append_immutable_top_level_captures(
+            &mut slots,
+            scheme_body_facts.as_ref().map(|facts| facts.read_bindings()).or(ground_reads.as_ref()),
+            body_span,
+        );
         let blockers_before = self.output.blocker_events;
         let mut default_prefix = Vec::new();
         let mut scheme_default_types = BTreeMap::new();

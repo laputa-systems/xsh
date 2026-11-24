@@ -3830,20 +3830,29 @@ test namespace_borrow {
             (format!("{module}export let number = 7\n"), "pure observed(payload) { {payload, leaked: helpers.number} }"),
             (format!("{module}export let resource: FsRoot? = null\n"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
             (module.replace("let prefix", "var prefix"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
-            (module.replace("let prefix", "let root = fs.tempdir()?\nlet prefix"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
             (module.replace("pure render", "proc render").replace("(value: Str) -> Str { prefix + value }", "(value: Str) [env] -> Str { let _ = env.get(\"HOME\"); prefix + value }"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
             (module.to_owned(), "let copied = helpers\npure observed(payload) { let action = copied.format; {payload, rows: [\"kept\"] |> map(action)} }"),
             (module.to_owned(), "pure observed(action: Any, payload) { [payload] |> map(action) }"),
             (module.to_owned(), "pure identity(value) { value }\nvar action = identity\nlet number: Int = action(7)\nlet word: Str = action(\"kept\")"),
         ] {
-            std::fs::write(modules.path().join("helpers.xsh"), module).unwrap();
+            std::fs::write(modules.path().join("helpers.xsh"), &module).unwrap();
             let source = format!("use helpers\n{source}\n");
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("rejected-imported-pipeline-alias.xsh", crate::loader::entry_source_from_text("rejected-imported-pipeline-alias.xsh", source.clone()), vec![modules.path().to_path_buf()]);
             assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
             let source_id = parsed.arena.source_text_source_id().unwrap();
             let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { continue; }
-            assert!(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).is_err(), "{source}");
+            assert!(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).is_err(), "{module}\n{source}");
+        }
+        let source = "use helpers\npure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }\n".to_owned();
+        {
+            let module = module.replace("let prefix", "let root = fs.tempdir()?\nlet prefix");
+            std::fs::write(modules.path().join("helpers.xsh"), &module).unwrap();
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("accepted-imported-pipeline-alias.xsh", crate::loader::entry_source_from_text("accepted-imported-pipeline-alias.xsh", source.clone()), vec![modules.path().to_path_buf()]);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).is_ok(), "a projection whose callable reads no resource binding is accepted:\n{module}\n{source}");
         }
     }
 
