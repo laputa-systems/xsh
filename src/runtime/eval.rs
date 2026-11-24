@@ -586,10 +586,10 @@ struct Binding {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct RuntimeBindingIdentity {
     namespace: u64,
-    name: Arc<str>,
-    source: Arc<str>,
     start: u32,
     len: u32,
+    name: Arc<str>,
+    source: Arc<str>,
     owner: Option<Arc<str>>,
 }
 
