@@ -5924,6 +5924,9 @@ impl<'a> ProducerProof<'a> {
                         _ => false,
                     } { return Ok(()); }
                 }
+                if expected.as_ref() == &Type::Bool
+                    && matches!(decoder.expression_view(right.raw() as usize), Ok(schema::ExprView::List(items)) if items.len() == 0)
+                { return Ok(()); }
                 let container = match self.need_context(&decoder, right.raw() as usize)? {
                     Some(container) => container,
                     None => {
