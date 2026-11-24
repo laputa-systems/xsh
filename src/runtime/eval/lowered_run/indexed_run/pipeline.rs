@@ -91,11 +91,8 @@ impl Evaluator {
         self.profile_enter(crate::runtime::eval::SiteKind::Core, None, Some(span));
         let worker_count = jobs.min(items.len()).max(1);
         let item_count = items.len();
-        let mut partitions: Vec<Vec<(usize, LoweredValue)>> =
-            (0..worker_count).map(|_| Vec::new()).collect();
-        for (index, item) in items.into_iter().enumerate() {
-            partitions[index % worker_count].push((index, item));
-        }
+        let items: Vec<_> = items.into_iter().map(|item| std::sync::Mutex::new(Some(item))).collect();
+        let next_item = std::sync::atomic::AtomicUsize::new(0);
         let shared = self.lowered_shared_state();
         let symbols = shared
             .indexed_program
@@ -123,7 +120,9 @@ impl Evaluator {
         let outcome = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
-            for (chunk_index, chunk) in partitions.into_iter().enumerate() {
+            for chunk_index in 0..worker_count {
+                let items = &items;
+                let next_item = &next_item;
                 let shared = &shared;
                 let stopped = &stopped;
                 let sender = sender.clone();
@@ -156,17 +155,20 @@ impl Evaluator {
                         let mut results = {
                             let _results = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapResults);
-                            Vec::with_capacity(chunk.len())
+                            Vec::with_capacity(item_count / worker_count)
                         };
                         let mut first_item = None;
                         let mut last_item = None;
                         {
                             let _items = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
-                            for (item_index, item) in chunk {
+                            loop {
                                 if stopped.load(std::sync::atomic::Ordering::Relaxed) {
                                     break;
                                 }
+                                let item_index = next_item.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(item) = items.get(item_index) else { break; };
+                                let item = item.lock().expect("par-map item lock poisoned").take().expect("par-map item already claimed");
                                 if profiling { let now = std::time::Instant::now(); if first_item.is_none() { timing.setup_ns = now.duration_since(worker_start).as_nanos().try_into().unwrap_or(u64::MAX); first_item = Some(now); } timing.items += 1; }
                                 if tracing {
                                     worker.trace_lowered_parallel_job(

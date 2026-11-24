@@ -3,4 +3,4 @@ pure work(n: Int) -> Int {
   for i in range(n * 100000) { total += i }
   total
 }
-let _ = [1, 1, 1, 20] |> par-map(jobs: 2) { |n| work(n) } |> collect()
+let _ = [1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20] |> par-map(jobs: 2) { |n| work(n) } |> collect()
