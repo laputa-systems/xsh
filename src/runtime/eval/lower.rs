@@ -10289,6 +10289,31 @@ mod checked_constructor_fact_tests {
     }
 
     #[test]
+    fn named_record_constructor_evaluates_fields_in_source_order() {
+        use crate::runtime::eval::{Evaluator, LoweredFunctionKey, CallableKind};
+        use crate::runtime::value::Value;
+        use crate::symbol::Name;
+        use std::sync::Arc;
+        let checked = CheckedSource::new("constructor-order.xsh", r#"
+type Row = {value: Int, offset: Int}
+proc marked(value: Int) [io] -> Int { print $value; value }
+proc make() [io] -> Row { Row(offset: marked(1), value: marked(2)) }
+"#, Vec::new());
+        let program = Arc::new(super::super::FullBuilder::build_compact(&checked.parsed.arena, &checked.declarations, &checked.source, Arc::new(checked.sources.clone()), checked.source_id).unwrap());
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], crate::source::Span::at(checked.source_id, 0)).unwrap().unwrap();
+            let Value::Record(record) = result else { panic!("constructor must return a record") };
+            assert_eq!(record.get("value"), Some(&Value::Int(2)));
+            assert_eq!(record.get("offset"), Some(&Value::Int(1)));
+            assert_eq!(evaluator.stdout, b"1\n2\n");
+        }
+    }
+
+    #[test]
     fn checked_record_constructors_enforce_unsigned_storage_boundaries() {
         use crate::runtime::eval::{Evaluator, LoweredFunctionKey, CallableKind};
         use crate::runtime::value::{ResultValue, Value};

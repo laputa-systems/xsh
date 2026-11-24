@@ -412,6 +412,11 @@ pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Resu
     }
 }
 
+fn integer_record_matches(fields: &[Name], value: &LoweredValue) -> bool {
+    let LoweredValue::RecordVec(record) = value else { return false; };
+    fields.iter().all(|name| record.iter().find(|(field, _)| field == name).is_some_and(|(_, value)| matches!(value, LoweredValue::Int(_))))
+}
+
 pub(super) enum CheckedValueOutcome {
     Value(LoweredValue),
     Propagate(LoweredValue),
@@ -1831,6 +1836,31 @@ impl Evaluator {
                 else {
                     unreachable!("checked-value tag has a checked-value view")
                 };
+                let integer_fields = if let ValueCheckView::Ground(ref ground) = check
+                    && ground.schema.is_none()
+                    && execution.program().scheme_callable_site(instruction).is_none()
+                {
+                    ground.ty.integer_record_fields().map_err(|error| indexed_error(error, call_span))?
+                } else {
+                    None
+                };
+                if let Some(fields) = integer_fields {
+                    let value = match self.eval_indexed_expr(execution, value.raw(), slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    if integer_record_matches(fields, &value) {
+                        return Ok(ControlFlow::Continue(value));
+                    }
+                    let check = indexed_value_check(check, call_span)?;
+                    return match finish_checked_value(self, execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, &check, value, span)? {
+                        CheckedValueOutcome::Value(value) => Ok(ControlFlow::Continue(value)),
+                        CheckedValueOutcome::Propagate(value) => match self.indexed_question_value(value, span)? {
+                            Ok(value) => Ok(ControlFlow::Continue(value)),
+                            Err(value) => Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value))),
+                        },
+                    };
+                }
                 let check = indexed_value_check(check, call_span)?;
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
@@ -2079,6 +2109,27 @@ mod tests {
     use crate::sema::check::Checker;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn integer_record_fast_check_matches_storage_validation() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let first = Name::intern("first");
+            let second = Name::intern("second");
+            let fields = [first, second];
+            let ty = Type::Record(BTreeMap::from([(first, Type::Int), (second, Type::Int)]).into());
+            let values = [
+                LoweredValue::RecordVec(Arc::new(vec![(second, LoweredValue::Int(2)), (first, LoweredValue::Int(1))])),
+                LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Int(1))])),
+                LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Bool(true)), (second, LoweredValue::Int(2))])),
+                LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Bool(true)), (first, LoweredValue::Int(1)), (second, LoweredValue::Int(2))])),
+                LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Int(1)), (second, LoweredValue::Int(2)), (Name::intern("third"), LoweredValue::Int(3))])),
+                LoweredValue::Int(1),
+            ];
+            for value in values {
+                assert_eq!(integer_record_matches(&fields, &value), value_matches_static_type(ValueView::Lowered(&value), &ty));
+            }
+        });
+    }
 
     #[test]
     fn frame_apply_dispatch_tags_have_matching_schema_routes() {

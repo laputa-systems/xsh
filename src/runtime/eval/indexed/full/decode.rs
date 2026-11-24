@@ -301,6 +301,22 @@ impl TypeRef<'_> {
         super::lowered_type_from_type(&self.materialize()?)
     }
 }
+impl<'a> TypeRef<'a> {
+    pub(in crate::runtime::eval) fn integer_record_fields(self) -> Result<Option<&'a [Name]>, IrVerifyError> {
+        use super::super::semantic::TypeTag;
+        if self.store.semantic.type_tag(self.id)? != TypeTag::Record {
+            return Ok(None);
+        }
+        let (names, types) = self.store.semantic.record_fields(self.id)?;
+        for raw in types {
+            let id = TypeId::from_raw(*raw).ok_or_else(|| IrVerifyError::new("record field type id is invalid"))?;
+            if self.store.semantic.type_tag(id)? != TypeTag::Int {
+                return Ok(None);
+            }
+        }
+        Ok(Some(names))
+    }
+}
 macro_rules! type_field {
     ($($ty:ty),* $(,)?) => {$(
         impl BorrowCodec for $ty {
