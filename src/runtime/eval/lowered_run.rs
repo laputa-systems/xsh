@@ -1530,7 +1530,11 @@ fn prepare_dynamic_module(
         ));
     }
     let loaded = profile_prepare_phase(profile, SiteKind::PrepareParse, span, &module, || {
-        let mut workspaces = dynamic_workspaces().lock().expect("dynamic workspace poisoned");
+        let mut workspaces = dynamic_workspaces().lock().unwrap_or_else(|poisoned| {
+            let mut workspaces = poisoned.into_inner();
+            workspaces.clear();
+            workspaces
+        });
         let workspace = workspaces.entry(Arc::clone(module_roots)).or_default();
         match workspace.load_entry(display_path, bytes.clone(), module_roots) {
             Ok(loaded) => loaded,
