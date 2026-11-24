@@ -45460,6 +45460,33 @@ proc apply({parameters}) {effects} -> Int {{
     }
 
     #[test]
+    fn compound_byte_lookup_preserves_out_of_range_fallback() {
+        run_with_large_stack(|| {
+            let source = "pure byte(data: Bytes, index: Int) -> Int { var total = 10; total += data.byte_at(index) ?? 7; total }\n";
+            let program = Arc::new(fixture("compound-byte.xsh", source));
+            assert!(program.store.tags.contains(&FullTag::IntStrByteAtSlot));
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (data, index, expected) in [
+                (&b"\0\xff"[..], 0, 10),
+                (&b"\0\xff"[..], 1, 265),
+                (&b"\0\xff"[..], -1, 17),
+                (&b"\0\xff"[..], 2, 17),
+                (&b""[..], 0, 17),
+            ] {
+                let args = [Value::Bytes(data.to_vec()), Value::Int(index)];
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "byte")),
+                    CallableKind::Pure,
+                    &args,
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("byte function exists");
+                assert_eq!(result.unwrap(), Value::Int(expected));
+            }
+        });
+    }
+
+    #[test]
     fn absence_lookups_execute_nullable_and_integer_slots_after_frontend_drop() {
         run_with_large_stack(|| {
             let source = "pure nullable(text: Str, position: Int) -> Int? { let byte = text.byte_at(position); byte }\npure sentinel(text: Str, position: Int) -> Int { let byte = text.byte_at(position) ?? -1; byte }\npure find(text: Str, position: Int) -> Int? { text.find(\":\", position) }\npure present() -> Int? { let entries: Map[Int?] = {present: null}; entries.get(\"present\") ?? 7 }\n";

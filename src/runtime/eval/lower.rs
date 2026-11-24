@@ -7335,17 +7335,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ))
                         }
                     }
-                    ArenaAssignTargetKind::Name(_) => Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::Assign {
-                            slot,
-                            op,
-                            value,
-                            check: None,
-                            span: self.program.arena.stmt(id).span,
+                    ArenaAssignTargetKind::Name(_) => {
+                        if value_is_int
+                            && matches!(self.assign_target_checked_type(target, self.program.arena.stmt(id).span, slots), Some(Type::Int))
+                            && let Some(value) = self.lower_int_expr_candidate(&value)
+                            && !self.lowered_int_expr_needs_type_context(&value)
+                        {
+                            Some(push_build_row!(
+                                self,
+                                stmt,
+                                BuildStmtRow::AssignInt {
+                                    slot,
+                                    op,
+                                    value,
+                                    span: self.program.arena.stmt(id).span,
+                                }
+                            ))
+                        } else {
+                            Some(push_build_row!(
+                                self,
+                                stmt,
+                                BuildStmtRow::Assign {
+                                    slot,
+                                    op,
+                                    value,
+                                    check: None,
+                                    span: self.program.arena.stmt(id).span,
+                                }
+                            ))
                         }
-                    )),
+                    },
                     ArenaAssignTargetKind::Field { base, name }
                         if matches!(
                             self.program.arena.assign_target(base).kind,
