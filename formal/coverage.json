@@ -2776,8 +2776,10 @@
       "id": "PAR-BOUND",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned",
-      "proof_root_id": "full.PAR-BOUND"
+      "status": "closed",
+      "proof_root_id": "full.PAR-BOUND",
+      "module": "Xsh.Proofs.Core.ParMap",
+      "declaration": "Xsh.Proofs.Core.ParMap.par_bound"
     },
     {
       "id": "PAR-DRAIN",

@@ -3,23 +3,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 repo_root=$(git rev-parse --show-toplevel)
-work_root="$repo_root/.work"
+work_root="$repo_root/formal/.lake/audit"
 tmp_root="$work_root/tmp"
 lake_cache="$work_root/lake-cache"
 lakefile="$repo_root/formal/lakefile.toml"
 
 prepare_work_root() {
-  local exclude_path
-  exclude_path=$(git rev-parse --git-path info/exclude)
-  if ! rg -qxF '.work/' "$exclude_path"; then
-    printf '.work/\n' >>"$exclude_path"
-  fi
   mkdir -p "$tmp_root" "$lake_cache"
 }
 
 lake_project() {
   TMPDIR="$tmp_root" LAKE_CACHE_DIR="$lake_cache" \
-    lake --dir="$work_root" --file="$lakefile" "$@"
+    lake --dir="$repo_root/formal" --file="$lakefile" "$@"
 }
 
 usage() {

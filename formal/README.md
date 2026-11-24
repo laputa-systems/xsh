@@ -1058,6 +1058,41 @@ each item: as the binary prints `[7]` for `[x * 7 for x in count(2) if x > 0]`,
 so does the witness, and a second comprehension over the consumed stream
 gives `[]`.
 
+### PAR-BOUND scheduler
+
+[`ParMap.lean`](Xsh/Proofs/Core/ParMap.lean) models item starts, independent
+completions, stopping an item, and an external give-up. Each item has a given
+outcome for an ordinary completion and for a stage stop. Starts claim distinct
+in-range indices, require a free worker and cannot follow a stop flag. A
+failure sets the failure flag; a non-error control exit stops further starts
+without stopping the other items. A worker may finish independently after a
+failure and before it acts on the stop. An external give-up prevents new
+starts and ordinary completions, and stopped items are recorded separately.
+The first external reason is retained. A return requires no running items and,
+in the absence of a stop, all inputs to have started.
+
+`par_bound` proves the bound at every reachable state, accounts for every
+started item at return, and proves ordered `List.map` results on normal
+completion. Otherwise, absent external give-up, the selected record is the
+earliest input index with an independently completed failure or control exit;
+its outcome equals that item's ordinary callback outcome. A stopped item cannot
+decide. External give-up returns its reason after drain. The theorem ranges
+over arbitrary finite interleavings admitted by the transitions; a terminal
+schedule and eventual completion or stopping of its started items are
+assumptions, not claims about OS fairness. The model makes no data-race or
+Rust refinement claim and does not model callback state or process cleanup.
+
+The `Witness` theorems give finite conformance evidence, not a universal
+implementation proof. `l1_returned_values` matches the L1 fixture's mapped
+values and its `take(2)` on one and two workers. `claim_order_values` and
+`claim_failure_selected` match the ordering and failure cases in
+`tests/xsh/par-map-claim.xsh`. Their reachable traces use dynamic claims.
+Both claim tests passed on the available `xsht-mg` binary, whose build
+revision was not verified.
+`independent_failures_selected` and `external_selected` exercise selection
+and cancellation in the model. The write-count observations in the L1 fixture
+are not modeled by these witnesses.
+
 ### L1 binary probes
 
 The fixtures `formal/tests/fixtures/l1-*.xsh` and their adjacent `.xsh.out`
@@ -1073,12 +1108,12 @@ refinement of the binary.
 
 `l1-par-map` records the called-procedure disagreement in XSH-185: the
 single-worker run retains three writes while the two-worker run loses them;
-both retain the first two mapped values in input order. The core pipeline
-model has no rule for `par-map` eagerness, ordered results, parallel workers,
-or callback write isolation, so it cannot reproduce this probe. `l1-producer-env`
+both retain the first two mapped values in input order. Captured-write
+isolation is outside PAR-BOUND's scope; XSH-185 tracks that runtime defect.
+`l1-producer-env`
 records the already open XSH-184 producer environment disagreement; the scope
 rule is unresolved and the model continues to share the environment. Neither
-probe settles those tickets or models cancellation and `within`.
+probe settles those tickets.
 
 Reproduce from the repository root, setting `XSH_L1_BINARY` to the supplied
 verification binary if it lives elsewhere. Each invocation must exit 0, write
@@ -1975,7 +2010,7 @@ audited library models, taken from the laputa-systems Aeneas fork at
 planned.
 
 ```sh
-LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
+LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
 XSH_ARITH_CASES="$TMPDIR/arith-cases.txt" cargo test --locked --profile verification -p xsh --lib -- --ignored --exact runtime::eval::arith_conformance::production_matches_lean_int_arithmetic
 ```
 
@@ -1988,20 +2023,15 @@ tests pass through `cargo dev gate`.
 
 ## Build and check
 
-The [Lake config](lakefile.toml) keeps build and package output under the
-repository's `.work/` directory. Before creating it, ensure `.work/` is ignored
-through this checkout's Git exclude file. From the repository root:
+The [Lake config](lakefile.toml) keeps build and package output under
+`formal/.lake/`. From the repository root:
 
 ```sh
 repo_root=$(git rev-parse --show-toplevel)
-exclude_path=$(git rev-parse --git-path info/exclude)
-if ! rg -qxF '.work/' "$exclude_path"; then
-  printf '.work/\n' >>"$exclude_path"
-fi
-mkdir -p "$repo_root/.work/tmp" "$repo_root/.work/lake-cache"
-export TMPDIR="$repo_root/.work/tmp"
-export LAKE_CACHE_DIR="$repo_root/.work/lake-cache"
-lake --dir="$repo_root/.work" --file="$repo_root/formal/lakefile.toml" build
+mkdir -p "$repo_root/formal/.lake/tmp" "$repo_root/formal/.lake/cache"
+export TMPDIR="$repo_root/formal/.lake/tmp"
+export LAKE_CACHE_DIR="$repo_root/formal/.lake/cache"
+(cd formal && lake build)
 ```
 
 Use the pinned toolchain on `PATH`. From the repository root, check the
@@ -2016,7 +2046,7 @@ After building the model, generate the effect decision corpus from the
 repository root:
 
 ```sh
-LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
+LEAN_PATH="$repo_root/formal/.lake/build/lib/lean" \
   lean --run formal/scripts/EffectPredicateCases.lean > "$TMPDIR/effect-predicate-cases.txt"
 ```
 
@@ -2037,7 +2067,7 @@ expected result. Ordinary Rust tests do not require Lean or the corpus.
 Generate and compare the deadline-selection corpus in the same environment:
 
 ```sh
-LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
+LEAN_PATH="$repo_root/formal/.lake/build/lib/lean" \
   lean --run formal/scripts/DeadlinePolicyCases.lean > "$TMPDIR/deadline-policy-cases.txt"
 XSH_DEADLINE_POLICY_CASES="$TMPDIR/deadline-policy-cases.txt" \
   cargo test --locked --profile verification --target x86_64-unknown-linux-musl \
@@ -2308,7 +2338,7 @@ four disposition inputs, four recording inputs, and sequences of at most four
 managed/unmanaged plain/forced failures:
 
 ```sh
-LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupPolicyCases.lean > "$TMPDIR/cleanup-cases.txt"
+LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/CleanupPolicyCases.lean > "$TMPDIR/cleanup-cases.txt"
 XSH_CLEANUP_CASES="$TMPDIR/cleanup-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_policy_conformance::production_matches_lean_cleanup_policy -- --ignored --exact
 ```
 
@@ -2348,7 +2378,7 @@ From the repository root, generate and compare all stacks of at most four
 actions over three kinds and three outcomes, with both initial flags:
 
 ```sh
-LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupOrderCases.lean > "$TMPDIR/cleanup-order-cases.txt"
+LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/CleanupOrderCases.lean > "$TMPDIR/cleanup-order-cases.txt"
 XSH_CLEANUP_ORDER_CASES="$TMPDIR/cleanup-order-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_order_conformance::production_matches_lean_cleanup_order -- --ignored --exact
 ```
 
@@ -2358,7 +2388,7 @@ Both exit 0 over 14,762 rows. An altered expected trace exits 101 with
 The model and inventory checks run with:
 
 ```sh
-lake --dir="$PWD/.work" --file="$PWD/formal/lakefile.toml" build
+(cd formal && lake build)
 (cd formal && bash scripts/audit-axioms.sh)
 python3 formal/scripts/check-inventory.py
 python3 -m unittest formal/tests/inventory/test_check_inventory.py
