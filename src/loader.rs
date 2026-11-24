@@ -759,14 +759,16 @@ pub(crate) struct WorkspaceStale;
 impl DynamicLoadWorkspace {
     pub(crate) fn load_entry(&mut self, file: &str, bytes: Vec<u8>, roots: &[PathBuf]) -> Result<WorkspaceLoad, WorkspaceStale> {
         let (entry_id, mut diagnostics) = add_source_bytes(&mut self.sources, file, bytes);
-        let mut builder = ArenaProgramBuilder::resume(std::mem::take(&mut self.program));
+        let mut builder = ArenaProgramBuilder::resume(self.program.clone());
         let text = self.sources.get(entry_id).expect("entry source exists").text();
         let root = Parser::parse_source_into_arena_builder(entry_id, text, &mut builder);
         diagnostics.extend(root.diagnostics);
         let mut loaded = FxHashSet::default();
         let mut stale = false;
         let mut selected = FxHashMap::default();
+        let mut parsed_new_module = false;
         if diagnostics.is_empty() {
+            let known_modules = self.modules.len();
             let mut loader = ModuleLoader::new(&mut self.sources, &mut builder);
             loader.workspace_modules = Some(std::mem::take(&mut self.modules));
             let imports = loader.load_imports(&entry_import_path(Path::new(file)), root.statements, roots);
@@ -779,10 +781,13 @@ impl DynamicLoadWorkspace {
                 }
             }
             self.modules = loader.finish_workspace();
+            parsed_new_module = self.modules.len() != known_modules;
         }
-        self.program = builder.finish_with_statements(root.statements);
         if stale { return Err(WorkspaceStale); }
-        let mut arena = self.program.clone();
+        let mut arena = builder.finish_with_statements(root.statements);
+        if parsed_new_module {
+            self.program = arena.clone();
+        }
         arena.modules.retain(|module| module.internal || selected.get(&module.key) == Some(&module.statements));
         Ok(WorkspaceLoad { sources: self.sources.clone(), parsed: ArenaParseOutput { arena, cst: root.cst, diagnostics }, entry_id, records: self.records.clone() })
     }
