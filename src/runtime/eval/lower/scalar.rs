@@ -198,6 +198,45 @@ impl CompactLowerConstructProbe<'_, '_> {
             } => match op {
                 BinaryOp::In | BinaryOp::NotIn => {
                     let receiver_row = self.scratch.borrow().expressions[right.index()].clone();
+                    if let BuildExprRow::List(items) = &receiver_row
+                        && !items.is_empty()
+                    {
+                        let values = items.iter().map(|item| self.lowered_inert_int_literal(*item)).collect::<Option<Vec<_>>>();
+                        let needle = self.lower_int_expr_candidate(left);
+                        let byte_needle = needle.is_some_and(|id| matches!(self.scratch.borrow().ints[id.index()], BuildIntRow::StrByteAtSlot { .. }));
+                        if let Some(mut values) = values
+                            && let Some(needle) = needle
+                            && byte_needle
+                        {
+                            values.sort_unstable();
+                            values.dedup();
+                            let mut ranges = Vec::new();
+                            for value in values {
+                                match ranges.last_mut() {
+                                    Some((_, end)) if i64::checked_add(*end, 1) == Some(value) => *end = value,
+                                    _ => ranges.push((value, value)),
+                                }
+                            }
+                            let mut result = None;
+                            for (start, end) in ranges {
+                                let start_value = push_build_row!(self, int, BuildIntRow::Int(start));
+                                let condition = if start == end {
+                                    push_build_row!(self, bool, BuildBoolRow::IntCompare { op: BinaryOp::Eq, left: needle, right: start_value })
+                                } else {
+                                    let lower = push_build_row!(self, bool, BuildBoolRow::IntCompare { op: BinaryOp::Ge, left: needle, right: start_value });
+                                    let end_value = push_build_row!(self, int, BuildIntRow::Int(end));
+                                    let upper = push_build_row!(self, bool, BuildBoolRow::IntCompare { op: BinaryOp::Le, left: needle, right: end_value });
+                                    push_build_row!(self, bool, BuildBoolRow::And(lower, upper))
+                                };
+                                result = Some(match result {
+                                    Some(previous) => push_build_row!(self, bool, BuildBoolRow::Or(previous, condition)),
+                                    None => condition,
+                                });
+                            }
+                            let result = result?;
+                            return Some(if *op == BinaryOp::NotIn { push_build_row!(self, bool, BuildBoolRow::Not(result)) } else { result });
+                        }
+                    }
                     let BuildExprRow::Param(slot) = receiver_row else {
                         return None;
                     };
@@ -253,6 +292,30 @@ impl CompactLowerConstructProbe<'_, '_> {
                 | BinaryOp::Gt
                 | BinaryOp::Ge => {
                     if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
+                        for (byte_expr, literal_expr) in [(left, right), (right, left)] {
+                            let Some(literal) = self.lowered_inert_int_literal(*literal_expr) else {
+                                continue;
+                            };
+                            if !(0..=255).contains(&literal) {
+                                continue;
+                            }
+                            let byte_row = self.scratch.borrow().expressions[byte_expr.index()].clone();
+                            let BuildExprRow::StrByteAt { receiver, index, span } = byte_row else {
+                                continue;
+                            };
+                            let receiver_row = self.scratch.borrow().expressions[receiver.index()].clone();
+                            let BuildExprRow::Param(slot) = receiver_row else {
+                                continue;
+                            };
+                            let index = self.lower_int_expr_candidate(&index)?;
+                            let byte = push_build_row!(self, int, BuildIntRow::StrByteAtSlot {
+                                slot, index, default: None, span,
+                            });
+                            let value = push_build_row!(self, int, BuildIntRow::Int(literal));
+                            return Some(push_build_row!(self, bool, BuildBoolRow::IntCompare {
+                                op: *op, left: byte, right: value,
+                            }));
+                        }
                         if self.lowered_empty_string_literal(right)
                             && let Some((slot, span)) = self.lowered_trim_slot(left)
                         {

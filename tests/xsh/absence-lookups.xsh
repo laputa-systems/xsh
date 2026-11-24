@@ -58,6 +58,33 @@ pure absence_lookup_integer_byte(text: Str, index: Int) -> Int {
   byte
 }
 
+pure absence_lookup_byte_comparisons(text: Str, index: Int) -> List[Bool] {
+  [text.byte_at(index) == 0, text.byte_at(index) != 0,
+   255 == text.byte_at(index), 255 != text.byte_at(index),
+   text.byte_at(index) == null, text.byte_at(index) != null]
+}
+
+test test_absence_lookup_byte_literal_comparisons {
+  assert absence_lookup_byte_comparisons("\0", 0) == [true, false, false, true, false, true]
+  assert absence_lookup_byte_comparisons("é", 1) == [false, true, false, true, false, true]
+  assert absence_lookup_byte_comparisons("", 0) == [false, true, false, true, true, false]
+  assert absence_lookup_byte_comparisons("x", -1) == [false, true, false, true, true, false]
+}
+
+pure absence_lookup_byte_membership(text: Str, index: Int) -> List[Bool] {
+  let empty: List[Int] = []
+  [(text.byte_at(index) ?? 0) in [9, 10, 11, 12, 13, 32],
+   (text.byte_at(index) ?? 0) not in [9, 10, 11, 12, 13, 32],
+   (text.byte_at(index) ?? 0) in empty]
+}
+
+test test_absence_lookup_byte_literal_membership {
+  assert absence_lookup_byte_membership("\t", 0) == [true, false, false]
+  assert absence_lookup_byte_membership(" ", 0) == [true, false, false]
+  assert absence_lookup_byte_membership("x", 0) == [false, true, false]
+  assert absence_lookup_byte_membership("", 0) == [false, true, false]
+}
+
 test test_absence_lookup_nullable_and_integer_fast_paths_agree {
   for index in [-1, 0, 1, 2, 9223372036854775807] {
     assert absence_lookup_nullable_byte("é", index) == "é".byte_at(index)
