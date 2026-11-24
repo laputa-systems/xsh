@@ -1231,12 +1231,16 @@ fn process_run_operands<'e>(
 struct MethodArgState {
         instruction: u32,
         position: MethodArgumentPosition,
-        name: Arc<str>,
         receiver: LoweredValue,
-        consume: Option<usize>,
         values: Vec<LoweredValue>,
         span: Span,
-        next: Box<FrameContinuation>,
+        tail: Box<MethodArgTail>,
+    }
+
+struct MethodArgTail {
+        name: Arc<str>,
+        consume: Option<usize>,
+        next: FrameContinuation,
     }
 
 struct RecordUpdateItemsState {
@@ -1500,7 +1504,7 @@ enum FrameContinuation {
         span: Span,
     },
     ParameterDefault(Box<ParameterDefaultState>),
-    Assign(Box<AssignState>),
+    Assign(AssignState),
     AssignSelector(Box<AssignPathState>),
     AssignPath(Box<AssignPathState>),
     Return { transfers_resource: bool, application: Option<crate::runtime::eval::indexed::full::PreparedProcReturn> },
@@ -1542,7 +1546,7 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
-    BinaryRight(Box<BinaryRightState>),
+    BinaryRight(BinaryRightState),
     BoolBinaryRight {
         next: Box<FrameContinuation>,
         span: Span,
@@ -1675,9 +1679,9 @@ enum FrameContinuation {
     CheckedValue(Box<CheckedValueState>),
     CodecSchemaFormat(Box<CodecSchemaFormatState>),
     CodecSchemaInput(Box<CodecSchemaInputState>),
-    Require(Box<RequireState>),
-    MethodReceiver(Box<MethodReceiverState>),
-    MethodArg(Box<MethodArgState>),
+    Require(RequireState),
+    MethodReceiver(MethodReceiverState),
+    MethodArg(MethodArgState),
     FmtValue {
         state: Box<FmtState>,
         span: Span,
@@ -1816,7 +1820,7 @@ impl FrameContinuation {
             C::ProcessRun { next, .. }
             | C::SpawnCommand { next, .. }
             | C::Wait { next, .. } => next.visit_retained_values(visitor),
-            C::BinaryRight(boxed) => { let BinaryRightState { left, next, .. } = &**boxed; {
+            C::BinaryRight(state) => { let BinaryRightState { left, next, .. } = state; {
                 visit_retained_lowered_value(left, visitor);
                 next.visit_retained_values(visitor);
             } }
@@ -1846,10 +1850,10 @@ impl FrameContinuation {
                 visit_retained_runtime(error, visitor);
                 next.visit_retained_values(visitor);
             } }
-            C::MethodArg(boxed) => { let MethodArgState { receiver, values, next, .. } = &**boxed; {
+            C::MethodArg(state) => { let MethodArgState { receiver, values, tail, .. } = state; {
                 visit_retained_lowered_value(receiver, visitor);
                 visit_retained_lowered_values(values, visitor);
-                next.visit_retained_values(visitor);
+                tail.next.visit_retained_values(visitor);
             } }
             C::ListItems { state, next } => {
                 visit_retained_lowered_values(&state.values, visitor);
@@ -2083,9 +2087,9 @@ enum FrameWork {
         complete_call: bool,
         scope_id: Option<u64>,
     },
-    Expr(Box<WorkExprState>),
+    Expr(WorkExprState),
     Assertion(Box<FrameAssertionState>),
-    Value(Box<WorkValueState>),
+    Value(WorkValueState),
     ForScalars {
         target: Box<LoweredCompTarget>,
         cursor: LoweredScalarCursor,
@@ -2107,7 +2111,7 @@ enum FrameWork {
     },
     /// A loop over a script producer: each step pulls one item and re-arms
     /// itself, so the loop never holds the whole stream.
-    ForStream(Box<WorkForStreamState>),
+    ForStream(WorkForStreamState),
     ForPipeline {
         slot: usize,
         pipeline: Box<IndexedSerialPipeline>,
@@ -2391,13 +2395,13 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let work = FrameWork::Expr(Box::new(WorkExprState {
+        let work = FrameWork::Expr(WorkExprState {
             instruction,
             span,
             next: FrameContinuation::BlockValue {
                 transfers_resource: false,
             },
-        }));
+        });
         Ok(
             match self.eval_indexed_work_with_frames(execution, work, false, slots, span)? {
                 StmtFlow::Value(value) => ControlFlow::Continue(value),
@@ -2840,7 +2844,7 @@ impl ProducerFrameState {
                     }
                     next.visit_retained_values(visitor);
                 }
-                FrameWork::Expr(boxed) => { let WorkExprState { next, .. } = &**boxed; {
+                FrameWork::Expr(state) => { let WorkExprState { next, .. } = state; {
                     next.visit_retained_values(visitor);
                 } }
                 FrameWork::CompCleanup(streams) => {
@@ -2864,7 +2868,7 @@ impl ProducerFrameState {
                     }
                 }
                 FrameWork::Assertion(state) => state.visit_retained_values(visitor),
-                FrameWork::Value(boxed) => { let WorkValueState { value, next } = &**boxed; {
+                FrameWork::Value(state) => { let WorkValueState { value, next } = state; {
                     match value {
                         FrameValue::Value(value) | FrameValue::Break(value) => {
                             visit_retained_lowered_value(value, visitor);
@@ -2876,7 +2880,7 @@ impl ProducerFrameState {
                 FrameWork::ForItems { items, .. } => {
                     visit_retained_lowered_values(items, visitor);
                 }
-                FrameWork::ForStream(boxed) => { let WorkForStreamState { stream, .. } = &**boxed; {
+                FrameWork::ForStream(state) => { let WorkForStreamState { stream, .. } = state; {
                     visitor(crate::runtime::eval::RetainedValueRef::Stream(stream));
                 } }
                 FrameWork::ForPipeline { pipeline, .. } => {
@@ -4080,16 +4084,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 index,
                 argument,
                 span,
-                FrameContinuation::MethodArg(Box::new(MethodArgState {
+                FrameContinuation::MethodArg(MethodArgState {
                     instruction,
                     position,
-                    name,
                     receiver,
-                    consume,
                     values,
                     span,
-                    next: Box::new(next),
-                })),
+                    tail: Box::new(MethodArgTail { name, consume, next }),
+                }),
             );
         } else {
             let receiver =
@@ -4662,13 +4664,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(index, streams),
             FrameWork::Statements { .. } => unreachable!("statement lists step in place"),
-            FrameWork::Expr(boxed) => { let WorkExprState {
+            FrameWork::Expr(state) => { let WorkExprState {
                 instruction,
                 span,
                 next,
-            } = *boxed; self.eval_expr(index, instruction, span, next) },
+            } = state; self.eval_expr(index, instruction, span, next) },
             FrameWork::Assertion(state) => self.step_assertion(index, state),
-            FrameWork::Value(boxed) => { let WorkValueState { value, next } = *boxed; self.continue_value(index, value, next) },
+            FrameWork::Value(state) => { let WorkValueState { value, next } = state; self.continue_value(index, value, next) },
             FrameWork::ForMap {
                 target,
                 mut cursor,
@@ -4724,12 +4726,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 body,
                 span,
             } => self.step_for_items(index, target, items, item_index, body, span),
-            FrameWork::ForStream(boxed) => { let WorkForStreamState {
+            FrameWork::ForStream(state) => { let WorkForStreamState {
                 target,
                 stream,
                 body,
                 span,
-            } = *boxed; self.step_for_stream(index, target, stream, body, span) },
+            } = state; self.step_for_stream(index, target, stream, body, span) },
             FrameWork::ForPipeline {
                 slot,
                 pipeline,
@@ -5248,14 +5250,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     value,
                     value_span,
-                    FrameContinuation::Assign(Box::new(AssignState {
+                    FrameContinuation::Assign(AssignState {
                         slot,
                         op,
                         singleton,
                         check,
                         span: value_span,
                         transfers_resource,
-                    })),
+                    }),
                 );
                 Ok(())
             }
@@ -5327,14 +5329,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     value.raw(),
                     value_span,
-                    FrameContinuation::Assign(Box::new(AssignState {
+                    FrameContinuation::Assign(AssignState {
                         slot,
                         op,
                         singleton: false,
                         check: None,
                         span: value_span,
                         transfers_resource,
-                    })),
+                    }),
                 );
                 Ok(())
             }
@@ -5343,14 +5345,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     value.raw(),
                     span,
-                    FrameContinuation::Assign(Box::new(AssignState {
+                    FrameContinuation::Assign(AssignState {
                         slot,
                         op: AssignOp::Set,
                         singleton: false,
                         check: None,
                         span,
                         transfers_resource,
-                    })),
+                    }),
                 );
                 Ok(())
             }
@@ -6583,11 +6585,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     value.raw(),
                     value_span,
-                    FrameContinuation::Require(Box::new(RequireState {
+                    FrameContinuation::Require(RequireState {
                         check,
                         span: value_span,
                         next: Box::new(next),
-                    })),
+                    }),
                 );
             }
             ExprViewKind::Method => {
@@ -6630,14 +6632,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     receiver,
                     value_span,
-                    FrameContinuation::MethodReceiver(Box::new(MethodReceiverState {
+                    FrameContinuation::MethodReceiver(MethodReceiverState {
                         instruction,
                         position,
                         name,
                         span: value_span,
                         consume,
                         next: Box::new(next),
-                    })),
+                    }),
                 );
             }
             ExprViewKind::DynamicCall | ExprViewKind::TypedCall => {
@@ -7436,7 +7438,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 check,
                 span,
                 transfers_resource,
-            } = *state; match value {
+            } = state; match value {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, slot, &value, span)?;
                     let owner_scope = self.calls[index].slot_scope(slot);
@@ -7670,12 +7672,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     right,
                     span,
-                    FrameContinuation::BinaryRight(Box::new(BinaryRightState {
+                    FrameContinuation::BinaryRight(BinaryRightState {
                         op,
                         left,
                         span,
                         next,
-                    })),
+                    }),
                 ),
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -7686,7 +7688,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 left,
                 span,
                 next,
-            } = *state; match value {
+            } = state; match value {
                 FrameValue::Value(right) => {
                     let value = lowered_binary_value(op, left, right, span)?;
                     let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
@@ -8268,12 +8270,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         LoweredValue::Stream(stream)
                             if stream.source.is_some() || stream.script().is_some() =>
                         {
-                            self.calls[index].work.push(FrameWork::ForStream(Box::new(WorkForStreamState {
+                            self.calls[index].work.push(FrameWork::ForStream(WorkForStreamState {
                                 target,
                                 stream: *stream,
                                 body,
                                 span,
-                            })));
+                            }));
                             return Ok(());
                         }
                         value => value,
@@ -8771,7 +8773,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             } },
-            FrameContinuation::Require(state) => { let RequireState { check, span, next } = *state; match value {
+            FrameContinuation::Require(state) => { let RequireState { check, span, next } = state; match value {
                 FrameValue::Value(value) => {
                     let value = super::super::super::require::require_value(
                         self.evaluator,
@@ -8791,7 +8793,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 consume,
                 next,
                 ..
-            } = *state; match value {
+            } = state; match value {
                 FrameValue::Value(receiver) => {
                     self.push_method_arguments(
                         index,
@@ -8812,13 +8814,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::MethodArg(state) => { let MethodArgState {
                 instruction,
                 position,
-                name,
                 receiver,
-                consume,
                 mut values,
                 span,
-                next,
-            } = *state; match value {
+                tail,
+            } = state; let MethodArgTail { name, consume, next } = *tail; match value {
                 FrameValue::Value(value) => {
                     values.push(value);
                     self.push_method_arguments(
@@ -8830,7 +8830,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         consume,
                         values,
                         span,
-                        *next,
+                        next,
                     )?;
                 }
                 FrameValue::Break(value) => {
@@ -11232,10 +11232,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     _ => None,
                 };
                 if let Some(next) = completion {
-                    self.calls[index].work[loop_index] = FrameWork::Value(Box::new(WorkValueState {
+                    self.calls[index].work[loop_index] = FrameWork::Value(WorkValueState {
                         value: FrameValue::Value(value.unwrap_or(LoweredValue::Unit)),
                         next: *next,
-                    }));
+                    });
                     self.discard_work_from(index, loop_index + 1)
                 } else {
                     self.discard_work_from(index, loop_index)
@@ -11299,12 +11299,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // Re-arm before running the body, so a `continue` reaches the next item
         // and a `break` discards this item and stops the producer.
-        self.calls[index].work.push(FrameWork::ForStream(Box::new(WorkForStreamState {
+        self.calls[index].work.push(FrameWork::ForStream(WorkForStreamState {
             target,
             stream,
             body,
             span,
-        })));
+        }));
         self.push_statement_block(index, body, span)?;
         Ok(())
     }
@@ -11672,17 +11672,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn push_expr(&mut self, index: usize, instruction: u32, span: Span, next: FrameContinuation) {
-        self.calls[index].work.push(FrameWork::Expr(Box::new(WorkExprState {
+        self.calls[index].work.push(FrameWork::Expr(WorkExprState {
             instruction,
             span,
             next,
-        })));
+        }));
     }
 
     fn push_value(&mut self, index: usize, value: FrameValue, next: FrameContinuation) {
         self.calls[index]
             .work
-            .push(FrameWork::Value(Box::new(WorkValueState { value, next })));
+            .push(FrameWork::Value(WorkValueState { value, next }));
     }
 
     /// Opens the owned scope of one pattern condition and its body: the
@@ -12236,9 +12236,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     disposition,
                 )?;
             }
-            FrameWork::ForStream(boxed) => { let WorkForStreamState {
+            FrameWork::ForStream(work) => { let WorkForStreamState {
                 mut stream, span, ..
-            } = *boxed; {
+            } = work; {
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
@@ -12658,12 +12658,12 @@ mod tests {
 
     #[test]
     fn frame_continuation_size() {
-        assert!(std::mem::size_of::<FrameContinuation>() <= 64);
+        assert!(std::mem::size_of::<FrameContinuation>() <= 112);
     }
 
     #[test]
     fn frame_work_size() {
-        assert!(std::mem::size_of::<FrameWork>() <= 96);
+        assert!(std::mem::size_of::<FrameWork>() <= 152);
     }
 
     #[test]
@@ -13096,17 +13096,17 @@ proc parent() {
             let frame = ProducerFrameState {
                 applications: PreparedInvocationBindings::default(),
                 work: vec![
-                    FrameWork::Expr(Box::new(WorkExprState {
+                    FrameWork::Expr(WorkExprState {
                         instruction: 0,
                         span,
-                        next: FrameContinuation::BinaryRight(Box::new(BinaryRightState {
+                        next: FrameContinuation::BinaryRight(BinaryRightState {
                             op: BinaryOp::Add,
                             left: retained_root.clone(),
                             span,
                             next: Box::new(FrameContinuation::Discard(span)),
-                        })),
-                    })),
-                    FrameWork::Expr(Box::new(WorkExprState {
+                        }),
+                    }),
+                    FrameWork::Expr(WorkExprState {
                         instruction: 0,
                         span,
                         next: FrameContinuation::ApplyOperands(Box::new(ApplyOperandsState {
@@ -13119,7 +13119,7 @@ proc parent() {
                             span,
                             next: Box::new(FrameContinuation::Discard(span)),
                         })),
-                    })),
+                    }),
                 ],
                 slots: Vec::new(),
                 slot_scopes: Vec::new(),
@@ -13224,12 +13224,12 @@ proc parent() {
                 work: vec![FrameWork::StageValue(Box::new(WorkStageValueState {
                     pipeline: Box::new(pipeline),
                     span,
-                    next: FrameContinuation::BinaryRight(Box::new(BinaryRightState {
+                    next: FrameContinuation::BinaryRight(BinaryRightState {
                         op: BinaryOp::Add,
                         left: continuation_value,
                         span,
                         next: Box::new(FrameContinuation::Discard(span)),
-                    })),
+                    }),
                 }))],
                 slots,
                 slot_scopes: Vec::new(),
