@@ -160,8 +160,8 @@ pub(super) fn capture_checked_error(mut error: RuntimeError) -> Result<LoweredVa
     error.propagated = false;
     error.scope_cleanup = false;
     let value = if let Some(mut original) = error.propagated_run_error.take() {
-        original.contexts = error.contexts;
-        original.cause = error.cause;
+        original.contexts = error.contexts.clone();
+        original.cause = error.cause.clone();
         Value::RunError(original)
     } else {
         Value::Error(Box::new(error))

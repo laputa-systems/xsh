@@ -514,7 +514,7 @@ mod tests {
     }
 
     fn kind(result: Result<Value, RuntimeError>) -> String {
-        result.expect_err("patch must fail").kind
+        result.expect_err("patch must fail").into_data().kind
     }
 
     #[test]

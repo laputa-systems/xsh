@@ -411,8 +411,8 @@ mod tests {
         ] {
             let expected = crate::modules::codec::decode_text_into::<Value>(format, text, span()).unwrap_err();
             let actual = crate::modules::codec::decode_text_into::<LoweredValue>(format, text, span()).unwrap_err();
-            assert_eq!((actual.family, actual.variant, actual.message, actual.payload),
-                (expected.family, expected.variant, expected.message, expected.payload), "{format:?}");
+            assert_eq!((actual.family.clone(), actual.variant.clone(), actual.message.clone(), actual.payload.clone()),
+                (expected.family.clone(), expected.variant.clone(), expected.message.clone(), expected.payload.clone()), "{format:?}");
             assert_eq!(program.dynamic_stats(), before, "{format:?}");
         }
         let deep = format!("{}0{}", "[".repeat(129), "]".repeat(129));

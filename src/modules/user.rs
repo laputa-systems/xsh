@@ -331,9 +331,9 @@ fn read_optional(path: &Path, span: Span, kind: &str) -> Result<String, RuntimeE
 }
 
 pub(crate) fn account_write_error(error: RuntimeError, kind: &str) -> RuntimeError {
-    let mut result = RuntimeError::new(kind, error.message);
-    result.payload = error.payload;
-    result.facets = error.facets;
+    let mut result = RuntimeError::new(kind, error.message.clone());
+    result.payload = error.payload.clone();
+    result.facets = error.facets.clone();
     result.span = error.span;
     result
 }

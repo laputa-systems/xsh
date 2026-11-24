@@ -99,7 +99,7 @@ pub(crate) fn decode_json_bytes<T: DecodeValue>(bytes: &[u8], span: Span) -> Res
     }
     let text = std::str::from_utf8(bytes).map_err(|error| {
         let error = runtime_error(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()), "json", span);
-        RuntimeError::structured("CodecError", "Encoding", error.payload, error.facets, error.message).with_span(span)
+        RuntimeError::structured("CodecError", "Encoding", error.payload.clone(), error.facets.clone(), error.message.clone()).with_span(span)
     })?;
     decode_json_into(text, span)
 }

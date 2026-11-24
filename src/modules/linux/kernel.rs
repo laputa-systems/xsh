@@ -758,5 +758,5 @@ pub(super) fn test_module_plan(root: &Path, text: &str, name: &str, params: &str
     let span = Span::new(crate::source::SourceId::new(0), 0, 0);
     build_module_plan(&index, &config, name, params, remove, span)
         .map(|plan| plan.into_iter().map(|module| (module.entry.name.clone(), module.params)).collect())
-        .map_err(|error| error.message)
+        .map_err(|error| error.message.clone())
 }

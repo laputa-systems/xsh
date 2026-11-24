@@ -642,7 +642,7 @@ fn nullable_target_unsigned_argument_checks_preserve_later_argument_failure_orde
                 }
                 let error = failure.expect("a typed boundary or later argument must fail");
                 let failed_source = error.span.map(|span| source[span.range()].to_owned());
-                failures.push((error.kind, error.message, failed_source));
+                failures.push((error.kind.clone(), error.message.clone(), failed_source));
             }
             assert_eq!(failures[0], failures[1], "frames={force_frames}, later={later_argument}");
         }
@@ -4326,7 +4326,7 @@ fn generic_pipeline_result_string_failure_matches_typed_transport() {
                 }
             }
             let error = failure.expect("the Result source must fail before exposing a collected list");
-            errors.push((error.family, error.kind, error.message, error.propagated));
+            errors.push((error.family.clone(), error.kind.clone(), error.message.clone(), error.propagated));
         }
         assert_eq!(errors[0], errors[1]);
         assert_eq!((&*errors[0].0, &*errors[0].1, &*errors[0].2, errors[0].3), ("Error", "stream-stage-error", "stream stage failed with Str", false));

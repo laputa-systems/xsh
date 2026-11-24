@@ -130,7 +130,7 @@ pub(super) fn decode(evaluator: &Evaluator, format: Format, text: &str, schema: 
     let value = out.ok_or_else(|| codec::failure("Syntax", format.identifier(), "lexical document has no value", span))?;
     schema.decode_policy(evaluator, value, "$", span, UnknownFields::Preserve, true).map_err(|error| {
         let path = error.payload.get("value_path").cloned().unwrap_or_else(|| super::super::Value::Str("$".into()));
-        let mut failure = codec::failure("Schema", format.identifier(), error.message, span);
+        let mut failure = codec::failure("Schema", format.identifier(), error.message.clone(), span);
         failure.payload.insert("value_path".into(), path);
         failure
     })

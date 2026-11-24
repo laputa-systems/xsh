@@ -46,7 +46,7 @@ impl std::error::Error for HostError {}
 
 impl From<RuntimeError> for HostError {
     fn from(error: RuntimeError) -> Self {
-        Self::new(error.kind, error.message)
+        Self::new(error.kind.clone(), error.message.clone())
     }
 }
 
