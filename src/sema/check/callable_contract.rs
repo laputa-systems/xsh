@@ -1506,7 +1506,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let name = builder.symbol_owner().intern(namespace);
-        builder.push_arena_module(key.to_owned(), name, module.statements);
+        builder.push_arena_module(key.to_owned(), name, module.source_id(), module.statements);
         let (use_id, _, _) = builder.statement_ids(root.statements).iter()
             .find_map(|statement| builder.use_stmt_for_statement(*statement)).unwrap();
         builder.set_use_resolved(use_id, Arc::from(key));

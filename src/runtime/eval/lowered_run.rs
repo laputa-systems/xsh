@@ -1635,9 +1635,7 @@ fn prepare_dynamic_module(
         let harvest = child.lowered_shared_state();
 
         let imported_files = view.modules().filter(|module| !module.internal).filter_map(|module| {
-            let source_id = program.module_statements(module).next().map(|stmt| program.arena.stmt(stmt).span.source_id)
-                .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))?;
-            let file = module_sources.get(source_id)?;
+            let file = module_sources.get(module.source_id)?;
             let path = PathBuf::from(file.name());
             path.is_file().then(|| (path, file.text().as_bytes().to_vec()))
         }).collect();

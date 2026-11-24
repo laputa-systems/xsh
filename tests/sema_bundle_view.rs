@@ -39,9 +39,9 @@ fn embedded_module_records_do_not_depend_on_unimported_embedded_modules() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     }
     let hash_name = builder.symbol_owner().intern("hash");
-    builder.push_internal_arena_module("hash".to_string(), hash_name, hash.statements);
+    builder.push_internal_arena_module("hash".to_string(), hash_name, hash.source_id(), hash.statements);
     let json_name = builder.symbol_owner().intern("json");
-    builder.push_internal_arena_module("json".to_string(), json_name, json.statements);
+    builder.push_internal_arena_module("json".to_string(), json_name, json.source_id(), json.statements);
     let program = Arc::new(builder.finish_with_statements(entry.statements));
     let view = CheckBundleView::for_root(&program, entry.statements, Some(&sources), Some(entry_id));
     let output = Checker::check_bundle_view_with_type_program(
@@ -66,7 +66,7 @@ fn suppressed_embedded_record_constructors_are_not_published() {
     assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
     assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
     let module_name = builder.symbol_owner().intern("embedded");
-    builder.push_internal_arena_module("embedded".to_string(), module_name, module.statements);
+    builder.push_internal_arena_module("embedded".to_string(), module_name, module.source_id(), module.statements);
 
     let program = Arc::new(builder.finish_with_statements(entry.statements));
     let module = program
@@ -131,7 +131,7 @@ fn suppressed_embedded_modules_keep_declaration_effect_facts() {
     assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
     assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
     let module_name = builder.symbol_owner().intern("embedded");
-    builder.push_internal_arena_module("embedded".to_string(), module_name, module.statements);
+    builder.push_internal_arena_module("embedded".to_string(), module_name, module.source_id(), module.statements);
 
     let program = Arc::new(builder.finish_with_statements(entry.statements));
     let sources = Arc::new(sources);
@@ -165,6 +165,7 @@ fn suppressed_embedded_modules_keep_resource_transfer_facts() {
     builder.push_internal_arena_module(
         "embedded".to_string(),
         module_name,
+        module_parse.source_id(),
         module_parse.statements,
     );
 
@@ -228,15 +229,16 @@ fn internal_module_dependencies_remain_dependency_first() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     }
     let owner_name = builder.symbol_owner().intern("owner");
-    builder.push_internal_arena_module("owner".to_string(), owner_name, owner.statements);
+    builder.push_internal_arena_module("owner".to_string(), owner_name, owner.source_id(), owner.statements);
     let dependency_name = builder.symbol_owner().intern("dependency");
     builder.push_internal_arena_module(
         "dependency".to_string(),
         dependency_name,
+        dependency.source_id(),
         dependency.statements,
     );
     let base_name = builder.symbol_owner().intern("base");
-    builder.push_internal_arena_module("base".to_string(), base_name, base.statements);
+    builder.push_internal_arena_module("base".to_string(), base_name, base.source_id(), base.statements);
     for (statements, key) in [
         (entry.statements, "owner"),
         (owner.statements, "dependency"),
@@ -276,7 +278,7 @@ fn checked_entry_retains_record_constructor_instances_from_module_bodies() {
     assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
     assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
     let shared_name = builder.symbol_owner().intern("shared");
-    builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+    builder.push_arena_module("shared".to_string(), shared_name, shared.source_id(), shared.statements);
     for statement in builder.statement_ids(entry.statements) {
         if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
             builder.set_use_resolved(use_id, Arc::from("shared"));
@@ -313,7 +315,7 @@ fn internal_resource_diagnostics_follow_embedded_body_publication() {
     assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
     assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
     let module_name = builder.symbol_owner().intern("owned");
-    builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
+    builder.push_internal_arena_module("owned".to_string(), module_name, module.source_id(), module.statements);
 
     let program = Arc::new(builder.finish_with_statements(entry.statements));
     let sources = Arc::new(sources);
@@ -396,11 +398,12 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
     }
 
     let alpha_name = builder.symbol_owner().intern("alpha");
-    builder.push_arena_module("alpha".to_string(), alpha_name, alpha_module.statements);
+    builder.push_arena_module("alpha".to_string(), alpha_name, alpha_module.source_id(), alpha_module.statements);
     let unrelated_name = builder.symbol_owner().intern("unrelated");
     builder.push_arena_module(
         "unrelated".to_string(),
         unrelated_name,
+        unrelated_module.source_id(),
         unrelated_module.statements,
     );
     for (statements, modules) in [
@@ -502,7 +505,7 @@ fn grouping_diagnostics_match_standalone_sources_in_a_shared_arena() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     }
     let module_name = builder.symbol_owner().intern("grouping");
-    builder.push_internal_arena_module("grouping".to_string(), module_name, module.statements);
+    builder.push_internal_arena_module("grouping".to_string(), module_name, module.source_id(), module.statements);
     let shared = builder.finish_with_statements(entry.statements);
 
     for (source_id, source, shared_statements) in [
@@ -614,7 +617,7 @@ fn imported_module_bodies_publish_generic_type_instantiations() {
     assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
     assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
     let model_name = builder.symbol_owner().intern("model");
-    builder.push_arena_module("model".to_string(), model_name, module.statements);
+    builder.push_arena_module("model".to_string(), model_name, module.source_id(), module.statements);
     for statement in builder.statement_ids(entry.statements) {
         if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
             builder.set_use_resolved(use_id, Arc::from("model"));

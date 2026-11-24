@@ -3030,7 +3030,7 @@ mod imported_pure_tests {
         assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let namespace = builder.symbol_owner().intern("api");
-        builder.push_arena_module("api".to_string(), namespace, module.statements);
+        builder.push_arena_module("api".to_string(), namespace, module.source_id(), module.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("api"));

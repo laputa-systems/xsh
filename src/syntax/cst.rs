@@ -141,6 +141,10 @@ impl LazyCst {
         })
     }
 
+    pub fn source_id(&self) -> SourceId {
+        self.source_id
+    }
+
     pub fn token_table(&self) -> &TokenTable {
         &self.token_table
     }

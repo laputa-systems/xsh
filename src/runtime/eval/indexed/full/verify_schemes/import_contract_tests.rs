@@ -16,7 +16,7 @@ fn module_graph_fixture(entry_source: &str, modules: &[(&str, &str)]) -> FullPro
         let model = crate::syntax::parser::Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
         assert!(model.diagnostics.is_empty(), "{:?}", model.diagnostics);
         let name = builder.symbol_owner().with_current(|| Name::intern(key));
-        builder.push_arena_module(key.to_string(), name, model.statements);
+        builder.push_arena_module(key.to_string(), name, model.source_id(), model.statements);
     }
     let mut resolved = 0;
     for statement in builder.statement_ids(entry.statements) {

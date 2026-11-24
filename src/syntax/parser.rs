@@ -45,6 +45,12 @@ pub struct ArenaParseFragment {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl ArenaParseFragment {
+    pub fn source_id(&self) -> SourceId {
+        self.cst.source_id()
+    }
+}
+
 pub struct Parser<'a> {
     source_id: SourceId,
     source: &'a str,

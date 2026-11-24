@@ -25463,7 +25463,7 @@ assert observed_words == [Ok("row")]
         let model_name = builder
             .symbol_owner()
             .with_current(|| Name::intern("model"));
-        builder.push_arena_module("model".to_string(), model_name, model.statements);
+        builder.push_arena_module("model".to_string(), model_name, model.source_id(), model.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -25611,7 +25611,7 @@ assert observed_words == [Ok("row")]
         let model_name = builder
             .symbol_owner()
             .with_current(|| Name::intern("model"));
-        builder.push_arena_module("model".to_string(), model_name, model.statements);
+        builder.push_arena_module("model".to_string(), model_name, model.source_id(), model.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -25663,7 +25663,7 @@ assert observed_words == [Ok("row")]
         let model_name = builder
             .symbol_owner()
             .with_current(|| Name::intern("model"));
-        builder.push_arena_module("model".to_string(), model_name, model.statements);
+        builder.push_arena_module("model".to_string(), model_name, model.source_id(), model.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -25710,7 +25710,7 @@ assert observed_words == [Ok("row")]
         let model_name = builder
             .symbol_owner()
             .with_current(|| Name::intern("model"));
-        builder.push_arena_module("model".to_string(), model_name, model.statements);
+        builder.push_arena_module("model".to_string(), model_name, model.source_id(), model.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -25774,7 +25774,7 @@ assert observed_words == [Ok("row")]
         let model_name = builder
             .symbol_owner()
             .with_current(|| Name::intern("model"));
-        builder.push_arena_module("model".to_string(), model_name, model.statements);
+        builder.push_arena_module("model".to_string(), model_name, model.source_id(), model.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -46818,7 +46818,7 @@ assert stored_name(failed) == name(failed)
             assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let library_name = builder.symbol_owner().intern("lib");
-            builder.push_arena_module("lib".to_string(), library_name, module.statements);
+            builder.push_arena_module("lib".to_string(), library_name, module.source_id(), module.statements);
             for statement in builder.statement_ids(root.statements) {
                 if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                     builder.set_use_resolved(use_id, Arc::from("lib"));
@@ -46907,7 +46907,7 @@ assert by_index(true) == true
             assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let library_name = builder.symbol_owner().intern("lib");
-            builder.push_arena_module("lib".to_string(), library_name, module.statements);
+            builder.push_arena_module("lib".to_string(), library_name, module.source_id(), module.statements);
             for statement in builder.statement_ids(root.statements) {
                 if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("lib")); }
             }

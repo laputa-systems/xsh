@@ -40,15 +40,6 @@ out of scope.
 - **Fix with:** make-it-fast, lifecycle-concurrency
 - **Effort:** M
 
-### XSH-190 · P2 · Importing an empty module panics during checking
-
-- **Area:** Module loading and semantic checking
-- **Where:** src/sema/check/module_record.rs:324 (module_source_id)
-- **Problem:** The verification binary panics with `module source identity missing` for a user module with no statements or module documentation, including an empty imported file. Reproduce with `mkdir -p /tmp/xsh-empty-import; : > /tmp/xsh-empty-import/shared.xsh; printf "use shared\n" > /tmp/xsh-empty-import/main.xsh; target/verification/xsh /tmp/xsh-empty-import/main.xsh`; the process exits 101 instead of checking the program. This also occurred on base e99cfcb8c before O4.
-- **Recommendation:** Give an empty imported module its source identity and verify it through the native module-loading paths.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-189 · P3 · The comparative benchmarks pin a local test image that no longer exists
 
 - **Area:** Performance tooling

@@ -2543,6 +2543,7 @@ mod prepared_constant_tests {
             builder.push_arena_module(
                 key.to_string(),
                 module_name,
+                parsed.source_id(),
                 parsed.statements,
             );
         }
@@ -2561,6 +2562,7 @@ mod prepared_constant_tests {
         builder.push_arena_module(
             "middle".to_string(),
             middle_name,
+            middle.source_id(),
             middle.statements,
         );
         let root = Parser::parse_source_into_arena_builder(

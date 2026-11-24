@@ -913,12 +913,14 @@ mod tests {
         builder.push_internal_arena_module(
             "internal-key".to_owned(),
             internal_name,
+            internal_source.source_id(),
             internal_source.statements,
         );
         let empty_internal_name = builder.name("empty_internal");
         builder.push_internal_arena_module(
             "empty-internal-key".to_owned(),
             empty_internal_name,
+            empty_internal_source.source_id(),
             empty_internal_source.statements,
         );
         let program = builder.finish_with_statements(parsed.statements);
@@ -1048,7 +1050,7 @@ mod tests {
         let module_name = builder.name("helper");
         let module =
             Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
-        builder.push_arena_module("helper-key".to_owned(), module_name, module.statements);
+        builder.push_arena_module("helper-key".to_owned(), module_name, module.source_id(), module.statements);
         let program = builder.finish_with_statements(root.statements);
 
         program.symbol_owner().with_current(|| {
@@ -1087,7 +1089,7 @@ mod tests {
         let empty_module = Parser::parse_source_into_arena_builder(empty_module_id, "", &mut builder);
         assert!(empty_module.diagnostics.is_empty(), "{:?}", empty_module.diagnostics);
         let empty_name = builder.name("empty");
-        builder.push_arena_module("empty-key".to_owned(), empty_name, empty_module.statements);
+        builder.push_arena_module("empty-key".to_owned(), empty_name, empty_module.source_id(), empty_module.statements);
         let program = builder.finish_with_statements(root.statements);
 
         program.symbol_owner().with_current(|| {

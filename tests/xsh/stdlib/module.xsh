@@ -4,6 +4,37 @@ type Plugin = module {
   export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
 }
 
+test test_empty_module_static_use { |ctx|
+  let root = test.temp_dir(ctx, name: "empty-static")?
+  fp"{root}/empty.xsh".write("")
+  let output = test.run_script(ctx, "use empty\n", [], {XSH_MODULE_PATH: root})?
+  assert output.success, output.stderr
+}
+
+test test_empty_module_dynamic_load { |ctx|
+  let root = test.temp_dir(ctx, name: "empty-dynamic")?
+  let module_file = fp"{root}/empty.xsh"
+  module_file.write("")
+  let _ = module.load(module_file)?
+  let wrapper = fp"{root}/wrapper.xsh"
+  wrapper.write("use empty\n")
+  let output = test.run_script(ctx, f"let _ = module.load(p\"{wrapper}\")?\n", [], {XSH_MODULE_PATH: root})?
+  assert output.success, output.stderr
+}
+
+test test_comment_only_module_imports { |ctx|
+  let root = test.temp_dir(ctx, name: "empty-comments")?
+  let module_file = fp"{root}/comments.xsh"
+  module_file.write("  \n# comment\n\n")
+  let output = test.run_script(ctx, "use comments\n", [], {XSH_MODULE_PATH: root})?
+  assert output.success, output.stderr
+  let _ = module.load(module_file)?
+  let wrapper = fp"{root}/wrapper.xsh"
+  wrapper.write("use comments\n")
+  let dynamic = test.run_script(ctx, f"let _ = module.load(p\"{wrapper}\")?\n", [], {XSH_MODULE_PATH: root})?
+  assert dynamic.success, dynamic.stderr
+}
+
 test test_module_load { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
   let plugin_path = fp"{root}/plugin.xsh"

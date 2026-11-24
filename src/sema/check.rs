@@ -79,10 +79,7 @@ impl<'a> CheckBundleView<'a> {
         let source_ids = entry_source_id.into_iter()
             .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
             .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
-            .chain(modules.iter().flat_map(|module| program.module_statements(module)
-                .map(|id| program.arena.stmt(id).span.source_id)))
-            .chain(modules.iter().filter_map(|module| program.module_doc_for(module.statements)
-                .map(|span| span.source_id)))
+            .chain(modules.iter().map(|module| module.source_id))
             .collect();
         Self {
             program,
@@ -142,12 +139,7 @@ impl<'a> CheckBundleView<'a> {
         sources: Option<&'a SourceMap>,
         source_id: SourceId,
     ) -> Self {
-        let source_ids = program
-            .module_statements(module)
-            .map(|statement| program.arena.stmt(statement).span.source_id)
-            .chain(program.module_doc_for(module.statements).map(|span| span.source_id))
-            .chain(std::iter::once(source_id))
-            .collect();
+        let source_ids = [module.source_id, source_id].into_iter().collect();
         Self {
             program,
             sources,

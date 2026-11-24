@@ -389,7 +389,7 @@ mod tests {
             let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let module_name = builder.symbol_owner().intern("shared");
-            builder.push_arena_module("shared".to_string(), module_name, module.statements);
+            builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
             for &(statements, _) in &entries {
                 for statement in builder.statement_ids(statements) {
                     if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("shared")); }
@@ -434,7 +434,7 @@ mod tests {
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("shared");
         let export_name = builder.symbol_owner().intern("fixed");
-        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("shared")); }
         }
@@ -879,7 +879,7 @@ mod tests {
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let module_name = builder.symbol_owner().intern("shared");
             let callees = [builder.symbol_owner().intern("left"), builder.symbol_owner().intern("right")];
-            builder.push_arena_module("shared".to_string(), module_name, module.statements);
+            builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
             for &(statements, _) in &entries {
                 for statement in builder.statement_ids(statements) {
                     if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
