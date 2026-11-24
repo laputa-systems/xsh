@@ -95,6 +95,7 @@ impl Evaluator {
             let mut seen = rustc_hash::FxHashSet::default();
             items.iter().map(|item| { seen.clear(); crate::runtime::eval::retained_bytes(item, &mut seen) }).sum()
         } else { 0 };
+        let setup_start = self.profile.as_ref().map(|_| std::time::Instant::now());
         let items: Vec<_> = items.into_iter().map(|item| std::sync::Mutex::new(Some(item))).collect();
         let next_item = std::sync::atomic::AtomicUsize::new(0);
         let shared = self.lowered_shared_state();
@@ -121,7 +122,10 @@ impl Evaluator {
         // cancellation, or while shutting down. A worker then stops the child
         // it is running and fails its item.
         let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut scope_start = None;
+        let mut spawn_end = None;
         let outcome = std::thread::scope(|scope| {
+            scope_start = profiling.then(std::time::Instant::now);
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
             for chunk_index in 0..worker_count {
@@ -243,6 +247,7 @@ impl Evaluator {
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
             }
+            spawn_end = profiling.then(std::time::Instant::now);
             drop(sender);
             let mut completed: Vec<Option<(Vec<(usize, ParMapItemOutcome)>, Vec<u8>)>> =
                 (0..workers.len()).map(|_| None).collect();
@@ -346,8 +351,10 @@ impl Evaluator {
             }
             Ok((results, stderr))
         });
-        let parent_wait_ns = wait_start.map(crate::runtime::eval::profile::nanos).unwrap_or(0);
+        let parent_wait_ns = spawn_end.map(crate::runtime::eval::profile::nanos).unwrap_or(0);
         self.profile_opaque("parallel-wait", span, wait_start, false);
+        let parent_setup_ns = setup_start.zip(scope_start).map(|(start, end)| end.duration_since(start).as_nanos().try_into().unwrap_or(u64::MAX)).unwrap_or(0);
+        let parent_spawn_ns = scope_start.zip(spawn_end).map(|(start, end)| end.duration_since(start).as_nanos().try_into().unwrap_or(u64::MAX)).unwrap_or(0);
         if let Some(profile) = &mut self.profile {
             if outcome.is_err() || abandoned.load(std::sync::atomic::Ordering::Relaxed) || worker_profiles.len() != worker_count { profile.dropped = profile.dropped.saturating_add(1); }
             let critical_ns = worker_timings.iter().map(|worker| worker.start_delay_ns.saturating_add(worker.wall_ns)).max().unwrap_or(0);
@@ -358,7 +365,7 @@ impl Evaluator {
             if let Ok((results, _)) = &outcome {
                 for value in results { seen.clear(); let size = crate::runtime::eval::retained_bytes(value, &mut seen); buffered_bytes += size; buffered_item_max_bytes = buffered_item_max_bytes.max(size); }
             }
-            profile.stage(crate::runtime::eval::profile::StageTiming { span, path: None, executions: 1, items: item_count as u64, workers: worker_count as u64, worker: worker_timings, critical_ns, parent_wait_ns, buffered_results, buffered_bytes, buffered_item_max_bytes, input_bytes });
+            profile.stage(crate::runtime::eval::profile::StageTiming { span, path: None, executions: 1, items: item_count as u64, workers: worker_count as u64, worker: worker_timings, critical_ns, parent_setup_ns, parent_spawn_ns, parent_wait_ns, buffered_results, buffered_bytes, buffered_item_max_bytes, input_bytes });
             for (worker, wall_ns) in worker_profiles {
                 if let Some(worker) = worker { profile.merge_worker(*worker, span, wall_ns); } else { profile.dropped = profile.dropped.saturating_add(1); }
             }

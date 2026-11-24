@@ -52,7 +52,7 @@ pub struct StackPath { pub parent: Option<u32>, pub site: u32, pub calls: u64, p
 pub struct WorkerTiming { pub items: u64, pub start_delay_ns: u64, pub setup_ns: u64, pub busy_ns: u64, pub wall_ns: u64, pub worker_alloc_peak_bytes: u64 }
 
 #[derive(Clone, Debug)]
-pub struct StageTiming { pub span: Span, pub path: Option<u32>, pub executions: u64, pub items: u64, pub workers: u64, pub worker: Vec<WorkerTiming>, pub critical_ns: u64, pub parent_wait_ns: u64, pub buffered_results: u64, pub buffered_bytes: u64, pub buffered_item_max_bytes: u64, pub input_bytes: u64 }
+pub struct StageTiming { pub span: Span, pub path: Option<u32>, pub executions: u64, pub items: u64, pub workers: u64, pub worker: Vec<WorkerTiming>, pub critical_ns: u64, pub parent_setup_ns: u64, pub parent_spawn_ns: u64, pub parent_wait_ns: u64, pub buffered_results: u64, pub buffered_bytes: u64, pub buffered_item_max_bytes: u64, pub input_bytes: u64 }
 
 #[derive(Clone, Debug)]
 struct Frame {
@@ -156,6 +156,8 @@ impl ProfileState {
             old.items += stage.items;
             old.workers += stage.workers;
             old.critical_ns = old.critical_ns.max(stage.critical_ns);
+            old.parent_setup_ns += stage.parent_setup_ns;
+            old.parent_spawn_ns += stage.parent_spawn_ns;
             old.parent_wait_ns += stage.parent_wait_ns;
             old.buffered_results += stage.buffered_results;
             old.buffered_bytes += stage.buffered_bytes;
