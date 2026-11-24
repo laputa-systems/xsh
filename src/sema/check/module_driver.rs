@@ -132,6 +132,9 @@ impl Checker {
         let program = view.program;
         program.symbol_owner().with_current(|| {
             let args_domain = records.checked_entry_domain(view).unwrap_or_else(|| {
+                if !Self::entry_declares_main(view) {
+                    return ArgsDomain::Str;
+                }
                 let module_headers = Self::module_type_headers(
                     view,
                     options,
@@ -642,6 +645,20 @@ impl Checker {
                 }
             })
             .collect()
+    }
+
+    fn entry_declares_main(view: &CheckBundleView<'_>) -> bool {
+        let program = view.program;
+        let main = super::Name::intern("main");
+        view.statement_ids().any(|statement| {
+            let statement = match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => inner,
+                _ => statement,
+            };
+            matches!(program.arena.stmt(statement).kind,
+                ArenaStmtKind::ProcDef(definition) | ArenaStmtKind::CliMain(definition)
+                    if program.arena.function_def(definition).name == main)
+        })
     }
 
     fn entry_uses_byte_arguments(
