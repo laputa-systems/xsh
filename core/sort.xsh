@@ -487,13 +487,14 @@ pure general_numeric_prefix(line: Str, opts: SortOptions) -> Str {
 }
 
 ## Key positions have suffix modifiers, so read the leading decimal field number directly.
-pure leading_integer(text: Str, decimal_point: Str) -> Int? {
+pure leading_integer(text: Str, decimal_point: Str, thousands_separator: Bytes) -> Int? {
   let found = rx"^[0-9]{1,18}".find(text)
   return null when found.is_empty()
   let end = found[0].end
   if end < text.byte_len() {
     return null when rx"^[0-9]".matches(text.byte_slice(end, length: 1))
     return null when text.byte_slice(end, length: decimal_point.byte_len()) == decimal_point
+    return null when thousands_separator.len() == 1 and text.byte_at(end) == thousands_separator.byte_at(0)
   }
   if let Ok(number) = found[0].text.parse_int_decimal() { number } else { null }
 }
@@ -1207,7 +1208,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
   let unique_input = if opts.unique { records |> unique-by . } else { records }
   return unique_input when opts.merge
   if plan.last_resort and ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting and
-    opts.thousands_separator.len() != 1 {
+    (opts.thousands_separator.len() != 1 or ! is_ascii_digit(opts.thousands_separator.byte_at(0) ?? 0)) {
     let whole_numeric = ! plan.has_key and plan.mode.numeric
     let delimiter = sort_delimiter(opts)
     let field = if plan.has_key and opts.key.len() == 1 { key_index(opts.key[0]) } else { -1 }
@@ -1221,7 +1222,7 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecord
           guard record.text != null else { valid = false; break }
           let raw = record.text ?? ""
           let key = if field_numeric { raw.split(delimiter).get(field) ?? "" } else { raw }
-          if let number = leading_integer(key, opts.decimal_point) {
+          if let number = leading_integer(key, opts.decimal_point, opts.thousands_separator) {
             yield {record: record, key: {primary: number, raw: raw}}
           } else { valid = false; break }
         }

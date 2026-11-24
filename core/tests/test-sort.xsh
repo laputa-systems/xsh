@@ -868,6 +868,25 @@ test test_sort_numeric_integer_prefix_ties_and_reverse { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_numeric_key_with_grouping_locale { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-grouped-key")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for case in [
+    {input: b"b:01\na:1\nc:20\nd:2x\n", expected: b"a:1\nb:01\nd:2x\nc:20\n"},
+    {input: b"b:1,234\na:12\nc:2\n", expected: b"c:2\na:12\nb:1,234\n"},
+    {input: b"b:1.9\na:1.10\nc:2\n", expected: b"a:1.10\nb:1.9\nc:2\n"},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin, "--", script, "-t:", "-k2,2n"], root,
+      {LC_ALL: "en_US.UTF-8"}, case.input, stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == case.expected
+    assert stderr.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_numeric_preserves_decimal_precision_and_uniqueness { |ctx|
   let root = test.temp_dir(ctx, name: "sort-numeric-precision")?
   let script = fp"{ctx.core_dir}/sort.xsh"
