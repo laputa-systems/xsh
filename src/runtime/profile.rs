@@ -3,19 +3,25 @@ use rustc_hash::FxHashMap;
 use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum SiteKind { Proc, Pure, Module, Method, Core }
+pub enum SiteKind { Proc, Pure, Module, ModulePrepare, ModuleInit, PrepareParse, PrepareCheck, PrepareLower, Method, Core }
 
 impl SiteKind {
+    pub fn phase_name(self) -> Option<&'static str> {
+        match self { Self::PrepareParse => Some("parse"), Self::PrepareCheck => Some("check"), Self::PrepareLower => Some("lower"), _ => None }
+    }
+
     pub fn name(self) -> &'static str {
-        match self { Self::Proc => "proc", Self::Pure => "pure", Self::Module => "module", Self::Method => "method", Self::Core => "core" }
+        match self { Self::Proc => "proc", Self::Pure => "pure", Self::Module => "module", Self::ModulePrepare => "module-prepare", Self::ModuleInit => "module-init", Self::PrepareParse | Self::PrepareCheck | Self::PrepareLower => "prepare-phase", Self::Method => "method", Self::Core => "core" }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SiteKey {
     pub kind: SiteKind,
     pub definition: Option<Span>,
     pub call_site: Option<Span>,
+    pub module: Option<std::sync::Arc<str>>,
+    pub function_name: Option<crate::symbol::Name>,
 }
 
 #[derive(Clone, Debug)]
@@ -77,8 +83,8 @@ impl ProfileState {
         for site in &worker.sites {
             let id = if let Some(&id) = self.site_index.get(&site.key) { id } else {
                 let id = self.sites.len() as u32;
-                self.sites.push(SiteStats { key: site.key, calls: 0, inclusive_ns: 0, exclusive_ns: 0, blocked_ns: 0, alloc_count: 0, alloc_bytes: 0, children: FxHashMap::default() });
-                self.site_index.insert(site.key, id);
+                self.sites.push(SiteStats { key: site.key.clone(), calls: 0, inclusive_ns: 0, exclusive_ns: 0, blocked_ns: 0, alloc_count: 0, alloc_bytes: 0, children: FxHashMap::default() });
+                self.site_index.insert(site.key.clone(), id);
                 id
             };
             ids.push(id);
@@ -130,7 +136,7 @@ impl ProfileState {
     pub fn enter(&mut self, key: SiteKey) {
         let site = if let Some(&id) = self.site_index.get(&key) { id } else {
             let id = self.sites.len() as u32;
-            self.sites.push(SiteStats { key, calls: 0, inclusive_ns: 0, exclusive_ns: 0, blocked_ns: 0, alloc_count: 0, alloc_bytes: 0, children: FxHashMap::default() });
+            self.sites.push(SiteStats { key: key.clone(), calls: 0, inclusive_ns: 0, exclusive_ns: 0, blocked_ns: 0, alloc_count: 0, alloc_bytes: 0, children: FxHashMap::default() });
             self.site_index.insert(key, id);
             id
         };

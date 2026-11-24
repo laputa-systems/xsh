@@ -2063,7 +2063,7 @@ struct ProfileTestCompleteness {
 struct ProfileTestOpaque { kind: String, overlapping: bool, wall_ns: u64, count: u64 }
 
 #[derive(deser::Deserialize)]
-struct ProfileTestSite { name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
+struct ProfileTestSite { kind: String, name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
 
 #[derive(deser::Deserialize)]
 struct ProfileTestEdge { caller: usize, callee: usize, calls: u64 }
@@ -2087,6 +2087,37 @@ fn run_profile_fixture(name: &str) -> ProfileTestReport {
 
 fn profile_site<'a>(report: &'a ProfileTestReport, name: &str) -> (usize, &'a ProfileTestSite) {
     report.sites.iter().enumerate().find(|(_, site)| site.name == name).unwrap_or_else(|| panic!("missing {name}: {:?}", report.sites.iter().map(|site| &site.name).collect::<Vec<_>>()))
+}
+
+#[test]
+fn profile_dynamic_module_preparation_and_cache() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile");
+    for (script, paths, calls) in [("modules.xsh", vec!["one.xsh", "two.xsh", "three.xsh"], 1), ("modules-repeated.xsh", vec!["one.xsh"], 3)] {
+        let temp = cli_tempdir();
+        let json = temp.path().join("profile.json");
+        let output = Command::new(test_bin!("xsht")).args(["profile", "--json"]).arg(&json).arg(script).current_dir(&fixtures).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let report: ProfileTestReport = deser_json::from_str(&fs::read_to_string(json).unwrap()).unwrap();
+        assert!(report.complete);
+        assert!(report.sites.iter().any(|site| site.name == "answer" && site.kind == "pure"));
+        for path in &paths {
+            let find = |kind: &str| report.sites.iter().enumerate().find(|(_, site)| site.kind == kind && site.name == *path).unwrap_or_else(|| panic!("missing {kind} {path}: {:?}", report.sites.iter().map(|s| (&s.kind, &s.name)).collect::<Vec<_>>()));
+            let (load, load_site) = find("module");
+            let (prepare, prepared) = find("module-prepare");
+            let (init, initialized) = find("module-init");
+            assert_eq!(load_site.calls, calls);
+            assert_eq!(prepared.calls, 1);
+            assert_eq!(initialized.calls, 1);
+            assert!(prepared.inclusive_ns > 0 && prepared.alloc_bytes > 0);
+            for child in [prepare, init] { assert!(report.edges.iter().any(|edge| edge.caller == load && edge.callee == child && edge.calls == 1)); }
+            for phase in ["parse", "check", "lower"] {
+                let (index, site) = report.sites.iter().enumerate().find(|(i, site)| site.kind == "prepare-phase" && site.name == phase && report.edges.iter().any(|edge| edge.caller == prepare && edge.callee == *i)).unwrap();
+                assert_eq!(site.calls, 1, "{index} {phase}");
+            }
+        }
+        assert_eq!(report.sites.iter().filter(|s| s.kind == "module-prepare").map(|s| s.calls).sum::<u64>(), paths.len() as u64);
+        assert_eq!(report.sites.iter().filter(|s| s.kind == "module-init").map(|s| s.calls).sum::<u64>(), paths.len() as u64);
+    }
 }
 
 #[test]
