@@ -2054,7 +2054,7 @@ struct ProfileTestReport {
 }
 
 #[derive(deser::Deserialize)]
-struct ProfileTestStage { items: u64, workers: u64, worker: Vec<ProfileTestWorker>, critical_ns: u64, imbalance: f64, buffered_results: u64 }
+struct ProfileTestStage { items: u64, workers: u64, worker: Vec<ProfileTestWorker>, critical_ns: u64, imbalance: f64, buffered_results: u64, buffered_bytes: u64, buffered_item_max_bytes: u64, input_bytes: u64 }
 #[derive(deser::Deserialize)]
 struct ProfileTestWorker { items: u64, busy_ns: u64 }
 #[derive(deser::Deserialize)]
@@ -2187,6 +2187,26 @@ fn profile_synchronous_external_wait_is_blocked() {
     let (_, call) = profile_site(&report, "external_wait");
     assert!(call.blocked_ns * 100 >= call.inclusive_ns * 80);
     assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-command" && !region.overlapping && region.wall_ns > 0));
+}
+
+#[test]
+fn profile_parallel_retained_bytes_scale() {
+    let small = run_profile_fixture("retained-1024.xsh");
+    let large = run_profile_fixture("retained-2048.xsh");
+    let a = &small.stages[0];
+    let b = &large.stages[0];
+    assert_eq!(a.items, 4);
+    assert_eq!(a.input_bytes, 32);
+    assert!(a.buffered_bytes >= 4 * 1024 && a.buffered_bytes <= 4 * 2 * 1024 + 256);
+    assert!((1024..=1100).contains(&a.buffered_item_max_bytes));
+    assert!((2048..=2150).contains(&b.buffered_item_max_bytes));
+    assert!(b.buffered_bytes * 10 >= a.buffered_bytes * 18 && b.buffered_bytes * 10 <= a.buffered_bytes * 22);
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile/retained-1024.xsh");
+    let temp = cli_tempdir();
+    let plain = Command::new(Path::new(env!("CARGO_BIN_EXE_xsht")).with_file_name("xsh")).arg(&fixture).output().unwrap();
+    let profiled = Command::new(test_bin!("xsht")).args(["profile", "--json"]).arg(temp.path().join("report.json")).arg(&fixture).output().unwrap();
+    assert!(plain.status.success() && profiled.status.success());
+    assert!(profiled.stdout.starts_with(&plain.stdout));
 }
 
 #[test]

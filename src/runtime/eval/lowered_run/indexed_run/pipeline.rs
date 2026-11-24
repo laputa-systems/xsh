@@ -91,6 +91,10 @@ impl Evaluator {
         self.profile_enter(crate::runtime::eval::SiteKind::Core, None, Some(span));
         let worker_count = jobs.min(items.len()).max(1);
         let item_count = items.len();
+        let input_bytes = if self.profile.is_some() {
+            let mut seen = rustc_hash::FxHashSet::default();
+            items.iter().map(|item| { seen.clear(); crate::runtime::eval::retained_bytes(item, &mut seen) }).sum()
+        } else { 0 };
         let items: Vec<_> = items.into_iter().map(|item| std::sync::Mutex::new(Some(item))).collect();
         let next_item = std::sync::atomic::AtomicUsize::new(0);
         let shared = self.lowered_shared_state();
@@ -226,6 +230,7 @@ impl Evaluator {
                         }
                         if let (Some(first), Some(last)) = (first_item, last_item) { timing.busy_ns = last.duration_since(first).as_nanos().try_into().unwrap_or(u64::MAX); }
                         timing.wall_ns = crate::runtime::eval::profile::nanos(worker_start);
+                        if profiling { timing.worker_alloc_peak_bytes = crate::mem_track::snapshot().peak_bytes as u64; }
                         let _ = sender.send((
                             chunk_index,
                             results,
@@ -347,7 +352,13 @@ impl Evaluator {
             if outcome.is_err() || abandoned.load(std::sync::atomic::Ordering::Relaxed) || worker_profiles.len() != worker_count { profile.dropped = profile.dropped.saturating_add(1); }
             let critical_ns = worker_timings.iter().map(|worker| worker.start_delay_ns.saturating_add(worker.wall_ns)).max().unwrap_or(0);
             let buffered_results = worker_timings.iter().map(|worker| worker.items).sum();
-            profile.stage(crate::runtime::eval::profile::StageTiming { span, path: None, executions: 1, items: item_count as u64, workers: worker_count as u64, worker: worker_timings, critical_ns, parent_wait_ns, buffered_results });
+            let mut seen = rustc_hash::FxHashSet::default();
+            let mut buffered_bytes = 0;
+            let mut buffered_item_max_bytes = 0;
+            if let Ok((results, _)) = &outcome {
+                for value in results { seen.clear(); let size = crate::runtime::eval::retained_bytes(value, &mut seen); buffered_bytes += size; buffered_item_max_bytes = buffered_item_max_bytes.max(size); }
+            }
+            profile.stage(crate::runtime::eval::profile::StageTiming { span, path: None, executions: 1, items: item_count as u64, workers: worker_count as u64, worker: worker_timings, critical_ns, parent_wait_ns, buffered_results, buffered_bytes, buffered_item_max_bytes, input_bytes });
             for (worker, wall_ns) in worker_profiles {
                 if let Some(worker) = worker { profile.merge_worker(*worker, span, wall_ns); } else { profile.dropped = profile.dropped.saturating_add(1); }
             }

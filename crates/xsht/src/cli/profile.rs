@@ -28,9 +28,9 @@ struct Completeness { mode: &'static str, overhead_ns_per_hook: u64, dropped: u6
 #[derive(deser::Serialize)]
 struct Report { complete: bool, format: &'static str, completeness: Completeness, sites: Vec<Site>, edges: Vec<Edge>, stages: Vec<Stage>, critical_path: Vec<CriticalSite>, unobserved: Vec<&'static str> }
 #[derive(deser::Serialize)]
-struct Worker { items: u64, start_delay_ns: u64, setup_ns: u64, busy_ns: u64, wall_ns: u64 }
+struct Worker { items: u64, start_delay_ns: u64, setup_ns: u64, busy_ns: u64, wall_ns: u64, worker_alloc_peak_bytes: u64 }
 #[derive(deser::Serialize)]
-struct Stage { span: Option<Location>, file: String, line: usize, executions: u64, items: u64, workers: u64, worker: Vec<Worker>, critical_ns: u64, imbalance: f64, parent_wait_ns: u64, buffered_results: u64, buffered_bytes: Option<u64> }
+struct Stage { span: Option<Location>, file: String, line: usize, executions: u64, items: u64, workers: u64, worker: Vec<Worker>, critical_ns: u64, imbalance: f64, parent_wait_ns: u64, buffered_results: u64, buffered_bytes: u64, buffered_item_max_bytes: u64, input_bytes: u64 }
 #[derive(deser::Serialize)]
 struct CriticalSite { name: String, kind: String, file: String, line: usize, inclusive_ns: u64 }
 
@@ -64,7 +64,9 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     xsh::mem_track::begin_stage();
     let overhead = Evaluator::profile_calibration_ns();
     xsh::mem_track::end_stage();
+    xsh::mem_track::begin_worker_collection();
     let output = Evaluator::new_with_sources(options.args, sources).with_profiling().eval(&parsed.arena, source_id);
+    let _ = xsh::mem_track::end_worker_collection();
     let sources = &output.sources;
     let mut stderr = output.stderr;
     if !output.diagnostics.is_empty() { push_text(&mut stderr, &DiagnosticRenderer::new().render(&output.diagnostics, sources)); }
@@ -93,7 +95,7 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
         let loc = sources.location(stage.span.source_id, stage.span.start());
         let busy: u64 = stage.worker.iter().map(|worker| worker.busy_ns).sum();
         let max = stage.worker.iter().map(|worker| worker.busy_ns).max().unwrap_or(0);
-        Stage { span: location(sources, Some(stage.span)), file: loc.as_ref().map_or_else(String::new, |loc| loc.file.clone()), line: loc.map_or(0, |loc| loc.line), executions: stage.executions, items: stage.items, workers: stage.workers, worker: stage.worker.iter().map(|worker| Worker { items: worker.items, start_delay_ns: worker.start_delay_ns, setup_ns: worker.setup_ns, busy_ns: worker.busy_ns, wall_ns: worker.wall_ns }).collect(), critical_ns: stage.critical_ns, imbalance: if busy == 0 { 1.0 } else { max as f64 * stage.worker.len() as f64 / busy as f64 }, parent_wait_ns: stage.parent_wait_ns, buffered_results: stage.buffered_results, buffered_bytes: None }
+        Stage { span: location(sources, Some(stage.span)), file: loc.as_ref().map_or_else(String::new, |loc| loc.file.clone()), line: loc.map_or(0, |loc| loc.line), executions: stage.executions, items: stage.items, workers: stage.workers, worker: stage.worker.iter().map(|worker| Worker { items: worker.items, start_delay_ns: worker.start_delay_ns, setup_ns: worker.setup_ns, busy_ns: worker.busy_ns, wall_ns: worker.wall_ns, worker_alloc_peak_bytes: worker.worker_alloc_peak_bytes }).collect(), critical_ns: stage.critical_ns, imbalance: if busy == 0 { 1.0 } else { max as f64 * stage.worker.len() as f64 / busy as f64 }, parent_wait_ns: stage.parent_wait_ns, buffered_results: stage.buffered_results, buffered_bytes: stage.buffered_bytes, buffered_item_max_bytes: stage.buffered_item_max_bytes, input_bytes: stage.input_bytes }
     }).collect();
     let mut critical_path = Vec::new();
     let mut parent = None;
@@ -108,7 +110,7 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
         }
         parent = Some(index as u32);
     }
-    let report = Report { complete: profile.dropped == 0, format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call and parallel wait wall time; overlapping lifetimes are opaque.", opaque_regions }, sites, edges, stages, critical_path, unobserved: vec!["entry-script preparation (see xsht runtime-stats)", "fused par-map/reduce workers", "external command internals", "buffered_bytes", "parent-side worker slot cloning", "per-worker critical path frames"] };
+    let report = Report { complete: profile.dropped == 0, format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call and parallel wait wall time; overlapping lifetimes are opaque.", opaque_regions }, sites, edges, stages, critical_path, unobserved: vec!["entry-script preparation (see xsht runtime-stats)", "fused par-map/reduce workers", "external command internals", "cross-thread frees debit the freeing thread, not the allocating site", "parent-side worker slot cloning", "per-worker critical path frames"] };
     if let Some(path) = options.json {
         let json = deser_json::to_string(&report).expect("profile report encodes");
         if let Err(error) = fs::write(&path, format!("{json}\n")) { push_text(&mut stderr, &format!("xsht profile: failed to write '{path}': {error}\n")); return CliOutput { status: 4, stdout: output.stdout, stderr, trace_text: String::new(), syscall_summary: None }; }

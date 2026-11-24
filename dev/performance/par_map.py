@@ -13,12 +13,14 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'dev/performance/par_map'
-MAIN = ROOT.parents[2] if ROOT.parent.name == 'wt' else ROOT
+MAIN = ROOT
 PAIRS = (('setup-5', 'setup-five-one', 'setup-five'),
          ('setup-20', 'setup-one', 'setup-many'),
          ('capture', 'capture-small', 'capture-large'),
          ('nested-2', 'flat-four', 'nested-two'),
-         ('nested-4', 'flat', 'nested'))
+         ('nested-4', 'flat', 'nested'),
+         ('retention', 'retention-small', 'retention-large'),
+         ('ordered-buffering', 'ordered-take', 'ordered-full'))
 
 
 @dataclass(frozen=True)
@@ -37,10 +39,16 @@ def stage_totals(report):
             'start_delay_ns': sum(w['start_delay_ns'] for s in stages for w in s['worker']),
             'busy_ns': sum(w['busy_ns'] for s in stages for w in s['worker']),
             'buffered_results': sum(s['buffered_results'] for s in stages),
+            'buffered_bytes': sum(s['buffered_bytes'] for s in stages),
+            'input_bytes': sum(s['input_bytes'] for s in stages),
             'site_alloc_bytes': sum(s['alloc_bytes'] for s in report['sites'])}
 
 
 def verdict(name, a, b):
+    if name == 'retention':
+        return 'confirmed: buffered bytes scale with payload' if b['buffered_bytes'] > a['buffered_bytes'] * 1.8 else 'refuted: buffered bytes do not scale with payload'
+    if name == 'ordered-buffering':
+        return 'confirmed: take(1) buffers the full result' if a['buffered_bytes'] == b['buffered_bytes'] and a['buffered_bytes'] > 0 else 'refuted: buffered bytes differ'
     if name.startswith('nested'):
         return 'inconclusive: extra workers observed but concurrent oversubscription is unmeasured'
     if name.startswith('setup'):
@@ -110,12 +118,7 @@ def main():
     for row in run(args.xsh, args.xsht, args.repeats):
         print(f"{row['name']}: {row['verdict']}; output {row['output']}")
         print(f"  profile medians: {row['a']} -> {row['b']}")
-        for key in ('cpu_ratios', 'wall_ratios'):
-            values = row[key]
-            print(f'  busy host: paired ratio {key} median {statistics.median(values):.3f}, range {min(values):.3f}–{max(values):.3f}')
-    print('retention: inconclusive; profile buffered_bytes is always null')
-    print('ordered buffering: inconclusive; profile buffered_bytes is always null')
-    return 1
+    return 0
 
 
 if __name__ == '__main__':
