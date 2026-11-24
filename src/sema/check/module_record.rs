@@ -161,12 +161,13 @@ impl ModuleRecords {
                         view.sources,
                         source_id,
                     );
-                    let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
+                    let (owner_facts, visible_bindings) = PreparedModuleFacts::prepare_owner(
                         &module_view,
                         &dependency_facts,
-                    ));
+                    );
+                    let owner_facts = Arc::new(owner_facts);
                     let mut visible_facts = dependency_facts;
-                    visible_facts.merge_owner(program, &owner_facts);
+                    visible_facts.merge_prepared_owner(&owner_facts, visible_bindings);
                     #[cfg(test)]
                     {
                         record_test_preparation(preparations, key.clone());
@@ -203,12 +204,14 @@ impl ModuleRecords {
                 Entry::Occupied(entry) => (entry.get().clone(), false),
                 Entry::Vacant(entry) => {
                     let mut dependency_facts = PreparedModuleFacts::default();
-                    for module in view.modules.iter().copied() {
-                        let record = prepared
+                    let owners = view.modules.iter().map(|module| {
+                        prepared
                             .get(module.key.as_str())
-                            .expect("reachable module was prepared before entry facts");
-                        dependency_facts.merge_owner_unresolved(record.owner_facts());
-                    }
+                            .expect("reachable module was prepared before entry facts")
+                            .owner_facts()
+                            .as_ref()
+                    }).collect::<Vec<_>>();
+                    dependency_facts.merge_owners_unresolved(&owners);
                     dependency_facts.resolve_module_fields(program);
                     let root_view = CheckBundleView::for_module(
                         program,
@@ -216,14 +219,15 @@ impl ModuleRecords {
                         view.sources,
                         Some(root_source_id),
                     );
-                    let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
+                    let (owner_facts, visible_bindings) = PreparedModuleFacts::prepare_owner(
                         &root_view,
                         &dependency_facts,
-                    ));
+                    );
+                    let owner_facts = Arc::new(owner_facts);
                     let mut wire_diagnostics = owner_facts.wire_diagnostics.clone();
                     wire_diagnostics.extend(dependency_facts.wire_diagnostics.iter().cloned());
                     let mut visible_facts = dependency_facts;
-                    visible_facts.merge_owner(program, &owner_facts);
+                    visible_facts.merge_prepared_owner(&owner_facts, visible_bindings);
                     visible_facts.wire_diagnostics = wire_diagnostics;
                     // The legacy collector visited entry constants before module constants.
                     // Reassemble owner-local instances in that order for stable publication.
@@ -270,9 +274,10 @@ impl ModuleRecords {
     ) -> PreparedModuleFacts {
         let dependency_keys = module_dependency_keys(view.program, module);
         let mut facts = PreparedModuleFacts::default();
-        for dependency in view.modules.iter().copied() {
-            if dependency.key != module.key && dependency_keys.contains(&dependency.key) {
-                let record = prepared
+        let owners = view.modules.iter().copied()
+            .filter(|dependency| dependency.key != module.key && dependency_keys.contains(&dependency.key))
+            .map(|dependency| {
+                prepared
                     .get(dependency.key.as_str())
                     .unwrap_or_else(|| {
                         panic!(
@@ -281,9 +286,14 @@ impl ModuleRecords {
                             dependency.name.as_str(),
                             prepared.len(),
                         )
-                    });
-                facts.merge_owner(view.program, record.owner_facts());
-            }
+                    })
+                    .owner_facts()
+                    .as_ref()
+            })
+            .collect::<Vec<_>>();
+        if !owners.is_empty() {
+            facts.merge_owners_unresolved(&owners);
+            facts.resolve_module_fields(view.program);
         }
         facts
     }
@@ -479,7 +489,7 @@ impl PreparedModuleFacts {
     fn prepare_owner(
         view: &CheckBundleView<'_>,
         dependencies: &PreparedModuleFacts,
-    ) -> Self {
+    ) -> (Self, ResolvedBindings) {
         let program = view.program;
         let (owner_bindings, assignment_facts) =
             ResolvedBindings::collect_bundle_with_assignment_facts(view);
@@ -516,7 +526,7 @@ impl PreparedModuleFacts {
             view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
             &visible_bindings,
         );
-        Self {
+        let owner = Self {
             resolved_bindings,
             assignment_facts,
             return_inference_index,
@@ -525,12 +535,13 @@ impl PreparedModuleFacts {
             prepared_constants: prepared_for_owner,
             regex_diagnostics,
             wire_diagnostics,
-        }
+        };
+        (owner, visible_bindings)
     }
 
-    fn merge_owner(&mut self, program: &ArenaProgram, owner: &Self) {
-        self.merge_owner_unresolved(owner);
-        self.resolve_module_fields(program);
+    fn merge_prepared_owner(&mut self, owner: &Self, visible_bindings: ResolvedBindings) {
+        self.resolved_bindings = Arc::new(visible_bindings);
+        self.merge_owner_facts(&[owner]);
     }
 
     fn resolve_module_fields(&mut self, program: &ArenaProgram) {
@@ -539,21 +550,30 @@ impl PreparedModuleFacts {
         bindings.resolve_module_fields(program, &declarations);
     }
 
-    fn merge_owner_unresolved(&mut self, owner: &Self) {
-        Arc::make_mut(&mut self.resolved_bindings).merge_visible_in_place(&owner.resolved_bindings);
-        self.assignment_facts.merge(&owner.assignment_facts);
+    fn merge_owners_unresolved(&mut self, owners: &[&Self]) {
+        let bindings = Arc::make_mut(&mut self.resolved_bindings);
+        for owner in owners {
+            bindings.merge_visible_in_place(&owner.resolved_bindings);
+        }
+        self.merge_owner_facts(owners);
+    }
+
+    fn merge_owner_facts(&mut self, owners: &[&Self]) {
+        for owner in owners {
+            self.assignment_facts.merge(&owner.assignment_facts);
+            self.local_inference
+                .merge_prepared_owner(&owner.local_inference);
+            self.record_constructors
+                .merge_visible(&owner.record_constructors);
+            self.prepared_constants
+                .merge_visible(&owner.prepared_constants);
+            self.regex_diagnostics
+                .extend(owner.regex_diagnostics.iter().cloned());
+            self.wire_diagnostics
+                .extend(owner.wire_diagnostics.iter().cloned());
+        }
         Arc::make_mut(&mut self.return_inference_index)
-            .merge_owner(&owner.return_inference_index);
-        self.local_inference
-            .merge_prepared_owner(&owner.local_inference);
-        self.record_constructors
-            .merge_visible(&owner.record_constructors);
-        self.prepared_constants
-            .merge_visible(&owner.prepared_constants);
-        self.regex_diagnostics
-            .extend(owner.regex_diagnostics.iter().cloned());
-        self.wire_diagnostics
-            .extend(owner.wire_diagnostics.iter().cloned());
+            .merge_owners(owners.iter().map(|owner| owner.return_inference_index.as_ref()));
     }
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {

@@ -1391,7 +1391,25 @@ pub(super) fn compact_function_selection(
         function.key
     }).collect();
     if producer_demand == super::ProducerDemand::Absent {
-        let proof_operations = super::ProducerDemand::checked_result_constructors(program, declarations)
+        let mut reachable_statements = program
+            .arena
+            .stmt_ids(scope.root_statements)
+            .chain(scope.modules.iter().flat_map(|module| program.module_statements(module)
+                .filter(|&statement| reachable_imports::module_function_definition(program, statement)
+                    .is_none_or(|definition| scope.reaches_function(definition)))))
+            .map(|statement| program.arena.stmt(statement).span)
+            .collect::<Vec<_>>();
+        reachable_statements.sort_unstable();
+        let reaches_operation = |operation: Span| {
+            let following = reachable_statements.partition_point(|statement| {
+                (statement.source_id, statement.start()) <= (operation.source_id, operation.start())
+            });
+            following.checked_sub(1).is_some_and(|index| {
+                let statement = reachable_statements[index];
+                statement.source_id == operation.source_id && operation.start() < statement.end()
+            })
+        };
+        let mut proof_operations = super::ProducerDemand::checked_result_constructors(program, declarations)
             .chain(super::ProducerDemand::native_producer_calls(program, declarations))
             .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
             .chain(super::ProducerDemand::typed_callable_calls(program, declarations))
@@ -1399,19 +1417,8 @@ pub(super) fn compact_function_selection(
             .chain(super::ProducerDemand::condition_operations(program, declarations))
             .chain(super::ProducerDemand::body_producer_operations(program, declarations))
             .chain(super::ProducerDemand::environment_path_operations(program, declarations))
-            .chain(super::ProducerDemand::process_operations(program, declarations))
-            .collect::<std::collections::BTreeSet<_>>();
-        let contains_proof_operation = |statement| {
-            let span = program.arena.stmt(statement).span;
-            proof_operations.range(Span::at(span.source_id, span.start())..Span::at(span.source_id, span.end()))
-                .next().is_some()
-        };
-        if program.arena.stmt_ids(scope.root_statements).any(contains_proof_operation)
-            || scope.modules.iter().any(|module| program.module_statements(module)
-                .filter(|&statement| reachable_imports::module_function_definition(program, statement)
-                    .is_none_or(|definition| scope.reaches_function(definition)))
-                .any(contains_proof_operation))
-        {
+            .chain(super::ProducerDemand::process_operations(program, declarations));
+        if proof_operations.any(reaches_operation) {
             producer_demand = super::ProducerDemand::Needed;
         }
     }

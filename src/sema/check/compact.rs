@@ -194,6 +194,67 @@ impl BindingReadSites {
     }
 }
 
+fn row_sources(
+    len: usize,
+    overrides: &[crate::syntax::arena::ArenaSpanSource],
+    primary: Option<crate::source::SourceId>,
+) -> impl Iterator<Item = (usize, Option<crate::source::SourceId>)> + '_ {
+    let mut next = 0;
+    (0..len).map(move |index| {
+        let row = u32::try_from(index).expect("arena rows fit their u32 indexes");
+        while overrides.get(next).is_some_and(|source| source.span < row) {
+            next += 1;
+        }
+        match overrides.get(next) {
+            Some(source) if source.span == row => (index, Some(source.source_id)),
+            _ => (index, primary),
+        }
+    })
+}
+
+fn span_key_sources<V>(map: &BTreeMap<Span, V>, sources: &mut FxHashSet<crate::source::SourceId>) {
+    let mut next = map.keys().next().copied();
+    while let Some(span) = next {
+        sources.insert(span.source_id);
+        let following = crate::source::SourceId::new(span.source_id.raw() + 1);
+        next = map.range(Span::at(following, 0)..).next().map(|(span, _)| *span);
+    }
+}
+
+fn span_set_sources(set: &std::collections::BTreeSet<Span>, sources: &mut FxHashSet<crate::source::SourceId>) {
+    let mut next = set.first().copied();
+    while let Some(span) = next {
+        sources.insert(span.source_id);
+        let following = crate::source::SourceId::new(span.source_id.raw() + 1);
+        next = set.range(Span::at(following, 0)..).next().copied();
+    }
+}
+
+fn expression_fact_sources(checked: &super::CheckOutput) -> FxHashSet<crate::source::SourceId> {
+    let mut sources = FxHashSet::default();
+    span_key_sources(&checked.expr_types, &mut sources);
+    span_key_sources(&checked.requirement_targets, &mut sources);
+    span_key_sources(&checked.projections, &mut sources);
+    span_set_sources(&checked.proven_nonnull_fallback_receivers, &mut sources);
+    span_set_sources(&checked.propagating_conditions, &mut sources);
+    span_key_sources(&checked.api_calls, &mut sources);
+    span_key_sources(&checked.selected_function_calls, &mut sources);
+    span_set_sources(&checked.statically_resolved_call_spans, &mut sources);
+    sources.extend(checked.resolved_type_expressions.instantiations.keys().map(|span| span.source_id));
+    sources.extend(checked.scheme_callable_calls.keys().map(|site| site.source.source_id));
+    sources.extend(checked.call_instantiations.keys().map(|site| site.source.source_id));
+    span_key_sources(&checked.typed_callable_calls, &mut sources);
+    span_key_sources(&checked.inferred_variants, &mut sources);
+    span_set_sources(&checked.path_literals, &mut sources);
+    span_key_sources(&checked.record_constructor_fields, &mut sources);
+    span_key_sources(&checked.error_constructors, &mut sources);
+    span_set_sources(&checked.optional_binding_spans, &mut sources);
+    span_key_sources(&checked.from_end_indexes, &mut sources);
+    span_key_sources(&checked.conversions, &mut sources);
+    span_key_sources(&checked.resource_scopes, &mut sources);
+    sources
+}
+
 impl CompactBodyFacts {
     pub fn resource_transfer(&self, site: super::ResourceTransferSite) -> Option<bool> {
         self.resource_transfers.get(&site).copied()
@@ -220,7 +281,11 @@ impl CompactBodyFacts {
         let mut selected_function_expr_spans = FxHashSet::default();
         let mut record_field_types = BTreeMap::new();
         facts.expr_types.reserve(checked.expr_types.len());
-        for index in 0..arena.expr_tags.len() {
+        let expression_sources = expression_fact_sources(checked);
+        for (index, source) in row_sources(arena.expr_tags.len(), &arena.expr_span_source_overrides, arena.span_source_id) {
+            if !source.is_some_and(|source| expression_sources.contains(&source)) {
+                continue;
+            }
             let id = ExprId::from_index(index);
             let expression = arena.expr(id);
             let span = expression.span;
@@ -364,7 +429,14 @@ impl CompactBodyFacts {
                 .map(|id| (arena.expr(id).span, id))
                 .collect()
         };
-        for index in 0..arena.stmt_tags.len() {
+        let mut statement_sources = FxHashSet::default();
+        span_key_sources(&checked.statement_positions, &mut statement_sources);
+        span_set_sources(&checked.optional_binding_spans, &mut statement_sources);
+        span_key_sources(&checked.collect_yields, &mut statement_sources);
+        for (index, source) in row_sources(arena.stmt_tags.len(), &arena.stmt_span_source_overrides, arena.span_source_id) {
+            if !source.is_some_and(|source| statement_sources.contains(&source)) {
+                continue;
+            }
             let id = StmtId::from_index(index);
             let statement = arena.stmt(id);
             if let Some(position) = checked.statement_positions.get(&statement.span) {
