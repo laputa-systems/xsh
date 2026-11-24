@@ -40,8 +40,6 @@ out of scope.
 - **Fix with:** make-it-fast, lifecycle-concurrency
 - **Effort:** M
 
-- **Effort:** S
-
 ### XSH-188 · P2 · Dynamic module loads re-lower their static import closure
 
 - **Area:** Runtime modules, performance
