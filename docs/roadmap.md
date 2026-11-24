@@ -5,7 +5,7 @@ This is the single plan for this repository: all current and future work, and th
 ## Status
 
 - **Active:** performance and profiling. M2 is met: B1b recorded Laputa's nine registry rows on 2026-11-24 in [performance baseline](TESTING.md#performance-baseline), every oracle passing and every scenario median within its anchor tolerance, but as busy-host observations during the openorange cutover (owner, 2026-11-24). Judge optimizations by cycle counts until the host is quiet. The scenario rows time the Laputa seed's `xsh` (XSH `748dc69e`), so XSH gains reach them only after a seed rebuild.
-- Last integrated revision: `8e3095d93`, each slice green on its `cargo dev gate` (the last three as one batch gate).
+- Last integrated revision: `26eafd2cf`, each slice green on its `cargo dev gate`.
 - B1 `b4c3b7afd`: quiet-host baselines at `5784eaec` in [performance baseline](TESTING.md#performance-baseline) for every XSH-side family. That covers the 15 core cases through `dev.performance.core_bench`, comparative directory 9.31 ms and JSON 7.52 ms (fastest of seven interpreters), and `tooling-check` 0.0699 s. That last row's anchor regression is not in the checker: a cycle A/B against the anchor revision matches instructions within 0.3%.
 - O4 slices since B1 (cycles:u, interleaved, oracles pass):
   - `wc --lines` 16 MiB: -99% (`dd7d2e924`).
@@ -15,9 +15,12 @@ This is the single plan for this repository: all current and future work, and th
   - Helper call arguments decoded once: helper fixture -7.9%, `awk` -5.3% (`774c20129`).
   - Integer records validated without rebuilding schemas: record-argument fixture -31.2%, one allocation fewer per construction (`8e3095d93`).
   - Byte comparisons and constant byte membership lowered to integer compares: `awk` -7.3% (`8e3095d93`).
+  - Stream loops step in place and skip publication for host streams: empty top-level `range` loop -28%, inline fixture -4% (`0b5721756`).
+  - Slot-only expressions and parameter operands skip root publication unless scopes changed, a signal hook is registered or tracing is on; identity equality compares offsets first: abstraction fixtures -3.5% to -6.5% (`11355a713`).
+  - Typed integer and boolean lets and assignments skip the per-statement root publication under the same conditions: inline fixture -33%, typed callable -6%, record -4% (`b81261aca`).
 - Defects are fixed when found, not ticketed: membership in an empty list literal failed the IR verifier and now compiles (`8e3095d93`).
-- `line_ends` has no single hot statement. About 25k cycles per line are spread over evaluator dispatch, which bounds every per-byte XSH loop.
-- In flight: `lane/x191-work` removes the 152-byte `FrameWork` copy on every evaluator step, 5–9% of cycles in interpreter-heavy profiles.
+- Top-level script loops paid to publish every changed binding to its scopes before each statement and expression; that publication, not dispatch, was the largest per-statement cost in the abstraction fixtures. A 2026-11-24 rerun of the abstraction suite on master ranks inline/helper first (2.47x by cycles), then loop/pipeline 1.46x and direct/typed callable 1.24x; same-build cycle counts show no regression against base `db2bbf063`.
+- The 152-byte `FrameWork` copy per evaluator step is not a lead: ten candidate layouts and in-place pops moved instructions under 0.2% and cycles within noise (2026-11-24).
 - MG1 is parked at `.work/wt/mg2`, 19 of 52 rules: it competes with measurement gates. Resume after M2; run `cargo dev test linux` before pushing.
 - Host: niceforge containers and the stats and venus VMs were stopped, swap was cycled, and stale `/tmp` and Docker data were removed with the owner's approval (2026-11-24). Workers run on Codex only: Command Code has no credits and OpenCode Go is at its monthly limit.
 - The broad semantic-soundness campaign is paused since 2026-11-23; focused proofs continue when an optimization requires them.
