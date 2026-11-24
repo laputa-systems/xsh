@@ -1878,3 +1878,231 @@ export proc resources() [error] -> Result[List[Str], Error] {
   let deployment = module.load(fp"{root}/deployment.xsh")?.require(Deployment)?
   assert deployment.resources()? == ["x:hello world", "y:n"]
 }
+
+test test_module_load_reuses_checked_imports { |ctx|
+  let root = test.temp_dir(ctx, name: "load-shared-cache")?
+  fp"{root}/shared.xsh".write("""##! Shared value.
+## The shared value.
+export const value = 42
+""")
+  let plugin = """##! A plugin.
+use shared
+## The exported value.
+export let value: Int = shared.value
+"""
+  for name in ["a", "b", "c", "d", "e"] {
+    fp"{root}/{name}.xsh".write(plugin)
+  }
+  let trace = fp"{root}/trace.tsv"
+  let result = test.run_script(ctx, f"""type Plugin = module {{
+  export let value: Int
+}}
+for name in ["a", "b", "c", "d", "e"] {{
+  let plugin = module.load(fp"{root}/{{name}}.xsh")?.require(Plugin)?
+  print ${{plugin.value}}
+}}
+""", [], {XSH_MODULE_PATH: root, XSH_W9_CACHE_TRACE: trace})?
+  assert result.success, result.stderr
+  assert result.stdout == "42\n42\n42\n42\n42\n", result.stdout
+  var checked = 0
+  var hits = 0
+  for line in trace.read_text()?.lines() {
+    if f"{root}/shared.xsh" in line {
+      if "\tchecked\t" in line { checked = checked + 1 }
+      if "\tcheck_hit\t" in line { hits = hits + 1 }
+    }
+  }
+  assert checked == 1, f"checked={checked} hits={hits}"
+  assert hits == 4, f"checked={checked} hits={hits}"
+}
+
+test test_module_load_shared_initialization_and_changed_import { |ctx|
+  let root = test.temp_dir(ctx, name: "load-shared-init")?
+  let shared = fp"{root}/shared.xsh"
+  let first = fp"{root}/a.xsh"
+  let second = fp"{root}/b.xsh"
+  let marker = fp"{root}/init.txt"
+  marker.write("")
+  let before = f"""##! Shared version.
+## The shared version.
+export const version = 1
+proc mark() [fs, error] -> Result[Int, Error] {{
+  let marker = p"{marker}"
+  marker.write(marker.read_text()? + "x")?
+  0
+}}
+let initialized = mark()?
+"""
+  let after = before.replace("version = 1", with: "version = 2")
+  shared.write(before)
+  let plugin = """##! A plugin.
+use shared
+## The exported version.
+export let version: Int = shared.version
+"""
+  first.write(plugin)
+  second.write(plugin)
+  let result = test.run_script(ctx, f"""use shared
+type Plugin = module {{
+  export let version: Int
+}}
+let first = p"{first}"
+let second = p"{second}"
+print ${{module.load(first)?.require(Plugin)?.version}}
+print ${{module.load(second)?.require(Plugin)?.version}}
+print ${{module.load(first)?.require(Plugin)?.version}}
+p"{shared}".write(args[0])?
+print ${{module.load(second)?.require(Plugin)?.version}}
+print ${{module.load(first)?.require(Plugin)?.version}}
+print ${{module.load(first)?.require(Plugin)?.version}}
+""", [after], {XSH_MODULE_PATH: root})?
+  assert result.success, result.stderr
+  assert result.stdout == "1\n1\n1\n2\n2\n2\n", result.stdout
+  assert marker.read_text()? == "xxxxx", marker.read_text()?
+}
+
+test test_module_load_import_resolution_drift { |ctx|
+  let root = test.temp_dir(ctx, name: "load-drift")?
+  let early = fp"{root}/early"
+  let late = fp"{root}/late"
+  early.mkdir()
+  late.mkdir()
+  fp"{late}/choice.xsh".write("""##! Choice.
+## Value.
+export const value = 1
+""")
+  let replacement = """##! Choice.
+## Value.
+export const value = 2
+"""
+  fp"{root}/shared.xsh".write("""##! Shared.
+use choice
+## Value.
+export const value = choice.value
+""")
+  let plugin = """##! Plugin.
+use shared
+## Value.
+export let value: Int = shared.value
+"""
+  fp"{root}/a.xsh".write(plugin)
+  fp"{root}/b.xsh".write(plugin)
+  let result = test.run_script(ctx, f"""type Plugin = module {{
+  export let value: Int
+}}
+print ${{module.load(p"{root}/a.xsh")?.require(Plugin)?.value}}
+p"{early}/choice.xsh".write(args[0])?
+print ${{module.load(p"{root}/b.xsh")?.require(Plugin)?.value}}
+""", [replacement], {XSH_MODULE_PATH: f"{early}:{late}"})?
+  assert result.success, result.stderr
+  assert result.stdout == "1\n2\n", result.stdout
+}
+
+test test_module_load_import_cycles_report_each_edge { |ctx|
+  let root = test.temp_dir(ctx, name: "load-cycles")?
+  fp"{root}/x.xsh".write("##! X.\nuse y\n")
+  fp"{root}/y.xsh".write("##! Y.\nuse x\n")
+  fp"{root}/p.xsh".write("##! P.\nuse x\n")
+  fp"{root}/q.xsh".write("##! Q.\nuse y\n")
+  let result = test.run_script(ctx, f"""for name in ["p", "q"] {{
+  match module.load(fp"{root}/{{name}}.xsh") {{
+    Ok(_) => print "unexpected success"
+    Err(error) => print ${{error.message}}
+  }}
+}}
+""", [], {XSH_MODULE_PATH: root})?
+  assert result.success, result.stderr
+  assert f"{root}/y.xsh:2:1: parse.module-cycle" in result.stdout, result.stdout
+  assert f"{root}/x.xsh:2:1: parse.module-cycle" in result.stdout, result.stdout
+}
+
+test test_module_load_initializer_cycle { |ctx|
+  let root = test.temp_dir(ctx, name: "load-self-cycle")?
+  let self_path = fp"{root}/self.xsh"
+  self_path.write(f"""##! Self loading module.
+let self = module.load(p"{self_path}")?
+""")
+  let result = test.run_script(ctx, f"""let _ = module.load(p"{self_path}")?
+""")?
+  assert ! result.success
+  assert "module-cycle" in result.stderr, result.stderr
+}
+
+test test_module_load_shared_diagnostics { |ctx|
+  let root = test.temp_dir(ctx, name: "load-diagnostics")?
+  fp"{root}/shared.xsh".write("##! Shared.\nlet value = missing_shared\n")
+  fp"{root}/a.xsh".write("##! A.\nuse shared\n")
+  fp"{root}/b.xsh".write("##! B.\nuse shared\n")
+  fp"{root}/c.xsh".write("##! C.\nuse shared\nlet a = missing_one\nlet b = missing_two\nlet c = missing_three\n")
+  let result = test.run_script(ctx, f"""for name in ["a", "b", "c"] {{
+  match module.load(fp"{root}/{{name}}.xsh") {{
+    Ok(_) => print "unexpected success"
+    Err(error) => print ${{error.message}}
+  }}
+}}
+""", [], {XSH_MODULE_PATH: root})?
+  assert result.success, result.stderr
+  assert result.stdout == f"""module `{root}/a.xsh` failed to check: {root}/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+module `{root}/b.xsh` failed to check: {root}/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+module `{root}/c.xsh` failed to check: {root}/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name); {root}/c.xsh:3:9: check.unresolved-name: unresolved name `missing_one` (unresolved name); {root}/c.xsh:4:9: check.unresolved-name: unresolved name `missing_two` (unresolved name); and 1 more
+""", result.stdout
+}
+
+test test_module_load_shared_parse_diagnostics { |ctx|
+  let root = test.temp_dir(ctx, name: "load-parse-diagnostics")?
+  fp"{root}/shared.xsh".write("##! Shared.\nlet value =\n")
+  fp"{root}/a.xsh".write("##! A.\nuse shared\n")
+  fp"{root}/b.xsh".write("##! B.\nuse shared\n")
+  let result = test.run_script(ctx, f"""for name in ["a", "b"] {{
+  match module.load(fp"{root}/{{name}}.xsh") {{
+    Ok(_) => print "unexpected success"
+    Err(error) => print ${{error.message}}
+  }}
+}}
+""", [], {XSH_MODULE_PATH: root})?
+  assert result.success, result.stderr
+  assert result.stdout == f"""module `{root}/a.xsh` failed to parse: {root}/a.xsh:2:1: parse.module-load: failed to load module (`{root}/shared.xsh` has parse errors); {root}/shared.xsh:2:12: parse.expected-expression: expected expression (expected expression)
+module `{root}/b.xsh` failed to parse: {root}/b.xsh:2:1: parse.module-load: failed to load module (`{root}/shared.xsh` has parse errors); {root}/shared.xsh:2:12: parse.expected-expression: expected expression (expected expression)
+""", result.stdout
+}
+
+test test_module_load_shared_imports_in_parallel { |ctx|
+  let root = test.temp_dir(ctx, name: "load-shared-parallel")?
+  fp"{root}/shared.xsh".write("##! Shared.\n## Value.\nexport const value = 42\n")
+  let plugin = "##! Plugin.\nuse shared\n## Value.\nexport let value: Int = shared.value\n"
+  for i in range(16) {
+    fp"{root}/p{i}.xsh".write(plugin)
+  }
+  let result = test.run_script(ctx, f"""type Plugin = module {{
+  export let value: Int
+}}
+let values = range(16) |> par-map(jobs: 4) {{ |i|
+  module.load(fp"{root}/p{{i}}.xsh")?.require(Plugin)?.value
+}} |> collect()
+for value in values {{ print $value }}
+""")?
+  assert result.success, result.stderr
+  assert result.stdout == "42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n", result.stdout
+}
+
+test test_module_load_symlinked_import_diagnostic_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "load-symlink-diagnostics")?
+  let real = fp"{root}/real"
+  real.mkdir()
+  fp"{real}/shared.xsh".write("##! Shared.\nlet value = missing_shared\n")
+  fp"{real}/first.xsh".write("##! First.\nuse shared\n")
+  fp"{real}/second.xsh".write("##! Second.\nuse shared\n")
+  fp"{root}/a".symlink(to: real)
+  fp"{root}/b".symlink(to: real)
+  let result = test.run_script(ctx, f"""for item in [p"{root}/a/first.xsh", p"{root}/b/second.xsh"] {{
+  match module.load(item) {{
+    Ok(_) => print "unexpected success"
+    Err(error) => print $error.message
+  }}
+}}
+""")?
+  assert result.success, result.stderr
+  assert result.stdout == f"""module `{root}/a/first.xsh` failed to check: {root}/a/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+module `{root}/b/second.xsh` failed to check: {root}/b/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+""", result.stdout
+}

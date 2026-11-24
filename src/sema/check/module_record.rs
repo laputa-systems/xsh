@@ -375,6 +375,30 @@ fn record_test_preparation(
         .or_default() += 1;
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct SharedModuleRecords(Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>);
+
+impl SharedModuleRecords {
+    pub(crate) fn check_root(
+        &self,
+        program: &Arc<ArenaProgram>,
+        sources: &crate::source::SourceMap,
+        root: crate::syntax::arena::ArenaRange,
+        entry_id: SourceId,
+    ) -> CheckOutput {
+        let view = CheckBundleView::for_root(program, root, Some(sources), Some(entry_id));
+        let source = sources.get(entry_id).expect("entry source exists").text();
+        let mut cache = ModuleRecordCache::with_shared(Arc::clone(&self.0), CacheTrace::shared());
+        let output = Checker::check_bundle_in_session(
+            &view, source, super::CheckOptions::for_execution(), Arc::clone(program), Some(sources), &mut cache,
+        );
+        self.0.lock().expect("module record cache poisoned").retain(|key, _| {
+            key.role != ModuleRecordRole::Entry || key.source_id != entry_id
+        });
+        output
+    }
+}
+
 pub(super) struct ModuleRecordCache {
     shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
     trace: Option<CacheTrace>,

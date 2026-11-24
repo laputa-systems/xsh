@@ -4498,6 +4498,7 @@ impl FullBuilder {
 
     /// Build a program whose standard-library calls resolve to implementations
     /// a loading program already prepared.
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn build_compact_external_stdlib(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
@@ -4507,6 +4508,18 @@ impl FullBuilder {
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
         let scope = super::super::lower::CompactRootScope::whole_program(program);
+        Self::build_compact_external_stdlib_with_scope(program, declarations, module_graph, source, sources, source_id, &scope)
+    }
+
+    pub(in crate::runtime::eval) fn build_compact_external_stdlib_with_scope(
+        program: &ArenaProgram,
+        declarations: &CompactDeclOutput,
+        module_graph: &CompactModuleGraph,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+        scope: &super::super::lower::CompactRootScope<'_>,
+    ) -> Result<FullProgram, IrBuildError> {
         Self::build_compact_with_scope_and_schemes(
             program,
             declarations,
@@ -4516,7 +4529,7 @@ impl FullBuilder {
             source_id,
             false,
             super::super::lower::StdlibLowerLinkage::External,
-            &scope,
+            scope,
         )
     }
 

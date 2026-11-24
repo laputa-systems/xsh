@@ -1439,7 +1439,7 @@ struct PreparedDynamicModule {
     module_roots: Arc<[PathBuf]>,
     entry_bytes: Vec<u8>,
     imported_files: Vec<(PathBuf, Vec<u8>)>,
-    arena: ArenaProgram,
+    export_callable_aliases: FxHashMap<Name, crate::sema::check::StaticCallableAlias>,
     declarations: crate::sema::check::CompactDeclOutput,
     module_program: Arc<super::indexed::full::FullProgram>,
     exported_functions: Vec<(Name, CallableKind)>,
@@ -1467,6 +1467,11 @@ type PreparedDynamicModules = std::sync::Mutex<FxHashMap<String, Arc<PreparedDyn
 fn prepared_dynamic_modules() -> &'static PreparedDynamicModules {
     static MODULES: std::sync::OnceLock<PreparedDynamicModules> = std::sync::OnceLock::new();
     MODULES.get_or_init(Default::default)
+}
+
+fn dynamic_workspaces() -> &'static std::sync::Mutex<FxHashMap<Arc<[PathBuf]>, crate::loader::DynamicLoadWorkspace>> {
+    static WORKSPACES: std::sync::OnceLock<std::sync::Mutex<FxHashMap<Arc<[PathBuf]>, crate::loader::DynamicLoadWorkspace>>> = std::sync::OnceLock::new();
+    WORKSPACES.get_or_init(Default::default)
 }
 
 fn lookup_prepared_dynamic_module(
@@ -1511,12 +1516,10 @@ fn prepare_dynamic_module(
     profile: &mut Option<Box<ProfileState>>,
     module: Option<Arc<str>>,
 ) -> Result<PreparedDynamicModule, RuntimeError> {
-    use crate::loader::{
-        StdlibLinkage, entry_source_from_bytes, parse_load_entry_source_arena_only_with_linkage,
-    };
+    use crate::loader::entry_source_from_bytes;
 
     let entry_bytes = bytes.clone();
-    let entry_source = entry_source_from_bytes(display_path, bytes);
+    let entry_source = entry_source_from_bytes(display_path, bytes.clone());
     if !entry_source.diagnostics.is_empty() {
         return Err(module_load_failure(
             "failed to load",
@@ -1526,9 +1529,25 @@ fn prepare_dynamic_module(
             span,
         ));
     }
-    let (module_sources, parsed) = profile_prepare_phase(profile, SiteKind::PrepareParse, span, &module, || parse_load_entry_source_arena_only_with_linkage(
-        display_path, entry_source, module_roots.to_vec(), StdlibLinkage::LinkToPrepared,
-    ));
+    let loaded = profile_prepare_phase(profile, SiteKind::PrepareParse, span, &module, || {
+        let mut workspaces = dynamic_workspaces().lock().unwrap_or_else(|poisoned| {
+            let mut workspaces = poisoned.into_inner();
+            workspaces.clear();
+            workspaces
+        });
+        let workspace = workspaces.entry(Arc::clone(module_roots)).or_default();
+        match workspace.load_entry(display_path, bytes.clone(), module_roots) {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                *workspace = Default::default();
+                workspace.load_entry(display_path, bytes, module_roots).unwrap_or_else(|_| unreachable!("fresh workspace cannot be stale"))
+            }
+        }
+    });
+    let module_sources = loaded.sources;
+    let parsed = loaded.parsed;
+    let module_source_id = loaded.entry_id;
+    let records = loaded.records;
     if !parsed.diagnostics.is_empty() {
         return Err(module_load_failure(
             "failed to parse",
@@ -1545,13 +1564,6 @@ fn prepare_dynamic_module(
         validate_dynamic_module_top_level(&parsed.arena, display_path, span)?;
         let exported_functions = Evaluator::module_namespace_export_functions(&parsed.arena);
         let exported_let_names = Evaluator::module_namespace_export_let_names(&parsed.arena);
-        let module_source_id = module_sources
-            .files()
-            .first()
-            .map(crate::source::SourceFile::id)
-            .ok_or_else(|| {
-                RuntimeError::new("module-load", "loaded module has no source").with_span(span)
-            })?;
         let module_text = module_sources
             .get(module_source_id)
             .map(|source| source.text().to_string())
@@ -1572,9 +1584,12 @@ fn prepare_dynamic_module(
             .with_span(span));
         }
 
-        let declarations = profile_prepare_phase(profile, SiteKind::PrepareCheck, span, &module, || crate::sema::check::Checker::check_compact_declarations(
-            program, &module_sources, module_source_id,
-        ));
+        let type_program = Arc::new(program.clone());
+        let view = crate::sema::check::CheckBundleView::for_root(program, program.statements, Some(&module_sources), Some(module_source_id));
+        let declarations = profile_prepare_phase(profile, SiteKind::PrepareCheck, span, &module, || {
+            let checked = records.check_root(&type_program, &module_sources, program.statements, module_source_id);
+            crate::sema::check::Checker::compact_declarations(program, checked)
+        });
         if !declarations.diagnostics.is_empty() {
             return Err(module_load_failure(
                 "failed to check",
@@ -1587,13 +1602,14 @@ fn prepare_dynamic_module(
         let module_graph = crate::loader::CompactModuleGraph::from_file_unit(&file, &declarations);
         let binding_namespace = super::indexed::full::FullProgram::fresh_binding_namespace();
         let mut module_program =
-            profile_prepare_phase(profile, SiteKind::PrepareLower, span, &module, || super::indexed::full::FullBuilder::build_compact_external_stdlib(
+            profile_prepare_phase(profile, SiteKind::PrepareLower, span, &module, || super::indexed::full::FullBuilder::build_compact_external_stdlib_with_scope(
                 program,
                 &declarations,
                 &module_graph,
                 &module_text,
                 Arc::new(module_sources.clone()),
                 module_source_id,
+                &super::lower::CompactRootScope::from_view(&view),
             ))
             .map_err(|error| {
                 let message = match error.detail {
@@ -1618,21 +1634,26 @@ fn prepare_dynamic_module(
         child.module_roots = Arc::clone(module_roots);
         let harvest = child.lowered_shared_state();
 
-        let imported_files = module_sources
-            .files()
-            .iter()
-            .skip(1)
-            .filter_map(|file| {
-                let path = PathBuf::from(file.name());
-                path.is_file()
-                    .then(|| (path, file.text().as_bytes().to_vec()))
+        let imported_files = view.modules().filter(|module| !module.internal).filter_map(|module| {
+            let source_id = program.module_statements(module).next().map(|stmt| program.arena.stmt(stmt).span.source_id)
+                .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))?;
+            let file = module_sources.get(source_id)?;
+            let path = PathBuf::from(file.name());
+            path.is_file().then(|| (path, file.text().as_bytes().to_vec()))
+        }).collect();
+        let export_callable_aliases = exported_let_names.iter().filter_map(|&name| {
+            program.statement_ids().find_map(|statement| {
+                let crate::syntax::arena::ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else { return None; };
+                let crate::syntax::arena::ArenaStmtKind::Let { target, ty: None, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression) } = program.arena.stmt(inner).kind else { return None; };
+                if !matches!(program.arena.binding_target(target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(binding) if binding == name) { return None; }
+                declarations.static_callable_aliases.get(&program.arena.expr(expression).span).cloned().map(|alias| (name, alias))
             })
-            .collect();
+        }).collect();
         Ok(PreparedDynamicModule {
             module_roots: Arc::clone(module_roots),
             entry_bytes,
             imported_files,
-            arena: file.into_parsed().arena,
+            export_callable_aliases,
             declarations,
             module_program,
             exported_functions,
@@ -7657,7 +7678,7 @@ impl Evaluator {
             }
         };
         let PreparedDynamicModule {
-            arena,
+            export_callable_aliases,
             declarations,
             module_program,
             exported_functions,
@@ -7736,12 +7757,7 @@ impl Evaluator {
         );
         for name in exported_let_names {
             if let Some(value) = child_exports.get_name(name) {
-                let alias = arena.statement_ids().find_map(|statement| {
-                    let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(statement).kind else { return None; };
-                    let crate::syntax::arena::ArenaStmtKind::Let { target, ty: None, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression) } = arena.arena.stmt(inner).kind else { return None; };
-                    if !matches!(arena.arena.binding_target(target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(binding) if binding == name) { return None; }
-                    declarations.static_callable_aliases.get(&arena.arena.expr(expression).span)
-                });
+                let alias = export_callable_aliases.get(&name);
                 let value = if let Some(alias) = alias {
                     let original = match value {
                         Value::Callable(function) => function.identity(),
