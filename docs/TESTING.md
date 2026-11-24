@@ -14,6 +14,52 @@ the archive before relying on an updated `Cargo.lock`.
 
 ## Performance baseline
 
+
+The B1 matrix below records XSH revision
+`e99cfcb8cf6787da585de70766eb821bfc34b2c5` on 2026-11-24. Revision `e99cfcb8`
+identifies that source throughout the table. A dash means no timing or host
+observation was collected. Ranges are minimum–maximum wall times. Busy-host
+measurements are indications, not qualified absolute baselines. The host had a
+separate active QEMU process; another compiler was active during tooling.
+
+`tooling-check` currently runs six files, including three core tests, although
+the matrix describes three. Its 21 measured rounds follow five warmups. The
+frontend diagnostic selects two of the matrix's 52 generated workloads and
+has no timing distribution. The core correctness adapter has no timing mode;
+its resource admission rejected these runs because swap was 100% used and the
+host had a hot process tree. The comparative overlay's pinned base image
+`sha256:0945d878e03536b232d642bdb42ee6232f20948e56f24d57b5dec63b9997eab7`
+was absent locally. Laputa registry rows are deferred to B1b. The native
+Kbuild and pyramid tests used Laputa revision
+`300a59cd635f0570972d353f401380f7fc9ab08e` and exercise correctness, not a
+performance distribution.
+
+| Family | Workload ID | Runner command | Revision | Median [range] | Oracle | Host | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| preparation and checking | frontend-inference | `python3 -B -m dev.performance.frontend_scenario --xsh XSH --xsht XSHT --scratch SCRATCH` | e99cfcb8 | — | pass, two selected workloads | busy host | inconclusive: 52-case timing not available |
+| preparation and checking | tooling-check | `cargo dev bench --workload tooling-check` | e99cfcb8 | 0.1093 [0.0859, 0.1439] s per six-file corpus | pass | busy host | inconclusive: host contention; corpus differs from matrix |
+| text and filesystem processing | core-wc-{small,medium,large} | `cargo dev gate --case performance/core-wc-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
+| text and filesystem processing | core-sort-{small,medium,large} | `cargo dev gate --case performance/core-sort-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
+| text and filesystem processing | core-awk-{small,medium,large} | `cargo dev gate --case performance/core-awk-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
+| text and filesystem processing | core-traversal-{small,medium,large} | `cargo dev gate --case performance/core-traversal-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
+| text and filesystem processing | consolidation-directory | `cargo dev bench --workload consolidation-directory` | e99cfcb8 | — | none | busy host | inconclusive: pinned comparative base image absent |
+| structured data | core-json-{small,medium,large} | `cargo dev gate --case performance/core-json-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
+| structured data | consolidation-json | `cargo dev bench --workload consolidation-json` | e99cfcb8 | — | none | busy host | inconclusive: pinned comparative base image absent |
+| build orchestration | warm-rebuild | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=warm-rebuild` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| build orchestration | make-graph (registry) | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=make-graph` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| parallel work | kbuild-parallel-archive-analysis | `cargo dev gate --case laputa/kbuild/graph-cache --laputa-root LAPUTA` | e99cfcb8 | — | pass | busy host | inconclusive: correctness runner does not measure timing |
+| parallel work | make-graph (native) | `xsht test --jobs 1 --exact-id packages/linux/tests/pyramid.xsh::test_pyramid_kernel_graph_small --exact-id packages/linux/tests/pyramid.xsh::test_pyramid_kernel_graph_medium` | e99cfcb8 | — | pass | busy host | inconclusive: no repeated timing samples |
+| long-running services | xinit-service-start | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=xinit-service-start` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| deployment boundaries | world-plan | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=world-plan` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| deployment boundaries | mirror-publish | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=mirror-publish` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| deployment boundaries | root-compose | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=root-compose` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+| deployment boundaries | profile-ready | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=profile-ready` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
+
+`SIZE` is `small`, `medium`, or `large`. `XSH`, `XSHT`, `SCRATCH`, and
+`LAPUTA` are absolute paths to the relevant products or directories. The
+native pyramid command ran inside the pinned test image with Laputa mounted
+read-only and a writable scratch directory.
+
 On 2026-11-24, the [abstraction suite](../dev/performance/README.md#abstraction-costs)
 ran seven interleaved pairs on an AMD Ryzen 9 9950X x86_64 host with 32 logical
 CPUs, using this checkout's host verification binaries at base `db2bbf063`.
