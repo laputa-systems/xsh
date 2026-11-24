@@ -16,35 +16,49 @@ the archive before relying on an updated `Cargo.lock`.
 
 
 The B1 matrix below records XSH revision
-`e99cfcb8cf6787da585de70766eb821bfc34b2c5` on 2026-11-24. Revision `e99cfcb8`
-identifies that source throughout the table. A dash means no timing or host
-observation was collected. Ranges are minimum–maximum wall times. Busy-host
-measurements are indications, not qualified absolute baselines. The host had a
-separate active QEMU process; another compiler was active during tooling.
+`5784eaec0fabf0f7ee7eba690dc73f7600bad652` on 2026-11-24, except where the
+Revision column names `e99cfcb8` (`e99cfcb8cf6787da585de70766eb821bfc34b2c5`,
+an earlier busy-host run). A dash means no timing or host observation was
+collected. Ranges are minimum–maximum wall times. The measured products are the
+`dist` profile (fat LTO, static musl) built in the pinned test image
+`sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6`.
+`perf-gate-ready` passed before every timed window. One other QEMU guest used
+about one core throughout; "quiet host" means readiness passed before and after
+the window.
 
-`tooling-check` currently runs six files, including three core tests, although
-the matrix describes three. Its 21 measured rounds follow five warmups. The
-frontend diagnostic selects two of the matrix's 52 generated workloads and
-has no timing distribution. The core correctness adapter has no timing mode;
-its resource admission rejected these runs because swap was 100% used and the
-host had a hot process tree. The comparative overlay's pinned base image
-`sha256:0945d878e03536b232d642bdb42ee6232f20948e56f24d57b5dec63b9997eab7`
-was absent locally. Laputa registry rows are deferred to B1b. The native
-Kbuild and pyramid tests used Laputa revision
+The core rows ran seven interleaved rounds over all fifteen cases after one
+warmup each, and every run matched its exact oracle. Their `cycles:u` ranges
+stay within 4% of the median. The `core-wc-small` wall range includes one
+0.168 s outlier. The comparative rows report the pooled XSH median and median
+absolute deviation over 90 samples on one CPU in the pinned overlay, with all
+seven parity checks passing. The other interpreters' medians are in each run's
+`result.json`. `tooling-check` runs six files, including three core tests,
+although the matrix describes three. Its 21 measured rounds follow five
+warmups. The frontend diagnostic selects two of the matrix's 52 generated
+workloads and has no timing distribution. Laputa registry rows are deferred to
+B1b. The native Kbuild and pyramid tests used Laputa revision
 `300a59cd635f0570972d353f401380f7fc9ab08e` and exercise correctness, not a
 performance distribution.
+
+`tooling-check`'s 2026-11-20 anchor is 0.0407 s on this host, so the bench
+reports a regression. The cause is not the checker's work: five interleaved
+`perf stat` rounds of verification-profile `xsht check` over the six files,
+each binary on its own revision's tree, counted 208.5M instructions at the
+anchor `1b7402ff` and 209.1M at `5784eaec`. Their `cycles:u` ranges overlap
+(150.6M–156.3M and 148.2M–155.7M). The anchor stays unchanged until the wall
+gap has an explanation.
 
 | Family | Workload ID | Runner command | Revision | Median [range] | Oracle | Host | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | preparation and checking | frontend-inference | `python3 -B -m dev.performance.frontend_scenario --xsh XSH --xsht XSHT --scratch SCRATCH` | e99cfcb8 | — | pass, two selected workloads | busy host | inconclusive: 52-case timing not available |
-| preparation and checking | tooling-check | `cargo dev bench --workload tooling-check` | e99cfcb8 | 0.1093 [0.0859, 0.1439] s per six-file corpus | pass | busy host | inconclusive: host contention; corpus differs from matrix |
-| text and filesystem processing | core-wc-{small,medium,large} | `cargo dev gate --case performance/core-wc-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
-| text and filesystem processing | core-sort-{small,medium,large} | `cargo dev gate --case performance/core-sort-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
-| text and filesystem processing | core-awk-{small,medium,large} | `cargo dev gate --case performance/core-awk-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
-| text and filesystem processing | core-traversal-{small,medium,large} | `cargo dev gate --case performance/core-traversal-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
-| text and filesystem processing | consolidation-directory | `cargo dev bench --workload consolidation-directory` | e99cfcb8 | — | none | busy host | inconclusive: pinned comparative base image absent |
-| structured data | core-json-{small,medium,large} | `cargo dev gate --case performance/core-json-SIZE/correctness` | e99cfcb8 | — | none | busy host | inconclusive: resource admission rejected all three sizes |
-| structured data | consolidation-json | `cargo dev bench --workload consolidation-json` | e99cfcb8 | — | none | busy host | inconclusive: pinned comparative base image absent |
+| preparation and checking | tooling-check | `cargo dev bench --workload tooling-check` | 5784eaec | 0.0699 [0.0588, 0.0814] s per six-file corpus | pass | quiet before; busy after (2.85 cores) | baseline; the anchor flags a wall-time regression that source does not explain (below) |
+| text and filesystem processing | core-wc-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-wc-SIZE` | 5784eaec | small 0.0533 [0.0518, 0.1680] s; medium 0.2302 [0.2216, 0.2344] s; large 2.9821 [2.9266, 3.0915] s | pass, every run | quiet host | baseline |
+| text and filesystem processing | core-sort-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-sort-SIZE` | 5784eaec | small 0.2715 [0.2664, 0.2864] s; medium 1.1492 [1.1266, 1.2342] s; large 8.5448 [8.5055, 8.7754] s | pass, every run | quiet host | baseline |
+| text and filesystem processing | core-awk-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-awk-SIZE` | 5784eaec | small 0.4791 [0.4686, 0.5229] s; medium 1.1628 [1.1513, 1.2195] s; large 6.8082 [6.6792, 6.9884] s | pass, every run | quiet host | baseline |
+| text and filesystem processing | core-traversal-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-traversal-SIZE` | 5784eaec | small 0.0161 [0.0152, 0.0210] s; medium 0.0186 [0.0163, 0.0196] s; large 0.0338 [0.0321, 0.0361] s | pass, every run | quiet host | baseline |
+| text and filesystem processing | consolidation-directory | `cargo dev bench --workload consolidation-directory` | 5784eaec | 9.305 ms (MAD 0.329) | pass, 7 parity checks | quiet host | baseline |
+| structured data | core-json-{small,medium,large} | `python3 -B -m dev.performance.core_bench --xsh XSH --case core-json-SIZE` | 5784eaec | small 0.0164 [0.0146, 0.0184] s; medium 0.0226 [0.0208, 0.0252] s; large 0.0729 [0.0693, 0.0761] s | pass, every run | quiet host | baseline |
+| structured data | consolidation-json | `cargo dev bench --workload consolidation-json` | 5784eaec | 7.522 ms (MAD 0.173) | pass, 7 parity checks | quiet host | baseline |
 | build orchestration | warm-rebuild | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=warm-rebuild` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
 | build orchestration | make-graph (registry) | Laputa `make bench XSH_ROOT=XSH TIER=scenario WORKLOADS=make-graph` | e99cfcb8 | — | none | — | inconclusive: pending B1b (Laputa registry) |
 | parallel work | kbuild-parallel-archive-analysis | `cargo dev gate --case laputa/kbuild/graph-cache --laputa-root LAPUTA` | e99cfcb8 | — | pass | busy host | inconclusive: correctness runner does not measure timing |
