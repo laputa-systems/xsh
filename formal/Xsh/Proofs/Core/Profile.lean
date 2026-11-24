@@ -120,4 +120,72 @@ theorem profile_erasure (step : S → Obs → S) (events : List (Event Obs))
   | cons event events ih =>
     cases event <;> simp [run, erase, runErased, ih]
 
+
+def runProfile (state : State) : List (Event Obs) → State
+  | [] => state
+  | event :: rest => runProfile (profileEvent state event) rest
+
+theorem run_profile_projection (step : S → Obs → S) (events : List (Event Obs))
+    (semantic : S) (profile : State) :
+    (run step (semantic, profile) events).2 = runProfile profile events := by
+  induction events generalizing semantic profile with
+  | nil => rfl
+  | cons event events ih => cases event <;> simp [run, runProfile, ih]
+
+theorem event_dropped_monotone (state : State) (event : Event Obs) :
+    state.dropped ≤ (profileEvent state event).dropped := by
+  cases event with
+  | sem _ | tick _ | opaqueOverlapping _ => simp [profileEvent]
+  | enter site => simp [profileEvent, enter]
+  | exit =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, exit, h]
+    | cons frame rest =>
+      cases rest <;> simp [profileEvent, exit, h]
+  | opaqueBlocked wall =>
+    cases h : state.stack <;> simp [profileEvent, opaqueBlocked, h]
+  | mergeWorker dropped openFrames paths => simp [profileEvent, mergeWorker]; omega
+  | finish => simp [profileEvent, finish]
+
+theorem run_dropped_monotone (state : State) (events : List (Event Obs)) :
+    state.dropped ≤ (runProfile state events).dropped := by
+  induction events generalizing state with
+  | nil => simp [runProfile]
+  | cons event rest ih =>
+    exact Nat.le_trans (event_dropped_monotone state event) (ih (profileEvent state event))
+
+def complete (state : State) : Prop := state.dropped = 0
+
+theorem profile_incomplete_reported (state : State) (events : List (Event Obs)) :
+    state.dropped ≤ (runProfile state events).dropped ∧
+    (state.stack ≠ [] → ¬ complete (runProfile (finish state) events)) ∧
+    (∀ dropped openFrames paths, dropped ≠ 0 ∨ openFrames ≠ 0 →
+      ¬ complete (runProfile (mergeWorker state dropped openFrames paths) events)) ∧
+    (∀ dropped openFrames paths, complete (runProfile (mergeWorker state dropped openFrames paths) events) →
+      dropped = 0 ∧ openFrames = 0) ∧
+    (complete (runProfile (finish state) events) → state.stack = []) := by
+  refine ⟨run_dropped_monotone state events, ?_, ?_, ?_, ?_⟩
+  · intro opened done
+    have h := run_dropped_monotone (finish state) events
+    have positive : 0 < state.stack.length := List.length_pos_iff.mpr opened
+    simp only [complete, finish] at done
+    simp only [finish] at h
+    omega
+  · intro dropped openFrames paths missing done
+    have h := run_dropped_monotone (mergeWorker state dropped openFrames paths) events
+    simp only [complete, mergeWorker] at done
+    simp only [mergeWorker] at h
+    omega
+  · intro dropped openFrames paths done
+    have h := run_dropped_monotone (mergeWorker state dropped openFrames paths) events
+    simp only [complete, mergeWorker] at done
+    simp only [mergeWorker] at h
+    omega
+  · intro done
+    have h := run_dropped_monotone (finish state) events
+    simp only [complete, finish] at done
+    simp only [finish] at h
+    have lengthZero : state.stack.length = 0 := by omega
+    exact List.length_eq_zero_iff.mp lengthZero
+
 end Xsh.Proofs.Core.Profile
