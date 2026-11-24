@@ -2051,10 +2051,13 @@ struct ProfileTestReport {
     edges: Vec<ProfileTestEdge>,
     stages: Vec<ProfileTestStage>,
     critical_path: Vec<ProfileTestCritical>,
+    unobserved: Vec<String>,
 }
 
 #[derive(deser::Deserialize)]
-struct ProfileTestStage { items: u64, workers: u64, worker: Vec<ProfileTestWorker>, critical_ns: u64, imbalance: f64, buffered_results: u64, buffered_bytes: u64, buffered_item_max_bytes: u64, input_bytes: u64 }
+struct ProfileTestStage { span: Option<ProfileTestLocation>, executions: u64, parent_setup_ns: u64, parent_spawn_ns: u64, parent_wait_ns: u64, items: u64, workers: u64, worker: Vec<ProfileTestWorker>, critical_ns: u64, imbalance: f64, buffered_results: u64, buffered_bytes: u64, buffered_item_max_bytes: u64, input_bytes: u64 }
+#[derive(deser::Deserialize, PartialEq, Eq)]
+struct ProfileTestLocation { file: String, start: usize, end: usize }
 #[derive(deser::Deserialize)]
 struct ProfileTestWorker { items: u64, busy_ns: u64 }
 #[derive(deser::Deserialize)]
@@ -2072,7 +2075,7 @@ struct ProfileTestCompleteness {
 struct ProfileTestOpaque { kind: String, overlapping: bool, wall_ns: u64, count: u64 }
 
 #[derive(deser::Deserialize)]
-struct ProfileTestSite { kind: String, name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
+struct ProfileTestSite { call_site_span: Option<ProfileTestLocation>, kind: String, name: String, calls: u64, inclusive_ns: u64, exclusive_ns: u64, blocked_ns: u64, alloc_count: u64, alloc_bytes: u64 }
 
 #[derive(deser::Deserialize)]
 struct ProfileTestEdge { caller: usize, callee: usize, calls: u64 }
@@ -2187,6 +2190,19 @@ fn profile_synchronous_external_wait_is_blocked() {
     let (_, call) = profile_site(&report, "external_wait");
     assert!(call.blocked_ns * 100 >= call.inclusive_ns * 80);
     assert!(report.completeness.opaque_regions.iter().any(|region| region.kind == "external-command" && !region.overlapping && region.wall_ns > 0));
+}
+
+#[test]
+fn profile_parallel_parent_stage_timing() {
+    let report = run_profile_fixture("parent-stages.xsh");
+    assert_eq!(report.stages.len(), 2);
+    assert!(!report.unobserved.iter().any(|item| item == "parent-side worker slot cloning"));
+    for stage in &report.stages {
+        assert_eq!(stage.executions, 3);
+        assert!(stage.parent_setup_ns > 0 && stage.parent_spawn_ns > 0);
+        let site = report.sites.iter().find(|site| site.kind == "core" && site.call_site_span == stage.span).expect("enclosing core site");
+        assert!(stage.parent_setup_ns + stage.parent_spawn_ns + stage.parent_wait_ns <= site.inclusive_ns);
+    }
 }
 
 #[test]
