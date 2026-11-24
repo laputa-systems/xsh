@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 191
+Next: 192
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,15 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+### XSH-191 · P2 · Every scalar pure call allocates about nine times and rescans all bindings
+
+- **Area:** Runtime performance
+- **Where:** `src/runtime/eval.rs` (`prune_binding_values`, ~6886, run at every call completion from `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` ~10648; `BindingNamespaceLeases`, ~622); parked lane `lane/o4-calls` (tests and a partial change)
+- **Problem:** A small scalar `pure` helper in a hot loop costs about 1.9x the inlined code (campaign O1, `dev/performance/abstraction/inline-{a,b}.xsh`, busy host: paired ratio). On `a4fc2fed4`, 1,000 calls from a pure caller allocate 9,040 times and 10,000 calls 90,040 times. Each call completion allocates a fresh namespace set, walks every signal hook and dynamic function, calls `Arc::make_mut` on the whole binding map (cloning it when shared) and retains over every binding. Skipping the prune is not safe: it also collects namespaces whose last lease was dropped elsewhere, on the error-unwind path (`explicit_run.rs` ~10418) or by another evaluator sharing the lease map (`eval.rs` ~4048). The lane's `unrelated_call_prunes_binding_after_last_lease_drops` test pins that. With the prune skipped, calls still allocated 5 times each, so other per-call allocations remain.
+- **Recommendation:** Keep pruning semantics and make it cheap: reuse a scratch namespace set instead of allocating, scan without mutating, and call `make_mut` only when a dead namespace actually has bindings. Then find the remaining per-call allocations with the lane's caller-inclusive test (`profile_scalar_helper_allocations_do_not_scale_with_calls`), which must also pass in the pinned Linux container. Measure with interleaved inline-a/inline-b pairs and the abstraction suite.
+- **Fix with:** make-it-fast, lifecycle-concurrency
+- **Effort:** M
+
 ### XSH-190 · P2 · Importing an empty module panics during checking
 
 - **Area:** Module loading and semantic checking
