@@ -292,7 +292,7 @@ pub(crate) fn validate_cli_entry(
         };
         if let Err(error) = crate::modules::cli::PreparedSignatureCli::prepare(parameters, String::new(), &entry.metadata, span) {
             diagnostics.push(Diagnostic::new(Severity::Error, &error.message).with_code(DiagnosticCode::CheckCliEntry)
-                .with_label(Label::primary(span, error.message)));
+                .with_label(Label::primary(span, error.message.clone())));
         }
     }
     if diagnostics.is_empty() {

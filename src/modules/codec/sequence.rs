@@ -183,7 +183,7 @@ impl<R: Read + Send + 'static, D: StreamDeserializer + Send + 'static> LiveStrea
                     let encoding = reader.deserializer().encoding;
                     let mut error = runtime_error(error, format.identifier(), span);
                     if encoding {
-                        error = RuntimeError::structured("CodecError", "Encoding", error.payload, vec!["InvalidData".into()], error.message).with_span(span);
+                        error = RuntimeError::structured("CodecError", "Encoding", error.payload.clone(), vec!["InvalidData".into()], error.message.clone()).with_span(span);
                     }
                     attribute(&mut error, self.path.as_ref(), self.items);
                     Value::err(Value::Error(Box::new(error)))

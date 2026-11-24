@@ -42,7 +42,7 @@ impl Evaluator {
         let (read, write) = match paths(1).and_then(|read| paths(2).map(|write| (read, write))) {
             Ok(authorities) => authorities,
             Err(error) => return Ok(lowered_process_run_error(
-                RunError::new("confinement", error.message).with_span(span),
+                RunError::new("confinement", error.message.clone()).with_span(span),
             )),
         };
         let tcp = if lowered_bool_arg_or(values.get(3).cloned(), false, OP, span)? {

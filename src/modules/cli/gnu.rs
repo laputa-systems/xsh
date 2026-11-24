@@ -556,7 +556,7 @@ impl Scan<'_> {
             }
         }
         validate_relationships(self.specs, &state.present, self.span)
-            .map_err(|error| self.diag.error(error.message))
+            .map_err(|error| self.diag.error(error.message.clone()))
     }
 }
 

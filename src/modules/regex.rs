@@ -59,7 +59,7 @@ pub(crate) fn prepare_literal(
     literal.prepared.get_or_init(|| {
         compile(&literal.pattern, literal.span)
             .map(std::sync::Arc::new)
-            .map_err(|error| error.message)
+            .map_err(|error| error.message.clone())
     })
 }
 

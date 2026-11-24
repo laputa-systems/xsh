@@ -1488,7 +1488,10 @@ impl PathValue {
 }
 
 #[derive(Clone)]
-pub struct RuntimeError {
+pub struct RuntimeError(Box<RuntimeErrorData>);
+
+#[derive(Clone)]
+pub struct RuntimeErrorData {
     pub family: String,
     pub variant: String,
     pub kind: String,
@@ -1518,6 +1521,21 @@ pub struct RuntimeError {
     // Carries the innermost stream-item attribution across evaluator
     // boundaries without changing the public error's debug or equality view.
     pub(crate) stream_item_attribution: Option<StreamItemErrorAttribution>,
+}
+
+impl std::ops::Deref for RuntimeError {
+    type Target = RuntimeErrorData;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl std::ops::DerefMut for RuntimeError {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+}
+
+impl RuntimeError {
+    pub fn from_data(data: RuntimeErrorData) -> Self { Self(Box::new(data)) }
+    pub fn into_data(self) -> RuntimeErrorData { *self.0 }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1588,6 +1606,11 @@ mod runtime_error_attribution_tests {
     use crate::trace::TraceError;
 
     #[test]
+    fn runtime_error_size() {
+        assert!(std::mem::size_of::<RuntimeError>() <= 16);
+    }
+
+    #[test]
     fn stream_item_attribution_does_not_change_debug_or_equality() {
         let original = RuntimeError::new("test-error", "failed");
         let mut attributed = original.clone();
@@ -1608,7 +1631,7 @@ impl RuntimeError {
         let kind = kind.into();
         let symbols = SymbolOwner::current().unwrap_or_default();
         let variant_name = symbols.intern(&kind);
-        Self {
+        Self::from_data(RuntimeErrorData {
             family: "Error".to_string(),
             variant: kind.clone(),
             kind,
@@ -1628,7 +1651,7 @@ impl RuntimeError {
             variant_name,
             _symbols: symbols,
             stream_item_attribution: None,
-        }
+        })
     }
 
     pub fn structured(
@@ -1664,7 +1687,7 @@ impl RuntimeError {
                 _ => None,
             })
             .unwrap_or_else(|| format!("{family}.{variant}"));
-        Self {
+        Self::from_data(RuntimeErrorData {
             kind,
             family,
             variant,
@@ -1684,7 +1707,7 @@ impl RuntimeError {
             variant_name,
             _symbols: symbols,
             stream_item_attribution: None,
-        }
+        })
     }
 
     /// A host operation failure carrying the facet its OS error implements, as
@@ -1714,7 +1737,7 @@ impl RuntimeError {
 
     pub fn abort(status: u8, force: bool) -> Self {
         let symbols = SymbolOwner::current().unwrap_or_default();
-        Self {
+        Self::from_data(RuntimeErrorData {
             family: "Error".to_string(),
             variant: "Abort".to_string(),
             kind: "abort".to_string(),
@@ -1734,7 +1757,7 @@ impl RuntimeError {
             variant_name: symbols.intern("Abort"),
             _symbols: symbols,
             stream_item_attribution: None,
-        }
+        })
     }
 
     pub fn family_name(&self) -> Name {

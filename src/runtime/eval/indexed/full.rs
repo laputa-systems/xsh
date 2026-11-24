@@ -15750,7 +15750,7 @@ impl<'a> FullDecoder<'a> {
                 loop {
                     let value = match crate::runtime::eval::lowered_run::indexed_run::indexed_frame_apply_child_id(
                         self.store.tags[parent], &mut view, position, Span::new(self.store.source_id, 0, 0),
-                    ).map_err(|error| IrVerifyError::new(error.message))? {
+                    ).map_err(|error| IrVerifyError::new(error.message.clone()))? {
                         IndexedFrameApplyChild::Expression(value) => value,
                         IndexedFrameApplyChild::Complete => break,
                         IndexedFrameApplyChild::Unsupported => return Err(IrVerifyError::new("checked guard path has no ordered operand proof")),
@@ -20902,7 +20902,7 @@ impl FullCodec for PathValue {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         PathValue::new(Vec::<u8>::decode(decoder, input)?)
-            .map_err(|error| IrVerifyError::new(error.message))
+            .map_err(|error| IrVerifyError::new(error.message.clone()))
     }
 }
 
@@ -39278,7 +39278,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                             let Value::Error(error) = *error else { panic!("unsigned key failure must retain its structured error") };
                             let span = error.span.unwrap();
                             assert_eq!(&source[span.range()], "row.key");
-                            observations.push((error.kind, error.message));
+                            observations.push((error.kind.clone(), error.message.clone()));
                         }
                     }
                     if input < 0 { assert_eq!(observations[0], observations[1]); }
@@ -39306,7 +39306,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                         &[Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(0))]).into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap_err();
-                    errors.push((error.kind, error.message));
+                    errors.push((error.kind.clone(), error.message.clone()));
                     let after = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(Name::intern("after")), CallableKind::Pure, &[],
                         Span::new(program.store.source_id, 0, 0),
@@ -39447,7 +39447,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                                 assert_eq!(error.kind, failure);
                                 let failed_source = &source[error.span.unwrap().range()];
                                 if local { assert_eq!(failed_source, "let key: UInt = minus(row.key);"); }
-                                failures.push((error.kind, error.message, failed_source.to_string()));
+                                failures.push((error.kind.clone(), error.message.clone(), failed_source.to_string()));
                             }
                         }
                         if input == 0 { assert_eq!(failures[0], failures[1], "{return_type}"); }
@@ -39473,7 +39473,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                     let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("invoke")), CallableKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap_err();
                     assert_eq!(error.kind, "schema");
                     assert_eq!(&source[error.span.unwrap().range()], "key(row.key)");
-                    failures.push((error.kind, error.message));
+                    failures.push((error.kind.clone(), error.message.clone()));
                 }
                 assert_eq!(failures[0], failures[1]);
             }
@@ -47807,11 +47807,11 @@ assert model[key] == 17
                             evaluator.indexed_program = Some(Arc::clone(&program));
                             let result = (0..program.driver_step_count().unwrap()).try_for_each(|step| evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().map(|_| ()));
                             outcomes.push(match result {
-                                Err(error) => Outcome::Failed(error.kind),
+                                Err(error) => Outcome::Failed(error.kind.clone()),
                                 Ok(()) => match evaluator.lookup("selected").unwrap().value.clone() {
                                     Value::Result(crate::runtime::value::ResultValue::Err(error)) if matches!(error.as_ref(), Value::Error(_)) => {
                                         let Value::Error(error) = *error else { unreachable!() };
-                                        Outcome::ErrorData(error.kind, error.message)
+                                        Outcome::ErrorData(error.kind.clone(), error.message.clone())
                                     }
                                     value => Outcome::Value(value),
                                 },

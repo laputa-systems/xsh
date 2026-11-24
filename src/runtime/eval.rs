@@ -7960,7 +7960,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
             let variant_name = symbols.intern(&variant);
             let facets = error.facets();
             let payload = error.payload();
-            RuntimeError {
+            RuntimeError::from_data(crate::runtime::value::RuntimeErrorData {
                 family: "ProcessError".to_string(),
                 variant,
                 kind: error.kind,
@@ -7980,7 +7980,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 variant_name,
                 _symbols: symbols,
                 stream_item_attribution: None,
-            }
+            })
         }
         value => RuntimeError::new(
             "stream-stage-error",

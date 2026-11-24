@@ -127,7 +127,7 @@ fn decode_error(error: Error, format: Format, span: Span) -> RuntimeError {
     };
     let error = runtime_error(error, format.identifier(), span);
     match variant {
-        Some(variant) => RuntimeError::structured("CodecError", variant, error.payload, error.facets, error.message).with_span(span),
+        Some(variant) => RuntimeError::structured("CodecError", variant, error.payload.clone(), error.facets.clone(), error.message.clone()).with_span(span),
         None => error,
     }
 }
