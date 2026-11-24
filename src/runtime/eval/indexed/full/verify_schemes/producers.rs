@@ -2504,7 +2504,7 @@ pub(super) struct ProducerProof<'a> {
     pending: Vec<Obligation>,
     functions: BTreeSet<usize>,
     contract_owners: BTreeSet<u32>,
-    expressions: BTreeMap<(u32, usize), Vec<(Arc<Type>, bool)>>,
+    expressions: rustc_hash::FxHashMap<(u32, usize), Vec<(Arc<Type>, bool)>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: BTreeSet<(u32, usize)>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
@@ -2513,7 +2513,7 @@ pub(super) struct ProducerProof<'a> {
     storage: BTreeMap<u32, Vec<(Arc<Type>, StorageContractRelation)>>,
     decoders: BTreeMap<u32, Rc<FullDecoder<'a>>>,
     types: BTreeMap<TypeId, Arc<Type>>,
-    declared_types: BTreeMap<(u32, usize), ProducerTypeDerivation>,
+    declared_types: rustc_hash::FxHashMap<(u32, usize), ProducerTypeDerivation>,
     driver_output_types: BTreeMap<usize, Rc<BTreeMap<u32, Arc<Type>>>>,
     pattern_types: BTreeMap<(u32, ProducerBinding), Arc<Type>>,
     fresh_lists: BTreeMap<(u32, usize), Option<usize>>,
@@ -2976,7 +2976,7 @@ impl ConditionalProducerType {
 
 impl<'a> ProducerProof<'a> {
     pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
-        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), callable_targets: BTreeMap::new(), callable_target_incoming_reads: BTreeSet::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: rustc_hash::FxHashMap::default(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: rustc_hash::FxHashMap::default(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), callable_targets: BTreeMap::new(), callable_target_incoming_reads: BTreeSet::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
