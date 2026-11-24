@@ -740,6 +740,60 @@ pub fn parse_load_entry_source_arena_only_with_overrides(
     ))
 }
 
+pub(crate) struct DynamicLoadWorkspace {
+    sources: SourceMap,
+    program: ArenaProgram,
+    modules: FxHashMap<(String, String), LoadedModule>,
+    records: crate::sema::check::SharedModuleRecords,
+}
+
+impl Default for DynamicLoadWorkspace {
+    fn default() -> Self {
+        Self { sources: SourceMap::new(), program: ArenaProgram::default(), modules: FxHashMap::default(), records: Default::default() }
+    }
+}
+
+pub(crate) struct WorkspaceLoad {
+    pub sources: SourceMap,
+    pub parsed: ArenaParseOutput,
+    pub entry_id: SourceId,
+    pub records: crate::sema::check::SharedModuleRecords,
+}
+
+pub(crate) struct WorkspaceStale;
+
+impl DynamicLoadWorkspace {
+    pub(crate) fn load_entry(&mut self, file: &str, bytes: Vec<u8>, roots: &[PathBuf]) -> Result<WorkspaceLoad, WorkspaceStale> {
+        let (entry_id, mut diagnostics) = add_source_bytes(&mut self.sources, file, bytes);
+        let mut builder = ArenaProgramBuilder::resume(std::mem::take(&mut self.program));
+        let text = self.sources.get(entry_id).expect("entry source exists").text();
+        let root = Parser::parse_source_into_arena_builder(entry_id, text, &mut builder);
+        diagnostics.extend(root.diagnostics);
+        let mut loaded = FxHashSet::default();
+        let mut stale = false;
+        let mut selected = FxHashMap::default();
+        if diagnostics.is_empty() {
+            let mut loader = ModuleLoader::new(&mut self.sources, &mut builder);
+            loader.workspace_modules = Some(std::mem::take(&mut self.modules));
+            let imports = loader.load_imports(&entry_import_path(Path::new(file)), root.statements, roots);
+            stale = loader.workspace_stale;
+            if !stale {
+                runtime_import_diagnostics(&imports, &loader.modules, &mut loaded, &mut diagnostics);
+                for key in &loaded {
+                    let module = loader.modules.get(key).expect("loaded module exists");
+                    selected.insert(key.clone(), module.statements);
+                }
+            }
+            self.modules = loader.finish_workspace();
+        }
+        self.program = builder.finish_with_statements(root.statements);
+        if stale { return Err(WorkspaceStale); }
+        let mut arena = self.program.clone();
+        arena.modules.retain(|module| module.internal || selected.get(&module.key) == Some(&module.statements));
+        Ok(WorkspaceLoad { sources: self.sources.clone(), parsed: ArenaParseOutput { arena, cst: root.cst, diagnostics }, entry_id, records: self.records.clone() })
+    }
+}
+
 /// Arena-only load into a shared source map (no old `Program`). Used by tooling
 /// that checks several entry files against one `SourceMap` (e.g. `xsht check`).
 pub fn parse_load_entry_source_shared_arena_only(
@@ -919,6 +973,7 @@ fn check_load_cancellation(
 /// Parser recovery is retained for syntax migration; execution checks only
 /// files reachable through imports whose source parsed successfully.
 pub struct LoadedModule {
+    original_bytes: Vec<u8>,
     pub key: String,
     pub path: PathBuf,
     pub source_id: SourceId,
@@ -931,11 +986,20 @@ pub struct LoadedModule {
 
 #[derive(Clone)]
 pub struct LoadedImport {
+    resolution: ImportResolution,
     pub use_id: UseStmtId,
     pub path: Vec<Name>,
     pub span: Span,
     pub target: Option<String>,
     pub diagnostic: Option<Diagnostic>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum ImportResolution {
+    Standard,
+    Missing(Arc<[PathBuf]>),
+    Found(String, String),
+    ReadError(String),
 }
 
 /// Loads each user file once, including files shared by several entry roots.
@@ -952,6 +1016,9 @@ pub struct ModuleLoader<'a, 'b> {
     contextual_modules: FxHashMap<(String, Vec<PathBuf>), String>,
     context_ids: FxHashMap<Vec<PathBuf>, usize>,
     next_context_id: usize,
+    workspace_modules: Option<FxHashMap<(String, String), LoadedModule>>,
+    workspace_stale: bool,
+    validated: FxHashSet<String>,
 }
 
 impl<'a, 'b> ModuleLoader<'a, 'b> {
@@ -982,6 +1049,9 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
             contextual_modules: FxHashMap::default(),
             context_ids: FxHashMap::default(),
             next_context_id: 1,
+            workspace_modules: None,
+            workspace_stale: false,
+            validated: FxHashSet::default(),
         }
     }
 
@@ -1009,11 +1079,31 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
         if self.modules.contains_key(&key) {
             return Ok(key);
         }
+        let workspace_key = (key.clone(), workspace_source_name(&path));
+        let cached = self.workspace_modules.as_mut().and_then(|modules| modules.remove(&workspace_key));
+        if let Some(module) = cached {
+            self.modules.insert(key.clone(), module);
+            if self.validated.insert(key.clone()) {
+                let module = self.modules.get(&key).expect("known module exists");
+                if module.original_bytes != bytes { self.workspace_stale = true; return Ok(key); }
+                let statements = module.statements;
+                let previous = module.imports.iter().map(|import| import.resolution.clone()).collect::<Vec<_>>();
+                self.stack.push(key.clone());
+                let imports = self.load_imports_with_cancellation(&path, statements, &module_roots, cancellation_requested);
+                self.stack.pop();
+                let imports = imports?;
+                if previous != imports.iter().map(|import| import.resolution.clone()).collect::<Vec<_>>() { self.workspace_stale = true; }
+                self.modules.get_mut(&key).expect("known module exists").imports = imports;
+            }
+            return Ok(key);
+        }
+        self.validated.insert(key.clone());
         let bytes = self
             .source_overrides
             .get(&physical_key)
             .cloned()
             .unwrap_or(bytes);
+        let original_bytes = bytes.clone();
         let (source_id, mut diagnostics) =
             add_source_bytes(self.sources, &path.to_string_lossy(), bytes);
         let text = self
@@ -1033,6 +1123,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
         self.modules.insert(
             key.clone(),
             LoadedModule {
+                original_bytes,
                 key: key.clone(),
                 path: path.clone(),
                 source_id,
@@ -1113,6 +1204,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
                 continue;
             };
             let mut import = LoadedImport {
+                resolution: ImportResolution::Standard,
                 use_id,
                 path,
                 span,
@@ -1122,10 +1214,12 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
             match resolve_user_module(importer, &import.path, module_roots) {
                 Ok(UserModuleResolution::Standard) => {}
                 Ok(UserModuleResolution::Missing(paths)) => {
+                    import.resolution = ImportResolution::Missing(Arc::clone(&paths));
                     self.arena.set_use_searched_candidates(use_id, paths);
                 }
                 Ok(UserModuleResolution::Found { path, bytes }) => {
                     let target = self.identity_key(&module_key(&path), module_roots);
+                    import.resolution = ImportResolution::Found(target.clone(), workspace_source_name(&path));
                     if self.stack.contains(&target) {
                         import.diagnostic = Some(
                             Diagnostic::error("cyclic module import")
@@ -1144,6 +1238,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
                     import.target = Some(target);
                 }
                 Err(message) => {
+                    import.resolution = ImportResolution::ReadError(message.clone());
                     import.diagnostic = Some(
                         Diagnostic::error("failed to read module")
                             .with_code(DiagnosticCode::ParseModuleRead)
@@ -1154,6 +1249,14 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
             imports.push(import);
         }
         Ok(imports)
+    }
+
+    fn finish_workspace(self) -> FxHashMap<(String, String), LoadedModule> {
+        let mut workspace = self.workspace_modules.expect("workspace loader");
+        for (key, module) in self.modules {
+            workspace.insert((key, workspace_source_name(&module.path)), module);
+        }
+        workspace
     }
 
     pub fn finish(self) -> FxHashMap<String, LoadedModule> {
@@ -1326,6 +1429,15 @@ fn entry_import_path(path: &Path) -> PathBuf {
     }
 }
 
+fn workspace_source_name(path: &Path) -> String {
+    let name = path.to_string_lossy();
+    if !name.contains(std::path::MAIN_SEPARATOR) {
+        return name.into_owned();
+    }
+    std::path::absolute(&*name).ok().and_then(|path| path.to_str().map(str::to_owned))
+        .unwrap_or_else(|| name.into_owned())
+}
+
 pub fn module_key(path: &Path) -> String {
     path.canonicalize()
         .unwrap_or_else(|_| path.to_path_buf())
@@ -1406,6 +1518,39 @@ fn module_path_from_base(base: &Path, path: &[Name]) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_workspace_retains_ids_and_rejects_changed_imports() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let shared = root.path().join("shared.xsh");
+        fs::write(&shared, "export const value = 1\n").unwrap();
+        let first = root.path().join("first.xsh");
+        let second = root.path().join("second.xsh");
+        let mut workspace = DynamicLoadWorkspace::default();
+        let a = workspace.load_entry(first.to_str().unwrap(), b"use shared\n".to_vec(), &[]).ok().unwrap();
+        let module = &a.parsed.arena.modules[0];
+        let range = module.statements;
+        let original = a.parsed.arena.arena.stmt_ids(range).collect::<Vec<_>>();
+        let b = workspace.load_entry(second.to_str().unwrap(), b"use shared\n".to_vec(), &[]).ok().unwrap();
+        assert_ne!(a.entry_id, b.entry_id);
+        assert_eq!(range, b.parsed.arena.modules[0].statements);
+        assert_eq!(original, b.parsed.arena.arena.stmt_ids(range).collect::<Vec<_>>());
+        assert_eq!(a.parsed.arena.arena.stmt(original[0]), b.parsed.arena.arena.stmt(original[0]));
+        fs::write(&shared, "export const value = 2\n").unwrap();
+        assert!(workspace.load_entry(first.to_str().unwrap(), b"use shared\n".to_vec(), &[]).is_err());
+    }
+
+    #[test]
+    fn dynamic_workspace_rejects_changed_resolution() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let shared = root.path().join("shared.xsh");
+        let entry = root.path().join("entry.xsh");
+        fs::write(&shared, "use absent\n").unwrap();
+        let mut workspace = DynamicLoadWorkspace::default();
+        assert!(workspace.load_entry(entry.to_str().unwrap(), b"use shared\n".to_vec(), &[]).is_ok());
+        fs::write(root.path().join("absent.xsh"), "const value = 1\n").unwrap();
+        assert!(workspace.load_entry(entry.to_str().unwrap(), b"use shared\n".to_vec(), &[]).is_err());
+    }
 
     #[test]
     fn batch_entry_loader_shares_imports_and_keeps_root_ranges() {

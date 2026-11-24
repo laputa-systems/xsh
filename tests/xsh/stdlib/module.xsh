@@ -2065,3 +2065,44 @@ test test_module_load_shared_parse_diagnostics { |ctx|
 module `{root}/b.xsh` failed to parse: {root}/b.xsh:2:1: parse.module-load: failed to load module (`{root}/shared.xsh` has parse errors); {root}/shared.xsh:2:12: parse.expected-expression: expected expression (expected expression)
 """, result.stdout
 }
+
+test test_module_load_shared_imports_in_parallel { |ctx|
+  let root = test.temp_dir(ctx, name: "load-shared-parallel")?
+  fp"{root}/shared.xsh".write("##! Shared.\n## Value.\nexport const value = 42\n")
+  let plugin = "##! Plugin.\nuse shared\n## Value.\nexport let value: Int = shared.value\n"
+  for i in range(16) {
+    fp"{root}/p{i}.xsh".write(plugin)
+  }
+  let result = test.run_script(ctx, f"""type Plugin = module {{
+  export let value: Int
+}}
+let values = range(16) |> par-map(jobs: 4) {{ |i|
+  module.load(fp"{root}/p{{i}}.xsh")?.require(Plugin)?.value
+}} |> collect()
+for value in values {{ print $value }}
+""")?
+  assert result.success, result.stderr
+  assert result.stdout == "42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42\n", result.stdout
+}
+
+test test_module_load_symlinked_import_diagnostic_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "load-symlink-diagnostics")?
+  let real = fp"{root}/real"
+  real.mkdir()
+  fp"{real}/shared.xsh".write("##! Shared.\nlet value = missing_shared\n")
+  fp"{real}/first.xsh".write("##! First.\nuse shared\n")
+  fp"{real}/second.xsh".write("##! Second.\nuse shared\n")
+  fp"{root}/a".symlink(to: real)
+  fp"{root}/b".symlink(to: real)
+  let result = test.run_script(ctx, f"""for item in [p"{root}/a/first.xsh", p"{root}/b/second.xsh"] {{
+  match module.load(item) {{
+    Ok(_) => print "unexpected success"
+    Err(error) => print $error.message
+  }}
+}}
+""")?
+  assert result.success, result.stderr
+  assert result.stdout == f"""module `{root}/a/first.xsh` failed to check: {root}/a/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+module `{root}/b/second.xsh` failed to check: {root}/b/shared.xsh:2:13: check.unresolved-name: unresolved name `missing_shared` (unresolved name)
+""", result.stdout
+}
