@@ -266,6 +266,7 @@ fn imported_same_spelling_assignments_do_not_train_the_root() {
     builder.push_arena_module(
         "helper-key".to_string(),
         helper_name,
+        module.source_id(),
         module.statements,
     );
     let program = builder.finish();

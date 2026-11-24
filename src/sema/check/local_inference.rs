@@ -1971,7 +1971,7 @@ mod tests {
             let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let module_name = builder.symbol_owner().intern("shared");
-            builder.push_arena_module("shared".to_string(), module_name, module.statements);
+            builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
             for &(statements, _) in &entries {
                 for statement in builder.statement_ids(statements) {
                     if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {

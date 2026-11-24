@@ -204,13 +204,7 @@ impl EffectGraph {
         view: &CheckBundleView<'_>,
         module: &crate::syntax::arena::ArenaUserModule,
     ) -> Self {
-        let source_id = view
-            .program
-            .module_statements(module)
-            .next()
-            .map(|statement| view.program.arena.stmt(statement).span.source_id)
-            .or_else(|| view.program.module_doc_for(module.statements).map(|span| span.source_id));
-        Self::declarations_for_source(view, source_id, Some(module.name))
+        Self::declarations_for_source(view, Some(module.source_id), Some(module.name))
     }
 
     /// Return only declaration-level facts for an owner whose body is not checked.

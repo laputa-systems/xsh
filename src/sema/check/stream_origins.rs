@@ -2320,7 +2320,7 @@ pure relay_splice_right(head: Pair, rows: List[Pair]) -> Stream[Int] {
         let module = Parser::parse_source_into_arena_builder(module_source_id, module_source, &mut builder);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
         for statement in builder.statement_ids(root.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("shared"));

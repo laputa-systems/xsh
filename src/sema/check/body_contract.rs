@@ -544,12 +544,10 @@ impl PendingBodyContracts {
             sites: BTreeMap::new(), value_boundaries: BTreeSet::new(),
             constructors, operand_expressions: BTreeMap::new(), operand_tails: BTreeMap::new() };
         for module in &program.modules {
-            let source = program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span.source_id)
-                .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id));
-            if let Some(source) = source
-                && capture.module_sources.insert(source, Arc::from(module.key.as_str())).is_some() {
+            if capture.module_sources.insert(module.source_id, Arc::from(module.key.as_str())).is_some() {
                 return Err(BodyContractError::UnmappedFact(program.module_doc_for(module.statements)
-                    .unwrap_or_else(|| program.arena.stmt(program.module_statements(module).next().unwrap()).span)));
+                    .or_else(|| program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span))
+                    .unwrap_or(Span::at(module.source_id, 0))));
             }
         }
         for declaration in checked.checked_declarations.functions.values().filter(|declaration| !declaration.internal) {
@@ -1672,7 +1670,7 @@ mod tests {
             assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let name = builder.symbol_owner().intern(namespace);
-            builder.push_arena_module("/canonical/library.xsh".to_owned(), name, module.statements);
+            builder.push_arena_module("/canonical/library.xsh".to_owned(), name, module.source_id(), module.statements);
             let statement = builder.statement_ids(root.statements)[0];
             let (use_id, _, _) = builder.use_stmt_for_statement(statement).unwrap();
             builder.set_use_resolved(use_id, Arc::from("/canonical/library.xsh"));
@@ -1779,7 +1777,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let namespace = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("/canonical/shared.xsh".to_owned(), namespace, module.statements);
+        builder.push_arena_module("/canonical/shared.xsh".to_owned(), namespace, module.source_id(), module.statements);
         let import = builder.statement_ids(root.statements)[0];
         let (use_id, _, _) = builder.use_stmt_for_statement(import).unwrap();
         builder.set_use_resolved(use_id, Arc::from("/canonical/shared.xsh"));

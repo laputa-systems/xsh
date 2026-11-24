@@ -755,7 +755,7 @@ mod tests {
         let imported = Parser::parse_source_into_arena_builder(module_id, module, &mut builder);
         assert!(imported.diagnostics.is_empty(), "{:?}", imported.diagnostics);
         let name = builder.symbol_owner().intern("effects");
-        builder.push_arena_module("effects".to_owned(), name, imported.statements);
+        builder.push_arena_module("effects".to_owned(), name, imported.source_id(), imported.statements);
         for statement in builder.statement_ids(parsed.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("effects")); }
         }
@@ -895,7 +895,7 @@ mod tests {
         );
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
         for &(statements, _) in &roots {
             for statement in builder.statement_ids(statements) {
                 if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
@@ -946,7 +946,7 @@ mod tests {
         }
         for (index, name) in [(2, "model"), (3, "facade")] {
             let symbol = builder.symbol_owner().intern(name);
-            builder.push_arena_module(name.to_string(), symbol, parsed[index].0);
+            builder.push_arena_module(name.to_string(), symbol, parsed[index].1, parsed[index].0);
         }
         for &(statements, _) in &parsed {
             for statement in builder.statement_ids(statements) {
@@ -984,7 +984,7 @@ mod tests {
         }
         for (index, name) in [(2, "bridge"), (3, "leaf")] {
             let symbol = builder.symbol_owner().intern(name);
-            builder.push_arena_module(name.to_string(), symbol, parsed[index].0);
+            builder.push_arena_module(name.to_string(), symbol, parsed[index].1, parsed[index].0);
         }
         for (index, name) in [(0, "bridge"), (1, "bridge"), (2, "leaf")] {
             for statement in builder.statement_ids(parsed[index].0) {
@@ -1217,7 +1217,7 @@ mod tests {
         assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let model_name = builder.symbol_owner().intern("model");
-        builder.push_arena_module("model".to_string(), model_name, module.statements);
+        builder.push_arena_module("model".to_string(), model_name, module.source_id(), module.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("model"));
@@ -1398,7 +1398,7 @@ mod tests {
         assert!(byte.diagnostics.is_empty(), "{:?}", byte.diagnostics);
         assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
         let shared_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+        builder.push_arena_module("shared".to_string(), shared_name, shared.source_id(), shared.statements);
         for root in [first.statements, second.statements, byte.statements] {
             for statement in builder.statement_ids(root) {
                 if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
@@ -1495,7 +1495,7 @@ mod tests {
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
         let shared_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+        builder.push_arena_module("shared".to_string(), shared_name, shared.source_id(), shared.statements);
         for root in [first.statements, second.statements] {
             for statement in builder.statement_ids(root) {
                 if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
@@ -2259,7 +2259,7 @@ mod tests {
         assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
         for statement in builder.statement_ids(entry.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("shared"));
@@ -2429,7 +2429,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        builder.push_arena_module("shared".to_string(), module_name, module.source_id(), module.statements);
         for statement in builder.statement_ids(root.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("shared"));
@@ -2577,7 +2577,7 @@ mod tests {
             ("shared", &shared),
         ] {
             let module_name = builder.symbol_owner().intern(key);
-            builder.push_arena_module(key.to_string(), module_name, module.statements);
+            builder.push_arena_module(key.to_string(), module_name, module.source_id(), module.statements);
         }
         for (index, statement) in builder
             .statement_ids(root.statements)
@@ -2637,7 +2637,7 @@ mod tests {
         assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("owned");
-        builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
+        builder.push_internal_arena_module("owned".to_string(), module_name, module.source_id(), module.statements);
 
         let program = Arc::new(builder.finish_with_statements(entry.statements));
         let sources = Arc::new(sources);
@@ -2692,7 +2692,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
         let shared_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+        builder.push_arena_module("shared".to_string(), shared_name, shared.source_id(), shared.statements);
         for statement in builder.statement_ids(root.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("shared"));
@@ -2744,7 +2744,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(helper.diagnostics.is_empty(), "{:?}", helper.diagnostics);
         let helper_name = builder.symbol_owner().intern("helper");
-        builder.push_arena_module("helper".to_string(), helper_name, helper.statements);
+        builder.push_arena_module("helper".to_string(), helper_name, helper.source_id(), helper.statements);
         for statement in builder.statement_ids(root.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("helper"));
@@ -2793,7 +2793,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(helper.diagnostics.is_empty(), "{:?}", helper.diagnostics);
         let helper_name = builder.symbol_owner().intern("helper");
-        builder.push_arena_module("helper".to_string(), helper_name, helper.statements);
+        builder.push_arena_module("helper".to_string(), helper_name, helper.source_id(), helper.statements);
         for statement in builder.statement_ids(root.statements) {
             if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
                 builder.set_use_resolved(use_id, Arc::from("helper"));
@@ -2987,11 +2987,12 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         }
         let shared_name = builder.symbol_owner().intern("shared");
-        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+        builder.push_arena_module("shared".to_string(), shared_name, shared.source_id(), shared.statements);
         let embedded_name = builder.symbol_owner().intern("embedded_probe");
         builder.push_internal_arena_module(
             "embedded-probe".to_string(),
             embedded_name,
+            embedded.source_id(),
             embedded.statements,
         );
         for statement in builder.statement_ids(root.statements) {

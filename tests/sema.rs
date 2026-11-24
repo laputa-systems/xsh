@@ -974,10 +974,11 @@ fn doc_only_module_does_not_attribute_orphan_docs_to_another_source() {
     builder.push_arena_module(
         "helper".to_string(),
         helper_name,
+        helper.source_id(),
         helper.statements,
     );
     let proof_name = builder.symbol_owner().with_current(|| Name::intern("proof"));
-    builder.push_arena_module("proof".to_string(), proof_name, proof.statements);
+    builder.push_arena_module("proof".to_string(), proof_name, proof.source_id(), proof.statements);
     for statement in builder.statement_ids(main.statements) {
         let Some((use_id, path, _)) = builder.use_stmt_for_statement(statement) else {
             continue;
@@ -1985,7 +1986,7 @@ fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
             fragment.diagnostics
         );
         let name = builder.symbol_owner().with_current(|| Name::intern(name));
-        builder.push_arena_module(name.to_string(), name, fragment.statements);
+        builder.push_arena_module(name.to_string(), name, fragment.source_id(), fragment.statements);
     }
     for (statement, key) in builder
         .statement_ids(entry.statements)

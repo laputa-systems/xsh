@@ -1722,19 +1722,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.arena.use_stmts[use_id.index()].searched_candidates = Some(paths);
     }
 
-    pub fn push_arena_module(&mut self, key: String, name: Name, statements: ArenaRange) {
+    pub fn push_arena_module(&mut self, key: String, name: Name, source_id: SourceId, statements: ArenaRange) {
         self.modules.push(ArenaUserModule {
             key,
             name,
+            source_id,
             statements,
             internal: false,
         });
     }
 
-    pub fn push_internal_arena_module(&mut self, key: String, name: Name, statements: ArenaRange) {
+    pub fn push_internal_arena_module(&mut self, key: String, name: Name, source_id: SourceId, statements: ArenaRange) {
         self.modules.push(ArenaUserModule {
             key,
             name,
+            source_id,
             statements,
             internal: true,
         });
@@ -6873,6 +6875,7 @@ fn effect_from_code(code: u32) -> Effect {
 pub struct ArenaUserModule {
     pub key: String,
     pub name: Name,
+    pub source_id: SourceId,
     pub statements: ArenaRange,
     /// Whether this is an embedded standard-library implementation module
     /// rather than a user source module. Internal modules are reachable only

@@ -451,13 +451,7 @@ fn collect_exported_top_level_binding_names(program: &ArenaProgram) -> BTreeSet<
 fn compact_module_source_order(file: &CompactFileUnit) -> Vec<(SourceId, String)> {
     let mut sources = vec![(file.source_id(), file.display_path().to_string())];
     for module in &file.program().modules {
-        let Some(first_statement) = file.program().module_statements(module).next() else {
-            continue;
-        };
-        sources.push((
-            file.program().arena.stmt(first_statement).span.source_id,
-            module.key.clone(),
-        ));
+        sources.push((module.source_id, module.key.clone()));
     }
     sources.sort_by_key(|(source_id, display)| (*source_id, display.clone()));
     sources
@@ -1144,7 +1138,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
         self.stack.pop();
         self.modules.get_mut(&key).expect("module was inserted").imports = imports?;
         let name = self.arena.name(&physical_key);
-        self.arena.push_arena_module(key.clone(), name, statements);
+        self.arena.push_arena_module(key.clone(), name, source_id, statements);
         Ok(key)
     }
 
@@ -1385,6 +1379,7 @@ impl<'a, 'b> EmbeddedModuleLoader<'a, 'b> {
         self.arena.push_internal_arena_module(
             module.label.to_string(),
             namespace,
+            parsed.source_id(),
             parsed.statements,
         );
     }

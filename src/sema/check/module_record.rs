@@ -133,7 +133,7 @@ impl ModuleRecords {
         let program = view.program;
         let mut prepared = FxHashMap::<Arc<str>, Arc<ModuleRecord>>::default();
         for module in view.modules.iter().copied() {
-            let source_id = module_source_id(program, module);
+            let source_id = module.source_id;
             let role = if module.internal {
                 ModuleRecordRole::Embedded
             } else {
@@ -313,15 +313,6 @@ impl ModuleRecords {
     fn module_count(&self) -> usize {
         self.modules.len()
     }
-}
-
-fn module_source_id(program: &ArenaProgram, module: &ArenaUserModule) -> SourceId {
-    program
-        .module_statements(module)
-        .next()
-        .map(|statement| program.arena.stmt(statement).span.source_id)
-        .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
-        .unwrap_or_else(|| panic!("module source identity missing for `{}`", module.name.as_str()))
 }
 
 fn module_import_keys<'a>(
@@ -697,7 +688,7 @@ mod tests {
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let module_name = builder.symbol_owner().intern("owned");
-        builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
+        builder.push_internal_arena_module("owned".to_string(), module_name, module.source_id(), module.statements);
 
         let program = builder.finish_with_statements(root.statements);
         let _symbol_owner = program.symbol_owner().enter();
@@ -778,14 +769,15 @@ mod tests {
         }
         for (name, parsed) in [("shared", &shared), ("left", &left), ("right", &right)] {
             let symbol = builder.symbol_owner().intern(name);
-            builder.push_arena_module(name.to_string(), symbol, parsed.statements);
+            builder.push_arena_module(name.to_string(), symbol, parsed.source_id(), parsed.statements);
         }
         let alias = builder.symbol_owner().intern("shared_alias");
-        builder.push_arena_module("shared_alias".to_string(), alias, shared.statements);
+        builder.push_arena_module("shared_alias".to_string(), alias, shared.source_id(), shared.statements);
         let embedded_name = builder.symbol_owner().intern("shared");
         builder.push_internal_arena_module(
             "embedded-shared".to_string(),
             embedded_name,
+            embedded_shared.source_id(),
             embedded_shared.statements,
         );
         for (statements, names) in [
@@ -942,6 +934,7 @@ mod tests {
         other_builder.push_arena_module(
             "shared".to_string(),
             other_name,
+            other_shared.source_id(),
             other_shared.statements,
         );
         for statement in other_builder.statement_ids(other_root.statements) {
