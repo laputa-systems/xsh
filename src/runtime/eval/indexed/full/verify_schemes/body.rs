@@ -4689,7 +4689,7 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
 
     #[test]
     fn deferred_conversion_authenticates_its_operation_and_operand() {
-        let program = prepare("pure length(value: Bytes) -> Int { value.len() }\npure decode(value, marker, wrong: Str) -> Result[Str] { let text = value[0..1] as Str; let _ = length(value); let _ = marker; let _ = wrong; text }\nlet result = decode(b\"hello\", 1, \"wrong\")");
+        let program = prepare("pure length(value: Bytes) -> Bool { value.is_empty() }\npure decode(value, marker, wrong: Str) -> Result[Str] { let text = value[0..1] as Str; let _ = length(value); let _ = marker; let _ = wrong; text }\nlet result = decode(b\"hello\", 1, \"wrong\")");
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "decode").unwrap();
         let length = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "length").unwrap();
         let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
@@ -4705,7 +4705,7 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
         wrong_operand.store.extra[words.start] = 2;
         assert!(FullVerifier::verify(&wrong_operand).is_err());
         let length_decoder = decoder_for_function(&program.store, length).unwrap();
-        let length_method = program.store.function_instruction_range(length).unwrap().find(|instruction| matches!(length_decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "len", .. }))).unwrap();
+        let length_method = program.store.function_instruction_range(length).unwrap().find(|instruction| matches!(length_decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "is_empty", .. }))).unwrap();
         let mut wrong_operation = cold();
         let method_words = wrong_operation.store.data[method].range().bounds(wrong_operation.store.extra.len()).unwrap();
         let length_words = program.store.data[length_method].range().bounds(program.store.extra.len()).unwrap();
