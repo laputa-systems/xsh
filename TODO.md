@@ -63,6 +63,7 @@ out of scope.
 - **Where:** `prepare_dynamic_module` in `src/runtime/eval/lowered_run.rs`
 - **Problem:** Distinct `module.load` preparations reuse unchanged imports' parsed and checked forms, but still lower each import's top level and functions for every importing program.
 - **Recommendation:** Reuse lowered imported modules where their binding namespaces and per-program initialization semantics can be preserved. Measure the change with the O4 load probe and M1 fetch workload.
+- **O4 measurement gate (2026-11-24, busy host):** Verification build at `fadb38504`, temporary `Instant` instrumentation, one successful run per workload. `load3 with 10`: imported function lowering 0.021240 s of 0.092873 s total lower (22.9%); function index 0.000753 s, encoding 0.006767 s, top level 0.000340 s, driver encoding 0.000541 s, finish 0.054995 s. `load2 20 distinct`: imports 0.031572 s of 0.164049 s (19.2%); root functions 0.003128 s, index 0.001353 s, encoding 0.012529 s, top level 0.001371 s, driver encoding 0.001687 s, finish 0.096638 s. Other preparation, including selection, is in the unclassified remainder. M1 fetch completed with 104 of 104 dynamic loads having empty scheme-callable tables; its import lowering was 0.101004 s of 0.539133 s. Both probes miss the required 35% import-lowering gate, so O4 body caching was not implemented. Finish dominates these measurements; investigate its verifier and decoding work before revisiting the design.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
