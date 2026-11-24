@@ -35,8 +35,9 @@ out of scope.
 
 - **Area:** Runtime performance
 - **Where:** `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs`; `dev/performance/abstraction/inline-{a,b}.xsh`
-- **Problem:** Caller-inclusive allocation traffic no longer scales with scalar calls, but the helper still costs about 1.82x the inline expression in five verification-profile CPU pairs (busy host: paired ratio). A CPU sample shows time in expression decoding, frame evaluation, root-slot synchronization and memory copying.
+- **Problem:** Before boxing frame continuations, caller-inclusive allocation traffic no longer scaled with scalar calls, but the helper still cost about 1.82x the inline expression in five verification-profile CPU pairs (busy host: paired ratio). Boxing return continuations adds an allocation for each stored continuation.
 - **Recommendation:** Profile the remaining call and frame work and reduce it while preserving call, pruning and traceback behavior. Compare interleaved CPU pairs and the abstraction suite.
+- **Measurement (2026-11-24):** Seven interleaved base/lane runs on a busy 32-core host (load 15.77/24.52/20.95 before and 6.85/15.07/17.95 after). Whole-process CPU helper/inline median ratio was 1.780x at base `86d33a4b6` and 1.776x after boxing; `inline-b` medians were 0.692 s (range 0.570–0.777) and 0.625 s (0.496–0.728), respectively. Instrumented execution CPU ratios were 1.570x and 1.813x; the wide ranges and busy host make the comparison inconclusive. The 1.25x target remains unmet. A separate 857-sample frame-pointer profile had `memcpy` at 15.59%, `ExplicitFrames::step` at 5.69%, `ExplicitFrames::eval_expr` at 3.07%, `sync_indexed_root_slots` at 2.91%, and `eval_indexed_expr` at 2.88% (self cycles).
 - **Fix with:** make-it-fast, lifecycle-concurrency
 - **Effort:** M
 
