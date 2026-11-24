@@ -618,6 +618,15 @@ impl RuntimeBindingIdentity {
     }
 }
 
+/// The binding keys and live namespaces the last prune left behind. Keys
+/// change only through the counted insertion sites or a prune, so an
+/// unchanged revision, length and live set means nothing can be removed.
+struct PrunedBindings {
+    namespaces: FxHashSet<u64>,
+    keys_revision: u64,
+    len: usize,
+}
+
 #[derive(Clone, Default)]
 pub(super) struct BindingNamespaceLeases {
     active: Arc<Mutex<FxHashMap<u64, usize>>>,
@@ -3277,7 +3286,9 @@ pub struct Evaluator {
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
+    binding_keys_revision: u64,
     live_binding_namespaces: FxHashSet<u64>,
+    pruned_bindings: Option<PrunedBindings>,
     binding_namespace_leases: BindingNamespaceLeases,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
@@ -3767,7 +3778,9 @@ impl Evaluator {
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
             binding_values: Arc::new(FxHashMap::default()),
+            binding_keys_revision: 0,
             live_binding_namespaces: FxHashSet::default(),
+            pruned_bindings: None,
             binding_namespace_leases: BindingNamespaceLeases::default(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
@@ -4116,7 +4129,9 @@ impl Evaluator {
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
             binding_values: shared.binding_values.clone(),
+            binding_keys_revision: 0,
             live_binding_namespaces: FxHashSet::default(),
+            pruned_bindings: None,
             binding_namespace_leases: shared.binding_namespace_leases.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
@@ -4564,8 +4579,10 @@ impl Evaluator {
         let saved_root_slots = self.indexed_root_slots.take();
         let saved_binding_values =
             std::mem::replace(&mut self.binding_values, Arc::clone(&hook.binding_values));
+        self.binding_keys_revision = self.binding_keys_revision.wrapping_add(1);
         let result = self.execute_signal_hook_body(hook);
         self.binding_values = saved_binding_values;
+        self.binding_keys_revision = self.binding_keys_revision.wrapping_add(1);
         self.indexed_root_slots = saved_root_slots;
         self.scopes = saved_scopes;
         result
@@ -6885,6 +6902,7 @@ impl Evaluator {
             let mut binding = binding;
             binding.identity = None;
             Arc::make_mut(&mut self.binding_values).insert(identity, binding);
+            self.binding_keys_revision = self.binding_keys_revision.wrapping_add(1);
             return;
         }
         self.publish_binding_identity(&binding);
@@ -6896,6 +6914,7 @@ impl Evaluator {
 
     fn publish_binding_identity(&mut self, binding: &Binding) {
         if let Some(identity) = binding.identity.clone() {
+            self.binding_keys_revision = self.binding_keys_revision.wrapping_add(1);
             Arc::make_mut(&mut self.binding_values).insert(
                 identity,
                 Binding {
@@ -6934,11 +6953,22 @@ impl Evaluator {
             namespaces.insert(function.program.binding_namespace());
         }
         self.binding_namespace_leases.extend_namespaces(namespaces);
-        if !self.binding_values.keys().any(|identity| !namespaces.contains(&identity.namespace)) {
+        if let Some(pruned) = &self.pruned_bindings
+            && pruned.keys_revision == self.binding_keys_revision
+            && pruned.len == self.binding_values.len()
+            && pruned.namespaces == *namespaces
+        {
             return;
         }
-        Arc::make_mut(&mut self.binding_values)
-            .retain(|identity, _| namespaces.contains(&identity.namespace));
+        if self.binding_values.keys().any(|identity| !namespaces.contains(&identity.namespace)) {
+            Arc::make_mut(&mut self.binding_values)
+                .retain(|identity, _| namespaces.contains(&identity.namespace));
+        }
+        self.pruned_bindings = Some(PrunedBindings {
+            namespaces: namespaces.clone(),
+            keys_revision: self.binding_keys_revision,
+            len: self.binding_values.len(),
+        });
     }
 
     pub(super) fn retain_binding_namespace(&self, namespace: u64) -> BindingNamespaceLease {

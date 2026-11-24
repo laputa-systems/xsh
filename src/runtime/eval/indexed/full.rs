@@ -2532,6 +2532,12 @@ impl FullProgram {
         kind: CallableKind,
     ) -> bool {
         let _symbols = self.symbol_owner().enter();
+        if let Some(identities) = self
+            .identities
+            .get_or_init(|| self.resolve_identities().ok())
+        {
+            return identities.contains_key(&(key, kind));
+        }
         (0..self.store.functions.len()).any(|function_index| {
             self.function_identity(function_index)
                 .is_ok_and(|identity| identity == (key, kind))
