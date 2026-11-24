@@ -4171,10 +4171,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let call = &mut self.calls[index];
         if in_place && tag == FullTag::ExprParam {
             self.evaluator.sync_indexed_root_slots(&mut call.slots, span)?;
-            let slot = indexed_slot_read(&call.execution, instruction, span)?
-                .expect("parameter tag has a slot");
-            if let LoweredValue::Int(value) = call.slots[slot] {
-                return Ok(InlineOperand::Value(LoweredValue::Int(value)));
+            if let Some(slot) = indexed_slot_read(&call.execution, instruction, span)?
+                && let Some(LoweredValue::Int(value)) = call.slots.get(slot)
+            {
+                return Ok(InlineOperand::Value(LoweredValue::Int(*value)));
             }
         }
         if in_place {
