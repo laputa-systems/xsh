@@ -90,15 +90,6 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-187 · P2 · A change to the HTTP client never runs the curl and wget command tests
-
-- **Area:** Verification gates
-- **Where:** `dev/gates.xsh:464` (`crates/xsh-net/` selects only the Runtime area); `core/tests/test-curl.xsh`, `core/tests/test-wget.xsh`
-- **Problem:** `cargo dev gate crates/xsh-net/src/lib.rs` selects the Rust runtime and net unit tests but not the native curl and wget tests, the only tests that drive downloads end to end. XSH-181 (`c127a1b7b`) passed its gate while breaking `curl -o /dev/null` and `wget -O /dev/null`; only the full Linux run showed it.
-- **Recommendation:** Select `core/tests/test-curl.xsh` and `core/tests/test-wget.xsh` for changes under `crates/xsh-net/`, within the unprivileged lane, and keep a gate-plan test for that mapping.
-- **Fix with:** single-source-of-truth
-- **Effort:** S
-
 ### XSH-186 · P4 · The byte scanner's nested flag is never read
 
 - **Area:** Runtime lowering

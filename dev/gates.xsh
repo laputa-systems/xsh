@@ -472,6 +472,11 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
   var native_files = []
   for changed_path in paths {
+    if changed_path.starts_with("crates/xsh-net/") {
+      for file in ["core/tests/test-curl.xsh", "core/tests/test-wget.xsh"] {
+        native_files += [file] when file not in native_files
+      }
+    }
     if changed_path in ["dev/source_metrics.xsh", "dev/ratchets.xsh", "dev/ratchets.json"] or changed_path in ratchet_native_files {
       for file in ratchet_native_files {
         native_files += [file] when file not in native_files
