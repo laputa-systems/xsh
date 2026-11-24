@@ -2169,7 +2169,7 @@ pub(super) struct CallFrame<'p> {
     pub(super) defers: Vec<RegisteredDefer>,
     pub(super) block_scopes: Vec<u64>,
     block_defer_offsets: Vec<usize>,
-    return_to: Option<FrameContinuation>,
+    return_to: Option<Box<FrameContinuation>>,
 }
 
 enum ProducerSuspension {
@@ -3686,7 +3686,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator.report_cleanup_error(&error, call.call_span);
             }
             if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
-                call.return_to.as_ref()
+                call.return_to.as_deref()
             {
                 self.evaluator.trace_lowered_utils_cache_result(*span);
             }
@@ -4531,7 +4531,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             defers: Vec::new(),
             block_scopes: Vec::new(),
             block_defer_offsets: Vec::new(),
-            return_to,
+            return_to: return_to.map(Box::new),
         });
         Ok(())
     }
@@ -10499,14 +10499,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Some(next) => {
                     let parent = self.calls.len() - 1;
                     self.refresh_caller_bindings(parent, call.call_span)?;
-                    self.push_value(parent, FrameValue::Value(value), next);
+                    self.push_value(parent, FrameValue::Value(value), *next);
                 }
                 None => self.result = Some(Ok(value)),
             }
             return Ok(());
         }
         if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
-            call.return_to.as_ref()
+            call.return_to.as_deref()
         {
             self.evaluator.trace_lowered_utils_cache_result(*span);
         }
@@ -10658,12 +10658,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;
                 self.refresh_caller_bindings(parent, call.call_span)?;
-                self.push_value(parent, FrameValue::Value(value), next);
+                self.push_value(parent, FrameValue::Value(value), *next);
             }
             (Some(next), Err(error)) => {
                 let parent = self.calls.len() - 1;
                 self.refresh_caller_bindings(parent, call.call_span)?;
-                if let FrameContinuation::UtilsCacheResult { span, .. } = next {
+                if let FrameContinuation::UtilsCacheResult { span, .. } = *next {
                     self.evaluator.trace_lowered_utils_cache_result(span);
                 }
                 self.begin_error_unwind(error);
@@ -12614,6 +12614,11 @@ mod tests {
     use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn call_frame_size() {
+        assert!(std::mem::size_of::<CallFrame<'_>>() <= 320);
+    }
 
     fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
         let mut sources = SourceMap::new();
