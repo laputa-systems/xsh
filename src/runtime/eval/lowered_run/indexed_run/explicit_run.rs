@@ -4169,6 +4169,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(InlineOperand::Pending);
         }
         let call = &mut self.calls[index];
+        if in_place && tag == FullTag::ExprParam {
+            self.evaluator.sync_indexed_root_slots(&mut call.slots, span)?;
+            let slot = indexed_slot_read(&call.execution, instruction, span)?
+                .expect("parameter tag has a slot");
+            if let LoweredValue::Int(value) = call.slots[slot] {
+                return Ok(InlineOperand::Value(LoweredValue::Int(value)));
+            }
+        }
         if in_place {
             return match self.evaluator.eval_indexed_expr(
                 &call.execution,
@@ -12725,6 +12733,23 @@ mod tests {
                 assert!(matches!(value, Value::Int(123)));
             }
         });
+    }
+
+    #[test]
+    fn scalar_call_argument_refreshes_mutated_root_binding() {
+        let source = "var value = 3\nproc advance() -> Int { value += 2; return value }\npure id(n: Int) -> Int { n }\nvar total = 0\nfor i in range(3) {\n  total += id(value)\n  value = advance()\n}\nprint f\"{total} {value}\"\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("scalar-call-root.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+        let plan = evaluator.prepare_compact_indexed_only(&parsed.arena, source_id)
+            .expect("program prepares");
+        let output = evaluator.eval_installed_compact_indexed_only(plan)
+            .unwrap_or_else(|_| panic!("program runs"));
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, b"15 9\n");
+        assert!(output.stderr.is_empty());
     }
 
     fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
