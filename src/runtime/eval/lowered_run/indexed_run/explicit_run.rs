@@ -2612,6 +2612,7 @@ pub(super) enum ProducerStep {
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
+    binary_continuations: Vec<Box<FrameContinuation>>,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
@@ -2619,6 +2620,23 @@ pub(in crate::runtime::eval) struct FrameScratch {
 
 impl FrameScratch {
     const POOL_CAP: usize = 32;
+
+    fn take_binary_continuation(&mut self, next: FrameContinuation) -> Box<FrameContinuation> {
+        if let Some(mut storage) = self.binary_continuations.pop() {
+            *storage = next;
+            storage
+        } else {
+            Box::new(next)
+        }
+    }
+
+    fn recycle_binary_continuation(&mut self, mut storage: Box<FrameContinuation>, span: Span) -> FrameContinuation {
+        let next = std::mem::replace(&mut *storage, FrameContinuation::Discard(span));
+        if self.binary_continuations.len() < Self::POOL_CAP {
+            self.binary_continuations.push(storage);
+        }
+        next
+    }
 
     fn take_work(&mut self) -> Vec<FrameWork> {
         self.work.pop().unwrap_or_default()
@@ -6098,7 +6116,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left.raw(), right.raw(), value_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: Box::new(next) }
+                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -7048,7 +7066,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left, right, op_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: Box::new(next) }
+                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -7570,7 +7588,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(left) if op == BinaryOp::And || op == BinaryOp::Or => {
                     let left = lowered_condition_bool(left, span)?;
                     if (op == BinaryOp::And && !left) || (op == BinaryOp::Or && left) {
-                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(left)), *next);
+                        let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(left)), next);
                     } else {
                         self.push_expr(
                             index,
@@ -7601,21 +7620,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
                 next,
             } => match value {
-                FrameValue::Value(right) => self.push_value(
-                    index,
-                    FrameValue::Value(lowered_binary_value(op, left, right, span)?),
-                    *next,
-                ),
+                FrameValue::Value(right) => {
+                    let value = lowered_binary_value(op, left, right, span)?;
+                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    self.push_value(index, FrameValue::Value(value), next);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BoolBinaryRight { next, span } => match value {
-                FrameValue::Value(value) => self.push_value(
-                    index,
-                    FrameValue::Value(LoweredValue::Bool(lowered_condition_bool(value, span)?)),
-                    *next,
-                ),
+                FrameValue::Value(value) => {
+                    let value = lowered_condition_bool(value, span)?;
+                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    self.push_value(index, FrameValue::Value(LoweredValue::Bool(value)), next);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }

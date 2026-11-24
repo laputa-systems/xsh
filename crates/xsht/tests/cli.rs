@@ -2130,6 +2130,14 @@ fn profile_dynamic_module_preparation_and_cache() {
 }
 
 #[test]
+fn profile_scalar_helper_allocations_do_not_scale_with_calls() {
+    let report = run_profile_fixture("scalar-calls.xsh");
+    let (_, step) = profile_site(&report, "step");
+    assert_eq!(step.calls, 1000);
+    assert!(step.alloc_count < 40, "{} allocations for {} calls", step.alloc_count, step.calls);
+}
+
+#[test]
 fn profile_nested_calls_reconcile() {
     let report = run_profile_fixture("nested.xsh");
     for (caller, callee, calls) in [("outer", "middle", 3), ("middle", "leaf", 12)] {
