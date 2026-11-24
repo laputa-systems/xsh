@@ -2477,6 +2477,15 @@ fn context_assignment_escape(span: Span) -> RuntimeError {
 }
 
 /// The slot a receiver instruction reads, when it reads exactly one.
+/// Typed integer and boolean bindings evaluate only typed operands, which read
+/// slots and never scopes, so they need no published script bindings.
+fn statement_reads_only_slots(tag: FullTag) -> bool {
+    matches!(
+        tag,
+        FullTag::StmtLetInt | FullTag::StmtLetBool | FullTag::StmtAssignInt | FullTag::StmtAssignBool
+    )
+}
+
 fn indexed_slot_read(
     execution: &FullExecution<'_>,
     instruction: u32,
@@ -4889,8 +4898,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // bindings between them, as the statements' own reads expect.
         if let FrameOwner::Block { .. } = self.calls[index].owner {
             let call = &mut self.calls[index];
-            self.evaluator
-                .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
+            let (tag, _) = indexed_value(call.execution.instruction_id(statement), call.call_span)?;
+            if !statement_reads_only_slots(tag) || self.evaluator.indexed_root_publication_pending() {
+                self.evaluator
+                    .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
+            }
         }
         self.eval_statement(index, statement)
     }
