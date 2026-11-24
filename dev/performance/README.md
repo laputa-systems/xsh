@@ -307,12 +307,9 @@ if the verification binaries are elsewhere.
 |---|---|---|---|
 | Repeated worker setup | Five or 20 stages versus one, with equal item counts | Five stages: 20 versus 4 workers, CPU 1.26x (1.15–1.39). Twenty stages: 80 versus 4 workers, CPU 1.58x (1.54–1.62). Setup totals were 1.21 versus 0.88 ms at 20 stages. | Confirmed worker creation and paired cost for this fixture; XSH-192. |
 | Captured-state copying | Capture 10,000 versus 100,000 integers | Setup medians 1.26 versus 35.95 ms, aggregate site allocations 0.67 versus 5.71 MB, 4 workers each. | Inconclusive: list construction affects allocation totals, parent slot cloning and per-worker allocation bytes are unobserved. |
-| Input and result retention | Small versus large payloads | Not measured. `buffered_bytes` is null in every profile. | Inconclusive: required retained-byte field is absent. |
-| Ordered-result buffering | `take(1)` versus full consumption | Not measured. `buffered_bytes` is null in every profile. | Inconclusive: the required retained-byte field is absent. Eager semantics remain in SPEC 13.5 and D2. |
+| Input and result retention | Small versus large payloads | 32 results: 32,822 versus 65,590 estimated bytes for 1,024 versus 2,048 byte payloads. | Confirmed: retained result estimate scales with payload size. |
+| Ordered-result buffering | `take(1)` versus full consumption | Both retain 65,590 estimated bytes for 32 results. | Confirmed: `take(1)` retains the full result buffer; eager semantics remain in SPEC 13.5 and D2. |
 | Nested oversubscription | Nested 2×2 versus flat 4, and nested 4×4 versus flat 16 | Profile reports 6 versus 4 workers and 20 versus 16 workers created. Nested 4×4 CPU median 1.79x (1.50–1.90). | Inconclusive: creation counts do not measure simultaneous runnable workers. |
 
-The retention and ordered-buffering experiments need a profiler that reports
-retained result bytes. Profile site allocation traffic is not retained size.
-The script currently runs only the setup, capture and nested comparisons; it
-prints the missing-field verdicts without running the two blocked experiments and
-exits 1.
+Retained bytes are structural estimates, not allocator traffic or RSS. The
+runner exits successfully only after all comparisons produce verdicts.

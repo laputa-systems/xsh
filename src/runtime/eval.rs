@@ -2311,6 +2311,35 @@ enum LoweredValue {
     ResultErr(Box<Value>),
 }
 
+fn retained_bytes(value: &LoweredValue, seen: &mut rustc_hash::FxHashSet<usize>) -> u64 {
+    fn arc<T: ?Sized>(value: &Arc<T>, seen: &mut rustc_hash::FxHashSet<usize>) -> bool {
+        seen.insert(Arc::as_ptr(value) as *const () as usize)
+    }
+    fn key(value: &MapKey, seen: &mut rustc_hash::FxHashSet<usize>) -> u64 {
+        match value {
+            MapKey::Str(s) if arc(s, seen) => s.len() as u64,
+            MapKey::Bytes(s) | MapKey::Path(s) if arc(s, seen) => s.len() as u64,
+            _ => 0,
+        }
+    }
+    match value {
+        LoweredValue::Str(s) if arc(s, seen) => s.len() as u64,
+        LoweredValue::StrView(s) if arc(&s.text, seen) => s.text.len() as u64,
+        LoweredValue::Bytes(s) if arc(s, seen) => s.len() as u64,
+        LoweredValue::BytesView(s) if arc(&s.bytes, seen) => s.bytes.len() as u64,
+        LoweredValue::Path(p) => p.bytes.capacity() as u64,
+        LoweredValue::List(v) => (v.capacity() * std::mem::size_of::<LoweredValue>()) as u64 + v.iter().map(|v| retained_bytes(v, seen)).sum::<u64>(),
+        LoweredValue::SharedList(v) if arc(v, seen) => (v.capacity() * std::mem::size_of::<LoweredValue>()) as u64 + v.iter().map(|v| retained_bytes(v, seen)).sum::<u64>(),
+        LoweredValue::Record(v) | LoweredValue::Module(v) if arc(v, seen) => v.iter().map(|(k, v)| (std::mem::size_of::<(Arc<str>, LoweredValue)>() as u64) + if arc(k, seen) { k.len() as u64 } else { 0 } + retained_bytes(v, seen)).sum(),
+        LoweredValue::RecordVec(v) if arc(v, seen) => (v.capacity() * std::mem::size_of::<(Name, LoweredValue)>()) as u64 + v.iter().map(|(_, v)| retained_bytes(v, seen)).sum::<u64>(),
+        LoweredValue::Map(v) if arc(v, seen) => v.iter().map(|(k, v)| std::mem::size_of::<(MapKey, LoweredValue)>() as u64 + key(k, seen) + retained_bytes(v, seen)).sum(),
+        LoweredValue::Set(v) if arc(v, seen) => v.iter().map(|k| std::mem::size_of::<MapKey>() as u64 + key(k, seen)).sum(),
+        LoweredValue::Tag(v) => std::mem::size_of::<LoweredTagValue>() as u64 + (v.fields.capacity() * std::mem::size_of::<LoweredValue>()) as u64 + if arc(&v.name, seen) { v.name.len() as u64 } else { 0 } + v.fields.iter().map(|v| retained_bytes(v, seen)).sum::<u64>(),
+        LoweredValue::ResultOk(v) => std::mem::size_of::<LoweredValue>() as u64 + retained_bytes(v, seen),
+        _ => 0,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct LoweredTagValue {
     type_name: Name,
