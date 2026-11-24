@@ -64,6 +64,20 @@ out of scope.
 - **Problem:** Distinct `module.load` preparations reuse unchanged imports' parsed and checked forms, but still lower each import's top level and functions for every importing program.
 - **Recommendation:** Reuse lowered imported modules where their binding namespaces and per-program initialization semantics can be preserved. Measure the change with the O4 load probe and M1 fetch workload.
 - **O4 measurement gate (2026-11-24, busy host):** Verification build at `fadb38504`, temporary `Instant` instrumentation, one successful run per workload. `load3 with 10`: imported function lowering 0.021240 s of 0.092873 s total lower (22.9%); function index 0.000753 s, encoding 0.006767 s, top level 0.000340 s, driver encoding 0.000541 s, finish 0.054995 s. `load2 20 distinct`: imports 0.031572 s of 0.164049 s (19.2%); root functions 0.003128 s, index 0.001353 s, encoding 0.012529 s, top level 0.001371 s, driver encoding 0.001687 s, finish 0.096638 s. Other preparation, including selection, is in the unclassified remainder. M1 fetch completed with 104 of 104 dynamic loads having empty scheme-callable tables; its import lowering was 0.101004 s of 0.539133 s. Both probes miss the required 35% import-lowering gate, so O4 body caching was not implemented. Finish dominates these measurements; investigate its verifier and decoding work before revisiting the design.
+- **O4 verifier scaling (2026-11-24):** At `13da1cfe`, nine interleaved process samples per size used a verification build, temporary `Instant` instrumentation, one dynamic load of an imported library of F simple `Int -> Int` functions, and the `load3 with 10` probe. All loads succeeded. Median elapsed microseconds per verified function are below; the probe values divide ten loads by their 690 total functions. Ratios compare median total times as F doubles. The probe closure differs substantially from the simple fixtures, so these costs do not predict its scaling. No phase consistently exceeds the 2.6 threshold: **linear for this series**, with no verifier change. A separate QEMU was active; timings are indications, not qualified absolute baselines.
+
+  | Phase | F=25 | F=50 | F=100 | F=200 | Probe | 2x ratios |
+  |---|---:|---:|---:|---:|---:|---|
+  | Finish | 3.337 | 2.538 | 1.871 | 1.752 | 82.404 | 1.52, 1.47, 1.87 |
+  | Verifier setup | 0.617 | 0.440 | 0.271 | 0.236 | 2.159 | 1.43, 1.23, 1.75 |
+  | Function checks, other | 0.742 | 0.627 | 0.588 | 0.578 | 2.831 | 1.69, 1.87, 1.97 |
+  | Decode and function verification | 0.219 | 0.181 | 0.163 | 0.158 | 2.258 | 1.66, 1.80, 1.94 |
+  | Effects | 0.095 | 0.079 | 0.069 | 0.067 | 1.317 | 1.66, 1.75, 1.96 |
+  | Producer analysis and facts | 0.407 | 0.351 | 0.318 | 0.321 | 15.394 | 1.73, 1.81, 2.02 |
+  | Bridge and driver checks | 0.680 | 0.468 | 0.297 | 0.253 | 1.141 | 1.38, 1.27, 1.70 |
+  | Schemes | 0.107 | 0.051 | 0.026 | 0.015 | 56.693 | 0.95, 1.03, 1.15 |
+  | Verifier total | 2.997 | 2.276 | 1.761 | 1.678 | 81.629 | 1.52, 1.55, 1.91 |
+
 - **Fix with:** make-it-fast
 - **Effort:** M
 
