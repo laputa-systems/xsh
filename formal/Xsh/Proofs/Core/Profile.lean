@@ -188,4 +188,85 @@ theorem profile_incomplete_reported (state : State) (events : List (Event Obs)) 
     have lengthZero : state.stack.length = 0 := by omega
     exact List.length_eq_zero_iff.mp lengthZero
 
+
+def StackValid : Nat → List Frame → Prop
+  | _, [] => True
+  | now, frame :: rest =>
+    frame.start + frame.childNs + frame.blockedNs ≤ now ∧ StackValid frame.start rest
+
+def ValidEvent (state : State) : Event Obs → Prop
+  | .opaqueBlocked wall =>
+    match state.stack with
+    | [] => True
+    | frame :: _ => frame.start + frame.childNs + frame.blockedNs + wall ≤ state.clock
+  | _ => True
+
+theorem stack_valid_advance {before after : Nat} {stack : List Frame}
+    (valid : StackValid before stack) (later : before ≤ after) : StackValid after stack := by
+  cases stack with
+  | nil => trivial
+  | cons frame rest =>
+    simp only [StackValid] at valid ⊢
+    exact ⟨Nat.le_trans valid.1 later, valid.2⟩
+
+theorem event_preserves_stack_valid (state : State) (event : Event Obs)
+    (valid : StackValid state.clock state.stack) (admitted : ValidEvent state event) :
+    StackValid (profileEvent state event).clock (profileEvent state event).stack := by
+  cases event with
+  | sem _ | opaqueOverlapping _ => exact valid
+  | tick amount =>
+    simp only [profileEvent]
+    exact stack_valid_advance valid (Nat.le_add_right _ _)
+  | enter site =>
+    simp only [profileEvent, enter, StackValid]
+    exact ⟨by simp, valid⟩
+  | exit =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, exit, h, StackValid]
+    | cons frame rest =>
+      cases rest with
+      | nil => simp [profileEvent, exit, h, StackValid]
+      | cons parent tail =>
+        simp only [h, StackValid] at valid
+        simp only [profileEvent, exit, h, StackValid]
+        constructor
+        · have before := valid.1
+          have parentBefore := valid.2.1
+          omega
+        · exact valid.2.2
+  | opaqueBlocked wall =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, opaqueBlocked, h, StackValid]
+    | cons frame rest =>
+      simp only [h, StackValid] at valid
+      simp only [ValidEvent, h] at admitted
+      simp only [profileEvent, opaqueBlocked, h, StackValid]
+      exact ⟨by omega, valid.2⟩
+  | mergeWorker dropped openFrames paths => exact valid
+  | finish => exact valid
+
+inductive ValidTrace : State → List (Event Obs) → Prop where
+  | nil (state) : ValidTrace state []
+  | cons (state) (event) (rest) : ValidEvent state event →
+      ValidTrace (profileEvent state event) rest → ValidTrace state (event :: rest)
+
+theorem trace_preserves_stack_valid (state : State) (events : List (Event Obs))
+    (valid : StackValid state.clock state.stack) (trace : ValidTrace state events) :
+    StackValid (runProfile state events).clock (runProfile state events).stack := by
+  induction trace with
+  | nil => exact valid
+  | cons state event rest admitted trace ih =>
+    exact ih (event_preserves_stack_valid state event valid admitted)
+
+def elapsed (now : Nat) (frame : Frame) : Nat := now - frame.start
+
+def active (now : Nat) (frame : Frame) : Nat := elapsed now frame - frame.childNs - frame.blockedNs
+
+theorem frame_accounting (now : Nat) (frame : Frame)
+    (valid : frame.start + frame.childNs + frame.blockedNs ≤ now) :
+    frame.childNs ≤ elapsed now frame ∧ frame.blockedNs ≤ elapsed now frame - frame.childNs ∧
+    elapsed now frame = active now frame + frame.blockedNs + frame.childNs := by
+  simp only [elapsed, active]
+  omega
+
 end Xsh.Proofs.Core.Profile
