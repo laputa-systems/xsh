@@ -74,7 +74,7 @@ pub struct ProfileState {
     pub paths: Vec<StackPath>,
     pub stages: Vec<StageTiming>,
     site_index: FxHashMap<SiteKey, u32>,
-    path_index: FxHashMap<(Option<u32>, u32), u32>,
+    path_index: FxHashMap<(Option<u32>, u32, bool), u32>,
     stack: Vec<Frame>,
 }
 
@@ -114,10 +114,10 @@ impl ProfileState {
         for path in &worker.paths {
             let site = ids[path.site as usize];
             let parent = path.parent.map(|id| paths[id as usize]).or(root.map(|v| v.0));
-            let id = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
+            let id = if let Some(&id) = self.path_index.get(&(parent, site, true)) { id } else {
                 let id = self.paths.len() as u32;
                 self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0, inclusive_ns: 0, worker: true });
-                self.path_index.insert((parent, site), id);
+                self.path_index.insert((parent, site, true), id);
                 id
             };
             self.paths[id as usize].calls = self.paths[id as usize].calls.saturating_add(path.calls);
@@ -176,10 +176,10 @@ impl ProfileState {
             id
         };
         let parent = self.stack.last().map(|frame| frame.path);
-        let path = if let Some(&id) = self.path_index.get(&(parent, site)) { id } else {
+        let path = if let Some(&id) = self.path_index.get(&(parent, site, false)) { id } else {
             let id = self.paths.len() as u32;
             self.paths.push(StackPath { parent, site, calls: 0, exclusive_ns: 0, inclusive_ns: 0, worker: false });
-            self.path_index.insert((parent, site), id);
+            self.path_index.insert((parent, site, false), id);
             id
         };
         if let Some(frame) = self.stack.last() {
@@ -220,3 +220,43 @@ impl ProfileState {
 }
 
 pub fn nanos(start: Instant) -> u64 { start.elapsed().as_nanos().try_into().unwrap_or(u64::MAX) }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    fn key(kind: SiteKind) -> SiteKey {
+        SiteKey { kind, definition: None, call_site: None, module: None, function_name: None }
+    }
+
+    fn timed(state: &mut ProfileState, kind: SiteKind, sleep: std::time::Duration) {
+        state.enter(key(kind));
+        std::thread::sleep(sleep);
+        state.exit();
+    }
+
+    #[test]
+    fn worker_paths_stay_separate_from_serial_paths_at_the_same_site() {
+        let short = std::time::Duration::from_millis(1);
+        let long = std::time::Duration::from_millis(40);
+        let mut state = ProfileState::default();
+        state.enter(key(SiteKind::Proc));
+        timed(&mut state, SiteKind::Pure, short);
+        let mut worker = ProfileState::default();
+        timed(&mut worker, SiteKind::Pure, long);
+        state.merge_worker(worker, crate::source::Span::at(SourceId::new(0), 0), long.as_nanos() as u64);
+        state.exit();
+
+        let parent = state.paths.iter().position(|path| path.parent.is_none()).expect("parent path") as u32;
+        let children: Vec<_> = state.paths.iter().filter(|path| path.parent == Some(parent)).collect();
+        assert_eq!(children.len(), 2, "{children:?}");
+        let serial = children.iter().find(|path| !path.worker).expect("serial child path");
+        let merged = children.iter().find(|path| path.worker).expect("worker child path");
+        assert_eq!((serial.calls, merged.calls), (1, 1));
+        assert!(serial.inclusive_ns < long.as_nanos() as u64, "serial path absorbed worker time: {serial:?}");
+        assert!(merged.inclusive_ns >= long.as_nanos() as u64, "{merged:?}");
+        let root = &state.paths[parent as usize];
+        assert_eq!(root.inclusive_ns, root.exclusive_ns + serial.inclusive_ns);
+    }
+}
