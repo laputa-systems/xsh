@@ -14,6 +14,31 @@ the archive before relying on an updated `Cargo.lock`.
 
 ## Performance baseline
 
+On 2026-11-24, the [abstraction suite](../dev/performance/README.md#abstraction-costs)
+ran seven interleaved pairs on an AMD Ryzen 9 9950X x86_64 host with 32 logical
+CPUs, using this checkout's host verification binaries at base `db2bbf063`.
+This is a **busy-host indication**: a separate QEMU process was active.
+The table ranks B/A ratios of median instrumented execution wall time. Ranges
+are minimum and maximum over seven samples in seconds. Runtime statistics add
+observer overhead. The preparation ratios are especially sensitive to noise.
+No row has a cited cause, so every row remains unexplained.
+
+| Rank | Pair A → B | A execution median [range] s | B execution median [range] s | Execution B/A | Preparation B/A |
+|---:|---|---:|---:|---:|---:|
+| 1 | inline → helper | 0.2776 [0.2722, 0.2832] | 0.5241 [0.5138, 0.5595] | 1.888 | 1.162 |
+| 2 | scalar → record | 0.5584 [0.5491, 0.5925] | 0.8287 [0.8221, 0.8723] | 1.484 | 1.149 |
+| 3 | stage builtin → helper | 0.5571 [0.5312, 0.5838] | 0.8102 [0.7990, 0.8537] | 1.454 | 1.223 |
+| 4 | loop → pipeline | 0.3723 [0.3659, 0.3788] | 0.5240 [0.5141, 0.5508] | 1.407 | 1.045 |
+| 5 | direct → typed callable | 0.5288 [0.5203, 0.5585] | 0.6013 [0.5872, 0.6128] | 1.137 | 1.095 |
+| 6 | monomorphic → generic | 0.4122 [0.4056, 0.4296] | 0.4473 [0.4396, 0.4740] | 1.085 | 1.000 |
+| 7 | local → imported | 0.5225 [0.5137, 0.5417] | 0.5409 [0.5208, 0.5838] | 1.035 | 0.971 |
+| 8 | annotated → inferred | 0.3427 [0.3347, 0.3585] | 0.2616 [0.2571, 0.2679] | 0.763 | 1.063 |
+
+In the stage pair, uninstrumented process wall medians were 0.5392 s for the
+builtin and 0.8017 s for the helper. The result supports keeping SPEC 13.6's
+advice for this cheap string operation; it does not establish the cause or
+cover other stages and operations.
+
 On 2026-11-16 the owner approved the recommendation to count the passing
 canonical replay as the correctness gate and replace the timed consolidation
 stages with ordinary readiness-checked interleaved measurements. XSH-19 then
