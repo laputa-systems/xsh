@@ -7616,7 +7616,7 @@ impl Evaluator {
         if additions.is_empty() {
             return;
         }
-        let table = Arc::make_mut(&mut self.indexed_dynamic_functions);
+        let table = self.dynamic_functions_mut();
         for (qualified, function) in additions {
             table.entry(qualified).or_insert(function);
         }
@@ -7689,7 +7689,7 @@ impl Evaluator {
         let dynamic_namespace = Name::intern(format!("dynamic:{key}"));
         for (name, kind) in &exported_functions {
             let qualified = QualifiedName::new(dynamic_namespace, *name);
-            Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
+            self.dynamic_functions_mut().insert(
                 qualified,
                 DynamicFunction {
                     program: Arc::clone(module_program),
@@ -7732,6 +7732,7 @@ impl Evaluator {
         self.active_modules.retain(|active| active != &key);
         let values = child_output.map_err(|error| error.with_span(span))?;
         self.indexed_dynamic_functions = values.dynamic_functions;
+        self.dynamic_functions_revision = self.dynamic_functions_revision.wrapping_add(1);
         self.module_export_signatures = values.export_signatures;
         self.module_value_cache = values.module_cache;
         Arc::make_mut(&mut self.binding_values).extend(values.lexical_bindings.iter()
@@ -7774,7 +7775,7 @@ impl Evaluator {
                         .or_else(|| original.as_qualified().map(LoweredFunctionKey::Qualified))
                         .expect("callable identity is interned");
                     let qualified = QualifiedName::new(dynamic_namespace, name);
-                    Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
+                    self.dynamic_functions_mut().insert(
                         qualified,
                         DynamicFunction {
                             program: Arc::clone(module_program),
