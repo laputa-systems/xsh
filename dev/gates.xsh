@@ -1332,7 +1332,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
       selected_ids += ["verification/inference-workloads"] when "verification/inference-workloads" not in selected_ids
       continue
     }
-    if changed_path in ["dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/core_trace.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
+    if changed_path in ["dev/performance/core_bench.py", "dev/performance/core_cases.py", "dev/performance/core_pipeline.py", "dev/performance/core_trace.py", "dev/performance/test_core_cases.py"] or changed_path.starts_with("dev/performance/fixtures/core-cases/") {
       selected_ids += ["verification/core-workloads"] when "verification/core-workloads" not in selected_ids
       continue
     }
