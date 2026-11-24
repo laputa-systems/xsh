@@ -4,6 +4,7 @@ import json
 import os
 import platform
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -143,7 +144,7 @@ def preflight(selected):
                 else:
                     image = json.loads(inspection.stdout)[0]
                     base = image.get('Config', {}).get('Labels', {}).get('org.xsh.comparative.base')
-                    if not base or not base.startswith('sha256:'): failures.append(f'{name}: overlay has no pinned base identity; prepare it again')
+                    if not base or not re.fullmatch(r'(?:[^@]+@)?sha256:[0-9a-f]{64}', base): failures.append(f'{name}: overlay has no pinned base identity; prepare it again')
     if any(row[0] in ('stdlib-cold', 'stdlib-full') for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', TEST_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         failures.append(f'stdlib-cold: missing test image {TEST_IMAGE}; run docker pull {TEST_IMAGE} and retry')
     if any(row[0] in QUALIFIED for row in selected) and shutil.which('docker') and subprocess.run(['docker', 'image', 'inspect', PINNED_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:

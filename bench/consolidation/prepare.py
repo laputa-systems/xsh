@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,12 +19,18 @@ BUILD_MEMORY = "8g"
 def prepare(args):
     lock = json.loads((HERE / "versions.lock.json").read_text())
     base = args.base_image or lock["base_images"].get(args.arch)
-    if not base or not base.startswith("sha256:"):
-        raise ValueError("supply the immutable Dockerfile.test image ID for this architecture")
+    if not base or not re.fullmatch(r"(?:[^@]+@)?sha256:[0-9a-f]{64}", base):
+        raise ValueError("supply an immutable Dockerfile.test image reference or ID for this architecture")
     if args.arch in lock["base_images"] and base != lock["base_images"][args.arch]:
         raise ValueError("base image differs from the committed architecture pin")
-    info = json.loads(subprocess.check_output(["docker", "image", "inspect", base]))[0]
-    if info["Architecture"] != args.arch or info["Id"] != base:
+    inspection = subprocess.run(["docker", "image", "inspect", base], capture_output=True, text=True)
+    if inspection.returncode and "@sha256:" in base:
+        subprocess.run(["docker", "pull", "--platform", "linux/" + args.arch, base], check=True)
+        inspection = subprocess.run(["docker", "image", "inspect", base], capture_output=True, text=True)
+    inspection.check_returncode()
+    info = json.loads(inspection.stdout)[0]
+    base_id = info["Id"]
+    if info["Architecture"] != args.arch or (base.startswith("sha256:") and base_id != base):
         raise ValueError("base image identity or architecture differs from the requested target")
     context = args.destination.resolve()
     if context == Path("/tmp") or Path("/tmp") in context.parents:
@@ -32,15 +39,15 @@ def prepare(args):
     subprocess.run([str(XSH), str(HERE / "fetch.xsh"), "--", str(HERE / "sources.lock.json"), str(context), args.arch], check=True)
     for filename in ("Dockerfile", "versions.lock.json", "sources.lock.json"):
         shutil.copyfile(HERE / filename, context / filename)
-    request = {"base_image": base, "architecture": args.arch, "dockerfile_sha256": digest(HERE / "Dockerfile"), "lock_sha256": digest(HERE / "versions.lock.json"), "sources_lock_sha256": digest(HERE / "sources.lock.json")}
+    request = {"base_image": base, "base_image_id": base_id, "architecture": args.arch, "dockerfile_sha256": digest(HERE / "Dockerfile"), "lock_sha256": digest(HERE / "versions.lock.json"), "sources_lock_sha256": digest(HERE / "sources.lock.json")}
     (context / "preparation.json").write_text(json.dumps(request, indent=2) + "\n")
     if args.build:
         request["build_resources"] = {"cpu_quota": BUILD_CPU_QUOTA, "memory_bytes": BUILD_MEMORY_BYTES}
         # BuildKit parses an image ID in FROM as a registry tag, so resolve a local alias first.
-        reference = "xsh-comparative-base:" + args.arch + "-" + base.removeprefix("sha256:")
-        subprocess.run(["docker", "image", "tag", base, reference], check=True)
+        reference = "xsh-comparative-base:" + args.arch + "-" + base_id.removeprefix("sha256:")
+        subprocess.run(["docker", "image", "tag", base_id, reference], check=True)
         resolved = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", reference], text=True).strip()
-        if resolved != base:
+        if resolved != base_id:
             raise ValueError("comparator base alias differs from its pinned image ID")
         subprocess.run(["docker", "build", "--platform", "linux/" + args.arch, "--resource", f"cpu-quota={BUILD_CPU_QUOTA}", "--resource", f"memory={BUILD_MEMORY}", "--build-arg", "BASE_REFERENCE=" + reference, "--build-arg", "BASE_IMAGE=" + base, "--build-arg", "TARGETARCH=" + args.arch, "--tag", args.tag, str(context)], check=True)
         request["image_id"] = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", args.tag], text=True).strip()

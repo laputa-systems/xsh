@@ -403,7 +403,7 @@ def host(args):
     image_info = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]
     image_id = image_info["Id"]
     base_image = image_info.get("Config", {}).get("Labels", {}).get("org.xsh.comparative.base")
-    if not base_image or not base_image.startswith("sha256:"):
+    if not base_image or not re.fullmatch(r"(?:[^@]+@)?sha256:[0-9a-f]{64}", base_image):
         raise ValueError("image must be a prepared overlay of the immutable Dockerfile.test image")
     available_cpus = host_allowed_cpus()
     if not available_cpus:

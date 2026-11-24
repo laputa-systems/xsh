@@ -30,7 +30,7 @@ before exit. YSH and Elvish also use image `find`; YSH sorts JSON names with
 image `sort`. Other parsing/transformation stays in each language. Helpers
 are part of the timed command and their executable hashes are recorded.
 
-The overlay starts from the immutable `Dockerfile.test` image ID and adds the
+The overlay starts from the published immutable `Dockerfile.test` image digest and adds the
 other pinned tool versions. URLs, SHA-256 pins, and architecture choices live
 in `sources.lock.json`. Benchmark metadata and base images remain in
 `versions.lock.json`. The overlay does not mutate its base image.
@@ -54,7 +54,7 @@ use the existing image compiler and libraries. BuildKit limits the overlay
 build to four CPU-equivalents and 8 GiB, and the preparation receipt records
 those limits. For an internal ARM run,
 pass `--arch arm64 --base-image sha256:THE_ARM_DOCKERFILE_TEST_IMAGE_ID` and
-use a separate overlay tag. The result records the exact base and overlay IDs.
+use a separate overlay tag. For the pinned published image, preparation pulls it when absent. The result records the base reference, local base image ID, and overlay ID.
 
 Check the host orchestration and all 35 observable cases:
 

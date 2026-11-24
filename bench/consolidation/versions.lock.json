@@ -2,7 +2,7 @@
   "schema": 1,
   "fixtures_sha256": "575c949c539ec7dc8a968b783555214197329d44b30a781719f105553d02f502",
   "base_images": {
-    "amd64": "sha256:0945d878e03536b232d642bdb42ee6232f20948e56f24d57b5dec63b9997eab7"
+    "amd64": "oci.17166969.xyz/xsh/test@sha256:fed05abfa97c947798fd88621278a2ecd9c7334a840ac638a2c7719b461bb0c6"
   },
   "versions": {
     "bash": "5.3.9",
