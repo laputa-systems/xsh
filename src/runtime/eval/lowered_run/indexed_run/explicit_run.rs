@@ -2613,6 +2613,7 @@ pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
     binary_continuations: Vec<Box<FrameContinuation>>,
+    empty_applications: PreparedInvocationBindings,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
@@ -3709,7 +3710,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map(|view| view.index())
         {
             return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                 program: caller,
                 function,
                 kind,
@@ -3736,7 +3737,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .with_span(span)
                 })?;
             return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                 program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
                 function: dynamic.function,
                 kind: dynamic.kind,
@@ -3767,7 +3768,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             crate::runtime::eval::PreparedCallableState::Instance(bindings) => bindings.clone(),
             crate::runtime::eval::PreparedCallableState::SchemeValue(relationship) => {
                 instance.program.validate_scheme_callable_target(*relationship, target, kind).map_err(|error| indexed_error(error, span))?;
-                PreparedInvocationBindings::default()
+                self.evaluator.frame_scratch.empty_applications.clone()
             }
         };
         Ok(ResolvedCall {
@@ -3792,7 +3793,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .map(|view| view.index())
             {
                 return Ok(ResolvedCall {
-                applications: PreparedInvocationBindings::default(),
+                applications: self.evaluator.frame_scratch.empty_applications.clone(),
                     program: caller,
                     function,
                     kind,
@@ -3817,7 +3818,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span)
             })?;
         Ok(ResolvedCall {
-            applications: PreparedInvocationBindings::default(),
+            applications: self.evaluator.frame_scratch.empty_applications.clone(),
             program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
             function: dynamic.function,
             kind: dynamic.kind,
@@ -3889,9 +3890,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         let mut resolved = self.resolve_active_call(index, function, kind, true, span)?;
-        resolved.applications = self.calls[index].execution.program()
-            .invocation_applications(instruction, resolved.index, &self.calls[index].applications)
-            .map_err(|error| indexed_error(error, span))?;
+        let program = self.calls[index].execution.program();
+        if program.has_invocation(instruction) {
+            resolved.applications = program
+                .invocation_applications(instruction, resolved.index, &self.calls[index].applications)
+                .map_err(|error| indexed_error(error, span))?;
+        }
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
@@ -6739,6 +6743,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
                 let kind = self.external_kind(index, qualified, span)?;
+                let mut values = self.evaluator.take_lowered_slots(0);
+                values.reserve(capacity);
                 self.push_static_arguments(
                     index,
                     instruction,
@@ -6746,7 +6752,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     LoweredFunctionKey::Qualified(qualified),
                     kind,
                     true,
-                    Vec::with_capacity(capacity),
+                    values,
                     value_span,
                     next,
                 )?;
@@ -6777,6 +6783,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
+                let values = self.evaluator.take_lowered_slots(0);
                 self.push_static_arguments(
                     index,
                     instruction,
@@ -6784,7 +6791,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     function,
                     kind,
                     false,
-                    Vec::new(),
+                    values,
                     value_span,
                     next,
                 )?;
