@@ -6915,6 +6915,12 @@ impl Evaluator {
     }
 
     fn prune_binding_values(&mut self) {
+        let program_namespace = self.indexed_program.as_ref().map(|program| program.binding_namespace());
+        if self.binding_values.keys().all(|identity| {
+            identity.namespace == 0 || Some(identity.namespace) == program_namespace
+        }) {
+            return;
+        }
         let namespaces = &mut self.live_binding_namespaces;
         namespaces.clear();
         namespaces.insert(0);
@@ -6937,6 +6943,18 @@ impl Evaluator {
 
     pub(super) fn retain_binding_namespace(&self, namespace: u64) -> BindingNamespaceLease {
         self.binding_namespace_leases.acquire(namespace)
+    }
+
+    /// A call frame's lease on its program's binding namespace, or `None` when
+    /// pruning always keeps that namespace: the global one and the running
+    /// program's own.
+    pub(super) fn retain_call_binding_namespace(&self, namespace: u64) -> Option<BindingNamespaceLease> {
+        let always_live = namespace == 0
+            || self
+                .indexed_program
+                .as_ref()
+                .is_some_and(|program| program.binding_namespace() == namespace);
+        (!always_live).then(|| self.binding_namespace_leases.acquire(namespace))
     }
 
     pub(super) fn assign_binding_identity(
