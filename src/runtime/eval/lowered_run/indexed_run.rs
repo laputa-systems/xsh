@@ -2122,6 +2122,7 @@ mod tests {
                 LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Int(1))])),
                 LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Bool(true)), (second, LoweredValue::Int(2))])),
                 LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Bool(true)), (first, LoweredValue::Int(1)), (second, LoweredValue::Int(2))])),
+                LoweredValue::RecordVec(Arc::new(vec![(first, LoweredValue::Int(1)), (second, LoweredValue::Int(2)), (Name::intern("third"), LoweredValue::Int(3))])),
                 LoweredValue::Int(1),
             ];
             for value in values {
