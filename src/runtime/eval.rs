@@ -618,12 +618,16 @@ impl RuntimeBindingIdentity {
     }
 }
 
-/// The binding keys and live namespaces the last prune left behind. Keys
-/// change only through the counted insertion sites or a prune, so an
-/// unchanged revision, length and live set means nothing can be removed.
+/// What the last prune left behind: the binding key namespaces that neither
+/// the global namespace, the running program nor a dynamic function keeps
+/// live. Keys and dynamic functions change only through their counted sites
+/// or a prune, so while the revisions, length and program match, only these
+/// namespaces can have died, through a released lease.
 struct PrunedBindings {
-    namespaces: FxHashSet<u64>,
+    uncovered: Vec<u64>,
     keys_revision: u64,
+    dynamic_functions_revision: u64,
+    program_namespace: Option<u64>,
     len: usize,
 }
 
@@ -651,12 +655,12 @@ impl BindingNamespaceLeases {
         }
     }
 
-    fn extend_namespaces(&self, namespaces: &mut FxHashSet<u64>) {
-        namespaces.extend(self.active
+    fn retain_unleased(&self, namespaces: &mut Vec<u64>) {
+        let active = self
+            .active
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .copied());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        namespaces.retain(|namespace| !active.contains_key(namespace));
     }
 }
 
@@ -3287,7 +3291,8 @@ pub struct Evaluator {
     scopes: Vec<FxHashMap<Name, Binding>>,
     binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
     binding_keys_revision: u64,
-    live_binding_namespaces: FxHashSet<u64>,
+    dynamic_functions_revision: u64,
+    prunable_binding_namespaces: FxHashSet<u64>,
     pruned_bindings: Option<PrunedBindings>,
     binding_namespace_leases: BindingNamespaceLeases,
     // Signatures of functions exported by dynamically loaded modules
@@ -3779,7 +3784,8 @@ impl Evaluator {
             scopes: vec![FxHashMap::default()],
             binding_values: Arc::new(FxHashMap::default()),
             binding_keys_revision: 0,
-            live_binding_namespaces: FxHashSet::default(),
+            dynamic_functions_revision: 0,
+            prunable_binding_namespaces: FxHashSet::default(),
             pruned_bindings: None,
             binding_namespace_leases: BindingNamespaceLeases::default(),
             module_export_signatures: Arc::new(FxHashMap::default()),
@@ -4130,7 +4136,8 @@ impl Evaluator {
             scopes: shared.scopes.clone(),
             binding_values: shared.binding_values.clone(),
             binding_keys_revision: 0,
-            live_binding_namespaces: FxHashSet::default(),
+            dynamic_functions_revision: 0,
+            prunable_binding_namespaces: FxHashSet::default(),
             pruned_bindings: None,
             binding_namespace_leases: shared.binding_namespace_leases.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
@@ -6935,40 +6942,55 @@ impl Evaluator {
 
     fn prune_binding_values(&mut self) {
         let program_namespace = self.indexed_program.as_ref().map(|program| program.binding_namespace());
-        if self.binding_values.keys().all(|identity| {
-            identity.namespace == 0 || Some(identity.namespace) == program_namespace
-        }) {
-            return;
-        }
-        let namespaces = &mut self.live_binding_namespaces;
-        namespaces.clear();
-        namespaces.insert(0);
-        if let Some(program) = &self.indexed_program {
-            namespaces.insert(program.binding_namespace());
-        }
-        for hook in self.signal_hooks.values() {
-            namespaces.insert(hook.indexed_body.program.binding_namespace());
-        }
-        for function in self.indexed_dynamic_functions.values() {
-            namespaces.insert(function.program.binding_namespace());
-        }
-        self.binding_namespace_leases.extend_namespaces(namespaces);
-        if let Some(pruned) = &self.pruned_bindings
-            && pruned.keys_revision == self.binding_keys_revision
-            && pruned.len == self.binding_values.len()
-            && pruned.namespaces == *namespaces
-        {
-            return;
-        }
-        if self.binding_values.keys().any(|identity| !namespaces.contains(&identity.namespace)) {
-            Arc::make_mut(&mut self.binding_values)
-                .retain(|identity, _| namespaces.contains(&identity.namespace));
-        }
-        self.pruned_bindings = Some(PrunedBindings {
-            namespaces: namespaces.clone(),
-            keys_revision: self.binding_keys_revision,
-            len: self.binding_values.len(),
+        let current = self.pruned_bindings.as_ref().is_some_and(|pruned| {
+            pruned.keys_revision == self.binding_keys_revision
+                && pruned.dynamic_functions_revision == self.dynamic_functions_revision
+                && pruned.program_namespace == program_namespace
+                && pruned.len == self.binding_values.len()
         });
+        if !current {
+            let namespaces = &mut self.prunable_binding_namespaces;
+            namespaces.clear();
+            namespaces.extend(self.binding_values.keys().map(|identity| identity.namespace).filter(|&namespace| {
+                namespace != 0 && Some(namespace) != program_namespace
+            }));
+            if !namespaces.is_empty() {
+                for function in self.indexed_dynamic_functions.values() {
+                    namespaces.remove(&function.program.binding_namespace());
+                }
+            }
+            self.pruned_bindings = Some(PrunedBindings {
+                uncovered: namespaces.iter().copied().collect(),
+                keys_revision: self.binding_keys_revision,
+                dynamic_functions_revision: self.dynamic_functions_revision,
+                program_namespace,
+                len: self.binding_values.len(),
+            });
+        }
+        let Some(pruned) = &self.pruned_bindings else { return };
+        if pruned.uncovered.is_empty() {
+            return;
+        }
+        let mut dead = pruned.uncovered.clone();
+        for hook in self.signal_hooks.values() {
+            let namespace = hook.indexed_body.program.binding_namespace();
+            dead.retain(|&candidate| candidate != namespace);
+        }
+        self.binding_namespace_leases.retain_unleased(&mut dead);
+        if dead.is_empty() {
+            return;
+        }
+        Arc::make_mut(&mut self.binding_values).retain(|identity, _| !dead.contains(&identity.namespace));
+        let len = self.binding_values.len();
+        if let Some(pruned) = &mut self.pruned_bindings {
+            pruned.uncovered.retain(|namespace| !dead.contains(namespace));
+            pruned.len = len;
+        }
+    }
+
+    pub(super) fn dynamic_functions_mut(&mut self) -> &mut FxHashMap<QualifiedName, DynamicFunction> {
+        self.dynamic_functions_revision = self.dynamic_functions_revision.wrapping_add(1);
+        Arc::make_mut(&mut self.indexed_dynamic_functions)
     }
 
     pub(super) fn retain_binding_namespace(&self, namespace: u64) -> BindingNamespaceLease {
