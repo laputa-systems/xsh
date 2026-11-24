@@ -6988,7 +6988,7 @@ impl Evaluator {
         }
     }
 
-    pub(super) fn dynamic_functions_mut(&mut self) -> &mut FxHashMap<QualifiedName, DynamicFunction> {
+    fn dynamic_functions_mut(&mut self) -> &mut FxHashMap<QualifiedName, DynamicFunction> {
         self.dynamic_functions_revision = self.dynamic_functions_revision.wrapping_add(1);
         Arc::make_mut(&mut self.indexed_dynamic_functions)
     }
