@@ -26,7 +26,13 @@ struct Opaque { kind: String, span: Option<Location>, wall_ns: u64, count: u64, 
 #[derive(deser::Serialize)]
 struct Completeness { mode: &'static str, overhead_ns_per_hook: u64, dropped: u64, blocked_time_rule: &'static str, opaque_regions: Vec<Opaque> }
 #[derive(deser::Serialize)]
-struct Report { complete: bool, format: &'static str, completeness: Completeness, sites: Vec<Site>, edges: Vec<Edge> }
+struct Report { complete: bool, format: &'static str, completeness: Completeness, sites: Vec<Site>, edges: Vec<Edge>, stages: Vec<Stage>, critical_path: Vec<CriticalSite>, unobserved: Vec<&'static str> }
+#[derive(deser::Serialize)]
+struct Worker { items: u64, start_delay_ns: u64, setup_ns: u64, busy_ns: u64, wall_ns: u64 }
+#[derive(deser::Serialize)]
+struct Stage { span: Option<Location>, file: String, line: usize, executions: u64, items: u64, workers: u64, worker: Vec<Worker>, critical_ns: u64, imbalance: f64, parent_wait_ns: u64, buffered_results: u64, buffered_bytes: Option<u64> }
+#[derive(deser::Serialize)]
+struct CriticalSite { name: String, kind: String, file: String, line: usize, inclusive_ns: u64 }
 
 fn location(sources: &SourceMap, span: Option<Span>) -> Option<Location> {
     let span = span?;
@@ -83,7 +89,26 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     }
     edges.sort_by_key(|edge| (edge.caller, edge.callee));
     let opaque_regions = profile.opaque.iter().map(|region| Opaque { kind: region.kind.to_string(), span: location(sources, region.span), wall_ns: region.wall_ns, count: region.count, overlapping: region.overlapping }).collect();
-    let report = Report { complete: profile.dropped == 0, format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call and parallel wait wall time; overlapping lifetimes are opaque.", opaque_regions }, sites, edges };
+    let stages: Vec<_> = profile.stages.iter().map(|stage| {
+        let loc = sources.location(stage.span.source_id, stage.span.start());
+        let busy: u64 = stage.worker.iter().map(|worker| worker.busy_ns).sum();
+        let max = stage.worker.iter().map(|worker| worker.busy_ns).max().unwrap_or(0);
+        Stage { span: location(sources, Some(stage.span)), file: loc.as_ref().map_or_else(String::new, |loc| loc.file.clone()), line: loc.map_or(0, |loc| loc.line), executions: stage.executions, items: stage.items, workers: stage.workers, worker: stage.worker.iter().map(|worker| Worker { items: worker.items, start_delay_ns: worker.start_delay_ns, setup_ns: worker.setup_ns, busy_ns: worker.busy_ns, wall_ns: worker.wall_ns }).collect(), critical_ns: stage.critical_ns, imbalance: if busy == 0 { 1.0 } else { max as f64 * stage.worker.len() as f64 / busy as f64 }, parent_wait_ns: stage.parent_wait_ns, buffered_results: stage.buffered_results, buffered_bytes: None }
+    }).collect();
+    let mut critical_path = Vec::new();
+    let mut parent = None;
+    while let Some((index, path)) = profile.paths.iter().enumerate().filter(|(_, path)| path.parent == parent && !path.worker).max_by_key(|(_, path)| path.inclusive_ns) {
+        let site = &sites[path.site as usize];
+        critical_path.push(CriticalSite { name: site.name.clone(), kind: site.kind.clone(), file: site.file.clone(), line: site.line, inclusive_ns: path.inclusive_ns });
+        if let Some(stage) = profile.stages.iter().find(|stage| profile.sites[path.site as usize].key.call_site == Some(stage.span)) {
+            if let Some((worker_index, worker)) = stage.worker.iter().enumerate().max_by_key(|(_, worker)| worker.start_delay_ns.saturating_add(worker.wall_ns)) {
+                critical_path.push(CriticalSite { name: format!("{} worker {}", site.name, worker_index), kind: "parallel-worker".into(), file: site.file.clone(), line: site.line, inclusive_ns: worker.wall_ns });
+            }
+            break;
+        }
+        parent = Some(index as u32);
+    }
+    let report = Report { complete: profile.dropped == 0, format: "xsht-profile/1", completeness: Completeness { mode: "attribution", overhead_ns_per_hook: overhead, dropped: profile.dropped, blocked_time_rule: "Evaluator host-call and parallel wait wall time; overlapping lifetimes are opaque.", opaque_regions }, sites, edges, stages, critical_path, unobserved: vec!["entry-script preparation (see xsht runtime-stats)", "fused par-map/reduce workers", "external command internals", "buffered_bytes", "parent-side worker slot cloning", "per-worker critical path frames"] };
     if let Some(path) = options.json {
         let json = deser_json::to_string(&report).expect("profile report encodes");
         if let Err(error) = fs::write(&path, format!("{json}\n")) { push_text(&mut stderr, &format!("xsht profile: failed to write '{path}': {error}\n")); return CliOutput { status: 4, stdout: output.stdout, stderr, trace_text: String::new(), syscall_summary: None }; }
@@ -106,6 +131,9 @@ pub fn profile_script(options: ProfileOptions) -> CliOutput {
     push_text(&mut stdout, &format!("profile: complete: {}\n", report.complete));
     push_text(&mut stdout, "profile: exclusive ns  calls  site\n");
     for site in ranked.iter().take(20) { push_text(&mut stdout, &format!("{:>20} {:>6}  {} {}:{}\n", site.exclusive_ns, site.calls, site.name, site.file, site.line)); }
+    push_text(&mut stdout, "profile: critical path\n");
+    for site in &report.critical_path { push_text(&mut stdout, &format!("  {} ns {} {} {}:{}\n", site.inclusive_ns, site.kind, site.name, site.file, site.line)); }
+    for stage in &report.stages { push_text(&mut stdout, &format!("profile: stage {}:{} imbalance {:.2}\n", stage.file, stage.line, stage.imbalance)); }
     CliOutput { status, stdout, stderr, trace_text: String::new(), syscall_summary: None }
 }
 

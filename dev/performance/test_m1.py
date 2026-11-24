@@ -16,7 +16,7 @@ def report(complete=True, dropped=0, workers=4, overlapping=True):
     if workers:
         regions.append({'kind': 'parallel-workers', 'wall_ns': 9, 'count': workers, 'overlapping': overlapping})
     return {'format': 'xsht-profile/1', 'complete': complete,
-            'completeness': {'dropped': dropped, 'opaque_regions': regions}, 'sites': []}
+            'completeness': {'dropped': dropped, 'opaque_regions': regions}, 'sites': [], 'stages': [{}]}
 
 
 class EvaluateTest(unittest.TestCase):
@@ -46,6 +46,15 @@ class EvaluateTest(unittest.TestCase):
     def test_incomplete_profile_fails(self):
         self.assertIn('profile is incomplete: dropped 1',
                       evaluate([run()], [run()], report(complete=False, dropped=1)))
+
+    def test_missing_stages_fails(self):
+        data = report()
+        for stages in (None, []):
+            if stages is None:
+                data.pop('stages', None)
+            else:
+                data['stages'] = stages
+            self.assertIn('no parallel stages in profile', evaluate([run()], [run()], data))
 
     def test_serialized_stage_fails(self):
         expected = 'no parallel-worker region: the fetch stage did not run in parallel'
