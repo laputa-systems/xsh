@@ -9,6 +9,20 @@ impl Checker {
         source: &str,
         statements: &[StmtId],
     ) {
+        let infers_defaults = statements.iter().any(|&id| {
+            let kind = match program.arena.stmt(id).kind {
+                ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                kind => kind,
+            };
+            let (ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)) = kind else {
+                return false;
+            };
+            program.arena.params(program.arena.function_def(id).params).iter().any(|param| {
+                param.annotation.is_none()
+                    && param.default.is_some()
+                    && !self.parameter_types.contains_key(&program.arena.span(param.span))
+            })
+        });
         let count = statements.len();
         for _ in 0..=count {
             let before = self.parameter_types.len();
@@ -59,7 +73,7 @@ impl Checker {
                     ArenaStmtKind::Let { .. }
                     | ArenaStmtKind::Var { .. }
                     | ArenaStmtKind::Const { .. }
-                    | ArenaStmtKind::Use(_) => {
+                    | ArenaStmtKind::Use(_) if infers_defaults => {
                         probe.boundary.current_return = None;
                         probe.boundary.in_pure = false;
                         probe.check_stmt_arena(program, source, id);
