@@ -246,3 +246,51 @@ run's summary or progress lines differ from the plain run's, when the profile
 is incomplete or claims completeness after dropping data, or when no
 parallel-worker region shows that the `par-map(jobs: 4)` stage ran in
 parallel. A cold cache downloads missing sources first, so run it twice.
+
+## Abstraction costs
+
+Run `python3 -B -m dev.performance.abstraction --repeats 7` from the XSH
+checkout. The runner uses `target/verification/xsh` and `xsht`; `--xsh` and
+`--xsht` select other verification products. `--json PATH` writes the ranked
+rows. Each pair uses a fixed input and prints its result. Every ordinary and
+instrumented run must print the same result across both variants. The runner
+alternates the A/B order on successive repeats.
+
+The table ranks the ratio of B to A median `execution_exclusive` wall time.
+The preparation ratio uses median `preparation_inclusive`. Each side also
+reports median and minimum–maximum spread for uninstrumented process wall time,
+instrumented preparation, execution and `run_inclusive`. Runtime statistics
+include observer overhead and are attribution indicators, not unobserved timing
+samples. Small preparation times and their ratios are especially sensitive to
+load. A row is explained only when a cause and its citation are supplied;
+otherwise it remains unexplained. No cause is assumed from source shape alone.
+
+The eight pairs compare an inline expression with a pure helper, a local helper
+with the same imported helper, a monomorphic identity with a generic identity,
+a direct call with a typed callable, annotated bindings with inferred bindings,
+a `for` loop with `map`/`where`/`reduce`, scalar arguments with a record built
+for each call, and a builtin string method in a stage with a helper around that
+method. `where` is XSH's filter stage. The stage fixture repeatedly trims the
+same short string; it does not establish a cost for every builtin or workload.
+The input sizes target 0.2–1 second for the A variants on the verification
+binary. See [Performance baseline](../../docs/TESTING.md#performance-baseline)
+for this host's measured ranking and limitations.
+
+On 2026-11-24, a busy-host run ranked the execution ratios as follows. All
+rows remain unexplained; the ratios alone do not identify a cause.
+
+| Rank | Pair | B/A |
+|---:|---|---:|
+| 1 | inline expression / pure helper | 1.888 |
+| 2 | scalar / record argument | 1.484 |
+| 3 | stage builtin / helper | 1.454 |
+| 4 | loop / pipeline | 1.407 |
+| 5 | direct / typed callable | 1.137 |
+| 6 | monomorphic / generic | 1.085 |
+| 7 | local / imported helper | 1.035 |
+| 8 | annotated / inferred bindings | 0.763 |
+
+The stage helper took 0.8102 seconds of median instrumented execution versus
+0.5571 seconds for the builtin on this fixture. This supports retaining SPEC
+13.6's advice for cheap per-item work, while leaving its generality and the
+mechanism unproven. See the baseline for the sample ranges and host conditions.
