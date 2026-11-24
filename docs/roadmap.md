@@ -5,18 +5,19 @@ This is the single plan for this repository: all current and future work, and th
 ## Status
 
 - **Active:** performance and profiling. M2 needs B1b: Laputa's scenario workloads (`make bench TIER=scenario`, seed present under `.out/seed`) for build orchestration, parallel work, services and deployment. The openorange cutover makes the host noisy (owner, 2026-11-24), so judge by cycle counts and record wall timings as busy-host.
-- Last integrated revision: `3ed75837c`, each slice green on its `cargo dev gate`.
+- Last integrated revision: `8e3095d93`, each slice green on its `cargo dev gate` (the last three as one batch gate).
 - B1 `b4c3b7afd`: quiet-host baselines at `5784eaec` in [performance baseline](TESTING.md#performance-baseline) for every XSH-side family. That covers the 15 core cases through `dev.performance.core_bench`, comparative directory 9.31 ms and JSON 7.52 ms (fastest of seven interpreters), and `tooling-check` 0.0699 s. That last row's anchor regression is not in the checker: a cycle A/B against the anchor revision matches instructions within 0.3%.
 - O4 slices since B1 (cycles:u, interleaved, oracles pass):
   - `wc --lines` 16 MiB: -99% (`dd7d2e924`).
   - `sort -k2,2n` 16k rows: -95.5% (`ca759c0e5`).
   - Checked integer compound assignment: `n += b.byte_at(i) ?? 0` now lowers to the integer path, -93% on that probe (`b898f4651`).
   - `Bytes.len()` lowering: `line_ends` -11.4%, `rev` about -8% (`3ed75837c`).
+  - Helper call arguments decoded once: helper fixture -7.9%, `awk` -5.3% (`774c20129`).
+  - Integer records validated without rebuilding schemas: record-argument fixture -31.2%, one allocation fewer per construction (`8e3095d93`).
+  - Byte comparisons and constant byte membership lowered to integer compares: `awk` -7.3% (`8e3095d93`).
+- Defects are fixed when found, not ticketed: membership in an empty list literal failed the IR verifier and now compiles (`8e3095d93`).
 - `line_ends` has no single hot statement. About 25k cycles per line are spread over evaluator dispatch, which bounds every per-byte XSH loop.
-- In flight:
-  - `lane/x191-step`: helper fixture -7.9%, awk -5.3%; gating.
-  - `lane/o1-record`: record-argument fixture -31.2%, one allocation fewer per construction; gating after x191-step.
-  - `lane/o4-awk2`: awk's per-byte numeric helpers.
+- In flight: `lane/x191-work` removes the 152-byte `FrameWork` copy on every evaluator step, 5–9% of cycles in interpreter-heavy profiles.
 - MG1 is parked at `.work/wt/mg2`, 19 of 52 rules: it competes with measurement gates. Resume after M2; run `cargo dev test linux` before pushing.
 - Host: niceforge containers and the stats and venus VMs were stopped, swap was cycled, and stale `/tmp` and Docker data were removed with the owner's approval (2026-11-24). Workers run on Codex only: Command Code has no credits and OpenCode Go is at its monthly limit.
 - The broad semantic-soundness campaign is paused since 2026-11-23; focused proofs continue when an optimization requires them.
