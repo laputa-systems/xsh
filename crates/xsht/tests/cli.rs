@@ -2183,13 +2183,22 @@ fn profile_parallel_imbalance() {
         let report = run_profile_fixture(fixture);
         let stage = &report.stages[0];
         assert_eq!(stage.workers, 2);
-        assert_eq!(stage.items, 4);
-        assert_eq!(stage.worker.iter().map(|worker| worker.items).collect::<Vec<_>>(), vec![2, 2]);
-        assert!(if uneven { stage.imbalance > 1.5 } else { stage.imbalance < 1.5 }, "{}", stage.imbalance);
+        assert_eq!(stage.items, if uneven { 16 } else { 4 });
+        assert_eq!(stage.worker.iter().map(|worker| worker.items).sum::<u64>(), stage.items);
+        assert!(stage.imbalance < 1.3, "{}: {}", fixture, stage.imbalance);
         assert!(stage.critical_ns >= stage.worker.iter().map(|worker| worker.busy_ns).max().unwrap());
         assert_eq!(stage.buffered_results, stage.items);
         assert_eq!(report.critical_path.last().unwrap().kind, "parallel-worker");
     }
+}
+
+#[test]
+fn profile_parallel_single_straggler() {
+    let report = run_profile_fixture("uneven-single.xsh");
+    let stage = &report.stages[0];
+    assert_eq!(stage.items, 4);
+    assert_eq!(stage.workers, 2);
+    assert!(stage.imbalance > 1.5, "{}", stage.imbalance);
 }
 
 #[test]
