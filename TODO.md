@@ -22,98 +22,6 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-### XSH-192 · P3 · Repeated par-map stages repeatedly create workers
-
-- **Area:** Runtime performance
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/pipeline.rs` (`eval_indexed_par_map_parallel`: per-stage shared state, slot clone and thread scope); `dev/performance/par_map/setup-{many,one}.xsh`; `dev/performance/par_map.py`
-- **Problem:** At equal work, 20 stages of 100 trivial items created 80 workers instead of 4 and cost 1.58x the CPU (range 1.54–1.62, busy host: paired ratio). The in-thread worker setup the profile measures is small (1.21 versus 0.88 ms in total), so the original profile left per-stage parent work unattributed: building the shared lowered state, cloning base slots, spawning threads and merging results, roughly 1 ms per stage. `par-map` is meant for heavy items, and Laputa's stages run once per command, so this matters only for many small stages.
-- **Recommendation:** Decide between reusing threads across stages and making shared-state construction cheaper using the parent-side attribution. Preserve ordering, failure selection and cleanup.
-- **2026-11-24 attribution:** One verification-profile run per workload on a busy 32-CPU host (load average 20.85, 20.22, 20.69): `setup-many` (20 executions, 2,000 items, 80 workers) summed parent setup 27,674 ns, parent spawn 746,992 ns, parent wait 5,021,446 ns and worker setup 477,448 ns; `setup-one` (1 execution, 2,000 items, 4 workers) recorded 100,772 ns, 82,347 ns, 1,730,834 ns and 742,814 ns respectively. Parent spawn dominates the setup measures for `setup-many`; summed worker setup dominates for `setup-one`. Worker setup overlaps parent time, and this single profiled sample is not a performance comparison. Both scripts returned 101000 and complete profiles.
-- **Fix with:** make-it-fast, lifecycle-concurrency
-- **Effort:** M
-
-### XSH-191 · P2 · Scalar pure helpers remain slower than inline expressions
-
-- **Area:** Runtime performance
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs`; `dev/performance/abstraction/inline-{a,b}.xsh`
-- **Problem:** Before boxing frame continuations, caller-inclusive allocation traffic no longer scaled with scalar calls, but the helper still cost about 1.82x the inline expression in five verification-profile CPU pairs (busy host: paired ratio). Boxing return continuations adds an allocation for each stored continuation.
-- **Recommendation:** Profile the remaining call and frame work and reduce it while preserving call, pruning and traceback behavior. Compare interleaved CPU pairs and the abstraction suite.
-- **Measurement (2026-11-24):** Seven interleaved base/lane runs on a busy 32-core host (load 15.77/24.52/20.95 before and 6.85/15.07/17.95 after). Whole-process CPU helper/inline median ratio was 1.780x at base `86d33a4b6` and 1.776x after boxing; `inline-b` medians were 0.692 s (range 0.570–0.777) and 0.625 s (0.496–0.728), respectively. Instrumented execution CPU ratios were 1.570x and 1.813x; the wide ranges and busy host make the comparison inconclusive. The 1.25x target remains unmet. A separate 857-sample frame-pointer profile had `memcpy` at 15.59%, `ExplicitFrames::step` at 5.69%, `ExplicitFrames::eval_expr` at 3.07%, `sync_indexed_root_slots` at 2.91%, and `eval_indexed_expr` at 2.88% (self cycles).
-- **Measurement (2026-11-24):** Seven interleaved base/lane runs of the abstraction suite on the busy 32-core host (load 24.67/23.90/21.76 before and 18.24/19.69/20.51 after) compared base `86d33a4b6` with boxed frame payloads at `258b41f75`. Whole-process CPU helper/inline ratio of medians was 1.827x at base and 2.203x on the lane. Base `inline-a` median was 0.771 s (range 0.500–1.427) and `inline-b` 1.409 s (0.928–2.389); lane `inline-a` was 0.665 s (0.376–1.085) and `inline-b` 1.465 s (0.932–1.956). All paired outputs matched. Instrumented execution CPU ratios were 2.048x and 2.136x. The busy host and wide ranges make the comparison inconclusive; the 1.25x target remains unmet. A separate frame-pointer profile captured 2,180 samples, with `memcpy` at 2.48% of self cycles.
-- **Cycle counts (2026-11-24):** `perf stat -e instructions:u,cycles:u`, three runs per binary, verification profile, base `86d33a4b6` versus the lane (boxed `RuntimeError`, call-frame continuation, and large `FrameContinuation`/`FrameWork` payloads; 56 and 120 bytes, from 152 and 216). Spread under 1% in every cell. `inline-a` cycles 1.409e9 to 1.136e9 (-19.4%), `inline-b` 2.498e9 to 2.201e9 (-11.9%); instructions +0.5% and +1.3% (the boxes' allocations). memcpy fell from 15.6% to 2.5% of self cycles. The inline path gained more than the helper path, so the helper/inline cycle ratio rose from 1.77x to 1.94x; the remaining helper cost is call and frame work, not copying.
-- **Follow-up (2026-11-24):** Hot work and continuation payloads stay inline; method arguments share the existing boxed successor with their metadata. Base `86d33a4b6`, boxed lane `258b41f75`, and follow-up sizes are 152/216, 56/120, and 112/152 bytes for continuation/work. Allocation slopes at 64/1,024 fields are map 6.08/6.00, 22.27/22.02, 6.08/6.00 and record 10.08/10.00, 31.27/31.02, 10.08/10.00 per read, respectively. Three interleaved verification-profile `perf stat` runs per binary produced `inline-a` median user cycles of 1.436e9, 1.134e9, 1.142e9 and instructions of 3.844e9, 3.864e9, 3.657e9; `inline-b` cycles were 2.508e9, 2.151e9, 2.140e9 and instructions 6.355e9, 6.439e9, 6.143e9. All runs returned `40000000000`; the shared 32-core host had background load (14.29/13.81/15.01 before measurement). The helper/inline target remains open.
-- **Fix with:** make-it-fast, lifecycle-concurrency
-- **Effort:** M
-
-### XSH-188 · P2 · Dynamic module loads re-lower their static import closure
-
-- **Area:** Runtime modules, performance
-- **Where:** `prepare_dynamic_module` in `src/runtime/eval/lowered_run.rs`
-- **Problem:** Distinct `module.load` preparations reuse unchanged imports' parsed and checked forms, but still lower each import's top level and functions for every importing program.
-- **Recommendation:** Reuse lowered imported modules where their binding namespaces and per-program initialization semantics can be preserved. Measure the change with the O4 load probe and M1 fetch workload.
-- **O4 measurement gate (2026-11-24, busy host):** Verification build at `fadb38504`, temporary `Instant` instrumentation, one successful run per workload. `load3 with 10`: imported function lowering 0.021240 s of 0.092873 s total lower (22.9%); function index 0.000753 s, encoding 0.006767 s, top level 0.000340 s, driver encoding 0.000541 s, finish 0.054995 s. `load2 20 distinct`: imports 0.031572 s of 0.164049 s (19.2%); root functions 0.003128 s, index 0.001353 s, encoding 0.012529 s, top level 0.001371 s, driver encoding 0.001687 s, finish 0.096638 s. Other preparation, including selection, is in the unclassified remainder. M1 fetch completed with 104 of 104 dynamic loads having empty scheme-callable tables; its import lowering was 0.101004 s of 0.539133 s. Both probes miss the required 35% import-lowering gate, so O4 body caching was not implemented. Finish dominates these measurements; investigate its verifier and decoding work before revisiting the design.
-- **O4 verifier scaling (2026-11-24):** At `13da1cfe`, nine interleaved process samples per size used a verification build, temporary `Instant` instrumentation, one dynamic load of an imported library of F simple `Int -> Int` functions, and the `load3 with 10` probe. All loads succeeded. Median elapsed microseconds per verified function are below; the probe values divide ten loads by their 690 total functions. Ratios compare median total times as F doubles. The probe closure differs substantially from the simple fixtures, so these costs do not predict its scaling. No phase consistently exceeds the 2.6 threshold: **linear for this series**, with no verifier change. A separate QEMU was active; timings are indications, not qualified absolute baselines.
-
-  | Phase | F=25 | F=50 | F=100 | F=200 | Probe | 2x ratios |
-  |---|---:|---:|---:|---:|---:|---|
-  | Finish | 3.337 | 2.538 | 1.871 | 1.752 | 82.404 | 1.52, 1.47, 1.87 |
-  | Verifier setup | 0.617 | 0.440 | 0.271 | 0.236 | 2.159 | 1.43, 1.23, 1.75 |
-  | Function checks, other | 0.742 | 0.627 | 0.588 | 0.578 | 2.831 | 1.69, 1.87, 1.97 |
-  | Decode and function verification | 0.219 | 0.181 | 0.163 | 0.158 | 2.258 | 1.66, 1.80, 1.94 |
-  | Effects | 0.095 | 0.079 | 0.069 | 0.067 | 1.317 | 1.66, 1.75, 1.96 |
-  | Producer analysis and facts | 0.407 | 0.351 | 0.318 | 0.321 | 15.394 | 1.73, 1.81, 2.02 |
-  | Bridge and driver checks | 0.680 | 0.468 | 0.297 | 0.253 | 1.141 | 1.38, 1.27, 1.70 |
-  | Schemes | 0.107 | 0.051 | 0.026 | 0.015 | 56.693 | 0.95, 1.03, 1.15 |
-  | Verifier total | 2.997 | 2.276 | 1.761 | 1.678 | 81.629 | 1.52, 1.55, 1.91 |
-
-- **O4 scheme attribution (2026-11-24):** At `f4357dc0`, a host verification build with temporary counters loaded `load3 with 10` successfully in five processes. Each of the 50 dynamic loads had 69 ground functions, **zero schemes, zero scheme instantiations, zero generic body facts and zero scheme callable relationships**. The earlier 56.693 µs per function is the enclosing `verify_schemes::verify` phase, not a cost per inferred scheme. The `pm/make.xsh` functions use concrete parameter types. Per load, the instrumented phase counted 43,244 charged work units, 726 charged type-clone traversals, 9,255 explicit `Arc::clone` calls in producer verification, four instrumented type-match calls, zero instrumented module signature-index lookups, and 6,028 decoder owner-range comparisons. These counts do not cover every type comparison, clone or signature lookup. In a further process, the first `ProducerProof::finish` obligation drain took 3.50–4.37 ms of 3.81–4.71 ms in `producers::verify` per load. Timings include instrumentation and host noise. The probe has no schemes to reverify; a per-scheme cost is undefined.
-- **O4 generic scaling:** Five interleaved process samples per size loaded one generated module of unannotated identity helpers. The chain calls its preceding helper. Each fan helper after `f1` calls the first and preceding helper. All loads printed `loaded`. The chain has 9, 19, 39 and 79 instantiations and 56, 116, 236 and 476 body facts. The fan has 17, 37, 77 and 157 instantiations and 80, 170, 350 and 710 body facts. Median enclosing-verifier time per scheme in µs and ratios of median total time for each doubling were:
-
-  | Shape | S=10 | S=20 | S=40 | S=80 | 2x total-time ratios |
-  |---|---:|---:|---:|---:|---|
-  | Chain | 9.687 | 6.544 | 5.434 | 4.919 | 1.35, 1.66, 1.81 |
-  | Fan | 11.794 | 9.223 | 7.864 | 7.578 | 1.56, 1.71, 1.93 |
-
-  Caller-scope and decoder owner scans together visited 270, 1,045, 4,095 and 16,195 function ranges for the chain, and 530, 2,080, 8,180 and 32,380 for the fan. Those scans grow quadratically, but the measured total does not cross the specified 2.6× threshold and the real probe has no schemes. No duplicate verification of an identical scheme or instantiation was established. **Verdict for this series: linear by the timing criterion; the real-probe cost is ground producer verification, not scheme verification.** The scan count is a separate scaling risk, not proof that it dominates the probe. Absolute timing and inherent cost at larger sizes remain unverified.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
-### XSH-186 · P4 · The byte scanner's nested flag is never read
-
-- **Area:** Runtime lowering
-- **Where:** `src/runtime/eval.rs:2029` (`ScanBytes.nested`), `src/runtime/eval/lower/scalar.rs` (`scan_exact_body` always returns `false`), `src/runtime/eval/indexed/full/decode.rs:1153`, the formal-bridge program image
-- **Problem:** The fused `ScanBytes` runtime implements only the non-nesting comment scanner and never reads `nested`; the matcher now admits only exact non-nesting scanners and always sets it to `false`. The field is carried through lowering, decoding and the program image with no consumer.
-- **Recommendation:** Remove the field and its encoding. Add nesting only with a runtime that implements it and a native test that compares fused and unfused results.
-- **Effort:** S
-
-### XSH-185 · P2 · par-map still loses writes made through calls and environment assignment
-
-- **Area:** Runtime parallelism
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1306-1307` (route selection: `!evaluator.trace_enabled && jobs > 1 && item_count > 1`), `src/runtime/eval/lowered_run/indexed_run/pipeline.rs:102` (workers start from cloned `base_slots`); `src/sema/check/stmt.rs` (`check.par-map-captured-write`)
-- **Problem:** On the parallel route each worker runs on a copy of the evaluator's state, so writes a callback makes outside its own locals are lost, while the sequential route (one item, `jobs: 1`, or `xsht trace`) keeps them. A program's result therefore depended on item count, `jobs:`, available CPUs and whether it was traced. `formal/tests/fixtures/l1-par-map.xsh` reproduces the called-procedure case: the serial stage records three writes, the parallel stage records none, and both return the first two ordered values. The checker now rejects direct writes in the callback to captured bindings, their fields and their elements (`check.par-map-captured-write`, SPEC 13.5). Three write paths still pass the checker and are lost on the parallel route: a called `proc` that assigns a top-level `var` (`via-proc=0` for three items in the verification binary); an `e"NAME" = ...` assignment in the callback, which leaves the variable unset after the stage; and a local `proc` declared inside the callback that assigns an outer binding.
-- **Recommendation:** Reject the remaining paths at check time: a callback's call to a callable whose inferred writes reach state outside the callback, and environment assignment in a callback. Alternatively, specify one route-independent rule for them in SPEC 13.5. Keep a native test for each path.
-- **Fix with:** lifecycle-concurrency, error-model
-- **Effort:** M
-
-### XSH-184 · P2 · A producer's environment is swapped wholesale around a suspension inside a scope
-
-- **Area:** Runtime streams
-- **Where:** `src/runtime/eval/lowered_run/indexed_run/producer.rs:301-325` (`pull_script_producer`); SPEC 10.4 ("A producer that yields from inside a `cd` or `env` scope keeps its own directory and environment between pulls")
-- **Problem:** When a producer suspends inside a `cd` or `env` scope, `pull_script_producer` saves the producer's whole context and restores the consumer's context from the start of the pull. Plain `e"NAME" = ...` writes the producer made earlier in that pull, before entering the scope, are therefore lost to the consumer. When the producer later yields outside any scope, its saved context is dropped and the next pull runs it on the consumer's environment, so it loses its own earlier writes too. Reproducer (verification binary): a producer that sets `e"XSH_PA" = "before-scope"`, yields once inside `env ({XSH_PB: "scoped"}) { ... }`, then yields twice after it, over a loop that sets `e"XSH_PC" = "loop"`. It prints `before-scope/scoped`, then `before-scope/unset/unset`, then `unset/unset/loop`, and the loop sees `XSH_PA` unset throughout. Without a scope, the same writes are shared both ways. `formal/tests/fixtures/l1-producer-env.xsh` records this sequence and the consumer observations. The SPEC sentence does not say which of these is intended. unproven: whether this is a defect or intended isolation is an owner decision.
-- **Recommendation:** Decide the rule and state it in SPEC 10.4. Either isolate only the scope's own overrides, sharing plain writes as in the unscoped case, or isolate the whole environment for the producer's lifetime. Make `pull_script_producer` follow it, and add the reproducer as a native test. The Lean model (`formal/README.md`, stream producers) shares the environment and records this as an open gap until the rule is decided.
-- **Fix with:** lifecycle-concurrency, test-audit
-- **Effort:** S
-
-### XSH-180 · P2 · min and max have no specified order for NaN, ties and non-numeric items
-
-- **Area:** Runtime ordering
-- **Where:** `src/sema/sealed_operation.rs:25-40`; `src/sema/check/stream.rs:499-509`; `src/runtime/eval/lowered_ops.rs:833-848`; `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1754-1762`; `crates/xsh-registry/src/reference.rs:601-608`; `tests/fixtures/runtime/generic-pipeline-aggregates.xsh:53-54`
-- **Problem:** MinMaxItem admits Float and Duration, and before 2026-11-22 min/max compared them by type name, so `[9.0, 1.0] |> min()` gave `9.0`. Finite Float and Duration extrema now compare by value on the list, live, generic and reduce-by routes (`tests/xsh/numeric-aggregate-regressions.xsh`). NaN falls back to the sort comparator, and the SPEC still accepts List, Result and opaque items without defining their order; those are open decisions, not proved bugs.
-- **Recommendation:** Decide NaN, tie and non-numeric ordering through the linked draft RFC, update the SPEC, and replace the remaining sort-comparator fallback in `compare_lowered_extrema` to match; do not silently turn the RFC into an approved language change.
-- **Fix with:** typing-audit, make-invalid-states-unrepresentable, test-audit
-- **Effort:** S
-- **Design:** docs/rfc/XSH-180-min-max-ordering.md
-
 ### XSH-145 · P2 · Credential and module paths come from the caller's environment in shipped code
 
 - **Area:** Security
@@ -222,6 +130,52 @@ out of scope.
 - **Fix with:** none
 - **Effort:** M
 
+### XSH-180 · P2 · min and max have no specified order for NaN, ties and non-numeric items
+
+- **Area:** Runtime ordering
+- **Where:** `src/sema/sealed_operation.rs:25-40`; `src/sema/check/stream.rs:499-509`; `src/runtime/eval/lowered_ops.rs:833-848`; `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1754-1762`; `crates/xsh-registry/src/reference.rs:601-608`; `tests/fixtures/runtime/generic-pipeline-aggregates.xsh:53-54`
+- **Problem:** MinMaxItem admits Float and Duration, and before 2026-11-22 min/max compared them by type name, so `[9.0, 1.0] |> min()` gave `9.0`. Finite Float and Duration extrema now compare by value on the list, live, generic and reduce-by routes (`tests/xsh/numeric-aggregate-regressions.xsh`). NaN falls back to the sort comparator, and the SPEC still accepts List, Result and opaque items without defining their order; those are open decisions, not proved bugs.
+- **Recommendation:** Decide NaN, tie and non-numeric ordering through the linked draft RFC, update the SPEC, and replace the remaining sort-comparator fallback in `compare_lowered_extrema` to match; do not silently turn the RFC into an approved language change.
+- **Fix with:** typing-audit, make-invalid-states-unrepresentable, test-audit
+- **Effort:** S
+- **Design:** docs/rfc/XSH-180-min-max-ordering.md
+
+### XSH-184 · P2 · A producer's environment is swapped wholesale around a suspension inside a scope
+
+- **Area:** Runtime streams
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/producer.rs:301-325` (`pull_script_producer`); SPEC 10.4 ("A producer that yields from inside a `cd` or `env` scope keeps its own directory and environment between pulls")
+- **Problem:** When a producer suspends inside a `cd` or `env` scope, `pull_script_producer` saves the producer's whole context and restores the consumer's context from the start of the pull. Plain `e"NAME" = ...` writes the producer made earlier in that pull, before entering the scope, are therefore lost to the consumer. When the producer later yields outside any scope, its saved context is dropped and the next pull runs it on the consumer's environment, so it loses its own earlier writes too. Reproducer (verification binary): a producer that sets `e"XSH_PA" = "before-scope"`, yields once inside `env ({XSH_PB: "scoped"}) { ... }`, then yields twice after it, over a loop that sets `e"XSH_PC" = "loop"`. It prints `before-scope/scoped`, then `before-scope/unset/unset`, then `unset/unset/loop`, and the loop sees `XSH_PA` unset throughout. Without a scope, the same writes are shared both ways. `formal/tests/fixtures/l1-producer-env.xsh` records this sequence and the consumer observations. The SPEC sentence does not say which of these is intended. unproven: whether this is a defect or intended isolation is an owner decision.
+- **Recommendation:** Decide the rule and state it in SPEC 10.4. Either isolate only the scope's own overrides, sharing plain writes as in the unscoped case, or isolate the whole environment for the producer's lifetime. Make `pull_script_producer` follow it, and add the reproducer as a native test. The Lean model (`formal/README.md`, stream producers) shares the environment and records this as an open gap until the rule is decided.
+- **Fix with:** lifecycle-concurrency, test-audit
+- **Effort:** S
+
+### XSH-185 · P2 · par-map still loses writes made through calls and environment assignment
+
+- **Area:** Runtime parallelism
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1306-1307` (route selection: `!evaluator.trace_enabled && jobs > 1 && item_count > 1`), `src/runtime/eval/lowered_run/indexed_run/pipeline.rs:102` (workers start from cloned `base_slots`); `src/sema/check/stmt.rs` (`check.par-map-captured-write`)
+- **Problem:** On the parallel route each worker runs on a copy of the evaluator's state, so writes a callback makes outside its own locals are lost, while the sequential route (one item, `jobs: 1`, or `xsht trace`) keeps them. A program's result therefore depended on item count, `jobs:`, available CPUs and whether it was traced. `formal/tests/fixtures/l1-par-map.xsh` reproduces the called-procedure case: the serial stage records three writes, the parallel stage records none, and both return the first two ordered values. The checker now rejects direct writes in the callback to captured bindings, their fields and their elements (`check.par-map-captured-write`, SPEC 13.5). Three write paths still pass the checker and are lost on the parallel route: a called `proc` that assigns a top-level `var` (`via-proc=0` for three items in the verification binary); an `e"NAME" = ...` assignment in the callback, which leaves the variable unset after the stage; and a local `proc` declared inside the callback that assigns an outer binding.
+- **Recommendation:** Reject the remaining paths at check time: a callback's call to a callable whose inferred writes reach state outside the callback, and environment assignment in a callback. Alternatively, specify one route-independent rule for them in SPEC 13.5. Keep a native test for each path.
+- **Fix with:** lifecycle-concurrency, error-model
+- **Effort:** M
+
+### XSH-188 · P2 · Dynamic module loads re-lower their static import closure
+
+- **Area:** Runtime modules, performance
+- **Where:** `prepare_dynamic_module` in `src/runtime/eval/lowered_run.rs`
+- **Problem:** Distinct `module.load` preparations reuse unchanged imports' parsed and checked forms, but still lower each import's top level and functions for every importing program. O4 measurement gate (2026-11-24, busy host): Verification build at `fadb38504`, temporary `Instant` instrumentation, one successful run per workload. `load3 with 10`: imported function lowering 0.021240 s of 0.092873 s total lower (22.9%); function index 0.000753 s, encoding 0.006767 s, top level 0.000340 s, driver encoding 0.000541 s, finish 0.054995 s. `load2 20 distinct`: imports 0.031572 s of 0.164049 s (19.2%); root functions 0.003128 s, index 0.001353 s, encoding 0.012529 s, top level 0.001371 s, driver encoding 0.001687 s, finish 0.096638 s. Other preparation, including selection, is in the unclassified remainder. M1 fetch completed with 104 of 104 dynamic loads having empty scheme-callable tables; its import lowering was 0.101004 s of 0.539133 s. Both probes miss the required 35% import-lowering gate, so O4 body caching was not implemented. Finish dominates these measurements; investigate its verifier and decoding work before revisiting the design. Measurements: docs/measurements/XSH-188.md. O4 scheme attribution (2026-11-24): At `f4357dc0`, a host verification build with temporary counters loaded `load3 with 10` successfully in five processes. Each of the 50 dynamic loads had 69 ground functions, **zero schemes, zero scheme instantiations, zero generic body facts and zero scheme callable relationships**. The earlier 56.693 µs per function is the enclosing `verify_schemes::verify` phase, not a cost per inferred scheme. The `pm/make.xsh` functions use concrete parameter types. Per load, the instrumented phase counted 43,244 charged work units, 726 charged type-clone traversals, 9,255 explicit `Arc::clone` calls in producer verification, four instrumented type-match calls, zero instrumented module signature-index lookups, and 6,028 decoder owner-range comparisons. These counts do not cover every type comparison, clone or signature lookup. In a further process, the first `ProducerProof::finish` obligation drain took 3.50–4.37 ms of 3.81–4.71 ms in `producers::verify` per load. Timings include instrumentation and host noise. The probe has no schemes to reverify; a per-scheme cost is undefined.
+- **Recommendation:** Reuse lowered imported modules where their binding namespaces and per-program initialization semantics can be preserved. Measure the change with the O4 load probe and M1 fetch workload.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-191 · P2 · Scalar pure helpers remain slower than inline expressions
+
+- **Area:** Runtime performance
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs`; `dev/performance/abstraction/inline-{a,b}.xsh`
+- **Problem:** Before boxing frame continuations, caller-inclusive allocation traffic no longer scaled with scalar calls, but the helper still cost about 1.82x the inline expression in five verification-profile CPU pairs (busy host: paired ratio). Boxing return continuations adds an allocation for each stored continuation. Measurement (2026-11-24): Seven interleaved base/lane runs on a busy 32-core host (load 15.77/24.52/20.95 before and 6.85/15.07/17.95 after). Whole-process CPU helper/inline median ratio was 1.780x at base `86d33a4b6` and 1.776x after boxing; `inline-b` medians were 0.692 s (range 0.570–0.777) and 0.625 s (0.496–0.728), respectively. Instrumented execution CPU ratios were 1.570x and 1.813x; the wide ranges and busy host make the comparison inconclusive. The 1.25x target remains unmet. A separate 857-sample frame-pointer profile had `memcpy` at 15.59%, `ExplicitFrames::step` at 5.69%, `ExplicitFrames::eval_expr` at 3.07%, `sync_indexed_root_slots` at 2.91%, and `eval_indexed_expr` at 2.88% (self cycles). Measurement (2026-11-24): Seven interleaved base/lane runs of the abstraction suite on the busy 32-core host (load 24.67/23.90/21.76 before and 18.24/19.69/20.51 after) compared base `86d33a4b6` with boxed frame payloads at `258b41f75`. Whole-process CPU helper/inline ratio of medians was 1.827x at base and 2.203x on the lane. Base `inline-a` median was 0.771 s (range 0.500–1.427) and `inline-b` 1.409 s (0.928–2.389); lane `inline-a` was 0.665 s (0.376–1.085) and `inline-b` 1.465 s (0.932–1.956). All paired outputs matched. Instrumented execution CPU ratios were 2.048x and 2.136x. The busy host and wide ranges make the comparison inconclusive; the 1.25x target remains unmet. A separate frame-pointer profile captured 2,180 samples, with `memcpy` at 2.48% of self cycles. Cycle counts (2026-11-24): `perf stat -e instructions:u,cycles:u`, three runs per binary, verification profile, base `86d33a4b6` versus the lane (boxed `RuntimeError`, call-frame continuation, and large `FrameContinuation`/`FrameWork` payloads; 56 and 120 bytes, from 152 and 216). Spread under 1% in every cell. `inline-a` cycles 1.409e9 to 1.136e9 (-19.4%), `inline-b` 2.498e9 to 2.201e9 (-11.9%); instructions +0.5% and +1.3% (the boxes' allocations). memcpy fell from 15.6% to 2.5% of self cycles. The inline path gained more than the helper path, so the helper/inline cycle ratio rose from 1.77x to 1.94x; the remaining helper cost is call and frame work, not copying. Follow-up (2026-11-24): Hot work and continuation payloads stay inline; method arguments share the existing boxed successor with their metadata. Base `86d33a4b6`, boxed lane `258b41f75`, and follow-up sizes are 152/216, 56/120, and 112/152 bytes for continuation/work. Allocation slopes at 64/1,024 fields are map 6.08/6.00, 22.27/22.02, 6.08/6.00 and record 10.08/10.00, 31.27/31.02, 10.08/10.00 per read, respectively. Three interleaved verification-profile `perf stat` runs per binary produced `inline-a` median user cycles of 1.436e9, 1.134e9, 1.142e9 and instructions of 3.844e9, 3.864e9, 3.657e9; `inline-b` cycles were 2.508e9, 2.151e9, 2.140e9 and instructions 6.355e9, 6.439e9, 6.143e9. All runs returned `40000000000`; the shared 32-core host had background load (14.29/13.81/15.01 before measurement). The helper/inline target remains open.
+- **Recommendation:** Profile the remaining call and frame work and reduce it while preserving call, pruning and traceback behavior. Compare interleaved CPU pairs and the abstraction suite.
+- **Fix with:** make-it-fast, lifecycle-concurrency
+- **Effort:** M
+
 ### XSH-148 · P3 · The checker rejects validated callable returns inside collections
 
 - **Area:** Checker
@@ -321,12 +275,30 @@ out of scope.
 - **Fix with:** none
 - **Effort:** S
 
+### XSH-192 · P3 · Repeated par-map stages repeatedly create workers
+
+- **Area:** Runtime performance
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/pipeline.rs` (`eval_indexed_par_map_parallel`: per-stage shared state, slot clone and thread scope); `dev/performance/par_map/setup-{many,one}.xsh`; `dev/performance/par_map.py`
+- **Problem:** At equal work, 20 stages of 100 trivial items created 80 workers instead of 4 and cost 1.58x the CPU (range 1.54–1.62, busy host: paired ratio). The in-thread worker setup the profile measures is small (1.21 versus 0.88 ms in total), so the original profile left per-stage parent work unattributed: building the shared lowered state, cloning base slots, spawning threads and merging results, roughly 1 ms per stage. `par-map` is meant for heavy items, and Laputa's stages run once per command, so this matters only for many small stages. 2026-11-24 attribution: One verification-profile run per workload on a busy 32-CPU host (load average 20.85, 20.22, 20.69): `setup-many` (20 executions, 2,000 items, 80 workers) summed parent setup 27,674 ns, parent spawn 746,992 ns, parent wait 5,021,446 ns and worker setup 477,448 ns; `setup-one` (1 execution, 2,000 items, 4 workers) recorded 100,772 ns, 82,347 ns, 1,730,834 ns and 742,814 ns respectively. Parent spawn dominates the setup measures for `setup-many`; summed worker setup dominates for `setup-one`. Worker setup overlaps parent time, and this single profiled sample is not a performance comparison. Both scripts returned 101000 and complete profiles.
+- **Recommendation:** Decide between reusing threads across stages and making shared-state construction cheaper using the parent-side attribution. Preserve ordering, failure selection and cleanup.
+- **Fix with:** make-it-fast, lifecycle-concurrency
+- **Effort:** M
+
 ### XSH-166 · P4 · A user type named like a built-in record cascades into a misleading mismatch
 
 - **Area:** Checker
 - **Where:** `check.duplicate-name` for types; reproducer `bench/codemode/defects/d5-builtin-type-name/main.xsh`
 - **Problem:** `type Group = {name: Str, size: Int}` is correctly rejected with `check.duplicate-name` ("type name conflicts with a built-in type"), but every later use is then checked against the built-in `Group` record and reports a second `check.type-mismatch` ("expected {gid: Int, members: List[Str], name: Str}, found {name: Str, size: Int}") that points away from the real cause.
 - **Recommendation:** After a duplicate type name, check its uses against the user's declaration (or suppress follow-on mismatches) and name the built-in record in the first diagnostic.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-186 · P4 · The byte scanner's nested flag is never read
+
+- **Area:** Runtime lowering
+- **Where:** `src/runtime/eval.rs:2029` (`ScanBytes.nested`), `src/runtime/eval/lower/scalar.rs` (`scan_exact_body` always returns `false`), `src/runtime/eval/indexed/full/decode.rs:1153`, the formal-bridge program image
+- **Problem:** The fused `ScanBytes` runtime implements only the non-nesting comment scanner and never reads `nested`; the matcher now admits only exact non-nesting scanners and always sets it to `false`. The field is carried through lowering, decoding and the program image with no consumer.
+- **Recommendation:** Remove the field and its encoding. Add nesting only with a runtime that implements it and a native test that compares fused and unfused results.
 - **Fix with:** none
 - **Effort:** S
 
