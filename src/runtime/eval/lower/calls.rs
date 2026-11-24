@@ -1975,6 +1975,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     *value = self
                         .require_ground_uint_key(*value, self.key_validation_span(method_args[0].0.source, method_args[0].0.span), slots);
                 }
+                if name.as_str().as_str() == "len"
+                    && lowered_args.is_empty()
+                    && matches!(self.checked_expr_type(base).as_ref().map(Type::unvalidated), Some(Type::Bytes))
+                {
+                    return Some(push_build_row!(self, expr, BuildExprRow::StrByteLen { receiver, span }));
+                }
                 if lowered_str_byte_op(&name.as_str(), &lowered_args) {
                     return Some(match name.as_str().as_str() {
                         "byte_len" => {

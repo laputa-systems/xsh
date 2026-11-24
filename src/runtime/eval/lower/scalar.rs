@@ -974,10 +974,17 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn scan_let_len(&self, stmt: BuildStmtId, slot: usize, line: usize) -> bool {
-        let BuildStmtRow::Let { slot: actual, value, annotation: None } = self.scratch.borrow().statements[stmt.index()].clone() else { return false; };
-        if actual != slot { return false; }
-        match self.scratch.borrow().expressions[value.index()].clone() {
-            BuildExprRow::Method { receiver, name, args, .. } => name.as_str() == "len" && args.is_empty() && self.scan_bytes_expr_slot(receiver) == Some(line),
+        match self.scratch.borrow().statements[stmt.index()].clone() {
+            BuildStmtRow::LetInt { slot: actual, value } if actual == slot => {
+                matches!(self.scratch.borrow().ints[value.index()], BuildIntRow::StrByteLenSlot { slot: receiver, .. } if receiver == line)
+            }
+            BuildStmtRow::Let { slot: actual, value, annotation: None } if actual == slot => {
+                match self.scratch.borrow().expressions[value.index()].clone() {
+                    BuildExprRow::Method { receiver, name, args, .. } => name.as_str() == "len" && args.is_empty() && self.scan_bytes_expr_slot(receiver) == Some(line),
+                    BuildExprRow::StrByteLen { receiver, .. } => self.scan_bytes_expr_slot(receiver) == Some(line),
+                    _ => false,
+                }
+            }
             _ => false,
         }
     }
