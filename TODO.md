@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 192
+Next: 193
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -22,6 +22,15 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
+### XSH-192 · P2 · Repeated par-map stages repeatedly create workers
+
+- **Area:** Runtime performance
+- **Where:** `dev/performance/par_map/setup-{many,one}.xsh`; `dev/performance/par_map.py`
+- **Problem:** At equal work, 20 stages created 80 workers instead of 4. Five interleaved verification-profile runs showed a 1.58x median CPU ratio (range 1.54–1.62) for repeated stages on a busy host. The small synthetic workload does not establish the effect on applications.
+- **Recommendation:** Investigate reusing workers across stages while preserving ordering, failure selection and cleanup. Compare against the same paired workloads.
+- **Fix with:** make-it-fast, lifecycle-concurrency
+- **Effort:** M
+
 ### XSH-191 · P2 · Scalar pure helpers remain slower than inline expressions
 
 - **Area:** Runtime performance
