@@ -2010,7 +2010,7 @@ audited library models, taken from the laputa-systems Aeneas fork at
 planned.
 
 ```sh
-LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/ArithCases.lean > "$TMPDIR/arith-cases.txt"
 XSH_ARITH_CASES="$TMPDIR/arith-cases.txt" cargo test --locked --profile verification -p xsh --lib -- --ignored --exact runtime::eval::arith_conformance::production_matches_lean_int_arithmetic
 ```
 
@@ -2023,15 +2023,20 @@ tests pass through `cargo dev gate`.
 
 ## Build and check
 
-The [Lake config](lakefile.toml) keeps build and package output under
-`formal/.lake/`. From the repository root:
+The [Lake config](lakefile.toml) keeps build and package output under the
+repository's `.work/` directory. Before creating it, ensure `.work/` is ignored
+through this checkout's Git exclude file. From the repository root:
 
 ```sh
 repo_root=$(git rev-parse --show-toplevel)
-mkdir -p "$repo_root/formal/.lake/tmp" "$repo_root/formal/.lake/cache"
-export TMPDIR="$repo_root/formal/.lake/tmp"
-export LAKE_CACHE_DIR="$repo_root/formal/.lake/cache"
-(cd formal && lake build)
+exclude_path=$(git rev-parse --git-path info/exclude)
+if ! rg -qxF '.work/' "$exclude_path"; then
+  printf '.work/\n' >>"$exclude_path"
+fi
+mkdir -p "$repo_root/.work/tmp" "$repo_root/.work/lake-cache"
+export TMPDIR="$repo_root/.work/tmp"
+export LAKE_CACHE_DIR="$repo_root/.work/lake-cache"
+lake --dir="$repo_root/.work" --file="$repo_root/formal/lakefile.toml" build
 ```
 
 Use the pinned toolchain on `PATH`. From the repository root, check the
@@ -2046,7 +2051,7 @@ After building the model, generate the effect decision corpus from the
 repository root:
 
 ```sh
-LEAN_PATH="$repo_root/formal/.lake/build/lib/lean" \
+LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
   lean --run formal/scripts/EffectPredicateCases.lean > "$TMPDIR/effect-predicate-cases.txt"
 ```
 
@@ -2067,7 +2072,7 @@ expected result. Ordinary Rust tests do not require Lean or the corpus.
 Generate and compare the deadline-selection corpus in the same environment:
 
 ```sh
-LEAN_PATH="$repo_root/formal/.lake/build/lib/lean" \
+LEAN_PATH="$repo_root/.work/formal-build/lib/lean" \
   lean --run formal/scripts/DeadlinePolicyCases.lean > "$TMPDIR/deadline-policy-cases.txt"
 XSH_DEADLINE_POLICY_CASES="$TMPDIR/deadline-policy-cases.txt" \
   cargo test --locked --profile verification --target x86_64-unknown-linux-musl \
@@ -2338,7 +2343,7 @@ four disposition inputs, four recording inputs, and sequences of at most four
 managed/unmanaged plain/forced failures:
 
 ```sh
-LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/CleanupPolicyCases.lean > "$TMPDIR/cleanup-cases.txt"
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupPolicyCases.lean > "$TMPDIR/cleanup-cases.txt"
 XSH_CLEANUP_CASES="$TMPDIR/cleanup-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_policy_conformance::production_matches_lean_cleanup_policy -- --ignored --exact
 ```
 
@@ -2378,7 +2383,7 @@ From the repository root, generate and compare all stacks of at most four
 actions over three kinds and three outcomes, with both initial flags:
 
 ```sh
-LEAN_PATH="$PWD/formal/.lake/build/lib/lean" lean --run formal/scripts/CleanupOrderCases.lean > "$TMPDIR/cleanup-order-cases.txt"
+LEAN_PATH="$PWD/.work/formal-build/lib/lean" lean --run formal/scripts/CleanupOrderCases.lean > "$TMPDIR/cleanup-order-cases.txt"
 XSH_CLEANUP_ORDER_CASES="$TMPDIR/cleanup-order-cases.txt" cargo test --locked --profile verification -p xsh --lib runtime::eval::cleanup_order_conformance::production_matches_lean_cleanup_order -- --ignored --exact
 ```
 
@@ -2388,7 +2393,7 @@ Both exit 0 over 14,762 rows. An altered expected trace exits 101 with
 The model and inventory checks run with:
 
 ```sh
-(cd formal && lake build)
+lake --dir="$PWD/.work" --file="$PWD/formal/lakefile.toml" build
 (cd formal && bash scripts/audit-axioms.sh)
 python3 formal/scripts/check-inventory.py
 python3 -m unittest formal/tests/inventory/test_check_inventory.py
