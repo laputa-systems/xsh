@@ -28,6 +28,17 @@ impl Evaluator {
         .with_span(span))
     }
 
+    /// Whether pulling `stream` can read or write script bindings: a script
+    /// producer runs XSH code, pending capture transfers walk scopes, and a
+    /// signal hook may have written bindings while the pull was serviced.
+    /// Otherwise a consumer may pull without publishing its slots.
+    pub(super) fn stream_pull_observes_bindings(&self, stream: &StreamValue) -> bool {
+        stream.script().is_some()
+            || !self.pending_stream_captures.is_empty()
+            || self.pending_stream_capture_error.is_some()
+            || !self.signal_hooks.is_empty()
+    }
+
     /// The next item of a stream.
     ///
     /// A script producer is a suspended body, so pulling one resumes it against
