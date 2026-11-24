@@ -19,6 +19,7 @@ structure Frame where
   childNs : Nat := 0
   blockedNs : Nat := 0
   childBlockedNs : Nat := 0
+  childElapsed : List Nat := []
   deriving Repr, DecidableEq
 
 structure Receipt where
@@ -53,7 +54,7 @@ def tick (state : State) (duration : Nat) : State :=
 def enter (state : State) (site : Site) : State :=
   let path := (site, false) :: parentPath state.stack
   let paths := updatePath state.paths path fun p => {p with calls := p.calls + 1}
-  {state with stack := ⟨site, path, state.clock, 0, 0, 0⟩ :: state.stack, paths := paths}
+  {state with stack := ⟨site, path, state.clock, 0, 0, 0, []⟩ :: state.stack, paths := paths}
 
 def exit (state : State) : State :=
   match state.stack with
@@ -66,7 +67,7 @@ def exit (state : State) : State :=
     let stack := match rest with
       | [] => []
       | parent :: tail =>
-        {parent with childNs := parent.childNs + elapsed, childBlockedNs := parent.childBlockedNs + frame.blockedNs + frame.childBlockedNs} :: tail
+        {parent with childNs := parent.childNs + elapsed, childBlockedNs := parent.childBlockedNs + frame.blockedNs + frame.childBlockedNs, childElapsed := elapsed :: parent.childElapsed} :: tail
     {state with stack := stack, paths := paths, closed := ⟨frame.path, elapsed, active, frame.blockedNs⟩ :: state.closed}
 
 def opaqueBlocked (state : State) (wall : Nat) : State :=
@@ -210,7 +211,8 @@ def StackValid : Nat → List Frame → Prop
   | now, frame :: rest =>
     frame.start + frame.childNs + frame.blockedNs ≤ now ∧ StackValid frame.start rest
 
-def ValidEvent (_state : State) : Event Obs → Prop
+def ValidEvent (state : State) : Event Obs → Prop
+  | .opaqueBlocked _ => state.stack ≠ []
   | .mergeWorker _ _ paths => ∀ entry ∈ paths, entry.1 ≠ []
   | _ => True
 
@@ -657,12 +659,49 @@ theorem sumSites_congr (sites : List Site) (f g : Site → Nat) (equal : ∀ sit
   | nil => rfl
   | cons site rest ih => simp [sumSites, equal, ih]
 
+
+def FrameChildrenValid : List Frame → Prop
+  | [] => True
+  | frame :: rest => frame.childNs = frame.childElapsed.sum ∧ FrameChildrenValid rest
+
+theorem event_preserves_children (state : State) (event : Event Obs)
+    (valid : FrameChildrenValid state.stack) : FrameChildrenValid (profileEvent state event).stack := by
+  cases event with
+  | sem _ | opaqueOverlapping _ | mergeWorker _ _ _ | finish => exact valid
+  | tick amount => simpa [profileEvent, tick] using valid
+  | enter site => simp [profileEvent, enter, FrameChildrenValid, valid]
+  | opaqueBlocked wall =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, opaqueBlocked, h, FrameChildrenValid]
+    | cons frame rest => simpa [profileEvent, opaqueBlocked, h, FrameChildrenValid] using valid
+  | exit =>
+    cases h : state.stack with
+    | nil => simp [profileEvent, exit, h, FrameChildrenValid]
+    | cons frame rest =>
+      cases rest with
+      | nil => simp [profileEvent, exit, h, FrameChildrenValid]
+      | cons parent tail =>
+        simp only [h, FrameChildrenValid] at valid
+        simp only [profileEvent, exit, h, FrameChildrenValid, List.sum_cons]
+        constructor
+        · omega
+        · exact valid.2.2
+
+theorem trace_children (state : State) (events : List (Event Obs))
+    (valid : FrameChildrenValid state.stack) (trace : ValidTrace state events) :
+    FrameChildrenValid (runProfile state events).stack := by
+  induction trace with
+  | nil => exact valid
+  | cons state event rest admitted trace ih =>
+    exact ih (event_preserves_children state event valid)
+
 theorem profile_accounting (events : List (Event Obs)) (trace : ValidTrace initial events) :
     (∀ frame rest, (runProfile initial events).stack = frame :: rest →
       frame.childNs ≤ elapsed (runProfile initial events).clock frame ∧
       frame.blockedNs ≤ elapsed (runProfile initial events).clock frame - frame.childNs ∧
+      frame.childNs = frame.childElapsed.sum ∧
       elapsed (runProfile initial events).clock frame =
-        active (runProfile initial events).clock frame + frame.blockedNs + frame.childNs) ∧
+        active (runProfile initial events).clock frame + frame.blockedNs + frame.childElapsed.sum) ∧
     ((runProfile initial events).stack = [] → ∀ site parent,
       let state := runProfile initial events
       let path := (site, false) :: parent
@@ -677,7 +716,10 @@ theorem profile_accounting (events : List (Event Obs)) (trace : ValidTrace initi
   · intro frame rest stack
     have valid := trace_preserves_stack_valid initial events initial_valid.1 trace
     rw [stack] at valid
-    exact frame_accounting _ frame valid.1
+    have arithmetic := frame_accounting _ frame valid.1
+    have children := trace_children initial events (by simp [initial, FrameChildrenValid]) trace
+    rw [stack] at children
+    exact ⟨arithmetic.1, arithmetic.2.1, children.1, by rw [← children.1]; exact arithmetic.2.2⟩
   · intro closed site parent
     have accounted := exited_accounting events trace closed site parent
     have stats := trace_serial_stats initial events initial_valid.2.2.2 trace
@@ -830,7 +872,7 @@ theorem event_preserves_work (state : State) (event : Event Obs)
       | cons previous tail =>
         simp only [profileEvent, exit, h, updatePath]
         have held' : openActive ((site, false) :: parent) state.clock
-            ({previous with childNs := previous.childNs + (state.clock - frame.start), childBlockedNs := previous.childBlockedNs + frame.blockedNs + frame.childBlockedNs} :: tail) =
+            ({previous with childNs := previous.childNs + (state.clock - frame.start), childBlockedNs := previous.childBlockedNs + frame.blockedNs + frame.childBlockedNs, childElapsed := (state.clock - frame.start) :: previous.childElapsed} :: tail) =
             openActive ((site, false) :: parent) frame.start (previous :: tail) := by
           simpa [exit, h] using held
         rw [held']

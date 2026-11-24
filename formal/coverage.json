@@ -3774,6 +3774,42 @@
   ],
   "fragment_roots": [
     {
+      "id": "fragment.Xsh.Proofs.Core.Profile.profile_erasure",
+      "module": "Xsh.Proofs.Core.Profile",
+      "declaration": "Xsh.Proofs.Core.Profile.profile_erasure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Erasing profiler events preserves semantic state for the same observed steps.",
+      "boundary": "The event model assumes a monotone clock, contained disjoint opaque intervals, nonempty merged worker paths and no u64 saturation. It does not model per-site accumulators, allocation counters, stage timing or Rust refinement."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Profile.profile_accounting",
+      "module": "Xsh.Proofs.Core.Profile",
+      "declaration": "Xsh.Proofs.Core.Profile.profile_accounting",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nested frame timing and serial path totals account for exclusive, blocked and child time.",
+      "boundary": "The event model assumes a monotone clock, contained disjoint opaque intervals, nonempty merged worker paths and no u64 saturation. It does not model per-site accumulators, allocation counters, stage timing or Rust refinement."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Profile.profile_single_active",
+      "module": "Xsh.Proofs.Core.Profile",
+      "declaration": "Xsh.Proofs.Core.Profile.profile_single_active",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An interval with a frame on the stack partitions into top-frame work, blocking and child time.",
+      "boundary": "The event model assumes a monotone clock, contained disjoint opaque intervals, nonempty merged worker paths and no u64 saturation. It does not model per-site accumulators, allocation counters, stage timing or Rust refinement."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Core.Profile.profile_incomplete_reported",
+      "module": "Xsh.Proofs.Core.Profile",
+      "declaration": "Xsh.Proofs.Core.Profile.profile_incomplete_reported",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropped counts are monotone and incomplete finishes and worker merges cannot yield a complete report.",
+      "boundary": "The event model assumes a monotone clock, contained disjoint opaque intervals, nonempty merged worker paths and no u64 saturation. It does not model per-site accumulators, allocation counters, stage timing or Rust refinement."
+    },
+    {
       "id": "fragment.Xsh.Core.CleanupUnwind.outcome_conserves",
       "module": "Xsh.Core.CleanupUnwind",
       "declaration": "Xsh.Core.CleanupUnwind.outcome_conserves",
