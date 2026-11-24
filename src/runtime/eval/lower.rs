@@ -244,6 +244,7 @@ mod control;
 mod names;
 mod patterns;
 mod pipeline;
+mod reachable_imports;
 mod scalar;
 mod types;
 mod values;
@@ -645,6 +646,7 @@ pub(in crate::runtime::eval) enum StdlibLowerLinkage {
 pub(in crate::runtime::eval) struct CompactRootScope<'a> {
     root_statements: ArenaRange,
     modules: Vec<&'a ArenaUserModule>,
+    unreachable_functions: Rc<FxHashSet<FunctionDefId>>,
 }
 
 impl<'a> CompactRootScope<'a> {
@@ -652,6 +654,7 @@ impl<'a> CompactRootScope<'a> {
         Self {
             root_statements: program.statements,
             modules: program.modules.iter().collect(),
+            unreachable_functions: Rc::default(),
         }
     }
 
@@ -659,7 +662,17 @@ impl<'a> CompactRootScope<'a> {
         Self {
             root_statements: view.root_statements(),
             modules: view.modules().collect(),
+            unreachable_functions: Rc::default(),
         }
+    }
+
+    pub(in crate::runtime::eval) fn reachable_from_root(mut self, program: &ArenaProgram, bodies: &CompactBodyFacts, sources: &SourceMap) -> Self {
+        self.unreachable_functions = Rc::new(reachable_imports::unreachable_import_functions(program, bodies, &self, sources));
+        self
+    }
+
+    fn reaches_function(&self, definition: FunctionDefId) -> bool {
+        !self.unreachable_functions.contains(&definition)
     }
 
     pub(in crate::runtime::eval) fn root_statements(&self) -> ArenaRange {
@@ -1356,6 +1369,7 @@ fn compact_function_defs(
             );
         }
     }
+    functions.retain(|function| scope.reaches_function(function.id));
     functions
 }
 
@@ -1393,7 +1407,10 @@ pub(super) fn compact_function_selection(
                 .next().is_some()
         };
         if program.arena.stmt_ids(scope.root_statements).any(contains_proof_operation)
-            || scope.modules.iter().any(|module| program.module_statements(module).any(contains_proof_operation))
+            || scope.modules.iter().any(|module| program.module_statements(module)
+                .filter(|&statement| reachable_imports::module_function_definition(program, statement)
+                    .is_none_or(|definition| scope.reaches_function(definition)))
+                .any(contains_proof_operation))
         {
             producer_demand = super::ProducerDemand::Needed;
         }
@@ -2016,6 +2033,7 @@ fn compact_module_exports_for_use(
     _namespace: Name,
     qualified_schemes: &BTreeMap<QualifiedName, Arc<crate::sema::schemes::TypeScheme>>,
     resolved_bindings: &crate::sema::check::ResolvedBindings,
+    scope: &CompactRootScope<'_>,
 ) -> Option<Vec<LoweredModuleExport>> {
     let module = program
         .modules
@@ -2054,6 +2072,7 @@ fn compact_module_exports_for_use(
                 });
             }
             ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
+                if !scope.reaches_function(def) { continue; }
                 let name = program.arena.function_def(def).name;
                 let function_name = QualifiedName::new(function_namespace, name);
                 let kind = match program.arena.stmt(inner).kind {
@@ -6159,6 +6178,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     namespace,
                     self.qualified_schemes,
                     &self.bodies.resolved_bindings,
+                    &self.scope,
                 )?;
                 let checked_type =
                     self.checked_import_module_type(id, namespace, key.as_ref());
