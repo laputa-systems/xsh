@@ -31,7 +31,7 @@ skips the 24 controller-as-target tests on non-Linux controllers, naming the
 Linux facilities they need (`/proc`, GNU `stat` and `touch`). On m1-max (XSH
 debug build) the three-host suite gives 156 passed, 24 skipped; on Linux
 x86_64 all 180 pass. Parallel connection setup uses `ssh.connect_all`.
-See the [roadmap](../ROADMAP.md#sequence).
+See the [roadmap](../roadmap.md#sequence).
 
 ## Summary
 

@@ -198,3 +198,62 @@ the Dockerfile hash to an image built from different contents. Alpine packages
 are fixed by the published image, not by rebuilding the rolling edge repository.
 For local troubleshooting, `XSH_TEST_IMAGE` selects an already loaded image;
 `XSH_TEST_IMAGE_BUILD=1` explicitly builds a local image.
+
+## G0 release candidate
+
+G0 is complete. The candidate is the single immutable XSH commit `b268b5007`,
+tagged `xsh-g0-rc1`, with its xsh, xsht, xshi, and core script products.
+
+The G0 freeze admitted only these changes:
+
+- correctness, data-loss, and resource-ownership repairs;
+- fixes that Laputa's G0 consumers need;
+- test and documentation corrections;
+- verification repairs without which a result cannot be trusted.
+
+New APIs, codecs, language changes, speculative optimization, and verification
+features waited for a later milestone. An inference failure belonged to G0 only
+when it breaks a documented language guarantee or a Laputa program.
+
+XSH-53 and XSH-54 (supervised DHCPv4 and syslog) add APIs on `master` under the
+owner's campaign authorization. They are outside the frozen G0 candidate.
+
+A result counts only for the executable and source it ran. Any later executable
+change reruns the affected qualification. A later commit whose diff touches only
+planning records carries its qualification results forward.
+
+### Scope exclusions
+
+- Performance and resource gates do not block G0. The owner waived the quiet-host requirement on 2026-10-28, and
+  no G0 claim depends on a timing.
+- The graphical profile is outside G0, so Laputa's Muon build blocker does not
+  gate it.
+- macOS, Linux aarch64, and Asterinas are outside the G0 claim.
+
+### Recorded result
+
+All four completion criteria hold for `b268b5007`.
+
+1. **Native failures.** Every failing selector in the last full native run has a
+   recorded cause, a focused reproducer, and a repair or an out-of-scope reason.
+2. **Combined run.** A privileged run on `8d7330542`, whose products and tests
+   are identical to the candidate's, passed 14,588 tests with 151 skips and one
+   incomplete. The incomplete gate test saw commits land on the checkout during
+   the run and passes on a quiet tree. Of the skips, 72 are the
+   private-namespace lane's tests, which pass 72 of 72 on the same products. The
+   other 79 need root, external network or TLS fixtures, or tools absent from
+   the image.
+3. **Laputa suites.** Laputa's check, test, PM, xinit, and system suites pass
+   with the candidate's products, with recipes that rebuild rather than reuse
+   cached artifacts.
+4. **Laputa qualification.** An earlier `make verify` with the candidate's
+   seed found no XSH defect and eight Laputa defects, fixed through Laputa
+   `9485988`. One uninterrupted run at Laputa `7d550bc` then passed every step.
+
+Identities of the passing run:
+
+- **Seed:** XSH `b268b5007`, clean, `release, lto=false`, x86_64-musl. Product
+  sha256 prefixes: `xsh` `abb9e5cffd31e9ec`, `xsht` `4e964e4271999830`, `xshi`
+  `f6355b0fca563977`.
+- **Kernel:** artifact `3c602079f1ed…`, rebuilt from clean.
+- **Profile:** `qemu-dwl-foot` generation `d37ec0bbb131…`.

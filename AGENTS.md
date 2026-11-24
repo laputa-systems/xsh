@@ -39,7 +39,7 @@ For Ubuntu bootstrap and default verification, see [Development](docs/DEVELOPMEN
 | writing XSH programs (compact agent context, getting started) | [Agent context](docs/agent-context.md), [Getting started](docs/getting-started.md) |
 | code mode authoring experiment | [bench/codemode](bench/codemode/README.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
-| campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
+| all current and future work; Status is the resume point | [Roadmap](docs/roadmap.md) |
 | performance baseline, inference evidence | [Testing](docs/TESTING.md#performance-baseline), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
 | open work and design drafts | [TODO](TODO.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |
