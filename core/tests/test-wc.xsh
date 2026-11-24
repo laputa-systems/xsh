@@ -73,6 +73,13 @@ test test_wc_count_selection_and_order { |ctx|
   assert wc_text(ctx, ["-ll", "-l"], b"a\n")? == "1\n", "repeated options are legal"
 }
 
+test test_wc_line_endings_and_binary_data { |ctx|
+  assert wc_text(ctx, ["-l"], b"")? == "0\n"
+  assert wc_text(ctx, ["-l"], b"\xff\0")? == "0\n"
+  assert wc_text(ctx, ["-l"], b"\n\r\n\xff\0\nlast\r")? == "3\n"
+  assert wc_text(ctx, ["-lc"], b"\xff\r\n\0\n")? == "      2       5\n"
+}
+
 test test_wc_byte_only_stdin_counts_across_read_chunks { |ctx|
   let input = bytes.zero(131073)?
   assert wc_text(ctx, ["-c"], input)? == "131073\n"
