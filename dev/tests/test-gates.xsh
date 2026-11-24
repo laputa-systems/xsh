@@ -1413,6 +1413,20 @@ test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
   }
 }
 
+test test_net_change_selects_unprivileged_download_command_tests {
+  let ctx = fixtures.linux_context(fs.cwd()?)?
+  let plan = gates.plan_paths(ctx, tests.Verification, ["crates/xsh-net/src/lib.rs"], [], gates.Change)?
+  assert plan.unresolved.is_empty()
+  for file in ["core/tests/test-curl.xsh", "core/tests/test-wget.xsh"] {
+    let cases = [entry for entry in plan.cases if entry.id == f"native-{file}"]
+    assert cases.len() == 1, f"missing native case for {file}"
+    match cases[0].execution {
+      gates.RunCommand(spec) => assert spec.argv[1..] == ["test", file]
+      gates.DocumentationCheck | .Alias | .ManualFull | .ManualPreparation(_) | .ManualCommand(_) | .ManualNative | .ManualDocumentation => test.fail("download command case was not a native test")
+    }
+  }
+}
+
 test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps {
   let ctx = fixtures.linux_context(fs.cwd()?)?
   let ls_plan = gates.plan_paths(ctx, tests.Verification, ["core/ls.xsh"], [], gates.Change)?
