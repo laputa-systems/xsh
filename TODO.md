@@ -22,12 +22,12 @@ the m1-max host only. The [G0 release candidate](docs/ROADMAP.md#g0-release-cand
 which items block a release. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
 out of scope.
-### XSH-192 · P2 · Repeated par-map stages repeatedly create workers
+### XSH-192 · P3 · Repeated par-map stages repeatedly create workers
 
 - **Area:** Runtime performance
-- **Where:** `dev/performance/par_map/setup-{many,one}.xsh`; `dev/performance/par_map.py`
-- **Problem:** At equal work, 20 stages created 80 workers instead of 4. Five interleaved verification-profile runs showed a 1.58x median CPU ratio (range 1.54–1.62) for repeated stages on a busy host. The small synthetic workload does not establish the effect on applications.
-- **Recommendation:** Investigate reusing workers across stages while preserving ordering, failure selection and cleanup. Compare against the same paired workloads.
+- **Where:** `src/runtime/eval/lowered_run/indexed_run/pipeline.rs` (`eval_indexed_par_map_parallel`: per-stage shared state, slot clone and thread scope); `dev/performance/par_map/setup-{many,one}.xsh`; `dev/performance/par_map.py`
+- **Problem:** At equal work, 20 stages of 100 trivial items created 80 workers instead of 4 and cost 1.58x the CPU (range 1.54–1.62, busy host: paired ratio). The in-thread worker setup the profile measures is small (1.21 versus 0.88 ms in total), so the cost is per-stage work on the parent side that the profile does not observe: building the shared lowered state, cloning base slots, spawning threads and merging results, roughly 1 ms per stage. `par-map` is meant for heavy items, and Laputa's stages run once per command, so this matters only for many small stages.
+- **Recommendation:** First attribute the parent-side per-stage cost in the profile (it is listed as unobserved), then decide between reusing threads across stages and making shared-state construction cheaper. Preserve ordering, failure selection and cleanup.
 - **Fix with:** make-it-fast, lifecycle-concurrency
 - **Effort:** M
 
