@@ -73,7 +73,10 @@ impl ReturnInferenceIndex {
             if let ArenaExprKind::Record(fields) = expr.kind {
                 for field in program.arena.record_fields(fields) {
                     if let ArenaRecordFieldKind::Shorthand { name, span } = &field.kind {
-                        references.push((program.arena.span(*span), *name, None));
+                        let span = program.arena.span(*span);
+                        if view.contains_source(span.source_id) {
+                            references.push((span, *name, None));
+                        }
                     }
                 }
             }
