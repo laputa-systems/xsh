@@ -40,12 +40,6 @@ out of scope.
 - **Fix with:** make-it-fast, lifecycle-concurrency
 - **Effort:** M
 
-### XSH-189 · P3 · The comparative benchmarks pin a local test image that no longer exists
-
-- **Area:** Performance tooling
-- **Where:** `bench/consolidation/versions.lock.json:5` (`base_images.amd64`, pinned in `e3e1656d5` on 2026-11-16); `bench/consolidation/prepare.py` (`docker image inspect` of that ID)
-- **Problem:** The comparative overlay is built from a local `Dockerfile.test` image ID, `sha256:0945d878…`. That image is no longer on the host, so `python3 -B bench/consolidation/prepare.py … --build` fails and `cargo dev bench --workload consolidation-directory` / `consolidation-json` stop at preflight (exit 3). B1 recorded both rows as inconclusive on 2026-11-24. A local image ID cannot be fetched again, so any prune breaks these benchmarks.
-- **Recommendation:** Pin the published test image digest from `dev/images.lock` (as the gates already do) instead of a local image ID, pull it when absent, and keep the fixture hash check. Rebuild the overlay and rerun both workloads.
 - **Effort:** S
 
 ### XSH-188 · P2 · Dynamic module loads re-lower their static import closure

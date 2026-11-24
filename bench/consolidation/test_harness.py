@@ -349,6 +349,23 @@ class HarnessTests(unittest.TestCase):
             if pid_path.exists():
                 os.kill(int(pid_path.read_text()), signal.SIGKILL)
 
+    def test_prepare_pulls_missing_published_digest_and_records_local_id(self):
+        source = self.root / "suite"
+        source.mkdir()
+        base = "registry.example/test@sha256:" + "a" * 64
+        base_id = "sha256:" + "b" * 64
+        (source / "versions.lock.json").write_text(json.dumps({"base_images": {"amd64": base}}))
+        (source / "sources.lock.json").write_text("{}")
+        (source / "Dockerfile").write_text("FROM scratch\n")
+        args = argparse.Namespace(destination=self.root / "context", base_image=None, arch="amd64", build=False, tag="unused")
+        missing = subprocess.CompletedProcess([], 1, stdout="")
+        found = subprocess.CompletedProcess([], 0, stdout=json.dumps([{"Architecture": "amd64", "Id": base_id}]))
+        with patch("prepare.HERE", source), patch("prepare.subprocess.run", side_effect=[missing, subprocess.CompletedProcess([], 0), found, subprocess.CompletedProcess([], 0)]) as run, redirect_stdout(io.StringIO()):
+            prepare(args)
+        self.assertEqual(run.call_args_list[1].args[0], ["docker", "pull", "--platform", "linux/amd64", base])
+        receipt = json.loads((args.destination / "preparation.json").read_text())
+        self.assertEqual((receipt["base_image"], receipt["base_image_id"]), (base, base_id))
+
     def test_overlay_does_not_build_if_base_alias_resolves_to_another_image(self):
         source = self.root / "suite"
         source.mkdir()
@@ -357,8 +374,9 @@ class HarnessTests(unittest.TestCase):
         (source / "sources.lock.json").write_text(json.dumps({"schema_version": 1, "inputs": []}))
         (source / "Dockerfile").write_text("ARG BASE_REFERENCE\nFROM ${BASE_REFERENCE}\n")
         args = argparse.Namespace(destination=self.root / "context", base_image=None, arch="amd64", build=True, tag="xsh-comparative:test")
-        inspect = json.dumps([{"Architecture": "amd64", "Id": base}]).encode()
-        with patch("prepare.HERE", source), patch("prepare.subprocess.run") as run, patch("prepare.subprocess.check_output", side_effect=[inspect, "sha256:" + "b" * 64]):
+        inspect = subprocess.CompletedProcess([], 0, stdout=json.dumps([{"Architecture": "amd64", "Id": base}]))
+        with patch("prepare.HERE", source), patch("prepare.subprocess.run") as run, patch("prepare.subprocess.check_output", side_effect=["sha256:" + "b" * 64]):
+            run.return_value = inspect
             with self.assertRaisesRegex(ValueError, "base alias differs"):
                 prepare(args)
         self.assertFalse(any(call.args[0][1] == "build" for call in run.call_args_list))
@@ -371,8 +389,9 @@ class HarnessTests(unittest.TestCase):
         (source / "sources.lock.json").write_text(json.dumps({"schema_version": 1, "inputs": []}))
         (source / "Dockerfile").write_text("ARG BASE_REFERENCE\nFROM ${BASE_REFERENCE}\n")
         args = argparse.Namespace(destination=self.root / "context", base_image=None, arch="amd64", build=True, tag="xsh-comparative:test")
-        inspect = json.dumps([{"Architecture": "amd64", "Id": base}]).encode()
-        with patch("prepare.HERE", source), patch("prepare.subprocess.run") as run, patch("prepare.subprocess.check_output", side_effect=[inspect, base, "sha256:" + "c" * 64]), redirect_stdout(io.StringIO()):
+        inspect = subprocess.CompletedProcess([], 0, stdout=json.dumps([{"Architecture": "amd64", "Id": base}]))
+        with patch("prepare.HERE", source), patch("prepare.subprocess.run") as run, patch("prepare.subprocess.check_output", side_effect=[base, "sha256:" + "c" * 64]), redirect_stdout(io.StringIO()):
+            run.return_value = inspect
             prepare(args)
         fetch = next(call.args[0] for call in run.call_args_list if call.args[0][1] == str(source / "fetch.xsh"))
         self.assertEqual(fetch[3:], [str(source / "sources.lock.json"), str(args.destination.resolve()), "amd64"])
