@@ -55,6 +55,8 @@ pub struct Parser<'a> {
     source_id: SourceId,
     source: &'a str,
     token_table: TokenTable,
+    tokens_match_source: bool,
+    quoted: Vec<(usize, literal::QuotedLiteral)>,
     index: usize,
     comma_is_terminator: bool,
     /// The first token of the match arm body being parsed, when its `=>`
@@ -141,6 +143,8 @@ impl<'a> Parser<'a> {
         symbols.clone().with_current(|| {
             let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
             let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
+            parser.tokens_match_source = true;
+            parser.quoted = lexed.quoted;
             parser.diagnostics.extend(lexed.diagnostics);
             let cst = LazyCst::new(parser.source_id, parser.source, parser.token_table.clone());
             let mut arena = ArenaProgramBuilder::with_source_and_token_capacity_and_symbols(
@@ -156,7 +160,7 @@ impl<'a> Parser<'a> {
                 parser.skip_separators();
             }
             let mut program = arena.finish();
-            program.attach_doc_comments(parser.source_id, parser.source);
+            program.attach_doc_comments(parser.source_id, parser.source, &parser.token_table);
             ArenaParseOutput {
                 arena: program,
                 cst,
@@ -174,6 +178,8 @@ impl<'a> Parser<'a> {
         symbols.with_current(|| {
             let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
             let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
+            parser.tokens_match_source = true;
+            parser.quoted = lexed.quoted;
             parser.diagnostics.extend(lexed.diagnostics);
             parser.parse_into_arena_builder(arena)
         })
@@ -189,6 +195,8 @@ impl<'a> Parser<'a> {
             source_id,
             source,
             token_table,
+            tokens_match_source: false,
+            quoted: Vec::new(),
             stray_line_continuations,
             index: 0,
             comma_is_terminator: false,
@@ -232,7 +240,11 @@ impl<'a> Parser<'a> {
             self.skip_separators();
         }
         let statements = arena.finish_root_statements_from(start);
-        arena.attach_doc_comments_for_statements(self.source_id, self.source, statements);
+        if self.tokens_match_source {
+            arena.attach_doc_comments_with_tokens(self.source_id, self.source, statements, &self.token_table);
+        } else {
+            arena.attach_doc_comments_for_statements(self.source_id, self.source, statements);
+        }
         ArenaParseFragment {
             statements,
             cst,
@@ -253,7 +265,12 @@ impl<'a> Parser<'a> {
             self.skip_separators();
         }
         let mut program = arena.finish();
-        program.attach_doc_comments(self.source_id, self.source);
+        if self.tokens_match_source {
+            program.attach_doc_comments(self.source_id, self.source, &self.token_table);
+        } else {
+            let tokens = Lexer::new(self.source_id, self.source).lex_compact().token_table;
+            program.attach_doc_comments(self.source_id, self.source, &tokens);
+        }
         program
     }
 
@@ -1004,10 +1021,26 @@ impl<'a> Parser<'a> {
     ) -> bool {
         let mut end = previous_end;
         terms.into_iter().enumerate().all(|(offset, term)| {
-            let Some(mut token) = self.grammar_token(distance + offset) else { return false };
-            token.glued = self.peek_start(distance + offset) == Some(end);
-            end = self.peek_end(distance + offset).expect("token end");
-            term.matches(&token)
+            let at = distance + offset;
+            let Some(tag) = self.peek_tag(at) else { return false };
+            if term.glued && self.peek_start(at) != Some(end) {
+                return false;
+            }
+            let matches = match term.class {
+                grammar::Class::Tag(expected) => tag == expected,
+                grammar::Class::Name => {
+                    const NAME_TAGS: u64 = (1 << TokenTag::Ident as u8) | (1 << TokenTag::ProcIdent as u8);
+                    NAME_TAGS & (1 << tag as u8) != 0
+                }
+                _ => self.grammar_token(at).is_some_and(|mut token| {
+                    token.glued = true;
+                    term.matches(&token)
+                }),
+            };
+            if matches {
+                end = self.peek_end(at).expect("token end");
+            }
+            matches
         })
     }
 
@@ -1094,12 +1127,30 @@ impl<'a> Parser<'a> {
         self.token_table.start_at(index)
     }
 
+    fn quoted_at(&self, start: usize) -> Option<literal::QuotedLiteral> {
+        self.quoted.binary_search_by_key(&start, |(offset, _)| *offset)
+            .ok().map(|index| self.quoted[index].1)
+    }
+
+    fn scan_quoted_at(&self, start: usize) -> Option<literal::QuotedScan> {
+        self.quoted_at(start).map(literal::QuotedScan::Terminated)
+            .or_else(|| literal::scan_quoted_literal(self.source, start, true))
+    }
+
     pub(in crate::syntax::parser) fn end_at(&self, index: usize) -> Option<usize> {
+        let tag = self.token_table.tag_at(index)?;
+        if matches!(tag, TokenTag::String | TokenTag::PathString | TokenTag::GlobString
+            | TokenTag::EnvString | TokenTag::FmtString | TokenTag::PathFmtString
+            | TokenTag::Bytes | TokenTag::Regex)
+            && let Some(quoted) = self.quoted_at(self.token_table.start_at(index)?)
+        {
+            return Some(quoted.end);
+        }
         self.token_table.end_at(index, self.source)
     }
 
     pub(in crate::syntax::parser) fn span_at(&self, index: usize) -> Option<Span> {
-        self.token_table.span_at(index, self.source_id, self.source)
+        Some(Span::new(self.source_id, self.start_at(index)?, self.end_at(index)?))
     }
 
     pub(in crate::syntax::parser) fn bump(&mut self) -> Span {
@@ -1269,6 +1320,15 @@ mod tests {
     use crate::syntax::arena::{
         ArenaCommand, ArenaCommandArgKind, ArenaRunTailOperand, ArenaStmtKind,
     };
+
+    #[test]
+    fn supplied_token_table_does_not_replace_source_doc_comments() {
+        let source_id = SourceId::new(0);
+        let source = "##! doc\nlet x = 1\n";
+        let lexed = super::Lexer::new(source_id, "       \nlet x = 1\n").lex_compact();
+        let output = Parser::new_with_token_table(source_id, source, lexed.token_table).parse_arena_only();
+        assert_eq!(output.arena.module_doc(), Some(super::Span::new(source_id, 0, "##! doc\n".len())));
+    }
 
     #[test]
     fn parses_run_compound_word_and_result_operator() {

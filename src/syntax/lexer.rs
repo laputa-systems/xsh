@@ -9,6 +9,7 @@ use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder, To
 pub struct CompactLexerOutput {
     pub token_table: TokenTable,
     pub diagnostics: Vec<Diagnostic>,
+    pub(crate) quoted: Vec<(usize, literal::QuotedLiteral)>,
     _symbols: SymbolOwner,
 }
 
@@ -22,6 +23,7 @@ pub struct Lexer<'a> {
     // A scanner only walks token boundaries: it records no tokens and interns
     // no names, so it can run without a symbol owner.
     scan_only: bool,
+    quoted: Vec<(usize, literal::QuotedLiteral)>,
 }
 
 /// How the tokens after an f-string `{` end.
@@ -72,6 +74,7 @@ pub(crate) fn interpolation_end(source: &str, start: usize) -> InterpolationEnd 
         diagnostics: Vec::new(),
         symbols: SymbolOwner::new(),
         scan_only: true,
+        quoted: Vec::new(),
     };
     let mut depth = 0usize;
     loop {
@@ -127,6 +130,7 @@ impl<'a> Lexer<'a> {
             diagnostics: Vec::new(),
             symbols,
             scan_only: false,
+            quoted: Vec::new(),
         }
     }
 
@@ -136,6 +140,7 @@ impl<'a> Lexer<'a> {
         CompactLexerOutput {
             token_table: std::mem::take(&mut self.token_builder).finish(),
             diagnostics: self.diagnostics,
+            quoted: self.quoted,
             _symbols: self.symbols,
         }
     }
@@ -505,6 +510,7 @@ impl<'a> Lexer<'a> {
         match literal::scan_quoted_literal(self.source, start, true) {
             Some(QuotedScan::Terminated(literal)) if literal.kind == QuotedLiteralKind::Fmt => {
                 self.offset = literal.end;
+                self.record_quoted(start, literal);
                 self.push(
                     TokenKind::FmtString {
                         raw_literal: literal.raw,
@@ -553,6 +559,7 @@ impl<'a> Lexer<'a> {
         match literal::scan_quoted_literal(self.source, start, true) {
             Some(QuotedScan::Terminated(literal)) if literal.kind == QuotedLiteralKind::PathFmt => {
                 self.offset = literal.end;
+                self.record_quoted(start, literal);
                 self.push(TokenKind::PathFmtString, start, self.offset);
             }
             Some(QuotedScan::Unterminated { end }) => {
@@ -676,6 +683,7 @@ impl<'a> Lexer<'a> {
                 return;
             }
         };
+        self.record_quoted(literal_start, literal);
         let mut has_interpolation = false;
         // Escapes only shrink and interpolation markers only copy verbatim, so the
         // raw content span is always a safe upper bound on the decoded length.
@@ -816,6 +824,12 @@ impl<'a> Lexer<'a> {
         self.diagnostics.push(invalid_escape_diagnostic(
             self.span(start, end.max(start + 1)),
         ));
+    }
+
+    fn record_quoted(&mut self, start: usize, quoted: literal::QuotedLiteral) {
+        if !self.scan_only {
+            self.quoted.push((start, quoted));
+        }
     }
 
     fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {

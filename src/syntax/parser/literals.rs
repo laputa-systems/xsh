@@ -123,7 +123,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn quoted_content(&self, span: Span) -> &str {
-        match literal::scan_quoted_literal(self.source, span.start(), true) {
+        match self.scan_quoted_at(span.start()) {
             Some(literal::QuotedScan::Terminated(literal)) => {
                 &self.source[literal.content_start..literal.content_end]
             }
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
         interpolates: bool,
     ) -> (Vec<InterpolationChunk<'a>>, Vec<Diagnostic>) {
         let Some(literal::QuotedScan::Terminated(quoted)) =
-            literal::scan_quoted_literal(self.source, span.start(), true)
+            self.scan_quoted_at(span.start())
         else {
             return (Vec::new(), Vec::new());
         };
@@ -255,7 +255,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn string_content_offset(&self, span: Span) -> usize {
-        match literal::scan_quoted_literal(self.source, span.start(), true) {
+        match self.scan_quoted_at(span.start()) {
             Some(literal::QuotedScan::Terminated(literal)) => literal.content_start,
             _ => {
                 let literal = &self.source[span.start()..span.end()];
@@ -324,6 +324,7 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
     symbols.with_current(|| {
         let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
         let mut parser = Parser::new_with_token_table(source_id, source, lexed.token_table);
+        parser.quoted = lexed.quoted;
         parser.diagnostics.extend(lexed.diagnostics);
         let marks = arena.span_marks();
         let expr_id = parser.parse_expr_id_arena_only(arena);
@@ -356,6 +357,7 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
     symbols.with_current(|| {
         let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
         let mut parser = Parser::new_with_token_table(source_id, source, lexed.token_table);
+        parser.quoted = lexed.quoted;
         let marks = arena.span_marks();
         parser.skip_newlines();
         let expr_id = parser.parse_expr_id_arena_only(arena);
