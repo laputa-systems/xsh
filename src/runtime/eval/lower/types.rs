@@ -359,19 +359,22 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
 }
 
 pub(super) fn checked_fact_is_resolved(ty: &Type) -> bool {
-    !ty.contains_inference()
-        && match ty {
-            Type::Unknown | Type::Invalid => false,
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
-                checked_fact_is_resolved(inner)
-            }
-            Type::Map(key, value) | Type::Result(key, value) => {
-                checked_fact_is_resolved(key) && checked_fact_is_resolved(value)
-            }
-            Type::Record(fields) => fields.values().all(checked_fact_is_resolved),
-            Type::Validated(validated) => checked_fact_is_resolved(validated.base()),
-            _ => true,
+    !ty.contains_inference() && checked_fact_has_resolved_shape(ty)
+}
+
+fn checked_fact_has_resolved_shape(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown | Type::Invalid => false,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
+            checked_fact_has_resolved_shape(inner)
         }
+        Type::Map(key, value) | Type::Result(key, value) => {
+            checked_fact_has_resolved_shape(key) && checked_fact_has_resolved_shape(value)
+        }
+        Type::Record(fields) => fields.values().all(checked_fact_has_resolved_shape),
+        Type::Validated(validated) => checked_fact_has_resolved_shape(validated.base()),
+        _ => true,
+    }
 }
 
 pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
