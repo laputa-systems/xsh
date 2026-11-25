@@ -7032,7 +7032,7 @@ impl<'p> FullExecution<'p> {
 
     pub(in crate::runtime::eval) fn script_main_splice_parameters(&self, instruction: u32) -> Result<Option<Vec<Type>>, IrVerifyError> {
         let decoder = self.decoder();
-        let (function, mut args) = match decoder.expression_view(instruction as usize)? {
+        let (function, mut args) = match decoder.decode_expression_view(instruction as usize)? {
             schema::ExprView::Call { function, args, .. } => (function.id.index(), args),
             schema::ExprView::SelfCall { args, .. } if driver_owner_index(self.owner).is_none() =>
                 (IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("script entry caller is invalid"))?.index(), args),

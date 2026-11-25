@@ -2697,7 +2697,7 @@ pub(super) enum ProducerStep {
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
-    binary_continuations: Vec<Box<FrameContinuation>>,
+    continuations: Vec<Box<FrameContinuation>>,
     empty_applications: PreparedInvocationBindings,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
@@ -2707,8 +2707,8 @@ pub(in crate::runtime::eval) struct FrameScratch {
 impl FrameScratch {
     const POOL_CAP: usize = 32;
 
-    fn take_binary_continuation(&mut self, next: FrameContinuation) -> Box<FrameContinuation> {
-        if let Some(mut storage) = self.binary_continuations.pop() {
+    fn take_continuation(&mut self, next: FrameContinuation) -> Box<FrameContinuation> {
+        if let Some(mut storage) = self.continuations.pop() {
             *storage = next;
             storage
         } else {
@@ -2716,10 +2716,10 @@ impl FrameScratch {
         }
     }
 
-    fn recycle_binary_continuation(&mut self, mut storage: Box<FrameContinuation>, span: Span) -> FrameContinuation {
+    fn recycle_continuation(&mut self, mut storage: Box<FrameContinuation>, span: Span) -> FrameContinuation {
         let next = std::mem::replace(&mut *storage, FrameContinuation::Discard(span));
-        if self.binary_continuations.len() < Self::POOL_CAP {
-            self.binary_continuations.push(storage);
+        if self.continuations.len() < Self::POOL_CAP {
+            self.continuations.push(storage);
         }
         next
     }
@@ -4620,7 +4620,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             defers: Vec::new(),
             block_scopes: Vec::new(),
             block_defer_offsets: Vec::new(),
-            return_to: return_to.map(Box::new),
+            return_to: return_to.map(|next| self.evaluator.frame_scratch.take_continuation(next)),
         });
         Ok(())
     }
@@ -6211,7 +6211,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left.raw(), right.raw(), value_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
+                    FrameContinuation::BinaryLeft { op, right: right.raw(), span: value_span, next: self.evaluator.frame_scratch.take_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -7170,7 +7170,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = if self.evaluator.coverage.is_some() && matches!(op, BinaryOp::And | BinaryOp::Or) {
                     self.coverage_bool_left(index, op, left, right, op_span, next)
                 } else {
-                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: self.evaluator.frame_scratch.take_binary_continuation(next) }
+                    FrameContinuation::BinaryLeft { op, right, span: op_span, next: self.evaluator.frame_scratch.take_continuation(next) }
                 };
                 self.push_expr(
                     index,
@@ -7692,7 +7692,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(left) if op == BinaryOp::And || op == BinaryOp::Or => {
                     let left = lowered_condition_bool(left, span)?;
                     if (op == BinaryOp::And && !left) || (op == BinaryOp::Or && left) {
-                        let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                        let next = self.evaluator.frame_scratch.recycle_continuation(next, span);
                         self.push_value(index, FrameValue::Value(LoweredValue::Bool(left)), next);
                     } else {
                         self.push_expr(
@@ -7726,7 +7726,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } = state; match value {
                 FrameValue::Value(right) => {
                     let value = lowered_binary_value(op, left, right, span)?;
-                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    let next = self.evaluator.frame_scratch.recycle_continuation(next, span);
                     self.push_value(index, FrameValue::Value(value), next);
                 }
                 FrameValue::Break(value) => {
@@ -7736,7 +7736,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::BoolBinaryRight { next, span } => match value {
                 FrameValue::Value(value) => {
                     let value = lowered_condition_bool(value, span)?;
-                    let next = self.evaluator.frame_scratch.recycle_binary_continuation(next, span);
+                    let next = self.evaluator.frame_scratch.recycle_continuation(next, span);
                     self.push_value(index, FrameValue::Value(LoweredValue::Bool(value)), next);
                 }
                 FrameValue::Break(value) => {
@@ -10575,9 +10575,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let value = capture_checked_error(error)?;
             match call.return_to {
                 Some(next) => {
+                    let next = self.evaluator.frame_scratch.recycle_continuation(next, call.call_span);
                     let parent = self.calls.len() - 1;
                     self.refresh_caller_bindings(parent, call.call_span)?;
-                    self.push_value(parent, FrameValue::Value(value), *next);
+                    self.push_value(parent, FrameValue::Value(value), next);
                 }
                 None => self.result = Some(Ok(value)),
             }
@@ -10732,16 +10733,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
         drop(call._binding_namespace_lease.take());
         self.evaluator.prune_binding_values();
-        match (call.return_to, value) {
+        let return_to = call.return_to.map(|next| self.evaluator.frame_scratch.recycle_continuation(next, call.call_span));
+        match (return_to, value) {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;
                 self.refresh_caller_bindings(parent, call.call_span)?;
-                self.push_value(parent, FrameValue::Value(value), *next);
+                self.push_value(parent, FrameValue::Value(value), next);
             }
             (Some(next), Err(error)) => {
                 let parent = self.calls.len() - 1;
                 self.refresh_caller_bindings(parent, call.call_span)?;
-                if let FrameContinuation::UtilsCacheResult(state) = *next {
+                if let FrameContinuation::UtilsCacheResult(state) = next {
                     self.evaluator.trace_lowered_utils_cache_result(state.span);
                 }
                 self.begin_error_unwind(error);
