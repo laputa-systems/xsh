@@ -403,7 +403,7 @@ mod tests {
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
-            let ArenaStmtKind::TypeDef(definition) = parsed.arena.arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind else { panic!("schema declaration"); };
+            let ArenaStmtKind::TypeDef(definition) = parsed.arena.arena.stmt_kind(parsed.arena.statement_ids().next().unwrap()) else { panic!("schema declaration"); };
             let ArenaTypeDefBody::RecordSchema(fields) = parsed.arena.arena.type_def(definition).body else { panic!("record schema"); };
             let field = &parsed.arena.arena.schema_fields(fields)[0];
             let template = checked.resolved_type_expressions.templates[&(definition, field.ty)].clone();
@@ -453,9 +453,9 @@ mod tests {
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() },
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let ArenaStmtKind::CliMain(function) = parsed.arena.arena.stmt(
+        let ArenaStmtKind::CliMain(function) = parsed.arena.arena.stmt_kind(
             parsed.arena.statement_ids().next().unwrap(),
-        ).kind else { panic!("CLI main declaration"); };
+        ) else { panic!("CLI main declaration"); };
         assert_eq!(
             checked.checked_declarations.functions[&function].kind,
             super::CheckedFunctionKind::CliMain,
@@ -480,7 +480,7 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
             let function = parsed.arena.statement_ids().find_map(|statement| {
-                match parsed.arena.arena.stmt(statement).kind {
+                match parsed.arena.arena.stmt_kind(statement) {
                     ArenaStmtKind::PureDef(function)
                         if parsed.arena.arena.function_def(function).name.as_str() == "gather" =>
                     {
@@ -513,7 +513,7 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
             let function = parsed.arena.statement_ids().find_map(|statement| {
-                match parsed.arena.arena.stmt(statement).kind {
+                match parsed.arena.arena.stmt_kind(statement) {
                     ArenaStmtKind::StreamDef(function)
                         if parsed.arena.arena.function_def(function).name.as_str() == "failing_rows" =>
                     {
@@ -547,7 +547,7 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
             let function = parsed.arena.statement_ids().find_map(|statement| {
-                match parsed.arena.arena.stmt(statement).kind {
+                match parsed.arena.arena.stmt_kind(statement) {
                     ArenaStmtKind::PureDef(function)
                         if parsed.arena.arena.function_def(function).name.as_str() == "preserve" =>
                     {
@@ -582,10 +582,10 @@ mod tests {
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let mut statements = parsed.arena.statement_ids();
-        let ArenaStmtKind::Export(inner) = parsed.arena.arena.stmt(
+        let ArenaStmtKind::Export(inner) = parsed.arena.arena.stmt_kind(
             statements.next().unwrap(),
-        ).kind else { panic!("export declaration"); };
-        let ArenaStmtKind::PureDef(function) = parsed.arena.arena.stmt(inner).kind else {
+        ) else { panic!("export declaration"); };
+        let ArenaStmtKind::PureDef(function) = parsed.arena.arena.stmt_kind(inner) else {
             panic!("pure function declaration");
         };
         let declaration = &checked.checked_declarations.functions[&function];

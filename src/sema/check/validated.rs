@@ -33,7 +33,7 @@ impl Checker {
                 item.splice_span.is_none()
                     || self
                         .expr_types
-                        .get(&arena.arena.expr(item.value).span)
+                        .get(&arena.arena.expr_span(item.value))
                         .and_then(Type::validated)
                         .is_some_and(|spread| spread.validation().implies(Validation::NonEmpty))
             }),
@@ -175,7 +175,7 @@ impl Checker {
                     None => return Type::Path,
                 },
                 ArenaFmtPart::Expr(value, spec) => {
-                    let value_span = arena.arena.expr(*value).span;
+                    let value_span = arena.arena.expr_span(*value);
                     let value_ty = self.expr_types.get(&value_span).cloned();
                     // An interpolation that failed to check has its own
                     // diagnostic; one whose type is merely unknown is not

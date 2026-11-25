@@ -1644,15 +1644,15 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn expr_kind(&self, id: ExprId) -> ArenaExprKind {
-        self.lowerer.arena.expr(id).kind
+        self.lowerer.arena.expr_kind(id)
     }
 
     pub fn expr_span(&self, id: ExprId) -> Span {
-        self.lowerer.arena.expr(id).span
+        self.lowerer.arena.expr_span(id)
     }
 
     pub fn stmt_span(&self, id: StmtId) -> Span {
-        self.lowerer.arena.stmt(id).span
+        self.lowerer.arena.stmt_span(id)
     }
 
     pub fn root_statement_count(&self) -> usize {
@@ -5551,18 +5551,18 @@ impl AstArena {
     }
 
     pub fn stmt(&self, id: StmtId) -> ArenaStmt {
-        let index = id.index();
         ArenaStmt {
             kind: self.stmt_kind(id),
-            span: self.inline_span(
-                self.stmt_spans.get(index),
-                index,
-                &self.stmt_span_source_overrides,
-            ),
+            span: self.stmt_span(id),
         }
     }
 
-    fn stmt_kind(&self, id: StmtId) -> ArenaStmtKind {
+    pub fn stmt_span(&self, id: StmtId) -> Span {
+        let index = id.index();
+        self.inline_span(self.stmt_spans.get(index), index, &self.stmt_span_source_overrides)
+    }
+
+    pub fn stmt_kind(&self, id: StmtId) -> ArenaStmtKind {
         let tag = self.stmt_tags[id.index()];
         let data = self.stmt_data[id.index()];
         match tag {
@@ -5736,18 +5736,18 @@ impl AstArena {
     }
 
     pub fn expr(&self, id: ExprId) -> ArenaExpr {
-        let index = id.index();
         ArenaExpr {
             kind: self.expr_kind(id),
-            span: self.inline_span(
-                self.expr_spans.get(index),
-                index,
-                &self.expr_span_source_overrides,
-            ),
+            span: self.expr_span(id),
         }
     }
 
-    fn expr_kind(&self, id: ExprId) -> ArenaExprKind {
+    pub fn expr_span(&self, id: ExprId) -> Span {
+        let index = id.index();
+        self.inline_span(self.expr_spans.get(index), index, &self.expr_span_source_overrides)
+    }
+
+    pub fn expr_kind(&self, id: ExprId) -> ArenaExprKind {
         let tag = self.expr_tags[id.index()];
         let data = self.expr_data[id.index()];
         match tag {

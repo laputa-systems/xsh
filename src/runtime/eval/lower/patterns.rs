@@ -20,7 +20,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<(BuildExprId, Vec<usize>)> {
-        let ArenaExprKind::PatternCondition { value, .. } = self.program.arena.expr(id).kind
+        let ArenaExprKind::PatternCondition { value, .. } = self.program.arena.expr_kind(id)
         else {
             return Some((
                 self.lower_expr(id, slots, current_function, item_slot)?,
@@ -40,8 +40,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         ok_ty: Option<&Type>,
         err_ty: Option<&Type>,
     ) -> Option<(BuildExprId, Vec<usize>)> {
-        let ArenaExprKind::PatternCondition { arms, .. } = self.program.arena.expr(id).kind else { return None };
-        let span = self.program.arena.expr(id).span;
+        let ArenaExprKind::PatternCondition { arms, .. } = self.program.arena.expr_kind(id) else { return None };
+        let span = self.program.arena.expr_span(id);
         let pattern = self.program.arena.match_expr_arms(arms)[0].pattern;
         let (pattern, cleanup) =
             self.lower_pattern(pattern, slots, ok_ty, err_ty)?;
@@ -75,7 +75,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaPatternKind::Wildcard => Some(None),
             // A literal the checker typed as a Path matches a Path subject,
             // which the text-keyed match cannot compare.
-            ArenaPatternKind::Literal(expr) => match self.program.arena.expr(expr).kind {
+            ArenaPatternKind::Literal(expr) => match self.program.arena.expr_kind(expr) {
                 ArenaExprKind::Str(value) if !self.bodies.path_literals.contains(&expr) => {
                     Some(Some(self.program.arena.string_literal(value).clone()))
                 }
@@ -657,12 +657,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {
-        match self.program.arena.expr(id).kind {
+        match self.program.arena.expr_kind(id) {
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr,
             } => {
-                let value = match self.program.arena.expr(expr).kind {
+                let value = match self.program.arena.expr_kind(expr) {
                     ArenaExprKind::Int(value) => LoweredValue::Int(
                         self.program
                             .arena

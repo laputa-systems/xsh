@@ -31,9 +31,9 @@ impl Checker {
                 if materialized == Type::Invalid { return materialized; }
                 let expected = Type::Callable(target);
                 let diagnostics = self.diagnostics.len();
-                self.expect_type(&expected, &materialized, arena.arena.expr(id).span);
+                self.expect_type(&expected, &materialized, arena.arena.expr_span(id));
                 if self.diagnostics.len() != diagnostics { return Type::Invalid; }
-                self.record_expr_type(arena.arena.expr(id).span, expected.clone());
+                self.record_expr_type(arena.arena.expr_span(id), expected.clone());
                 return expected;
             }
             if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
@@ -57,24 +57,24 @@ impl Checker {
             { return retained; }
             return actual;
         };
-        let span = arena.arena.expr(id).span;
+        let span = arena.arena.expr_span(id);
         let named = self.resolve_callable_alias_target(arena, id);
         self.fit_named_callable(named, &actual, target, span)
     }
 
     pub(super) fn materialize_callable_value(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
-        let span = arena.arena.expr(id).span;
+        let span = arena.arena.expr_span(id);
         if let Some(named) = self.resolve_callable_alias_target(arena, id) {
             let kind = named.kind;
             let callable = self.materialize_named_callable(named, span);
-            if let ArenaExprKind::Try(inner) = arena.arena.expr(id).kind
-                && self.projections.get(&arena.arena.expr(inner).span)
+            if let ArenaExprKind::Try(inner) = arena.arena.expr_kind(id)
+                && self.projections.get(&arena.arena.expr_span(inner))
                     .is_some_and(|projection| projection.operation == crate::sema::projection::ProjectionOperation::Get)
                 && matches!(callable, Type::Callable(_))
-                && let Some(Type::Result(success, error)) = self.expr_types.get(&arena.arena.expr(inner).span)
+                && let Some(Type::Result(success, error)) = self.expr_types.get(&arena.arena.expr_span(inner))
                 && success.as_ref() == &Type::Function(kind)
             {
-                self.record_expr_type(arena.arena.expr(inner).span, Type::Result(Box::new(callable.clone()), error.clone()));
+                self.record_expr_type(arena.arena.expr_span(inner), Type::Result(Box::new(callable.clone()), error.clone()));
             }
             return callable;
         }
@@ -160,7 +160,7 @@ impl Checker {
         span: Span,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Option<Type> {
-        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(_)) { return None; }
+        if !matches!(arena.arena.expr_kind(callee), ArenaExprKind::Ident(_)) { return None; }
         let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, callee) else { return None; };
         let ty = binding.ty.clone();
         if !matches!(self.type_constraints.resolve(&ty), Ok(Type::Inference(_))) { return None; }
@@ -369,7 +369,7 @@ impl Checker {
         source: &str,
         callee: ExprId,
     ) -> Option<Arc<TypedCallable>> {
-        let ArenaExprKind::Ident(_) = arena.arena.expr(callee).kind else {
+        let ArenaExprKind::Ident(_) = arena.arena.expr_kind(callee) else {
             return None;
         };
         if self.resolve_callable_alias_call(arena, callee).is_some() { return None; }
@@ -453,7 +453,7 @@ impl Checker {
         let return_ty = callable.sig.return_ty.as_ref().clone();
         let kind = callable.kind;
         let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
-        let name = match arena.arena.expr(callee).kind {
+        let name = match arena.arena.expr_kind(callee) {
             ArenaExprKind::Ident(name) | ArenaExprKind::Field { name, .. } => name.to_string(),
             _ => "callable value".to_string(),
         };
@@ -987,7 +987,7 @@ proc call_rest(raw: Any) [error] -> Int {
             let span = crate::source::Span::new(source_id, start, end);
             (0..parsed.arena.arena.expr_tags.len())
                 .map(crate::syntax::arena::ExprId::from_index)
-                .find(|id| parsed.arena.arena.expr(*id).span == span)
+                .find(|id| parsed.arena.arena.expr_span(*id) == span)
                 .unwrap_or_else(|| panic!("missing expression at {span:?}"))
         };
         let initial_start = source.find("var operation = identity").unwrap() + "var operation = ".len();

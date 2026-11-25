@@ -200,7 +200,7 @@ impl Checker {
             let part_span = arena.arena.span(part.span);
             match &part.kind {
                 ArenaPatternKind::Literal(expr) => {
-                    let ArenaExprKind::Str(text) = arena.arena.expr(*expr).kind else {
+                    let ArenaExprKind::Str(text) = arena.arena.expr_kind(*expr) else {
                         continue;
                     };
                     *segments.last_mut().expect("a segment is open") =

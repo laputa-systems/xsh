@@ -166,11 +166,11 @@ impl BindingReadSites {
         let mut expressions_by_binding = FxHashMap::<_, Vec<_>>::default();
         by_span.extend(bindings.value_sites.iter().map(|(&(span, _), &binding)| (span, binding)));
         for (&expression, &binding) in &bindings.expressions {
-            let span = arena.expr(expression).span;
+            let span = arena.expr_span(expression);
             by_span.push((span, binding));
             expressions_by_binding.entry(binding).or_default().push((span, expression));
         }
-        by_span.extend(bindings.tails.iter().map(|(&statement, &binding)| (arena.stmt(statement).span, binding)));
+        by_span.extend(bindings.tails.iter().map(|(&statement, &binding)| (arena.stmt_span(statement), binding)));
         by_span.sort_unstable();
         for expressions in expressions_by_binding.values_mut() {
             expressions.sort_unstable();
@@ -425,8 +425,8 @@ impl CompactBodyFacts {
         } else {
             (0..arena.expr_tags.len())
                 .map(ExprId::from_index)
-                .filter(|id| matches!(arena.expr(*id).kind, ArenaExprKind::Collect { .. }))
-                .map(|id| (arena.expr(id).span, id))
+                .filter(|id| matches!(arena.expr_kind(*id), ArenaExprKind::Collect { .. }))
+                .map(|id| (arena.expr_span(id), id))
                 .collect()
         };
         let mut statement_sources = FxHashSet::default();

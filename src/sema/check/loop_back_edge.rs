@@ -97,7 +97,7 @@ impl Checker {
         while let Some(child) = pending.pop() {
             match child {
                 ArenaChild::Stmt(statement) => {
-                    if let ArenaStmtKind::Assign { target, .. } = arena.arena.stmt(statement).kind
+                    if let ArenaStmtKind::Assign { target, .. } = arena.arena.stmt_kind(statement)
                         && let Some(written) = assign_target_path(arena, target)
                         && !writes.targets.contains(&written)
                     {
@@ -137,7 +137,7 @@ impl Checker {
     }
 
     fn callee_may_be_effectful_callable(&self, arena: &ArenaProgram, callee: ExprId) -> bool {
-        match arena.arena.expr(callee).kind {
+        match arena.arena.expr_kind(callee) {
             ArenaExprKind::Ident(_) => match self.lookup_value_binding_for_expr(arena, callee) {
                 ValueBindingLookup::Found(binding) => {
                     matches!(binding.ty, Type::Inference(_)) || is_effectful_callable_type(&binding.ty)
@@ -157,7 +157,7 @@ impl Checker {
     fn static_receiver_type(&self, arena: &ArenaProgram, mut receiver: ExprId) -> Option<Type> {
         let mut path = Vec::new();
         loop {
-            match arena.arena.expr(receiver).kind {
+            match arena.arena.expr_kind(receiver) {
                 ArenaExprKind::Field { base, name } if path.len() < MAX_PROJECTION_DEPTH => {
                     path.push(name);
                     receiver = base;
@@ -181,7 +181,7 @@ impl Checker {
         arena: &ArenaProgram,
         expression: ExprId,
     ) -> bool {
-        match arena.arena.expr(expression).kind {
+        match arena.arena.expr_kind(expression) {
             ArenaExprKind::Ident(name) => {
                 self.procs.contains_key(&name)
                     || matches!(

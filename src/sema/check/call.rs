@@ -149,7 +149,7 @@ impl Checker {
         if statements.next().is_some() {
             return None;
         }
-        match arena.arena.stmt(arena.arena.core_stmt_id(statement)).kind {
+        match arena.arena.stmt_kind(arena.arena.core_stmt_id(statement)) {
             ArenaStmtKind::Expr(value)
             | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(value),
             _ => None,
@@ -162,7 +162,7 @@ impl Checker {
         value: ExprId,
         failure: Name,
     ) {
-        let value = match arena.arena.expr(value).kind {
+        let value = match arena.arena.expr_kind(value) {
             ArenaExprKind::ValueBlock(block) => {
                 match Self::single_error_handler_value_arena(arena, block) {
                     Some(value) => value,
@@ -171,10 +171,10 @@ impl Checker {
             }
             _ => value,
         };
-        let ArenaExprKind::Call { callee, args } = arena.arena.expr(value).kind else {
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr_kind(value) else {
             return;
         };
-        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err") {
+        if !matches!(arena.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "Err") {
             return;
         }
         let [arg] = arena.arena.call_args(args) else {
@@ -183,17 +183,17 @@ impl Checker {
         let ArenaCallArgKind::Positional(outer) = arg.kind else {
             return;
         };
-        let ArenaExprKind::Call { callee, args } = arena.arena.expr(outer).kind else {
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr_kind(outer) else {
             return;
         };
         let ArenaExprKind::Field {
             base,
             name: variant,
-        } = arena.arena.expr(callee).kind
+        } = arena.arena.expr_kind(callee)
         else {
             return;
         };
-        let ArenaExprKind::Ident(family) = arena.arena.expr(base).kind else {
+        let ArenaExprKind::Ident(family) = arena.arena.expr_kind(base) else {
             return;
         };
         if !self
@@ -211,15 +211,15 @@ impl Checker {
             ArenaCallArgKind::Named { name, value, .. } if name == "message" => value,
             _ => return,
         };
-        let ArenaExprKind::Field { base, name } = arena.arena.expr(message).kind else {
+        let ArenaExprKind::Field { base, name } = arena.arena.expr_kind(message) else {
             return;
         };
         if name != "message"
-            || !matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == failure)
+            || !matches!(arena.arena.expr_kind(base), ArenaExprKind::Ident(name) if name == failure)
         {
             return;
         }
-        self.warning(arena.arena.expr(value).span,
+        self.warning(arena.arena.expr_span(value),
             &format!("error translation retains only `{failure}.message`; consider `cause: {failure}` to preserve its typed diagnostic chain (no automatic fix)"),
             DiagnosticCode::CheckErrorCause);
     }
@@ -290,9 +290,9 @@ impl Checker {
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
-        let callee_kind = arena.arena.expr(callee).kind;
+        let callee_kind = arena.arena.expr_kind(callee);
         if let ArenaExprKind::Field { base, name } = callee_kind
-            && matches!(arena.arena.expr(base).kind, ArenaExprKind::Item)
+            && matches!(arena.arena.expr_kind(base), ArenaExprKind::Item)
             && !self.item_shorthand_in_scope()
         {
             return self.check_inferred_variant_call(
@@ -386,14 +386,14 @@ impl Checker {
             if matches!(&call_source, super::method::HostCallSource::Expression(_)) {
                 self.record_function_call_target(span, contract.definition_target);
             }
-            self.record_callable_alias(arena.arena.expr(callee).span, &alias);
+            self.record_callable_alias(arena.arena.expr_span(callee), &alias);
             if let ArenaExprKind::Field { base, name } = callee_kind
                 && name == "call"
                 && self.resolve_callable_alias_call(arena, base).is_some()
                 && contract.instantiation.is_none()
             {
                 self.static_callable_aliases
-                    .get_mut(&arena.arena.expr(callee).span)
+                    .get_mut(&arena.arena.expr_span(callee))
                     .expect("a monomorphic alias retains its checked method contract")
                     .method_call = true;
             }
@@ -451,7 +451,7 @@ impl Checker {
             let local_binding_ty = match self.lookup_value_binding_for_expr(arena, callee) {
                 super::ValueBindingLookup::Found(binding) => Some(binding.ty.clone()),
                 super::ValueBindingLookup::Missing => {
-                    self.report_missing_identifier(name, arena.arena.expr(callee).span);
+                    self.report_missing_identifier(name, arena.arena.expr_span(callee));
                     for arg in args {
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
                     }
@@ -576,18 +576,18 @@ impl Checker {
         }
 
         if let ArenaExprKind::Field { base, name } = callee_kind {
-            let base_kind = arena.arena.expr(base).kind;
+            let base_kind = arena.arena.expr_kind(base);
             if let ArenaExprKind::Field {
                 base: family_base,
                 name: family,
             } = base_kind
-                && let ArenaExprKind::Ident(namespace) = arena.arena.expr(family_base).kind
+                && let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(family_base)
             {
                 let qualified_family = Name::intern(format!("{namespace}.{family}"));
                 if self.error_families.contains_key(&qualified_family) {
                     self.note_variant_qualifier(
                         span,
-                        arena.arena.expr(callee).span,
+                        arena.arena.expr_span(callee),
                         name,
                         &super::InferredVariant::Error {
                             family: qualified_family,
@@ -655,7 +655,7 @@ impl Checker {
                 if self.error_families.contains_key(&module) {
                     self.note_variant_qualifier(
                         span,
-                        arena.arena.expr(callee).span,
+                        arena.arena.expr_span(callee),
                         name,
                         &super::InferredVariant::Error {
                             family: module,
@@ -676,7 +676,7 @@ impl Checker {
                     };
                     self.note_variant_qualifier(
                         span,
-                        arena.arena.expr(callee).span,
+                        arena.arena.expr_span(callee),
                         name,
                         &selected,
                         expected_context,
@@ -796,7 +796,7 @@ impl Checker {
                 }
                 if unbound_namespace && api_spec().module(&module.as_str()).is_some() {
                     let canonical_name = if module == "fs" && name == "ls" {
-                        let callee_span = arena.arena.expr(callee).span;
+                        let callee_span = arena.arena.expr_span(callee);
                         self.removed_compatibility_name(
                             Span::new(
                                 callee_span.source_id,
@@ -829,12 +829,12 @@ impl Checker {
                 }
             }
             let base_ty = self.check_expr_arena(arena, source, base, None);
-            let guarded_base = match arena.arena.expr(base).kind {
+            let guarded_base = match arena.arena.expr_kind(base) {
                 ArenaExprKind::NullSafeField { .. }
                 | ArenaExprKind::Index { guarded: true, .. }
                 | ArenaExprKind::Slice { guarded: true, .. } => true,
                 ArenaExprKind::Call { callee, .. } => matches!(
-                    arena.arena.expr(callee).kind,
+                    arena.arena.expr_kind(callee),
                     ArenaExprKind::NullSafeField { .. }
                 ),
                 _ => false,
@@ -869,7 +869,7 @@ impl Checker {
                 Type::Optional(inner) => (*inner, true),
                 Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
                 Type::Any => {
-                    self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
+                    self.reject_dynamic_use("a method receiver", None, arena.arena.expr_span(base));
                     return Type::Unknown;
                 }
                 _ => {
@@ -971,7 +971,7 @@ impl Checker {
         {
             let callable = callable.clone();
             self.expr_types.insert(
-                arena.arena.expr(callee).span,
+                arena.arena.expr_span(callee),
                 Type::Callable(callable.clone()),
             );
             return self.check_typed_callable_call_with_checked_argument(
@@ -1011,7 +1011,7 @@ impl Checker {
                 } => {
                     let callable = callable.clone();
                     self.expr_types.insert(
-                        arena.arena.expr(callee).span,
+                        arena.arena.expr_span(callee),
                         Type::Callable(callable.clone()),
                     );
                     return self.check_typed_callable_call_with_checked_argument(
@@ -1036,7 +1036,7 @@ impl Checker {
             }
         }
         let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
-            let callee_span = arena.arena.expr(callee).span;
+            let callee_span = arena.arena.expr_span(callee);
             self.removed_compatibility_name(
                 Span::new(
                     callee_span.source_id,
@@ -1114,7 +1114,7 @@ impl Checker {
         use crate::syntax::arena::ArenaCallArgInput;
         let args = arena.arena.call_args(args_range);
         let mut probe = self.constraint_probe();
-        let receiver_type = match arena.arena.expr(callee).kind {
+        let receiver_type = match arena.arena.expr_kind(callee) {
             ArenaExprKind::Field { base, .. } => {
                 Some(probe.check_expr_arena(arena, source, base, None))
             }
@@ -1123,7 +1123,7 @@ impl Checker {
         let signature = if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
             Some(self.function_call_contract(&alias.signature, span))
         } else {
-            match arena.arena.expr(callee).kind {
+            match arena.arena.expr_kind(callee) {
                 ArenaExprKind::Ident(name)
                     if matches!(
                         self.lookup_value_binding_for_expr(arena, callee),
@@ -1140,7 +1140,7 @@ impl Checker {
                     })
                 }
                 ArenaExprKind::Field { base, name } => {
-                    let static_namespace = match arena.arena.expr(base).kind {
+                    let static_namespace = match arena.arena.expr_kind(base) {
                         ArenaExprKind::Ident(_) => match self
                             .lookup_value_binding_for_expr(arena, base)
                         {
@@ -1152,7 +1152,7 @@ impl Checker {
                         },
                         _ => false,
                     };
-                    if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind
+                    if let ArenaExprKind::Ident(module) = arena.arena.expr_kind(base)
                         && static_namespace
                     {
                         let qualified = QualifiedName::new(module, name);
@@ -1275,7 +1275,7 @@ impl Checker {
         };
         let statically_named = typed_callable.is_some()
             || self.resolve_callable_alias_call(arena, callee).is_some()
-            || match arena.arena.expr(callee).kind {
+            || match arena.arena.expr_kind(callee) {
                 ArenaExprKind::Ident(name) => {
                     name == "Err"
                         || matches!(
@@ -1291,7 +1291,7 @@ impl Checker {
                 }
                 ArenaExprKind::Field { base, name } => {
                     let static_namespace = if let ArenaExprKind::Ident(namespace) =
-                        arena.arena.expr(base).kind
+                        arena.arena.expr_kind(base)
                     {
                         self.error_families.contains_key(&namespace)
                             || api_spec().module(&namespace.as_str()).is_some()
@@ -1310,7 +1310,7 @@ impl Checker {
                         .record_constructors
                         .resolve_call(&arena.arena, callee, self.current_namespace)
                         .is_some();
-                    let positional_tag = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    let positional_tag = matches!(arena.arena.expr_kind(base), ArenaExprKind::Ident(namespace)
                     if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
                     !positional_tag
                         && (static_namespace
@@ -2278,7 +2278,7 @@ impl Checker {
                         names_field: matches!(
                             &arg.kind,
                             ArenaCallArgKind::Positional(value)
-                                if matches!(arena.arena.expr(*value).kind, ArenaExprKind::Ident(ident) if ident == name)
+                                if matches!(arena.arena.expr_kind(*value), ArenaExprKind::Ident(ident) if ident == name)
                                     && span.end() - span.start() == name.as_str().len()
                         ),
                     };
@@ -2366,7 +2366,7 @@ impl Checker {
             let named_message = match &arg.kind {
                 ArenaCallArgKind::Named { name, value, .. } if *name == message => Some((
                     call_arg_span_arena(arena, &arg.kind),
-                    arena.arena.expr(*value).span,
+                    arena.arena.expr_span(*value),
                 )),
                 _ => None,
             };
@@ -2659,7 +2659,7 @@ impl Checker {
             let parameters = crate::sema::builtin_templates::callable_parameters(sig);
             let plan = crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
                 self.expr_types
-                    .get(&arena.arena.expr(expression).span)
+                    .get(&arena.arena.expr_span(expression))
                     .cloned()
             })
             .ok()
@@ -2724,7 +2724,7 @@ impl Checker {
         {
             Ok(plan) => Some(plan.return_type(op == xsh_registry::RuntimeOp::CliParseFull)),
             Err(error) => {
-                let span = error.span.unwrap_or(arena.arena.expr(schema).span);
+                let span = error.span.unwrap_or(arena.arena.expr_span(schema));
                 self.error(span, &error.message, DiagnosticCode::CheckCliDescriptor);
                 None
             }
@@ -2926,10 +2926,10 @@ impl Checker {
                 };
                 item_types.push(item_ty.clone());
                 if item_ty == Type::Any {
-                    self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
-                } else if !self.require_value_conversion(&item_ty, crate::sema::schemes::ValueConversion::ProcessWord, arena.arena.expr(item.value).span) {
+                    self.reject_dynamic_use("an argv word", None, arena.arena.expr_span(item.value));
+                } else if !self.require_value_conversion(&item_ty, crate::sema::schemes::ValueConversion::ProcessWord, arena.arena.expr_span(item.value)) {
                     self.error(
-                        arena.arena.expr(item.value).span,
+                        arena.arena.expr_span(item.value),
                         "process.command_argv argv items must be Str or Path",
                         DiagnosticCode::CheckTypeMismatch,
                     );
@@ -2997,7 +2997,7 @@ impl Checker {
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr: inner,
-            } if matches!(arena.arena.expr(*inner).kind, ArenaExprKind::Int(_)) => {
+            } if matches!(arena.arena.expr_kind(*inner), ArenaExprKind::Int(_)) => {
                 self.error(expr.span, message, DiagnosticCode::CheckNamedArg);
             }
             _ => {}

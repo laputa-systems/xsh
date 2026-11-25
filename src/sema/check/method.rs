@@ -170,7 +170,7 @@ impl Checker {
             );
         }
         if base_ty == Type::Any {
-            self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
+            self.reject_dynamic_use("a method receiver", None, arena.arena.expr_span(base));
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
             }
@@ -622,9 +622,9 @@ impl Checker {
             && overloads.len() > 1
             && retained_overloads
             && let HostCallSource::Expression(call) = call_source.clone()
-            && let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = arena.arena.expr(call).kind
+            && let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = arena.arena.expr_kind(call)
             && let crate::syntax::arena::ArenaExprKind::Field { base, .. }
-                | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr(callee).kind
+                | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr_kind(callee)
         {
             return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), Some(receiver), name, args, span, expected);
         }

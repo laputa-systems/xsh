@@ -525,7 +525,7 @@ impl PendingBodyContracts {
         for declaration in checked.checked_declarations.functions.values() {
             if let Some(facts) = &declaration.scheme_body_facts {
                 for (&expression, constructor) in facts.constructor_instances() {
-                    let span = program.arena.expr(expression).span;
+                    let span = program.arena.expr_span(expression);
                     let scoped = |ty: &SchemeType| OperandType::Scheme { ty: ty.clone(), owner: Arc::clone(facts.scheme()) };
                     let constructor = CheckedRecordConstructor { instance: SchemaInstance {
                         definition: constructor.instance.definition,
@@ -546,7 +546,7 @@ impl PendingBodyContracts {
         for module in &program.modules {
             if capture.module_sources.insert(module.source_id, Arc::from(module.key.as_str())).is_some() {
                 return Err(BodyContractError::UnmappedFact(program.module_doc_for(module.statements)
-                    .or_else(|| program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span))
+                    .or_else(|| program.module_statements(module).next().map(|statement| program.arena.stmt_span(statement)))
                     .unwrap_or(Span::at(module.source_id, 0))));
             }
         }
@@ -559,18 +559,18 @@ impl PendingBodyContracts {
                     (id, OperandType::Scheme { ty: ty.clone(), owner: Arc::clone(facts.scheme()) })));
                 for (&expression, plan) in facts.registered_calls() {
                     if capture.registered.insert(expression, Arc::clone(plan)).is_some() {
-                        return Err(BodyContractError::UnmappedFact(program.arena.expr(expression).span));
+                        return Err(BodyContractError::UnmappedFact(program.arena.expr_span(expression)));
                     }
                 }
             }
         }
         for (&site, &value) in &checked.resource_transfers {
             let (span, kind) = match site {
-                ResourceTransferSite::Return(id) => (program.arena.stmt(id).span, TransferKind::Return),
+                ResourceTransferSite::Return(id) => (program.arena.stmt_span(id), TransferKind::Return),
                 ResourceTransferSite::BlockValue(id) => (program.arena.span(program.arena.block(id).span), TransferKind::BlockValue),
-                ResourceTransferSite::Break(id) => (program.arena.stmt(id).span, TransferKind::Break),
-                ResourceTransferSite::Assignment(id) => (program.arena.stmt(id).span, TransferKind::Assignment),
-                ResourceTransferSite::Yield(id) => (program.arena.stmt(id).span, TransferKind::Yield),
+                ResourceTransferSite::Break(id) => (program.arena.stmt_span(id), TransferKind::Break),
+                ResourceTransferSite::Assignment(id) => (program.arena.stmt_span(id), TransferKind::Assignment),
+                ResourceTransferSite::Yield(id) => (program.arena.stmt_span(id), TransferKind::Yield),
             };
             let operand = capture.transfer_operand(site);
             capture.transfers.entry(span).or_default().push(ResourceTransfer { kind, cause: TransferCause { runtime_flag: value, operand } });
@@ -591,8 +591,8 @@ impl PendingBodyContracts {
 impl Capture<'_> {
     fn expression_type(&self, expression: ExprId) -> OperandType {
         let checked_type = self.operand_expressions.get(&expression).cloned().unwrap_or_else(||
-            self.span_operand(self.program.arena.expr(expression).span));
-        match self.program.arena.expr(expression).kind {
+            self.span_operand(self.program.arena.expr_span(expression)));
+        match self.program.arena.expr_kind(expression) {
             ArenaExprKind::List(items) if items.is_empty() && checked_type.is_list() => {
                 OperandType::EmptyList(Box::new(checked_type))
             }
@@ -630,7 +630,7 @@ impl Capture<'_> {
                 if matches!(site, ResourceTransferSite::Assignment(_))
                     && self.checked.same_scope_resource_assignments.contains(&statement)
                 { return TransferOperand::SameScopeAssignment; }
-                match self.program.arena.stmt(statement).kind {
+                match self.program.arena.stmt_kind(statement) {
                     ArenaStmtKind::Return(Some(value)) | ArenaStmtKind::Yield(value)
                     | ArenaStmtKind::Assign { value, .. } => self.expr_or_run_operand(value),
                     ArenaStmtKind::Break { value: Some(expression) } => self.expression_operand(expression),
@@ -682,27 +682,27 @@ impl Capture<'_> {
     fn roots(&mut self, statements: Vec<StmtId>, namespace: Option<Name>) -> Result<(), BodyContractError> {
         let mut entry_index = 0;
         for statement in statements {
-            let span = self.program.arena.stmt(statement).span;
+            let span = self.program.arena.stmt_span(statement);
             self.user_sources.insert(span.source_id);
             let key = self.ensure_owner(span, BodyContractOwner::Entry)?;
             let mut unwrapped = statement;
-            while let ArenaStmtKind::Export(inner) = self.program.arena.stmt(unwrapped).kind { unwrapped = inner; }
-            let kind = self.program.arena.stmt(unwrapped).kind;
+            while let ArenaStmtKind::Export(inner) = self.program.arena.stmt_kind(unwrapped) { unwrapped = inner; }
+            let kind = self.program.arena.stmt_kind(unwrapped);
             if matches!(kind, ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_))
                 && children(self.program, ArenaChild::Stmt(unwrapped)).is_empty()
             {
                 self.seen_spans.insert(span);
-                self.seen_spans.insert(self.program.arena.stmt(unwrapped).span);
+                self.seen_spans.insert(self.program.arena.stmt_span(unwrapped));
                 continue;
             }
             let mut pending = vec![(ArenaChild::Stmt(statement), key, vec![PathStep::Child(entry_index)])];
             if function_definition(kind).is_none() { entry_index += 1; }
             while let Some((node, mut owner, mut path)) = pending.pop() {
                 if let ArenaChild::Stmt(statement) = node
-                    && let Some(definition) = function_definition(self.program.arena.stmt(statement).kind) {
+                    && let Some(definition) = function_definition(self.program.arena.stmt_kind(statement)) {
                     let declaration = self.checked.checked_declarations.functions.get(&definition)
                         .filter(|declaration| declaration.namespace == namespace && !declaration.internal)
-                        .ok_or(BodyContractError::UnmappedFact(self.program.arena.stmt(statement).span))?;
+                        .ok_or(BodyContractError::UnmappedFact(self.program.arena.stmt_span(statement)))?;
                     owner = (self.source_name(declaration.body.source_id)?, BodyContractOwner::Declaration(declaration.name));
                     if self.bodies.contains_key(&owner) { return Err(BodyContractError::DuplicateOwner(declaration.body)); }
                     self.ensure_owner(declaration.body, owner.1)?;
@@ -718,7 +718,7 @@ impl Capture<'_> {
                     let body = self.bodies.get_mut(&owner).unwrap();
                     body.effects = fact.cloned();
                     body.effect_owner = declaration.scheme.clone();
-                    let definition_span = self.program.arena.stmt(statement).span;
+                    let definition_span = self.program.arena.stmt_span(statement);
                     for declaration_span in [definition_span, declaration.body] {
                         for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
                             self.sites.entry(BodyContractSite::Parameter { declaration: declaration_span, ordinal }).or_default()
@@ -746,7 +746,7 @@ impl Capture<'_> {
         if let Some(span) = span {
             let site = match node {
                 ArenaChild::Expr(_) => Some((BodyContractSite::Expression(span), SitePath::Expression(path.to_vec()))),
-                ArenaChild::Stmt(statement) if matches!(self.program.arena.stmt(statement).kind, ArenaStmtKind::Export(_)) => None,
+                ArenaChild::Stmt(statement) if matches!(self.program.arena.stmt_kind(statement), ArenaStmtKind::Export(_)) => None,
                 ArenaChild::Stmt(_) => Some((BodyContractSite::Statement(span), SitePath::Statement(path.to_vec()))),
                 _ => None,
             };
@@ -754,13 +754,13 @@ impl Capture<'_> {
                 self.sites.entry(site).or_default().insert((owner.clone(), CanonicalBodyContractSite(path)));
             }
             if let ArenaChild::Stmt(statement) = node {
-                let value = match self.program.arena.stmt(statement).kind {
+                let value = match self.program.arena.stmt_kind(statement) {
                     ArenaStmtKind::Expr(value) => Some(value),
                     ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. }
                     | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(value), .. } => Some(value),
                     _ => None,
                 };
-                if let Some(value) = value.filter(|&value| self.program.arena.expr(value).span == span) {
+                if let Some(value) = value.filter(|&value| self.program.arena.expr_span(value) == span) {
                     for (index, child) in children(self.program, node).into_iter().enumerate() {
                         if child == ArenaChild::Expr(value) {
                             let mut value_path = path.to_vec();
@@ -784,7 +784,7 @@ impl Capture<'_> {
             self.bodies.get_mut(owner).unwrap().selections.insert(path.to_vec(), selection);
         }
         if let ArenaChild::Expr(expression) = node {
-            let span = self.program.arena.expr(expression).span;
+            let span = self.program.arena.expr_span(expression);
             self.bodies.get_mut(owner).unwrap().expr_paths.insert(expression, path.to_vec());
             self.record_field_boundaries(expression, owner, path);
             self.call_argument_boundaries(expression, owner, path);
@@ -813,13 +813,13 @@ impl Capture<'_> {
     }
 
     fn local_storage(&self, statement: StmtId, namespace: Option<Name>) -> Option<LocalStorage> {
-        let (target, annotation, value) = match self.program.arena.stmt(statement).kind {
+        let (target, annotation, value) = match self.program.arena.stmt_kind(statement) {
             ArenaStmtKind::Let { target, ty, initializer: ArenaExprOrRun::Expr(value) }
             | ArenaStmtKind::Var { target, ty, initializer: ArenaExprOrRun::Expr(value) } => (target, ty, value),
             _ => return None,
         };
         if !matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_)) { return None; }
-        let stored = self.checked.local_binding_types.get(&self.program.arena.stmt(statement).span)?.clone();
+        let stored = self.checked.local_binding_types.get(&self.program.arena.stmt_span(statement))?.clone();
         let validation = match annotation {
             None => LocalStorageValidation::Absent,
             Some(annotation) => {
@@ -837,7 +837,7 @@ impl Capture<'_> {
     fn binary_elaboration(&mut self, expression: ExprId, operator: BinaryOp, left: ExprId, right: ExprId, result: OperandType)
         -> Result<OperatorElaboration, BodyContractError>
     {
-        let span = self.program.arena.expr(expression).span;
+        let span = self.program.arena.expr_span(expression);
         let ordinary = if let Some(checked) = self.checked.binary_operators.get(&expression) {
             if checked.operator != operator { return Err(BodyContractError::UnsupportedSelection(span)); }
             self.seen_binary.insert(expression);
@@ -861,7 +861,7 @@ impl Capture<'_> {
     }
 
     fn binary_operators(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) -> Result<(), BodyContractError> {
-        if let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(expression).kind {
+        if let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr_kind(expression) {
             let result = self.expression_type(expression);
             let elaboration = self.binary_elaboration(expression, op, left, right, result)?;
             self.bodies.get_mut(owner).unwrap().selections.get_mut(path).unwrap().binary = Some(elaboration);
@@ -870,7 +870,7 @@ impl Capture<'_> {
     }
 
     fn run_value(&mut self, statement: StmtId, owner: &OwnerKey, path: &[PathStep], namespace: Option<Name>) -> Result<(), BodyContractError> {
-        let value = match self.program.arena.stmt(statement).kind {
+        let value = match self.program.arena.stmt_kind(statement) {
             ArenaStmtKind::Return(Some(value)) | ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value, _)
             | ArenaStmtKind::Assign { value, .. } => value,
             ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => initializer,
@@ -892,7 +892,7 @@ impl Capture<'_> {
 
     fn record_field_boundaries(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) {
         let arena = &self.program.arena;
-        let ArenaExprKind::Record(fields) = arena.expr(expression).kind else { return; };
+        let ArenaExprKind::Record(fields) = arena.expr_kind(expression) else { return; };
         let boundaries = arena.record_fields(fields).iter().filter_map(|field| match &field.kind {
             ArenaRecordFieldKind::Computed { value, span, .. }
             | ArenaRecordFieldKind::Path { value, span, .. }
@@ -905,7 +905,7 @@ impl Capture<'_> {
 
     fn call_argument_boundaries(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) {
         let arena = &self.program.arena;
-        let ArenaExprKind::Call { args, .. } = arena.expr(expression).kind else { return; };
+        let ArenaExprKind::Call { args, .. } = arena.expr_kind(expression) else { return; };
         let boundaries = arena.call_args(args).iter().filter_map(|arg| match &arg.kind {
             ArenaCallArgKind::Named { value, span, .. }
             | ArenaCallArgKind::NamedSpread { value, span }
@@ -935,7 +935,7 @@ impl Capture<'_> {
         -> Result<(), BodyContractError>
     {
         let arena = &self.program.arena;
-        let ArenaExprKind::Record(fields) = arena.expr(expression).kind else { return Ok(()); };
+        let ArenaExprKind::Record(fields) = arena.expr_kind(expression) else { return Ok(()); };
         for (index, field) in arena.record_fields(fields).iter().enumerate() {
             let ArenaRecordFieldKind::Shorthand { span, .. } = field.kind else { continue; };
             let span = arena.span(span);
@@ -955,7 +955,7 @@ impl Capture<'_> {
         -> Result<(), BodyContractError>
     {
         let arena = &self.program.arena;
-        let stages = match arena.expr(expression).kind {
+        let stages = match arena.expr_kind(expression) {
             ArenaExprKind::Pipeline { stages, .. } => arena.pipe_stages(stages).iter().map(|stage| {
                 let kind = match stage.kind { ArenaPipeStageKind::Stream(ref stage) => Some(stage.kind), ArenaPipeStageKind::Expr(_) => None };
                 (arena.span(stage.span), kind)
@@ -989,7 +989,7 @@ impl Capture<'_> {
                 ArenaExprKind::NullSafeField { base, .. } => (base, true),
                 _ => return Err(BodyContractError::MissingReceiver(span)),
             };
-            let checked_receiver = self.checked.expr_types.get(&self.program.arena.expr(base).span)
+            let checked_receiver = self.checked.expr_types.get(&self.program.arena.expr_span(base))
                 .ok_or(BodyContractError::MissingReceiver(span))?;
             Some(if null_safe {
                 match checked_receiver {
@@ -1084,14 +1084,14 @@ impl Capture<'_> {
         for span in self.checked.api_calls.keys().filter(|span| relevant(span)) {
             if !self.seen_api.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
         }
-        for expression in self.checked.prepared_constants.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr(**expression).span)) {
-            if !self.seen_prepared_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
+        for expression in self.checked.prepared_constants.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr_span(**expression))) {
+            if !self.seen_prepared_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr_span(*expression))); }
         }
-        for expression in self.checked.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr(**expression).span)) {
-            if !self.seen_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
+        for expression in self.checked.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr_span(**expression))) {
+            if !self.seen_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr_span(*expression))); }
         }
         for expression in self.registered.keys() {
-            if !self.seen_registered.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
+            if !self.seen_registered.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr_span(*expression))); }
         }
         for identity in self.checked.function_effect_facts.keys().filter(|identity| relevant(&identity.body)) {
             if !self.seen_effects.contains(identity) { return Err(BodyContractError::UnmappedFact(identity.body)); }
@@ -1121,7 +1121,7 @@ impl Capture<'_> {
             for selection in body.selections.values() {
                 if let Some(projection) = &selection.projection
                     && (!body.expr_paths.contains_key(&projection.receiver) || !body.expr_paths.contains_key(&projection.key)) {
-                    return Err(BodyContractError::UnmappedFact(self.program.arena.expr(projection.receiver).span));
+                    return Err(BodyContractError::UnmappedFact(self.program.arena.expr_span(projection.receiver)));
                 }
                 if let Some(span) = selection.collect_target
                     && !body.span_paths.contains_key(&span) { return Err(BodyContractError::UnmappedFact(span)); }
@@ -1177,8 +1177,8 @@ fn children(program: &ArenaProgram, node: ArenaChild) -> Vec<ArenaChild> {
 fn node_span(program: &ArenaProgram, node: ArenaChild) -> Option<Span> {
     let arena = &program.arena;
     match node {
-        ArenaChild::Stmt(id) => Some(arena.stmt(id).span),
-        ArenaChild::Expr(id) => Some(arena.expr(id).span),
+        ArenaChild::Stmt(id) => Some(arena.stmt_span(id)),
+        ArenaChild::Expr(id) => Some(arena.expr_span(id)),
         ArenaChild::Pattern(id) => Some(arena.span(arena.pattern(id).span)),
         ArenaChild::Block(id) => Some(arena.span(arena.block(id).span)),
         ArenaChild::BindingTarget(id) => arena.binding_target(id).span.map(|span| arena.span(span)),
@@ -1250,8 +1250,8 @@ mod tests {
 
     fn list_item_length_receiver(program: &ArenaProgram) -> ExprId {
         program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression| {
-            let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
-            let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else { return None; };
+            let ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { return None; };
+            let ArenaExprKind::Field { base, name } = program.arena.expr_kind(callee) else { return None; };
             (name.as_str() == "len").then_some(base)
         }).expect("list item length receiver")
     }
@@ -1399,10 +1399,10 @@ mod tests {
         let source = "proc decode(value: Int) [error] -> Str { bytes.from_ints([value])?.utf8()? }\nproc lookup(value: Result[Map[UInt, Str]]) [error] -> Result[Str] { value?.get(1) }\n";
         let (program, sources, checked) = checked(source);
         let (span, _) = checked.api_calls.iter().find(|(_, call)| call.receiver == Some(MethodReceiver::Bytes)).unwrap();
-        let expression = program.arena.source_rows().expr_ids(span.source_id).find(|&expression| program.arena.expr(expression).span == *span).unwrap();
-        let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { panic!("checked byte method call") };
-        let ArenaExprKind::NullSafeField { base, .. } = program.arena.expr(callee).kind else { panic!("checked safe byte method receiver") };
-        assert!(matches!(checked.expr_types.get(&program.arena.expr(base).span), Some(Type::Result(ok, _)) if **ok == Type::Bytes));
+        let expression = program.arena.source_rows().expr_ids(span.source_id).find(|&expression| program.arena.expr_span(expression) == *span).unwrap();
+        let ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { panic!("checked byte method call") };
+        let ArenaExprKind::NullSafeField { base, .. } = program.arena.expr_kind(callee) else { panic!("checked safe byte method receiver") };
+        assert!(matches!(checked.expr_types.get(&program.arena.expr_span(base)), Some(Type::Result(ok, _)) if **ok == Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
         let operations = contracts.iter().flat_map(|body| body.operations.values()).collect::<Vec<_>>();
         let bytes = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Bytes)).unwrap();
@@ -1411,11 +1411,11 @@ mod tests {
         assert_eq!(map.argument_checks, [Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey)]);
 
         let mut missing_receiver = checked.clone();
-        missing_receiver.expr_types.remove(&program.arena.expr(base).span);
+        missing_receiver.expr_types.remove(&program.arena.expr_span(base));
         assert_eq!(PendingBodyContracts::capture(&missing_receiver, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap_err(), BodyContractError::MissingReceiver(*span));
         let mut invalid_receiver = checked.clone();
-        invalid_receiver.expr_types.insert(program.arena.expr(base).span, Type::Bytes);
+        invalid_receiver.expr_types.insert(program.arena.expr_span(base), Type::Bytes);
         assert_eq!(PendingBodyContracts::capture(&invalid_receiver, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap_err(), BodyContractError::MissingReceiver(*span));
     }
@@ -1788,10 +1788,10 @@ mod tests {
         let pending = PendingBodyContracts::capture(&checked, &program, &sources).unwrap();
         let module = &program.modules[0];
         let exported = program.module_statements(module).next().unwrap();
-        let ArenaStmtKind::Export(declaration) = program.arena.stmt(exported).kind else { panic!("export wrapper") };
-        let span = program.arena.stmt(declaration).span;
+        let ArenaStmtKind::Export(declaration) = program.arena.stmt_kind(exported) else { panic!("export wrapper") };
+        let span = program.arena.stmt_span(declaration);
         assert_eq!(span.source_id, module_id);
-        assert_eq!(program.arena.stmt(exported).span, span);
+        assert_eq!(program.arena.stmt_span(exported), span);
         assert!(pending.canonical_site(BodyContractSite::Statement(span)).unwrap().is_some());
     }
 
@@ -1800,7 +1800,7 @@ mod tests {
         let source = "let value = 1\n";
         let (program, sources, checked) = checked(source);
         let mut pending = PendingBodyContracts::capture(&checked, &program, &sources).unwrap();
-        let span = program.arena.stmt(program.statement_ids().next().unwrap()).span;
+        let span = program.arena.stmt_span(program.statement_ids().next().unwrap());
         let site = BodyContractSite::Statement(span);
         assert!(pending.canonical_site(site).unwrap().is_some());
         let locations = pending.sites.get_mut(&site).unwrap();
@@ -1856,7 +1856,7 @@ mod tests {
         let mut shifted = checked.clone();
         let literal = program.arena.expr_tags.iter().enumerate().find_map(|(index, _)| {
             let expression = ExprId::from_index(index);
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::Int(_)).then_some(expression)
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::Int(_)).then_some(expression)
         }).unwrap();
         shifted.binary_operators.insert(literal, super::super::CheckedBinaryOperator { operator: BinaryOp::Eq, operation: None });
         assert!(matches!(PendingBodyContracts::capture(&shifted, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
@@ -1889,15 +1889,15 @@ mod tests {
         let stored_source = "let value = 1\nlet values = []\nlet found = value in values\n";
         let (program, sources, stored) = checked(stored_source);
         let stored_operation_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression|
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::Binary { op: BinaryOp::In, .. })
-                .then_some(program.arena.expr(expression).span)).unwrap();
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::Binary { op: BinaryOp::In, .. })
+                .then_some(program.arena.expr_span(expression))).unwrap();
         assert!(matches!(PendingBodyContracts::capture(&stored, &program, &sources),
             Err(BodyContractError::UnsupportedSelection(span)) if span == stored_operation_span));
 
         let (program, sources, mut intentional_any) = checked(source);
         let empty_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty()))
-            .map(|expression| program.arena.expr(expression).span).unwrap();
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::List(items) if items.is_empty()))
+            .map(|expression| program.arena.expr_span(expression)).unwrap();
         intentional_any.expr_types.insert(empty_span, Type::List(Box::new(Type::Any)));
         let any_list = PendingBodyContracts::capture(&intentional_any, &program, &sources).unwrap()
             .into_contracts().into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap();
@@ -1907,8 +1907,8 @@ mod tests {
 
         let (program, sources, mut wrong_type) = checked(source);
         let empty = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty())).unwrap();
-        let empty_span = program.arena.expr(empty).span;
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::List(items) if items.is_empty())).unwrap();
+        let empty_span = program.arena.expr_span(empty);
         wrong_type.expr_types.insert(empty_span, Type::Int);
         let wrong = PendingBodyContracts::capture(&wrong_type, &program, &sources).unwrap().into_contracts()
             .into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap();
@@ -1916,11 +1916,11 @@ mod tests {
 
         let (program, sources, mut nested_recovery) = checked(source);
         let empty_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty()))
-            .map(|expression| program.arena.expr(expression).span).unwrap();
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::List(items) if items.is_empty()))
+            .map(|expression| program.arena.expr_span(expression)).unwrap();
         let binary_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression|
-            matches!(program.arena.expr(expression).kind, ArenaExprKind::Binary { op: BinaryOp::In, .. })
-                .then_some(program.arena.expr(expression).span)).unwrap();
+            matches!(program.arena.expr_kind(expression), ArenaExprKind::Binary { op: BinaryOp::In, .. })
+                .then_some(program.arena.expr_span(expression))).unwrap();
         nested_recovery.expr_types.insert(empty_span,
             Type::List(Box::new(Type::List(Box::new(Type::Invalid)))));
         assert!(matches!(PendingBodyContracts::capture(&nested_recovery, &program, &sources),
@@ -1937,7 +1937,7 @@ mod tests {
         let source = "proc observe(data: Bytes, choose: Bool) { let records = if choose { if data.is_empty() { [] } else { [data] } } else { [data] }; for line in records { let end = line.len(); if 0 < end { let _ = end } } }\n";
         let (program, sources, checked) = checked(source);
         let receiver = list_item_length_receiver(&program);
-        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        assert_eq!(checked.expr_types.get(&program.arena.expr_span(receiver)), Some(&Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
@@ -1968,7 +1968,7 @@ mod tests {
         let (program, sources, checked) = checked(source);
         assert_eq!(local_binding_type(&checked, &sources, "rows"), Type::List(Box::new(Type::Bytes)));
         let receiver = list_item_length_receiver(&program);
-        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        assert_eq!(checked.expr_types.get(&program.arena.expr_span(receiver)), Some(&Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
@@ -1981,7 +1981,7 @@ mod tests {
         let (program, sources, checked) = checked(source);
         assert_eq!(local_binding_type(&checked, &sources, "rows"), Type::List(Box::new(Type::Bytes)));
         let receiver = list_item_length_receiver(&program);
-        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        assert_eq!(checked.expr_types.get(&program.arena.expr_span(receiver)), Some(&Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
@@ -2020,13 +2020,13 @@ mod tests {
 
         let (program, sources, checked) = checked(source);
         let (block_expression, block_span, binary_span) = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression| {
-            let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, right, .. } = program.arena.expr(expression).kind else { return None; };
-            let ArenaExprKind::ValueBlock(block) = program.arena.expr(right).kind else { return None; };
-            Some((right, program.arena.span(program.arena.block(block).span), program.arena.expr(expression).span))
+            let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, right, .. } = program.arena.expr_kind(expression) else { return None; };
+            let ArenaExprKind::ValueBlock(block) = program.arena.expr_kind(right) else { return None; };
+            Some((right, program.arena.span(program.arena.block(block).span), program.arena.expr_span(expression)))
         }).unwrap();
 
         let mut wrong_result = checked.clone();
-        wrong_result.expr_types.insert(program.arena.expr(block_expression).span, Type::Int);
+        wrong_result.expr_types.insert(program.arena.expr_span(block_expression), Type::Int);
         let candidate = PendingBodyContracts::capture(&wrong_result, &program, &sources).unwrap()
             .into_contracts().into_iter()
             .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
@@ -2035,14 +2035,14 @@ mod tests {
         assert!(!original.preserved_by(&candidate));
 
         let mut recovery_result = checked.clone();
-        recovery_result.expr_types.insert(program.arena.expr(block_expression).span, Type::Invalid);
+        recovery_result.expr_types.insert(program.arena.expr_span(block_expression), Type::Invalid);
         assert!(matches!(PendingBodyContracts::capture(&recovery_result, &program, &sources),
             Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
 
         let mut inference_result = checked.clone();
         let mut constraints = crate::sema::constraints::TypeConstraints::default();
-        inference_result.expr_types.insert(program.arena.expr(block_expression).span,
-            constraints.fresh(program.arena.expr(block_expression).span));
+        inference_result.expr_types.insert(program.arena.expr_span(block_expression),
+            constraints.fresh(program.arena.expr_span(block_expression)));
         assert!(matches!(PendingBodyContracts::capture(&inference_result, &program, &sources),
             Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
 

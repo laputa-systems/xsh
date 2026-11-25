@@ -777,7 +777,7 @@ impl Checker {
             self.check_env_assignment_arena(arena, source, assignment);
         }
         if let ArenaCommandArgKind::SpliceExpr(list) = segment.target.kind
-            && let ArenaExprKind::List(items) = arena.arena.expr(list).kind
+            && let ArenaExprKind::List(items) = arena.arena.expr_kind(list)
             && items.is_empty()
         {
             self.error(
@@ -789,7 +789,7 @@ impl Checker {
             self.check_external_arg_arena(arena, source, &segment.target);
             let vector = match segment.target.kind {
                 ArenaCommandArgKind::SpliceExpr(list) => {
-                    self.expr_types.get(&arena.arena.expr(list).span).cloned()
+                    self.expr_types.get(&arena.arena.expr_span(list)).cloned()
                 }
                 ArenaCommandArgKind::SpliceName(name) => self
                     .lookup_value_binding_at(name, arena.arena.span(segment.target.span))
@@ -843,12 +843,12 @@ impl Checker {
         match option.kind {
             RunOption::Timeout => {
                 let ty = self.check_expr_arena(arena, source, expression, Some(&Type::Duration));
-                let span = arena.arena.expr(expression).span;
+                let span = arena.arena.expr_span(expression);
                 self.expect_type(&Type::Duration, &ty, span);
             }
             RunOption::CpuMax => {
                 let ty = self.check_expr_arena(arena, source, expression, Some(&Type::Int));
-                let span = arena.arena.expr(expression).span;
+                let span = arena.arena.expr_span(expression);
                 self.expect_type(&Type::Int, &ty, span);
                 self.check_static_positive_int_arena(
                     arena,
@@ -860,7 +860,7 @@ impl Checker {
             RunOption::Accept => {
                 let expected = Type::List(Box::new(Type::Int));
                 let actual = self.check_expr_arena(arena, source, expression, Some(&expected));
-                let span = arena.arena.expr(expression).span;
+                let span = arena.arena.expr_span(expression);
                 self.expect_type(&expected, &actual, span);
                 self.require_effect(
                     Effect::Error,
@@ -899,7 +899,7 @@ impl Checker {
             && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes)
         {
             self.error(
-                arena.arena.expr(expr).span,
+                arena.arena.expr_span(expr),
                 &error.message,
                 DiagnosticCode::CheckAcceptPolicy,
             );
@@ -927,7 +927,7 @@ impl Checker {
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr: inner,
-            } if matches!(arena.arena.expr(*inner).kind, ArenaExprKind::Int(_)) => {
+            } if matches!(arena.arena.expr_kind(*inner), ArenaExprKind::Int(_)) => {
                 self.error(expr.span, message, code);
             }
             _ => {}
@@ -967,7 +967,7 @@ impl Checker {
                 // its diagnostic.
                 if let ArenaCommandArgKind::Typed(expr_id) = arg.kind {
                     let ty = self.check_expr_arena(arena, source, expr_id, None);
-                    let expr_span = arena.arena.expr(expr_id).span;
+                    let expr_span = arena.arena.expr_span(expr_id);
                     if !self.reject_dynamic_word(&ty, expr_span)
                         && !can_be_env_value(&ty)
                         && !matches!(ty, Type::Unknown)
@@ -985,9 +985,9 @@ impl Checker {
             }
             ArenaEnvAssignmentValue::Expr(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                if self.reject_dynamic_word(&ty, arena.arena.expr_span(*expr_id)) {
                 } else if !can_be_env_value(&ty) && !matches!(ty, Type::Unknown) {
-                    let expr_span = arena.arena.expr(*expr_id).span;
+                    let expr_span = arena.arena.expr_span(*expr_id);
                     self.error(
                         expr_span,
                         "environment value cannot convert to one value",
@@ -1058,7 +1058,7 @@ impl Checker {
                     word_list.as_slice()
                 {
                     let ty = self.check_expr_arena(arena, source, *expr_id, expected);
-                    let expr_span = arena.arena.expr(*expr_id).span;
+                    let expr_span = arena.arena.expr_span(*expr_id);
                     // A `$name.field` word takes no `.require(T)?` suffix.
                     if matches!(word_list.as_slice(), [ArenaWordPart::Shorthand(_)]) {
                         self.dynamic_require_receivers.remove(&expr_span);
@@ -1074,10 +1074,10 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                        } else if !self.require_value_conversion(&ty, ValueConversion::Display, arena.arena.expr(*expr_id).span)
+                        if self.reject_dynamic_word(&ty, arena.arena.expr_span(*expr_id)) {
+                        } else if !self.require_value_conversion(&ty, ValueConversion::Display, arena.arena.expr_span(*expr_id))
                         {
-                            let expr_span = arena.arena.expr(*expr_id).span;
+                            let expr_span = arena.arena.expr_span(*expr_id);
                             self.report_conversion(
                                 expr_span,
                                 &ty,
@@ -1103,7 +1103,7 @@ impl Checker {
             ArenaCommandArgKind::Typed(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, expected);
                 if let Some(expected) = expected {
-                    let expr_span = arena.arena.expr(*expr_id).span;
+                    let expr_span = arena.arena.expr_span(*expr_id);
                     self.expect_type(expected, &ty, expr_span);
                 }
                 ty
@@ -1139,13 +1139,13 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                        if self.reject_dynamic_word(&ty, arena.arena.expr_span(*expr_id)) {
                             continue;
                         }
                         let conversion = if standalone_interpolation { ValueConversion::ArgvOrList } else { ValueConversion::Display };
-                        let valid = self.require_value_conversion(&ty, conversion, arena.arena.expr(*expr_id).span);
+                        let valid = self.require_value_conversion(&ty, conversion, arena.arena.expr_span(*expr_id));
                         if !valid && !matches!(ty, Type::Unknown) {
-                            let expr_span = arena.arena.expr(*expr_id).span;
+                            let expr_span = arena.arena.expr_span(*expr_id);
                             self.report_conversion(
                                 expr_span,
                                 &ty,
@@ -1158,9 +1158,9 @@ impl Checker {
             }
             ArenaCommandArgKind::Typed(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                } else if !self.require_value_conversion(&ty, ValueConversion::Argv, arena.arena.expr(*expr_id).span) {
-                    let expr_span = arena.arena.expr(*expr_id).span;
+                if self.reject_dynamic_word(&ty, arena.arena.expr_span(*expr_id)) {
+                } else if !self.require_value_conversion(&ty, ValueConversion::Argv, arena.arena.expr_span(*expr_id)) {
+                    let expr_span = arena.arena.expr_span(*expr_id);
                     self.report_conversion(
                         expr_span,
                         &ty,
@@ -1264,7 +1264,7 @@ fn render_module_call_argument(
     ty: &Type,
 ) -> Option<String> {
     let expression_text = |expr: ExprId| -> Option<String> {
-        let span = arena.arena.expr(expr).span;
+        let span = arena.arena.expr_span(expr);
         let text = source.get(span.start()..span.end())?.trim_start_matches('$');
         Some(text.to_string())
     };
@@ -1431,7 +1431,7 @@ mod binding_identity_tests {
             checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
             checker.check_stmt_arena(program, source, statements[0]);
             checker.check_stmt_arena(program, source, statements[1]);
-            let ArenaStmtKind::Command(command_stmt) = program.arena.stmt(statements[2]).kind else {
+            let ArenaStmtKind::Command(command_stmt) = program.arena.stmt_kind(statements[2]) else {
                 panic!("expected command statement");
             };
             let ArenaCommand::Run(run) = program.arena.command_stmt(command_stmt).command else {

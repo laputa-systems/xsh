@@ -57,7 +57,7 @@ pub(crate) fn stage_namespace_owner(
         }
     };
     statements.into_iter().find_map(|statement| {
-        let crate::syntax::arena::ArenaStmtKind::Use(id) = program.arena.stmt(statement).kind
+        let crate::syntax::arena::ArenaStmtKind::Use(id) = program.arena.stmt_kind(statement)
         else {
             return None;
         };

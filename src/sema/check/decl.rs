@@ -108,7 +108,7 @@ fn collect_body_type_facts(
             ArenaChild::Block(id) if blocks.insert((id, usage)) => {
                 if id == body
                     && let Some(tail) = arena.stmt_ids(arena.block(id).statements).last()
-                    && let ArenaStmtKind::Expr(expression) = arena.stmt(arena.core_stmt_id(tail)).kind
+                    && let ArenaStmtKind::Expr(expression) = arena.stmt_kind(arena.core_stmt_id(tail))
                     && is_direct_err_constructor(arena, expression)
                 {
                     failure_only_completion_expressions.insert(expression);
@@ -135,7 +135,7 @@ fn collect_body_type_facts(
     }
     let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<std::collections::BTreeSet<_>>();
     for &(expression, usage) in &expressions {
-        if usage == BodyFactUse::Executable && let crate::syntax::arena::ArenaExprKind::Record(fields) = arena.expr(expression).kind {
+        if usage == BodyFactUse::Executable && let crate::syntax::arena::ArenaExprKind::Record(fields) = arena.expr_kind(expression) {
             for field in arena.record_fields(fields) {
                 if let crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } = field.kind
                     && let Some(binding) = bindings.value_sites.get(&(arena.span(span), name))
@@ -152,8 +152,8 @@ fn collect_body_type_facts(
         { reads.insert(*binding); }
     }
     for &(statement, usage) in &statements {
-        if usage != BodyFactUse::Executable || !matches!(arena.stmt(statement).kind, ArenaStmtKind::Command(_)) { continue; }
-        let span = arena.stmt(statement).span;
+        if usage != BodyFactUse::Executable || !matches!(arena.stmt_kind(statement), ArenaStmtKind::Command(_)) { continue; }
+        let span = arena.stmt_span(statement);
         let start = (Span::at(span.source_id, span.start()), Name::UNKNOWN);
         let end = (Span::at(span.source_id, span.end()), Name::UNKNOWN);
         reads.extend(command_sites.range(start..end).filter_map(|(&(site, _), &binding)| (site.end() <= span.end()).then_some(binding)));
@@ -164,9 +164,9 @@ fn collect_body_type_facts(
 }
 
 fn is_direct_err_constructor(arena: &crate::syntax::arena::AstArena, expression: ExprId) -> bool {
-    matches!(arena.expr(expression).kind,
+    matches!(arena.expr_kind(expression),
         ArenaExprKind::Call { callee, .. }
-            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err"))
+            if matches!(arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "Err"))
 }
 
 pub(super) struct PreparedFunctionGeneralization {
@@ -203,7 +203,7 @@ impl Checker {
                 let variant = self.tag_variants.get(&name)?;
                 (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
             }
-            ArenaExprKind::Field { base, name } => match program.arena.expr(base).kind {
+            ArenaExprKind::Field { base, name } => match program.arena.expr_kind(base) {
                 ArenaExprKind::Item => {
                     let super::InferredVariant::Tag { type_name, variant, field_types } = self.inferred_variants.get(&node.span)? else { return None; };
                     (name == *variant && field_types.is_empty()).then_some(*type_name)?
@@ -235,7 +235,7 @@ impl Checker {
     ) -> bool {
         let anchors = formals.iter().chain(returned).cloned().collect::<Vec<_>>();
         let users = body_types.iter()
-            .filter(|&(&expression, _)| matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty()))
+            .filter(|&(&expression, _)| matches!(program.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty()))
             .map(|(&expression, ty)| (expression, ty.clone())).collect::<Vec<_>>();
         let mut reported = std::collections::BTreeSet::new();
         if calls.is_empty() || users.is_empty() { return true; }
@@ -251,7 +251,7 @@ impl Checker {
                 Err(_) => continue,
             };
             let Some(span) = unanchored.into_iter()
-                .map(|expression| program.arena.expr(expression).span)
+                .map(|expression| program.arena.expr_span(expression))
                 .filter(|span| span.start() >= site.source.start() && span.end() <= site.source.end())
                 .min_by_key(|span| (span.start(), span.end() - span.start()))
             else { continue };
@@ -292,9 +292,9 @@ impl Checker {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
             let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span)
+                |expression| { let span = program.arena.expr_span(expression); self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span)
                     || self.declaration_inference.pending(FunctionDeclarationId::new(self.effect_declaration_id(program, def.body))).is_some_and(|pending| pending.constructor_instances.contains_key(&span)) },
-                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                |expression| self.expr_types.get(&program.arena.expr_span(expression)).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
             captures.extend(reads);
         }
@@ -359,18 +359,18 @@ impl Checker {
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, mut tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
-                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                |expression| { let span = program.arena.expr_span(expression); self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
+                |expression| self.expr_types.get(&program.arena.expr_span(expression)).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
         let diverging_handlers = body_types.keys().copied().filter_map(|expression| {
-            let crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, right, .. } = program.arena.expr(expression).kind else { return None };
-            let is_diverging_block = matches!(program.arena.expr(right).kind, crate::syntax::arena::ArenaExprKind::ValueBlock(_))
+            let crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, right, .. } = program.arena.expr_kind(expression) else { return None };
+            let is_diverging_block = matches!(program.arena.expr_kind(right), crate::syntax::arena::ArenaExprKind::ValueBlock(_))
                 && body_types.get(&right) == Some(&Type::Unknown);
             is_diverging_block.then(|| Some((right, body_types.get(&expression)?.clone()))).flatten()
         }).collect::<Vec<_>>();
         for (handler, joined) in diverging_handlers { body_types.insert(handler, joined); }
         let diverging_branches = body_types.keys().copied().filter_map(|expression| {
-            let values = match program.arena.expr(expression).kind {
+            let values = match program.arena.expr_kind(expression) {
                 crate::syntax::arena::ArenaExprKind::If { branches, else_value } => program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value)).collect::<Vec<_>>(),
                 crate::syntax::arena::ArenaExprKind::Match { arms, .. } => program.arena.match_expr_arms(arms).iter().map(|arm| arm.value).collect::<Vec<_>>(),
                 _ => return None,
@@ -378,17 +378,17 @@ impl Checker {
             let joined = body_types.get(&expression)?.clone();
             if joined.contains_recovery() { return None; }
             Some(values.into_iter().filter_map(|value| {
-                let crate::syntax::arena::ArenaExprKind::ValueBlock(block) = program.arena.expr(value).kind else { return None };
+                let crate::syntax::arena::ArenaExprKind::ValueBlock(block) = program.arena.expr_kind(value) else { return None };
                 let tail = program.arena.stmt_ids(program.arena.block(block).statements).last().map(|statement| program.arena.core_stmt_id(statement))?;
                 if body_types.get(&value) != Some(&Type::Unknown)
-                    || !matches!(program.arena.stmt(tail).kind, crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(_))) | crate::syntax::arena::ArenaStmtKind::Exit(_))
+                    || !matches!(program.arena.stmt_kind(tail), crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(_))) | crate::syntax::arena::ArenaStmtKind::Exit(_))
                     || self.stream_expr_may_complete(program, value) { return None; }
                 Some((value, joined.clone()))
             }).collect::<Vec<_>>())
         }).flatten().collect::<Vec<_>>();
         for (branch, joined) in diverging_branches { body_types.insert(branch, joined); }
         let unreachable_scope_values = body_types.iter().filter_map(|(&expression, ty)| {
-            let crate::syntax::arena::ArenaExprKind::ContextScope { block, .. } = program.arena.expr(expression).kind else { return None };
+            let crate::syntax::arena::ArenaExprKind::ContextScope { block, .. } = program.arena.expr_kind(expression) else { return None };
             let Type::Result(ok, error) = ty else { return None };
             (**ok == Type::Unknown && !self.stream_block_may_complete(program, block)).then(|| (expression, block, Type::Result(Box::new(Type::Unit), error.clone())))
         }).collect::<Vec<_>>();
@@ -403,23 +403,23 @@ impl Checker {
         }).map(|(&expression, _)| expression).collect::<Vec<_>>();
         if !empty_lists.is_empty() {
             let branch_joins = program.arena.source_rows().expr_ids(body_span.source_id).filter_map(|expression| {
-                let span = program.arena.expr(expression).span;
+                let span = program.arena.expr_span(expression);
                 if span.start() < body_span.start() || span.end() > body_span.end() { return None; }
-                let crate::syntax::arena::ArenaExprKind::If { branches, else_value } = program.arena.expr(expression).kind else { return None };
+                let crate::syntax::arena::ArenaExprKind::If { branches, else_value } = program.arena.expr_kind(expression) else { return None };
                 let joined = self.expr_types.get(&span)?;
                 if !matches!(joined, Type::List(_)) || joined.contains_recovery() { return None; }
                 let values = program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value));
-                Some(values.map(|value| (program.arena.expr(value).span, joined.clone())).collect::<Vec<_>>())
+                Some(values.map(|value| (program.arena.expr_span(value), joined.clone())).collect::<Vec<_>>())
             }).flatten().collect::<Vec<_>>();
             let empty_list_branches = empty_lists.into_iter().filter_map(|expression| {
-                let span = program.arena.expr(expression).span;
+                let span = program.arena.expr_span(expression);
                 branch_joins.iter().find(|(branch, _)| branch.source_id == span.source_id && branch.start() <= span.start() && span.end() <= branch.end())
                     .map(|(_, joined)| (expression, joined.clone()))
             }).collect::<Vec<_>>();
             for (branch, joined) in empty_list_branches { body_types.insert(branch, joined); }
         }
         let mut noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
-            matches!(program.arena.expr(expression).kind,
+            matches!(program.arena.expr_kind(expression),
                 crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. }
                     | crate::syntax::arena::ArenaExprKind::ResourceScope { .. })
                 && !self.stream_expr_may_complete(program, expression)
@@ -427,7 +427,7 @@ impl Checker {
         loop {
             let propagated = body_types.keys().copied().filter(|expression| {
                 !noncompleting_expressions.contains(expression)
-                    && matches!(program.arena.expr(*expression).kind, crate::syntax::arena::ArenaExprKind::Try(inner)
+                    && matches!(program.arena.expr_kind(*expression), crate::syntax::arena::ArenaExprKind::Try(inner)
                         if noncompleting_expressions.contains(&inner))
             }).collect::<Vec<_>>();
             if propagated.is_empty() { break; }
@@ -435,11 +435,11 @@ impl Checker {
         }
         for expression in &noncompleting_expressions { body_types.remove(expression); }
         for (expression, ty) in body_types.iter_mut() {
-            if let Some(operand) = self.condition_operand_types.get(&program.arena.expr(*expression).span) { *ty = operand.clone(); }
+            if let Some(operand) = self.condition_operand_types.get(&program.arena.expr_span(*expression)) { *ty = operand.clone(); }
         }
         for &statement in &local_statements {
-            let (ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }) = program.arena.stmt(statement).kind else { continue };
-            let Some(seeded) = self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span) else { continue };
+            let (ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }) = program.arena.stmt_kind(statement) else { continue };
+            let Some(seeded) = self.local_inference.checked_bindings.get(&program.arena.stmt_span(statement)) else { continue };
             if self.prepared_nullable_seed(seeded).is_some() && body_types.contains_key(&value) && let Ok(resolved) = self.type_constraints.resolve(seeded) && resolved.contains_inference() {
                 body_types.insert(value, resolved);
             }
@@ -450,7 +450,7 @@ impl Checker {
         });
         if let Some(inferred_success) = inferred_success {
             for expression in failure_only_completion_expressions {
-                if self.result_constructors.get(&program.arena.expr(expression).span) != Some(&super::CheckedResultConstructor::Err) { continue; }
+                if self.result_constructors.get(&program.arena.expr_span(expression)) != Some(&super::CheckedResultConstructor::Err) { continue; }
                 if let Some(Type::Result(success, error)) = body_types.get_mut(&expression)
                     && **success == Type::Unknown
                     && !error.contains_recovery()
@@ -501,19 +501,19 @@ impl Checker {
         );
         let mut constructor_producers = BTreeMap::new();
         for (&expression, &kind) in self.nonmaterial_constructor_producers() {
-            if !expression_spans.contains(&program.arena.expr(expression).span) { continue; }
+            if !expression_spans.contains(&program.arena.expr_span(expression)) { continue; }
             if !super::scheme_body::matches_constructor_producer(program, expression, kind) {
-                self.error(program.arena.expr(expression).span, "nonmaterial constructor evidence does not match its source expression", DiagnosticCode::CheckLocalInference);
+                self.error(program.arena.expr_span(expression), "nonmaterial constructor evidence does not match its source expression", DiagnosticCode::CheckLocalInference);
                 return None;
             }
             if kind == crate::sema::schemes::NonmaterialConstructor::Record && !matches!(body_types.get(&expression), Some(Type::Record(_))) {
-                self.error(program.arena.expr(expression).span, "nonmaterial record producer has no checked closed record shape", DiagnosticCode::CheckLocalInference);
+                self.error(program.arena.expr_span(expression), "nonmaterial record producer has no checked closed record shape", DiagnosticCode::CheckLocalInference);
                 return None;
             }
             if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
                 let authenticated = self.is_checked_empty_map_constructor(program, expression);
                 if !authenticated {
-                    self.error(program.arena.expr(expression).span, "nonmaterial map constructor has no checked empty operation", DiagnosticCode::CheckLocalInference);
+                    self.error(program.arena.expr_span(expression), "nonmaterial map constructor has no checked empty operation", DiagnosticCode::CheckLocalInference);
                     return None;
                 }
             }
@@ -521,8 +521,8 @@ impl Checker {
                 body_types.remove(&expression);
                 constructor_producers.insert(expression, kind);
                 if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
-                    let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
-                    let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                    let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { unreachable!() };
+                    let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr_kind(callee) else { unreachable!() };
                     body_types.remove(&callee);
                     body_types.remove(&base);
                 }
@@ -553,7 +553,7 @@ impl Checker {
                 if !ty.contains_recovery() {
                     return false;
                 }
-                let span = program.arena.expr(expression).span;
+                let span = program.arena.expr_span(expression);
                 self.diagnostics.iter().any(|diagnostic| {
                     diagnostic.severity == crate::diagnostic::Severity::Error
                         && diagnostic.labels.iter().any(|label| {
@@ -582,7 +582,7 @@ impl Checker {
             }
         };
         let constructor_instances = body_types.iter().filter_map(|(&expression, ty)| {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             pending.constructor_instances.get(&span).map(|constructor| (expression, ty, constructor))
         }).map(|(expression, ty, constructor)| {
             let canonical = self.record_constructors.instantiate_checked(&program.arena, constructor.instance.definition, &constructor.instance.arguments)
@@ -604,7 +604,7 @@ impl Checker {
             }
         };
         let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() || !generalized.requirements.guards.is_empty();
-        let named_stage_callbacks = body_types.keys().filter_map(|&expression| match program.arena.expr(expression).kind {
+        let named_stage_callbacks = body_types.keys().filter_map(|&expression| match program.arena.expr_kind(expression) {
             crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
             _ => None,
         }).flat_map(|stages| program.arena.stream_stages(stages)).filter_map(|stage| {
@@ -615,23 +615,23 @@ impl Checker {
             }
         }).collect::<std::collections::BTreeSet<_>>();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             let call = self.api_calls.get(&span)?;
-            let callee = match program.arena.expr(expression).kind {
+            let callee = match program.arena.expr_kind(expression) {
                 crate::syntax::arena::ArenaExprKind::Call { callee, .. } => callee,
                 _ if named_stage_callbacks.contains(&expression) => expression,
                 _ => return None,
             };
-            let name = match program.arena.expr(callee).kind {
+            let name = match program.arena.expr_kind(callee) {
                 crate::syntax::arena::ArenaExprKind::Field { name, .. }
                 | crate::syntax::arena::ArenaExprKind::NullSafeField { name, .. }
                 | crate::syntax::arena::ArenaExprKind::Ident(name) => Arc::from(name.as_str().as_ref()),
                 _ => return None,
             };
             let receiver = if call.receiver.is_some() {
-                let (crate::syntax::arena::ArenaExprKind::Field { base, .. } | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. }) = program.arena.expr(callee).kind else { return None };
+                let (crate::syntax::arena::ArenaExprKind::Field { base, .. } | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. }) = program.arena.expr_kind(callee) else { return None };
                 generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type).map(|receiver| {
-                    if matches!(program.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::NullSafeField { .. }) {
+                    if matches!(program.arena.expr_kind(callee), crate::syntax::arena::ArenaExprKind::NullSafeField { .. }) {
                         match receiver { Type::Optional(inner) | Type::Result(inner, _) => *inner, receiver => receiver }
                     } else { receiver }
                 })
@@ -649,13 +649,13 @@ impl Checker {
         if quantified {
             for (&expression, plan) in &registered_calls {
                 if plan.receiver.is_some() || plan.signature.op != crate::modules::RuntimeOp::ProcessCommandArgv { continue; }
-                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = program.arena.expr(expression).kind else { continue };
+                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = program.arena.expr_kind(expression) else { continue };
                 let args = program.arena.call_args(args);
                 if args.len() != plan.argument_slots.len() { continue; }
                 let Some(index) = plan.argument_slots.iter().position(|slot| *slot == 1) else { continue };
                 if !matches!(args[index].kind, crate::syntax::arena::ArenaCallArgKind::Positional(_) | crate::syntax::arena::ArenaCallArgKind::Named { .. }) { continue; }
                 let argv = super::call_arg_expr_id_arena(&args[index].kind);
-                if matches!(program.arena.expr(argv).kind, crate::syntax::arena::ArenaExprKind::List(_)) && !generalized_body_types.contains_key(&argv) {
+                if matches!(program.arena.expr_kind(argv), crate::syntax::arena::ArenaExprKind::List(_)) && !generalized_body_types.contains_key(&argv) {
                     generalized_body_types.insert(argv, crate::sema::schemes::SchemeType::List(Box::new(crate::sema::schemes::SchemeType::Ground(Type::process_command_argv_item_type().clone()))));
                 }
             }
@@ -719,10 +719,10 @@ impl Checker {
             return None;
         }
         let guard_scopes = (|| {
-            let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
-            let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
-            let by_span = generalized_body_types.keys().chain(&noncompleting_expressions).map(|&expression| (program.arena.expr(expression).span, expression)).collect::<BTreeMap<_, _>>();
-            let statements_by_span = generalized_tail_types.keys().map(|&statement| (program.arena.stmt(statement).span, statement)).collect::<BTreeMap<_, _>>();
+            let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr_span(expression)).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt_span(statement)).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
+            let by_span = generalized_body_types.keys().chain(&noncompleting_expressions).map(|&expression| (program.arena.expr_span(expression), expression)).collect::<BTreeMap<_, _>>();
+            let statements_by_span = generalized_tail_types.keys().map(|&statement| (program.arena.stmt_span(statement), statement)).collect::<BTreeMap<_, _>>();
             let mut statement_sites = BTreeMap::<crate::syntax::arena::StmtId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
             let mut sites = BTreeMap::<ExprId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
             let contains = |owner: Span, span: Span| owner.source_id == span.source_id && owner.start() <= span.start() && span.end() <= owner.end();
@@ -819,38 +819,38 @@ impl Checker {
             .iter()
             .filter_map(|(&expression, ty)| {
                 ty.contains_parameter()
-                    .then_some(program.arena.expr(expression).span)
+                    .then_some(program.arena.expr_span(expression))
             })
-            .chain(noncompleting_expressions.iter().filter(|_| quantified).map(|&expression| program.arena.expr(expression).span))
+            .chain(noncompleting_expressions.iter().filter(|_| quantified).map(|&expression| program.arena.expr_span(expression)))
             .chain(generalized_tail_types.iter().filter_map(|(&statement, ty)| {
                 ty.contains_parameter()
-                    .then_some(program.arena.stmt(statement).span)
+                    .then_some(program.arena.stmt_span(statement))
             }))
             .collect::<std::collections::BTreeSet<_>>();
         let generalized_bindings = local_statements.into_iter()
-            .filter_map(|statement| match program.arena.stmt(statement).kind {
+            .filter_map(|statement| match program.arena.stmt_kind(statement) {
                 ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
                 | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
                     if (quantified && noncompleting_expressions.contains(&value) || generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter()))
-                        && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
+                        && self.local_inference.checked_bindings.get(&program.arena.stmt_span(statement)).is_some_and(Type::contains_inference) => Some(program.arena.stmt_span(statement)),
                 _ => None,
             }).collect::<std::collections::BTreeSet<_>>();
         self.local_inference.checked_bindings.retain(|span, _| !generalized_bindings.contains(span));
         self.annotation_facts.retain(|fact| !matches!(fact.kind, super::AnnotationFactKind::Binding { span, .. } if generalized_bindings.contains(&span)));
-        for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
+        for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr_span(expression)); }
         for (&expression, &kind) in &constructor_producers {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             self.expr_types.remove(&span);
             self.projections.remove(&span);
             if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
-                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
-                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
-                self.expr_types.remove(&program.arena.expr(callee).span);
-                self.expr_types.remove(&program.arena.expr(base).span);
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { unreachable!() };
+                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr_kind(callee) else { unreachable!() };
+                self.expr_types.remove(&program.arena.expr_span(callee));
+                self.expr_types.remove(&program.arena.expr_span(base));
             }
         }
         let generalized_pipeline_stages = generalized_body_types.keys().chain(noncompleting_expressions.iter()).filter_map(|&expression| {
-            match program.arena.expr(expression).kind {
+            match program.arena.expr_kind(expression) {
                 crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
                 _ => None,
             }
@@ -1038,19 +1038,19 @@ impl Checker {
         let mut method_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
             let operation = self.binary_operators.get(&expression).and_then(|operator| operator.operation).or_else(|| {
-                matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Field { .. } | crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. } | crate::syntax::arena::ArenaExprKind::Record(_)).then(|| self.type_constraints.sealed_operation_at(self.constraint_scope_at(effect_declaration, program.arena.expr(expression).span), program.arena.expr(expression).span)).flatten()
+                matches!(program.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::Field { .. } | crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. } | crate::syntax::arena::ArenaExprKind::Record(_)).then(|| self.type_constraints.sealed_operation_at(self.constraint_scope_at(effect_declaration, program.arena.expr_span(expression)), program.arena.expr_span(expression))).flatten()
             });
             if let Some(operation) = operation {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
                     Ok(Some(ordinal)) => { operation_sites.insert(expression, ordinal); }
                     Ok(None) => {}
                     Err(error) => {
-                        self.error(program.arena.expr(expression).span, &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        self.error(program.arena.expr_span(expression), &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
                         return None;
                     }
                 }
             }
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             if let Some(method) = self.type_constraints.source_method_family(
                 self.constraint_scope_at(effect_declaration, span), span,
             ) {
@@ -1066,7 +1066,7 @@ impl Checker {
         }
         let mut index_store_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             let scope = self.constraint_scope_at(effect_declaration, span);
             if let Some(operation) = self.type_constraints.index_store_operation_at(scope, span) {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
@@ -1081,7 +1081,7 @@ impl Checker {
         }
         let mut store_value_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             let scope = self.constraint_scope_at(effect_declaration, span);
             if let Some(operation) = self.type_constraints.store_value_operation_at(scope, span) {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
@@ -1112,7 +1112,7 @@ impl Checker {
         for &expression in pending.generalized_body_types()?.keys() {
             let checked = program.arena.expr(expression);
             let span = match checked.kind {
-                crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => Span::new(checked.span.source_id, program.arena.expr(left).span.start(), program.arena.expr(right).span.end()),
+                crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => Span::new(checked.span.source_id, program.arena.expr_span(left).start(), program.arena.expr_span(right).end()),
                 _ => checked.span,
             };
             if let Some(wrapper) = self.type_constraints.wrapper_at(self.constraint_scope_at(effect_declaration, span), span) {
@@ -1128,7 +1128,7 @@ impl Checker {
         }
         let mut map_key_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             let scope = self.constraint_scope_at(effect_declaration, span);
             if let (Some(operation), Some(wrapper)) = (self.type_constraints.map_key_operation_at(scope, span), self.type_constraints.map_key_wrapper_at(scope, span)) {
                 let operation = self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?);
@@ -1277,10 +1277,10 @@ impl Checker {
             });
         }
         for statement in program.arena.stmt_ids(module.statements) {
-            let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else {
+            let ArenaStmtKind::Export(inner) = program.arena.stmt_kind(statement) else {
                 continue;
             };
-            let (def_id, kind) = match program.arena.stmt(inner).kind {
+            let (def_id, kind) = match program.arena.stmt_kind(inner) {
                 ArenaStmtKind::ProcDef(def_id) => (def_id, CheckedFunctionKind::Proc),
                 ArenaStmtKind::PureDef(def_id) => (def_id, CheckedFunctionKind::Pure),
                 ArenaStmtKind::StreamDef(def_id) => (def_id, CheckedFunctionKind::Stream),
@@ -1316,7 +1316,7 @@ impl Checker {
             .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
             .collect::<std::collections::BTreeSet<_>>();
         for statement in program.arena.stmt_ids(module.statements) {
-            let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else {
+            let ArenaStmtKind::Export(inner) = program.arena.stmt_kind(statement) else {
                 continue;
             };
             let inner = program.arena.stmt(inner);
@@ -1721,11 +1721,11 @@ impl Checker {
         }
         for &statement in stmt_ids {
             if matches!(
-                program.arena.stmt(statement).kind,
+                program.arena.stmt_kind(statement),
                 ArenaStmtKind::CliMain(_)
             ) {
                 self.error(
-                    program.arena.stmt(statement).span,
+                    program.arena.stmt_span(statement),
                     "`cli main` is only permitted in the entry module",
                     DiagnosticCode::CheckCliEntry,
                 );
@@ -1844,7 +1844,7 @@ impl Checker {
                         program,
                         source,
                         def_id,
-                        program.arena.stmt(stmt_id).span,
+                        program.arena.stmt_span(stmt_id),
                     );
                 }
             }
@@ -2513,7 +2513,7 @@ fn append_binding_target_names_arena(
 }
 
 fn statement_is_exported_arena(program: &ArenaProgram, stmt_id: StmtId) -> bool {
-    matches!(program.arena.stmt(stmt_id).kind, ArenaStmtKind::Export(_))
+    matches!(program.arena.stmt_kind(stmt_id), ArenaStmtKind::Export(_))
 }
 
 fn exported_stmt_kind_arena(program: &ArenaProgram, stmt_id: StmtId) -> (ArenaStmtKind, Span) {
@@ -2799,7 +2799,7 @@ impl Checker {
                                     .and_then(|id| self.record_constructors.defaults(id))
                                     .is_some_and(|defaults| defaults.contains_key(&field.name));
                                 if !allowed {
-                                    self.error(arena.arena.expr(default).span, "record default must be a literal or a previously declared immutable literal constant", DiagnosticCode::CheckRecordDefault);
+                                    self.error(arena.arena.expr_span(default), "record default must be a literal or a previously declared immutable literal constant", DiagnosticCode::CheckRecordDefault);
                                 }
                                 if let Some(expected) = fields.get(&field.name) {
                                     let actual = self.check_expr_arena(
@@ -2811,7 +2811,7 @@ impl Checker {
                                     self.expect_type(
                                         expected,
                                         &actual,
-                                        arena.arena.expr(default).span,
+                                        arena.arena.expr_span(default),
                                     );
                                 }
                             }
@@ -2862,12 +2862,12 @@ impl Checker {
                             .and_then(|id| self.record_constructors.defaults(id))
                             .is_some_and(|defaults| defaults.contains_key(&field.name));
                         if !allowed {
-                            self.error(arena.arena.expr(default).span,
+                            self.error(arena.arena.expr_span(default),
                                 "record default must be a literal or a previously declared immutable literal constant",
                                 DiagnosticCode::CheckRecordDefault);
                         }
                         let actual = self.check_expr_arena(arena, source, default, Some(&expected));
-                        self.expect_type(&expected, &actual, arena.arena.expr(default).span);
+                        self.expect_type(&expected, &actual, arena.arena.expr_span(default));
                     }
                 }
                 if field_list.is_empty() {
@@ -3041,7 +3041,7 @@ mod imported_pure_tests {
         let _symbols = program.symbol_owner().enter();
         let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
         let output = session.check(entry.statements, entry_source, super::super::CheckOptions::default());
-        let body = program.arena.stmt_ids(entry.statements).find_map(|statement| match program.arena.stmt(statement).kind {
+        let body = program.arena.stmt_ids(entry.statements).find_map(|statement| match program.arena.stmt_kind(statement) {
             ArenaStmtKind::PureDef(definition) => Some(program.arena.function_def(definition).body),
             _ => None,
         }).unwrap();
@@ -3059,10 +3059,10 @@ mod imported_pure_tests {
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
         let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
-            |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+            |expression| output.selected_function_calls.contains_key(&program.arena.expr_span(expression)), |_| false, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
-        assert!(spans.contains(&program.arena.expr(callee).span));
-        assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
+        assert!(spans.contains(&program.arena.expr_span(callee)));
+        assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr_span(*expression))));
         let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, |_| false, |_| false, &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
@@ -3080,7 +3080,7 @@ mod imported_pure_tests {
             assert!(!facts.read_bindings().contains(&namespace));
             let bindings = super::super::ResolvedBindings::collect(&program);
             let (_, _, _, missing_constructor_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
-                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr_span(expression)), |_| false, &BTreeMap::new(), &[]);
             assert!(missing_constructor_reads.contains(&namespace));
         }
     }
@@ -3097,7 +3097,7 @@ mod imported_pure_tests {
             assert_eq!(output.diagnostics.is_empty(), accepted, "{prefix} {argument}: {:?}", output.diagnostics);
             let bindings = super::super::ResolvedBindings::collect(&program);
             let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
-                |expression| { let span = program.arena.expr(expression).span; output.selected_function_calls.contains_key(&span) || output.record_constructor_instances.contains_key(&span) },
+                |expression| { let span = program.arena.expr_span(expression); output.selected_function_calls.contains_key(&span) || output.record_constructor_instances.contains_key(&span) },
                 |_| false, &BTreeMap::new(), &[]);
             assert!(reads.contains(&namespace), "{prefix} {argument}");
         }
@@ -3115,7 +3115,7 @@ mod imported_pure_tests {
             assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
             let bindings = super::super::ResolvedBindings::collect(&program);
             let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
-                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr_span(expression)), |_| false, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {

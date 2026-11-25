@@ -39,12 +39,12 @@ impl Checker {
 
     /// Whether `expr` is `.Name` or `.Name(...)` naming a variant here.
     pub(super) fn is_inferred_variant_expr(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
-        let member = match arena.arena.expr(expr).kind {
+        let member = match arena.arena.expr_kind(expr) {
             ArenaExprKind::Call { callee, .. } => callee,
             _ => expr,
         };
-        matches!(arena.arena.expr(member).kind, ArenaExprKind::Field { base, .. }
-            if matches!(arena.arena.expr(base).kind, ArenaExprKind::Item))
+        matches!(arena.arena.expr_kind(member), ArenaExprKind::Field { base, .. }
+            if matches!(arena.arena.expr_kind(base), ArenaExprKind::Item))
             && !self.item_shorthand_in_scope()
     }
 
@@ -60,7 +60,7 @@ impl Checker {
         let ArenaExprKind::Field { base, name } = expr.kind else {
             return;
         };
-        let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
+        let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(base) else {
             return;
         };
         let Some(info) = self

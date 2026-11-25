@@ -86,13 +86,13 @@ impl CheckedDeclarations {
         -> Result<Vec<CheckedCliEntryContract>, CliContractError>
     {
         self.cli_entries.iter().map(|plan| {
-            let span = program.arena.stmt(plan.statement).span;
+            let span = program.arena.stmt_span(plan.statement);
             let source = sources.get(span.source_id).ok_or(CliContractError::MissingSource(span))?;
             source.text().get(span.start()..span.end()).ok_or(CliContractError::InvalidSourceSpan(span))?;
             let mut computed_defaults = BTreeMap::new();
             for (index, parameter) in plan.parameters.iter().enumerate() {
                 if let Some(CliEntryDefault::Computed(expression)) = &parameter.default {
-                    let span = program.arena.expr(*expression).span;
+                    let span = program.arena.expr_span(*expression);
                     let source = sources.get(span.source_id).ok_or(CliContractError::MissingSource(span))?;
                     let text = source.text().get(span.start()..span.end()).ok_or(CliContractError::InvalidSourceSpan(span))?;
                     computed_defaults.insert(index, Arc::from(text));
@@ -243,7 +243,7 @@ mod tests {
         let checked = Checker::check_arena_with_options(&parsed.arena, source,
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let span = parsed.arena.arena.stmt(checked.checked_declarations.cli_entries[0].statement).span;
+        let span = parsed.arena.arena.stmt_span(checked.checked_declarations.cli_entries[0].statement);
         assert_eq!(checked.checked_declarations.cli_entry_contracts(&parsed.arena, &SourceMap::new()).unwrap_err(),
             CliContractError::MissingSource(span));
         let mut truncated = SourceMap::new();

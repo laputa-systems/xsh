@@ -263,7 +263,7 @@ impl LiteralConstant {
         if let Some(value) = prepared.get(&expr) {
             return Some(value.clone());
         }
-        let value = match arena.expr(expr).kind {
+        let value = match arena.expr_kind(expr) {
             ArenaExprKind::Null => Self::Null,
             ArenaExprKind::Bool(value) => Self::Bool(value),
             ArenaExprKind::Int(value) => Self::Int(arena.int_literal(value).value()?),
@@ -852,8 +852,8 @@ impl RecordConstructors {
         statements: Vec<StmtId>,
     ) {
         for statement in statements {
-            let (kind, exported) = match program.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => (program.arena.stmt(inner).kind, true),
+            let (kind, exported) = match program.arena.stmt_kind(statement) {
+                ArenaStmtKind::Export(inner) => (program.arena.stmt_kind(inner), true),
                 kind => (kind, false),
             };
             match kind {
@@ -961,8 +961,8 @@ impl RecordConstructors {
         let empty = FxHashMap::default();
         let prepared_values = prepared.map_or(&empty, |prepared| &prepared.values);
         for statement in &statements {
-            let kind = match arena.stmt(*statement).kind {
-                ArenaStmtKind::Export(inner) => arena.stmt(inner).kind,
+            let kind = match arena.stmt_kind(*statement) {
+                ArenaStmtKind::Export(inner) => arena.stmt_kind(inner),
                 kind => kind,
             };
             if let ArenaStmtKind::Const {
@@ -977,8 +977,8 @@ impl RecordConstructors {
             }
         }
         for statement in statements {
-            let kind = match arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => arena.stmt(inner).kind,
+            let kind = match arena.stmt_kind(statement) {
+                ArenaStmtKind::Export(inner) => arena.stmt_kind(inner),
                 kind => kind,
             };
             match kind {
@@ -1054,10 +1054,10 @@ impl RecordConstructors {
         callee: ExprId,
         namespace: Option<Name>,
     ) -> Option<TypeDefId> {
-        match arena.expr(callee).kind {
+        match arena.expr_kind(callee) {
             ArenaExprKind::Ident(name) => self.resolve_name(arena, namespace, name, 0),
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(alias) = arena.expr(base).kind else {
+                let ArenaExprKind::Ident(alias) = arena.expr_kind(base) else {
                     return None;
                 };
                 let namespace = Some(*self.imports.get(&(namespace, alias))?);
@@ -1321,10 +1321,10 @@ impl RecordConstructors {
         callee: ExprId,
         namespace: Option<Name>,
     ) -> Option<TypeDefId> {
-        match arena.expr(callee).kind {
+        match arena.expr_kind(callee) {
             ArenaExprKind::Ident(name) => self.definition(namespace, name),
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(alias) = arena.expr(base).kind else {
+                let ArenaExprKind::Ident(alias) = arena.expr_kind(base) else {
                     return None;
                 };
                 let owner = Some(*self.imports.get(&(namespace, alias))?);
@@ -2471,7 +2471,7 @@ mod prepared_constant_tests {
                     prepared
                         .values
                         .keys()
-                        .all(|id| program.arena.expr(*id).span.source_id == SourceId::new(1))
+                        .all(|id| program.arena.expr_span(*id).source_id == SourceId::new(1))
                 );
                 assert!(prepared.binding_values.iter().all(|(binding, expression)| {
                     bindings
@@ -2480,7 +2480,7 @@ mod prepared_constant_tests {
                         .is_some_and(|declaration| {
                             declaration.span.source_id == SourceId::new(1)
                         })
-                        && program.arena.expr(*expression).span.source_id == SourceId::new(1)
+                        && program.arena.expr_span(*expression).source_id == SourceId::new(1)
                 }));
                 if source.starts_with("const") {
                     let local = bindings
@@ -2686,14 +2686,14 @@ impl PreparedConstants {
     ) {
         let arena = &program.arena;
         self.values
-            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+            .retain(|id, _| arena.expr_span(*id).source_id == source_id);
         self.types
-            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+            .retain(|id, _| arena.expr_span(*id).source_id == source_id);
         self.record_constructor_instances
-            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
-        self.binary_operators.retain(|id, _| arena.expr(*id).span.source_id == source_id);
+            .retain(|id, _| arena.expr_span(*id).source_id == source_id);
+        self.binary_operators.retain(|id, _| arena.expr_span(*id).source_id == source_id);
         self.origins
-            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+            .retain(|id, _| arena.expr_span(*id).source_id == source_id);
         self.binding_values.retain(|binding, _| {
             bindings
                 .declarations
@@ -2717,9 +2717,9 @@ impl PreparedConstants {
         {
             return self.cli_descriptor_origin(arena, origin, depth + 1);
         }
-        if let ArenaExprKind::Field { base, name } = arena.expr(expr).kind {
+        if let ArenaExprKind::Field { base, name } = arena.expr_kind(expr) {
             let base = self.cli_descriptor_origin(arena, base, depth + 1);
-            if let ArenaExprKind::Record(fields) = arena.expr(base).kind {
+            if let ArenaExprKind::Record(fields) = arena.expr_kind(base) {
                 for field in arena.record_fields(fields) {
                     if let ArenaRecordFieldKind::Named {
                         name: field_name,
@@ -2747,12 +2747,12 @@ impl PreparedConstants {
             return;
         }
         let origin = self.cli_descriptor_origin(arena, expr, depth);
-        if let ArenaExprKind::Record(fields) = arena.expr(origin).kind {
+        if let ArenaExprKind::Record(fields) = arena.expr_kind(origin) {
             for field in arena.record_fields(fields) {
                 match field.kind {
                     ArenaRecordFieldKind::Named { name, value, .. } => {
                         let value_origin = self.cli_descriptor_origin(arena, value, depth + 1);
-                        spans.insert(name.as_str().to_string(), arena.expr(value_origin).span);
+                        spans.insert(name.as_str().to_string(), arena.expr_span(value_origin));
                     }
                     ArenaRecordFieldKind::Spread { expr, .. } => {
                         self.cli_descriptor_spans(arena, expr, spans, depth + 1)
@@ -2810,7 +2810,7 @@ impl PreparedConstants {
         self.cli_descriptor_spans(arena, origin, &mut descriptor_origins, 0);
         let plan = crate::modules::cli::CliDescriptorPlan::normalize(
             schema,
-            arena.expr(origin).span,
+            arena.expr_span(origin),
             policy,
             &descriptor_origins,
         )
@@ -2841,7 +2841,7 @@ impl PreparedConstants {
                 };
                 let value = fields.get(&field)?.clone();
                 let origin = self.cli_descriptor_origin(arena, record, 0);
-                if let ArenaExprKind::Record(entries) = arena.expr(origin).kind {
+                if let ArenaExprKind::Record(entries) = arena.expr_kind(origin) {
                     for entry in arena.record_fields(entries) {
                         if let ArenaRecordFieldKind::Named {
                             name,
@@ -2905,16 +2905,16 @@ impl PreparedConstants {
                 else {
                     return None;
                 };
-                (Some(record), arena.expr(origin).span)
+                (Some(record), arena.expr_span(origin))
             }
-            None => (None, arena.expr(origin).span),
+            None => (None, arena.expr_span(origin)),
         };
         let mut origins = BTreeMap::new();
         self.cli_descriptor_spans(arena, origin, &mut origins, 0);
         let plan = crate::modules::cli::CliDescriptorPlan::normalize_commands(
             schema,
             fallback,
-            arena.expr(origin).span,
+            arena.expr_span(origin),
             &origins,
             fallback_span,
         )
@@ -2968,7 +2968,7 @@ impl PreparedConstants {
         let arena = &program.arena;
         let mut statements = bindings.declarations.values().filter_map(|declaration| {
             if let crate::sema::check::BindingKind::Constant(statement) = declaration.kind {
-                view.contains_source(arena.stmt(statement).span.source_id).then_some(statement)
+                view.contains_source(arena.stmt_span(statement).source_id).then_some(statement)
             } else { None }
         }).collect::<Vec<_>>();
         statements.sort_unstable();
@@ -2993,8 +2993,8 @@ impl PreparedConstants {
             || !preparation.prepared.diagnostics.is_empty();
         if has_visible_constants {
             let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
-                view.contains_source(arena.expr(id).span.source_id)
-                    && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+                view.contains_source(arena.expr_span(id).source_id)
+                    && matches!(arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
             }).collect::<Vec<_>>();
             references.sort_unstable();
             for id in references {
@@ -3006,8 +3006,8 @@ impl PreparedConstants {
             }
             for &id in bindings.declarations.keys() {
                 if let Some(statement) = bindings.constant(id)
-                    && view.contains_source(arena.stmt(statement).span.source_id)
-                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
+                    && view.contains_source(arena.stmt_span(statement).source_id)
+                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt_kind(statement)
                 {
                     preparation.prepared.binding_values.insert(id, expr);
                 }
@@ -3110,10 +3110,10 @@ impl ConstantPreparation<'_> {
     fn set_from_argument(&self, callee: ExprId, args: crate::syntax::arena::ArenaRange) -> Option<ExprId> {
         use crate::syntax::arena::ArenaCallArgKind;
         let arena = &self.program.arena;
-        let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+        let ArenaExprKind::Field { base, name } = arena.expr_kind(callee) else {
             return None;
         };
-        let ArenaExprKind::Ident(module) = arena.expr(base).kind else {
+        let ArenaExprKind::Ident(module) = arena.expr_kind(base) else {
             return None;
         };
         if module != "set" || name != "from" || self.bindings.expressions.contains_key(&base) {
@@ -3134,10 +3134,10 @@ impl ConstantPreparation<'_> {
         expected: Option<&Type>,
     ) -> Option<(Name, Name, Vec<TypeExprId>)> {
         let arena = &self.program.arena;
-        let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+        let ArenaExprKind::Field { base, name } = arena.expr_kind(callee) else {
             return None;
         };
-        if !matches!(arena.expr(base).kind, ArenaExprKind::Item) {
+        if !matches!(arena.expr_kind(base), ArenaExprKind::Item) {
             return None;
         }
         let mut expected = expected?;
@@ -3179,11 +3179,11 @@ impl ConstantPreparation<'_> {
         namespace: Option<Name>,
     ) -> Option<(Name, Name, Vec<TypeExprId>)> {
         let arena = &self.program.arena;
-        let (namespace, name, qualified) = match arena.expr(callee).kind {
+        let (namespace, name, qualified) = match arena.expr_kind(callee) {
             ArenaExprKind::Ident(_) if self.bindings.expressions.contains_key(&callee) => return None,
             ArenaExprKind::Ident(name) => (namespace, name, false),
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(alias) = arena.expr(base).kind else {
+                let ArenaExprKind::Ident(alias) = arena.expr_kind(base) else {
                     return None;
                 };
                 (
@@ -3325,9 +3325,9 @@ impl ConstantPreparation<'_> {
     ) -> Result<LiteralConstant, (crate::source::Span, String)> {
         let arena = &self.program.arena;
         let binding = self.bindings.expressions.get(&id).copied();
-        let value = self.reference(binding, arena.expr(id).span, depth)?;
+        let value = self.reference(binding, arena.expr_span(id), depth)?;
         let statement = self.bindings.constant(binding.expect("reference succeeded")).expect("constant reference");
-        if let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(initializer), .. } = arena.stmt(statement).kind {
+        if let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(initializer), .. } = arena.stmt_kind(statement) {
             if let Some(ty) = self.prepared.types.get(&initializer).cloned() {
                 self.prepared.types.insert(id, ty);
             }
@@ -3428,7 +3428,7 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::Field { base, .. }
-                if matches!(arena.expr(base).kind, ArenaExprKind::Item) =>
+                if matches!(arena.expr_kind(base), ArenaExprKind::Item) =>
             {
                 let (family, variant, fields) = self
                     .inferred_tag_constructor(id, expected)
@@ -3848,10 +3848,10 @@ impl ConstantPreparation<'_> {
                                     return Err(failure());
                                 }
                                 self.type_constraints
-                                    .constrain(ty, actual, arena.expr(value).span)
+                                    .constrain(ty, actual, arena.expr_span(value))
                                     .map_err(|conflict| {
                                         (
-                                            arena.expr(value).span,
+                                            arena.expr_span(value),
                                             format!(
                                                 "expected {}, found {}",
                                                 conflict.expected, conflict.actual
@@ -3905,15 +3905,15 @@ impl ConstantPreparation<'_> {
                         let fact = self
                             .constructors
                             .finish_constructor_inference(arena, &instance, &self.type_constraints)
-                            .map_err(|error| (arena.expr(expression).span, error.message))?;
+                            .map_err(|error| (arena.expr_span(expression), error.message))?;
                         let LiteralConstant::Record(record) = &value else { unreachable!() };
                         let constructor = record.constructor.as_ref().expect("constructor record retains its source proof");
-                        if constructor.nominal != fact.ty.nominal_name() { return Err((arena.expr(expression).span, "constant constructor nominal identity changed during inference".into())); }
-                        constructor.checked.set(fact.clone()).map_err(|_| (arena.expr(expression).span, "constant constructor proof was finalized twice".into()))?;
+                        if constructor.nominal != fact.ty.nominal_name() { return Err((arena.expr_span(expression), "constant constructor nominal identity changed during inference".into())); }
+                        constructor.checked.set(fact.clone()).map_err(|_| (arena.expr_span(expression), "constant constructor proof was finalized twice".into()))?;
                         let value = value.in_type(&fact.ty);
                         if !constant_matches_type(&value, &fact.ty) {
                             return Err((
-                                arena.expr(expression).span,
+                                arena.expr_span(expression),
                                 "constant constructor fields do not match its inferred instance"
                                     .into(),
                             ));

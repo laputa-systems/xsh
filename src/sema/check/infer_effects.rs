@@ -253,7 +253,7 @@ impl EffectGraph {
             graph.declare(id, name, inference_allowed, declared);
             graph.nodes.get_mut(&id).expect("declared effect owner").defaults = program.arena.params(def.params)
                 .iter().filter_map(|parameter| parameter.default)
-                .map(|expression| program.arena.expr(expression).span).collect();
+                .map(|expression| program.arena.expr_span(expression)).collect();
         }
         graph
     }
@@ -962,9 +962,9 @@ mod deferred_invocation_tests {
             for statement in statements { checker.check_stmt_arena(program, source, statement); }
             assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
             let call_span = |name: &str| view.expr_ids().into_iter().find_map(|expression| {
-                let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
-                matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(actual) if actual == name)
-                    .then_some(program.arena.expr(expression).span)
+                let ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { return None; };
+                matches!(program.arena.expr_kind(callee), ArenaExprKind::Ident(actual) if actual == name)
+                    .then_some(program.arena.expr_span(expression))
             }).expect("the source retains its actual invocation");
             let scalar = call_span("scalar");
             let wrapped = call_span("wrapped");
@@ -1206,7 +1206,7 @@ mod deferred_invocation_tests {
         let denied = view.expr_ids().into_iter().find_map(|expression| {
             let node = parsed.arena.arena.expr(expression);
             let ArenaExprKind::Call { callee, .. } = node.kind else { return None; };
-            matches!(parsed.arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "deny").then_some(node.span)
+            matches!(parsed.arena.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "deny").then_some(node.span)
         }).unwrap();
         assert_eq!(checked.expr_types.get(&denied), Some(&Type::Invalid));
         assert!(!checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(denied)));
@@ -1294,7 +1294,7 @@ mod deferred_invocation_tests {
                 let span = view.expr_ids().into_iter().filter_map(|expression| {
                     let expr = parsed.arena.arena.expr(expression);
                     let ArenaExprKind::Call { callee, .. } = expr.kind else { return None; };
-                    let ArenaExprKind::Ident(name) = parsed.arena.arena.expr(callee).kind else { return None; };
+                    let ArenaExprKind::Ident(name) = parsed.arena.arena.expr_kind(callee) else { return None; };
                     (name == callee_name && !peer_calls.contains(&expr.span)).then_some(expr.span)
                 }).next().expect("the source retains its actual root invocation");
                 assert!(checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span)));

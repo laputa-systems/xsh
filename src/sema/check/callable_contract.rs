@@ -1302,9 +1302,9 @@ mod tests {
                 .find(|(_, declaration)| declaration.name.as_str() == "factory13").unwrap();
             let contract = checked.callable_declaration_contract(definition).unwrap();
             let list = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression| {
-                matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+                matches!(parsed.arena.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(_))
             }).unwrap();
-            (contract, checked.expr_types[&parsed.arena.arena.expr(list).span].clone())
+            (contract, checked.expr_types[&parsed.arena.arena.expr_span(list)].clone())
         }
 
         let (left, left_family) = checked_factory(&source);

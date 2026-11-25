@@ -37,7 +37,7 @@ impl Checker {
     }
 
     fn materialize_storage(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type, context: StorageContext<'_>) -> Type {
-        let span = arena.arena.expr(id).span;
+        let span = arena.arena.expr_span(id);
         let plan = match self.storage_materialization_plan(&actual, context, span, 0) {
             Ok(plan) => plan,
             Err(message) => {

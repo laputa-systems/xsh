@@ -149,10 +149,10 @@ impl HostObligation {
         let mut dependencies = self.candidates.dependencies(constraints)?;
         match &self.continuation.source {
             HostCallSource::Expression(call) => {
-                assert_eq!(arena.arena.expr(*call).span, self.candidates.span);
+                assert_eq!(arena.arena.expr_span(*call), self.candidates.span);
             }
             HostCallSource::Callback { callee, argument, argument_span } => {
-                assert_eq!(arena.arena.expr(*callee).span.source_id, argument_span.source_id);
+                assert_eq!(arena.arena.expr_span(*callee).source_id, argument_span.source_id);
                 dependencies.extend(constraints.unresolved(argument)?);
             }
         }
@@ -388,14 +388,14 @@ impl Checker {
             expression
         };
         let guarded = match source {
-            HostCallSource::Expression(expression) => match arena.arena.expr(*expression).kind {
-                crate::syntax::arena::ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } if base == receiver),
+            HostCallSource::Expression(expression) => match arena.arena.expr_kind(*expression) {
+                crate::syntax::arena::ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr_kind(callee), crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } if base == receiver),
                 _ => false,
             },
             HostCallSource::Callback { .. } => false,
         };
         let operand = if guarded { receiver } else {
-            let crate::syntax::arena::ArenaExprKind::Try(operand) = arena.arena.expr(immutable_source(receiver)).kind else { return; };
+            let crate::syntax::arena::ArenaExprKind::Try(operand) = arena.arena.expr_kind(immutable_source(receiver)) else { return; };
             operand
         };
         let producer = arena.arena.expr(immutable_source(operand));
@@ -733,8 +733,8 @@ impl Checker {
     fn finalize_host_obligation(&mut self, arena: &ArenaProgram, obligation: &mut HostObligation) -> Type {
         let continuation = &obligation.continuation;
         let HostCallSource::Expression(call) = continuation.source else { panic!("callback methods retain their canonical argument checker") };
-        assert_eq!(arena.arena.expr(call).span, obligation.candidates.span);
-        assert!(matches!(arena.arena.expr(call).kind, crate::syntax::arena::ArenaExprKind::Call { .. }));
+        assert_eq!(arena.arena.expr_span(call), obligation.candidates.span);
+        assert!(matches!(arena.arena.expr_kind(call), crate::syntax::arena::ArenaExprKind::Call { .. }));
         let selected = obligation.candidates.selected.take().expect("a finalized host call retains the committed selection");
         let phase = continuation.phase(selected.method, &obligation.candidates.arguments).expect("a finalized host call has canonical selection order");
         if let Some((scope, declaration, level)) = continuation.deferred_proc_key && selected.method.receiver == MethodReceiver::Map {
@@ -860,9 +860,9 @@ mod tests {
         mut candidates: HostMethodCandidates,
     ) -> HostObligation {
         let statement = arena.arena.stmt_ids(arena.statements).nth(statement_index).unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(call) = arena.arena.stmt(statement).kind else { panic!("host call statement") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr(call).kind else { panic!("host call") };
-        candidates.span = arena.arena.expr(call).span;
+        let crate::syntax::arena::ArenaStmtKind::Expr(call) = arena.arena.stmt_kind(statement) else { panic!("host call statement") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr_kind(call) else { panic!("host call") };
+        candidates.span = arena.arena.expr_span(call);
         let mut types = candidates.arguments.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>().into_iter();
         candidates.arguments = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |_| types.next()).unwrap();
         assert!(types.next().is_none());
@@ -1058,9 +1058,9 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("call statement") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("original call") };
-        let span = parsed.arena.arena.expr(call).span;
+        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt_kind(statement) else { panic!("call statement") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(call) else { panic!("original call") };
+        let span = parsed.arena.arena.expr_span(call);
         let mut checker = Checker::new(crate::sema::check::CheckOptions::default());
         let receiver = checker.type_constraints.fresh(span);
         let result = checker.type_constraints.fresh(span);
@@ -1094,9 +1094,9 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
-        let span = parsed.arena.arena.expr(call).span;
+        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt_kind(statement) else { panic!("host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(call) else { panic!("host call") };
+        let span = parsed.arena.arena.expr_span(call);
         let mut checker = Checker::new(crate::sema::check::CheckOptions::default());
         let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |expression| Some(checker.check_expr_arena(&parsed.arena, source, expression, None))).unwrap();
         assert_eq!(arguments.len(), 2);
@@ -1130,16 +1130,16 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::ProcDef(definition) = parsed.arena.arena.stmt(statement).kind else { panic!("original owner") };
+        let crate::syntax::arena::ArenaStmtKind::ProcDef(definition) = parsed.arena.arena.stmt_kind(statement) else { panic!("original owner") };
         let body = parsed.arena.arena.function_def(definition).body;
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(body).statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
+        let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt_kind(statement) else { panic!("host call") };
         let elsewhere = parsed.arena.arena.stmt_ids(parsed.arena.statements).nth(1).unwrap();
-        let crate::syntax::arena::ArenaStmtKind::ProcDef(other_definition) = parsed.arena.arena.stmt(elsewhere).kind else { panic!("solver owner") };
-        let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+        let crate::syntax::arena::ArenaStmtKind::ProcDef(other_definition) = parsed.arena.arena.stmt_kind(elsewhere) else { panic!("solver owner") };
+        let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr_kind(call) else { panic!("host call") };
         let args = parsed.arena.arena.call_args(args);
-        let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(callee).kind else { panic!("method receiver") };
-        let span = parsed.arena.arena.expr(call).span;
+        let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr_kind(callee) else { panic!("method receiver") };
+        let span = parsed.arena.arena.expr_span(call);
         let method = &api_spec().method_overloads(receiver_kind, name).unwrap()[0];
         assert!(!method.sig.pure);
         let required = method.sig.effects.to_vec();
@@ -1196,10 +1196,10 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt_kind(statement) else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(outer) else { panic!("outer host call") };
         let crate::syntax::arena::ArenaCallArgKind::Named { value, .. } = parsed.arena.arena.call_args(args)[0].kind else { panic!("parents argument") };
-        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("existing boolean fallback") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr_kind(value) else { panic!("existing boolean fallback") };
         let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
         reference.boundary.in_pure = true;
         let mut delayed = reference.clone();
@@ -1211,7 +1211,7 @@ mod tests {
             (inner, "exists", inner_continuation, Vec::new()),
             (outer, "mkdir", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Bool)).unwrap()),
         ] {
-            let span = parsed.arena.arena.expr(call).span;
+            let span = parsed.arena.arena.expr_span(call);
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
@@ -1231,10 +1231,10 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt_kind(statement) else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(outer) else { panic!("outer host call") };
         let crate::syntax::arena::ArenaCallArgKind::Positional(value) = parsed.arena.arena.call_args(args)[0].kind else { panic!("write argument") };
-        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("read fallback") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr_kind(value) else { panic!("read fallback") };
         let mut checker = Checker::new(crate::sema::check::CheckOptions::default());
         checker.boundary.in_pure = true;
         let (work, _) = crate::sema::inference_work::collect(|| checker.check_expr_arena(&parsed.arena, source, outer, None));
@@ -1243,9 +1243,9 @@ mod tests {
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect))
             .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
             .collect::<Vec<_>>();
-        assert_eq!(order, [parsed.arena.arena.expr(inner).span, parsed.arena.arena.expr(outer).span]);
-        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr(inner).span));
-        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr(outer).span));
+        assert_eq!(order, [parsed.arena.arena.expr_span(inner), parsed.arena.arena.expr_span(outer)]);
+        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr_span(inner)));
+        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr_span(outer)));
     }
 
     #[test]
@@ -1316,12 +1316,12 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let _symbols = parsed.arena.symbol_owner().enter();
             let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
-            let crate::syntax::arena::ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(call), .. } = parsed.arena.arena.stmt(statement).kind else { panic!("context call") };
-            let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr(call).kind else { panic!("context call") };
-            let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(callee).kind else { panic!("context receiver") };
-            let span = parsed.arena.arena.expr(call).span;
+            let crate::syntax::arena::ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(call), .. } = parsed.arena.arena.stmt_kind(statement) else { panic!("context call") };
+            let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr_kind(call) else { panic!("context call") };
+            let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr_kind(callee) else { panic!("context receiver") };
+            let span = parsed.arena.arena.expr_span(call);
             let reference = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
-            let actual_receiver = reference.expr_types[&parsed.arena.arena.expr(base).span].clone();
+            let actual_receiver = reference.expr_types[&parsed.arena.arena.expr_span(base)].clone();
             assert!(matches!(&actual_receiver, Type::Result(ok, error) if **ok == Type::Int && **error == Type::ErrorFamily(crate::symbol::Name::intern("TestBaseError"))));
             let mut delayed = Checker::new(crate::sema::check::CheckOptions::default());
             let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "context", None);
@@ -1364,10 +1364,10 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt_kind(statement) else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(outer) else { panic!("outer host call") };
         let crate::syntax::arena::ArenaCallArgKind::Positional(value) = parsed.arena.arena.call_args(args)[0].kind else { panic!("path argument") };
-        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("resolved path fallback") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr_kind(value) else { panic!("resolved path fallback") };
         let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
         reference.resolved_bindings = std::sync::Arc::new(super::super::super::ResolvedBindings::collect(&parsed.arena));
         let declaration = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
@@ -1383,7 +1383,7 @@ mod tests {
             (inner, "resolve", Type::Path, inner_continuation, Vec::new()),
             (outer, "append", Type::EnvPathList, outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Path)).unwrap()),
         ] {
-            let span = parsed.arena.arena.expr(call).span;
+            let span = parsed.arena.arena.expr_span(call);
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
@@ -1392,11 +1392,11 @@ mod tests {
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span)).collect::<Vec<_>>();
-        assert_eq!(order(&reference), [parsed.arena.arena.expr(outer).span, parsed.arena.arena.expr(inner).span]);
+        assert_eq!(order(&reference), [parsed.arena.arena.expr_span(outer), parsed.arena.arena.expr_span(inner)]);
         assert_eq!(order(&delayed), order(&reference));
         assert!(delayed.local_inference.host_obligations.entries.is_empty());
         for call in [inner, outer] {
-            let span = parsed.arena.arena.expr(call).span;
+            let span = parsed.arena.arena.expr_span(call);
             assert!(std::ptr::eq(delayed.api_calls[&span].sig, reference.api_calls[&span].sig));
         }
     }
@@ -1425,10 +1425,10 @@ mod tests {
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
                 let _symbols = parsed.arena.symbol_owner().enter();
                 let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
-                let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
-                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+                let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt_kind(statement) else { panic!("host call") };
+                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(call) else { panic!("host call") };
                 let args = parsed.arena.arena.call_args(args);
-                let span = parsed.arena.arena.expr(call).span;
+                let span = parsed.arena.arena.expr_span(call);
                 let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
                 reference.resolved_bindings = std::sync::Arc::new(super::super::super::ResolvedBindings::collect(&parsed.arena));
                 if binding_type.is_some() {
@@ -1482,9 +1482,9 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let _symbols = parsed.arena.symbol_owner().enter();
             let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-            let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
-            let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
-            let span = parsed.arena.arena.expr(call).span;
+            let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt_kind(statement) else { panic!("host call") };
+            let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(call) else { panic!("host call") };
+            let span = parsed.arena.arena.expr_span(call);
             let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
             reference.check_expr_arena(&parsed.arena, source, call, None);
             let mut delayed = Checker::new(crate::sema::check::CheckOptions::default());
@@ -1526,10 +1526,10 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
         let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
-        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt_kind(statement) else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr_kind(outer) else { panic!("outer host call") };
         let crate::syntax::arena::ArenaCallArgKind::Positional(value) = parsed.arena.arena.call_args(args)[0].kind else { panic!("data argument") };
-        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("existing string fallback") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr_kind(value) else { panic!("existing string fallback") };
         let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
         reference.boundary.in_pure = true;
         let mut delayed = reference.clone();
@@ -1541,7 +1541,7 @@ mod tests {
             (inner, "read_text", inner_continuation, Vec::new()),
             (outer, "write", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Str)).unwrap()),
         ] {
-            let span = parsed.arena.arena.expr(call).span;
+            let span = parsed.arena.arena.expr_span(call);
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
@@ -1550,17 +1550,17 @@ mod tests {
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
         assert!(delayed.local_inference.host_obligations.entries.is_empty());
-        let outer_api = delayed.api_calls.get(&parsed.arena.arena.expr(outer).span).unwrap();
-        let reference_api = reference.api_calls.get(&parsed.arena.arena.expr(outer).span).unwrap();
+        let outer_api = delayed.api_calls.get(&parsed.arena.arena.expr_span(outer)).unwrap();
+        let reference_api = reference.api_calls.get(&parsed.arena.arena.expr_span(outer)).unwrap();
         assert!(std::ptr::eq(outer_api.sig, reference_api.sig));
         assert_eq!(outer_api.params, reference_api.params);
         assert_eq!(outer_api.argument_slots, reference_api.argument_slots);
-        assert!(delayed.api_calls.contains_key(&parsed.arena.arena.expr(inner).span));
+        assert!(delayed.api_calls.contains_key(&parsed.arena.arena.expr_span(inner)));
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span)).collect::<Vec<_>>();
         let reference_order = order(&reference);
-        assert_eq!(reference_order.first(), Some(&parsed.arena.arena.expr(inner).span));
-        assert!(reference_order.contains(&parsed.arena.arena.expr(outer).span));
-        assert_eq!(order(&delayed), [parsed.arena.arena.expr(inner).span, parsed.arena.arena.expr(outer).span]);
+        assert_eq!(reference_order.first(), Some(&parsed.arena.arena.expr_span(inner)));
+        assert!(reference_order.contains(&parsed.arena.arena.expr_span(outer)));
+        assert_eq!(order(&delayed), [parsed.arena.arena.expr_span(inner), parsed.arena.arena.expr_span(outer)]);
     }
 
     #[test]

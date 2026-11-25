@@ -163,10 +163,10 @@ impl ResolvedBindings {
     }
 
     pub(super) fn immutable_value_source(&self, program: &ArenaProgram, expression: ExprId) -> Option<ExprId> {
-        let ArenaExprKind::Ident(name) = program.arena.expr(expression).kind else { return None; };
+        let ArenaExprKind::Ident(name) = program.arena.expr_kind(expression) else { return None; };
         let binding = self.expressions.get(&expression)?;
         let statement = *self.immutable_value_sources.get(&expression)?;
-        let ArenaStmtKind::Let { target, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } = program.arena.stmt(statement).kind else { return None; };
+        let ArenaStmtKind::Let { target, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } = program.arena.stmt_kind(statement) else { return None; };
         let ArenaBindingTargetKind::Name(declared) = program.arena.binding_target(target).kind else { return None; };
         if name != declared || self.target(target) != Some(*binding)
             || self.declarations.get(binding)?.kind != BindingKind::Runtime
@@ -213,7 +213,7 @@ fn resolve_module_field_expressions(
     globals: &FxHashMap<(Option<Name>, Name), BindingId>,
 ) {
     for expression in expressions {
-        let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+        let ArenaExprKind::Field { base, name } = program.arena.expr_kind(expression) else {
             continue;
         };
         let Some(binding) = resolved.get(&base).copied() else {
@@ -287,21 +287,21 @@ impl ScopeChecker<'_> {
     fn predeclare(&mut self, statements: impl IntoIterator<Item = StmtId>, global: bool) {
         for statement in statements {
             let mut inner = statement;
-            while let ArenaStmtKind::Export(exported) = self.program.arena.stmt(inner).kind {
+            while let ArenaStmtKind::Export(exported) = self.program.arena.stmt_kind(inner) {
                 inner = exported;
             }
-            if let ArenaStmtKind::TypeDef(definition) = self.program.arena.stmt(inner).kind
+            if let ArenaStmtKind::TypeDef(definition) = self.program.arena.stmt_kind(inner)
                 && let ArenaTypeDefBody::TagUnion(variants) = self.program.arena.type_def(definition).body
             {
                 for variant in self.program.arena.tag_variants(variants) {
                     if variant.fields.is_empty() { self.zero_variants.insert((self.namespace, variant.name)); }
                 }
             }
-            if global && let ArenaStmtKind::Use(import) = self.program.arena.stmt(inner).kind {
-                self.import(import, self.program.arena.stmt(inner).span, true);
+            if global && let ArenaStmtKind::Use(import) = self.program.arena.stmt_kind(inner) {
+                self.import(import, self.program.arena.stmt_span(inner), true);
             }
-            if let ArenaStmtKind::Const { target, .. } = self.program.arena.stmt(inner).kind {
-                self.target(target, self.program.arena.stmt(inner).span,
+            if let ArenaStmtKind::Const { target, .. } = self.program.arena.stmt_kind(inner) {
+                self.target(target, self.program.arena.stmt_span(inner),
                     BindingKind::Constant(inner), global, inner != statement);
             }
         }
@@ -389,7 +389,7 @@ impl ScopeChecker<'_> {
     }
 
     fn condition_bindings(&mut self, condition: ExprId) {
-        if let ArenaExprKind::PatternCondition { arms, .. } = self.program.arena.expr(condition).kind {
+        if let ArenaExprKind::PatternCondition { arms, .. } = self.program.arena.expr_kind(condition) {
             for arm in self.program.arena.match_expr_arms(arms) { self.pattern(arm.pattern); }
         }
     }
@@ -648,7 +648,7 @@ impl ScopeChecker<'_> {
                     self.facts.value_sites.insert((node.span, name), id);
                     if let Some(&(owner, statement)) = self.immutable_definitions.get(&id)
                         && self.callable == owner && (owner.is_some() || self.scopes.len() == 1
-                            && self.program.arena.stmt(statement).span.source_id == node.span.source_id)
+                            && self.program.arena.stmt_span(statement).source_id == node.span.source_id)
                     { self.facts.immutable_value_sources.insert(expression, statement); }
                 }
             }
@@ -659,7 +659,7 @@ impl ScopeChecker<'_> {
             }
             ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => {
                 self.expr(left);
-                if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
+                if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr_kind(right) {
                     self.facts.expression_namespaces.insert(right, self.namespace);
                     self.block_with_item(block, true);
                 } else { self.expr(right); }
@@ -756,16 +756,16 @@ impl ScopeChecker<'_> {
     }
 
     fn expr_children(&mut self, expression: ExprId) {
-        if let ArenaExprKind::StructuredPipeline { stages, .. } = self.program.arena.expr(expression).kind {
+        if let ArenaExprKind::StructuredPipeline { stages, .. } = self.program.arena.expr_kind(expression) {
             for (position, stage) in self.program.arena.stream_stages(stages).iter().enumerate() {
                 if let Ok(Some((_, callee))) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |_| Some(crate::sema::types::Type::Unknown)) {
-                    self.declare(BindingOrigin::StageItem(expression, u32::try_from(position).expect("a stage position fits its arena range")), super::item_binding(), self.program.arena.expr(callee).span, BindingKind::Runtime, false, false);
+                    self.declare(BindingOrigin::StageItem(expression, u32::try_from(position).expect("a stage position fits its arena range")), super::item_binding(), self.program.arena.expr_span(callee), BindingKind::Runtime, false, false);
                 }
             }
         }
         let mut children = Vec::new();
         self.program.arena.for_each_expr_child(expression, |child| children.push(child));
-        let callback = matches!(self.program.arena.expr(expression).kind,
+        let callback = matches!(self.program.arena.expr_kind(expression),
             ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. });
         for child in children {
             if callback && let ArenaChild::Block(block) = child {
@@ -834,19 +834,19 @@ mod tests {
         parsed.arena.symbol_owner().with_current(|| {
             let bindings = ResolvedBindings::collect(&parsed.arena);
             let mut reads = bindings.expressions.keys().copied().filter(|&id|
-                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "rows")
+                matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Ident(name) if name == "rows")
             ).collect::<Vec<_>>();
-            reads.sort_by_key(|&id| parsed.arena.arena.expr(id).span);
+            reads.sort_by_key(|&id| parsed.arena.arena.expr_span(id));
             assert_eq!(reads.len(), 3);
             let outer = bindings.immutable_value_source(&parsed.arena, reads[0]).unwrap();
             let shadow = bindings.immutable_value_source(&parsed.arena, reads[1]).unwrap();
-            assert!(matches!(parsed.arena.arena.expr(outer).kind, ArenaExprKind::List(items) if items.len() == 1));
-            assert!(matches!(parsed.arena.arena.expr(shadow).kind, ArenaExprKind::List(items) if items.is_empty()));
+            assert!(matches!(parsed.arena.arena.expr_kind(outer), ArenaExprKind::List(items) if items.len() == 1));
+            assert!(matches!(parsed.arena.arena.expr_kind(shadow), ArenaExprKind::List(items) if items.is_empty()));
             assert_eq!(bindings.expressions[&reads[0]], bindings.expressions[&reads[2]]);
             assert_ne!(bindings.expressions[&reads[0]], bindings.expressions[&reads[1]]);
             assert!(bindings.immutable_value_source(&parsed.arena, reads[2]).is_none());
             let mutable = bindings.expressions.keys().copied().find(|&id|
-                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "mutable_rows")
+                matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Ident(name) if name == "mutable_rows")
             ).unwrap();
             assert!(bindings.immutable_value_source(&parsed.arena, mutable).is_none());
             let mut forged = bindings.clone();
@@ -863,16 +863,16 @@ mod tests {
         parsed.arena.symbol_owner().with_current(|| {
             let bindings = ResolvedBindings::collect(&parsed.arena);
             let mut reads = bindings.expressions.keys().copied().filter(|&id|
-                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "values")
+                matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Ident(name) if name == "values")
             ).collect::<Vec<_>>();
-            reads.sort_by_key(|&id| parsed.arena.arena.expr(id).span);
+            reads.sort_by_key(|&id| parsed.arena.arena.expr_span(id));
             assert_eq!(reads.len(), 4);
             assert!(bindings.immutable_value_source(&parsed.arena, reads[0]).is_some());
             assert!(bindings.immutable_value_source(&parsed.arena, reads[1]).is_none());
             assert!(bindings.immutable_value_source(&parsed.arena, reads[2]).is_none());
             assert!(bindings.immutable_value_source(&parsed.arena, reads[3]).is_none());
             let mutable = bindings.expressions.keys().copied().find(|&id|
-                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "mutable")
+                matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Ident(name) if name == "mutable")
             ).unwrap();
             assert!(bindings.immutable_value_source(&parsed.arena, mutable).is_none());
         });
@@ -1061,7 +1061,7 @@ mod tests {
             .stmt_ids(root.statements)
             .next()
             .expect("root import statement");
-        let ArenaStmtKind::Use(use_id) = builder.ast_arena().stmt(use_statement).kind else {
+        let ArenaStmtKind::Use(use_id) = builder.ast_arena().stmt_kind(use_statement) else {
             panic!("first root statement is the helper import");
         };
         builder.set_use_resolved(use_id, std::sync::Arc::from("helper-key"));
@@ -1100,7 +1100,7 @@ mod tests {
             .stmt_ids(root.statements)
             .next()
             .expect("root import statement");
-        let ArenaStmtKind::Use(use_id) = builder.ast_arena().stmt(use_statement).kind else {
+        let ArenaStmtKind::Use(use_id) = builder.ast_arena().stmt_kind(use_statement) else {
             panic!("first root statement is the empty module import");
         };
         builder.set_use_resolved(use_id, std::sync::Arc::from("empty-key"));

@@ -35,7 +35,7 @@ impl CallableAlias {
 }
 
 fn is_module_path(program: &ArenaProgram, expression: ExprId) -> bool {
-    match program.arena.expr(expression).kind {
+    match program.arena.expr_kind(expression) {
         ArenaExprKind::Ident(_) => true,
         ArenaExprKind::Field { base, .. } => is_module_path(program, base),
         _ => false,
@@ -49,13 +49,13 @@ impl Checker {
         source: &str,
         expression: ExprId,
     ) -> Option<CallableAlias> {
-        let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+        let ArenaExprKind::Field { base, name } = program.arena.expr_kind(expression) else {
             return None;
         };
         if self.is_inferred_variant_expr(program, expression) {
             return None;
         }
-        if let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind
+        if let ArenaExprKind::Ident(namespace) = program.arena.expr_kind(base)
             && matches!(
                 self.lookup_value_binding_for_expr(program, base),
                 super::ValueBindingLookup::NoSite
@@ -72,8 +72,8 @@ impl Checker {
         };
         let export = exports.get(&name)?;
         let alias = self.resolve_generic_module_callable_alias(program, base, name, export)?;
-        self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
-        self.expr_types.insert(program.arena.expr(expression).span, Type::Function(alias.kind));
+        self.record_selected_function_value(program.arena.expr_span(expression), &alias.signature);
+        self.expr_types.insert(program.arena.expr_span(expression), Type::Function(alias.kind));
         Some(alias)
     }
 
@@ -82,10 +82,10 @@ impl Checker {
         program: &ArenaProgram,
         expression: ExprId,
     ) -> Option<CallableAlias> {
-        let span = program.arena.expr(expression).span;
+        let span = program.arena.expr_span(expression);
         if matches!(self.expr_types.get(&span), Some(Type::Function(_))) {
-            let projected = match program.arena.expr(expression).kind {
-                ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
+            let projected = match program.arena.expr_kind(expression) {
+                ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr_span(inner)),
                 _ => self.projections.get(&span),
             };
             if let Some(projection) = projected
@@ -98,9 +98,9 @@ impl Checker {
             {
                 return Some(target);
             }
-            if let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind
+            if let ArenaExprKind::Field { base, name } = program.arena.expr_kind(expression)
                 && let Some(Type::Module(exports)) =
-                    self.expr_types.get(&program.arena.expr(base).span)
+                    self.expr_types.get(&program.arena.expr_span(base))
                 && let Some(export) = exports.get(&name)
                 && let Some(target) =
                     self.resolve_module_callable_alias(program, base, name, export)
@@ -108,7 +108,7 @@ impl Checker {
                 return Some(target);
             }
         }
-        let (name, signature, kind) = match program.arena.expr(expression).kind {
+        let (name, signature, kind) = match program.arena.expr_kind(expression) {
             ArenaExprKind::Ident(name) => {
                 match self.lookup_value_binding_for_expr(program, expression) {
                     super::ValueBindingLookup::Found(binding) => {
@@ -126,7 +126,7 @@ impl Checker {
                 }
             }
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind else {
+                let ArenaExprKind::Ident(namespace) = program.arena.expr_kind(base) else {
                     return None;
                 };
                 match self.lookup_value_binding_for_expr(program, base) {
@@ -161,7 +161,7 @@ impl Checker {
         name: Name,
         export: &ModuleExportType,
     ) -> Option<CallableAlias> {
-        let static_namespace = match program.arena.expr(receiver).kind {
+        let static_namespace = match program.arena.expr_kind(receiver) {
             ArenaExprKind::Ident(_) => match self.lookup_value_binding_for_expr(program, receiver) {
                 super::ValueBindingLookup::Found(binding) => binding.static_namespace,
                 super::ValueBindingLookup::Missing => return None,
@@ -169,7 +169,7 @@ impl Checker {
             },
             _ => false,
         };
-        if let ArenaExprKind::Ident(namespace) = program.arena.expr(receiver).kind
+        if let ArenaExprKind::Ident(namespace) = program.arena.expr_kind(receiver)
             && static_namespace
         {
             let qualified = QualifiedName::new(namespace, name);
@@ -249,13 +249,13 @@ impl Checker {
         program: &ArenaProgram,
         expression: ExprId,
     ) -> Option<CallableAlias> {
-        if let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind
+        if let ArenaExprKind::Field { base, name } = program.arena.expr_kind(expression)
             && name == "call"
             && let Some(alias) = self.resolve_callable_alias_call(program, base)
         {
             return Some(alias);
         }
-        if let ArenaExprKind::Ident(name) = program.arena.expr(expression).kind
+        if let ArenaExprKind::Ident(name) = program.arena.expr_kind(expression)
             && matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite)
             && let Some(declaration) = self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name))
             && !self.local_function_is_alias(*declaration)?

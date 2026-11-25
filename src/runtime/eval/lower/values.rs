@@ -20,7 +20,7 @@ pub(super) fn lower_const_param_default(
     kind: LoweredType,
     expected: Option<&Type>,
 ) -> Option<LoweredValue> {
-    if let ArenaExprKind::Record(fields) = arena.expr(expr).kind
+    if let ArenaExprKind::Record(fields) = arena.expr_kind(expr)
         && (matches!(expected, Some(Type::Map(_, _)))
             || arena
                 .record_fields(fields)
@@ -41,7 +41,7 @@ pub(super) fn lower_const_param_default(
                     };
                     let key = lower_const_param_default(arena, key, LoweredType::Any, key_type)?;
                     let key =
-                        super::super::lowered_ops::lowered_map_literal_key(&key, arena.expr(expr).span)
+                        super::super::lowered_ops::lowered_map_literal_key(&key, arena.expr_span(expr))
                             .ok()?;
                     values.insert(
                         key,
@@ -85,7 +85,7 @@ pub(super) fn lower_const_param_default(
         let value = lower_literal_constant(&constant, None)?;
         return lowered_value_matches(kind, &value).then_some(value);
     }
-    let value = match arena.expr(expr).kind {
+    let value = match arena.expr_kind(expr) {
         ArenaExprKind::Null => LoweredValue::Null,
         ArenaExprKind::Bool(value) => LoweredValue::Bool(value),
         ArenaExprKind::Int(value) => LoweredValue::Int(arena.int_literal(value).value()?),
@@ -109,10 +109,10 @@ pub(super) fn lower_const_param_default(
         }
         ArenaExprKind::Call { callee, args }
             if kind == LoweredType::Path
-                && matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Path") =>
+                && matches!(arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "Path") =>
         {
             let value = single_positional_arena_call_arg(arena.call_args(args))?;
-            let ArenaExprKind::Str(value) = arena.expr(value).kind else {
+            let ArenaExprKind::Str(value) = arena.expr_kind(value) else {
                 return None;
             };
             LoweredValue::Path(PathValue::from_text(arena.string_literal(value).as_ref()).ok()?)
@@ -262,7 +262,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
         let lowered = self.lower_producer_input_expr(iter, slots, current_function, item_slot)?;
         if matches!(checked, Some(Type::Set(_))) {
-            let span = self.program.arena.expr(iter).span;
+            let span = self.program.arena.expr_span(iter);
             return Some(self.set_as_list(lowered, span));
         }
         if matches!(checked, Some(Type::Result(ok, _)) if super::lowered_checked_type(&ok).is_some_and(direct_iterable_result_needs_unwrap))
@@ -272,7 +272,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::Try {
                     value: lowered,
-                    span: self.program.arena.expr(iter).span
+                    span: self.program.arena.expr_span(iter)
                 }
             ))
         } else {
@@ -314,7 +314,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowered.push(LoweredFmtPart::Text(Arc::from(self.text_value(&text)?)));
                 }
                 ArenaFmtPart::Expr(expr, spec) => {
-                    let span = self.program.arena.expr(expr).span;
+                    let span = self.program.arena.expr_span(expr);
                     lowered.push(LoweredFmtPart::Expr(
                         self.lower_expr(expr, slots, current_function, item_slot)?,
                         span,
@@ -341,7 +341,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for field in self.program.arena.record_fields(fields).to_vec() {
             let key_span = match &field.kind {
                 ArenaRecordFieldKind::Computed { key, .. } => {
-                    Some(self.program.arena.expr(*key).span)
+                    Some(self.program.arena.expr_span(*key))
                 }
                 _ => None,
             };
@@ -490,7 +490,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let ArenaExprKind::Field {
             base,
             name: variant,
-        } = self.program.arena.expr(callee).kind
+        } = self.program.arena.expr_kind(callee)
         else {
             return None;
         };
@@ -630,8 +630,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if !families.contains(type_name) { return None; }
             variant = crate::sema::check::InferredVariant::Tag { type_name: *type_name, variant: *name, field_types: Vec::new() };
         }
-        let span = self.program.arena.expr(id).span;
-        let args = match self.program.arena.expr(id).kind {
+        let span = self.program.arena.expr_span(id);
+        let args = match self.program.arena.expr_kind(id) {
             ArenaExprKind::Call { args, .. } => self.program.arena.call_args(args).to_vec(),
             _ => Vec::new(),
         };
@@ -781,7 +781,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let lowered = self.lower_expr(index, slots, current_function, item_slot)?;
                 let lowered = if matches!(self.assign_target_checked_type(base, span, slots), Some(Type::Map(key, _)) if *key == Type::UInt)
                 {
-                    self.require_ground_uint_key(lowered, self.program.arena.expr(index).span, slots)
+                    self.require_ground_uint_key(lowered, self.program.arena.expr_span(index), slots)
                 } else {
                     lowered
                 };

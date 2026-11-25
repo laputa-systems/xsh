@@ -113,7 +113,7 @@ impl Checker {
         let program = view.program;
         let mut declarations = Vec::new();
         for &statement in statements {
-            let statement = match program.arena.stmt(statement).kind {
+            let statement = match program.arena.stmt_kind(statement) {
                 ArenaStmtKind::Export(inner) => inner,
                 _ => statement,
             };
@@ -167,7 +167,7 @@ impl Checker {
         }).collect::<BTreeMap<_, _>>();
         let mut binding_indices = BTreeMap::new();
         for (index, declaration) in declarations.iter().enumerate() {
-            let target = match program.arena.stmt(declaration.statement).kind {
+            let target = match program.arena.stmt_kind(declaration.statement) {
                 ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } | ArenaStmtKind::Guard { target, .. } => target,
                 _ => continue,
             };
@@ -196,7 +196,7 @@ impl Checker {
         let references = &index.references;
         let mut edges = vec![Vec::new(); declarations.len()];
         for (index, decl) in declarations.iter().enumerate() {
-            let dependency_span = match program.arena.stmt(decl.statement).kind {
+            let dependency_span = match program.arena.stmt_kind(decl.statement) {
                 ArenaStmtKind::Let { initializer, .. }
                 | ArenaStmtKind::Const { initializer, .. }
                 | ArenaStmtKind::Var { initializer, .. } => {
@@ -236,7 +236,7 @@ impl Checker {
         // Imports provide checked signatures and immutable module values to
         // inferred bodies even when their use statement follows a definition.
         for &id in statements {
-            if let ArenaStmtKind::Use(use_id) = program.arena.stmt(id).kind {
+            if let ArenaStmtKind::Use(use_id) = program.arena.stmt_kind(id) {
                 let use_stmt = program.arena.use_stmt(use_id);
                 self.check_use_arena(
                     program,
@@ -244,7 +244,7 @@ impl Checker {
                     use_stmt.alias,
                     use_stmt.resolved.as_deref(),
                     use_stmt.searched_candidates.as_deref(),
-                    program.arena.stmt(id).span,
+                    program.arena.stmt_span(id),
                 );
             }
         }
@@ -256,7 +256,7 @@ impl Checker {
             for &index in &component {
                 let decl = &declarations[index];
                 let Some(id) = decl.definition() else {
-                    let kind = program.arena.stmt(decl.statement).kind;
+                    let kind = program.arena.stmt_kind(decl.statement);
                     if let ArenaStmtKind::Guard { target, ty, initializer, else_block } = kind {
                         let before = self.annotation_facts.len();
                         let reported = self.diagnostics.len();
@@ -977,7 +977,7 @@ pub(super) fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
-    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| matches!(program.arena.stmt(program.arena.core_stmt_id(tail)).kind,
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| matches!(program.arena.stmt_kind(program.arena.core_stmt_id(tail)),
         ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. }));
     let body = program.arena.span(program.arena.block(def.body).span);
     tail_value

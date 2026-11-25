@@ -92,7 +92,7 @@ fn expand_named_arguments_inner<T>(
                 continue;
             }
             ArenaCallArgKind::Positional(value) => {
-                (value, None, program.arena.expr(value).span, false)
+                (value, None, program.arena.expr_span(value), false)
             }
             ArenaCallArgKind::Named { name, value, span } => {
                 (value, Some(name), program.arena.span(span), false)

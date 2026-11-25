@@ -102,7 +102,7 @@ impl Checker {
             .begin_collect_yield(span)
             .map(|item| Type::List(Box::new(item)));
         let actual = self.check_expr_arena(arena, source, value, expected.as_ref());
-        let value_span = arena.arena.expr(value).span;
+        let value_span = arena.arena.expr_span(value);
         let actual = match self.type_constraints.resolve(&actual) {
             Ok(actual) => actual,
             Err(error) => {

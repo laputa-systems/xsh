@@ -58,7 +58,7 @@ fn check_scopes<'a>(
                 .flat_map(|types| {
                     types.iter().filter_map(|(&expression, ty)| {
                         ty.contains_parameter().then_some((
-                            view.program.arena.expr(expression).span,
+                            view.program.arena.expr_span(expression),
                             ty.may_hold_resource(),
                         ))
                     })
@@ -69,7 +69,7 @@ fn check_scopes<'a>(
                 .flat_map(|types| {
                     types.iter().filter_map(|(&statement, ty)| {
                         ty.contains_parameter().then_some((
-                            view.program.arena.stmt(statement).span,
+                            view.program.arena.stmt_span(statement),
                             ty.may_hold_resource(),
                         ))
                     })
@@ -77,7 +77,7 @@ fn check_scopes<'a>(
             let noncompleting = signature
                 .generalized_noncompleting_expressions()
                 .into_iter()
-                .flat_map(|expressions| expressions.iter().map(|&expression| (view.program.arena.expr(expression).span, false)));
+                .flat_map(|expressions| expressions.iter().map(|&expression| (view.program.arena.expr_span(expression), false)));
             expression_types.chain(tail_types).chain(noncompleting)
         })
         .collect();
@@ -148,7 +148,7 @@ impl Analyzer<'_> {
                     .program
                     .module_statements(module)
                     .next()
-                    .map(|statement| self.program.arena.stmt(statement).span.source_id)
+                    .map(|statement| self.program.arena.stmt_span(statement).source_id)
                     .or_else(|| self.program.module_doc_for(module.statements).map(|span| span.source_id));
                 if let Some(source) = source {
                     *visits.1.entry(source).or_default() += 1;
@@ -223,9 +223,9 @@ impl Analyzer<'_> {
     fn analyze_scope(&mut self, statements: &[StmtId]) {
         let declaration_spans = statements
             .iter()
-            .filter_map(|&stmt| match self.program.arena.stmt(stmt).kind {
+            .filter_map(|&stmt| match self.program.arena.stmt_kind(stmt) {
                 ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } => {
-                    Some(self.program.arena.stmt(stmt).span)
+                    Some(self.program.arena.stmt_span(stmt))
                 }
                 _ => None,
             })
@@ -318,14 +318,14 @@ impl Analyzer<'_> {
                 }) {
                     continue;
                 }
-                let ArenaExprKind::Field { base, .. } = arena.expr(callee).kind else { continue };
-                if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(_)) {
+                let ArenaExprKind::Field { base, .. } = arena.expr_kind(callee) else { continue };
+                if !matches!(arena.expr_kind(base), ArenaExprKind::Ident(_)) {
                     continue;
                 }
                 if let Some(binding) = self.checker.resolved_bindings.expressions.get(&base).copied() {
                     calls.push(CancelCall {
                         call: node.span,
-                        receiver: arena.expr(base).span,
+                        receiver: arena.expr_span(base),
                         binding,
                     });
                 }
@@ -345,7 +345,7 @@ impl Analyzer<'_> {
         if let ArenaExprOrRun::Expr(expr) = initializer {
             let expr = self.unwrap_try(expr);
             if matches!(
-                self.program.arena.expr(expr).kind,
+                self.program.arena.expr_kind(expr),
                 ArenaExprKind::Ident(_)
                     | ArenaExprKind::Field { .. }
                     | ArenaExprKind::NullSafeField { .. }
@@ -393,9 +393,9 @@ impl Analyzer<'_> {
                 if let Some(value) = value {
                     let holds = self.expr_or_run_may_hold(value).or_else(|| {
                         let ArenaExprOrRun::Expr(expression) = value else { return None; };
-                        if self.checker.statement_positions.get(&self.program.arena.stmt(stmt).span) != Some(&super::StatementPosition::Statement)
-                            || self.checker.statement_positions.get(&self.program.arena.expr(expression).span) != Some(&super::StatementPosition::Statement)
-                            || !matches!(self.program.arena.expr(expression).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. })
+                        if self.checker.statement_positions.get(&self.program.arena.stmt_span(stmt)) != Some(&super::StatementPosition::Statement)
+                            || self.checker.statement_positions.get(&self.program.arena.expr_span(expression)) != Some(&super::StatementPosition::Statement)
+                            || !matches!(self.program.arena.expr_kind(expression), ArenaExprKind::If { .. } | ArenaExprKind::Match { .. })
                         { return None; }
                         self.proc_completion_may_hold(expression)
                     });
@@ -431,7 +431,7 @@ impl Analyzer<'_> {
             ArenaStmtKind::Assign { target, value, .. } => {
                 if let Some((name, _)) = self.assignment_root(target)
                     && let Some(binding) = self.checker.resolved_bindings.at(
-                        self.program.arena.stmt(stmt).span,
+                        self.program.arena.stmt_span(stmt),
                         name,
                     )
                 {
@@ -527,8 +527,8 @@ impl Analyzer<'_> {
                         checked_leaf = true;
                         continue;
                     }
-                    if self.checker.statement_positions.get(&self.program.arena.expr(expression).span) != Some(&super::StatementPosition::Statement) { return None; }
-                    match self.program.arena.expr(expression).kind {
+                    if self.checker.statement_positions.get(&self.program.arena.expr_span(expression)) != Some(&super::StatementPosition::Statement) { return None; }
+                    match self.program.arena.expr_kind(expression) {
                         ArenaExprKind::If { branches, else_value } => {
                             pending.extend(self.program.arena.if_expr_branches(branches).iter().map(|branch| ArenaChild::Expr(branch.value)));
                             pending.push(ArenaChild::Expr(else_value));
@@ -583,7 +583,7 @@ impl Analyzer<'_> {
     }
 
     fn expr_may_hold(&self, expr: ExprId) -> Option<bool> {
-        let span = self.program.arena.expr(expr).span;
+        let span = self.program.arena.expr_span(expr);
         self.expression_may_hold_resource(span)
     }
 
@@ -771,27 +771,27 @@ impl Analyzer<'_> {
         locals: &FxHashMap<BindingId, ManagedResource>,
     ) -> Option<(BindingId, Span)> {
         let expr = self.unwrap_try(expr);
-        match self.program.arena.expr(expr).kind {
+        match self.program.arena.expr_kind(expr) {
             ArenaExprKind::Wait(form) => {
-                let ArenaExprKind::Ident(_) = self.program.arena.expr(form.target).kind else {
+                let ArenaExprKind::Ident(_) = self.program.arena.expr_kind(form.target) else {
                     return None;
                 };
-                let span = self.program.arena.expr(form.target).span;
+                let span = self.program.arena.expr_span(form.target);
                 let id = self.checker.resolved_bindings.expressions.get(&form.target).copied()?;
                 let kind = locals.get(&id)?;
                 kind.rule().consuming.contains(&ResourceConsumption::Wait).then_some((id, span))
             }
             ArenaExprKind::Call { callee, args } => {
-                let api = self.checker.api_calls.get(&self.program.arena.expr(expr).span)?;
+                let api = self.checker.api_calls.get(&self.program.arena.expr_span(expr))?;
                 if api.receiver.is_some()
-                    && let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind
-                    && let ArenaExprKind::Ident(_) = self.program.arena.expr(base).kind
+                    && let ArenaExprKind::Field { base, .. } = self.program.arena.expr_kind(callee)
+                    && let ArenaExprKind::Ident(_) = self.program.arena.expr_kind(base)
                 {
                     let id = self.checker.resolved_bindings.expressions.get(&base).copied()?;
                     let kind = locals.get(&id)?;
                     let op = ResourceConsumption::Operation(api.sig.op);
                     if kind.rule().consuming.contains(&op) {
-                        Some((id, self.program.arena.expr(base).span))
+                        Some((id, self.program.arena.expr_span(base)))
                     } else {
                         None
                     }
@@ -803,7 +803,7 @@ impl Analyzer<'_> {
                                 | ArenaCallArgKind::Named { value: expr, .. } => *expr,
                                 _ => continue,
                             };
-                            let ArenaExprKind::List(elements) = self.program.arena.expr(expr).kind else {
+                            let ArenaExprKind::List(elements) = self.program.arena.expr_kind(expr) else {
                                 continue;
                             };
                             let mut elements = self.program.arena.list_elements(elements);
@@ -811,7 +811,7 @@ impl Analyzer<'_> {
                                 continue;
                             };
                             if element.splice_span.is_some()
-                                || !matches!(self.program.arena.expr(element.value).kind, ArenaExprKind::Ident(_))
+                                || !matches!(self.program.arena.expr_kind(element.value), ArenaExprKind::Ident(_))
                             {
                                 continue;
                             }
@@ -820,7 +820,7 @@ impl Analyzer<'_> {
                             };
                             let Some(kind) = locals.get(&id) else { continue };
                             if kind.rule().consuming.contains(&ResourceConsumption::SelectedOperation(api.sig.op)) {
-                                return Some((id, self.program.arena.expr(element.value).span));
+                                return Some((id, self.program.arena.expr_span(element.value)));
                             }
                         }
                     }
@@ -829,13 +829,13 @@ impl Analyzer<'_> {
                         let (ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. }) = &argument.kind else {
                             continue;
                         };
-                        if !matches!(self.program.arena.expr(*expr).kind, ArenaExprKind::Ident(_)) {
+                        if !matches!(self.program.arena.expr_kind(*expr), ArenaExprKind::Ident(_)) {
                             continue;
                         }
                         let Some(id) = self.checker.resolved_bindings.expressions.get(expr).copied() else { continue };
                         let Some(kind) = locals.get(&id) else { continue };
                         if kind.rule().consuming.contains(&ResourceConsumption::Operation(api.sig.op)) {
-                            consumed = Some((id, self.program.arena.expr(*expr).span));
+                            consumed = Some((id, self.program.arena.expr_span(*expr)));
                             break;
                         }
                     }
@@ -875,7 +875,7 @@ impl Analyzer<'_> {
     }
 
     fn unwrap_try(&self, mut expr: ExprId) -> ExprId {
-        while let ArenaExprKind::Try(inner) = self.program.arena.expr(expr).kind {
+        while let ArenaExprKind::Try(inner) = self.program.arena.expr_kind(expr) {
             expr = inner;
         }
         expr
@@ -916,7 +916,7 @@ mod tests {
     fn return_stmt(program: &ArenaProgram, name: &str) -> StmtId {
         let function = program
             .statement_ids()
-            .find_map(|stmt| match program.arena.stmt(stmt).kind {
+            .find_map(|stmt| match program.arena.stmt_kind(stmt) {
                 ArenaStmtKind::ProcDef(function)
                     if program.arena.function_def(function).name.as_str() == name => Some(function),
                 _ => None,
@@ -926,14 +926,14 @@ mod tests {
         program
             .arena
             .stmt_ids(program.arena.block(body).statements)
-            .find(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::Return(_)))
+            .find(|&stmt| matches!(program.arena.stmt_kind(stmt), ArenaStmtKind::Return(_)))
             .expect("test function returns")
     }
 
     fn function_body(program: &ArenaProgram, name: &str) -> BlockId {
         program
             .statement_ids()
-            .find_map(|stmt| match program.arena.stmt(stmt).kind {
+            .find_map(|stmt| match program.arena.stmt_kind(stmt) {
                 ArenaStmtKind::ProcDef(function) | ArenaStmtKind::PureDef(function)
                     if program.arena.function_def(function).name.as_str() == name =>
                 {
@@ -947,7 +947,7 @@ mod tests {
     fn assignment_stmt(program: &ArenaProgram, name: &str) -> StmtId {
         (0..program.arena.stmt_tags.len())
             .map(StmtId::from_index)
-            .find(|&stmt| match program.arena.stmt(stmt).kind {
+            .find(|&stmt| match program.arena.stmt_kind(stmt) {
                 ArenaStmtKind::Assign { target, .. } => {
                     matches!(program.arena.assign_target(target).kind,
                         ArenaAssignTargetKind::Name(actual) if actual.as_str() == name)
@@ -1023,23 +1023,23 @@ mod tests {
         let facts = checked.checked_declarations.functions.values().find(|declaration| declaration.name.as_str() == "left")
             .and_then(|declaration| declaration.scheme_body_facts.as_ref()).unwrap();
         let resource_facts = facts.expression_types().iter().filter_map(|(&expression, ty)| {
-            ty.contains_parameter().then_some((program.arena.expr(expression).span, ty.may_hold_resource()))
+            ty.contains_parameter().then_some((program.arena.expr_span(expression), ty.may_hold_resource()))
         }).chain(facts.tail_types().iter().filter_map(|(&statement, ty)| {
-            ty.contains_parameter().then_some((program.arena.stmt(statement).span, ty.may_hold_resource()))
+            ty.contains_parameter().then_some((program.arena.stmt_span(statement), ty.may_hold_resource()))
         })).collect();
-        let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(control))) = program.arena.stmt(returned).kind else { panic!("expected actual structured return"); };
-        let control_span = program.arena.expr(control).span;
-        assert_eq!(checked.statement_positions.get(&program.arena.stmt(returned).span), Some(&super::super::StatementPosition::Statement));
+        let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(control))) = program.arena.stmt_kind(returned) else { panic!("expected actual structured return"); };
+        let control_span = program.arena.expr_span(control);
+        assert_eq!(checked.statement_positions.get(&program.arena.stmt_span(returned)), Some(&super::super::StatementPosition::Statement));
         assert_eq!(checked.statement_positions.get(&control_span), Some(&super::super::StatementPosition::Statement));
         assert!(!facts.expression_types().contains_key(&control));
         assert!(!checked.expr_types.contains_key(&control_span));
         let missing_leaf = facts.expression_types().iter().find_map(|(&expression, ty)| {
-            let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
-            matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "action")
+            let ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { return None; };
+            matches!(program.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name.as_str() == "action")
                 .then_some((expression, ty))
         }).map(|(expression, ty)| {
             assert!(ty.contains_parameter());
-            program.arena.expr(expression).span
+            program.arena.expr_span(expression)
         }).unwrap();
         assert!(!checked.expr_types.contains_key(&missing_leaf));
         program.symbol_owner().with_current(|| {
@@ -1055,11 +1055,11 @@ mod tests {
                 declaration_sites_by_span: std::cell::OnceCell::new(),
             };
             assert!(!analyzer.scheme_body_resource_facts.contains_key(&control_span));
-            analyzer.publish_statement_transfer(returned, &program.arena.stmt(returned).kind, &FxHashSet::default());
+            analyzer.publish_statement_transfer(returned, &program.arena.stmt_kind(returned), &FxHashSet::default());
             assert_eq!(analyzer.transfers.get(&site), Some(&true));
             assert_eq!(analyzer.scheme_body_resource_facts.remove(&missing_leaf), Some(true));
             assert_eq!(analyzer.transfers.remove(&site), Some(true));
-            analyzer.publish_statement_transfer(returned, &program.arena.stmt(returned).kind, &FxHashSet::default());
+            analyzer.publish_statement_transfer(returned, &program.arena.stmt_kind(returned), &FxHashSet::default());
             assert!(!analyzer.transfers.contains_key(&site));
         });
     }
@@ -1111,7 +1111,7 @@ mod tests {
             .stmt_ids(program.arena.block(body).statements)
             .last()
             .expect("identity has a tail value");
-        let tail_span = program.arena.stmt(tail).span;
+        let tail_span = program.arena.stmt_span(tail);
         assert!(!checked.expr_types.contains_key(&tail_span));
         assert_eq!(
             checked.resource_transfer(ResourceTransferSite::BlockValue(body)),
@@ -1195,7 +1195,7 @@ mod tests {
         let site = ResourceTransferSite::Assignment(assignment);
         let declaration = (0..program.arena.stmt_tags.len())
             .map(StmtId::from_index)
-            .find(|&stmt| match program.arena.stmt(stmt).kind {
+            .find(|&stmt| match program.arena.stmt_kind(stmt) {
                 ArenaStmtKind::Var { target, .. } => matches!(
                     program.arena.binding_target(target).kind,
                     ArenaBindingTargetKind::Name(found) if found.as_str() == "revision"
@@ -1203,7 +1203,7 @@ mod tests {
                 _ => false,
             })
             .expect("revision declaration exists");
-        let name = match program.arena.stmt(declaration).kind {
+        let name = match program.arena.stmt_kind(declaration) {
             ArenaStmtKind::Var { target, .. } => match program.arena.binding_target(target).kind {
                 ArenaBindingTargetKind::Name(name) => name,
                 _ => unreachable!("revision declaration uses a name target"),
@@ -1212,15 +1212,15 @@ mod tests {
         };
         let assigned_binding = checked
             .resolved_bindings
-            .at(program.arena.stmt(assignment).span, name);
+            .at(program.arena.stmt_span(assignment), name);
         let declared_binding = checked
             .resolved_bindings
             .declaration_sites
-            .get(&(program.arena.stmt(declaration).span, name))
+            .get(&(program.arena.stmt_span(declaration), name))
             .copied();
         assert_eq!(assigned_binding, declared_binding);
         assert_eq!(checked.resource_transfer(site), Some(false));
-        let run = match program.arena.stmt(assignment).kind {
+        let run = match program.arena.stmt_kind(assignment) {
             ArenaStmtKind::Assign {
                 value: ArenaExprOrRun::Run(run),
                 ..

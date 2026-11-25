@@ -98,8 +98,8 @@ fn prepare_record_payloads(
     seeds: &mut Vec<(TypeVariableId, Span)>,
     expressions: &mut Vec<(Span, Type)>,
 ) -> Type {
-    let span = program.arena.expr(expression).span;
-    if *actual == Type::Null && matches!(program.arena.expr(expression).kind, ArenaExprKind::Null) {
+    let span = program.arena.expr_span(expression);
+    if *actual == Type::Null && matches!(program.arena.expr_kind(expression), ArenaExprKind::Null) {
         let cell = constraints.fresh_at_level(span, level);
         let Type::Inference(id) = cell else { unreachable!("a fresh nullable payload owns an inference cell"); };
         seeds.push((id, span));
@@ -409,9 +409,9 @@ impl Checker {
         expression: ArenaExprOrRun,
     ) {
         if let ArenaExprOrRun::Expr(expression) = expression
-            && matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty())
+            && matches!(program.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty())
         {
-            self.local_inference.nonmaterial_expressions.insert(program.arena.expr(expression).span);
+            self.local_inference.nonmaterial_expressions.insert(program.arena.expr_span(expression));
             self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList);
             return;
         }
@@ -564,7 +564,7 @@ impl Checker {
         let Ok(Type::Inference(item)) = self.type_constraints.resolve(expected) else { return actual; };
         let Ok(level) = self.type_constraints.type_level(item) else { return actual; };
         let origins = &self.local_inference.aggregate_scopes.last().expect("a record producer owns its active scope").origins;
-        let span = program.arena.expr(expression).span;
+        let span = program.arena.expr_span(expression);
         let prepared = self.type_constraints.commit_constraint_transaction(|constraints| {
             let mut seeds = Vec::new();
             let mut expressions = Vec::new();
@@ -712,7 +712,7 @@ impl Checker {
         span: Span,
     ) -> Option<Type> {
         let aggregate = self.boundary.current_return.is_some()
-            && (matches!(initializer, ArenaExprOrRun::Expr(expression) if matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_)))
+            && (matches!(initializer, ArenaExprOrRun::Expr(expression) if matches!(program.arena.expr_kind(expression), ArenaExprKind::Record(_)))
                 || matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate)));
         if aggregate {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
@@ -755,9 +755,9 @@ impl Checker {
     }
 
     pub(super) fn begin_record_constructor_scope(&mut self, program: &ArenaProgram, expression: ExprId) -> bool {
-        let span = program.arena.expr(expression).span;
+        let span = program.arena.expr_span(expression);
         if self.boundary.current_return.is_none()
-            || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
+            || !matches!(program.arena.expr_kind(expression), ArenaExprKind::Record(_))
             || self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end())
         { return false; }
         self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new(), open_spread_override: false });
@@ -766,7 +766,7 @@ impl Checker {
 
     pub(super) fn finish_record_constructor_scope(&mut self, program: &ArenaProgram, expression: ExprId) {
         let scope = self.local_inference.aggregate_scopes.pop().expect("the checked record owns its constructor scope");
-        assert_eq!(scope.initializer, program.arena.expr(expression).span);
+        assert_eq!(scope.initializer, program.arena.expr_span(expression));
         self.record_overwritten_constructor_producers(program, expression, &scope.origins, false);
     }
 
@@ -810,9 +810,9 @@ impl Checker {
     }
 
     pub(super) fn is_checked_empty_map_constructor(&self, program: &ArenaProgram, expression: ExprId) -> bool {
-        matches!(program.arena.expr(expression).kind, ArenaExprKind::Call { callee, args } if args.is_empty()
-            && matches!(program.arena.expr(callee).kind, ArenaExprKind::Field { base, .. } if matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(_))))
-            && self.api_calls.get(&program.arena.expr(expression).span).is_some_and(|call| {
+        matches!(program.arena.expr_kind(expression), ArenaExprKind::Call { callee, args } if args.is_empty()
+            && matches!(program.arena.expr_kind(callee), ArenaExprKind::Field { base, .. } if matches!(program.arena.expr_kind(base), ArenaExprKind::Ident(_))))
+            && self.api_calls.get(&program.arena.expr_span(expression)).is_some_and(|call| {
                 call.receiver.is_none() && call.params.is_empty() && call.argument_slots.is_empty()
                     && call.sig.pure && call.sig.effects.is_empty()
                     && super::api_spec().module_overloads("map", "empty").is_some_and(|signatures| signatures.iter().any(|signature| std::ptr::eq(signature, call.sig)))
@@ -830,13 +830,13 @@ impl Checker {
         origins: &BTreeMap<Span, FreshAggregateOrigin>,
         discarded: bool,
     ) {
-        if !origins.contains_key(&program.arena.expr(expression).span) {
+        if !origins.contains_key(&program.arena.expr_span(expression)) {
             return;
         }
         let mut candidates = BTreeMap::new();
         collect_empty_constructors(program, expression, &mut candidates);
         candidates.retain(|expression, kind| {
-            self.expr_types.get(&program.arena.expr(*expression).span).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference())
+            self.expr_types.get(&program.arena.expr_span(*expression)).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference())
                 && (*kind != crate::sema::schemes::NonmaterialConstructor::EmptyMap || self.is_checked_empty_map_constructor(program, *expression))
         });
         let mut surviving = BTreeSet::new();
@@ -850,12 +850,12 @@ impl Checker {
     pub(super) fn begin_argument_aggregate(&mut self, program: &ArenaProgram, expression: ExprId, expected: &Type) -> bool {
         if self.boundary.current_return.is_none()
             || self.local_inference_owner().is_none()
-            || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
+            || !matches!(program.arena.expr_kind(expression), ArenaExprKind::Record(_))
             || !contains_fresh_empty_list(program, expression)
             || !matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))
         { return false; }
         self.local_inference.aggregate_scopes.push(AggregateSeedScope {
-            initializer: program.arena.expr(expression).span,
+            initializer: program.arena.expr_span(expression),
             origins: BTreeMap::new(),
             open_spread_override: true,
         });
@@ -863,7 +863,7 @@ impl Checker {
     }
 
     pub(super) fn finish_argument_aggregate(&mut self, program: &ArenaProgram, expression: ExprId, actual: Type) -> Type {
-        let origin = program.arena.expr(expression).span;
+        let origin = program.arena.expr_span(expression);
         let scope = self.local_inference.aggregate_scopes.pop().expect("an argument aggregate owns its origin scope");
         assert_eq!(scope.initializer, origin);
         self.record_overwritten_constructor_producers(program, expression, &scope.origins, false);
@@ -949,7 +949,7 @@ impl Checker {
     }
 
     pub(super) fn materialize_open_override(&mut self, program: &ArenaProgram, value: ExprId, ty: &Type) -> Type {
-        let span = program.arena.expr(value).span;
+        let span = program.arena.expr_span(value);
         let Some(scope) = self.local_inference.aggregate_scopes.last().filter(|scope| scope.open_spread_override) else { return ty.clone() };
         if !(scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end()) { return ty.clone(); }
         let origins = scope.origins.clone();
@@ -968,7 +968,7 @@ impl Checker {
         if source_types.iter().any(|ty| matches!(ty, Type::Any)) {
             return ordinary.clone();
         }
-        let span = program.arena.expr(expression).span;
+        let span = program.arena.expr_span(expression);
         let materialized = match (origins.get(&span), ordinary) {
             (Some(FreshAggregateOrigin::List(range)), Type::List(item)) if range.is_empty() => {
                 if **item == Type::Unknown
@@ -1003,7 +1003,7 @@ impl Checker {
                     _ => None,
                 }).collect::<Vec<_>>();
                 for element in &elements {
-                    if let Some(ty) = self.expr_types.get(&program.arena.expr(element.value).span) {
+                    if let Some(ty) = self.expr_types.get(&program.arena.expr_span(element.value)) {
                         if element.splice_span.is_some() {
                             if let Type::List(item) = ty { item_source_types.push(item.as_ref().clone()); }
                         } else {
@@ -1013,7 +1013,7 @@ impl Checker {
                 }
                 let mut contributions = Vec::new();
                 for element in &elements {
-                    let child_span = program.arena.expr(element.value).span;
+                    let child_span = program.arena.expr_span(element.value);
                     let Some(ty) = self.expr_types.get(&child_span).cloned() else { continue };
                     let ty = if element.splice_span.is_none() {
                         self.materialize_fresh_aggregate(program, element.value, &ty, &item_source_types, origins, holes)
@@ -1328,7 +1328,7 @@ fn local_seed_kind(
     let ArenaExprOrRun::Expr(expression) = initializer else {
         return None;
     };
-    match program.arena.expr(expression).kind {
+    match program.arena.expr_kind(expression) {
         ArenaExprKind::List(elements) if elements.is_empty() => Some(LocalSeed::List),
         ArenaExprKind::Null if mutable => Some(LocalSeed::Nullable),
         ArenaExprKind::Record(_) | ArenaExprKind::List(_)
@@ -1342,7 +1342,7 @@ fn local_seed_kind(
 }
 
 fn collect_empty_constructors(program: &ArenaProgram, expression: ExprId, output: &mut BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>) {
-    match program.arena.expr(expression).kind {
+    match program.arena.expr_kind(expression) {
         ArenaExprKind::List(elements) if elements.is_empty() => { output.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList); }
         ArenaExprKind::List(elements) => for element in program.arena.list_elements(elements) {
             if element.splice_span.is_none() { collect_empty_constructors(program, element.value, output); }
@@ -1366,7 +1366,7 @@ fn collect_surviving_empty_constructors(
     output: &mut BTreeSet<ExprId>,
 ) {
     if candidates.contains_key(&expression) { output.insert(expression); return; }
-    match origins.get(&program.arena.expr(expression).span) {
+    match origins.get(&program.arena.expr_span(expression)) {
         Some(FreshAggregateOrigin::List(elements)) if elements.is_empty() => { output.insert(expression); }
         Some(FreshAggregateOrigin::List(elements)) => for element in program.arena.list_elements(*elements) {
             if element.splice_span.is_none() { collect_surviving_empty_constructors(program, element.value, origins, candidates, output); }
@@ -1384,13 +1384,13 @@ fn retain_nonmaterial_record_producers(
     origins: &BTreeMap<Span, FreshAggregateOrigin>,
     constructors: &mut BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
 ) {
-    let crate::syntax::arena::ArenaExprKind::Record(fields) = program.arena.expr(expression).kind else { return };
+    let crate::syntax::arena::ArenaExprKind::Record(fields) = program.arena.expr_kind(expression) else { return };
     for field in program.arena.record_fields(fields) {
         if let ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } = field.kind {
             retain_nonmaterial_record_producers(program, value, origins, constructors);
         }
     }
-    if let Some(FreshAggregateOrigin::Record(fields)) = origins.get(&program.arena.expr(expression).span)
+    if let Some(FreshAggregateOrigin::Record(fields)) = origins.get(&program.arena.expr_span(expression))
         && fields.values().flatten().any(|expression| constructors.contains_key(expression))
     {
         constructors.insert(expression, crate::sema::schemes::NonmaterialConstructor::Record);
@@ -1398,7 +1398,7 @@ fn retain_nonmaterial_record_producers(
 }
 
 fn contains_fresh_empty_list(program: &ArenaProgram, expression: ExprId) -> bool {
-    match program.arena.expr(expression).kind {
+    match program.arena.expr_kind(expression) {
         ArenaExprKind::List(elements) => elements.is_empty() || program.arena.list_elements(elements)
             .any(|element| element.splice_span.is_none() && contains_fresh_empty_list(program, element.value)),
         ArenaExprKind::Record(fields) => program.arena.record_fields(fields).iter().any(|field| match field.kind {
@@ -1435,17 +1435,17 @@ fn empty_module_empty_call_receiver(
     let ArenaExprOrRun::Expr(expression) = initializer else {
         return None;
     };
-    let ArenaExprKind::Call { callee, args } = program.arena.expr(expression).kind else {
+    let ArenaExprKind::Call { callee, args } = program.arena.expr_kind(expression) else {
         return None;
     };
     if !args.is_empty() {
         return None;
     }
-    let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else {
+    let ArenaExprKind::Field { base, name } = program.arena.expr_kind(callee) else {
         return None;
     };
     (name == "empty"
-        && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == module))
+        && matches!(program.arena.expr_kind(base), ArenaExprKind::Ident(name) if name == module))
         .then_some(base)
 }
 
@@ -1625,7 +1625,7 @@ mod tests {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
             let _symbols = parsed.arena.symbol_owner().enter();
-            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt_kind(statement) {
                 ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
             }).expect("the parsed source owns a Pure body");
             let definition = parsed.arena.arena.function_def(definition);
@@ -1650,10 +1650,10 @@ mod tests {
                 let statement = parsed.arena.arena.stmt(statement);
                 let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = statement.kind else { continue };
                 let ArenaBindingTargetKind::Name(name) = parsed.arena.arena.binding_target(target).kind else { panic!("the local seed has its actual named target") };
-                assert!(matches!(parsed.arena.arena.expr(initializer).kind, ArenaExprKind::List(elements) if elements.is_empty()));
+                assert!(matches!(parsed.arena.arena.expr_kind(initializer), ArenaExprKind::List(elements) if elements.is_empty()));
                 assert!(checker.resolved_bindings.declaration_sites.contains_key(&(statement.span, name)));
                 let expected = Type::List(Box::new(if name == "words" { Type::Str } else { Type::Int }));
-                let origin = parsed.arena.arena.expr(initializer).span;
+                let origin = parsed.arena.arena.expr_span(initializer);
                 assert_eq!(checker.expr_types.get(&origin), Some(&expected), "{source}: original empty-list constructor");
                 assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected), "{source}: original seeded declaration");
                 let inference = &checker.local_inference.bindings[&statement.span];
@@ -1669,7 +1669,7 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
-        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt_kind(statement) {
             ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
         }).unwrap();
         let definition = parsed.arena.arena.function_def(definition);
@@ -1683,16 +1683,16 @@ mod tests {
         assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
         let (projection, base, name) = (0..parsed.arena.arena.expr_tags.len()).find_map(|index| {
             let expression = ExprId::from_index(index);
-            match parsed.arena.arena.expr(expression).kind {
-                ArenaExprKind::Field { base, name } if &source[parsed.arena.arena.expr(expression).span.range()] == "row.value" => Some((expression, base, name)),
+            match parsed.arena.arena.expr_kind(expression) {
+                ArenaExprKind::Field { base, name } if &source[parsed.arena.arena.expr_span(expression).range()] == "row.value" => Some((expression, base, name)),
                 _ => None,
             }
         }).unwrap();
-        let projected = &checker.expr_types[&parsed.arena.arena.expr(projection).span];
-        let row = checker.expr_types[&parsed.arena.arena.expr(base).span].clone();
+        let projected = &checker.expr_types[&parsed.arena.arena.expr_span(projection)];
+        let row = checker.expr_types[&parsed.arena.arena.expr_span(base)].clone();
         assert!(row.contains_inference(), "{row:?}");
         let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
-        let operation = checker.type_constraints.source_sealed_operation(crate::sema::constraints::CallableApplicationScope::Declaration(owner), parsed.arena.arena.expr(projection).span).unwrap();
+        let operation = checker.type_constraints.source_sealed_operation(crate::sema::constraints::CallableApplicationScope::Declaration(owner), parsed.arena.arena.expr_span(projection)).unwrap();
         let crate::sema::sealed_operation::SealedOperation::Field { receiver, name: field_name, result, .. } = operation else { panic!("projection retains its field requirement") };
         assert_eq!(*field_name, name);
         assert_eq!(checker.type_constraints.resolve(receiver), checker.type_constraints.resolve(&row));
@@ -1713,12 +1713,12 @@ mod tests {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let _symbols = parsed.arena.symbol_owner().enter();
-            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt_kind(statement) {
                 ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
             }).unwrap();
             let definition = parsed.arena.arena.function_def(definition);
             let statements = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(definition.body).statements).collect::<Vec<_>>();
-            let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(read), .. } = parsed.arena.arena.stmt(statements[1]).kind else { panic!("the original early list read") };
+            let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(read), .. } = parsed.arena.arena.stmt_kind(statements[1]) else { panic!("the original early list read") };
             let (work, checker) = crate::sema::inference_work::collect(|| {
                 let mut checker = Checker::new(super::super::CheckOptions::default());
                 checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
@@ -1740,7 +1740,7 @@ mod tests {
             assert!(checker.pending_record_constructors.is_empty());
             assert_eq!(checker.record_constructor_instances.len(), expected_constructors, "{source}");
             assert!(checker.record_constructor_instances.values().all(|constructor| constructor.instance.arguments == [Type::Int]), "{source}");
-            assert_eq!(checker.expr_types.get(&parsed.arena.arena.expr(read).span), Some(&Type::List(Box::new(Type::Int))));
+            assert_eq!(checker.expr_types.get(&parsed.arena.arena.expr_span(read)), Some(&Type::List(Box::new(Type::Int))));
         }
     }
 
@@ -1791,7 +1791,7 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
-        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt_kind(statement) {
             ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
         }).expect("the actual source owns a Pure body");
         let definition = parsed.arena.arena.function_def(definition);
@@ -1831,12 +1831,12 @@ mod tests {
             let inference = &checker.local_inference.bindings[&statement.span];
             assert_eq!(inference.owner, Some(checker.effect_declaration_id(program, definition.body)));
             assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
-            let call = checker.api_calls.get(&program.arena.expr(initializer).span).unwrap();
+            let call = checker.api_calls.get(&program.arena.expr_span(initializer)).unwrap();
             assert_eq!(call.receiver, None);
             assert!(call.params.is_empty() && call.argument_slots.is_empty());
             assert!(super::super::api_spec().module_overloads("map", "empty").unwrap().iter().any(|signature| std::ptr::eq(signature, call.sig)));
             checker.resolve_checked_types();
-            assert_eq!(checker.expr_types.get(&program.arena.expr(initializer).span), Some(&expected));
+            assert_eq!(checker.expr_types.get(&program.arena.expr_span(initializer)), Some(&expected));
             assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected));
             assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
         });
@@ -1856,14 +1856,14 @@ mod tests {
             assert_eq!(inference.owner, Some(checker.effect_declaration_id(program, definition.body)));
             assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
             assert!(checker.has_unshadowed_empty_set(program, ArenaExprOrRun::Expr(initializer)));
-            let call = checker.api_calls.get(&program.arena.expr(initializer).span).unwrap();
+            let call = checker.api_calls.get(&program.arena.expr_span(initializer)).unwrap();
             assert_eq!(call.sig.op, xsh_registry::RuntimeOp::SetEmpty);
             assert_eq!(call.receiver, None);
             assert!(call.params.is_empty() && call.argument_slots.is_empty());
             assert!(super::super::api_spec().module_overloads("set", "empty").unwrap().iter().any(|signature| std::ptr::eq(signature, call.sig)));
-            assert_eq!(checker.type_constraints.resolve(&checker.expr_types[&program.arena.expr(initializer).span]), Ok(expected.clone()));
+            assert_eq!(checker.type_constraints.resolve(&checker.expr_types[&program.arena.expr_span(initializer)]), Ok(expected.clone()));
             checker.resolve_checked_types();
-            assert_eq!(checker.expr_types.get(&program.arena.expr(initializer).span), Some(&expected));
+            assert_eq!(checker.expr_types.get(&program.arena.expr_span(initializer)), Some(&expected));
             assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected));
             assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
         });
@@ -1882,7 +1882,7 @@ mod tests {
                 let expected = checker.type_constraints.resolve(&expected).unwrap();
                 let inference = &checker.local_inference.bindings[&statement.span];
                 assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
-                let original = &checker.expr_types[&program.arena.expr(initializer).span];
+                let original = &checker.expr_types[&program.arena.expr_span(initializer)];
                 assert_eq!(checker.type_constraints.resolve(original), Ok(expected));
                 assert!(checker.type_constraints.unresolved(&formal).unwrap().len() == 1);
             });

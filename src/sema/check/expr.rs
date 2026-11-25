@@ -24,24 +24,24 @@ pub(super) use crate::modules::signature::is_path_like_type;
 /// Arena-native span helper for expression-or-run values.
 pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun) -> Span {
     match value {
-        ArenaExprOrRun::Expr(id) => arena.arena.expr(id).span,
+        ArenaExprOrRun::Expr(id) => arena.arena.expr_span(id),
         ArenaExprOrRun::Run(run_id) => arena.arena.span(arena.arena.run_form(run_id).span),
     }
 }
 
 pub(super) fn list_literal_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
     fn list_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
-        match arena.arena.expr(expression).kind {
+        match arena.arena.expr_kind(expression) {
             ArenaExprKind::List(items) => Some(items.is_empty()),
             _ => None,
         }
     }
 
-    match arena.arena.expr(expression).kind {
+    match arena.arena.expr_kind(expression) {
         ArenaExprKind::List(items) => Some(items.is_empty()),
         ArenaExprKind::ValueBlock(block) => {
             let statement = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
-            match arena.arena.stmt(statement).kind {
+            match arena.arena.stmt_kind(statement) {
                 crate::syntax::arena::ArenaStmtKind::Expr(tail) => list_is_empty(arena, tail),
                 _ => None,
             }
@@ -85,7 +85,7 @@ impl Checker {
             return body_type;
         };
         self.propagating_statements.insert(statement.span);
-        self.check_unit_statement_value_tail(Some(source), &body_type, statement.span, arena.arena.expr(value).span, None, false)
+        self.check_unit_statement_value_tail(Some(source), &body_type, statement.span, arena.arena.expr_span(value), None, false)
     }
 
     pub(super) fn schema_expectation_for_expr(
@@ -94,7 +94,7 @@ impl Checker {
         expression: ExprId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
-        match arena.arena.expr(expression).kind {
+        match arena.arena.expr_kind(expression) {
             ArenaExprKind::Ident(_) => self
                 .lookup_value_binding_for_expr(arena, expression)
                 .binding()?
@@ -109,7 +109,7 @@ impl Checker {
             }
             ArenaExprKind::Index { base, .. } => {
                 let context = self.schema_expectation_for_expr(arena, base)?;
-                let ty = self.expr_types.get(&arena.arena.expr(base).span)?;
+                let ty = self.expr_types.get(&arena.arena.expr_span(base))?;
                 let component = match ty.unvalidated() {
                     Type::List(_) => SchemaComponent::Item,
                     Type::Map(_, _) => SchemaComponent::Value,
@@ -135,7 +135,7 @@ impl Checker {
                         .ok()?,
                     None => self
                         .requirement_targets
-                        .get(&arena.arena.expr(expression).span)?
+                        .get(&arena.arena.expr_span(expression))?
                         .context
                         .clone(),
                 };
@@ -143,7 +143,7 @@ impl Checker {
                 result.insert_child(SchemaComponent::Success, context);
                 Some(result)
             }
-            ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
+            ArenaExprKind::Call { callee, .. } => match arena.arena.expr_kind(callee) {
                 ArenaExprKind::Ident(name) => {
                     let declaration = self
                         .procs
@@ -153,7 +153,7 @@ impl Checker {
                     self.local_function_return_schema(*declaration)
                 }
                 ArenaExprKind::Field { base, name } => {
-                    let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
+                    let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(base) else {
                         return None;
                     };
                     let qualified = crate::symbol::QualifiedName::new(namespace, name);
@@ -261,28 +261,28 @@ impl Checker {
     pub(super) fn checked_schema_for_expr(
         &self, arena: &ArenaProgram, expression: ExprId,
     ) -> Option<super::super::constants::SchemaExpectation> {
-        self.checked_schema_origins.get(&arena.arena.expr(expression).span).cloned()
+        self.checked_schema_origins.get(&arena.arena.expr_span(expression)).cloned()
     }
 
     fn derive_checked_schema_origin(
         &mut self, arena: &ArenaProgram, expression: ExprId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
-        let span = arena.arena.expr(expression).span;
+        let span = arena.arena.expr_span(expression);
         if let Some(constructor) = self.record_constructor_instances.get(&span)
             .or_else(|| self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
                 .and_then(|pending| pending.constructor_instances.get(&span)))
         {
             return self.record_constructors.instance_expectation(&arena.arena, constructor.instance.definition, &constructor.instance.arguments).ok();
         }
-        if matches!(arena.arena.expr(expression).kind, ArenaExprKind::Call { .. })
+        if matches!(arena.arena.expr_kind(expression), ArenaExprKind::Call { .. })
             && let Some((schema, instance)) = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span))
                 .and_then(crate::sema::value_materialization::InstantiationEvidence::invocation)
                 .and_then(|(callable, instance)| callable.return_schema().map(|schema| (schema.clone(), instance.clone())))
         {
             return self.type_constraints.instantiate_schema(&schema, &instance, span).ok();
         }
-        match arena.arena.expr(expression).kind {
+        match arena.arena.expr_kind(expression) {
             ArenaExprKind::If { branches, else_value } => return Self::common_checked_schema(
                 arena.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain([else_value])
                     .filter(|&value| self.stream_expr_may_complete(arena, value))
@@ -306,7 +306,7 @@ impl Checker {
                 }
             _ => {}
         }
-        match arena.arena.expr(expression).kind {
+        match arena.arena.expr_kind(expression) {
             ArenaExprKind::Ident(_) => {
                 let binding = self.lookup_value_binding_for_expr(arena, expression).binding()?;
                 (!binding.mutable).then(|| binding.schemas.origin.clone()).flatten()
@@ -317,7 +317,7 @@ impl Checker {
                 .children.get(&SchemaComponent::Success).cloned(),
             ArenaExprKind::Index { base, .. } => {
                 let context = self.checked_schema_for_expr(arena, base)?;
-                let component = match self.expr_types.get(&arena.arena.expr(base).span)?.unvalidated() {
+                let component = match self.expr_types.get(&arena.arena.expr_span(base))?.unvalidated() {
                     Type::List(_) => SchemaComponent::Item,
                     Type::Map(_, _) => SchemaComponent::Value,
                     _ => return None,
@@ -341,7 +341,7 @@ impl Checker {
         &self, arena: &ArenaProgram, block: BlockId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         let statement = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
-        let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
+        let span = arena.arena.stmt_span(arena.arena.core_stmt_id(statement));
         self.checked_schema_origins.get(&span).cloned()
     }
 
@@ -381,7 +381,7 @@ impl Checker {
         expression: ExprId,
         span: Span,
     ) -> Type {
-        let ArenaExprKind::Ident(name) = arena.arena.expr(expression).kind else {
+        let ArenaExprKind::Ident(name) = arena.arena.expr_kind(expression) else {
             unreachable!();
         };
         let binding_id = self.resolved_bindings.expressions.get(&expression).copied();
@@ -723,7 +723,7 @@ impl Checker {
         id: ExprId,
         expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
-        self.record_guarded_node(arena.arena.expr(id).span);
+        self.record_guarded_node(arena.arena.expr_span(id));
         let expectation = expectation.filter(|expectation| !matches!(expectation, super::types::TypeExpectation::BranchCandidate(Type::Null)));
         let expected = expectation.map(super::types::TypeExpectation::context);
         let previous = self.boundary.expected_schema.clone();
@@ -757,7 +757,7 @@ impl Checker {
 
     pub(super) fn record_checked_expression_origins(&mut self, arena: &ArenaProgram, expression: ExprId, actual: &Type) {
         self.record_checked_stream_origin(arena, expression, actual);
-        let span = arena.arena.expr(expression).span;
+        let span = arena.arena.expr_span(expression);
         self.checked_schema_origins.remove(&span);
         if let Some(schema) = self.derive_checked_schema_origin(arena, expression) { self.checked_schema_origins.insert(span, schema); }
     }
@@ -827,7 +827,7 @@ impl Checker {
             && let ArenaExprKind::Try(operand) = expr.kind
             && self
                 .expr_types
-                .get(&arena.arena.expr(operand).span)
+                .get(&arena.arena.expr_span(operand))
                 .is_some_and(result_bool)
         {
             self.redundant_condition_propagations.insert(expr.span);
@@ -861,7 +861,7 @@ impl Checker {
             };
             if let Type::Record(fields) = actual {
                 for (projection, ty) in &mut self.argument_projection_types {
-                    if let ArenaExprKind::Field { base, name } = arena.arena.expr(*projection).kind
+                    if let ArenaExprKind::Field { base, name } = arena.arena.expr_kind(*projection)
                         && base == record
                         && let Some(actual) = fields.get(&name)
                     {
@@ -989,7 +989,7 @@ impl Checker {
             }
             ArenaExprKind::ValuePipelineCall { input, call, hole } => {
                 let input_ty = self.check_expr_arena(arena, source, *input, None);
-                let hole_span = arena.arena.expr(*hole).span;
+                let hole_span = arena.arena.expr_span(*hole);
                 let previous = self.pipeline_hole_types.insert(hole_span, input_ty);
                 let ty = self.check_expr_arena(arena, source, *call, expected);
                 match previous {
@@ -1017,7 +1017,7 @@ impl Checker {
                     Some(&Type::Str),
                     None,
                 );
-                self.expect_type(&Type::Str, &ty, arena.arena.expr(*message).span);
+                self.expect_type(&Type::Str, &ty, arena.arena.expr_span(*message));
                 self.push_scope();
                 let ty = self.check_tail_block_with_expectation_arena(
                     arena,
@@ -1065,7 +1065,7 @@ impl Checker {
                     ContextScopeKind::Within => {
                         if !input_type.accepts_context_scope_input(*kind) {
                             self.error(
-                                arena.arena.expr(*input).span,
+                                arena.arena.expr_span(*input),
                                 "`within` requires a Duration",
                                 DiagnosticCode::CheckContextScopeInput,
                             );
@@ -1074,7 +1074,7 @@ impl Checker {
                     ContextScopeKind::Cwd => {
                         if !input_type.accepts_context_scope_input(*kind) {
                             self.error(
-                                arena.arena.expr(*input).span,
+                                arena.arena.expr_span(*input),
                                 "cwd scope requires Path or Str",
                                 DiagnosticCode::CheckContextScopeInput,
                             );
@@ -1089,17 +1089,17 @@ impl Checker {
                             Type::Unknown | Type::Invalid => None,
                             _ => {
                                 self.error(
-                                    arena.arena.expr(*input).span,
+                                    arena.arena.expr_span(*input),
                                     "environment overlay requires a Record or string-keyed Map",
                                     DiagnosticCode::CheckContextScopeInput,
                                 );
                                 None
                             }
                         };
-                        if values.is_some_and(|values| values.into_iter().any(|value| !self.require_value_conversion(value, crate::sema::schemes::ValueConversion::Env, arena.arena.expr(*input).span)))
+                        if values.is_some_and(|values| values.into_iter().any(|value| !self.require_value_conversion(value, crate::sema::schemes::ValueConversion::Env, arena.arena.expr_span(*input))))
                         {
                             self.error(
-                                arena.arena.expr(*input).span,
+                                arena.arena.expr_span(*input),
                                 "environment values must convert to one scalar argv item or be a List[Path]",
                                 DiagnosticCode::CheckEnvValue,
                             );
@@ -1158,7 +1158,7 @@ impl Checker {
                 self.require_effect(crate::syntax::node::Effect::Error, expr.span, "`tempdir`");
                 if let Some(path) = path {
                     let ty = self.check_expr_arena(arena, source, *path, Some(&Type::Path));
-                    self.expect_type(&Type::Path, &ty, arena.arena.expr(*path).span);
+                    self.expect_type(&Type::Path, &ty, arena.arena.expr_span(*path));
                 }
                 self.push_scope();
                 if let Some(param) = arena
@@ -1215,7 +1215,7 @@ impl Checker {
                 let mut kinds = Vec::new();
                 for binding in arena.arena.with_bindings(*bindings) {
                     let ty = self.check_expr_arena(arena, source, binding.initializer, None);
-                    let value_span = arena.arena.expr(binding.initializer).span;
+                    let value_span = arena.arena.expr_span(binding.initializer);
                     match crate::modules::managed_resource_for(&ty) {
                         Some(kind) => kinds.push(kind),
                         None => self.reject_unmanaged_resource(&ty, value_span),
@@ -1293,7 +1293,7 @@ impl Checker {
                 // `-5` where a bounded integer is wanted is a literal with
                 // its sign, judged against the bounds as one.
                 let negated = (*op == UnaryOp::Neg)
-                    .then(|| match arena.arena.expr(*inner).kind {
+                    .then(|| match arena.arena.expr_kind(*inner) {
                         ArenaExprKind::Int(literal) => {
                             let literal = arena.arena.int_literal(literal);
                             (!literal.is_size())
@@ -1312,13 +1312,13 @@ impl Checker {
             ArenaExprKind::Binary { op, left, right } => {
                 let diagnostics = self.diagnostics.len();
                 let ty = self.check_binary_arena(arena, source, *op, *left, *right, expected);
-                let left_span = arena.arena.expr(*left).span;
-                let right_span = arena.arena.expr(*right).span;
+                let left_span = arena.arena.expr_span(*left);
+                let right_span = arena.arena.expr_span(*right);
                 self.publish_binary_operator(id, *op, diagnostics, Some(Span::new(left_span.source_id, left_span.start(), right_span.end())));
                 ty
             }
             ArenaExprKind::Field { base, name }
-                if matches!(arena.arena.expr(*base).kind, ArenaExprKind::Item)
+                if matches!(arena.arena.expr_kind(*base), ArenaExprKind::Item)
                     && !self.item_shorthand_in_scope() =>
             {
                 self.check_inferred_variant_value(*name, expected, expr.span)
@@ -1380,7 +1380,7 @@ impl Checker {
                 );
                 if self
                     .discardable_values
-                    .contains(&arena.arena.expr(*inner).span)
+                    .contains(&arena.arena.expr_span(*inner))
                 {
                     self.discardable_values.insert(expr.span);
                 }
@@ -1388,7 +1388,7 @@ impl Checker {
                 if matches!(propagated, Type::Function(_))
                     && let Some(projection) = self
                         .projections
-                        .get(&arena.arena.expr(*inner).span)
+                        .get(&arena.arena.expr_span(*inner))
                         .cloned()
                     && let Some(export) = projection.callable.as_ref()
                     && matches!(
@@ -1413,10 +1413,10 @@ impl Checker {
             }
             ArenaExprKind::CodecSchema { kind, format, input, schema } => {
                 let actual = self.check_expr_arena(arena, source, *format, Some(&Type::Str));
-                self.expect_type(&Type::Str, &actual, arena.arena.expr(*format).span);
+                self.expect_type(&Type::Str, &actual, arena.arena.expr_span(*format));
                 let input_type = crate::modules::signature::convert_type(&kind.input_type());
                 let actual = self.check_expr_arena(arena, source, *input, Some(&input_type));
-                self.expect_type(&input_type, &actual, arena.arena.expr(*input).span);
+                self.expect_type(&input_type, &actual, arena.arena.expr_span(*input));
                 let ty = self.type_from_arena(arena, *schema);
                 let context = self.record_constructors.annotation_expectation(&arena.arena, *schema, self.current_namespace).unwrap_or_default();
                 self.requirement_targets.insert(expr.span, super::expected::requirement_target(&arena.arena, ty.clone(), context));
@@ -1473,7 +1473,7 @@ impl Checker {
             }
             ArenaExprKind::Call { callee, args } => {
                 let may_mutate = matches!(
-                    arena.arena.expr(*callee).kind,
+                    arena.arena.expr_kind(*callee),
                     ArenaExprKind::Ident(_)
                 ) && matches!(
                     self.lookup_value_binding_for_expr(arena, *callee),
@@ -1487,8 +1487,8 @@ impl Checker {
                 {
                     self.statically_resolved_call_spans.insert(expr.span);
                 }
-                let erased_proc_call = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Field { base, name } if name == "call"
-                    && self.expr_types.get(&arena.arena.expr(base).span) == Some(&Type::Function(crate::sema::types::CallableKind::Proc)));
+                let erased_proc_call = matches!(arena.arena.expr_kind(*callee), ArenaExprKind::Field { base, name } if name == "call"
+                    && self.expr_types.get(&arena.arena.expr_span(base)) == Some(&Type::Function(crate::sema::types::CallableKind::Proc)));
                 if may_mutate || erased_proc_call {
                     self.invalidate_mutable_narrowings();
                 }
@@ -1523,7 +1523,7 @@ impl Checker {
                     value_ty => {
                         if cannot_fail && !self.optional_binding_spans.contains(&expr.span) {
                             let message = if self.is_narrowed_from_optional(arena, *value) {
-                                let value_text = &source[arena.arena.expr(*value).span.range()];
+                                let value_text = &source[arena.arena.expr_span(*value).range()];
                                 let pattern_text = &source[arena.arena.span(arena.arena.pattern(pattern).span).range()];
                                 format!(
                                     "pattern condition cannot fail: `{value_text}` is already known to be non-null here (an earlier null test narrowed it); bind it with `let {pattern_text} = {value_text}`"
@@ -1540,7 +1540,7 @@ impl Checker {
                         value_ty
                     }
                 };
-                let subject_ty = self.constrain_error_test_subject(arena, &subject_ty, pattern, arena.arena.expr(*value).span);
+                let subject_ty = self.constrain_error_test_subject(arena, &subject_ty, pattern, arena.arena.expr_span(*value));
                 self.push_scope();
                 self.check_pattern_arena(arena, source, pattern, &subject_ty, &self.stream_expr_origin(arena, *value));
                 self.pop_scope();
@@ -1549,7 +1549,7 @@ impl Checker {
             ArenaExprKind::PatternTest { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                let value_ty = self.constrain_error_test_subject(arena, &value_ty, pattern, arena.arena.expr(*value).span);
+                let value_ty = self.constrain_error_test_subject(arena, &value_ty, pattern, arena.arena.expr_span(*value));
                 self.check_nonbinding_pattern_arena(arena, source, pattern, &value_ty);
                 Type::Bool
             }
@@ -1619,10 +1619,10 @@ impl Checker {
                     self.reject_dynamic_use(
                         "an interpolation",
                         None,
-                        arena.arena.expr(expr_id).span,
+                        arena.arena.expr_span(expr_id),
                     );
-                } else if !self.require_value_conversion(&ty, crate::sema::schemes::ValueConversion::Display, arena.arena.expr(expr_id).span) {
-                    let span = arena.arena.expr(expr_id).span;
+                } else if !self.require_value_conversion(&ty, crate::sema::schemes::ValueConversion::Display, arena.arena.expr_span(expr_id)) {
+                    let span = arena.arena.expr_span(expr_id);
                     self.report_conversion(
                         span,
                         &ty,
@@ -1661,21 +1661,21 @@ impl Checker {
             return;
         };
         let is_call = |expr: ExprId| {
-            let call = match ast.expr(expr).kind {
+            let call = match ast.expr_kind(expr) {
                 ArenaExprKind::Try(inner) => inner,
                 _ => expr,
             };
-            matches!(ast.expr(call).kind, ArenaExprKind::Call { .. })
+            matches!(ast.expr_kind(call), ArenaExprKind::Call { .. })
         };
         let names_callee = |expr: ExprId| {
             matches!(
-                ast.expr(expr).kind,
+                ast.expr_kind(expr),
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
             )
         };
         let mut operand = stage;
         loop {
-            operand = match ast.expr(operand).kind {
+            operand = match ast.expr_kind(operand) {
                 ArenaExprKind::Binary { left, .. } => left,
                 ArenaExprKind::PatternTest { value, .. } => value,
                 _ => break,
@@ -1685,7 +1685,7 @@ impl Checker {
             let span = Span::new(
                 pipeline.source_id,
                 pipeline.start(),
-                ast.expr(operand).span.end(),
+                ast.expr_span(operand).end(),
             );
             let diagnostic = Diagnostic::error("group a pipeline that an operator applies to")
                 .with_code(DiagnosticCode::CheckAmbiguousGrouping)
@@ -1699,7 +1699,7 @@ impl Checker {
                 None => diagnostic,
             }
         } else {
-            let span = ast.expr(stage).span;
+            let span = ast.expr_span(stage);
             let diagnostic = Diagnostic::error("a value pipeline stage must be a call")
                 .with_code(DiagnosticCode::CheckPipelineStage)
                 .with_label(Label::primary(
@@ -1811,7 +1811,7 @@ impl Checker {
             let span = item
                 .splice_span
                 .map(|span| arena.arena.span(span))
-                .unwrap_or(arena.arena.expr(item.value).span);
+                .unwrap_or(arena.arena.expr_span(item.value));
             let actual = if item.splice_span.is_some() {
                 let list_expected = item_expected.cloned().map(|ty| Type::List(Box::new(ty)));
                 let actual =
@@ -1933,7 +1933,7 @@ impl Checker {
         for field in arena.arena.record_fields(range) {
             let (key_ty, actual, span) = match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
-                    self.record_uint_key_site(arena.arena.expr(key).span);
+                    self.record_uint_key_site(arena.arena.expr_span(key));
                     let key_ty = self.check_schema_child_expr_arena(
                         arena,
                         source,
@@ -1941,12 +1941,12 @@ impl Checker {
                         expected_key,
                         crate::sema::constants::SchemaComponent::Key,
                     );
-                    if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr(key).span); }
+                    if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr_span(key)); }
                     if !key_ty.is_recovery()
-                        && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
+                        && self.type_constraints.require_map_key(&key_ty, arena.arena.expr_span(key)).is_err()
                     {
                         self.error(
-                            arena.arena.expr(key).span,
+                            arena.arena.expr_span(key),
                             "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration",
                             DiagnosticCode::CheckMapKeyType,
                         );
@@ -1999,7 +1999,7 @@ impl Checker {
                     match ty {
                         Type::Map(key, item) => (*key, *item, arena.arena.span(span)),
                         Type::Any => {
-                            self.reject_dynamic_use("a map spread", None, arena.arena.expr(expr).span);
+                            self.reject_dynamic_use("a map spread", None, arena.arena.expr_span(expr));
                             (Type::Unknown, Type::Unknown, arena.arena.span(span))
                         }
                         Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)),
@@ -2284,7 +2284,7 @@ impl Checker {
                         .into_unvalidated();
                     match ty {
                         Type::Record(spread_fields) => {
-                            let spread_origins = self.local_aggregate_spread_fields(arena.arena.expr(*expr).span);
+                            let spread_origins = self.local_aggregate_spread_fields(arena.arena.expr_span(*expr));
                             for (written, writer) in &writer_spans {
                                 if !spread_fields.contains_key(written) {
                                     exposed.entry(*written).or_insert((*writer, last_span));
@@ -2300,7 +2300,7 @@ impl Checker {
                             }
                         }
                         ty @ Type::Inference(_) if relational_spread => { open_spread = Some(ty); }
-                        Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
+                        Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr_span(*expr)),
                         Type::Unknown => {}
                         Type::Inference(_) => {
                             self.error(
@@ -2359,7 +2359,7 @@ impl Checker {
                         schema,
                     );
                     if let Some(field_expected) = field_expected {
-                        let value_span = arena.arena.expr(*value).span;
+                        let value_span = arena.arena.expr_span(*value);
                         self.expect_type(field_expected, &ty, value_span);
                     }
                     if open_spread.is_some() {
@@ -2488,7 +2488,7 @@ impl Checker {
             } else { self.check_expr_with_expectation_arena(arena, source, branch.value, branch_expectation) };
             if output_condition.is_some() { output_branch = Some((self.constraint_scope(), actual.clone())); }
             let contextual_error = self.diagnostics.len() != diagnostics_before;
-            let value_span = arena.arena.expr(branch.value).span;
+            let value_span = arena.arena.expr_span(branch.value);
             let empty_list = list_literal_is_empty(arena, branch.value) == Some(true)
                 && actual == Type::List(Box::new(Type::Unknown))
                 && !contextual_error;
@@ -2516,7 +2516,7 @@ impl Checker {
                         self.unify_inferred_returns(
                             previous,
                             actual,
-                            arena.arena.expr(branch.value).span,
+                            arena.arena.expr_span(branch.value),
                             purpose == super::stmt::TailCheckingPurpose::ProcCompletion,
                         )
                     })
@@ -2553,7 +2553,7 @@ impl Checker {
             self.check_proc_completion_expression_arena(arena, source, else_value, else_expectation)
         } else { self.check_expr_with_expectation_arena(arena, source, else_value, else_expectation) };
         let contextual_error = self.diagnostics.len() != diagnostics_before;
-        let else_span = arena.arena.expr(else_value).span;
+        let else_span = arena.arena.expr_span(else_value);
         if self.stream_expr_may_complete(arena, else_value) { stream_reaching.push(self.stream_mutable_state()); }
         let output_else = self.constraint_scope();
         self.pop_scope();
@@ -2566,15 +2566,15 @@ impl Checker {
                 && (expectation.is_none() || self.type_constraints.resolve(&present).is_ok_and(|present| present.contains_inference()))
             {
                 let shared_closed_type = self.closed_type_shared_by(&present, &absent);
-                match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Expression(arena.arena.expr(expression).span), present, absent, nonnull_when, self.callable_solver_level()) {
+                match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr_span(condition), crate::sema::guarded_requirements::GuardOutputSite::Expression(arena.arena.expr_span(expression)), present, absent, nonnull_when, self.callable_solver_level()) {
                     Ok(Some(outward)) => {
-                        if let Some(shared) = shared_closed_type { self.expect_type(&shared, &outward, arena.arena.expr(expression).span); }
-                        if let Some(expectation) = expectation { self.expect_type(expectation.context(), &outward, arena.arena.expr(expression).span); }
+                        if let Some(shared) = shared_closed_type { self.expect_type(&shared, &outward, arena.arena.expr_span(expression)); }
+                        if let Some(expectation) = expectation { self.expect_type(expectation.context(), &outward, arena.arena.expr_span(expression)); }
                         return outward;
                     }
                     Ok(None) => {},
                     Err(error) => {
-                        self.error(arena.arena.expr(expression).span, &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        self.error(arena.arena.expr_span(expression), &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
                         return Type::Invalid;
                     }
                 }
@@ -2600,7 +2600,7 @@ impl Checker {
                 .is_some_and(|expectation| expectation.accepts_optional_branch(&else_ty));
         if infer_branches {
             inferred.map_or(else_ty.clone(), |previous| {
-                self.unify_inferred_returns(previous, else_ty, arena.arena.expr(else_value).span, purpose == super::stmt::TailCheckingPurpose::ProcCompletion)
+                self.unify_inferred_returns(previous, else_ty, arena.arena.expr_span(else_value), purpose == super::stmt::TailCheckingPurpose::ProcCompletion)
             })
         } else if let Some(merged) = merged {
             merged
@@ -2631,22 +2631,22 @@ impl Checker {
             match *qualifier {
                 ArenaCompQualifier::For { target, iter, span } => {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
-                    let iter_ty = self.resolve_iteration_source_type(iter_ty, arena.arena.expr(iter).span).unwrap_or(Type::Unknown);
+                    let iter_ty = self.resolve_iteration_source_type(iter_ty, arena.arena.expr_span(iter)).unwrap_or(Type::Unknown);
                     self.check_iteration_propagation_arena(arena, iter, &iter_ty);
-                    let item_ty = self.checked_iteration_item(&iter_ty, arena.arena.expr(iter).span).unwrap_or_else(|| {
+                    let item_ty = self.checked_iteration_item(&iter_ty, arena.arena.expr_span(iter)).unwrap_or_else(|| {
                         if iter_ty == Type::Any {
-                            self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);
+                            self.reject_dynamic_use("a comprehension source", None, arena.arena.expr_span(iter));
                             Type::Unknown
                         } else if iter_ty == Type::Unknown
                             || self.reject_unnarrowed_union(
                                 &iter_ty,
                                 "iteration",
-                                arena.arena.expr(iter).span,
+                                arena.arena.expr_span(iter),
                             )
                         {
                             Type::Unknown
                         } else {
-                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
+                            self.error(arena.arena.expr_span(iter), "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
                     });
@@ -2657,12 +2657,12 @@ impl Checker {
                 }
                 ArenaCompQualifier::If { condition, .. } => {
                     let ty = self.check_expr_arena(arena, source, condition, None);
-                    let ty = self.resolve_local_tail_type(ty, Some(&Type::Bool), arena.arena.expr(condition).span);
+                    let ty = self.resolve_local_tail_type(ty, Some(&Type::Bool), arena.arena.expr_span(condition));
                     if ty == Type::Any {
-                        self.expect_type(&Type::Bool, &ty, arena.arena.expr(condition).span);
+                        self.expect_type(&Type::Bool, &ty, arena.arena.expr_span(condition));
                     } else if !(crate::sema::types::ConditionRole::Control.accepts(&ty) || ty == Type::Unknown) {
                         self.error(
-                            arena.arena.expr(condition).span,
+                            arena.arena.expr_span(condition),
                             "comprehension condition must be Bool or Status",
                             if map {
                                 DiagnosticCode::CheckMapcompCondition
@@ -2693,7 +2693,7 @@ impl Checker {
         };
         let elem_ty = self.check_expr_arena(arena, source, body, expected_item);
         if let Some(expected_item) = expected_item {
-            self.expect_type(expected_item, &elem_ty, arena.arena.expr(body).span);
+            self.expect_type(expected_item, &elem_ty, arena.arena.expr_span(body));
         }
         for _ in 0..scopes {
             self.pop_scope();
@@ -2704,7 +2704,7 @@ impl Checker {
         let mapped = match arena.arena.comp_qualifiers(qualifiers) {
             [ArenaCompQualifier::For { iter, .. }] => self
                 .expr_types
-                .get(&arena.arena.expr(*iter).span)
+                .get(&arena.arena.expr_span(*iter))
                 .and_then(Type::validated)
                 .map(|source| source.validation())
                 .filter(|validation| validation.survives_mapping()),
@@ -2733,24 +2733,24 @@ impl Checker {
             Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())),
             _ => (None, None),
         };
-        self.record_uint_key_site(arena.arena.expr(key).span);
+        self.record_uint_key_site(arena.arena.expr_span(key));
         let key_ty = self.check_expr_arena(arena, source, key, expected_key);
-        if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr(key).span); }
+        if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr_span(key)); }
         if !key_ty.is_recovery()
-            && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
+            && self.type_constraints.require_map_key(&key_ty, arena.arena.expr_span(key)).is_err()
         {
             self.error(
-                arena.arena.expr(key).span,
+                arena.arena.expr_span(key),
                 "Map comprehension keys require an ordered scalar key",
                 DiagnosticCode::CheckMapKeyType,
             );
         }
         if let Some(expected_key) = expected_key {
-            self.expect_type(expected_key, &key_ty, arena.arena.expr(key).span);
+            self.expect_type(expected_key, &key_ty, arena.arena.expr_span(key));
         }
         let value_ty = self.check_expr_arena(arena, source, value, expected_value);
         if let Some(expected_value) = expected_value {
-            self.expect_type(expected_value, &value_ty, arena.arena.expr(value).span);
+            self.expect_type(expected_value, &value_ty, arena.arena.expr_span(value));
         }
         for _ in 0..scopes {
             self.pop_scope();
@@ -2854,7 +2854,7 @@ impl Checker {
                 Some(&Type::Duration),
                 None,
             );
-            let delay_span = arena.arena.expr(delay).span;
+            let delay_span = arena.arena.expr_span(delay);
             self.expect_type(&Type::Duration, &ty, delay_span);
         }
         if !delay_ids.is_empty() {
@@ -3020,7 +3020,7 @@ impl Checker {
                     Some(&Type::Command),
                     None,
                 );
-                let expr_span = arena.arena.expr(expr_id).span;
+                let expr_span = arena.arena.expr_span(expr_id);
                 self.expect_type(&Type::Command, &ty, expr_span);
             }
         }
@@ -3036,13 +3036,13 @@ impl Checker {
         let form_span = arena.arena.span(form.span);
         self.check_process_effect(form_span, "`wait`");
         let expected_list = Type::List(Box::new(Type::ProcessHandle));
-        let target_kind = arena.arena.expr(form.target).kind;
+        let target_kind = arena.arena.expr_kind(form.target);
         let ty = if matches!(target_kind, ArenaExprKind::List(_)) {
             self.check_expr_arena(arena, source, form.target, Some(&expected_list))
         } else {
             self.check_expr_arena(arena, source, form.target, None)
         };
-        let target_span = arena.arena.expr(form.target).span;
+        let target_span = arena.arena.expr_span(form.target);
         match ty.into_unvalidated() {
             Type::ProcessHandle => {
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
@@ -3086,7 +3086,7 @@ impl Checker {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_expr_arms(arms);
         let value_ty = self.constrain_error_match_subject(
-            arena, &value_ty, arm_list.iter().map(|arm| arm.pattern), arena.arena.expr(value).span,
+            arena, &value_ty, arm_list.iter().map(|arm| arm.pattern), arena.arena.expr_span(value),
         );
         if arm_list.is_empty() {
             self.error(
@@ -3114,7 +3114,7 @@ impl Checker {
                     Some(&Type::Bool),
                     None,
                 );
-                let guard_span = arena.arena.expr(guard).span;
+                let guard_span = arena.arena.expr_span(guard);
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
                 let guard_state = self.stream_mutable_state();
                 for (identity, origin) in guard_state { stream_failure.entry(identity).or_default().join(&origin); }
@@ -3142,10 +3142,10 @@ impl Checker {
                 })
             } else { None };
             if !infer_branches && merged.is_none() && !arm_expectation.is_some_and(|expectation| expectation.accepts_optional_branch(&actual))
-                && let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr(arm.value).span); }
+                && let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr_span(arm.value)); }
             if actual != Type::Unknown {
                 inferred = Some(if infer_branches {
-                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span, purpose == super::stmt::TailCheckingPurpose::ProcCompletion))
+                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr_span(arm.value), purpose == super::stmt::TailCheckingPurpose::ProcCompletion))
                 } else { merged.or(inferred).unwrap_or(actual) });
             }
             inferred_from_empty_list &= empty_list;
@@ -3157,7 +3157,7 @@ impl Checker {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
             .collect::<Vec<_>>();
-        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr_span(value));
         let exhaustive = super::stmt::patterns_are_exhaustive_arena(
             arena,
             &value_ty,
@@ -3197,7 +3197,7 @@ impl Checker {
         // The operand of `!` in a control position is in one too.
         self.boundary.control_condition = op == UnaryOp::Not && self.boundary.in_control_position;
         let ty = self.check_expr_arena(arena, source, inner, None);
-        let span = arena.arena.expr(inner).span;
+        let span = arena.arena.expr_span(inner);
         match op {
             UnaryOp::Not => {
                 if !(crate::sema::types::ConditionRole::Control.accepts(&ty) || ty == Type::Unknown) {
@@ -3270,7 +3270,7 @@ impl Checker {
         let params = arena.arena.block_params(arena.arena.block(block).params);
         if params.len() > 1 {
             self.error(
-                arena.arena.expr(expression).span,
+                arena.arena.expr_span(expression),
                 "error fallback block requires exactly one parameter",
                 DiagnosticCode::CheckFallbackBlockParams,
             );
@@ -3338,13 +3338,13 @@ impl Checker {
         self.publish_value_block_exit_arena(arena, expression);
         if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.boundary.item_frames.pop() {
             self.error(
-                arena.arena.expr(expression).span,
+                arena.arena.expr_span(expression),
                 "error fallback block requires one parameter: name it with `{ |error| ... }` or use `.`",
                 DiagnosticCode::CheckFallbackBlockParams,
             );
         }
         if context == ResultHandlerContext::Projected && !matches!(actual, Type::Unknown) {
-            self.expect_type(&value_ty, &actual, arena.arena.expr(expression).span);
+            self.expect_type(&value_ty, &actual, arena.arena.expr_span(expression));
         }
         self.pop_scope();
         let result = if value_ty == Type::Unknown {
@@ -3352,7 +3352,7 @@ impl Checker {
         } else {
             value_ty
         };
-        self.record_expr_type(arena.arena.expr(expression).span, actual);
+        self.record_expr_type(arena.arena.expr_span(expression), actual);
         result
     }
 
@@ -3414,13 +3414,13 @@ impl Checker {
         right: ExprId,
         expected: Option<&Type>,
     ) -> Type {
-        let left_span = arena.arena.expr(left).span;
-        let right_span = arena.arena.expr(right).span;
+        let left_span = arena.arena.expr_span(left);
+        let right_span = arena.arena.expr_span(right);
         match op {
             BinaryOp::ResultFallback => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 if matches!(left_ty, Type::Inference(_))
-                    && !matches!(arena.arena.expr(right).kind, ArenaExprKind::ValueBlock(_))
+                    && !matches!(arena.arena.expr_kind(right), ArenaExprKind::ValueBlock(_))
                     && self.is_proven_nonnull_subject_arena(arena, left)
                 {
                     self.proven_nonnull_fallback_receivers.insert(left_span);
@@ -3434,7 +3434,7 @@ impl Checker {
                     use crate::sema::wrapper_operation::WrapperRequirementKind;
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
                     let result = self.wrapper_result_type(span);
-                    if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(right).kind {
+                    if let ArenaExprKind::ValueBlock(block) = arena.arena.expr_kind(right) {
                         let error = self.fresh_wrapper_type(left_span);
                         let shape = Type::Result(Box::new(result.clone()), Box::new(error.clone()));
                         self.expect_type(&shape, &left_ty, left_span);
@@ -3444,12 +3444,12 @@ impl Checker {
                         let handler = self.expr_types.get(&right_span).cloned().unwrap_or(Type::Invalid);
                         return self.check_wrapper_requirement(WrapperRequirementKind::Handler { source: left_ty, error, handler, result: result.clone() }, span, DiagnosticCode::CheckFallbackBlockResult, result);
                     }
-                    let fallback = if matches!(arena.arena.expr(right).kind, ArenaExprKind::Null) { Type::Null } else { self.fresh_wrapper_type(right_span) };
+                    let fallback = if matches!(arena.arena.expr_kind(right), ArenaExprKind::Null) { Type::Null } else { self.fresh_wrapper_type(right_span) };
                     self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty.clone(), fallback: fallback.clone(), result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result.clone());
                     let fallback = self.check_expr_arena(arena, source, right, Some(&fallback));
                     return self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty, fallback, result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result);
                 }
-                if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(right).kind {
+                if let ArenaExprKind::ValueBlock(block) = arena.arena.expr_kind(right) {
                     return self.check_result_fallback_block_arena(
                         arena, source, right, block, &left_ty, ResultHandlerContext::Projected, left_span, expected,
                     );
@@ -3559,8 +3559,8 @@ impl Checker {
                     let left_ty = self.check_expr_arena(arena, source, left, Some(&right_ty));
                     self.boundary.target_variant_equality = previous;
                     (left_ty, right_ty)
-                } else if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_))
-                    && !matches!(arena.arena.expr(right).kind, ArenaExprKind::Str(_))
+                } else if matches!(arena.arena.expr_kind(left), ArenaExprKind::Str(_))
+                    && !matches!(arena.arena.expr_kind(right), ArenaExprKind::Str(_))
                 {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
                     let expected = self.path_literal_expectation(arena, left, &right_ty);
@@ -3630,7 +3630,7 @@ impl Checker {
             }
             BinaryOp::In | BinaryOp::NotIn => {
                 let (left_ty, right_ty) =
-                    if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
+                    if matches!(arena.arena.expr_kind(left), ArenaExprKind::Str(_)) {
                         let right_ty = self.check_expr_arena(arena, source, right, None);
                         let Ok(right_ty) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
                         let right_ty = right_ty.into_unvalidated();
@@ -4040,7 +4040,7 @@ impl Checker {
                 self.checked_fixed_field(&receiver, name, span)
             }
             Type::Any => {
-                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr_span(base));
                 Type::Unknown
             }
             Type::Unknown => Type::Unknown,
@@ -4258,7 +4258,7 @@ impl Checker {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
             Type::Any => {
-                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr_span(base));
                 return Type::Unknown;
             }
             Type::Unknown => return Type::Unknown,
@@ -4307,7 +4307,7 @@ impl Checker {
                 }
             },
             Type::Any => {
-                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr_span(base));
                 Type::Unknown
             }
             Type::DynamicModule => Type::Any,
@@ -4344,7 +4344,7 @@ impl Checker {
         else {
             return None;
         };
-        let namespace_kind = arena.arena.expr(*namespace).kind;
+        let namespace_kind = arena.arena.expr_kind(*namespace);
         if !matches!(&namespace_kind, ArenaExprKind::Ident(module) if module == "env") {
             return None;
         }
@@ -4566,7 +4566,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
-        let index_span = arena.arena.expr(index).span;
+        let index_span = arena.arena.expr_span(index);
         if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
             return Type::Unknown;
         }
@@ -4717,7 +4717,7 @@ impl Checker {
             }
             Type::Any => {
                 self.check_expr_arena(arena, source, index, None);
-                self.reject_dynamic_use("an index receiver", None, arena.arena.expr(base).span);
+                self.reject_dynamic_use("an index receiver", None, arena.arena.expr_span(base));
                 Type::Unknown
             }
             Type::Unknown => {
@@ -4760,7 +4760,7 @@ impl Checker {
                 Some(&Type::Int),
                 None,
             );
-            let start_span = arena.arena.expr(start).span;
+            let start_span = arena.arena.expr_span(start);
             self.expect_type(&Type::Int, &ty, start_span);
         }
         if let Some(end) = end {
@@ -4771,7 +4771,7 @@ impl Checker {
                 Some(&Type::Int),
                 None,
             );
-            let end_span = arena.arena.expr(end).span;
+            let end_span = arena.arena.expr_span(end);
             self.expect_type(&Type::Int, &ty, end_span);
         }
         let Ok(base_ty) = self.resolve_operator_operand(base_ty, span) else { return Type::Invalid };
@@ -4790,7 +4790,7 @@ impl Checker {
             Type::Str => Type::Str,
             Type::Bytes => Type::Bytes,
             Type::Any => {
-                self.reject_dynamic_use("a slice receiver", None, arena.arena.expr(base).span);
+                self.reject_dynamic_use("a slice receiver", None, arena.arena.expr_span(base));
                 Type::Unknown
             }
             Type::Unknown => Type::Unknown,
@@ -4811,11 +4811,11 @@ fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32>
     let ArenaExprKind::Unary {
         op: UnaryOp::Neg,
         expr,
-    } = arena.arena.expr(index).kind
+    } = arena.arena.expr_kind(index)
     else {
         return None;
     };
-    let ArenaExprKind::Int(literal) = arena.arena.expr(expr).kind else {
+    let ArenaExprKind::Int(literal) = arena.arena.expr_kind(expr) else {
         return None;
     };
     let distance = u32::try_from(arena.arena.int_literal(literal).value()?).ok()?;
@@ -4823,7 +4823,7 @@ fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32>
 }
 
 fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
-    let ArenaExprKind::List(items) = arena.arena.expr(base).kind else {
+    let ArenaExprKind::List(items) = arena.arena.expr_kind(base) else {
         return None;
     };
     let mut len = 0;
@@ -5069,7 +5069,7 @@ mod arena_tests {
             .expr_ids(SourceId::new(0))
             .find(|&expression| {
                 matches!(
-                    program.arena.expr(expression).kind,
+                    program.arena.expr_kind(expression),
                     crate::syntax::arena::ArenaExprKind::Item
                 )
             })
@@ -5084,7 +5084,7 @@ mod arena_tests {
                 stage: true,
             });
 
-            let ty = checker.check_item_arena(&program, item, program.arena.expr(item).span);
+            let ty = checker.check_item_arena(&program, item, program.arena.expr_span(item));
 
             assert_eq!(ty, crate::sema::types::Type::Unknown);
             assert!(checker.diagnostics.iter().any(|diagnostic| {
@@ -5242,14 +5242,14 @@ mod arena_tests {
             .arena
             .source_rows()
             .expr_ids(SourceId::new(0))
-            .find_map(|id| match program.arena.expr(id).kind {
+            .find_map(|id| match program.arena.expr_kind(id) {
                 crate::syntax::arena::ArenaExprKind::Field { base, name } => {
                     Some((id, base, name))
                 }
                 _ => None,
             })
             .expect("field projection in function body");
-        let span = program.arena.expr(base).span;
+        let span = program.arena.expr_span(base);
 
         program.symbol_owner().with_current(|| {
             let resolved_bindings = std::sync::Arc::new(ResolvedBindings::collect(&program));

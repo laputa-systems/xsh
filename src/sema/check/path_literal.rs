@@ -98,7 +98,7 @@ impl Checker {
         operand: ExprId,
         other: &Type,
     ) -> Option<Type> {
-        (matches!(arena.arena.expr(operand).kind, ArenaExprKind::Str(_))
+        (matches!(arena.arena.expr_kind(operand), ArenaExprKind::Str(_))
             && self.expects_path(other))
         .then_some(Type::Path)
     }

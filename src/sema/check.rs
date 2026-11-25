@@ -78,7 +78,7 @@ impl<'a> CheckBundleView<'a> {
         }
         let source_ids = entry_source_id.into_iter()
             .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
-            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt_span(id).source_id))
             .chain(modules.iter().map(|module| module.source_id))
             .collect();
         Self {
@@ -91,7 +91,7 @@ impl<'a> CheckBundleView<'a> {
                     .arena
                     .stmt_ids(root_statements)
                     .next()
-                    .map(|statement| program.arena.stmt(statement).span.source_id)
+                    .map(|statement| program.arena.stmt_span(statement).source_id)
                     .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
             }),
             assignment_root_owner: assignment_owner_for_root(program, root_statements),
@@ -111,7 +111,7 @@ impl<'a> CheckBundleView<'a> {
         let source_ids = entry_source_id
             .into_iter()
             .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
-            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt_span(id).source_id))
             .collect();
         Self {
             program,
@@ -123,7 +123,7 @@ impl<'a> CheckBundleView<'a> {
                     .arena
                     .stmt_ids(root_statements)
                     .next()
-                    .map(|statement| program.arena.stmt(statement).span.source_id)
+                    .map(|statement| program.arena.stmt_span(statement).source_id)
                     .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
             }),
             assignment_root_owner: assignment_owner_for_root(program, root_statements),
@@ -212,7 +212,7 @@ impl<'a> CheckBundleView<'a> {
         pending: &mut Vec<Arc<str>>,
     ) {
         for statement in statements {
-            let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else {
+            let ArenaStmtKind::Use(use_id) = program.arena.stmt_kind(statement) else {
                 continue;
             };
             if let Some(key) = program.arena.use_stmt(use_id).resolved.as_ref()
@@ -292,7 +292,7 @@ fn range_source_id(program: &ArenaProgram, statements: ArenaRange) -> Option<Sou
         .arena
         .stmt_ids(statements)
         .next()
-        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .map(|statement| program.arena.stmt_span(statement).source_id)
         .or_else(|| program.module_doc_for(statements).map(|span| span.source_id))
 }
 
@@ -2555,7 +2555,7 @@ impl Checker {
         // no statement does.
         let has_cli_main = statements
             .iter()
-            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)));
+            .any(|&stmt| matches!(program.arena.stmt_kind(stmt), ArenaStmtKind::CliMain(_)));
         let main_runs_after = has_cli_main
             || statements
                 .iter()
@@ -2613,7 +2613,7 @@ impl Checker {
         self.exit_status_statement = statements
             .last()
             .filter(|_| !main_runs_after)
-            .map(|&stmt| program.arena.stmt(stmt).span);
+            .map(|&stmt| program.arena.stmt_span(stmt));
         for &stmt in statements {
             self.check_stmt_arena(program, source, stmt);
         }
@@ -2670,14 +2670,14 @@ impl Checker {
         // report source-trivia diagnostics only for the module being checked.
         let source_id = statements
             .first()
-            .map(|statement| program.arena.stmt(*statement).span.source_id);
+            .map(|statement| program.arena.stmt_span(*statement).source_id);
         let docs = &program.docs;
         let exports = statements
             .iter()
             .copied()
             .filter(|statement| {
                 matches!(
-                    program.arena.stmt(*statement).kind,
+                    program.arena.stmt_kind(*statement),
                     ArenaStmtKind::Export(_)
                 )
             })
@@ -2688,7 +2688,7 @@ impl Checker {
 
         if program.module_doc_for(statement_range).is_none() {
             self.error(
-                program.arena.stmt(first_export).span,
+                program.arena.stmt_span(first_export),
                 "exported modules require a preceding ##! module doc comment",
                 DiagnosticCode::CheckMissingModuleDoc,
             );
@@ -2722,7 +2722,7 @@ impl Checker {
                 .any(|(statement, _)| *statement == export)
             {
                 self.error(
-                    program.arena.stmt(export).span,
+                    program.arena.stmt_span(export),
                     "exported declarations require preceding ## doc comments",
                     DiagnosticCode::CheckMissingPublicDoc,
                 );
@@ -2832,7 +2832,7 @@ impl Checker {
         arena: &ArenaProgram,
         expression: crate::syntax::arena::ExprId,
     ) -> ValueBindingLookup<'_> {
-        let name = match arena.arena.expr(expression).kind {
+        let name = match arena.arena.expr_kind(expression) {
             crate::syntax::arena::ArenaExprKind::Ident(name) => name,
             crate::syntax::arena::ArenaExprKind::Item
                 if matches!(
@@ -2997,7 +2997,7 @@ impl Checker {
 }
 
 fn entry_main_definition(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
-    match program.arena.stmt(stmt).kind {
+    match program.arena.stmt_kind(stmt) {
         ArenaStmtKind::Export(inner) => entry_main_definition(program, inner),
         ArenaStmtKind::ProcDef(id) => {
             let def = program.arena.function_def(id);
@@ -3025,14 +3025,14 @@ pub(super) fn is_entry_main(
 
 fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
     use crate::syntax::arena::ArenaExprKind;
-    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else {
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt_kind(stmt) else {
         return false;
     };
-    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind {
+    while let ArenaExprKind::Try(inner) = program.arena.expr_kind(expr) {
         expr = inner;
     }
-    matches!(program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. }
-        if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
+    matches!(program.arena.expr_kind(expr), ArenaExprKind::Call { callee, .. }
+        if matches!(program.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "main"))
 }
 
 fn calls_main_with_implicit_spread_args(
@@ -3043,16 +3043,16 @@ fn calls_main_with_implicit_spread_args(
     let Some((_, stmt)) = statements.iter().copied().enumerate().next_back() else {
         return false;
     };
-    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else {
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt_kind(stmt) else {
         return false;
     };
-    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind {
+    while let ArenaExprKind::Try(inner) = program.arena.expr_kind(expr) {
         expr = inner;
     }
-    let ArenaExprKind::Call { callee, args } = program.arena.expr(expr).kind else {
+    let ArenaExprKind::Call { callee, args } = program.arena.expr_kind(expr) else {
         return false;
     };
-    if !matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == Name::intern("main")) {
+    if !matches!(program.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == Name::intern("main")) {
         return false;
     }
     let [argument] = program.arena.call_args(args) else {
@@ -3061,11 +3061,11 @@ fn calls_main_with_implicit_spread_args(
     let ArenaCallArgKind::Splice { value, .. } = &argument.kind else {
         return false;
     };
-    if !matches!(program.arena.expr(*value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args")) {
+    if !matches!(program.arena.expr_kind(*value), ArenaExprKind::Ident(name) if name == Name::intern("args")) {
         return false;
     }
     let args_binding = resolved_bindings
-        .at(program.arena.expr(*value).span, Name::intern("args"))
+        .at(program.arena.expr_span(*value), Name::intern("args"))
         .expect("implicit main argument splice has a resolved args binding");
     args_binding == BindingId::args()
 }
@@ -3097,7 +3097,7 @@ fn byte_argument_main_with_statements(
     parameter_types: &BTreeMap<Span, Type>,
 ) -> bool {
     fn entry(program: &ArenaProgram, id: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
-        match program.arena.stmt(id).kind {
+        match program.arena.stmt_kind(id) {
             ArenaStmtKind::Export(inner) => entry(program, inner),
             ArenaStmtKind::ProcDef(id) => {
                 let definition = program.arena.function_def(id);
