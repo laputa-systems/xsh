@@ -23,6 +23,35 @@ fn main() {
     build_native_boundaries(&root);
 }
 
+macro_rules! spelling_hash_fn {
+    ($($item:tt)*) => {
+        $($item)*
+        const SPELLING_HASH_SOURCE: &str = stringify!($($item)*);
+    };
+}
+
+spelling_hash_fn! {
+    #[inline]
+    pub(crate) fn spelling_hash(bytes: &[u8]) -> u32 {
+        const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
+        let mut hash = bytes.len() as u64;
+        let mut rest = bytes;
+        while rest.len() >= 8 {
+            let word = u64::from_le_bytes([
+                rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7],
+            ]);
+            hash = (hash.rotate_left(5) ^ word).wrapping_mul(MULTIPLIER);
+            rest = &rest[8..];
+        }
+        if !rest.is_empty() {
+            let mut tail = [0u8; 8];
+            tail[..rest.len()].copy_from_slice(rest);
+            hash = (hash.rotate_left(5) ^ u64::from_le_bytes(tail)).wrapping_mul(MULTIPLIER);
+        }
+        (hash >> 32) as u32
+    }
+}
+
 fn write_symbols(symbols: &[String], root: &Path) {
     let mut blob = Vec::new();
     let mut ranges = Vec::new();
@@ -58,6 +87,9 @@ fn write_symbols(symbols: &[String], root: &Path) {
         }
     }
     output.push_str("\");\n\n");
+    output.push_str(
+        "pub(crate) static PRELOADED_SYMBOL_STR: &str = match std::str::from_utf8(&PRELOADED_SYMBOL_TEXT.0) {\n    Ok(text) => text,\n    Err(_) => panic!(\"preloaded symbol text is not UTF-8\"),\n};\n\n",
+    );
     output.push_str(&format!(
         "pub(crate) const PRELOADED_SYMBOL_RANGES: [(u32, u16); {}] = [\n",
         ranges.len()
@@ -65,7 +97,52 @@ fn write_symbols(symbols: &[String], root: &Path) {
     for (symbol, (start, len)) in symbols.iter().zip(ranges) {
         output.push_str(&format!("    ({start}, {len}), // {symbol}\n"));
     }
-    output.push_str("];\n");
+    output.push_str("];\n\n");
+
+    let index_type = if symbols.len() < usize::from(u16::MAX) { "u16" } else { "u32" };
+    let empty = if index_type == "u16" { u32::from(u16::MAX) } else { u32::MAX };
+    output.push_str(&format!("pub(crate) type PreloadedIndex = {index_type};\n"));
+    output.push_str(&format!(
+        "pub(crate) const PRELOADED_TABLE_EMPTY: PreloadedIndex = {empty};\n\n"
+    ));
+
+    let mut order: Vec<usize> = (0..symbols.len()).collect();
+    order.sort_by(|left, right| symbols[*left].as_bytes().cmp(symbols[*right].as_bytes()));
+    let mut ranks = vec![0u32; symbols.len()];
+    for (rank, index) in order.iter().enumerate() {
+        ranks[*index] = u32::try_from(rank).expect("rank fits u32");
+    }
+    assert!(
+        order.windows(2).all(|pair| symbols[pair[0]] != symbols[pair[1]]),
+        "preloaded symbols must be distinct"
+    );
+    output.push_str(&format!(
+        "pub(crate) static PRELOADED_SYMBOL_RANK: [PreloadedIndex; {}] = [",
+        symbols.len()
+    ));
+    for rank in &ranks {
+        output.push_str(&format!("{rank},"));
+    }
+    output.push_str("];\n\n");
+
+    let slots = (symbols.len() * 2).next_power_of_two().max(2);
+    let mut table = vec![empty; slots];
+    for (index, symbol) in symbols.iter().enumerate() {
+        let mut slot = spelling_hash(symbol.as_bytes()) as usize & (slots - 1);
+        while table[slot] != empty {
+            slot = (slot + 1) & (slots - 1);
+        }
+        table[slot] = u32::try_from(index).expect("symbol index fits u32");
+    }
+    output.push_str(&format!(
+        "pub(crate) static PRELOADED_SYMBOL_TABLE: [PreloadedIndex; {slots}] = ["
+    ));
+    for entry in &table {
+        output.push_str(&format!("{entry},"));
+    }
+    output.push_str("];\n\n");
+    output.push_str(SPELLING_HASH_SOURCE);
+    output.push('\n');
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR set"));
     let path = out_dir.join("preloaded_symbols.rs");

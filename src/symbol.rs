@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::str;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{OnceLock, RwLock};
 
@@ -391,16 +390,12 @@ impl Name {
     /// Preloaded spellings are fixed for the process, so reading one never
     /// takes the interner lock that concurrent frontends share.
     fn preloaded_text(self) -> Option<&'static str> {
-        symbol_is_preloaded(self.0).then(|| resolve_preloaded(self.0).unwrap_or(INVALID_SYMBOL))
+        preloaded_text(self.0)
     }
 
     fn spelled(self, text: &str) -> bool {
         if let Some(own) = self.preloaded_text() {
             return own == text;
-        }
-        // Interning is canonical: a dynamic symbol never spells a preloaded name.
-        if preloaded_symbol(text).is_some() {
-            return false;
         }
         with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0) == text)
     }
@@ -479,18 +474,14 @@ impl Ord for Name {
         if self == other {
             return Ordering::Equal;
         }
-        match (preloaded_bytes(self.0), preloaded_bytes(other.0)) {
-            (Some(own), Some(theirs)) => own.cmp(theirs),
-            (Some(own), None) => {
-                with_dynamic_spellings(&[other.0], |spellings| own.cmp(spellings.text(other.0).as_bytes()))
-            }
-            (None, Some(theirs)) => {
-                with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0).as_bytes().cmp(theirs))
-            }
-            _ => with_dynamic_spellings(&[self.0, other.0], |spellings| {
-                spellings.text(self.0).cmp(spellings.text(other.0))
-            }),
+        let ranks = (
+            PRELOADED_SYMBOL_RANK.get(self.0.raw() as usize),
+            PRELOADED_SYMBOL_RANK.get(other.0.raw() as usize),
+        );
+        if let (Some(own), Some(theirs)) = ranks {
+            return own.cmp(theirs);
         }
+        compare_with_dynamic(self.0, other.0)
     }
 }
 
@@ -586,7 +577,7 @@ impl Interner {
         };
         for index in 0..PRELOADED_SYMBOL_COUNT {
             let symbol = Symbol::from_raw(index);
-            let name = resolve_preloaded(symbol).expect("preloaded symbol exists");
+            let name = preloaded_text(symbol).expect("preloaded symbol exists");
             interner.by_text.insert(NameText::Preloaded(name), symbol);
         }
         interner.preloaded_by_text_capacity = interner.by_text.capacity();
@@ -724,14 +715,46 @@ impl DynamicSpellings {
         self.shared(symbol).map_or(INVALID_SYMBOL, |text| text)
     }
 
+    fn bytes(&self, symbol: Symbol) -> &[u8] {
+        match preloaded_bytes(symbol) {
+            Some(bytes) => bytes,
+            None => self.text(symbol).as_bytes(),
+        }
+    }
+
+    /// The order of two spellings when this copy already holds both and
+    /// predates no release; `None` when a load is needed first.
+    #[inline]
+    fn order_if_covered(&self, left: Symbol, right: Symbol) -> Option<Ordering> {
+        if self.released_slots != RELEASED_DYNAMIC_SLOTS.load(AtomicOrdering::Acquire) {
+            return None;
+        }
+        let left = match preloaded_bytes(left) {
+            Some(bytes) => bytes,
+            None => self.shared(left)?.as_bytes(),
+        };
+        let right = match preloaded_bytes(right) {
+            Some(bytes) => bytes,
+            None => self.shared(right)?.as_bytes(),
+        };
+        Some(compare_spellings(left, right))
+    }
+
+    /// Whether every symbol of `symbols` reads from this copy without a load:
+    /// the copy predates no release and holds each dynamic spelling.
+    fn covers(&self, symbols: &[Symbol]) -> bool {
+        self.released_slots == RELEASED_DYNAMIC_SLOTS.load(AtomicOrdering::Acquire)
+            && symbols
+                .iter()
+                .all(|symbol| symbol_is_preloaded(*symbol) || self.shared(*symbol).is_some())
+    }
+
     /// Drop every copy made before the most recent slot release, then copy
     /// the spellings of `symbols` that are missing. A symbol whose slot is
     /// empty is never recorded, because a later symbol may fill that slot
     /// without any release.
     fn load(&mut self, symbols: &[Symbol]) {
-        if self.released_slots == RELEASED_DYNAMIC_SLOTS.load(AtomicOrdering::Acquire)
-            && symbols.iter().all(|symbol| self.shared(*symbol).is_some())
-        {
+        if self.covers(symbols) {
             return;
         }
         // A release needs the write lock, so the count cannot change while
@@ -768,38 +791,82 @@ thread_local! {
     };
 }
 
-/// Read the spellings of dynamic `symbols`. `read` must not resolve a name.
+/// Byte-lexicographic order, equal to `<[u8]>::cmp`, without a call into
+/// `memcmp` for the short spellings that dominate.
+#[inline]
+fn compare_spellings(left: &[u8], right: &[u8]) -> Ordering {
+    let shared = left.len().min(right.len());
+    let (left_head, right_head) = (&left[..shared], &right[..shared]);
+    let mut at = 0;
+    while at + 8 <= shared {
+        let own = u64::from_be_bytes(left_head[at..at + 8].try_into().expect("eight bytes"));
+        let theirs = u64::from_be_bytes(right_head[at..at + 8].try_into().expect("eight bytes"));
+        if own != theirs {
+            return own.cmp(&theirs);
+        }
+        at += 8;
+    }
+    while at < shared {
+        if left_head[at] != right_head[at] {
+            return left_head[at].cmp(&right_head[at]);
+        }
+        at += 1;
+    }
+    left.len().cmp(&right.len())
+}
+
+/// The order of two spellings of which at least one is dynamic.
+fn compare_with_dynamic(left: Symbol, right: Symbol) -> Ordering {
+    if let Ok(Some(order)) =
+        DYNAMIC_SPELLINGS.try_with(|cell| cell.borrow().order_if_covered(left, right))
+    {
+        return order;
+    }
+    with_dynamic_spellings(&[left, right], |spellings| {
+        compare_spellings(spellings.bytes(left), spellings.bytes(right))
+    })
+}
+
+/// Read the spellings of `symbols`; preloaded symbols need no copy. `read`
+/// must not resolve a name.
 fn with_dynamic_spellings<R>(symbols: &[Symbol], read: impl FnOnce(&DynamicSpellings) -> R) -> R {
     let mut read = Some(read);
-    let mut read_loaded = |spellings: &mut DynamicSpellings| {
-        spellings.load(symbols);
+    let mut read_loaded = |cell: &RefCell<DynamicSpellings>| {
         let read = read.take().expect("spellings are read once");
-        read(spellings)
+        {
+            let spellings = cell.borrow();
+            if spellings.covers(symbols) {
+                return read(&spellings);
+            }
+        }
+        let mut spellings = cell.borrow_mut();
+        spellings.load(symbols);
+        read(&spellings)
     };
-    match DYNAMIC_SPELLINGS.try_with(|spellings| read_loaded(&mut spellings.borrow_mut())) {
+    match DYNAMIC_SPELLINGS.try_with(|cell| read_loaded(cell)) {
         Ok(value) => value,
         // A thread that is exiting has already dropped its copies.
-        Err(_) => read_loaded(&mut DynamicSpellings {
+        Err(_) => read_loaded(&RefCell::new(DynamicSpellings {
             released_slots: 0,
             by_slot: Vec::new(),
-        }),
+        })),
     }
 }
 
 fn preloaded_symbol(text: &str) -> Option<Symbol> {
-    static BY_TEXT: OnceLock<FxHashMap<&'static str, Symbol>> = OnceLock::new();
-    BY_TEXT
-        .get_or_init(|| {
-            (0..PRELOADED_SYMBOL_COUNT)
-                .map(Symbol::from_raw)
-                .map(|symbol| {
-                    let text = resolve_preloaded(symbol).expect("preloaded symbol exists");
-                    (text, symbol)
-                })
-                .collect()
-        })
-        .get(text)
-        .copied()
+    const MASK: usize = PRELOADED_SYMBOL_TABLE.len() - 1;
+    let mut slot = spelling_hash(text.as_bytes()) as usize & MASK;
+    loop {
+        let entry = PRELOADED_SYMBOL_TABLE[slot];
+        if entry == PRELOADED_TABLE_EMPTY {
+            return None;
+        }
+        let symbol = Symbol::from_raw(u32::from(entry));
+        if preloaded_text(symbol) == Some(text) {
+            return Some(symbol);
+        }
+        slot = (slot + 1) & MASK;
+    }
 }
 
 /// Makes room for `additional` more dynamic names so none of them can resize the
@@ -835,23 +902,21 @@ pub fn dynamic_symbol_stats() -> (usize, usize) {
     (count, bytes)
 }
 
+fn preloaded_text(symbol: Symbol) -> Option<&'static str> {
+    let (start, len) = *PRELOADED_SYMBOL_RANGES.get(symbol.raw() as usize)?;
+    let start = start as usize;
+    PRELOADED_SYMBOL_STR.get(start..start + len as usize)
+}
+
 fn preloaded_bytes(symbol: Symbol) -> Option<&'static [u8]> {
     let (start, len) = *PRELOADED_SYMBOL_RANGES.get(symbol.raw() as usize)?;
     let start = start as usize;
-    let end = start.checked_add(len as usize)?;
-    let bytes = PRELOADED_SYMBOL_TEXT.0.get(start..end)?;
-    Some(bytes)
-}
-
-fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
-    let bytes = preloaded_bytes(symbol)?;
-    debug_assert!(bytes.is_ascii());
-    str::from_utf8(bytes).ok()
+    PRELOADED_SYMBOL_STR.as_bytes().get(start..start + len as usize)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Interner, Name, Symbol, SymbolOwner, PRELOADED_SYMBOL_COUNT, interner};
+    use super::{Interner, Name, Symbol, SymbolOwner, PRELOADED_SYMBOL_COUNT, interner, preloaded_symbol, compare_spellings};
     use crate::modules::api_spec;
     use crate::sema::records::record_schemas;
     use crate::sema::types::Type;
@@ -864,14 +929,70 @@ mod tests {
         let mut names: Vec<_> = (0..PRELOADED_SYMBOL_COUNT)
             .map(|raw| Name::from_symbol(Symbol::from_raw(raw)))
             .collect();
-        names.extend(["", "A dynamic", "Int_", "zz_dynamic", "é_dynamic", "🦀_dynamic"]
-            .into_iter().map(|text| owner.intern(text)));
+        names.extend(
+            [
+                "", "A dynamic", "Int_", "In", "Intx", "Z", "z", "zz_dynamic", "pre", "prefix",
+                "prefix_longer", "préfix", "préfixe", "é_dynamic", "日本", "日本語", "🦀_dynamic",
+                "\u{10ffff}",
+            ]
+            .into_iter()
+            .map(|text| owner.intern(text)),
+        );
+        owner.with_current(|| {
+            for name in &names {
+                assert_eq!(Name::intern(name.as_str().as_str()), *name);
+            }
+        });
         let spellings: Vec<_> = names.iter().map(|name| name.as_str()).collect();
         for (i, left) in names.iter().enumerate() {
             for (j, right) in names.iter().enumerate() {
                 assert_eq!(left.cmp(right), spellings[i].cmp(&spellings[j]), "{left} vs {right}");
             }
         }
+    }
+
+    #[test]
+    fn spelling_comparison_equals_slice_order() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (state >> 33) as usize
+        };
+        let alphabet = [0u8, 1, b'a', b'b', 0x7f, 0xc3, 0xff];
+        let mut samples: Vec<Vec<u8>> = vec![Vec::new()];
+        for _ in 0..400 {
+            let len = next() % 21;
+            let mut bytes: Vec<u8> = (0..len).map(|_| alphabet[next() % alphabet.len()]).collect();
+            samples.push(bytes.clone());
+            bytes.truncate(next() % (len + 1));
+            samples.push(bytes);
+        }
+        for left in &samples {
+            for right in &samples {
+                assert_eq!(compare_spellings(left, right), left.cmp(right), "{left:?} vs {right:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn preloaded_lookup_finds_exactly_the_preloaded_spellings() {
+        for raw in 0..PRELOADED_SYMBOL_COUNT {
+            let symbol = Symbol::from_raw(raw);
+            let text = Name::from_symbol(symbol).as_str();
+            assert_eq!(preloaded_symbol(text.as_str()), Some(symbol), "{text}");
+        }
+        for raw in (0..PRELOADED_SYMBOL_COUNT).step_by(7) {
+            let text = Name::from_symbol(Symbol::from_raw(raw)).as_str();
+            for probe in [format!("{text}_"), format!("_{text}"), text.chars().skip(1).collect()] {
+                assert_eq!(
+                    preloaded_symbol(&probe).is_some(),
+                    interner().read().unwrap().get(&probe).is_some_and(|symbol| symbol.raw() < PRELOADED_SYMBOL_COUNT),
+                    "{probe}"
+                );
+            }
+        }
+        assert_eq!(preloaded_symbol(""), None);
+        assert_eq!(preloaded_symbol("not_a_preloaded_symbol_spelling"), None);
     }
 
     #[test]
