@@ -996,8 +996,10 @@ impl Checker {
         for scope in &mut self.scopes {
             for (_, binding) in scope { binding.stream_origins.without_transfers(); }
         }
-        for bindings in self.block_exit_bindings.values_mut() {
-            for binding in bindings.values_mut() { binding.stream_origins.without_transfers(); }
+        for scopes in self.block_exit_bindings.values_mut() {
+            for scope in scopes {
+                for binding in scope.values_mut() { binding.stream_origins.without_transfers(); }
+            }
         }
     }
 

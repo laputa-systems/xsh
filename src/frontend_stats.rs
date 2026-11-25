@@ -2141,7 +2141,7 @@ mod tests {
         });
         assert_eq!(probe_work.diagnostic_work, 1);
 
-        let failed = measure_source("probe-diagnostic.xsh", "let value: Int = \"wrong\"\npure shifted(offset = 1) -> Int { offset }\n");
+        let failed = measure_source("probe-diagnostic.xsh", "let value: Int = \"wrong\"\npure shifted(offset = missing) -> Int { 0 }\n");
         assert!(failed.diagnostics > 0);
         assert!(failed.inference_work.diagnostic_work > failed.diagnostics as u64);
 

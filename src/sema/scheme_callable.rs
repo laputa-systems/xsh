@@ -256,9 +256,21 @@ impl SchemeCallableRebaser {
             return Ok(Arc::clone(mapped));
         }
         let mut failure = None;
-        let mapped = scheme.map_ground_types(|ty| match self.ty_at_depth(ty, source, depth + 1) {
-            Ok(mapped) => *ty = mapped,
-            Err(error) => failure = Some(error),
+        let mapped = scheme.map_ground_types(|ty| {
+            use super::types::Type;
+            if depth < super::constraints::MAX_TYPE_DEPTH && matches!(ty,
+                Type::BuiltinParameter(_) | Type::Inference(_) | Type::Any | Type::Unknown | Type::Invalid
+                | Type::Null | Type::Bool | Type::Int | Type::UInt | Type::Float | Type::Duration
+                | Type::Str | Type::Bytes | Type::Digest | Type::Regex | Type::Path | Type::ErasedRecord
+                | Type::DynamicModule | Type::Status | Type::EnvPathList | Type::Error | Type::ErrorFamily(_)
+                | Type::ErrorVariant { .. } | Type::ErrorFacet(_) | Type::ProcessError | Type::Function(_)
+                | Type::Command | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock
+                | Type::SshSession | Type::Unit | Type::Tag(_))
+            { return; }
+            match self.ty_at_depth(ty, source, depth + 1) {
+                Ok(mapped) => *ty = mapped,
+                Err(error) => failure = Some(error),
+            }
         });
         if let Some(error) = failure { return Err(error); }
         let mapped = Arc::new(mapped);

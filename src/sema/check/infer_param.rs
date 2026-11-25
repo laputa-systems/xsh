@@ -9,20 +9,35 @@ impl Checker {
         source: &str,
         statements: &[StmtId],
     ) {
-        let infers_defaults = statements.iter().any(|&id| {
+        let mut unresolved_defaults = 0;
+        let mut annotations_ready = true;
+        let mut definitions = Vec::new();
+        for &id in statements {
             let kind = match program.arena.stmt_kind(id) {
                 ArenaStmtKind::Export(inner) => program.arena.stmt_kind(inner),
                 kind => kind,
             };
             let (ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)) = kind else {
-                return false;
+                continue;
             };
-            program.arena.params(program.arena.function_def(id).params).iter().any(|param| {
-                param.annotation.is_none()
-                    && param.default.is_some()
-                    && !self.parameter_types.contains_key(&program.arena.span(param.span))
-            })
-        });
+            let def = program.arena.function_def(id);
+            definitions.push(def);
+            for param in program.arena.params(def.params) {
+                let span = program.arena.span(param.span);
+                if param.annotation.is_some() {
+                    annotations_ready = annotations_ready && self.parameter_types.get(&span).is_some_and(parameter_type_is_concrete);
+                } else if param.default.is_some() && !self.parameter_types.contains_key(&span) {
+                    unresolved_defaults += 1;
+                }
+            }
+        }
+        let infers_defaults = unresolved_defaults != 0;
+        if !infers_defaults && annotations_ready {
+            for def in definitions {
+                self.publish_parameter_types(program, def);
+            }
+            return;
+        }
         let count = statements.len();
         for _ in 0..=count {
             let before = self.parameter_types.len();
@@ -64,6 +79,7 @@ impl Checker {
                                 if parameter_type_is_concrete(&actual) {
                                     entry.insert(actual.clone());
                                     probe.parameter_types.insert(span, actual);
+                                    unresolved_defaults -= 1;
                                 }
                             }
                         }
@@ -81,7 +97,7 @@ impl Checker {
                     _ => {}
                 }
             }
-            if before == self.parameter_types.len() {
+            if unresolved_defaults == 0 || before == self.parameter_types.len() {
                 break;
             }
         }

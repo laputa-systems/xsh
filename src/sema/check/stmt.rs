@@ -4081,12 +4081,6 @@ impl Checker {
     ) {
         let initial_scopes = self.scopes.clone();
         let branch_list = arena.arena.if_branches(branches);
-        let original = self
-            .scopes
-            .iter()
-            .flat_map(|scope| scope.iter())
-            .map(|(name, binding)| (*name, binding.clone()))
-            .collect::<FxHashMap<_, _>>();
         let mut reaching = Vec::new();
         let mut reaching_guards = Vec::new();
         let mut previous_failure = Vec::new();
@@ -4130,26 +4124,49 @@ impl Checker {
                 reaching_guards.push(fallthrough_guard);
             }
         } else {
-            reaching.push(
-                self.scopes
-                    .iter()
-                    .flat_map(|scope| scope.iter())
-                    .map(|(name, binding)| (*name, binding.clone()))
-                    .collect(),
-            );
+            reaching.push(self.scopes.clone());
             reaching_guards.push(fallthrough_guard);
         }
         self.pop_scope();
-        self.scopes = initial_scopes;
+        self.scopes = initial_scopes.clone();
         let continuation_guard = match reaching_guards.as_slice() { [only] => *only, _ => None };
+        if reaching.is_empty() {
+            return;
+        }
+        let unchanged = reaching.iter().all(|scopes| {
+            scopes.len() >= initial_scopes.len()
+                && scopes.iter().zip(&initial_scopes).all(|(scope, initial)| Arc::ptr_eq(&scope.bindings, &initial.bindings))
+                && scopes[initial_scopes.len()..].iter().all(|scope| {
+                    scope.keys().all(|name| initial_scopes.iter().all(|initial| !initial.contains_key(name)))
+                })
+        }) && initial_scopes.iter().all(|scope| scope.values().all(|binding| {
+            binding.guarded_field_views.is_empty()
+                && binding.stream_origins == super::stream_origins::StreamOrigins::default()
+        }));
+        if unchanged {
+            if let Some(guard) = continuation_guard
+                && self.scopes.last().and_then(|scope| scope.guard) != Some(guard)
+            {
+                self.scopes.last_mut().expect("an if statement has an enclosing scope").guard = Some(guard);
+            }
+            return;
+        }
+        let mut original = initial_scopes
+            .iter()
+            .flat_map(|scope| scope.iter())
+            .map(|(name, binding)| (*name, binding))
+            .collect::<FxHashMap<_, _>>();
         for (name, initial) in &original {
             for bindings in &reaching {
                 if let Some(binding) = bindings
-                    .get(name)
+                    .iter().rev().find_map(|scope| scope.get(name))
                     .filter(|binding| binding.proof.same_binding(&initial.proof))
                 {
                     for path in binding.proof.mutation_paths_since(&initial.proof) {
                         for scope in &mut self.scopes {
+                            if !scope.values().any(|binding| binding.proof.same_binding(&initial.proof) && binding.mutable) {
+                                continue;
+                            }
                             for binding in scope.values_mut().filter(|binding| {
                                 binding.proof.same_binding(&initial.proof) && binding.mutable
                             }) {
@@ -4170,12 +4187,19 @@ impl Checker {
                 }
             }
         }
-        if reaching.is_empty() {
-            return;
-        }
+        original.retain(|name, initial| {
+            initial.latent_stream_error
+                || !initial.guarded_field_views.is_empty()
+                || initial.stream_origins != super::stream_origins::StreamOrigins::default()
+                || !self.lookup(*name).is_some_and(|current| std::ptr::eq(current, *initial))
+                || !reaching.iter().all(|scopes| {
+                    scopes.iter().rev().find_map(|scope| scope.get(name))
+                        .is_some_and(|reached| std::ptr::eq(reached, *initial))
+                })
+        });
         if let [bindings] = reaching.as_slice() {
             for (name, initial) in &original {
-                if let Some(reached) = bindings.get(name).filter(|binding| binding.proof.same_binding(&initial.proof))
+                if let Some(reached) = bindings.iter().rev().find_map(|scope| scope.get(name)).filter(|binding| binding.proof.same_binding(&initial.proof))
                     && !reached.guarded_field_views.is_empty()
                     && let Some(mut binding) = self.lookup(*name).cloned()
                     && binding.proof.same_binding(&initial.proof)
@@ -4188,29 +4212,28 @@ impl Checker {
         for (name, initial) in &original {
             let mut origins = super::stream_origins::StreamOrigins::default();
             for bindings in &reaching {
-                let origin = bindings.get(name).filter(|binding| binding.proof.same_binding(&initial.proof)).unwrap_or(initial);
+                let origin = bindings.iter().rev().find_map(|scope| scope.get(name)).filter(|binding| binding.proof.same_binding(&initial.proof)).unwrap_or(initial);
                 origins.join(&origin.stream_origins);
             }
             origins.compact_transfers(self.stream_origin_inputs.transfers());
             if let Some(scope) = self.binding_scope(*name, initial)
+                && self.scopes[scope].get(name).is_some_and(|binding| binding.stream_origins != origins)
                 && let Some(binding) = self.scopes[scope].get_mut(name)
             { binding.stream_origins = origins; }
             let may_error = reaching.iter().any(|bindings| {
                 bindings
-                    .get(name)
+                    .iter().rev().find_map(|scope| scope.get(name))
                     .filter(|binding| binding.proof.same_binding(&initial.proof))
                     .map_or(initial.latent_stream_error, |binding| {
                         binding.latent_stream_error
                     })
             });
             if may_error {
-                for scope in self.scopes.iter_mut().rev() {
-                    if let Some(binding) = scope.get_mut(name) {
-                        if binding.proof.same_binding(&initial.proof) {
-                            binding.latent_stream_error = true;
-                        }
-                        break;
-                    }
+                if let Some(scope) = self.scopes.iter().rposition(|scope| scope.contains_key(name))
+                    && self.scopes[scope].get(name).is_some_and(|binding| binding.proof.same_binding(&initial.proof) && !binding.latent_stream_error)
+                    && let Some(binding) = self.scopes[scope].get_mut(name)
+                {
+                    binding.latent_stream_error = true;
                 }
             }
         }
@@ -4226,7 +4249,7 @@ impl Checker {
                 .iter()
                 .map(|bindings| {
                     bindings
-                        .get(&name)
+                        .iter().rev().find_map(|scope| scope.get(&name))
                         .filter(|binding| binding.proof.same_binding(&initial.proof))
                         .map(|binding| binding.ty.clone())
                         .unwrap_or_else(|| {
@@ -6516,13 +6539,7 @@ impl Checker {
         }
         self.inference_reachable = previous_reachable;
         if capture_exit {
-            let bindings = self
-                .scopes
-                .iter()
-                .flat_map(|scope| scope.iter())
-                .map(|(name, binding)| (*name, binding.clone()))
-                .collect();
-            self.block_exit_bindings.insert(block_id, bindings);
+            self.block_exit_bindings.insert(block_id, self.scopes.clone());
         }
         if self.block_definitely_exits_arena(arena, block_id) {
             self.definitely_exiting_block_spans

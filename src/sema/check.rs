@@ -1680,6 +1680,8 @@ impl ItemFrame {
 #[derive(Clone, Debug)]
 pub(super) struct UserModuleSig {
     namespace: Name,
+    module_type: Arc<std::sync::OnceLock<(Type, bool)>>,
+    identity_schemes: Arc<std::sync::OnceLock<FxHashMap<usize, Arc<super::schemes::TypeScheme>>>>,
     scheme_callables: Option<Arc<super::scheme_callable::SchemeCallableTable>>,
     values: BTreeMap<Name, Type>,
     procs: FxHashMap<Name, FunctionSig>,
@@ -1695,6 +1697,8 @@ impl UserModuleSig {
     fn new(namespace: Name) -> Self {
         Self {
             namespace,
+            module_type: Arc::new(std::sync::OnceLock::new()),
+            identity_schemes: Arc::new(std::sync::OnceLock::new()),
             scheme_callables: None,
             values: BTreeMap::new(),
             procs: FxHashMap::default(),
@@ -1852,7 +1856,7 @@ pub struct Checker {
     prepared_constants: super::constants::PreparedConstants,
     wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     condition_proofs: FxHashMap<crate::syntax::arena::ExprId, Arc<proof::ConditionNarrowings>>,
-    block_exit_bindings: FxHashMap<crate::syntax::arena::BlockId, FxHashMap<Name, Binding>>,
+    block_exit_bindings: FxHashMap<crate::syntax::arena::BlockId, Vec<CheckerScope>>,
     proven_nonnull_fallback_receivers: BTreeSet<Span>,
     /// How a `check.dynamic-boundary` fix appends `.require(T)?` to each
     /// checked `Any` expression.

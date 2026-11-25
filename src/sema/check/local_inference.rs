@@ -2623,10 +2623,13 @@ mod tests {
             for block in 0..256 {
                 checker.block_exit_bindings.insert(
                     BlockId::from_index(block),
-                    rustc_hash::FxHashMap::from_iter([(
-                        name,
-                        super::super::Binding::new(Type::Int, false),
-                    )]),
+                    vec![super::super::CheckerScope {
+                        bindings: std::sync::Arc::new(rustc_hash::FxHashMap::from_iter([(
+                            name,
+                            super::super::Binding::new(Type::Int, false),
+                        )])),
+                        ..Default::default()
+                    }],
                 );
             }
             checker.expr_types.insert(span, Type::Int);
@@ -2634,7 +2637,7 @@ mod tests {
             let copied_bindings = probe
                 .block_exit_bindings
                 .values()
-                .map(|scope| scope.len())
+                .map(|scopes| scopes.iter().map(|scope| scope.len()).sum::<usize>())
                 .sum::<usize>();
             assert_eq!(
                 copied_bindings, 0,
