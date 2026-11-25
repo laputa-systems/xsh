@@ -75,6 +75,9 @@ impl Checker {
             _ => None,
         };
         let expected = expected.as_ref().map(Type::unvalidated);
+        if depth == 0 && !source.contains_scheme_callable() && expected.is_none_or(|expected| !expected.contains_inference()) {
+            return Ok(keep());
+        }
         if let Type::SchemeCallable(relationship) = &source {
             if expected.is_some_and(|expected| !matches!(expected, Type::Inference(_) | Type::Callable(_) | Type::Optional(_))) {
                 return Ok(keep());
