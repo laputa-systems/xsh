@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 usage() {
   cat >&2 <<'EOF'
@@ -17,7 +17,8 @@ Run dev/verify/aeneas/extract.sh and dev/verify/aeneas/check.sh first, with
 Lean 4.35.0 on PATH.
 EOF
 }
-[[ $# -eq 0 ]] || { usage; exit 2; }
+usage_status=2
+[ "$#" -eq 0 ] || { usage; exit "$usage_status"; }
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 here=$repo/dev/verify/aeneas
@@ -26,15 +27,17 @@ mutant=$work/mutant
 image=xsh-aeneas-extract:nightly-2026-09-17
 
 mutate() {
-  local file=$1 original=$2 replacement=$3
-  [[ $(rg -cF "$original" "$file") == 1 ]]
-  python3 -I -c 'import sys, pathlib
-path = pathlib.Path(sys.argv[1])
-path.write_text(path.read_text().replace(sys.argv[2], sys.argv[3]))' "$file" "$original" "$replacement"
-  [[ $(rg -cF "$replacement" "$file") == 1 ]]
+  mutate_file=$1
+  mutate_original=$2
+  mutate_replacement=$3
+  match_count=$(rg -cF "$mutate_original" "$mutate_file")
+  [ "$match_count" = 1 ]
+  python3 -I "$here/mutate.py" "$mutate_file" "$mutate_original" "$mutate_replacement"
+  match_count=$(rg -cF "$mutate_replacement" "$mutate_file")
+  [ "$match_count" = 1 ]
 }
 
-[[ -x $work/release/aeneas ]] || { printf 'run extract.sh first\n' >&2; exit 2; }
+[ -x "$work/release/aeneas" ] || { printf 'run extract.sh first\n' >&2; exit "$usage_status"; }
 rm -rf "$mutant"
 mkdir -p "$mutant/root/src/syntax" "$mutant/root/dev/verify/aeneas" "$mutant/out/lean"
 cp "$repo/src/arith.rs" "$repo/src/duration.rs" "$mutant/root/src/"
@@ -47,7 +50,9 @@ mutate "$mutant/root/src/duration.rs" \
   'DurationResult::Millis(a.checked_sub(b).ok_or(E::Underflow)?)' \
   'DurationResult::Millis(a.saturating_sub(b))'
 
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_TARGET_DIR="$mutant/target" \
+uid=$(id -u)
+gid=$(id -g)
+docker run --rm -u "$uid:$gid" -e HOME=/tmp -e CARGO_TARGET_DIR="$mutant/target" \
   -v "$work:$work" -w "$mutant/root/dev/verify/aeneas/slice" "$image" \
   "$work/release/charon" cargo --preset=aeneas --sysroot default \
   --start-from 'crate::arith' --start-from 'crate::duration' \
@@ -58,7 +63,20 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_TARGET_DIR="$mutant
   -no-progress-bar "$mutant/out/xsh_arith_slice.llbc" >"$mutant/out/aeneas.log"
 generated=$mutant/out/lean/XshArithSlice.lean
 for kind in PosOverflow NegOverflow; do
-  sed -i "s/core\.result\.Result\.Err core\.num\.error\.IntErrorKind\.$kind)/core.result.Result.Err ())/" "$generated"
+  temporary=$(mktemp "$generated.XXXXXX")
+  if cp -p "$generated" "$temporary" && sed "s/core\.result\.Result\.Err core\.num\.error\.IntErrorKind\.$kind)/core.result.Result.Err ())/" "$generated" >"$temporary"; then
+    if mv "$temporary" "$generated"; then
+      :
+    else
+      status=$?
+      rm -f "$temporary"
+      exit "$status"
+    fi
+  else
+    status=$?
+    rm -f "$temporary"
+    exit "$status"
+  fi
 done
 rg -q 'I64.wrapping_add left right' "$generated"
 rg -q 'U64.saturating_sub a b' "$generated"
@@ -103,19 +121,20 @@ sed -e "s|^buildDir = .*|buildDir = \"$mutant/build\"|" \
     -e "s|^path = .*|path = \"$repo/formal\"|" \
     "$here/lean/lakefile.toml" >"$mutant/lean/lakefile.toml"
 
-export TMPDIR=$repo/.work/tmp LAKE_CACHE_DIR=$repo/.work/lake-cache PATH=$work/bin:$PATH
+export TMPDIR="$repo/.work/tmp" LAKE_CACHE_DIR="$repo/.work/lake-cache" PATH="$work/bin:$PATH"
 cd "$mutant/lean"
 for module in XshImpl.Arith XshImpl.Duration; do
   if lake build "$module" >"$mutant/$module.log" 2>&1; then
     printf 'negative control failed: %s accepted its mutant\n' "$module" >&2
     exit 1
   fi
-  rg -n '^error' "$mutant/$module.log" | head -5
+  errors=$(rg -n '^error' "$mutant/$module.log")
+  printf '%s\n' "$errors" | head -5
 done
 lake build XshImpl.ArithSpec XshImpl.DurationSpec
 refutation=$(lake env lean XshImpl/Rejected.lean)
 printf '%s\n' "$refutation"
 expected="'wrapping_addition_mutant_rejected' depends on axioms: [propext, Classical.choice, Quot.sound]
 'saturating_subtraction_mutant_rejected' depends on axioms: [propext, Classical.choice, Quot.sound]"
-[[ $refutation == "$expected" ]]
+[ "$refutation" = "$expected" ]
 printf 'rejected: both extracted mutants violate their refinement properties\n'

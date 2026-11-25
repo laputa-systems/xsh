@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 usage() {
   cat >&2 <<'EOF'
@@ -13,12 +13,13 @@ EOF
 }
 
 mode=install
+usage_status=2
 case ${1-} in
   '') ;;
   --check) mode=check ;;
   *) usage; exit 2 ;;
 esac
-[[ $# -le 1 ]] || { usage; exit 2; }
+[ "$#" -le 1 ] || { usage; exit "$usage_status"; }
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 here=$repo/dev/verify/aeneas
@@ -34,21 +35,25 @@ exclude_path=$(git -C "$repo" rev-parse --git-path info/exclude)
 rg -qxF '.work/' "$exclude_path" || printf '.work/\n' >>"$exclude_path"
 mkdir -p "$work/release" "$work/context"
 
-if [[ ! -x $work/release/aeneas ]]; then
+if [ ! -x "$work/release/aeneas" ]; then
   curl -fsSL -o "$work/$archive" \
     "https://github.com/AeneasVerif/aeneas/releases/download/$release/$archive"
   printf '%s  %s\n' "$archive_sha256" "$work/$archive" | sha256sum -c - >/dev/null
   tar -xzf "$work/$archive" -C "$work/release" aeneas charon charon-driver
 fi
-[[ $("$work/release/aeneas" -version) == "aeneas $release" ]]
+aeneas_version=$("$work/release/aeneas" -version)
+[ "$aeneas_version" = "aeneas $release" ]
 
 docker build -q -t "$image" -f "$here/extract.Dockerfile" "$work/context" >/dev/null
 in_image() {
-  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+  docker run --rm -u "$uid:$gid" -e HOME=/tmp \
     -e CARGO_TARGET_DIR="$work/target" -v "$repo:$repo" \
     -w "$here/slice" "$image" "$@"
 }
-[[ $(in_image "$work/release/charon" version) == "$charon_version" ]]
+uid=$(id -u)
+gid=$(id -g)
+charon_version_output=$(in_image "$work/release/charon" version)
+[ "$charon_version_output" = "$charon_version" ]
 
 rm -rf "$work/out"
 mkdir -p "$work/out/lean"
@@ -63,15 +68,29 @@ in_image "$work/release/charon" cargo --preset=aeneas --sysroot default \
 generated=$work/out/lean/XshArithSlice.lean
 for kind in PosOverflow NegOverflow; do
   pattern="core.result.Result.Err core.num.error.IntErrorKind.$kind)"
-  [[ $(rg -cF "$pattern" "$generated") == 1 ]]
-  sed -i "s/core\.result\.Result\.Err core\.num\.error\.IntErrorKind\.$kind)/core.result.Result.Err ())/" "$generated"
+  pattern_count=$(rg -cF "$pattern" "$generated")
+  [ "$pattern_count" = 1 ]
+  temporary=$(mktemp "$generated.XXXXXX")
+  if cp -p "$generated" "$temporary" && sed "s/core\.result\.Result\.Err core\.num\.error\.IntErrorKind\.$kind)/core.result.Result.Err ())/" "$generated" >"$temporary"; then
+    if mv "$temporary" "$generated"; then
+      :
+    else
+      status=$?
+      rm -f "$temporary"
+      exit "$status"
+    fi
+  else
+    status=$?
+    rm -f "$temporary"
+    exit "$status"
+  fi
 done
 if rg -n '^(axiom|opaque) |sorry|noncomputable' "$generated"; then
   printf 'the translation leaves an axiom, opaque item or noncomputable section\n' >&2
   exit 1
 fi
 
-if [[ $mode == check ]]; then
+if [ "$mode" = check ]; then
   diff -u "$installed" "$generated"
 else
   cp "$generated" "$installed"
