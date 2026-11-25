@@ -833,39 +833,73 @@ pub(super) fn lower_compact_function_units_into(
 }
 
 fn clear_function_scratch(scratch: &mut BuildScratch) {
-    scratch.prepared_schemas.clear();
-    scratch.prepared_constants.clear();
-    scratch.expressions.clear();
-    scratch.expression_spans.clear();
-    scratch.checked_expr_types.clear();
-    scratch.checked_call_targets.clear();
-    scratch.call_instantiations.clear();
-    scratch.scheme_callable_calls.clear();
-    scratch.scheme_application_calls.clear();
-    scratch.scheme_application_returns.clear();
-    scratch.scheme_completion_sources.clear();
-    scratch.scheme_noncompleting.clear();
-    scratch.scheme_constructors.clear();
-    scratch.scheme_operations.clear();
-    scratch.scheme_methods.clear();
-    scratch.scheme_wrappers.clear();
-    scratch.checked_call_result_types.clear();
-    scratch.registered_calls.clear();
-    scratch.non_int_binary_expressions.clear();
-    scratch.int_record_slot_field_reads.clear();
-    scratch.int_list_slot_index_reads.clear();
-    scratch.statements.clear();
-    scratch.statement_spans.clear();
-    scratch.resource_transfers.clear();
-    scratch.patterns.clear();
-    scratch.checked_pattern_variants.clear();
-    scratch.ints.clear();
-    scratch.bools.clear();
-    scratch.bool_spans.clear();
-    scratch.top_statements.clear();
-    scratch.scheme_guards.expressions.clear();
-    scratch.scheme_guards.statements.clear();
-    scratch.scheme_guards.sites.clear();
+    let BuildScratch {
+        producer_demand: _,
+        prepared_schemas,
+        prepared_constants,
+        expressions,
+        expression_spans,
+        checked_expr_types,
+        checked_call_targets,
+        call_instantiations,
+        scheme_callable_calls,
+        scheme_application_calls,
+        scheme_application_returns,
+        scheme_completion_sources,
+        scheme_noncompleting,
+        scheme_constructors,
+        scheme_operations,
+        scheme_methods,
+        scheme_wrappers,
+        checked_call_result_types,
+        registered_calls,
+        non_int_binary_expressions,
+        int_record_slot_field_reads,
+        int_list_slot_index_reads,
+        statements,
+        statement_spans,
+        resource_transfers,
+        patterns,
+        checked_pattern_variants,
+        ints,
+        bools,
+        bool_spans,
+        top_statements,
+        scheme_guards: super::SchemeGuardBuildFacts { expressions: guard_expressions, statements: guard_statements, sites: guard_sites },
+    } = scratch;
+    prepared_schemas.clear();
+    prepared_constants.clear();
+    expressions.clear();
+    expression_spans.clear();
+    checked_expr_types.clear();
+    checked_call_targets.clear();
+    call_instantiations.clear();
+    scheme_callable_calls.clear();
+    scheme_application_calls.clear();
+    scheme_application_returns.clear();
+    scheme_completion_sources.clear();
+    scheme_noncompleting.clear();
+    scheme_constructors.clear();
+    scheme_operations.clear();
+    scheme_methods.clear();
+    scheme_wrappers.clear();
+    checked_call_result_types.clear();
+    registered_calls.clear();
+    non_int_binary_expressions.clear();
+    int_record_slot_field_reads.clear();
+    int_list_slot_index_reads.clear();
+    statements.clear();
+    statement_spans.clear();
+    resource_transfers.clear();
+    patterns.clear();
+    checked_pattern_variants.clear();
+    ints.clear();
+    bools.clear();
+    bool_spans.clear();
+    top_statements.clear();
+    guard_expressions.clear();
+    guard_statements.clear();
+    guard_sites.clear();
 }
 
 pub(super) fn lower_compact_top_level_program_with_probe(
