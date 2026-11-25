@@ -707,6 +707,37 @@ impl StreamOriginTransferClosure {
         }
     }
 
+    pub(super) fn resolve_checked_origins(&self, closed: &StreamOriginSummaries, checked: [&mut rustc_hash::FxHashMap<Span, StreamOrigins>; 2]) -> bool {
+        let transfers = self.transfers.transfers.lock().expect("stream origin transfers are recorded by one checking pass");
+        let mut reachable = vec![false; transfers.len()];
+        for origin in checked.iter().flat_map(|origins| origins.values()) {
+            for (_, transfer) in origin.1.iter() { reachable[transfer.transfer().0 as usize] = true; }
+        }
+        for id in (0..transfers.len()).rev() {
+            if reachable[id] { Self::visit_dependencies(&transfers[id], |dependency| reachable[dependency.0 as usize] = true); }
+        }
+        let mut values = vec![Err(ClosureUnavailable); transfers.len()];
+        self.evaluate(&transfers, &reachable, &mut values, closed, None);
+        let mut resolved = [Vec::new(), Vec::new()];
+        for (origins, resolved) in checked.iter().zip(&mut resolved) {
+            for (&span, origin) in origins.iter().filter(|(_, origin)| origin.has_transfers()) {
+                let Ok(mut value) = Self::resolve_transfers(origin, &values) else { return false };
+                value.settle_pending(&self.settled);
+                if value.has_application_dependency() { return false; }
+                resolved.push((span, value));
+            }
+        }
+        for (origins, resolved) in checked.into_iter().zip(resolved) {
+            for (span, value) in resolved {
+                let origin = origins.get_mut(&span).expect("resolved checked origins keep their span");
+                origin.0.extend(value.0);
+                origin.1.clear();
+            }
+            for origin in origins.values_mut() { origin.settle_pending(&self.settled); }
+        }
+        true
+    }
+
     fn slots(&self) -> Vec<(TransferSlot<'_>, &StreamOrigins)> {
         let mut slots = Vec::new();
         for (owner, summary) in &self.recorded.declarations {
@@ -2528,7 +2559,7 @@ pure blob_deep(stats: Stats) -> Stats {
         let _symbols = parsed.arena.symbol_owner().enter();
         let (work, checked) = crate::sema::inference_work::collect(|| super::Checker::check_arena(&parsed.arena, source));
         assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
-        assert_eq!(work.function_body_check_entries, 2, "the seeded second round is the fixpoint, so no third body check runs");
+        assert_eq!(work.function_body_check_entries, 1, "the closed first round is the fixpoint, so no second body check runs");
     }
 
     #[test]
