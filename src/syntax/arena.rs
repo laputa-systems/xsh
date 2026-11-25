@@ -1209,9 +1209,9 @@ impl ArenaProgram {
             .find_map(|(entry, span)| (*entry == statement).then_some(*span))
     }
 
-    pub(crate) fn attach_doc_comments(&mut self, source_id: SourceId, source: &str) {
+    pub(crate) fn attach_doc_comments(&mut self, source_id: SourceId, source: &str, tokens: &TokenTable) {
         let statements = self.statement_ids().collect::<Vec<_>>();
-        self.docs = doc_comments_for_statements(&self.arena, source_id, source, &statements);
+        self.docs = doc_comments_for_statements(&self.arena, source_id, source, &statements, tokens);
     }
 
     fn attach_doc_comments_from_spans(&mut self, source: &str) {
@@ -1221,7 +1221,8 @@ impl ArenaProgram {
             .map(|statement| self.arena.stmt(statement).span.source_id)
             .or(self.arena.span_source_id)
             .unwrap_or(SourceId::new(0));
-        self.attach_doc_comments(source_id, source);
+        let tokens = Lexer::new(source_id, source).lex_compact().token_table;
+        self.attach_doc_comments(source_id, source, &tokens);
     }
 }
 
@@ -1230,16 +1231,12 @@ fn doc_comments_for_statements(
     source_id: SourceId,
     source: &str,
     statements: &[StmtId],
+    tokens: &TokenTable,
 ) -> ArenaDocComments {
     let first_statement = statements
         .first()
         .map(|statement| arena.stmt(*statement).span);
-    // Doc comments are source trivia, not text that merely happens to begin
-    // with `##`. In particular, formatter output may contain triple-quoted
-    // strings whose decoded value has Markdown headings on their own lines.
-    // Reuse the lexer so those string contents cannot become documentation.
-    let token_table = Lexer::new(source_id, source).lex_compact().token_table;
-    let blocks = doc_comment_blocks(source, source_id, &token_table);
+    let blocks = doc_comment_blocks(source, source_id, tokens);
     let module = module_doc_comment(source, first_statement, &blocks);
     let exports = statements
         .iter()
@@ -1685,9 +1682,19 @@ impl<'a> ArenaProgramBuilder<'a> {
         if self.internal_source_depth > 0 {
             return;
         }
+        let tokens = Lexer::new(source_id, source).lex_compact().token_table;
+        self.attach_doc_comments_with_tokens(source_id, source, statements, &tokens);
+    }
+
+    pub(crate) fn attach_doc_comments_with_tokens(
+        &mut self, source_id: SourceId, source: &str, statements: ArenaRange, tokens: &TokenTable,
+    ) {
+        if self.internal_source_depth > 0 {
+            return;
+        }
         let statement_ids = self.lowerer.arena.stmt_ids(statements).collect::<Vec<_>>();
         let docs =
-            doc_comments_for_statements(&self.lowerer.arena, source_id, source, &statement_ids);
+            doc_comments_for_statements(&self.lowerer.arena, source_id, source, &statement_ids, tokens);
         if let Some(module) = docs.module {
             self.docs.module_ranges.push((statements, module));
         }
